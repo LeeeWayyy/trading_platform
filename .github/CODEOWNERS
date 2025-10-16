@@ -1,0 +1,18 @@
+# Code Owners
+# These owners will be automatically requested for review when PRs are opened
+
+# Default owner for everything
+* @LeeeWayyy
+
+# Documentation
+/docs/ @LeeeWayyy
+
+# Architecture Decision Records (require careful review)
+/docs/ADRs/ @LeeeWayyy
+
+# Critical infrastructure
+/infra/ @LeeeWayyy
+/db/migrations/ @LeeeWayyy
+
+# API contracts (strict change control)
+/docs/API/*.yaml @LeeeWayyy
