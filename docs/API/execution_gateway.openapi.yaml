@@ -1,0 +1,45 @@
+openapi: 3.0.3
+info:
+  title: Execution Gateway API
+  version: 0.1.0
+paths:
+  /orders:
+    post:
+      summary: Place order (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderIn'
+      responses:
+        '200':
+          description: Order accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderOut'
+  /health:
+    get:
+      summary: Liveness probe
+      responses:
+        '200': { description: OK }
+components:
+  schemas:
+    OrderIn:
+      type: object
+      required: [symbol, side, qty]
+      properties:
+        symbol: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        qty: { type: number }
+        order_type: { type: string, default: market }
+        limit_price: { type: number, nullable: true }
+        time_in_force: { type: string, default: day }
+        strategy_id: { type: string, default: alpha_baseline }
+    OrderOut:
+      type: object
+      properties:
+        status: { type: string }
+        client_order_id: { type: string }
+        broker_order_id: { type: string }
