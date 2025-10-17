@@ -16,6 +16,15 @@ python = "^3.11"
 polars = "^1.0.0"
 pydantic = "^2.5.0"
 pydantic-settings = "^2.1.0"
+# Qlib and ML (T2)
+pyqlib = "^0.9.5"
+mlflow = "^2.10.0"
+lightgbm = "^4.1.0"
+matplotlib = "^3.8.0"
+seaborn = "^0.13.0"
+scikit-learn = "^1.4.0"
+pandas = "^2.2.0"
+numpy = "^1.26.0"
 # Services (for later tickets)
 fastapi = "^0.109.0"
 uvicorn = {extras = ["standard"], version = "^0.27.0"}
@@ -77,12 +86,16 @@ strict_equality = true
 module = "polars.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --cov=libs --cov=apps --cov-report=term-missing --cov-report=html"
+addopts = "-v --cov=libs --cov=apps --cov=strategies --cov-report=term-missing --cov-report=html"
 
 [build-system]
 requires = ["poetry-core"]
