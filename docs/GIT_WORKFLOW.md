@@ -49,6 +49,72 @@ git config --global init.defaultBranch main
 git config --global commit.gpgsign true
 ```
 
+## Feature Development Workflow
+
+### Two Development Modes
+
+**Mode 1: Direct to Master (Small Fixes)**
+- For trivial changes, documentation updates, or hotfixes
+- Commit directly to master with comprehensive commit message
+- Example: T1 implementation (complete feature with all tests passing)
+
+**Mode 2: Feature Branch with Incremental Commits (Recommended for Tx Tickets)**
+- Create feature branch (e.g., `feature/t2-alpaca-connector`)
+- Make incremental commits as you build the feature
+- Create PR when ticket goal is complete
+- Allows for regular backups and progress tracking
+
+### Feature Branch Development Process
+
+When implementing a Tx ticket (T2, T3, T4, etc.):
+
+1. **Create Feature Branch**
+   ```bash
+   git checkout -b feature/t2-alpaca-connector
+   ```
+
+2. **Make Incremental Commits**
+   - Commit small, logical units of work frequently
+   - Each commit should compile/pass basic checks
+   - Commit messages can be concise during development
+
+   ```bash
+   # Example incremental commits during T2 development:
+   git commit -m "Add Alpaca API client wrapper"
+   git commit -m "Implement historical data fetching"
+   git commit -m "Add rate limiting logic"
+   git commit -m "Implement corporate actions fetching"
+   git commit -m "Add unit tests for API client"
+   git commit -m "Add integration tests"
+   git commit -m "Update documentation"
+   ```
+
+3. **Push Regularly (Optional but Recommended)**
+   ```bash
+   # Push to backup your work and track progress
+   git push -u origin feature/t2-alpaca-connector
+   ```
+
+4. **When Ticket Goal Complete**
+   - Ensure all tests pass
+   - Ensure documentation is updated
+   - Create PR for review and merge
+
+### Why Incremental Commits During Feature Development?
+
+**Benefits:**
+- ✅ Regular backups of work in progress
+- ✅ Easier to revert specific changes if needed
+- ✅ Better tracking of development progress
+- ✅ Clearer history of how feature was built
+- ✅ Can resume work after interruptions
+
+**When to Commit:**
+- After implementing a logical component
+- After tests pass for that component
+- Before taking a break or ending session
+- Before attempting risky refactoring
+
 ## Automated PR Workflow with Claude Code
 
 ### Workflow Overview
@@ -56,12 +122,12 @@ git config --global commit.gpgsign true
 When you ask Claude Code to implement a feature, it can automatically:
 
 1. ✅ Create a feature branch
-2. ✅ Make code changes
+2. ✅ Make code changes with incremental commits
 3. ✅ Write tests
 4. ✅ Run tests and linting
 5. ✅ Commit changes with descriptive messages
-6. ✅ Push to remote repository
-7. ✅ Create pull request with detailed description
+6. ✅ Push to remote repository regularly
+7. ✅ Create pull request when feature complete
 8. ✅ Link related ADRs and documentation
 
 ### How to Enable Automatic PR Creation
@@ -309,8 +375,10 @@ Keep PRs focused:
 - ❌ Mixing features and refactoring
 
 ### 2. Meaningful Commit Messages
+
+**For Final PR Commits (Mode 1: Direct to Master):**
 ```bash
-# GOOD
+# GOOD - Comprehensive with details
 "Implement deterministic order ID generation (ADR-0004)
 
 - Add SHA256-based hash function
@@ -320,9 +388,28 @@ Keep PRs focused:
 
 # BAD
 "Fixed stuff"
-"WIP"
 "Updates"
 ```
+
+**For Incremental Commits (Mode 2: Feature Branch Development):**
+```bash
+# GOOD - Concise but clear
+"Add Alpaca API client wrapper"
+"Implement rate limiting with exponential backoff"
+"Add unit tests for historical data fetching"
+"Fix type hints in corporate actions module"
+
+# ACCEPTABLE during development
+"WIP: Adding authentication logic"
+"Draft: Initial market data connector structure"
+
+# STILL BAD - Too vague
+"Fixed stuff"
+"Updates"
+"Changes"
+```
+
+**Note:** Incremental commits can be more concise since the PR description will provide comprehensive context. The key is that each commit represents a logical unit of work.
 
 ### 3. Keep PRs Small
 Aim for:
