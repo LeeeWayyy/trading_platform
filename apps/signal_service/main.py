@@ -32,6 +32,7 @@ See Also:
 """
 
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -60,6 +61,72 @@ settings = Settings()
 # Global state (initialized in lifespan)
 model_registry: Optional[ModelRegistry] = None
 signal_generator: Optional[SignalGenerator] = None
+
+
+# ==============================================================================
+# Background Tasks
+# ==============================================================================
+
+async def model_reload_task():
+    """
+    Background task to poll model registry and reload on version changes.
+
+    This task runs continuously in the background, checking for model updates
+    at regular intervals. If a new model version is detected in the database,
+    it automatically reloads without requiring service restart.
+
+    Behavior:
+        1. Sleeps for configured interval (default: 300 seconds / 5 minutes)
+        2. Checks database for model version changes
+        3. Reloads model if version changed
+        4. Logs reload events
+        5. Continues polling even if one check fails (resilience)
+
+    Configuration:
+        Interval controlled by settings.model_reload_interval_seconds
+
+    Example Log Output:
+        2024-12-31 10:00:00 - INFO - Checking for model updates...
+        2024-12-31 10:00:00 - INFO - Model auto-reloaded: alpha_baseline v1.0.1
+
+    Notes:
+        - Zero-downtime updates: requests during reload use old model
+        - Graceful degradation: failed reload keeps current model
+        - Thread-safe: ModelRegistry handles concurrent access
+
+    See Also:
+        - ModelRegistry.reload_if_changed() for reload logic
+        - /api/v1/model/reload for manual reload endpoint
+    """
+    logger.info(
+        f"Starting model reload task "
+        f"(interval: {settings.model_reload_interval_seconds}s)"
+    )
+
+    while True:
+        try:
+            # Wait for configured interval
+            await asyncio.sleep(settings.model_reload_interval_seconds)
+
+            # Check for model updates
+            logger.debug("Checking for model updates...")
+            reloaded = model_registry.reload_if_changed(
+                strategy=settings.default_strategy
+            )
+
+            if reloaded:
+                logger.info(
+                    f"Model auto-reloaded: "
+                    f"{model_registry.current_metadata.strategy_name} "
+                    f"v{model_registry.current_metadata.version}"
+                )
+            else:
+                logger.debug("No model updates found")
+
+        except Exception as e:
+            logger.error(f"Model reload task failed: {e}", exc_info=True)
+            # Continue polling even if one check fails
+            # This provides resilience against transient errors
 
 
 # ==============================================================================
@@ -134,6 +201,10 @@ async def lifespan(app: FastAPI):
         logger.info(f"  - Listening on: {settings.host}:{settings.port}")
         logger.info("=" * 60)
 
+        # Step 4: Start background model reload task
+        logger.info("Starting background model reload task...")
+        reload_task = asyncio.create_task(model_reload_task())
+
         yield  # Application runs here
 
     except Exception as e:
@@ -142,6 +213,13 @@ async def lifespan(app: FastAPI):
 
     finally:
         # Shutdown
+        logger.info("Stopping background model reload task...")
+        if 'reload_task' in locals():
+            reload_task.cancel()
+            try:
+                await reload_task
+            except asyncio.CancelledError:
+                pass
         logger.info("Signal Service shutting down...")
 
 
@@ -675,6 +753,115 @@ async def get_model_info():
         "performance_metrics": metadata.performance_metrics,
         "config": metadata.config,
     }
+
+
+@app.post("/api/v1/model/reload", tags=["Model"])
+async def reload_model():
+    """
+    Manually trigger model reload from database registry.
+
+    This endpoint forces an immediate check for model version changes,
+    bypassing the automatic polling interval. Useful for:
+        - Testing model deployments
+        - Urgent model updates
+        - CI/CD pipelines
+        - Debugging reload issues
+
+    Behavior:
+        1. Queries database for active model version
+        2. Compares with currently loaded version
+        3. Reloads model if version changed
+        4. Returns reload status
+
+    Returns:
+        Dictionary with reload status and current version
+
+    Status Codes:
+        - 200: Reload check completed successfully
+        - 500: Reload failed (database error, file not found, etc.)
+        - 503: Model registry not initialized
+
+    Example:
+        POST /api/v1/model/reload
+
+        Response (200 OK) - No change:
+        {
+            "reloaded": false,
+            "version": "v1.0.0",
+            "message": "Model already up to date"
+        }
+
+        Response (200 OK) - Reloaded:
+        {
+            "reloaded": true,
+            "version": "v1.0.1",
+            "previous_version": "v1.0.0",
+            "message": "Model reloaded successfully"
+        }
+
+    Notes:
+        - Safe to call multiple times (idempotent)
+        - Zero-downtime: requests during reload use old model
+        - Background task continues polling after manual reload
+
+    Usage Example:
+        # Shell script for CI/CD
+        curl -X POST http://localhost:8001/api/v1/model/reload | jq
+
+        # Python
+        import requests
+        response = requests.post("http://localhost:8001/api/v1/model/reload")
+        print(response.json())
+    """
+    if model_registry is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model registry not initialized"
+        )
+
+    try:
+        # Store previous version for comparison
+        previous_version = (
+            model_registry.current_metadata.version
+            if model_registry.is_loaded
+            else None
+        )
+
+        # Trigger reload check
+        logger.info("Manual model reload requested")
+        reloaded = model_registry.reload_if_changed(
+            strategy=settings.default_strategy
+        )
+
+        # Get current version
+        current_version = (
+            model_registry.current_metadata.version
+            if model_registry.is_loaded
+            else "none"
+        )
+
+        # Build response
+        response = {
+            "reloaded": reloaded,
+            "version": current_version,
+        }
+
+        if reloaded:
+            response["previous_version"] = previous_version
+            response["message"] = "Model reloaded successfully"
+            logger.info(f"Manual reload successful: {previous_version} -> {current_version}")
+        else:
+            response["message"] = "Model already up to date"
+            logger.info("Manual reload: no changes detected")
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Manual model reload failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Model reload failed: {str(e)}"
+        )
 
 
 # ==============================================================================
