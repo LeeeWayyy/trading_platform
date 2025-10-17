@@ -24,6 +24,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from strategies.alpha_baseline.config import StrategyConfig, DEFAULT_CONFIG
 from strategies.alpha_baseline.features import compute_features_and_labels
+from strategies.alpha_baseline.mlflow_utils import (
+    initialize_mlflow,
+    log_config,
+    log_metrics,
+    log_model,
+    get_or_create_run,
+)
 
 
 class BaselineTrainer:
@@ -54,17 +61,20 @@ class BaselineTrainer:
         - /docs/CONCEPTS/alpha158-features.md
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None) -> None:
+    def __init__(self, config: Optional[StrategyConfig] = None, use_mlflow: bool = True) -> None:
         """
         Initialize trainer with configuration.
 
         Args:
             config: Strategy configuration (uses DEFAULT_CONFIG if None)
+            use_mlflow: Whether to use MLflow tracking (default: True)
         """
         self.config = config or DEFAULT_CONFIG
         self.model: Optional[lgb.Booster] = None
         self.best_iteration: int = 0
         self.metrics: dict = {}
+        self.use_mlflow = use_mlflow
+        self.mlflow_run_id: Optional[str] = None
 
     def load_data(
         self,
@@ -142,58 +152,96 @@ class BaselineTrainer:
             - Uses early stopping based on validation MAE
             - Saves best model if config.training.save_best_only = True
             - Computes and stores training metrics
+            - Logs to MLflow if use_mlflow=True
         """
-        # Load data if not provided
-        if X_train is None or y_train is None or X_valid is None or y_valid is None:
-            print("Data not provided, loading from config...")
-            X_train, y_train, X_valid, y_valid, _, _ = self.load_data()
+        # Initialize MLflow if enabled
+        if self.use_mlflow:
+            exp_id = initialize_mlflow(
+                tracking_uri="file:./artifacts/mlruns",
+                experiment_name=self.config.training.experiment_name,
+            )
+            # Start MLflow run
+            run = get_or_create_run(
+                experiment_id=exp_id,
+                run_name=self.config.training.run_name,
+            )
+            self.mlflow_run_id = run.info.run_id
+            print(f"\nMLflow run ID: {self.mlflow_run_id}")
 
-        # Convert to LightGBM datasets
-        print("\nPreparing LightGBM datasets...")
-        train_data = lgb.Dataset(X_train, label=y_train.values.ravel())
-        valid_data = lgb.Dataset(X_valid, label=y_valid.values.ravel(), reference=train_data)
+        try:
+            # Load data if not provided
+            if X_train is None or y_train is None or X_valid is None or y_valid is None:
+                print("Data not provided, loading from config...")
+                X_train, y_train, X_valid, y_valid, _, _ = self.load_data()
 
-        # Get model parameters
-        params = self.config.model.to_dict()
+            # Log config to MLflow
+            if self.use_mlflow:
+                log_config(self.config)
 
-        # Train model with early stopping
-        print("\nTraining LightGBM model...")
-        print(f"Parameters: {params}")
+            # Convert to LightGBM datasets
+            print("\nPreparing LightGBM datasets...")
+            train_data = lgb.Dataset(X_train, label=y_train.values.ravel())
+            valid_data = lgb.Dataset(X_valid, label=y_valid.values.ravel(), reference=train_data)
 
-        callbacks = []
-        if self.config.training.early_stopping_rounds > 0:
-            callbacks.append(
-                lgb.early_stopping(
-                    stopping_rounds=self.config.training.early_stopping_rounds,
-                    verbose=False,
+            # Get model parameters
+            params = self.config.model.to_dict()
+
+            # Train model with early stopping
+            print("\nTraining LightGBM model...")
+            print(f"Parameters: {params}")
+
+            callbacks = []
+            if self.config.training.early_stopping_rounds > 0:
+                callbacks.append(
+                    lgb.early_stopping(
+                        stopping_rounds=self.config.training.early_stopping_rounds,
+                        verbose=False,
+                    )
                 )
-            )
 
-        # Suppress LightGBM warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            # Suppress LightGBM warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
 
-            self.model = lgb.train(
-                params,
-                train_data,
-                num_boost_round=self.config.model.num_boost_round,
-                valid_sets=[train_data, valid_data],
-                valid_names=["train", "valid"],
-                callbacks=callbacks,
-            )
+                self.model = lgb.train(
+                    params,
+                    train_data,
+                    num_boost_round=self.config.model.num_boost_round,
+                    valid_sets=[train_data, valid_data],
+                    valid_names=["train", "valid"],
+                    callbacks=callbacks,
+                )
 
-        # Store best iteration
-        self.best_iteration = self.model.best_iteration
+            # Store best iteration
+            self.best_iteration = self.model.best_iteration
 
-        print(f"\nTraining complete!")
-        print(f"Best iteration: {self.best_iteration}")
+            print(f"\nTraining complete!")
+            print(f"Best iteration: {self.best_iteration}")
 
-        # Evaluate on train and valid sets
-        self._evaluate(X_train, y_train, X_valid, y_valid)
+            # Evaluate on train and valid sets
+            self._evaluate(X_train, y_train, X_valid, y_valid)
 
-        # Save model if configured
-        if self.config.training.save_best_only:
-            self.save_model()
+            # Log metrics to MLflow
+            if self.use_mlflow:
+                log_metrics(self.metrics)
+
+            # Save model if configured
+            if self.config.training.save_best_only:
+                self.save_model()
+
+            # Log model to MLflow
+            if self.use_mlflow:
+                log_model(
+                    self.model,
+                    artifact_path="model",
+                    registered_model_name=None,  # Don't auto-register
+                )
+
+        finally:
+            # End MLflow run
+            if self.use_mlflow:
+                import mlflow
+                mlflow.end_run()
 
         return self.model
 
