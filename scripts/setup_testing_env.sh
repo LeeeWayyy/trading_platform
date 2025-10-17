@@ -73,7 +73,7 @@ else
     fi
 
     # Check if started
-    if psql -U postgres -c "SELECT 1" &> /dev/null; then
+    if psql -U $(whoami) -c "SELECT 1" &> /dev/null; then
         success "PostgreSQL started"
     else
         error "Failed to start PostgreSQL"
