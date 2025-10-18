@@ -96,21 +96,33 @@ check_service_health() {
     fi
 }
 
-# Get positions from Execution Gateway
-get_positions() {
+# Fetch JSON data from API endpoint with error handling
+# Returns HTTP response body on success (HTTP 200), empty string on failure
+# Prints warning message on failure
+fetch_api_data() {
+    local url=$1
+    local error_message=$2
+    local timeout=${3:-3}
+
     local response
     local http_code
 
-    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$EXECUTION_GATEWAY_URL/api/v1/positions" || echo "{}\n000")
+    response=$(curl -s -w "\n%{http_code}" --max-time "$timeout" "$url" || echo "{}\n000")
     http_code=$(echo "$response" | tail -n1)
 
     if [ "$http_code" != "200" ]; then
-        echo -e "${YELLOW}${WARN} Unable to fetch positions (HTTP $http_code)${NC}"
+        echo -e "${YELLOW}${WARN} $error_message (HTTP $http_code)${NC}"
         return 1
     fi
 
+    # Return response body (all lines except last which is HTTP code)
+    echo "$response" | sed '$d'
+}
+
+# Get positions from Execution Gateway
+get_positions() {
     local body
-    body=$(echo "$response" | sed '$d')
+    body=$(fetch_api_data "$EXECUTION_GATEWAY_URL/api/v1/positions" "Unable to fetch positions") || return 1
 
     # Check if there are any positions
     local position_count
@@ -128,19 +140,8 @@ get_positions() {
 
 # Get recent runs from Orchestrator
 get_recent_runs() {
-    local response
-    local http_code
-
-    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$ORCHESTRATOR_URL/api/v1/orchestration/runs?limit=5" || echo "{}\n000")
-    http_code=$(echo "$response" | tail -n1)
-
-    if [ "$http_code" != "200" ]; then
-        echo -e "${YELLOW}${WARN} Unable to fetch recent runs (HTTP $http_code)${NC}"
-        return 1
-    fi
-
     local body
-    body=$(echo "$response" | sed '$d')
+    body=$(fetch_api_data "$ORCHESTRATOR_URL/api/v1/orchestration/runs?limit=5" "Unable to fetch recent runs") || return 1
 
     # Check if there are any runs
     local run_count
@@ -158,19 +159,8 @@ get_recent_runs() {
 
 # Get P&L summary from Execution Gateway
 get_pnl_summary() {
-    local response
-    local http_code
-
-    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$EXECUTION_GATEWAY_URL/api/v1/positions/pnl" || echo "{}\n000")
-    http_code=$(echo "$response" | tail -n1)
-
-    if [ "$http_code" != "200" ]; then
-        echo -e "${YELLOW}${WARN} Unable to fetch P&L (HTTP $http_code)${NC}"
-        return 1
-    fi
-
     local body
-    body=$(echo "$response" | sed '$d')
+    body=$(fetch_api_data "$EXECUTION_GATEWAY_URL/api/v1/positions/pnl" "Unable to fetch P&L") || return 1
 
     # Extract P&L values with single jq call for efficiency (portable bash 3.2+ compatible)
     local realized
