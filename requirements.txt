@@ -45,3 +45,7 @@ httpx>=0.25.0
 
 # Retry logic (T4, T5)
 tenacity>=8.2.0
+
+# Redis (T1.2 - P1 Feature Store & Event Bus)
+redis>=5.0.0
+pytest-asyncio>=0.21.0  # For async Redis tests

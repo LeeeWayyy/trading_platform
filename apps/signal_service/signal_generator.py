@@ -51,6 +51,7 @@ from strategies.alpha_baseline.data_loader import T1DataProvider
 from strategies.alpha_baseline.features import get_alpha158_features
 from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
 from .model_registry import ModelRegistry
+from libs.redis_client import FeatureCache
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +77,32 @@ class SignalGenerator:
         data_dir: Path to T1 adjusted data directory
         top_n: Number of long positions (highest predicted returns)
         bottom_n: Number of short positions (lowest predicted returns)
+        feature_cache: Optional Redis-backed feature cache (T1.2)
+            If provided, features will be cached for faster retrieval.
+            If None, features will be generated on every request.
 
     Example:
         >>> registry = ModelRegistry("postgresql://localhost/trading_platform")
         >>> registry.reload_if_changed("alpha_baseline")
         >>>
+        >>> # Without caching
         >>> generator = SignalGenerator(
         ...     model_registry=registry,
         ...     data_dir=Path("data/adjusted"),
         ...     top_n=3,
         ...     bottom_n=3
+        ... )
+        >>>
+        >>> # With caching (T1.2)
+        >>> from libs.redis_client import RedisClient, FeatureCache
+        >>> redis_client = RedisClient()
+        >>> feature_cache = FeatureCache(redis_client)
+        >>> generator = SignalGenerator(
+        ...     model_registry=registry,
+        ...     data_dir=Path("data/adjusted"),
+        ...     top_n=3,
+        ...     bottom_n=3,
+        ...     feature_cache=feature_cache
         ... )
         >>>
         >>> # Generate signals for today
@@ -119,6 +136,7 @@ class SignalGenerator:
         data_dir: Path,
         top_n: int = 3,
         bottom_n: int = 3,
+        feature_cache: Optional[FeatureCache] = None,
     ):
         """
         Initialize signal generator.
@@ -133,6 +151,9 @@ class SignalGenerator:
             bottom_n: Number of short positions (stocks with lowest predicted returns)
                 Must be > 0. Example: bottom_n=3 means short bottom 3 stocks.
                 Set to 0 for long-only strategy (not recommended, reduces alpha).
+            feature_cache: Optional Redis-backed feature cache (T1.2)
+                If provided, features will be cached/retrieved from Redis.
+                If None, features will be generated fresh on every request.
 
         Raises:
             ValueError: If top_n or bottom_n < 0
@@ -153,6 +174,7 @@ class SignalGenerator:
         self.data_provider = T1DataProvider(data_dir)
         self.top_n = top_n
         self.bottom_n = bottom_n
+        self.feature_cache = feature_cache
 
         logger.info(
             "SignalGenerator initialized",
@@ -160,6 +182,7 @@ class SignalGenerator:
                 "data_dir": str(data_dir),
                 "top_n": top_n,
                 "bottom_n": bottom_n,
+                "feature_cache_enabled": feature_cache is not None,
             }
         )
 
@@ -282,36 +305,134 @@ class SignalGenerator:
         # - Computes 158 technical indicators (KBAR, KDJ, RSI, MACD, etc.)
         # - Normalizes features using robust statistics
         # - Returns DataFrame with (date, symbol) MultiIndex
-        try:
-            features = get_alpha158_features(
-                symbols=symbols,
-                start_date=date_str,
-                end_date=date_str,
-                fit_start_date=date_str,  # Already fitted during training
-                fit_end_date=date_str,
-                data_dir=self.data_provider.data_dir,
-            )
-        except Exception as e:
-            # FALLBACK: Use mock features if Qlib integration not available
-            # This allows P3 testing without full Qlib data setup
-            logger.warning(
-                f"Falling back to mock features due to error: {e}",
-                extra={"date": date_str, "symbols": symbols}
+        #
+        # T1.2: Cache-Aside Pattern
+        # - Try to get features from Redis cache first
+        # - On cache miss, generate features and cache them
+        # - On cache error, fall back to fresh generation (graceful degradation)
+
+        # Collect all features (per-symbol caching)
+        features_list = []
+        symbols_to_generate = []
+        cached_symbols = []
+
+        if self.feature_cache is not None:
+            # Try to get cached features for each symbol
+            for symbol in symbols:
+                try:
+                    cached_features = self.feature_cache.get(symbol, date_str)
+                    if cached_features is not None:
+                        # Cache hit - use cached features
+                        # Convert dict back to DataFrame with proper MultiIndex
+                        features_df = pd.DataFrame([cached_features])
+                        features_df.index = pd.MultiIndex.from_tuples(
+                            [(date_str, symbol)],
+                            names=["datetime", "instrument"]
+                        )
+                        features_list.append(features_df)
+                        cached_symbols.append(symbol)
+                    else:
+                        # Cache miss - need to generate
+                        symbols_to_generate.append(symbol)
+                except Exception as e:
+                    # Cache error - fall back to generation (graceful degradation)
+                    logger.warning(f"Cache error for {symbol}: {e}, falling back to generation")
+                    symbols_to_generate.append(symbol)
+        else:
+            # No cache available - generate all
+            symbols_to_generate = symbols
+
+        if cached_symbols:
+            logger.debug(f"Cache hits: {len(cached_symbols)} symbols {cached_symbols}")
+
+        # Generate features for cache misses
+        if symbols_to_generate:
+            logger.debug(
+                f"Generating features for {len(symbols_to_generate)} symbols (cache misses)",
+                extra={"symbols": symbols_to_generate, "date": date_str}
             )
             try:
-                features = get_mock_alpha158_features(
-                    symbols=symbols,
+                fresh_features = get_alpha158_features(
+                    symbols=symbols_to_generate,
                     start_date=date_str,
                     end_date=date_str,
+                    fit_start_date=date_str,  # Already fitted during training
+                    fit_end_date=date_str,
                     data_dir=self.data_provider.data_dir,
                 )
-            except Exception as mock_error:
-                logger.error(
-                    f"Failed to generate mock features: {mock_error}",
-                    extra={"date": date_str, "symbols": symbols},
-                    exc_info=True
+
+                # Cache the freshly generated features (per-symbol)
+                if self.feature_cache is not None and not fresh_features.empty:
+                    for symbol in symbols_to_generate:
+                        try:
+                            # Extract features for this symbol
+                            symbol_features = fresh_features.xs(
+                                symbol,
+                                level="instrument",
+                                drop_level=False
+                            )
+                            if not symbol_features.empty:
+                                # Convert to dict for caching
+                                features_dict = symbol_features.iloc[0].to_dict()
+                                self.feature_cache.set(symbol, date_str, features_dict)
+                                logger.debug(f"Cached features for {symbol} on {date_str}")
+                        except (KeyError, IndexError) as e:
+                            # Symbol not in generated features, skip caching
+                            logger.debug(f"Symbol {symbol} not in features, skipping cache")
+                        except Exception as e:
+                            # Cache write error - log but don't fail (graceful degradation)
+                            logger.warning(f"Failed to cache features for {symbol}: {e}")
+
+                features_list.append(fresh_features)
+
+            except Exception as e:
+                # FALLBACK: Use mock features if Qlib integration not available
+                # This allows P3 testing without full Qlib data setup
+                logger.warning(
+                    f"Falling back to mock features due to error: {e}",
+                    extra={"date": date_str, "symbols": symbols_to_generate}
                 )
-                raise ValueError(f"No features available for {date_str}: {mock_error}")
+                try:
+                    mock_features = get_mock_alpha158_features(
+                        symbols=symbols_to_generate,
+                        start_date=date_str,
+                        end_date=date_str,
+                        data_dir=self.data_provider.data_dir,
+                    )
+
+                    # Cache mock features too (for consistency)
+                    if self.feature_cache is not None and not mock_features.empty:
+                        for symbol in symbols_to_generate:
+                            try:
+                                symbol_features = mock_features.xs(
+                                    symbol,
+                                    level="instrument",
+                                    drop_level=False
+                                )
+                                if not symbol_features.empty:
+                                    features_dict = symbol_features.iloc[0].to_dict()
+                                    self.feature_cache.set(symbol, date_str, features_dict)
+                                    logger.debug(f"Cached mock features for {symbol} on {date_str}")
+                            except Exception as cache_error:
+                                logger.warning(f"Failed to cache mock features for {symbol}: {cache_error}")
+
+                    features_list.append(mock_features)
+                except Exception as mock_error:
+                    logger.error(
+                        f"Failed to generate mock features: {mock_error}",
+                        extra={"date": date_str, "symbols": symbols_to_generate},
+                        exc_info=True
+                    )
+                    raise ValueError(f"No features available for {date_str}: {mock_error}")
+
+        # Combine all features (cached + freshly generated)
+        if features_list:
+            features = pd.concat(features_list, axis=0)
+            # Sort by symbol to ensure consistent ordering with input symbols
+            # This is critical for matching predictions to symbols
+            features = features.sort_index(level="instrument")
+        else:
+            features = pd.DataFrame()
 
         if features.empty:
             raise ValueError(
