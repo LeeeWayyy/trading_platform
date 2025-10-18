@@ -126,7 +126,7 @@ get_positions() {
 
     # Check if there are any positions
     local position_count
-    position_count=$(echo "$body" | jq -r '.positions | length' 2>/dev/null || echo "0")
+    position_count=$(echo "$body" | jq -r '.positions | length' || echo "0")
 
     if [ "$position_count" = "0" ]; then
         echo "  No open positions"
@@ -134,7 +134,7 @@ get_positions() {
     fi
 
     # Display each position with consistent 2 decimal place formatting
-    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(try (.avg_entry_price | tonumber | . * 100 | round / 100) catch .) avg"' 2>/dev/null || \
+    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(try (.avg_entry_price | tonumber | . * 100 | round / 100) catch .) avg"' || \
         echo "  ${YELLOW}${WARN} Error parsing positions${NC}"
 }
 
@@ -145,7 +145,7 @@ get_recent_runs() {
 
     # Check if there are any runs
     local run_count
-    run_count=$(echo "$body" | jq -r '.runs | length' 2>/dev/null || echo "0")
+    run_count=$(echo "$body" | jq -r '.runs | length' || echo "0")
 
     if [ "$run_count" = "0" ]; then
         echo "  No runs recorded"
@@ -153,7 +153,7 @@ get_recent_runs() {
     fi
 
     # Display each run (API already limits to 5)
-    echo "$body" | jq -r '.runs[] | "  \(.created_at | split("T")[0]) \(.created_at | split("T")[1] | split(".")[0]): \(.status // "UNKNOWN")"' 2>/dev/null || \
+    echo "$body" | jq -r '.runs[] | "  \(.created_at | split("T")[0]) \(.created_at | split("T")[1] | split(".")[0]): \(.status // "UNKNOWN")"' || \
         echo "  ${YELLOW}${WARN} Error parsing runs${NC}"
 }
 
@@ -162,7 +162,8 @@ get_pnl_summary() {
     local body
     body=$(fetch_api_data "$EXECUTION_GATEWAY_URL/api/v1/positions/pnl" "Unable to fetch P&L") || return 1
 
-    # Extract P&L values with single jq call for efficiency (portable bash 3.2+ compatible)
+    # Extract P&L values with single jq call for efficiency
+    # Note: Using while read loop for bash 3.2+ compatibility (macOS default bash)
     local realized
     local unrealized
     local total
@@ -170,7 +171,7 @@ get_pnl_summary() {
 
     while IFS= read -r line; do
         pnl_values+=("$line")
-    done < <(echo "$body" | jq -r '(.realized_pnl // "0.00"), (.unrealized_pnl // "0.00"), (.total_pnl // "0.00")' 2>/dev/null)
+    done < <(echo "$body" | jq -r '(.realized_pnl // "0.00"), (.unrealized_pnl // "0.00"), (.total_pnl // "0.00")')
     realized=${pnl_values[0]:-"0.00"}
     unrealized=${pnl_values[1]:-"0.00"}
     total=${pnl_values[2]:-"0.00"}
