@@ -100,7 +100,13 @@ When implementing a Tx ticket (T2, T3, T4, etc.):
    - Ensure documentation is updated
    - Create PR for review and merge
 
-### Why Incremental Commits During Feature Development?
+### Progressive Committing Philosophy
+
+**REQUIRED: Commit Early, Commit Often**
+
+When working on any non-trivial feature, you MUST use progressive commits throughout development. Do NOT wait until everything is complete to make your first commit.
+
+**Why Incremental Commits During Feature Development?**
 
 **Benefits:**
 - ✅ Regular backups of work in progress
@@ -108,12 +114,44 @@ When implementing a Tx ticket (T2, T3, T4, etc.):
 - ✅ Better tracking of development progress
 - ✅ Clearer history of how feature was built
 - ✅ Can resume work after interruptions
+- ✅ Enables collaboration and review at each stage
+- ✅ Makes debugging easier (bisect to find regressions)
 
-**When to Commit:**
-- After implementing a logical component
+**When to Commit (Progressive Strategy):**
+- After implementing a logical component (even if incomplete)
 - After tests pass for that component
 - Before taking a break or ending session
 - Before attempting risky refactoring
+- **At minimum: every 30-60 minutes of active development**
+- After fixing a bug or addressing review feedback
+- When switching between different parts of the feature
+
+**Example Progressive Commit Sequence:**
+```bash
+# Session 1: Initial setup (30 min)
+git commit -m "Add Alpaca API client skeleton"
+
+# Session 2: Core functionality (1 hour)
+git commit -m "Implement authentication and connection"
+git commit -m "Add historical data fetching method"
+
+# Session 3: Error handling (45 min)
+git commit -m "Add rate limiting with exponential backoff"
+git commit -m "Handle API errors with retry logic"
+
+# Session 4: Testing (1 hour)
+git commit -m "Add unit tests for API client"
+git commit -m "Add integration tests with mock server"
+
+# Session 5: Documentation (30 min)
+git commit -m "Add docstrings and update implementation guide"
+```
+
+**Anti-Pattern to Avoid:**
+```bash
+# ❌ BAD - Single massive commit after 8 hours of work
+git commit -m "Implement entire Alpaca connector (2000 lines changed)"
+```
 
 ## Automated PR Workflow with Claude Code
 
@@ -361,9 +399,32 @@ git add apps/execution_gateway/
 git commit -m "Address review feedback: improve error messages"
 git push
 
-# Add comment to PR
-gh pr comment <PR_NUMBER> --body "Updated to address review feedback"
+# Add comment to PR notifying Codex to review
+gh pr comment <PR_NUMBER> --body "Updated to address review feedback.
+
+@codex please review the latest changes on this branch."
 ```
+
+### IMPORTANT: Codex Review Requirement
+
+**After creating or updating ANY pull request, you MUST:**
+
+1. Add a comment to the PR mentioning `@codex`
+2. Ask Codex to checkout and review the latest branch
+
+**Example after PR creation:**
+```bash
+gh pr comment <PR_NUMBER> --body "@codex please review this PR and check for any issues."
+```
+
+**Example after PR updates:**
+```bash
+gh pr comment <PR_NUMBER> --body "Fixed the issues you identified.
+
+@codex please review the latest changes on this branch."
+```
+
+This ensures automated code review catches issues before human review.
 
 ## Best Practices
 
