@@ -1208,12 +1208,12 @@ async def main() -> int:
             print("  python scripts/paper_run.py")
             return 0
 
+        # Generate timestamp BEFORE orchestration to represent run start time
+        # This ensures timestamp reflects when trading logic commenced, not when results were generated
+        run_timestamp = datetime.now(timezone.utc)
+
         # [2/5] Trigger orchestration
         result = await trigger_orchestration(config)
-
-        # Generate timestamp once for consistency across all outputs
-        # This ensures console and JSON have identical timestamps
-        run_timestamp = datetime.now(timezone.utc)
 
         # [3/5] Calculate enhanced P&L
         print("\n[3/5] Calculating enhanced P&L...")
