@@ -11,8 +11,8 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - Feature parity: research and production feature definitions must share code
 - Never produce duplicate orders
 - Circuit breakers override signals
-- **Every architectural change requires an ADR** (see `/docs/ADR_GUIDE.md`)
-- **All code must be educational and well-documented for learning** (see `/docs/DOCUMENTATION_STANDARDS.md`)
+- **Every architectural change requires an ADR** (see `/docs/STANDARDS/ADR_GUIDE.md`)
+- **All code must be educational and well-documented for learning** (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
 
 ## Repository Structure
 
