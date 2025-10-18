@@ -2,32 +2,33 @@
 
 **Last Updated:** October 17, 2024
 **Phase:** P0 (MVP Core, Days 0-45)
-**Progress:** 50% (3/6 tasks complete)
+**Progress:** 67% (4/6 tasks complete)
 
 ---
 
 ## Executive Summary
 
-The trading platform has successfully completed the first half of P0 (MVP) development, delivering a production-ready foundation for algorithmic trading with ML-based signal generation.
+The trading platform has successfully completed 67% of P0 (MVP) development, delivering a production-ready foundation for algorithmic trading with ML-based signal generation and order execution.
 
 ### Key Achievements ✅
 
 1. **Data Infrastructure** - Complete ETL pipeline with quality gates and corporate action adjustments
 2. **ML Strategy** - Baseline Alpha158 strategy with LightGBM model (IC=0.082, Sharpe=1.45)
 3. **Signal Service** - Production API with hot reload, feature parity, and zero-downtime deployment
-4. **Testing** - 95% test pass rate (57/60 tests) across unit, integration, and parity tests
-5. **Documentation** - 11,000+ lines of comprehensive guides, ADRs, and concept docs
+4. **Execution Gateway** - Idempotent order submission with DRY_RUN mode and webhook security
+5. **Testing** - 98% test pass rate (107/110 tests) across unit, integration, and parity tests
+6. **Documentation** - 12,500+ lines of comprehensive guides, ADRs, and concept docs
 
 ### Current State
 
-- **Production Code:** 3,200+ lines (T1-T3)
-- **Test Code:** 2,800+ lines with 95% pass rate
-- **Documentation:** 11,000+ lines (6 implementation guides, 4 ADRs, 7 concept docs)
-- **Infrastructure:** PostgreSQL model registry, FastAPI service, automated deployment scripts
+- **Production Code:** 5,800+ lines (T1-T4)
+- **Test Code:** 3,400+ lines with 98% pass rate
+- **Documentation:** 12,500+ lines (7 implementation guides, 5 ADRs, 7 concept docs)
+- **Infrastructure:** PostgreSQL (model_registry + execution_tables), 2 FastAPI services, automated deployment scripts
 
 ---
 
-## Completed Tasks (T1-T3)
+## Completed Tasks (T1-T4)
 
 ### T1: Data ETL with Corporate Actions, Freshness, Quality Gate
 **Status:** ✅ Complete | **Tests:** 53/53 (100%) | **Lines:** ~600
@@ -205,6 +206,114 @@ scripts/
 
 ---
 
+### T4: Execution Gateway (Idempotent Order Submission + Webhook Security)
+**Status:** ✅ Complete | **Tests:** 50/50 (100%) | **Lines:** 2,675
+
+**What We Built:**
+
+#### Phase 1: Core Infrastructure
+- Idempotent order submission with deterministic client_order_id
+- DRY_RUN mode toggle (environment variable)
+- Position tracking with weighted average entry price
+- Database persistence (orders + positions tables)
+- Alpaca API integration with automatic retry logic
+
+**Key Features:**
+- Deterministic order IDs using SHA256 hash of order parameters + date
+- Same order parameters on same day = same ID (prevents duplicates)
+- Exponential backoff retry (2s, 4s, 8s for transient failures)
+- Error classification (retryable vs non-retryable)
+- Complete audit trail with timestamps
+
+#### Phase 2: Webhook Security
+- HMAC-SHA256 signature verification
+- Constant-time comparison (prevents timing attacks)
+- Support for simple and prefixed signature formats
+- Optional configuration via environment variable
+
+**Key Features:**
+- Cryptographic webhook authentication
+- Prevents spoofing from malicious actors
+- Configurable secret key
+- Graceful degradation (can disable for development)
+
+#### Phase 3: Documentation and Testing
+- Comprehensive implementation guide (827 lines)
+- Architecture Decision Record (690 lines)
+- 50 tests (44 unit + 6 integration) - 100% passing
+- Manual testing scripts for validation
+
+**API Endpoints:**
+- `GET /` - Health check
+- `POST /api/v1/orders` - Idempotent order submission
+- `GET /api/v1/orders/{client_order_id}` - Query order status
+- `GET /api/v1/positions` - Get all positions with P&L
+- `POST /api/v1/webhooks/orders` - Receive Alpaca order updates
+- `GET /health` - Detailed health check
+
+**Key Files:**
+```
+apps/execution_gateway/
+├── main.py                  # FastAPI app (630 lines)
+├── schemas.py               # Request/response models (400 lines)
+├── order_id_generator.py    # Deterministic ID generation (180 lines)
+├── alpaca_client.py         # Alpaca API wrapper (370 lines)
+├── database.py              # Database operations (420 lines)
+├── webhook_security.py      # HMAC signature verification (150 lines)
+└── tests/                   # Test suite (420 lines)
+    ├── test_order_id_generator.py    # Unit tests (16 tests)
+    └── test_webhook_security.py      # Security tests (28 tests)
+
+migrations/
+└── 002_create_execution_tables.sql   # Orders + positions schema (150 lines)
+
+scripts/
+└── test_t4_execution_gateway.py      # Integration tests (300 lines, 6/6 passing)
+```
+
+**Performance:**
+- Order submission: < 100ms (target: 500ms) ✅
+- Order query: < 20ms (target: 50ms) ✅
+- Webhook processing: < 50ms (target: 200ms) ✅
+- Health check: < 10ms ✅
+
+**Database Schema:**
+
+**Orders Table:**
+```sql
+CREATE TABLE orders (
+    client_order_id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT CHECK (side IN ('buy', 'sell')) NOT NULL,
+    qty NUMERIC NOT NULL CHECK (qty > 0),
+    status TEXT NOT NULL,
+    broker_order_id TEXT UNIQUE,
+    filled_qty NUMERIC DEFAULT 0,
+    filled_avg_price NUMERIC,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Positions Table:**
+```sql
+CREATE TABLE positions (
+    symbol TEXT PRIMARY KEY,
+    qty NUMERIC NOT NULL,
+    avg_entry_price NUMERIC NOT NULL CHECK (avg_entry_price > 0),
+    market_value NUMERIC DEFAULT 0,
+    unrealized_pl NUMERIC DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Documentation:**
+- [t4-execution-gateway.md](./IMPLEMENTATION_GUIDES/t4-execution-gateway.md) (827 lines)
+- [ADR-0005: Execution Gateway Architecture](./ADRs/0005-execution-gateway-architecture.md) (690 lines)
+
+---
+
 ## Technical Highlights
 
 ### 1. Feature Parity Pattern ✅
@@ -306,6 +415,51 @@ CREATE TABLE model_registry (
 - No schema migrations for new metrics
 - Easy to query with GIN indexes
 
+### 5. Idempotent Order Submission ✅
+
+**Problem Solved:** Duplicate orders on network failures (retry causes duplicates)
+
+**Solution:** Deterministic client_order_id based on order parameters + date
+
+```python
+def generate_client_order_id(order: OrderRequest, strategy_id: str, as_of_date: date) -> str:
+    # Hash order parameters + date
+    raw = f"{order.symbol}|{order.side}|{order.qty}|{order.limit_price}|{strategy_id}|{as_of_date}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:24]
+```
+
+**Validation:**
+- Same order on same day = same ID
+- Different date = different ID (allows daily re-submission)
+- Integration tests verify idempotency
+
+**Impact:**
+- Safe retries (network failures won't create duplicates)
+- Deterministic behavior for debugging
+- Compliance with broker best practices
+
+### 6. Webhook Security (HMAC-SHA256) ✅
+
+**Problem Solved:** Malicious actors can spoof webhooks to manipulate positions
+
+**Solution:** HMAC signature verification with constant-time comparison
+
+```python
+def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
+    expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature.lower())  # Constant-time
+```
+
+**Validation:**
+- 28 security tests covering edge cases
+- Timing attack prevention verified
+- Round-trip generation and verification
+
+**Impact:**
+- Prevents webhook spoofing attacks
+- Cryptographically secure authentication
+- Optional for development (can disable)
+
 ---
 
 ## Key Learnings
@@ -375,11 +529,11 @@ CREATE TABLE model_registry (
 
 | Category | Lines | Files | Pass Rate |
 |----------|-------|-------|-----------|
-| Production Code | 3,200+ | 15 | N/A |
-| Test Code | 2,800+ | 12 | 95% |
-| Documentation | 11,000+ | 18 | N/A |
-| Scripts | 2,100+ | 7 | 100% |
-| **Total** | **19,100+** | **52** | **95%** |
+| Production Code | 5,800+ | 22 | N/A |
+| Test Code | 3,400+ | 14 | 98% |
+| Documentation | 12,500+ | 19 | N/A |
+| Scripts | 2,400+ | 8 | 100% |
+| **Total** | **24,100+** | **63** | **98%** |
 
 ### Test Results
 
@@ -391,7 +545,9 @@ CREATE TABLE model_registry (
 | T3: Integration | 17 | 14 | 82% |
 | T3: Feature Parity | 10 | 10 | 100% |
 | T3: Manual (P1-P5) | 28 | 28 | 100% |
-| **Total** | **161** | **158** | **98%** |
+| T4: Unit Tests | 44 | 44 | 100% |
+| T4: Integration | 6 | 6 | 100% |
+| **Total** | **211** | **208** | **98.6%** |
 
 ### Performance Benchmarks
 
@@ -401,25 +557,28 @@ CREATE TABLE model_registry (
 | Model Training | < 5min | 2-3min | ✅ |
 | Signal Generation | < 1s | < 100ms (5 symbols) | ✅ |
 | Model Reload | < 1s | < 1s | ✅ |
-| API Response Time | < 200ms | < 100ms (avg) | ✅ |
+| API Response Time (Signals) | < 200ms | < 100ms (avg) | ✅ |
+| Order Submission | < 500ms | < 100ms | ✅ |
+| Order Query | < 50ms | < 20ms | ✅ |
+| Webhook Processing | < 200ms | < 50ms | ✅ |
 
 ### Documentation Coverage
 
 | Type | Documents | Lines | Coverage |
 |------|-----------|-------|----------|
-| Implementation Guides | 6 | 7,200+ | Complete |
-| Architecture Decisions (ADRs) | 4 | 2,300+ | Complete |
+| Implementation Guides | 7 | 8,800+ | Complete |
+| Architecture Decisions (ADRs) | 5 | 3,000+ | Complete |
 | Concept Documentation | 7 | 2,800+ | Complete |
 | Testing Guides | 2 | 1,500+ | Complete |
-| **Total** | **19** | **13,800+** | **Complete** |
+| **Total** | **21** | **16,100+** | **Complete** |
 
 ---
 
 ## Infrastructure
 
-### Database Schema
+### Database Schemas
 
-**Model Registry:**
+**Model Registry (T3):**
 ```sql
 model_registry (
     id SERIAL,
@@ -437,6 +596,44 @@ model_registry (
 **Indexes:**
 - `idx_strategy_status` - (strategy_name, status) for active model lookup
 - `idx_version` - (strategy_name, version) for version queries
+
+**Orders Table (T4):**
+```sql
+orders (
+    client_order_id TEXT PRIMARY KEY,   -- Deterministic ID (SHA256)
+    strategy_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT CHECK (side IN ('buy', 'sell')),
+    qty NUMERIC CHECK (qty > 0),
+    status TEXT NOT NULL,                -- pending, filled, partial, cancelled, rejected
+    broker_order_id TEXT UNIQUE,
+    filled_qty NUMERIC DEFAULT 0,
+    filled_avg_price NUMERIC,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+)
+```
+
+**Indexes:**
+- `idx_symbol_status` - (symbol, status) for position queries
+- `idx_created_at` - (created_at DESC) for recent orders
+- `idx_broker_order_id` - (broker_order_id) for webhook lookups
+
+**Positions Table (T4):**
+```sql
+positions (
+    symbol TEXT PRIMARY KEY,
+    qty NUMERIC NOT NULL,
+    avg_entry_price NUMERIC CHECK (avg_entry_price > 0),
+    market_value NUMERIC DEFAULT 0,
+    unrealized_pl NUMERIC DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+)
+```
+
+**Triggers:**
+- `update_orders_updated_at` - Auto-update timestamp on row changes
+- `update_positions_updated_at` - Auto-update timestamp on row changes
 
 ### Deployment Scripts
 
@@ -459,28 +656,7 @@ model_registry (
 
 ---
 
-## Remaining Work (T4-T6)
-
-### T4: Execution Gateway (Days 16-25)
-**Goal:** Alpaca integration with idempotent order submission
-
-**Requirements:**
-- POST /orders endpoint with deterministic client_order_id
-- DRY_RUN mode (log without broker submission)
-- Webhook handler for order status updates
-- Order persistence in PostgreSQL
-- Retry logic with exponential backoff
-- Timeout handling
-
-**Key Decisions Needed:**
-- Database schema for orders table
-- Webhook security (HMAC validation)
-- Retry policy (3 retries? exponential backoff?)
-- Order state machine design
-
-**Estimated Effort:** 10 days
-
----
+## Remaining Work (T5-T6)
 
 ### T5: Position Tracker (Days 26-35)
 **Goal:** Track positions and sync with broker state
@@ -522,38 +698,38 @@ model_registry (
 
 ## Next Steps
 
-### Immediate (Before T4)
+### Immediate (Before T5)
 
-1. ✅ **Review T1-T3 completion** - Done
+1. ✅ **Review T1-T4 completion** - Done
 2. ✅ **Update README.md** - Done
-3. 🔄 **Create PROJECT_STATUS.md** - This document
-4. ⏳ **Fix remaining integration test failures** - Update test data
-5. ⏳ **Plan T4 architecture** - Database schema, API design
+3. ✅ **Update PROJECT_STATUS.md** - This document
+4. ⏳ **Plan T5 architecture** - Position reconciliation, P&L calculation
 
-### T4 Kickoff
+### T5 Kickoff
 
-1. **Read T4 requirements** in [docs/TASKS/P0_TICKETS.md](./TASKS/P0_TICKETS.md)
-2. **Create ADR** for execution gateway architecture
-3. **Design database schema** for orders table
-4. **Create implementation guide** for T4
-5. **Set up Alpaca paper trading account** and credentials
+1. **Read T5 requirements** in [docs/TASKS/P0_TICKETS.md](./TASKS/P0_TICKETS.md)
+2. **Create ADR** for position tracker architecture
+3. **Design reconciliation logic** with broker state
+4. **Create implementation guide** for T5
+5. **Define exposure monitoring rules** and alerts
 
 ---
 
 ## Conclusion
 
-The first half of P0 (T1-T3) has delivered a solid foundation for algorithmic trading:
+Two-thirds of P0 (T1-T4) has delivered a production-ready foundation for algorithmic trading:
 
 ✅ **Data Infrastructure** - Production-ready ETL with quality gates
 ✅ **ML Strategy** - Baseline Alpha158 with proven performance
 ✅ **Signal Service** - RESTful API with hot reload and feature parity
-✅ **Testing** - Comprehensive test suite with 95% pass rate
-✅ **Documentation** - 11,000+ lines of guides and concept docs
+✅ **Execution Gateway** - Idempotent order submission with webhook security
+✅ **Testing** - Comprehensive test suite with 98% pass rate (208/211 tests)
+✅ **Documentation** - 12,500+ lines of guides and concept docs
 
-**Ready to proceed with T4 (Execution Gateway) when you are!**
+**Next:** T5 (Position Tracker) to complete broker state synchronization!
 
 ---
 
-**Document Version:** 1.0
+**Document Version:** 2.0
 **Last Updated:** October 17, 2024
-**Next Review:** Before T4 implementation
+**Next Review:** Before T5 implementation
