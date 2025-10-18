@@ -437,7 +437,7 @@ This ensures multiple automated code reviewers catch issues before human review,
 4. **Only Exception**: Owner explicitly says you can defer specific issues to future work
 
 **After fixing review feedback:**
-- Push fixes and request re-review from `@codex` and `@gemini-code-assist`, need to ask them to check out lastest commit in case of caching.
+- Push fixes and request re-review from `@codex` and `@gemini-code-assist`, asking them to check out the latest commit to avoid caching issues.
 - **WAIT for reviewers to explicitly confirm "no issues" or approve the PR**
 - Do NOT assume fixes are sufficient - reviewers must explicitly approve
 
