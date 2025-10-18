@@ -207,8 +207,8 @@ async def lifespan(app: FastAPI):
 
                     # Initialize feature cache
                     feature_cache = FeatureCache(
-                        redis=redis_client,
-                        default_ttl=settings.redis_ttl,
+                        redis_client=redis_client,
+                        ttl=settings.redis_ttl,
                     )
                     logger.info(f"Feature cache initialized (TTL: {settings.redis_ttl}s)")
                 else:
