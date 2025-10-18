@@ -114,16 +114,16 @@ Step-by-step implementation instructions for each major task:
 
 | Guide | Task | Lines | Test Coverage |
 |-------|------|-------|---------------|
-| [t1-data-etl.md](./IMPLEMENTATION_GUIDES/t1-data-etl.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
-| [t1.2-redis-integration.md](./IMPLEMENTATION_GUIDES/t1.2-redis-integration.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
-| [t2-baseline-strategy-qlib.md](./IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md) | Baseline ML strategy | 700+ | Unit tests |
-| [t3-signal-service.md](./IMPLEMENTATION_GUIDES/t3-signal-service.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
-| [t3-p4-fastapi-application.md](./IMPLEMENTATION_GUIDES/t3-p4-fastapi-application.md) | FastAPI implementation | 600+ | Phase 4 tests |
-| [t3-p5-hot-reload.md](./IMPLEMENTATION_GUIDES/t3-p5-hot-reload.md) | Hot reload mechanism | 500+ | Phase 5 tests |
-| [t3-p6-integration-tests.md](./IMPLEMENTATION_GUIDES/t3-p6-integration-tests.md) | Integration testing | 400+ | Phase 6 tests |
-| [t4-execution-gateway.md](./IMPLEMENTATION_GUIDES/t4-execution-gateway.md) | Execution gateway | 827+ | 56 tests, 100% |
-| [t5-orchestrator.md](./IMPLEMENTATION_GUIDES/t5-orchestrator.md) | Orchestrator service | 754+ | 13 tests, 100% |
-| [t6-paper-run.md](./IMPLEMENTATION_GUIDES/t6-paper-run.md) | Paper run automation | 1,059+ | 26 tests, 100% |
+| [p0t1-data-etl.md](./IMPLEMENTATION_GUIDES/p0t1-data-etl.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
+| [p1.1t2-redis-integration.md](./IMPLEMENTATION_GUIDES/p1.1t2-redis-integration.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
+| [p0t2-baseline-strategy.md](./IMPLEMENTATION_GUIDES/p0t2-baseline-strategy.md) | Baseline ML strategy | 700+ | Unit tests |
+| [p0t3-signal-service.md](./IMPLEMENTATION_GUIDES/p0t3-signal-service.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
+| [p0t3-p4-fastapi-application.md](./IMPLEMENTATION_GUIDES/p0t3-p4-fastapi-application.md) | FastAPI implementation | 600+ | Phase 4 tests |
+| [p0t3-p5-hot-reload.md](./IMPLEMENTATION_GUIDES/p0t3-p5-hot-reload.md) | Hot reload mechanism | 500+ | Phase 5 tests |
+| [p0t3-p6-integration-tests.md](./IMPLEMENTATION_GUIDES/p0t3-p6-integration-tests.md) | Integration testing | 400+ | Phase 6 tests |
+| [p0t4-execution-gateway.md](./IMPLEMENTATION_GUIDES/p0t4-execution-gateway.md) | Execution gateway | 827+ | 56 tests, 100% |
+| [p0t5-orchestrator.md](./IMPLEMENTATION_GUIDES/p0t5-orchestrator.md) | Orchestrator service | 754+ | 13 tests, 100% |
+| [p0t6-paper-run.md](./IMPLEMENTATION_GUIDES/p0t6-paper-run.md) | Paper run automation | 1,059+ | 26 tests, 100% |
 
 **Priority:** 🟡 **HIGH** - Read the relevant guide when implementing or modifying a task
 
@@ -137,8 +137,10 @@ Current and future work items:
 
 | Document | Purpose | Status |
 |----------|---------|--------|
-| [P0_TICKETS.md](./TASKS/P0_TICKETS.md) | MVP core tasks (T1-T6) | ✅ 100% Complete |
-| [P1_PLANNING.md](./TASKS/P1_PLANNING.md) | P1 roadmap and priorities | 📋 Planning |
+| [P0_TASKS.md](./TASKS/P0_TASKS.md) | MVP core tasks (P0T1-P0T6) | ✅ 100% Complete |
+| [P1_PLANNING.md](./TASKS/P1_PLANNING.md) | P1 roadmap and priorities | 🔄 15% Complete (2/13 tasks) |
+| [P1_PROGRESS.md](./GETTING_STARTED/P1_PROGRESS.md) | Detailed P1 progress tracker | 🔄 In Progress |
+| [NEXT_TASK.md](./NEXT_TASK.md) | Current task (single source of truth) | 🎯 P1.1T3 - DuckDB Analytics |
 | [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) | Original master plan | 📚 Reference |
 
 **Priority:** 🔴 **CRITICAL** - Check before starting any new task to understand scope and priorities
@@ -200,8 +202,8 @@ Special guidance for AI coding assistants:
 3. docs/STANDARDS/CODING_STANDARDS.md                  [MUST read]
 4. docs/STANDARDS/DOCUMENTATION_STANDARDS.md           [MUST read]
 5. docs/STANDARDS/GIT_WORKFLOW.md                      [MUST read]
-6. docs/TASKS/P0_TICKETS.md or P1_PLANNING.md          [Understand current task]
-7. docs/IMPLEMENTATION_GUIDES/t{N}-{task}.md           [Relevant guide]
+6. docs/TASKS/P0_TASKS.md or P1_PLANNING.md            [Understand current task]
+7. docs/IMPLEMENTATION_GUIDES/p{phase}t{N}-{task}.md   [Relevant guide]
 8. docs/ADRs/000{N}-{related}.md                       [Related decisions]
 9. docs/CONCEPTS/{relevant}.md                         [As needed for domain knowledge]
 ```
@@ -237,7 +239,7 @@ Special guidance for AI coding assistants:
 
 - **Normative standards:** ALL_CAPS (e.g., `CODING_STANDARDS.md`)
 - **ADRs:** Numbered `0000-kebab-case.md`
-- **Guides:** Prefixed `t{N}-kebab-case.md`
+- **Guides:** Prefixed `p{phase}t{N}-kebab-case.md` or `p{phase}.{track}t{N}-kebab-case.md`
 - **Concepts:** `kebab-case.md`
 - **Retrospectives:** `{phase}-description.md`
 
@@ -266,7 +268,7 @@ Documents can have one of these statuses:
 | Commit code | [GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md) |
 | Write tests | [TESTING.md](./STANDARDS/TESTING.md) |
 | Understand P&L | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) |
-| Implement T6 | [t6-paper-run.md](./IMPLEMENTATION_GUIDES/t6-paper-run.md) |
+| Implement P0T6 | [p0t6-paper-run.md](./IMPLEMENTATION_GUIDES/p0t6-paper-run.md) |
 | Plan P1 work | [P1_PLANNING.md](./TASKS/P1_PLANNING.md) |
 | Deploy to prod | [ops.md](./RUNBOOKS/ops.md) |
 

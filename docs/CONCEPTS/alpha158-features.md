@@ -410,5 +410,5 @@ Used by:
 - [Qlib Alpha158 Documentation](https://qlib.readthedocs.io/en/latest/component/data.html#alpha158)
 - [Technical Indicators Explained](https://www.investopedia.com/terms/t/technicalindicator.asp)
 - [Feature Engineering for Time Series](https://towardsdatascience.com/feature-engineering-for-time-series-forecasting-8b43d9b5a2de)
-- See `/docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md` for full pipeline
+- See `/docs/IMPLEMENTATION_GUIDES/p0t2-baseline-strategy.md` for full pipeline
 - See `/docs/CONCEPTS/qlib-data-providers.md` for data integration

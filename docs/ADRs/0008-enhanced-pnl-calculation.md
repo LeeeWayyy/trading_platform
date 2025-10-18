@@ -288,7 +288,7 @@ for position in positions:
    - Include JSON export examples
 
 2. **Add implementation guide**
-   - Create `/docs/IMPLEMENTATION_GUIDES/t1.1-enhanced-pnl.md`
+   - Create `/docs/IMPLEMENTATION_GUIDES/p1.1t1-enhanced-pnl.md`
    - Step-by-step walkthrough
    - Code examples
    - Testing strategy

@@ -196,7 +196,7 @@ This prevents bad data (errors, halts, glitches) from corrupting our models.
 
 ## Testing Our Implementation
 
-See `/docs/IMPLEMENTATION_GUIDES/t1-data-etl.md` for:
+See `/docs/IMPLEMENTATION_GUIDES/p0t1-data-etl.md` for:
 - Test data with known splits
 - Expected adjustment calculations
 - Validation procedures

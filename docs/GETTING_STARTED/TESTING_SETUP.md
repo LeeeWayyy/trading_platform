@@ -622,7 +622,7 @@ jobs:
 - **psycopg2 documentation:** https://www.psycopg.org/docs/
 
 For project-specific documentation:
-- `/docs/IMPLEMENTATION_GUIDES/t3-signal-service.md` - Implementation guide
+- `/docs/IMPLEMENTATION_GUIDES/p0t3-signal-service.md` - Implementation guide
 - `/docs/ADRs/0004-signal-service-architecture.md` - Architecture decisions
 - `/docs/CONCEPTS/model-registry.md` - Model registry concept
 

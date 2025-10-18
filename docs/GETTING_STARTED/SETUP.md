@@ -412,7 +412,7 @@ Before starting development, verify each step:
 After setup is complete:
 
 1. **Run tests**: `pytest tests/ -v`
-2. **Read implementation guide**: `docs/IMPLEMENTATION_GUIDES/t1-data-etl.md`
+2. **Read implementation guide**: `docs/IMPLEMENTATION_GUIDES/p0t1-data-etl.md`
 3. **Review ADRs**: `docs/ADRs/`
 4. **Start T2**: Real data integration (see `P0_TICKETS.md`)
 
