@@ -1,0 +1,515 @@
+"""
+Trading Orchestrator - Core orchestration logic.
+
+Coordinates the complete trading flow:
+1. Fetch signals from Signal Service
+2. Map signals to orders (position sizing)
+3. Submit orders to Execution Gateway
+4. Track execution and persist results
+"""
+
+import logging
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+from typing import List, Optional, Dict, Any, Tuple
+
+import httpx
+
+from apps.orchestrator.clients import SignalServiceClient, ExecutionGatewayClient
+from apps.orchestrator.schemas import (
+    SignalServiceResponse,
+    OrderRequest,
+    OrderSubmission,
+    OrchestrationResult,
+    SignalOrderMapping,
+    Signal
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# Trading Orchestrator
+# ==============================================================================
+
+class TradingOrchestrator:
+    """
+    Coordinates the complete trading flow.
+
+    Responsibilities:
+    1. Fetch signals from Signal Service (T3)
+    2. Map signals to orders with position sizing
+    3. Submit orders to Execution Gateway (T4)
+    4. Track execution status
+    5. Persist results to database
+
+    Example:
+        >>> orchestrator = TradingOrchestrator(
+        ...     signal_service_url="http://localhost:8001",
+        ...     execution_gateway_url="http://localhost:8002",
+        ...     capital=Decimal("100000"),
+        ...     max_position_size=Decimal("10000")
+        ... )
+        >>> result = await orchestrator.run(
+        ...     symbols=["AAPL", "MSFT", "GOOGL"],
+        ...     strategy_id="alpha_baseline"
+        ... )
+        >>> print(result.num_orders_submitted)
+        2
+    """
+
+    def __init__(
+        self,
+        signal_service_url: str,
+        execution_gateway_url: str,
+        capital: Decimal,
+        max_position_size: Decimal,
+        price_cache: Optional[Dict[str, Decimal]] = None
+    ):
+        """
+        Initialize Trading Orchestrator.
+
+        Args:
+            signal_service_url: URL of Signal Service (e.g., "http://localhost:8001")
+            execution_gateway_url: URL of Execution Gateway (e.g., "http://localhost:8002")
+            capital: Total capital to allocate (e.g., Decimal("100000"))
+            max_position_size: Maximum position size per symbol (e.g., Decimal("10000"))
+            price_cache: Optional dict of symbol -> price for testing
+        """
+        self.signal_client = SignalServiceClient(signal_service_url)
+        self.execution_client = ExecutionGatewayClient(execution_gateway_url)
+        self.capital = capital
+        self.max_position_size = max_position_size
+        self.price_cache = price_cache or {}
+
+    async def close(self):
+        """Close HTTP clients."""
+        await self.signal_client.close()
+        await self.execution_client.close()
+
+    async def run(
+        self,
+        symbols: List[str],
+        strategy_id: str,
+        as_of_date: Optional[date] = None,
+        top_n: Optional[int] = None,
+        bottom_n: Optional[int] = None
+    ) -> OrchestrationResult:
+        """
+        Execute complete orchestration workflow.
+
+        Args:
+            symbols: List of symbols to trade
+            strategy_id: Strategy identifier (e.g., "alpha_baseline")
+            as_of_date: Date for signal generation (defaults to today)
+            top_n: Override number of long positions
+            bottom_n: Override number of short positions
+
+        Returns:
+            OrchestrationResult with complete run details
+
+        Example:
+            >>> result = await orchestrator.run(
+            ...     symbols=["AAPL", "MSFT", "GOOGL"],
+            ...     strategy_id="alpha_baseline",
+            ...     as_of_date=date(2024, 12, 31)
+            ... )
+            >>> print(result.status)
+            'completed'
+        """
+        run_id = uuid.uuid4()
+        started_at = datetime.now()
+
+        logger.info(
+            f"Starting orchestration run {run_id}",
+            extra={
+                "run_id": str(run_id),
+                "strategy_id": strategy_id,
+                "num_symbols": len(symbols),
+                "capital": float(self.capital)
+            }
+        )
+
+        try:
+            # Phase 1: Fetch signals
+            signal_response = await self._fetch_signals(
+                symbols=symbols,
+                as_of_date=as_of_date,
+                top_n=top_n,
+                bottom_n=bottom_n
+            )
+
+            # Phase 2: Map signals to orders
+            mappings = await self._map_signals_to_orders(signal_response.signals)
+
+            # Phase 3: Submit orders
+            await self._submit_orders(mappings)
+
+            # Compute final stats
+            num_orders_submitted = sum(1 for m in mappings if m.client_order_id is not None)
+            num_orders_accepted = sum(
+                1 for m in mappings
+                if m.order_status and m.order_status not in ("rejected", "cancelled")
+            )
+            num_orders_rejected = sum(
+                1 for m in mappings
+                if m.order_status in ("rejected", "cancelled")
+            )
+
+            completed_at = datetime.now()
+            duration_seconds = (completed_at - started_at).total_seconds()
+
+            # Determine final status
+            if num_orders_rejected > 0 and num_orders_accepted > 0:
+                status = "partial"
+            elif num_orders_rejected > 0:
+                status = "failed"
+            else:
+                status = "completed"
+
+            logger.info(
+                f"Orchestration run {run_id} {status}",
+                extra={
+                    "run_id": str(run_id),
+                    "status": status,
+                    "num_signals": len(signal_response.signals),
+                    "num_orders_submitted": num_orders_submitted,
+                    "num_orders_accepted": num_orders_accepted,
+                    "num_orders_rejected": num_orders_rejected,
+                    "duration_seconds": duration_seconds
+                }
+            )
+
+            return OrchestrationResult(
+                run_id=run_id,
+                status=status,
+                strategy_id=strategy_id,
+                as_of_date=signal_response.metadata.as_of_date,
+                symbols=symbols,
+                capital=self.capital,
+                num_signals=len(signal_response.signals),
+                signal_metadata={
+                    "model_version": signal_response.metadata.model_version,
+                    "strategy": signal_response.metadata.strategy,
+                    "top_n": signal_response.metadata.top_n,
+                    "bottom_n": signal_response.metadata.bottom_n
+                },
+                num_orders_submitted=num_orders_submitted,
+                num_orders_accepted=num_orders_accepted,
+                num_orders_rejected=num_orders_rejected,
+                mappings=mappings,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=Decimal(str(duration_seconds))
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Orchestration run {run_id} failed: {e}",
+                exc_info=True,
+                extra={"run_id": str(run_id)}
+            )
+
+            completed_at = datetime.now()
+            duration_seconds = (completed_at - started_at).total_seconds()
+
+            return OrchestrationResult(
+                run_id=run_id,
+                status="failed",
+                strategy_id=strategy_id,
+                as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
+                symbols=symbols,
+                capital=self.capital,
+                num_signals=0,
+                num_orders_submitted=0,
+                num_orders_accepted=0,
+                num_orders_rejected=0,
+                mappings=[],
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=Decimal(str(duration_seconds)),
+                error_message=str(e)
+            )
+
+    async def _fetch_signals(
+        self,
+        symbols: List[str],
+        as_of_date: Optional[date] = None,
+        top_n: Optional[int] = None,
+        bottom_n: Optional[int] = None
+    ) -> SignalServiceResponse:
+        """
+        Fetch signals from Signal Service.
+
+        Args:
+            symbols: List of symbols
+            as_of_date: Date for signal generation
+            top_n: Number of long positions
+            bottom_n: Number of short positions
+
+        Returns:
+            SignalServiceResponse with signals and metadata
+
+        Raises:
+            httpx.HTTPError: If Signal Service request fails
+        """
+        logger.info(f"Fetching signals for {len(symbols)} symbols")
+
+        signal_response = await self.signal_client.fetch_signals(
+            symbols=symbols,
+            as_of_date=as_of_date,
+            top_n=top_n,
+            bottom_n=bottom_n
+        )
+
+        logger.info(
+            f"Received {len(signal_response.signals)} signals",
+            extra={
+                "num_signals": len(signal_response.signals),
+                "model_version": signal_response.metadata.model_version,
+                "num_longs": sum(1 for s in signal_response.signals if s.target_weight > 0),
+                "num_shorts": sum(1 for s in signal_response.signals if s.target_weight < 0)
+            }
+        )
+
+        return signal_response
+
+    async def _map_signals_to_orders(
+        self,
+        signals: List[Signal]
+    ) -> List[SignalOrderMapping]:
+        """
+        Map trading signals to executable orders with position sizing.
+
+        Position Sizing Algorithm:
+        1. Calculate dollar amount: capital * |target_weight|
+        2. Apply max position size limit
+        3. Fetch current price for symbol
+        4. Convert to shares: qty = floor(dollar_amount / price)
+        5. Skip if qty < 1 share
+
+        Args:
+            signals: List of trading signals from Signal Service
+
+        Returns:
+            List of SignalOrderMapping (signal + order info)
+
+        Example:
+            Capital = $100,000
+            Signal: AAPL target_weight = 0.333 (33.3% long)
+            Price = $150
+
+            Dollar amount = $100,000 * 0.333 = $33,300
+            Shares = floor($33,300 / $150) = 222 shares
+            Order: BUY 222 AAPL @ market
+        """
+        logger.info(f"Mapping {len(signals)} signals to orders")
+
+        mappings = []
+
+        for signal in signals:
+            # Create base mapping
+            mapping = SignalOrderMapping(
+                symbol=signal.symbol,
+                predicted_return=signal.predicted_return,
+                rank=signal.rank,
+                target_weight=signal.target_weight
+            )
+
+            # Skip zero-weight signals
+            if signal.target_weight == 0:
+                mapping.skip_reason = "zero_weight"
+                mappings.append(mapping)
+                logger.debug(f"Skipping {signal.symbol}: zero weight")
+                continue
+
+            # Calculate dollar amount
+            dollar_amount = abs(Decimal(str(signal.target_weight))) * self.capital
+
+            # Apply max position size
+            if dollar_amount > self.max_position_size:
+                logger.info(
+                    f"Capping {signal.symbol} position: "
+                    f"${dollar_amount} → ${self.max_position_size}"
+                )
+                dollar_amount = self.max_position_size
+
+            # Get current price
+            try:
+                price = await self._get_current_price(signal.symbol)
+            except Exception as e:
+                logger.error(f"Failed to get price for {signal.symbol}: {e}")
+                mapping.skip_reason = f"price_fetch_failed: {e}"
+                mappings.append(mapping)
+                continue
+
+            # Convert to shares (round down)
+            qty = int(dollar_amount / price)
+
+            # Skip if qty < 1 share
+            if qty < 1:
+                logger.info(
+                    f"Skipping {signal.symbol}: qty < 1 share "
+                    f"(dollar_amount=${dollar_amount}, price=${price})"
+                )
+                mapping.skip_reason = "qty_less_than_one_share"
+                mappings.append(mapping)
+                continue
+
+            # Determine side
+            side = "buy" if signal.target_weight > 0 else "sell"
+
+            # Store order info in mapping (but don't submit yet)
+            mapping.order_qty = qty
+            mapping.order_side = side
+
+            mappings.append(mapping)
+
+            logger.info(
+                f"Mapped {signal.symbol}: {side} {qty} shares "
+                f"(weight={signal.target_weight:.4f}, price=${price})"
+            )
+
+        logger.info(
+            f"Created {sum(1 for m in mappings if m.order_qty is not None)} orders "
+            f"(skipped {sum(1 for m in mappings if m.skip_reason is not None)})"
+        )
+
+        return mappings
+
+    async def _submit_orders(self, mappings: List[SignalOrderMapping]):
+        """
+        Submit orders to Execution Gateway.
+
+        Updates mappings in-place with submission results.
+
+        Args:
+            mappings: List of SignalOrderMapping with order_qty and order_side set
+        """
+        orders_to_submit = [m for m in mappings if m.order_qty is not None]
+
+        logger.info(f"Submitting {len(orders_to_submit)} orders")
+
+        for mapping in orders_to_submit:
+            # Create order request
+            order = OrderRequest(
+                symbol=mapping.symbol,
+                side=mapping.order_side,
+                qty=mapping.order_qty,
+                order_type="market",
+                time_in_force="day"
+            )
+
+            try:
+                # Submit order
+                submission = await self.execution_client.submit_order(order)
+
+                # Update mapping with submission result
+                mapping.client_order_id = submission.client_order_id
+                mapping.broker_order_id = submission.broker_order_id
+                mapping.order_status = submission.status
+
+                logger.info(
+                    f"Order submitted: {mapping.symbol} {mapping.order_side} {mapping.order_qty} "
+                    f"(client_order_id={submission.client_order_id}, status={submission.status})"
+                )
+
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f"Order submission failed for {mapping.symbol}: {e}",
+                    extra={
+                        "symbol": mapping.symbol,
+                        "side": mapping.order_side,
+                        "qty": mapping.order_qty,
+                        "status_code": e.response.status_code,
+                        "response": e.response.text
+                    }
+                )
+                mapping.order_status = "rejected"
+                mapping.skip_reason = f"submission_failed: {e.response.status_code}"
+
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error submitting order for {mapping.symbol}: {e}",
+                    exc_info=True
+                )
+                mapping.order_status = "rejected"
+                mapping.skip_reason = f"unexpected_error: {str(e)}"
+
+    async def _get_current_price(self, symbol: str) -> Decimal:
+        """
+        Get current market price for symbol.
+
+        In MVP, uses a simple price cache or defaults to $100.
+        In production, would fetch from market data API.
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            Current price as Decimal
+
+        Example:
+            >>> price = await orchestrator._get_current_price("AAPL")
+            >>> print(price)
+            Decimal('150.00')
+        """
+        # Check cache first
+        if symbol in self.price_cache:
+            return self.price_cache[symbol]
+
+        # For MVP, use simple default
+        # TODO: Fetch from Alpaca market data API or use last close price
+        default_price = Decimal("100.00")
+
+        logger.warning(
+            f"No price available for {symbol}, using default ${default_price}"
+        )
+
+        return default_price
+
+
+# ==============================================================================
+# Position Sizing Utilities
+# ==============================================================================
+
+def calculate_position_size(
+    target_weight: float,
+    capital: Decimal,
+    price: Decimal,
+    max_position_size: Decimal
+) -> Tuple[int, Decimal]:
+    """
+    Calculate position size (number of shares) from target weight.
+
+    Args:
+        target_weight: Target portfolio weight (-1.0 to 1.0)
+        capital: Total capital available
+        price: Current price per share
+        max_position_size: Maximum dollar amount per position
+
+    Returns:
+        Tuple of (qty, dollar_amount)
+
+    Example:
+        >>> qty, dollar_amount = calculate_position_size(
+        ...     target_weight=0.333,
+        ...     capital=Decimal("100000"),
+        ...     price=Decimal("150.00"),
+        ...     max_position_size=Decimal("50000")
+        ... )
+        >>> print(qty, dollar_amount)
+        222 Decimal('33300.00')
+    """
+    # Calculate dollar amount
+    dollar_amount = abs(Decimal(str(target_weight))) * capital
+
+    # Apply max position size
+    dollar_amount = min(dollar_amount, max_position_size)
+
+    # Convert to shares (round down)
+    qty = int(dollar_amount / price)
+
+    return qty, dollar_amount

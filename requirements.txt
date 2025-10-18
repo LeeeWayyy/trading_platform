@@ -33,11 +33,15 @@ pre-commit>=3.6.0
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 
-# Database (T3, T4)
+# Database (T3, T4, T5)
 psycopg2-binary>=2.9.9
+psycopg[binary]>=3.1.0
 
 # Alpaca API (T4)
 alpaca-py>=0.15.0
 
-# Retry logic (T4)
+# HTTP client (T5)
+httpx>=0.25.0
+
+# Retry logic (T4, T5)
 tenacity>=8.2.0
