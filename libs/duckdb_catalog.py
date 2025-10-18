@@ -424,11 +424,16 @@ def calculate_returns(
         │ ...    │ ...        │ ...    │ ...          │
         └────────┴────────────┴────────┴──────────────┘
     """
-    where_clauses = [f"symbol = '{symbol}'"]
+    # Build WHERE clause conditions
+    where_clauses = ["symbol = ?"]
+    params = [symbol]
+
     if start_date:
-        where_clauses.append(f"date >= '{start_date}'")
+        where_clauses.append("date >= ?")
+        params.append(start_date)
     if end_date:
-        where_clauses.append(f"date <= '{end_date}'")
+        where_clauses.append("date <= ?")
+        params.append(end_date)
 
     where_sql = " AND ".join(where_clauses)
 
@@ -444,7 +449,9 @@ def calculate_returns(
     ORDER BY date
     """
 
-    return catalog.query(sql)
+    # Execute with parameterized query to prevent SQL injection
+    result = catalog.conn.execute(sql, params)
+    return result.pl()
 
 
 def calculate_sma(
@@ -487,11 +494,16 @@ def calculate_sma(
         │ ...    │ ...        │ ...    │ ...    │
         └────────┴────────────┴────────┴────────┘
     """
-    where_clauses = [f"symbol = '{symbol}'"]
+    # Build WHERE clause conditions
+    where_clauses = ["symbol = ?"]
+    params = [symbol]
+
     if start_date:
-        where_clauses.append(f"date >= '{start_date}'")
+        where_clauses.append("date >= ?")
+        params.append(start_date)
     if end_date:
-        where_clauses.append(f"date <= '{end_date}'")
+        where_clauses.append("date <= ?")
+        params.append(end_date)
 
     where_sql = " AND ".join(where_clauses)
 
@@ -510,4 +522,6 @@ def calculate_sma(
     ORDER BY date
     """
 
-    return catalog.query(sql)
+    # Execute with parameterized query to prevent SQL injection
+    result = catalog.conn.execute(sql, params)
+    return result.pl()
