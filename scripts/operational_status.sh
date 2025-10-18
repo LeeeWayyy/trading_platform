@@ -63,7 +63,10 @@ check_dependencies() {
 
     if [ ${#missing[@]} -gt 0 ]; then
         echo -e "${RED}${CROSS} Missing required dependencies: ${missing[*]}${NC}"
-        echo "Install with: brew install ${missing[*]}"
+        echo "Install with your system's package manager:"
+        echo "  macOS:        brew install ${missing[*]}"
+        echo "  Debian/Ubuntu: sudo apt-get install ${missing[*]}"
+        echo "  RHEL/CentOS:  sudo yum install ${missing[*]}"
         exit 2
     fi
 }
@@ -118,8 +121,8 @@ get_positions() {
         return 0
     fi
 
-    # Display each position
-    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(.avg_entry_price) avg"' 2>/dev/null || \
+    # Display each position with consistent 2 decimal place formatting
+    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(try (.avg_entry_price | tonumber | . * 100 | round / 100) catch .) avg"' 2>/dev/null || \
         echo "  ${YELLOW}${WARN} Error parsing positions${NC}"
 }
 
@@ -148,8 +151,8 @@ get_recent_runs() {
         return 0
     fi
 
-    # Display each run
-    echo "$body" | jq -r '.runs[] | "  \(.created_at | split("T")[0]) \(.created_at | split("T")[1] | split(".")[0]): \(.status // "UNKNOWN")"' 2>/dev/null | head -5 || \
+    # Display each run (API already limits to 5)
+    echo "$body" | jq -r '.runs[] | "  \(.created_at | split("T")[0]) \(.created_at | split("T")[1] | split(".")[0]): \(.status // "UNKNOWN")"' 2>/dev/null || \
         echo "  ${YELLOW}${WARN} Error parsing runs${NC}"
 }
 
@@ -182,14 +185,32 @@ get_pnl_summary() {
     local realized_color=$GREEN
     local unrealized_color=$GREEN
     local total_color=$GREEN
+    local realized_sign=""
+    local unrealized_sign=""
+    local total_sign=""
 
-    if [[ "$realized" == -* ]]; then realized_color=$RED; fi
-    if [[ "$unrealized" == -* ]]; then unrealized_color=$RED; fi
-    if [[ "$total" == -* ]]; then total_color=$RED; fi
+    if [[ "$realized" == -* ]]; then
+        realized_color=$RED
+    else
+        realized_sign="+"
+    fi
 
-    echo -e "  Realized:    ${realized_color}\$${realized}${NC}"
-    echo -e "  Unrealized:  ${unrealized_color}\$${unrealized}${NC}"
-    echo -e "  ${BOLD}Total:       ${total_color}\$${total}${NC}"
+    if [[ "$unrealized" == -* ]]; then
+        unrealized_color=$RED
+    else
+        unrealized_sign="+"
+    fi
+
+    if [[ "$total" == -* ]]; then
+        total_color=$RED
+    else
+        total_sign="+"
+    fi
+
+    # Use printf for consistent alignment and formatting
+    printf "  %-12s ${realized_color}%s\$%.2f${NC}\n" "Realized:" "$realized_sign" "${realized#-}"
+    printf "  %-12s ${unrealized_color}%s\$%.2f${NC}\n" "Unrealized:" "$unrealized_sign" "${unrealized#-}"
+    printf "  ${BOLD}%-12s${NC} ${total_color}%s\$%.2f${NC}\n" "Total:" "$total_sign" "${total#-}"
 }
 
 # Main function
@@ -213,17 +234,17 @@ main() {
 
     # Positions
     echo -e "${CHART} ${BOLD}Positions (T4):${NC}"
-    get_positions
+    get_positions || true  # Allow failure without terminating
     echo ""
 
     # Recent Runs
     echo -e "${LIST} ${BOLD}Recent Runs (T5):${NC}"
-    get_recent_runs
+    get_recent_runs || true  # Allow failure without terminating
     echo ""
 
     # P&L Summary
     echo -e "${MONEY} ${BOLD}Latest P&L:${NC}"
-    get_pnl_summary
+    get_pnl_summary || true  # Allow failure without terminating
     echo ""
 
     echo -e "${BOLD}========================================================================${NC}"
