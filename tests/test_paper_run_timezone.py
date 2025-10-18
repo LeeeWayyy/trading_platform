@@ -20,8 +20,6 @@ import pytest
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
-from io import StringIO
 import sys
 
 # Add project root to path
@@ -65,7 +63,7 @@ class TestConsoleOutputTimezone:
         fixed_time = datetime(2025, 1, 17, 9, 0, 0, tzinfo=timezone.utc)
 
         # Act
-        format_console_output(config, result, pnl_metrics, fixed_time)
+        format_console_output(config, result, fixed_time)
 
         # Assert
         captured = capsys.readouterr()
@@ -88,7 +86,7 @@ class TestConsoleOutputTimezone:
         pnl_metrics = {}
 
         # Act
-        format_console_output(config, result, pnl_metrics, datetime.now(timezone.utc))
+        format_console_output(config, result, datetime.now(timezone.utc))
 
         # Assert
         captured = capsys.readouterr()
@@ -115,7 +113,7 @@ class TestConsoleOutputTimezone:
         fixed_time = datetime(2025, 1, 17, 14, 30, 0, tzinfo=timezone.utc)
 
         # Act
-        format_console_output(config, result, pnl_metrics, fixed_time)
+        format_console_output(config, result, fixed_time)
 
         # Assert - verify timestamp is in UTC format
         captured = capsys.readouterr()
@@ -315,7 +313,7 @@ class TestTimezoneConsistency:
         run_timestamp = datetime(2025, 1, 17, 12, 0, 0, tzinfo=timezone.utc)
 
         # Act - both console and JSON output with same timestamp
-        format_console_output(config, result, pnl_metrics, run_timestamp)
+        format_console_output(config, result, run_timestamp)
         await save_results(config, result, pnl_metrics, run_timestamp)
 
         # Assert

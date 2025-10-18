@@ -992,7 +992,6 @@ def calculate_simple_pnl(result: Dict[str, Any]) -> Dict[str, Any]:
 def format_console_output(
     config: Dict[str, Any],
     result: Dict[str, Any],
-    pnl_metrics: Dict[str, Any],
     run_timestamp: datetime
 ) -> None:
     """
@@ -1007,7 +1006,6 @@ def format_console_output(
     Args:
         config: Configuration used for the run
         result: Orchestration result from T5
-        pnl_metrics: P&L metrics calculated
         run_timestamp: Timezone-aware UTC timestamp for this run
                       (should be generated once and reused for consistency)
 
@@ -1274,7 +1272,7 @@ async def main() -> int:
 
         # [5/5] Format and display final output
         # Pass run_timestamp for consistency with JSON export
-        format_console_output(config, result, pnl_data, run_timestamp)
+        format_console_output(config, result, run_timestamp)
 
         # Success!
         return 0
