@@ -189,10 +189,10 @@ class DuckDBCatalog:
             ...     "data/adjusted/2024-01-02/*.parquet"
             ... ])
         """
-        if not table_name or not table_name.replace("_", "").isalnum():
+        if not table_name or not table_name.isidentifier():
             raise ValueError(
-                f"Invalid table name: {table_name}. "
-                "Use only alphanumeric characters and underscores."
+                f"Invalid table name: '{table_name}'. "
+                "Must be a valid identifier (alphanumeric characters and underscores, not starting with a digit)."
             )
 
         # Convert to list if single path

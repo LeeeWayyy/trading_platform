@@ -108,9 +108,10 @@ WHERE date >= '2024-01-01' AND date <= '2024-01-03'
 while True:
     new_order = receive_order()
     # Writing one row at a time = SLOW
+    # NOTE: write_parquet() does not support append mode - it overwrites
     df = pl.DataFrame([new_order])
-    df.write_parquet("orders.parquet", mode="append")
-# Parquet has high write overhead per row
+    df.write_parquet("orders.parquet")  # This overwrites the file!
+# Parquet has high write overhead per row, and you lose previous data
 ```
 
 ```python
