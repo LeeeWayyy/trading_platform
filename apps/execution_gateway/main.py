@@ -64,6 +64,10 @@ from apps.execution_gateway.alpaca_client import (
     AlpacaRejectionError,
 )
 from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.webhook_security import (
+    verify_webhook_signature,
+    extract_signature_from_header,
+)
 
 
 # ============================================================================
@@ -85,6 +89,7 @@ ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
@@ -590,10 +595,30 @@ async def order_webhook(request: Request):
         body = await request.body()
         payload = await request.json()
 
-        # TODO: Verify webhook signature
-        # signature = request.headers.get("X-Alpaca-Signature")
-        # if not verify_signature(body, signature):
-        #     raise HTTPException(401, "Invalid webhook signature")
+        # Verify webhook signature (if secret is configured)
+        if WEBHOOK_SECRET:
+            signature_header = request.headers.get("X-Alpaca-Signature")
+            signature = extract_signature_from_header(signature_header)
+
+            if not signature:
+                logger.warning("Webhook received without signature")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Missing webhook signature"
+                )
+
+            if not verify_webhook_signature(body, signature, WEBHOOK_SECRET):
+                logger.error("Webhook signature verification failed")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid webhook signature"
+                )
+
+            logger.debug("Webhook signature verified successfully")
+        else:
+            logger.warning(
+                "Webhook signature verification disabled (WEBHOOK_SECRET not set)"
+            )
 
         logger.info(
             f"Webhook received: {payload.get('event', 'unknown')}",
