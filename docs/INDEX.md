@@ -135,7 +135,7 @@ Current and future work items:
 |----------|---------|--------|
 | [P0_TICKETS.md](./TASKS/P0_TICKETS.md) | MVP core tasks (T1-T6) | ✅ 100% Complete |
 | [P1_PLANNING.md](./TASKS/P1_PLANNING.md) | P1 roadmap and priorities | 📋 Planning |
-| [trading_platform_realization_plan.md](../trading_platform_realization_plan.md) | Original master plan | 📚 Reference |
+| [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) | Original master plan | 📚 Reference |
 
 **Priority:** 🔴 **CRITICAL** - Check before starting any new task to understand scope and priorities
 
