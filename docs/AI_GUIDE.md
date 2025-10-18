@@ -1,36 +1,159 @@
-# AI Guide — How to Work in This Repo
+# AI Assistant Guide
 
-**Your role:** implement tickets safely, incrementally, and test-first. Do not invent APIs or folders not defined here.
+**Purpose:** Quick-start guide for AI coding assistants working in this repository.
 
-## Source of Truth (in order)
-1. /docs/REPO_MAP.md — directory purpose and owners
-2. /docs/API/*.openapi.yaml — API contracts (strict)
-3. /docs/DB/*.sql — database schemas (strict)
-4. /docs/TASKS/*.md — ticket backlog and acceptance criteria
-5. /docs/CODING_STANDARDS.md — style, patterns, error handling
-6. /docs/TESTING.md — required tests
-7. /docs/GLOSSARY.md — project-specific terms
+**Your role:** Implement tickets safely, incrementally, and test-first following established standards.
 
-If something is missing, open an ADR in /docs/ADRs per the template before coding.
+---
 
-## Working Agreement
-- **No silent scope changes.** If a ticket lacks detail, propose an ADR or add TODOs with rationale.
-- **Idempotency first** for order paths. **Never** produce duplicate orders.
-- **Feature parity**: research vs production feature definitions must share code.
+## 🚀 Start Here
 
-## Implementation Workflow
-1. Read the ticket in /docs/TASKS.
-2. Update or add tests per /docs/TESTING.md (red).
-3. Implement code in the specified module only.
-4. Run `make test` and `make lint` (green).
-5. Update docs and ADRs if anything changed.
-6. Open PR with checklist from /docs/TESTING.md.
+**First time in this repo?** Read these documents in order:
 
-## Environments
-- **DRY_RUN=true** by default in dev.
-- Paper trading requires valid Alpaca paper keys.
+1. **[INDEX.md](./INDEX.md)** — Canonical documentation index (read this first!)
+2. **[STANDARDS/CODING_STANDARDS.md](./STANDARDS/CODING_STANDARDS.md)** — Python style, patterns, error handling (MUST follow)
+3. **[STANDARDS/DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md)** — Docstring format (MUST follow)
+4. **[STANDARDS/GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md)** — Commit messages, PR process (MUST follow)
+5. **[STANDARDS/TESTING.md](./STANDARDS/TESTING.md)** — Test structure, coverage requirements (MUST follow)
+6. **[GETTING_STARTED/REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md)** — Directory structure and module owners
 
-## Guardrails
-- Never commit secrets. Use /docs/CONFIG/.env.example.
-- Respect rate limits and backoff policies in execution gateway.
-- Circuit breakers override signals. If TRIPPED, do not place new entries.
+---
+
+## 📐 Normative Standards (MUST Follow)
+
+All standards are in **[STANDARDS/](./STANDARDS/)** directory:
+
+- **[CODING_STANDARDS.md](./STANDARDS/CODING_STANDARDS.md)** — Type hints, error handling, async patterns
+- **[DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md)** — Docstrings, ADRs, guides
+- **[GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md)** — Branching, commits, PRs
+- **[TESTING.md](./STANDARDS/TESTING.md)** — Unit/integration tests, mocking, coverage
+- **[ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md)** — When/how to write Architecture Decision Records
+
+---
+
+## 🎯 Implementation Workflow
+
+### 1. Read the Task
+- Check **[TASKS/P0_TICKETS.md](./TASKS/P0_TICKETS.md)** or **[TASKS/P1_PLANNING.md](./TASKS/P1_PLANNING.md)**
+- Read relevant **[IMPLEMENTATION_GUIDES/](./IMPLEMENTATION_GUIDES/)** document
+
+### 2. Review Architecture Decisions
+- Check **[ADRs/](./ADRs/)** for relevant decisions
+- If making new architectural choice, write new ADR per **[STANDARDS/ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md)**
+
+### 3. Write Tests First (TDD)
+- Follow **[STANDARDS/TESTING.md](./STANDARDS/TESTING.md)**
+- Run tests: `make test` (expect failures = red)
+
+### 4. Implement
+- Follow **[STANDARDS/CODING_STANDARDS.md](./STANDARDS/CODING_STANDARDS.md)**
+- Document per **[STANDARDS/DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md)**
+- Implement in specified module only (see **[GETTING_STARTED/REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md)**)
+
+### 5. Verify
+- Run `make test` and `make lint` (expect success = green)
+- All tests must pass (100%)
+
+### 6. Commit
+- Follow **[STANDARDS/GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md)**
+- Incremental commits, clear messages
+
+### 7. Document
+- Update relevant docs if needed
+- Update ADRs if architecture changed
+
+### 8. Create PR
+- Follow checklist from **[STANDARDS/TESTING.md](./STANDARDS/TESTING.md)**
+- Reference ticket number
+
+---
+
+## 🔒 Critical Guardrails
+
+### Idempotency (Trading-Specific)
+- **Never** produce duplicate orders
+- Always check existing positions before creating new ones
+- Use idempotency keys for all order submissions
+
+### Feature Parity (ML-Specific)
+- Research and production feature definitions **must share code**
+- No divergence between training and inference feature calculations
+- See **[CONCEPTS/feature-parity.md](./CONCEPTS/feature-parity.md)**
+
+### Security
+- **Never commit secrets** (use `.env` files, gitignored)
+- Reference `.env.example` for required variables
+- Enable `DRY_RUN=true` by default in development
+
+### Rate Limiting
+- Respect Alpaca API rate limits (200 req/min)
+- Implement backoff policies in execution gateway
+- Circuit breakers override signals (if TRIPPED, halt new orders)
+
+---
+
+## 🌍 Environments
+
+### Development (Default)
+```bash
+DRY_RUN=true                          # No real orders
+DATABASE_URL=postgresql://...         # Local PostgreSQL
+ALPACA_BASE_URL=https://paper-api... # Paper trading
+```
+
+### Paper Trading
+- Requires valid Alpaca paper API keys
+- Still uses `DRY_RUN=true` for safety
+- Real market data, simulated executions
+
+### Production (Future)
+- `DRY_RUN=false` required
+- Live Alpaca API keys
+- Real money — extra validation required
+
+---
+
+## 📚 Reference Documents by Purpose
+
+### For Understanding the Codebase
+- **[GETTING_STARTED/REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md)** — Directory structure
+- **[GETTING_STARTED/GLOSSARY.md](./GETTING_STARTED/GLOSSARY.md)** — Trading and ML terms
+- **[GETTING_STARTED/PROJECT_STATUS.md](./GETTING_STARTED/PROJECT_STATUS.md)** — What's implemented
+
+### For Domain Knowledge
+- **[CONCEPTS/](./CONCEPTS/)** — Trading and ML concepts explained
+  - corporate-actions.md, pnl-calculation.md, alpha158-features.md, etc.
+
+### For Implementation Guidance
+- **[IMPLEMENTATION_GUIDES/](./IMPLEMENTATION_GUIDES/)** — Step-by-step task guides
+  - t1-data-etl.md, t2-baseline-strategy-qlib.md, t6-paper-run.md, etc.
+
+### For Architecture Context
+- **[ADRs/](./ADRs/)** — Architecture Decision Records
+  - Why we chose Polars, Qlib, FastAPI, etc.
+
+### For Operations
+- **[RUNBOOKS/ops.md](./RUNBOOKS/ops.md)** — Deployment and troubleshooting
+
+---
+
+## 🚨 No Silent Scope Changes
+
+If a ticket lacks detail or conflicts with existing architecture:
+
+1. **Do NOT** invent new APIs, folders, or patterns
+2. **DO** propose an ADR following **[STANDARDS/ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md)**
+3. **DO** add TODOs with clear rationale
+4. **DO** ask for clarification in PR description
+
+---
+
+## 📖 Full Documentation Index
+
+For complete documentation structure, see **[INDEX.md](./INDEX.md)**
+
+---
+
+**Last Updated:** 2025-01-17
+**Maintained By:** Development Team
+**Format Version:** 2.0 (Reorganized with directory structure)

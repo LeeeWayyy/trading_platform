@@ -93,6 +93,206 @@ mock_response.raise_for_status = Mock(...)     # Also synchronous
 
 **Learning:** When adding new test types, update pytest.ini configuration
 
+## Intentional MVP Simplifications (vs Original Plan) 🎯
+
+The original trading platform plan envisioned several features that were intentionally simplified or deferred for the P0 MVP. These are **not technical debt** - they are conscious engineering decisions to deliver core functionality first, with enhancements in future phases.
+
+### 1. DuckDB Historical Catalog (Deferred to P1)
+
+**Original Plan (Phase 2):** "Analytics layer (DuckDB) for ad-hoc queries on historical data"
+
+**MVP Implementation:** Direct Parquet file usage via Polars
+
+**Current State:**
+- Data persisted in Parquet format (data/adjusted/YYYY-MM-DD/)
+- Polars DataFrame operations for ETL (libs/data_pipeline/etl.py)
+- No DuckDB dependency in requirements.txt
+
+**Rationale for Deferral:**
+- ✅ Parquet files are already optimized for analytics
+- ✅ Polars provides fast query capabilities for ETL needs
+- ✅ DuckDB adds dependency complexity without immediate MVP value
+- ✅ Can easily add DuckDB layer on existing Parquet files later
+
+**P1 Implementation Path:**
+```python
+# Easy to add DuckDB on existing Parquet data
+import duckdb
+
+con = duckdb.connect()
+df = con.execute("""
+    SELECT * FROM read_parquet('data/adjusted/*/AAPL.parquet')
+    WHERE date >= '2024-01-01'
+""").df()
+```
+
+**Benefits when added:**
+- SQL interface for ad-hoc analytics
+- Join capabilities across multiple symbols/dates
+- Integration with BI tools (Tableau, Metabase)
+
+**Decision:** ✅ Valid simplification - data is DuckDB-ready (Parquet format)
+
+---
+
+### 2. Redis Online Store / Event Bus (Deferred to P1)
+
+**Original Plan (Phase 5):** "Redis for online feature store" and "Event bus for orchestration"
+
+**MVP Implementation:** Direct HTTP calls between services
+
+**Current State:**
+- Redis configured in .env (REDIS_URL=redis://localhost:6379/0)
+- Orchestrator uses HTTP clients (apps/orchestrator/clients.py)
+- No Redis integration in codebase
+
+**Rationale for Deferral:**
+- ✅ HTTP calls sufficient for daily batch paper trading
+- ✅ Redis pub/sub adds architectural complexity
+- ✅ No real-time trading requirements in P0 MVP
+- ✅ Feature store can use PostgreSQL for now (model registry already there)
+
+**P1 Implementation Path:**
+
+**Use Case 1: Online Feature Store**
+```python
+# Store latest features in Redis for fast lookup
+import redis
+
+r = redis.Redis(host='localhost', port=6379, db=0)
+
+# Store features with TTL
+r.setex(f"features:{symbol}", 3600, json.dumps(features))
+
+# Fast retrieval during signal generation
+cached_features = json.loads(r.get(f"features:{symbol}"))
+```
+
+**Use Case 2: Event Bus**
+```python
+# Pub/sub for real-time orchestration
+r.publish('signals.generated', json.dumps({'symbol': 'AAPL', ...}))
+
+# Subscriber in execution service
+pubsub = r.pubsub()
+pubsub.subscribe('signals.generated')
+for message in pubsub.listen():
+    handle_signal(message['data'])
+```
+
+**Benefits when added:**
+- Sub-second latency for real-time trading
+- Decoupled services via pub/sub
+- Caching for frequently accessed features
+
+**Decision:** ✅ Valid deferral - HTTP adequate for batch workflow
+
+---
+
+### 3. Operational Status Command (Deferred to P1)
+
+**Original Plan (Phase 5):** "`make status` shows positions/orders/P&L in single command"
+
+**MVP Implementation:** Direct API queries to T4 and T5
+
+**Current State:**
+- Makefile has placeholder: `make status` → "Not implemented yet"
+- Can query T4: `GET /api/v1/positions`
+- Can query T5: `GET /api/v1/orchestration/runs`
+
+**Rationale for Deferral:**
+- ✅ APIs already expose all required data
+- ✅ Lower priority convenience feature
+- ✅ Can query directly during MVP phase
+
+**P1 Implementation Path:**
+```bash
+# Simple shell script wrapper
+#!/bin/bash
+# scripts/operational_status.sh
+
+echo "=== Positions (T4) ==="
+curl -s http://localhost:8002/api/v1/positions | jq
+
+echo -e "\n=== Recent Runs (T5) ==="
+curl -s http://localhost:8003/api/v1/orchestration/runs | jq
+
+echo -e "\n=== Latest P&L ==="
+python scripts/paper_run.py --dry-run 2>/dev/null | grep "Total Notional"
+```
+
+**Benefits when added:**
+- One-command operational overview
+- Integration with monitoring tools
+- Formatted dashboard output
+
+**Decision:** ✅ Valid deferral - APIs provide all functionality
+
+---
+
+### 4. Complete P&L Reporting (Simplified to Notional for MVP)
+
+**Original Plan (Phase 5):** "Daily P&L report with realized/unrealized breakdown"
+
+**MVP Implementation:** Notional value tracking only
+
+**Current State:**
+- paper_run.py calculates total notional value (scripts/paper_run.py:554-661)
+- Documented in docs/CONCEPTS/pnl-calculation.md
+- Explicitly noted as MVP scope in ADR-0007
+
+**Rationale for Simplification:**
+- ✅ Notional P&L validates order sizing is correct
+- ✅ Actual P&L requires tracking position fills and current market prices
+- ✅ Well-documented educational material explains all P&L types
+- ✅ Clear path to enhancement in P1
+
+**P1 Implementation Path:**
+```python
+# Enhanced P&L with realized/unrealized
+def calculate_full_pnl(positions, current_prices):
+    realized_pnl = Decimal("0")
+    unrealized_pnl = Decimal("0")
+
+    for pos in positions:
+        if pos['qty'] == 0:  # Closed position
+            realized_pnl += pos['realized_pnl']
+        else:  # Open position
+            current_value = pos['qty'] * current_prices[pos['symbol']]
+            entry_value = pos['qty'] * pos['avg_entry_price']
+            unrealized_pnl += (current_value - entry_value)
+
+    return {
+        'realized': realized_pnl,
+        'unrealized': unrealized_pnl,
+        'total': realized_pnl + unrealized_pnl
+    }
+```
+
+**Benefits when added:**
+- Accurate performance tracking
+- Tax reporting (realized gains/losses)
+- Risk management (unrealized exposure)
+
+**Decision:** ✅ Valid simplification - notional P&L achieves MVP goals
+
+---
+
+## Summary of Intentional Simplifications
+
+| Feature | Original Plan | MVP Implementation | P1 Complexity | Decision |
+|---------|--------------|-------------------|---------------|----------|
+| **DuckDB Catalog** | Phase 2 analytics layer | Parquet + Polars | Low (1-2 days) | ✅ Defer |
+| **Redis Integration** | Phase 5 feature store + event bus | HTTP calls | Medium (3-5 days) | ✅ Defer |
+| **`make status`** | Phase 5 operational command | Direct API queries | Low (1 day) | ✅ Defer |
+| **Complete P&L** | Phase 5 full P&L report | Notional value only | Medium (3-5 days) | ✅ Simplify |
+
+**Key Insight:** All simplifications are **additive enhancements** - no refactoring required, just add on top of existing foundation.
+
+**Total Estimated P1 Work:** ~8-13 days to add all deferred features
+
+---
+
 ## Deferred to P1/P2 📋
 
 ### 1. Timezone-Aware Timestamps (Codex Bot Suggestion)
@@ -206,20 +406,59 @@ datetime.now(ZoneInfo("America/New_York"))
 
 ## Action Items for P1 📝
 
-### High Priority
-- [ ] **Enhanced P&L:** Add realized vs unrealized calculation
-- [ ] **Timezone Awareness:** UTC timestamps for production logging
-- [ ] **Position Tracking:** Query T4 for current positions and calculate actual P&L
+### Infrastructure Enhancements (from Intentional Simplifications)
 
-### Medium Priority
+#### High Priority
+- [ ] **Enhanced P&L Calculation:** Add realized vs unrealized P&L (3-5 days)
+  - Query T4 for current positions
+  - Fetch current market prices
+  - Calculate mark-to-market unrealized P&L
+  - Track realized P&L from closed positions
+  - See: "Complete P&L Reporting" simplification above
+
+- [ ] **Redis Integration:** Online feature store + event bus (3-5 days)
+  - Feature caching for fast signal generation
+  - Pub/sub for real-time orchestration
+  - Replace HTTP polling with event-driven architecture
+  - See: "Redis Online Store / Event Bus" simplification above
+
+#### Medium Priority
+- [ ] **DuckDB Analytics Layer:** SQL interface for historical data (1-2 days)
+  - Add DuckDB dependency
+  - Create catalog on existing Parquet files
+  - Enable ad-hoc SQL queries
+  - Integration with BI tools
+  - See: "DuckDB Historical Catalog" simplification above
+
+- [ ] **Timezone Awareness:** UTC timestamps for production logging (1 day)
+  - Update console output with timezone-aware timestamps
+  - Update JSON export with ISO 8601 + timezone
+  - Add regression tests
+  - See: "Timezone-Aware Timestamps" deferral above
+
+#### Low Priority
+- [ ] **Operational Status Command:** `make status` wrapper (1 day)
+  - Shell script calling T4/T5 APIs
+  - Formatted dashboard output
+  - Integration with monitoring
+  - See: "Operational Status Command" simplification above
+
+### Code Quality Improvements
+
+#### Medium Priority
 - [ ] **Environment Verification:** Add Python version check to test scripts
 - [ ] **Retry Logic:** Add retry for transient orchestration failures
 - [ ] **Email Notifications:** Send results summary on completion
 
-### Low Priority
+#### Low Priority
 - [ ] **HTML Reports:** Generate HTML summary reports
 - [ ] **CSV Export:** Additional export format option
 - [ ] **Scheduling Helper:** Script to setup cron job
+
+### Estimated P1 Timeline
+- **Infrastructure Enhancements:** 8-13 days
+- **Code Quality Improvements:** 3-5 days
+- **Total P1 Effort:** ~11-18 days
 
 ## Recommendations for Future Tasks 💡
 
