@@ -153,7 +153,7 @@ After successfully implementing and testing any feature:
    - Summary of changes
    - Related ADR references
    - Testing completed
-   - Checklist from /docs/TESTING.md
+   - Checklist from /docs/STANDARDS/TESTING.md
 ```
 
 **Option 3: Use a Slash Command**
