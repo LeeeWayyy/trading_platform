@@ -399,32 +399,32 @@ git add apps/execution_gateway/
 git commit -m "Address review feedback: improve error messages"
 git push
 
-# Add comment to PR notifying Codex to review
+# Add comment to PR notifying automated reviewers
 gh pr comment <PR_NUMBER> --body "Updated to address review feedback.
 
-@codex please review the latest changes on this branch."
+@codex @gemini-code-assist please review the latest changes on this branch."
 ```
 
-### IMPORTANT: Codex Review Requirement
+### IMPORTANT: Automated Code Review Requirement
 
 **After creating or updating ANY pull request, you MUST:**
 
-1. Add a comment to the PR mentioning `@codex`
-2. Ask Codex to checkout and review the latest branch
+1. Add a comment to the PR mentioning `@codex` and `@gemini-code-assist`
+2. Ask both automated reviewers to checkout and review the latest branch
 
 **Example after PR creation:**
 ```bash
-gh pr comment <PR_NUMBER> --body "@codex please review this PR and check for any issues."
+gh pr comment <PR_NUMBER> --body "@codex @gemini-code-assist please review this PR and check for any issues."
 ```
 
 **Example after PR updates:**
 ```bash
 gh pr comment <PR_NUMBER> --body "Fixed the issues you identified.
 
-@codex please review the latest changes on this branch."
+@codex @gemini-code-assist please review the latest changes on this branch."
 ```
 
-This ensures automated code review catches issues before human review.
+This ensures multiple automated code reviewers catch issues before human review, providing diverse perspectives on code quality, security, and best practices.
 
 ## Best Practices
 
