@@ -364,7 +364,7 @@ Before Claude creates a PR, it should verify:
 Claude will **not** automatically:
 - ❌ Push to main/master directly
 - ❌ Force push (unless explicitly requested and justified)
-- ❌ Merge PRs (requires human review)
+- ❌ Merge PRs without explicit reviewer approval (see "CRITICAL: Review Feedback and Merge Policy" above)
 - ❌ Delete branches
 - ❌ Modify git history with rebase/amend (unless explicitly requested)
 
@@ -411,6 +411,7 @@ gh pr comment <PR_NUMBER> --body "Updated to address review feedback.
 
 1. Add a comment to the PR mentioning `@codex` and `@gemini-code-assist`
 2. Ask both automated reviewers to checkout and review the latest branch
+3. **WAIT for reviewers to respond and confirm no issues before merging**
 
 **Example after PR creation:**
 ```bash
@@ -425,6 +426,31 @@ gh pr comment <PR_NUMBER> --body "Fixed the issues you identified.
 ```
 
 This ensures multiple automated code reviewers catch issues before human review, providing diverse perspectives on code quality, security, and best practices.
+
+### CRITICAL: Review Feedback and Merge Policy
+
+**ALL review feedback MUST be addressed before merging. You are NOT allowed to merge unless:**
+
+1. **All High Priority Issues**: MUST be fixed immediately
+2. **All Medium Priority Issues**: MUST be fixed immediately
+3. **All Low Priority Issues**: MUST be fixed immediately
+4. **Only Exception**: Owner explicitly says you can defer specific issues to future work
+
+**After fixing review feedback:**
+- Push fixes and request re-review from `@codex` and `@gemini-code-assist`
+- **WAIT for reviewers to explicitly confirm "no issues" or approve the PR**
+- Do NOT assume fixes are sufficient - reviewers must explicitly approve
+
+**You are ONLY allowed to merge when:**
+- ✅ All reviewers explicitly say "no issues" or approve the PR
+- ✅ All review comments have been addressed or explicitly deferred by owner
+- ✅ All tests pass
+- ❌ **NEVER** merge without explicit reviewer approval
+
+**If you are unsure about deferring an issue:**
+- Ask the owner: "Reviewer X raised issue Y. Should I fix it now or defer to future work?"
+- Wait for owner's explicit approval before deferring
+- Document deferred issues in the PR description or create follow-up tickets
 
 ## Best Practices
 
