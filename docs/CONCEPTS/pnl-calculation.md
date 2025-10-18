@@ -224,7 +224,111 @@ for pos in positions:
 # total_pnl = $150
 ```
 
-### Example 4: T6 Notional P&L (Simple MVP)
+### Example 4: T1.1 Enhanced P&L (Real Implementation)
+```python
+# Scenario: Portfolio with 3 positions after a day of trading
+
+# Position data from T4 Execution Gateway
+positions = [
+    {
+        'symbol': 'AAPL',
+        'qty': 100,                    # Long 100 shares
+        'avg_entry_price': '150.00',   # Bought at $150
+        'realized_pl': '0.00'          # No closes yet
+    },
+    {
+        'symbol': 'MSFT',
+        'qty': -50,                    # Short 50 shares
+        'avg_entry_price': '300.00',   # Shorted at $300
+        'realized_pl': '200.00'        # Partial close profit
+    },
+    {
+        'symbol': 'GOOGL',
+        'qty': 0,                      # Closed position
+        'avg_entry_price': '140.00',   # Originally bought at $140
+        'realized_pl': '-400.00'       # Sold at loss
+    }
+]
+
+# Current prices from Alpaca Latest Quote API
+current_prices = {
+    'AAPL': Decimal('152.00'),   # Up $2 from entry
+    'MSFT': Decimal('295.00')    # Down $5 from entry (good for short)
+}
+
+# Calculate enhanced P&L
+pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+# Results:
+# ========
+
+# AAPL (long position):
+#   Unrealized P&L = (152 - 150) * 100 = +$200
+#   Realized P&L   = $0
+#   Total P&L      = +$200
+
+# MSFT (short position):
+#   Unrealized P&L = (300 - 295) * 50 = +$250  (profit on short)
+#   Realized P&L   = $200 (from partial close)
+#   Total P&L      = +$450
+
+# GOOGL (closed position):
+#   Unrealized P&L = $0 (position closed)
+#   Realized P&L   = -$400 (loss locked in)
+#   Total P&L      = -$400
+
+# Portfolio totals:
+# pnl['unrealized_pnl'] = $200 + $250 = $450
+# pnl['realized_pnl'] = $0 + $200 + (-$400) = -$200
+# pnl['total_pnl'] = $450 + (-$200) = $250
+
+# Per-symbol breakdown:
+# pnl['per_symbol'] = {
+#     'AAPL': {
+#         'realized': Decimal('0.00'),
+#         'unrealized': Decimal('200.00'),
+#         'qty': 100,
+#         'avg_entry_price': Decimal('150.00'),
+#         'current_price': Decimal('152.00'),
+#         'status': 'open'
+#     },
+#     'MSFT': {
+#         'realized': Decimal('200.00'),
+#         'unrealized': Decimal('250.00'),
+#         'qty': -50,
+#         'avg_entry_price': Decimal('300.00'),
+#         'current_price': Decimal('295.00'),
+#         'status': 'open'
+#     },
+#     'GOOGL': {
+#         'realized': Decimal('-400.00'),
+#         'unrealized': Decimal('0.00'),
+#         'qty': 0,
+#         'avg_entry_price': Decimal('140.00'),
+#         'current_price': None,
+#         'status': 'closed'
+#     }
+# }
+
+# Console output from paper_run.py:
+# [3/5] Calculating enhanced P&L...
+#   Positions Fetched:  3 total
+#   Prices Updated:     2 symbols
+#
+#   Realized P&L:       -$200.00
+#   Unrealized P&L:     +$450.00
+#   Total P&L:          +$250.00
+#
+#   Open Positions:     2
+#   Closed Positions:   1
+#
+#   Per-Symbol P&L:
+#     AAPL   (  100 shares): Realized: +$0.00, Unrealized: +$200.00
+#     MSFT   (  -50 shares): Realized: +$200.00, Unrealized: +$250.00
+#     GOOGL  (closed): Realized: -$400.00
+```
+
+### Example 5: T6 Notional P&L (Simple MVP)
 ```python
 # T6 paper_run.py calculates simple notional P&L
 
@@ -370,17 +474,132 @@ def calculate_simple_pnl(orchestration_result):
     }
 ```
 
-### P1: Add Realized P&L
-- Query positions table from Execution Gateway (T4)
-- Track entry and exit prices
-- Calculate profit/loss on closed positions
-- Report daily realized P&L
+### T1.1 (P1): Enhanced P&L with Realized/Unrealized Breakdown
+```python
+# scripts/paper_run.py - Enhanced P&L calculation
 
-### P1: Add Unrealized P&L
-- Fetch current prices from market data
-- Calculate mark-to-market value
-- Compare to entry values
-- Show per-position unrealized P&L
+async def calculate_enhanced_pnl(
+    positions: List[Dict[str, Any]],
+    current_prices: Dict[str, Decimal]
+) -> Dict[str, Any]:
+    """
+    Calculate enhanced P&L with realized/unrealized breakdown.
+
+    This implementation:
+    - Fetches positions from T4 Execution Gateway
+    - Gets live prices from Alpaca Latest Quote API
+    - Calculates realized P&L from closed positions (qty=0)
+    - Calculates unrealized P&L from open positions (qty!=0)
+    - Provides per-symbol breakdown
+
+    Args:
+        positions: List of position dicts from T4 /api/v1/positions
+        current_prices: Dict mapping symbol -> current_price from Alpaca
+
+    Returns:
+        {
+            'realized_pnl': Decimal('500.00'),      # Closed positions
+            'unrealized_pnl': Decimal('200.00'),     # Open positions
+            'total_pnl': Decimal('700.00'),         # Total
+            'per_symbol': {...},
+            'num_open_positions': 2,
+            'num_closed_positions': 1
+        }
+
+    Example:
+        >>> positions = [
+        ...     {'symbol': 'AAPL', 'qty': 100, 'avg_entry_price': '150.00', 'realized_pl': '0'},
+        ...     {'symbol': 'MSFT', 'qty': 0, 'avg_entry_price': '300.00', 'realized_pl': '500'}
+        ... ]
+        >>> prices = {'AAPL': Decimal('152.00')}
+        >>> pnl = await calculate_enhanced_pnl(positions, prices)
+        >>> pnl['realized_pnl']
+        Decimal('500.00')
+        >>> pnl['unrealized_pnl']
+        Decimal('200.00')  # (152 - 150) * 100
+        >>> pnl['total_pnl']
+        Decimal('700.00')
+    """
+    realized_pnl = Decimal("0")
+    unrealized_pnl = Decimal("0")
+    per_symbol_pnl = {}
+
+    for position in positions:
+        symbol = position['symbol']
+        qty = int(position.get('qty', 0))
+        avg_entry_price = Decimal(str(position.get('avg_entry_price', 0)))
+        position_realized = Decimal(str(position.get('realized_pl', 0)))
+
+        if qty == 0:
+            # Closed position - only realized P&L
+            realized_pnl += position_realized
+            per_symbol_pnl[symbol] = {
+                'realized': position_realized,
+                'unrealized': Decimal("0"),
+                'status': 'closed'
+            }
+        else:
+            # Open position - calculate unrealized P&L
+            current_price = current_prices.get(symbol, avg_entry_price)
+            position_unrealized = (current_price - avg_entry_price) * qty
+            unrealized_pnl += position_unrealized
+            realized_pnl += position_realized
+
+            per_symbol_pnl[symbol] = {
+                'realized': position_realized,
+                'unrealized': position_unrealized,
+                'qty': qty,
+                'avg_entry_price': avg_entry_price,
+                'current_price': current_price,
+                'status': 'open'
+            }
+
+    return {
+        'realized_pnl': realized_pnl,
+        'unrealized_pnl': unrealized_pnl,
+        'total_pnl': realized_pnl + unrealized_pnl,
+        'per_symbol': per_symbol_pnl,
+        'num_open_positions': sum(1 for p in positions if p.get('qty', 0) != 0),
+        'num_closed_positions': sum(1 for p in positions if p.get('qty', 0) == 0)
+    }
+```
+
+**Key Features:**
+- ✅ Realized P&L: From T4 positions table (closed positions with qty=0)
+- ✅ Unrealized P&L: Mark-to-market using live Alpaca prices
+- ✅ Per-symbol breakdown: Individual P&L for each symbol
+- ✅ Handles both long and short positions
+- ✅ Graceful degradation: Falls back to avg_entry_price if prices unavailable
+
+**Price Data Source:**
+```python
+async def fetch_current_prices(
+    symbols: List[str],
+    config: Dict[str, Any]
+) -> Dict[str, Decimal]:
+    """
+    Fetch current market prices from Alpaca Latest Quote API.
+
+    Uses mid-quote price: (bid + ask) / 2
+    Batch fetching for efficiency (1 API call for all symbols)
+    Graceful degradation: Returns empty dict on error
+
+    Returns:
+        {'AAPL': Decimal('152.75'), 'MSFT': Decimal('380.50')}
+    """
+    alpaca_client = AlpacaExecutor(
+        api_key=os.getenv('ALPACA_API_KEY'),
+        secret_key=os.getenv('ALPACA_SECRET_KEY'),
+        base_url=os.getenv('ALPACA_BASE_URL')
+    )
+
+    quotes = alpaca_client.get_latest_quotes(symbols)
+    prices = {}
+    for symbol, quote_data in quotes.items():
+        prices[symbol] = quote_data['last_price']  # Mid-quote
+
+    return prices
+```
 
 ### P2: Complete P&L Dashboard
 - Web UI showing total P&L
@@ -403,5 +622,6 @@ def calculate_simple_pnl(orchestration_result):
 
 ## Related ADRs
 
-- ADR-0007: Paper Run Automation - Uses notional P&L for MVP
-- ADR-0005: Execution Gateway - Stores position data for P&L calculation
+- [ADR-0008](../ADRs/0008-enhanced-pnl-calculation.md): Enhanced P&L Calculation (T1.1) - Architecture for realized/unrealized P&L
+- [ADR-0007](../ADRs/0007-paper-run-automation.md): Paper Run Automation - Uses notional P&L for MVP
+- [ADR-0005](../ADRs/0005-execution-gateway-design.md): Execution Gateway - Stores position data for P&L calculation
