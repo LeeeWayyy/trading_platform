@@ -86,13 +86,13 @@ git checkout -b feature/task-name     # Create feature branch
 git commit -m "Progressive commit"    # Commit often (every 30-60 min)
 git push -u origin feature/task-name  # Push regularly
 gh pr create                          # Create pull request
-gh pr comment <PR> --body "@codex"    # Request automated review
+gh pr comment <PR> --body "@codex @gemini-code-assist" # Request automated reviews
 ```
 
 **IMPORTANT:** See `/docs/STANDARDS/GIT_WORKFLOW.md` for:
 - Progressive committing requirements (commit every 30-60 min)
 - PR creation workflow and templates
-- Codex review requirements (MUST @codex on all PRs)
+- Automated review requirements (MUST @codex @gemini-code-assist on all PRs)
 - Branch naming conventions
 
 ## Development Workflow
