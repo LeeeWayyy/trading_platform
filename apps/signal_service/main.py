@@ -49,6 +49,17 @@ from .model_registry import ModelRegistry
 from .signal_generator import SignalGenerator
 from libs.redis_client import RedisClient, FeatureCache, RedisConnectionError
 
+
+def _format_database_url_for_logging(database_url: str) -> str:
+    """Return a sanitized database URL suitable for logs."""
+    if not database_url:
+        return "unknown"
+
+    sanitized = database_url.split('://', 1)[-1]
+    if '@' in sanitized:
+        sanitized = sanitized.split('@', 1)[1]
+    return sanitized
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -173,7 +184,10 @@ async def lifespan(app: FastAPI):
 
     try:
         # Step 1: Initialize ModelRegistry
-        logger.info(f"Connecting to database: {settings.database_url.split('@')[1]}")
+        logger.info(
+            "Connecting to database: %s",
+            _format_database_url_for_logging(settings.database_url),
+        )
         model_registry = ModelRegistry(settings.database_url)
 
         # Step 2: Load active model
