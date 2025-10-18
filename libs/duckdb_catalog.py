@@ -104,19 +104,48 @@ class DuckDBCatalog:
         Initialize DuckDB catalog with a new connection.
 
         Args:
-            read_only: If True, creates read-only connection.
-                      Note: read_only must be False for in-memory databases.
+            read_only: Must be False for in-memory databases (default).
                       For file-based databases, read_only=True is supported.
+
+        Raises:
+            ValueError: If read_only=True with in-memory database
 
         Examples:
             Create catalog for analytics (default):
 
             >>> catalog = DuckDBCatalog()
 
-            Note: In-memory databases require read_only=False.
+            Note: In-memory databases cannot be opened in read-only mode.
         """
+        if read_only:
+            raise ValueError(
+                "In-memory DuckDB databases cannot be opened in read-only mode. "
+                "Use read_only=False (default) or switch to file-based database."
+            )
         self.conn = duckdb.connect(":memory:", read_only=read_only)
         self._registered_tables: dict[str, str] = {}
+
+    def _validate_table_name(self, table_name: str) -> None:
+        """
+        Validate table name against registered tables to prevent SQL injection.
+
+        Args:
+            table_name: Table name to validate
+
+        Raises:
+            ValueError: If table_name is not registered
+
+        Examples:
+            >>> catalog._validate_table_name("market_data")  # OK if registered
+            >>> catalog._validate_table_name("'; DROP TABLE users; --")  # Raises ValueError
+        """
+        if table_name not in self._registered_tables:
+            available = list(self._registered_tables.keys())
+            raise ValueError(
+                f"Table '{table_name}' is not registered. "
+                f"Available tables: {available if available else 'none'}. "
+                f"Use register_table() to register tables first."
+            )
 
     def register_table(
         self,
@@ -189,7 +218,12 @@ class DuckDBCatalog:
         # Track registered tables
         self._registered_tables[table_name] = ", ".join(paths)
 
-    def query(self, sql: str, return_format: str = "polars") -> Union[pl.DataFrame, "pd.DataFrame"]:
+    def query(
+        self,
+        sql: str,
+        params: Optional[List] = None,
+        return_format: str = "polars"
+    ) -> Union[pl.DataFrame, "pd.DataFrame"]:
         """
         Execute SQL query and return results.
 
@@ -201,7 +235,10 @@ class DuckDBCatalog:
         5. Return results in requested format
 
         Args:
-            sql: SQL query string (supports full DuckDB SQL syntax)
+            sql: SQL query string (supports full DuckDB SQL syntax).
+                Use ? placeholders for parameterized queries.
+            params: Optional list of parameters for parameterized queries.
+                   Prevents SQL injection attacks.
             return_format: Output format - "polars" (default) or "pandas"
 
         Returns:
@@ -214,6 +251,13 @@ class DuckDBCatalog:
             Simple SELECT:
 
             >>> result = catalog.query("SELECT * FROM market_data LIMIT 5")
+
+            Parameterized query (prevents SQL injection):
+
+            >>> result = catalog.query(
+            ...     "SELECT * FROM market_data WHERE symbol = ? AND date >= ?",
+            ...     params=["AAPL", "2024-01-01"]
+            ... )
 
             Filtered query (fast - predicate pushdown):
 
@@ -255,7 +299,11 @@ class DuckDBCatalog:
             ...     WHERE symbol IN ('AAPL', 'MSFT')
             ... \"\"\")
         """
-        result = self.conn.execute(sql)
+        # Execute query with or without parameters
+        if params is not None:
+            result = self.conn.execute(sql, params)
+        else:
+            result = self.conn.execute(sql)
 
         if return_format == "polars":
             return result.pl()
@@ -277,12 +325,16 @@ class DuckDBCatalog:
         Returns:
             Sorted list of unique symbol strings
 
+        Raises:
+            ValueError: If table_name is not registered
+
         Examples:
             >>> catalog.register_table("market_data", "data/adjusted/*/*.parquet")
             >>> symbols = catalog.get_symbols()
             >>> print(symbols)
             ['AAPL', 'GOOGL', 'MSFT']
         """
+        self._validate_table_name(table_name)
         result = self.query(
             f"SELECT DISTINCT symbol FROM {table_name} ORDER BY symbol"
         )
@@ -298,12 +350,16 @@ class DuckDBCatalog:
         Returns:
             Tuple of (min_date, max_date) as ISO format strings
 
+        Raises:
+            ValueError: If table_name is not registered
+
         Examples:
             >>> catalog.register_table("market_data", "data/adjusted/*/*.parquet")
             >>> min_date, max_date = catalog.get_date_range()
             >>> print(f"Data from {min_date} to {max_date}")
             Data from 2024-01-01 to 2024-12-31
         """
+        self._validate_table_name(table_name)
         result = self.query(
             f"SELECT MIN(date) AS min_date, MAX(date) AS max_date FROM {table_name}"
         )
@@ -328,6 +384,9 @@ class DuckDBCatalog:
         Returns:
             Polars DataFrame with summary statistics
 
+        Raises:
+            ValueError: If table_name is not registered
+
         Examples:
             >>> catalog.register_table("market_data", "data/adjusted/*/*.parquet")
             >>> stats = catalog.get_stats()
@@ -341,6 +400,7 @@ class DuckDBCatalog:
             │ 756       │ 3          │ 2024-01-01 │ 2024-12-31   │
             └───────────┴────────────┴────────────┴──────────────┘
         """
+        self._validate_table_name(table_name)
         return self.query(f"""
             SELECT
                 COUNT(*) AS row_count,
@@ -384,6 +444,48 @@ class DuckDBCatalog:
 
 # Helper functions for common analytics patterns
 
+def _build_where_clause(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+) -> tuple[str, List]:
+    """
+    Build WHERE clause and parameters for common time-series queries.
+
+    This function extracts the duplicate WHERE clause building logic
+    used by calculate_returns() and calculate_sma().
+
+    Args:
+        symbol: Stock symbol (e.g., "AAPL")
+        start_date: Optional start date (ISO format: "YYYY-MM-DD")
+        end_date: Optional end date (ISO format: "YYYY-MM-DD")
+
+    Returns:
+        Tuple of (where_sql, params) where:
+        - where_sql: SQL WHERE clause string (e.g., "symbol = ? AND date >= ?")
+        - params: List of parameter values (e.g., ["AAPL", "2024-01-01"])
+
+    Examples:
+        >>> where_sql, params = _build_where_clause("AAPL", "2024-01-01")
+        >>> print(where_sql)
+        symbol = ? AND date >= ?
+        >>> print(params)
+        ['AAPL', '2024-01-01']
+    """
+    where_clauses = ["symbol = ?"]
+    params = [symbol]
+
+    if start_date:
+        where_clauses.append("date >= ?")
+        params.append(start_date)
+    if end_date:
+        where_clauses.append("date <= ?")
+        params.append(end_date)
+
+    where_sql = " AND ".join(where_clauses)
+    return where_sql, params
+
+
 def calculate_returns(
     catalog: DuckDBCatalog,
     symbol: str,
@@ -406,6 +508,9 @@ def calculate_returns(
     Returns:
         Polars DataFrame with columns: symbol, date, close, daily_return
 
+    Raises:
+        ValueError: If table_name is not registered
+
     Examples:
         Calculate returns for AAPL in 2024:
 
@@ -424,18 +529,11 @@ def calculate_returns(
         │ ...    │ ...        │ ...    │ ...          │
         └────────┴────────────┴────────┴──────────────┘
     """
-    # Build WHERE clause conditions
-    where_clauses = ["symbol = ?"]
-    params = [symbol]
+    # Validate table name to prevent SQL injection
+    catalog._validate_table_name(table_name)
 
-    if start_date:
-        where_clauses.append("date >= ?")
-        params.append(start_date)
-    if end_date:
-        where_clauses.append("date <= ?")
-        params.append(end_date)
-
-    where_sql = " AND ".join(where_clauses)
+    # Build WHERE clause using helper function (DRY)
+    where_sql, params = _build_where_clause(symbol, start_date, end_date)
 
     sql = f"""
     SELECT
@@ -476,6 +574,9 @@ def calculate_sma(
     Returns:
         Polars DataFrame with columns: symbol, date, close, sma_{window}
 
+    Raises:
+        ValueError: If table_name is not registered
+
     Examples:
         Calculate 20-day SMA for AAPL:
 
@@ -494,18 +595,11 @@ def calculate_sma(
         │ ...    │ ...        │ ...    │ ...    │
         └────────┴────────────┴────────┴────────┘
     """
-    # Build WHERE clause conditions
-    where_clauses = ["symbol = ?"]
-    params = [symbol]
+    # Validate table name to prevent SQL injection
+    catalog._validate_table_name(table_name)
 
-    if start_date:
-        where_clauses.append("date >= ?")
-        params.append(start_date)
-    if end_date:
-        where_clauses.append("date <= ?")
-        params.append(end_date)
-
-    where_sql = " AND ".join(where_clauses)
+    # Build WHERE clause using helper function (DRY)
+    where_sql, params = _build_where_clause(symbol, start_date, end_date)
 
     sql = f"""
     SELECT

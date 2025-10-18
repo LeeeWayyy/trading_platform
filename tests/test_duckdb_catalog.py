@@ -577,3 +577,227 @@ def test_multiple_catalogs():
 
     catalog1.close()
     catalog2.close()
+
+
+# ============================================================================
+# Security Tests (Added after automated code review)
+# ============================================================================
+
+
+def test_read_only_parameter_validation():
+    """
+    Test that read_only=True raises ValueError for in-memory database.
+
+    Security issue identified by: Gemini Code Assist
+    Fix: Proactive error handling in __init__
+    """
+    with pytest.raises(ValueError, match="In-memory DuckDB databases cannot be opened in read-only mode"):
+        DuckDBCatalog(read_only=True)
+
+
+def test_table_name_validation_get_symbols(temp_data_dir):
+    """
+    Test that get_symbols() validates table name to prevent SQL injection.
+
+    Security issue identified by: Codex and Gemini Code Assist
+    Fix: Added _validate_table_name() method
+    """
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    # Valid table name should work
+    symbols = catalog.get_symbols("market_data")
+    assert len(symbols) == 3
+
+    # Invalid table name should raise ValueError
+    with pytest.raises(ValueError, match="is not registered"):
+        catalog.get_symbols("'; DROP TABLE users; --")
+
+    # Unregistered table should raise ValueError
+    with pytest.raises(ValueError, match="is not registered"):
+        catalog.get_symbols("nonexistent_table")
+
+    catalog.close()
+
+
+def test_table_name_validation_get_date_range(temp_data_dir):
+    """
+    Test that get_date_range() validates table name to prevent SQL injection.
+
+    Security issue identified by: Codex and Gemini Code Assist
+    Fix: Added _validate_table_name() method
+    """
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    # Valid table name should work
+    min_date, max_date = catalog.get_date_range("market_data")
+    assert min_date == "2024-01-01"
+
+    # Invalid table name should raise ValueError
+    with pytest.raises(ValueError, match="is not registered"):
+        catalog.get_date_range("'; DROP TABLE users; --")
+
+    catalog.close()
+
+
+def test_table_name_validation_get_stats(temp_data_dir):
+    """
+    Test that get_stats() validates table name to prevent SQL injection.
+
+    Security issue identified by: Codex and Gemini Code Assist
+    Fix: Added _validate_table_name() method
+    """
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    # Valid table name should work
+    stats = catalog.get_stats("market_data")
+    assert stats["row_count"][0] == 90
+
+    # Invalid table name should raise ValueError
+    with pytest.raises(ValueError, match="is not registered"):
+        catalog.get_stats("'; DROP TABLE users; --")
+
+    catalog.close()
+
+
+def test_table_name_validation_calculate_returns(temp_data_dir):
+    """
+    Test that calculate_returns() validates table name to prevent SQL injection.
+
+    Security issue identified by: Codex and Gemini Code Assist
+    Fix: Added _validate_table_name() call in calculate_returns()
+    """
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    # Valid table name should work
+    result = calculate_returns(catalog, "AAPL", table_name="market_data")
+    assert len(result) == 30
+
+    # Invalid table name should raise ValueError
+    with pytest.raises(ValueError, match="is not registered"):
+        calculate_returns(catalog, "AAPL", table_name="'; DROP TABLE users; --")
+
+    catalog.close()
+
+
+def test_table_name_validation_calculate_sma(temp_data_dir):
+    """
+    Test that calculate_sma() validates table name to prevent SQL injection.
+
+    Security issue identified by: Codex and Gemini Code Assist
+    Fix: Added _validate_table_name() call in calculate_sma()
+    """
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    # Valid table name should work
+    result = calculate_sma(catalog, "AAPL", table_name="market_data")
+    assert len(result) == 30
+
+    # Invalid table name should raise ValueError
+    with pytest.raises(ValueError, match="is not registered"):
+        calculate_sma(catalog, "AAPL", table_name="'; DROP TABLE users; --")
+
+    catalog.close()
+
+
+def test_parameterized_query_support(temp_data_dir):
+    """
+    Test that query() method supports parameterized queries.
+
+    Security issue identified by: Gemini Code Assist
+    Fix: Added params parameter to query() method
+    """
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    # Test parameterized query with single parameter
+    result = catalog.query(
+        "SELECT * FROM market_data WHERE symbol = ?",
+        params=["AAPL"]
+    )
+    assert len(result) == 30
+    assert all(result["symbol"] == "AAPL")
+
+    # Test parameterized query with multiple parameters
+    result = catalog.query(
+        "SELECT * FROM market_data WHERE symbol = ? AND date >= ?",
+        params=["AAPL", "2024-01-15"]
+    )
+    assert len(result) > 0
+    assert all(result["symbol"] == "AAPL")
+    assert all(result["date"] >= date(2024, 1, 15))
+
+    # Test that non-parameterized queries still work
+    result = catalog.query("SELECT * FROM market_data WHERE symbol = 'MSFT'")
+    assert len(result) == 30
+    assert all(result["symbol"] == "MSFT")
+
+    catalog.close()
+
+
+def test_sql_injection_prevention_in_where_clauses(temp_data_dir):
+    """
+    Test that WHERE clauses in helper functions use parameterized queries.
+
+    Security issue identified by: Codex (initially fixed)
+    Validation: Ensure parameterized queries are used
+    """
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    # Test that malicious input in symbol parameter doesn't cause SQL injection
+    # This should return no results (symbol doesn't exist) rather than executing malicious code
+    malicious_symbol = "AAPL' OR '1'='1"
+    result = calculate_returns(catalog, malicious_symbol)
+
+    # Should return empty result (no such symbol exists)
+    assert len(result) == 0
+
+    # Same test for calculate_sma
+    result = calculate_sma(catalog, malicious_symbol)
+    assert len(result) == 0
+
+    catalog.close()
+
+
+def test_dry_principle_where_clause_building(temp_data_dir):
+    """
+    Test that _build_where_clause helper function is used consistently.
+
+    Code quality issue identified by: Gemini Code Assist
+    Fix: Extracted duplicate WHERE clause logic into _build_where_clause()
+    """
+    from libs.duckdb_catalog import _build_where_clause
+
+    # Test with only symbol
+    where_sql, params = _build_where_clause("AAPL")
+    assert where_sql == "symbol = ?"
+    assert params == ["AAPL"]
+
+    # Test with symbol and start_date
+    where_sql, params = _build_where_clause("AAPL", start_date="2024-01-01")
+    assert where_sql == "symbol = ? AND date >= ?"
+    assert params == ["AAPL", "2024-01-01"]
+
+    # Test with symbol, start_date, and end_date
+    where_sql, params = _build_where_clause("AAPL", start_date="2024-01-01", end_date="2024-01-31")
+    assert where_sql == "symbol = ? AND date >= ? AND date <= ?"
+    assert params == ["AAPL", "2024-01-01", "2024-01-31"]
+
+    # Verify that both helper functions produce identical results for same inputs
+    catalog = DuckDBCatalog()
+    catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
+
+    returns_result = calculate_returns(catalog, "AAPL", "2024-01-01", "2024-01-10")
+    sma_result = calculate_sma(catalog, "AAPL", start_date="2024-01-01", end_date="2024-01-10")
+
+    # Both should filter to same date range
+    assert len(returns_result) == 10
+    assert len(sma_result) == 10
+    assert returns_result["date"].to_list() == sma_result["date"].to_list()
+
+    catalog.close()
