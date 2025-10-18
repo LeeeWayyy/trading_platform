@@ -54,7 +54,7 @@ import asyncio
 import argparse
 import json
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
@@ -1010,7 +1010,7 @@ def format_console_output(
 
     Example output:
         ========================================================================
-          PAPER TRADING RUN - 2025-01-17 09:00:00 EST
+          PAPER TRADING RUN - 2025-01-17T09:00:00+00:00
         ========================================================================
 
         Symbols:      AAPL, MSFT, GOOGL
@@ -1021,9 +1021,9 @@ def format_console_output(
           PAPER RUN COMPLETE - Status: COMPLETED ✓
         ========================================================================
     """
-    # Header with timestamp
+    # Header with timezone-aware UTC timestamp (ISO 8601 format)
     print("\n" + "=" * 80)
-    print(f"  PAPER TRADING RUN - {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"  PAPER TRADING RUN - {datetime.now(timezone.utc).isoformat()}")
     print("=" * 80 + "\n")
 
     # Configuration summary
@@ -1074,7 +1074,7 @@ async def save_results(
         - Does nothing if output_file not specified
         - Creates parent directories automatically
         - Converts Decimal to float for JSON serialization
-        - ISO format timestamp for easy parsing
+        - Timezone-aware UTC timestamp in ISO 8601 format for easy parsing
     """
     if not config.get('output_file'):
         return
@@ -1118,8 +1118,10 @@ async def save_results(
             'duration_seconds': pnl_metrics['duration_seconds'],
         }
 
+    # Create output data with timezone-aware UTC timestamp (ISO 8601 format)
     output_data = {
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'timezone': 'UTC',
         'parameters': {
             'symbols': config['symbols'],
             'capital': float(config['capital']),
