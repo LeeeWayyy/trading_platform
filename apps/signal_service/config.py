@@ -208,6 +208,90 @@ class Settings(BaseSettings):
     """
 
     # ========================================================================
+    # Redis Configuration (T1.2 - Feature Store & Event Bus)
+    # ========================================================================
+
+    redis_enabled: bool = False
+    """
+    Enable Redis feature caching and event publishing.
+
+    When enabled:
+        - Features are cached in Redis for faster retrieval (10x speedup on cache hits)
+        - Events are published to Redis channels for event-driven workflows
+
+    When disabled:
+        - Service operates normally without caching (graceful degradation)
+        - Feature generation takes full time (~50ms per symbol)
+
+    Example:
+        export REDIS_ENABLED=true  # Enable Redis features
+        export REDIS_ENABLED=false  # Disable Redis (default)
+
+    Notes:
+        - Requires Redis server running (redis-server)
+        - Service starts successfully even if Redis is unreachable
+        - See docs/IMPLEMENTATION_GUIDES/t1.2-redis-integration.md
+    """
+
+    redis_host: str = "localhost"
+    """
+    Redis server hostname.
+
+    Example:
+        export REDIS_HOST=localhost  # Local Redis
+        export REDIS_HOST=redis.example.com  # Remote Redis
+
+    Notes:
+        - Only used if redis_enabled=true
+        - Defaults to localhost for development
+    """
+
+    redis_port: int = 6379
+    """
+    Redis server port.
+
+    Example:
+        export REDIS_PORT=6379  # Default Redis port
+
+    Notes:
+        - Only used if redis_enabled=true
+        - Standard Redis port is 6379
+    """
+
+    redis_db: int = 0
+    """
+    Redis database number (0-15).
+
+    Example:
+        export REDIS_DB=0  # Production
+        export REDIS_DB=1  # Testing (isolate test data)
+
+    Notes:
+        - Only used if redis_enabled=true
+        - Redis supports 16 databases (0-15)
+        - Use different DB for testing to avoid conflicts
+    """
+
+    redis_ttl: int = 3600
+    """
+    Feature cache TTL (time-to-live) in seconds.
+
+    Cached features expire after this duration. Default: 3600s (1 hour).
+
+    Example:
+        export REDIS_TTL=3600  # 1 hour (default)
+        export REDIS_TTL=7200  # 2 hours
+        export REDIS_TTL=1800  # 30 minutes
+
+    Notes:
+        - Only used if redis_enabled=true
+        - Features are deterministic, but TTL handles data corrections
+        - Lower TTL = more cache misses but fresher data
+        - Higher TTL = more cache hits but risk of stale data
+        - Recommended: 1-2 hours for production
+    """
+
+    # ========================================================================
     # Pydantic Settings Configuration
     # ========================================================================
 

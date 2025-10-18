@@ -47,6 +47,7 @@ import uvicorn
 from .config import Settings
 from .model_registry import ModelRegistry
 from .signal_generator import SignalGenerator
+from libs.redis_client import RedisClient, FeatureCache, RedisConnectionError
 
 # Configure logging
 logging.basicConfig(
@@ -61,6 +62,8 @@ settings = Settings()
 # Global state (initialized in lifespan)
 model_registry: Optional[ModelRegistry] = None
 signal_generator: Optional[SignalGenerator] = None
+redis_client: Optional[RedisClient] = None
+feature_cache: Optional[FeatureCache] = None
 
 
 # ==============================================================================
@@ -141,12 +144,14 @@ async def lifespan(app: FastAPI):
     Startup:
         1. Initialize ModelRegistry with database connection
         2. Load active model from database
-        3. Initialize SignalGenerator with loaded model
-        4. Log service readiness
+        3. Initialize Redis client (if enabled)
+        4. Initialize SignalGenerator with loaded model and feature cache
+        5. Log service readiness
 
     Shutdown:
-        1. Log shutdown message
-        2. Clean up resources (connections, file handles)
+        1. Stop background tasks
+        2. Close Redis connection
+        3. Clean up resources (connections, file handles)
 
     Example:
         This is automatically called by FastAPI when starting the service.
@@ -154,12 +159,13 @@ async def lifespan(app: FastAPI):
     Notes:
         - Uses global variables for registry and generator
         - Models are loaded from database at startup
+        - Redis is optional (graceful degradation)
         - Hot reload is handled by background task (Phase 5)
 
     Raises:
         RuntimeError: If model loading fails at startup
     """
-    global model_registry, signal_generator
+    global model_registry, signal_generator, redis_client, feature_cache
 
     logger.info("=" * 60)
     logger.info("Signal Service Starting...")
@@ -182,13 +188,52 @@ async def lifespan(app: FastAPI):
 
         logger.info(f"Model loaded: {model_registry.current_metadata.version}")
 
-        # Step 3: Initialize SignalGenerator
+        # Step 3: Initialize Redis client (optional, T1.2)
+        if settings.redis_enabled:
+            logger.info(
+                f"Initializing Redis client: {settings.redis_host}:{settings.redis_port} "
+                f"(db={settings.redis_db})"
+            )
+            try:
+                redis_client = RedisClient(
+                    host=settings.redis_host,
+                    port=settings.redis_port,
+                    db=settings.redis_db,
+                )
+
+                # Verify connection
+                if redis_client.health_check():
+                    logger.info("Redis connected successfully")
+
+                    # Initialize feature cache
+                    feature_cache = FeatureCache(
+                        redis=redis_client,
+                        default_ttl=settings.redis_ttl,
+                    )
+                    logger.info(f"Feature cache initialized (TTL: {settings.redis_ttl}s)")
+                else:
+                    logger.warning("Redis health check failed, running without cache")
+                    redis_client = None
+                    feature_cache = None
+
+            except RedisConnectionError as e:
+                logger.warning(f"Failed to connect to Redis: {e}")
+                logger.warning("Service will continue without Redis (graceful degradation)")
+                redis_client = None
+                feature_cache = None
+        else:
+            logger.info("Redis disabled (settings.redis_enabled=False)")
+            redis_client = None
+            feature_cache = None
+
+        # Step 4: Initialize SignalGenerator
         logger.info(f"Initializing signal generator (data: {settings.data_dir})")
         signal_generator = SignalGenerator(
             model_registry=model_registry,
             data_dir=settings.data_dir,
             top_n=settings.top_n,
             bottom_n=settings.bottom_n,
+            feature_cache=feature_cache,  # Pass feature cache (None if disabled)
         )
 
         logger.info("=" * 60)
@@ -198,10 +243,15 @@ async def lifespan(app: FastAPI):
         logger.info(f"  - Top N (long): {settings.top_n}")
         logger.info(f"  - Bottom N (short): {settings.bottom_n}")
         logger.info(f"  - Data directory: {settings.data_dir}")
+        logger.info(f"  - Redis enabled: {settings.redis_enabled}")
+        if settings.redis_enabled and feature_cache:
+            logger.info(f"  - Feature cache: ACTIVE (TTL: {settings.redis_ttl}s)")
+        else:
+            logger.info(f"  - Feature cache: DISABLED")
         logger.info(f"  - Listening on: {settings.host}:{settings.port}")
         logger.info("=" * 60)
 
-        # Step 4: Start background model reload task
+        # Step 5: Start background model reload task
         logger.info("Starting background model reload task...")
         reload_task = asyncio.create_task(model_reload_task())
 
@@ -220,6 +270,12 @@ async def lifespan(app: FastAPI):
                 await reload_task
             except asyncio.CancelledError:
                 pass
+
+        # Close Redis connection
+        if redis_client is not None:
+            logger.info("Closing Redis connection...")
+            redis_client.close()
+
         logger.info("Signal Service shutting down...")
 
 
@@ -379,6 +435,8 @@ class HealthResponse(BaseModel):
         status: Service health status ("healthy" or "unhealthy")
         model_loaded: Whether ML model is loaded
         model_info: Information about loaded model
+        redis_status: Redis connection status (T1.2)
+        feature_cache_enabled: Whether feature caching is active (T1.2)
         timestamp: Current server timestamp
 
     Example:
@@ -390,6 +448,8 @@ class HealthResponse(BaseModel):
                 "version": "v1.0.0",
                 "activated_at": "2024-12-31T00:00:00Z"
             },
+            "redis_status": "connected",
+            "feature_cache_enabled": true,
             "timestamp": "2024-12-31T10:30:00Z"
         }
     """
@@ -397,6 +457,8 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Service health status")
     model_loaded: bool = Field(..., description="Whether model is loaded")
     model_info: Optional[dict] = Field(None, description="Model metadata")
+    redis_status: str = Field(..., description="Redis connection status (connected/disconnected/disabled)")
+    feature_cache_enabled: bool = Field(..., description="Whether feature caching is active")
     timestamp: str = Field(..., description="Current timestamp")
 
 
@@ -481,9 +543,10 @@ async def health_check():
         - Service is running
         - Model is loaded
         - Model metadata is accessible
+        - Redis connection status (T1.2)
 
     Returns:
-        HealthResponse with service and model status
+        HealthResponse with service, model, and Redis status
 
     Status Codes:
         - 200: Service is healthy
@@ -492,7 +555,7 @@ async def health_check():
     Example:
         GET /health
 
-        Response (200 OK):
+        Response (200 OK) with Redis enabled:
         {
             "status": "healthy",
             "model_loaded": true,
@@ -501,6 +564,18 @@ async def health_check():
                 "version": "v1.0.0",
                 "activated_at": "2024-12-31T00:00:00Z"
             },
+            "redis_status": "connected",
+            "feature_cache_enabled": true,
+            "timestamp": "2024-12-31T10:30:00Z"
+        }
+
+        Response (200 OK) with Redis disabled:
+        {
+            "status": "healthy",
+            "model_loaded": true,
+            "model_info": {...},
+            "redis_status": "disabled",
+            "feature_cache_enabled": false,
             "timestamp": "2024-12-31T10:30:00Z"
         }
     """
@@ -512,6 +587,16 @@ async def health_check():
 
     metadata = model_registry.current_metadata
 
+    # Check Redis status (T1.2)
+    if not settings.redis_enabled:
+        redis_status_str = "disabled"
+    elif redis_client is None:
+        redis_status_str = "disconnected"
+    elif redis_client.health_check():
+        redis_status_str = "connected"
+    else:
+        redis_status_str = "disconnected"
+
     return HealthResponse(
         status="healthy",
         model_loaded=True,
@@ -520,6 +605,8 @@ async def health_check():
             "version": metadata.version,
             "activated_at": metadata.activated_at.isoformat() if metadata.activated_at else None,
         },
+        redis_status=redis_status_str,
+        feature_cache_enabled=(feature_cache is not None),
         timestamp=datetime.utcnow().isoformat() + "Z",
     )
 

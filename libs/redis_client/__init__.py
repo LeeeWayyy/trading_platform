@@ -27,13 +27,14 @@ See Also:
     - docs/CONCEPTS/redis-patterns.md for usage patterns
 """
 
-from .client import RedisClient
+from .client import RedisClient, RedisConnectionError
 from .feature_cache import FeatureCache
 from .events import SignalEvent, OrderEvent, PositionEvent
 from .event_publisher import EventPublisher
 
 __all__ = [
     "RedisClient",
+    "RedisConnectionError",
     "FeatureCache",
     "SignalEvent",
     "OrderEvent",

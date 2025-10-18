@@ -71,6 +71,8 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0005](./ADRs/0005-execution-gateway-architecture.md) | Execution gateway (idempotency, DRY_RUN) | ✅ Accepted |
 | [0006](./ADRs/0006-orchestrator-service.md) | Orchestrator service (async, position sizing) | ✅ Accepted |
 | [0007](./ADRs/0007-paper-run-automation.md) | Paper run automation (CLI script vs service) | ✅ Accepted |
+| [0008](./ADRs/0008-enhanced-pnl-calculation.md) | Enhanced P&L calculation (realized/unrealized) | ✅ Accepted |
+| [0009](./ADRs/0009-redis-integration.md) | Redis integration (feature cache, event bus) | ✅ Accepted |
 
 **How to use ADRs:**
 - **Before modifying architecture:** Check if ADR exists, follow its decisions
@@ -98,6 +100,7 @@ Educational explanations of trading and ML concepts:
 | [hot-reload.md](./CONCEPTS/hot-reload.md) | Zero-downtime model updates | Advanced |
 | [feature-parity.md](./CONCEPTS/feature-parity.md) | Research-production consistency | Advanced |
 | [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |
+| [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |
 
 **Priority:** 🟢 **LOW** - Read when you need to understand domain-specific concepts
 
@@ -112,6 +115,7 @@ Step-by-step implementation instructions for each major task:
 | Guide | Task | Lines | Test Coverage |
 |-------|------|-------|---------------|
 | [t1-data-etl.md](./IMPLEMENTATION_GUIDES/t1-data-etl.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
+| [t1.2-redis-integration.md](./IMPLEMENTATION_GUIDES/t1.2-redis-integration.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
 | [t2-baseline-strategy-qlib.md](./IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md) | Baseline ML strategy | 700+ | Unit tests |
 | [t3-signal-service.md](./IMPLEMENTATION_GUIDES/t3-signal-service.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
 | [t3-p4-fastapi-application.md](./IMPLEMENTATION_GUIDES/t3-p4-fastapi-application.md) | FastAPI implementation | 600+ | Phase 4 tests |
@@ -150,6 +154,7 @@ Post-implementation analysis and learnings:
 | Document | Task | Key Learnings |
 |----------|------|---------------|
 | [p1-p3-testing-journey.md](./LESSONS_LEARNED/p1-p3-testing-journey.md) | T3 testing evolution | Testing strategy evolution |
+| [t1.2-redis-integration-fixes.md](./LESSONS_LEARNED/t1.2-redis-integration-fixes.md) | T1.2 Redis integration | 5 issues found during testing, graceful degradation |
 | [t6-paper-run-retrospective.md](./LESSONS_LEARNED/t6-paper-run-retrospective.md) | T6 retrospective | Intentional MVP simplifications, P1 action items |
 
 **Priority:** 🟢 **LOW** - Read after completing tasks to learn from past experiences
@@ -281,12 +286,13 @@ Documents can have one of these statuses:
 
 ## 📊 Documentation Metrics
 
-- **Total Documents:** 40+ files
-- **Lines of Documentation:** 17,200+ lines
-- **ADRs:** 7 accepted decisions
-- **Implementation Guides:** 9 detailed guides
-- **Concept Docs:** 9 educational explanations
-- **Test Coverage:** 152/152 tests passing (100%)
+- **Total Documents:** 45+ files
+- **Lines of Documentation:** 20,400+ lines
+- **ADRs:** 9 accepted decisions
+- **Implementation Guides:** 10 detailed guides
+- **Concept Docs:** 10 educational explanations
+- **Lessons Learned:** 3 retrospectives
+- **Test Coverage:** 293/296 tests passing (99.0%)
 
 ---
 
@@ -320,6 +326,6 @@ Documents can have one of these statuses:
 
 ---
 
-**Last Updated:** 2025-01-17
+**Last Updated:** 2025-10-18
 **Maintained By:** Development Team
-**Format Version:** 1.0
+**Format Version:** 1.1

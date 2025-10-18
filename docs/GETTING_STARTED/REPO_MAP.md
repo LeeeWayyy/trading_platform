@@ -1,16 +1,22 @@
 # Repo Map
 
 - apps/
-  - signal_service/ — loads model, emits target weights, polls model registry
+  - signal_service/ — loads model, emits target weights, polls model registry, Redis caching
   - execution_gateway/ — Alpaca client, idempotent orders, dry-run flag, webhooks
   - reconciler/ — compares DB vs broker, heals drift
   - risk_manager/ — pre/post-trade checks, circuit breaker integration
   - cli/ — operational scripts for status, breakers, kill switch
 - strategies/
   - alpha_baseline/ — features.py, model.py, pipeline.py (Qlib-based)
+- libs/
+  - data_pipeline/ — ETL, corporate actions, freshness, quality gate
+  - redis_client/ — Redis connection pool, feature cache, event publisher
+  - common/ — shared exceptions, utilities
 - infra/
   - docker-compose.yml, prometheus/, grafana/
-- db/
-  - migrations/ — alembic or sql migrations
-- docs/ — this directory
+- migrations/
+  - 001_create_model_registry.sql — Model registry schema
+  - 002_create_execution_tables.sql — Orders and positions schema
+- docs/ — architecture, guides, concepts, lessons learned
 - prompts/ — guidance for AI coding tools
+- scripts/ — setup, testing, and deployment automation
