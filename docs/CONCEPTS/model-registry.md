@@ -357,7 +357,7 @@ ORDER BY (performance_metrics->>'sharpe')::float DESC;
 
 ### Related Documentation
 - `/docs/ADRs/0004-signal-service-architecture.md` - Why we chose database registry over MLflow-only
-- `/docs/IMPLEMENTATION_GUIDES/t3-signal-service.md` - Step-by-step implementation
+- `/docs/IMPLEMENTATION_GUIDES/p0t3-signal-service.md` - Step-by-step implementation
 - `/docs/CONCEPTS/hot-reload.md` - How hot reload works with model registry
 - `/docs/CONCEPTS/feature-parity.md` - Ensuring research models match production
 

@@ -279,5 +279,5 @@ labels = handler.fetch(col_set="label")
 - [Qlib Data Documentation](https://qlib.readthedocs.io/en/latest/component/data.html)
 - [Pandas MultiIndex Guide](https://pandas.pydata.org/docs/user_guide/advanced.html)
 - [Polars to Pandas Conversion](https://pola-rs.github.io/polars/py-polars/html/reference/api/polars.DataFrame.to_pandas.html)
-- See `/docs/IMPLEMENTATION_GUIDES/t1-data-etl.md` for T1 pipeline details
+- See `/docs/IMPLEMENTATION_GUIDES/p0t1-data-etl.md` for T1 pipeline details
 - See `/docs/CONCEPTS/corporate-actions.md` for adjustment explanation

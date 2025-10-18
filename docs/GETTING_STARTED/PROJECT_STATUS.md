@@ -56,7 +56,7 @@ libs/data_pipeline/
 - Graceful error handling with custom exceptions
 
 **Documentation:**
-- [t1-data-etl.md](./IMPLEMENTATION_GUIDES/t1-data-etl.md) (1,100+ lines)
+- [t1-data-etl.md](./IMPLEMENTATION_GUIDES/p0t1-data-etl.md) (1,100+ lines)
 - [ADR-0001: Data Pipeline Architecture](./ADRs/0001-data-pipeline-architecture.md)
 - [ADR-0002: Exception Hierarchy](./ADRs/0002-exception-hierarchy.md)
 - [CONCEPTS: Corporate Actions](./CONCEPTS/corporate-actions.md)
@@ -138,7 +138,7 @@ apps/signal_service/
 - All graceful degradation scenarios validated
 
 **Documentation:**
-- [t1.2-redis-integration.md](./IMPLEMENTATION_GUIDES/t1.2-redis-integration.md) (850 lines)
+- [t1.2-redis-integration.md](./IMPLEMENTATION_GUIDES/p1.1t2-redis-integration.md) (850 lines)
 - [ADR-0009: Redis Integration](./ADRs/0009-redis-integration.md) (872 lines)
 - [CONCEPTS: Redis Patterns](./CONCEPTS/redis-patterns.md) (650 lines)
 - [LESSONS_LEARNED: T1.2 Fixes](./LESSONS_LEARNED/t1.2-redis-integration-fixes.md) (223 lines)
@@ -178,7 +178,7 @@ strategies/alpha_baseline/
 - **Feature Count:** 158 features (KBAR, KDJ, RSI, MACD, etc.)
 
 **Documentation:**
-- [t2-baseline-strategy-qlib.md](./IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md) (1,500+ lines)
+- [t2-baseline-strategy-qlib.md](./IMPLEMENTATION_GUIDES/p0t2-baseline-strategy.md) (1,500+ lines)
 - [ADR-0003: Baseline Strategy Architecture](./ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md)
 - [CONCEPTS: Alpha158 Features](./CONCEPTS/alpha158-features.md)
 - [CONCEPTS: LightGBM Training](./CONCEPTS/lightgbm-training.md)
@@ -283,10 +283,10 @@ scripts/
 - Zero downtime during updates ✅
 
 **Documentation:**
-- [t3-signal-service.md](./IMPLEMENTATION_GUIDES/t3-signal-service.md) (1,940 lines) - Main guide
-- [t3-p4-fastapi-application.md](./IMPLEMENTATION_GUIDES/t3-p4-fastapi-application.md) (997 lines)
-- [t3-p5-hot-reload.md](./IMPLEMENTATION_GUIDES/t3-p5-hot-reload.md) (961 lines)
-- [t3-p6-integration-tests.md](./IMPLEMENTATION_GUIDES/t3-p6-integration-tests.md) (1,140 lines)
+- [t3-signal-service.md](./IMPLEMENTATION_GUIDES/p0t3-signal-service.md) (1,940 lines) - Main guide
+- [t3-p4-fastapi-application.md](./IMPLEMENTATION_GUIDES/p0t3-p4-fastapi-application.md) (997 lines)
+- [t3-p5-hot-reload.md](./IMPLEMENTATION_GUIDES/p0t3-p5-hot-reload.md) (961 lines)
+- [t3-p6-integration-tests.md](./IMPLEMENTATION_GUIDES/p0t3-p6-integration-tests.md) (1,140 lines)
 - [ADR-0004: Signal Service Architecture](./ADRs/0004-signal-service-architecture.md) (820 lines)
 - [CONCEPTS: Model Registry](./CONCEPTS/model-registry.md) (384 lines)
 - [CONCEPTS: Hot Reload](./CONCEPTS/hot-reload.md) (508 lines)
@@ -399,7 +399,7 @@ CREATE TABLE positions (
 ```
 
 **Documentation:**
-- [t4-execution-gateway.md](./IMPLEMENTATION_GUIDES/t4-execution-gateway.md) (827 lines)
+- [t4-execution-gateway.md](./IMPLEMENTATION_GUIDES/p0t4-execution-gateway.md) (827 lines)
 - [ADR-0005: Execution Gateway Architecture](./ADRs/0005-execution-gateway-architecture.md) (690 lines)
 
 ---

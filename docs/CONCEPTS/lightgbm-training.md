@@ -405,5 +405,5 @@ After training the baseline model:
 - [LightGBM Paper (KDD 2017)](https://papers.nips.cc/paper/6907-lightgbm-a-highly-efficient-gradient-boosting-decision-tree.pdf)
 - [Gradient Boosting Explained](https://explained.ai/gradient-boosting/)
 - [IC (Information Coefficient) in Quant Trading](https://www.investopedia.com/terms/i/informationratio.asp)
-- See `/docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md` for full pipeline
+- See `/docs/IMPLEMENTATION_GUIDES/p0t2-baseline-strategy.md` for full pipeline
 - See `/docs/CONCEPTS/alpha158-features.md` for feature details

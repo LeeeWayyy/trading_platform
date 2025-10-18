@@ -434,7 +434,7 @@ async def test_paper_run_against_real_services():
 ## Documentation Requirements
 
 1. **Concept Doc:** `/docs/CONCEPTS/pnl-calculation.md` - Explain P&L types
-2. **Implementation Guide:** `/docs/IMPLEMENTATION_GUIDES/t6-paper-run.md` - Complete walkthrough
+2. **Implementation Guide:** `/docs/IMPLEMENTATION_GUIDES/p0t6-paper-run.md` - Complete walkthrough
 3. **Update README.md:** Add quick start example with `paper_run.py`
 4. **Update CLAUDE.md:** Add to common commands
 

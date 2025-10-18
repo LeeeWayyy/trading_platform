@@ -616,7 +616,7 @@ CREATE INDEX idx_signal_order_mappings_symbol ON signal_order_mappings(symbol);
 ### Phase 4: Documentation & Validation (Days 8-10)
 
 **Deliverables:**
-- Implementation guide (docs/IMPLEMENTATION_GUIDES/t5-orchestrator.md)
+- Implementation guide (docs/IMPLEMENTATION_GUIDES/p0t5-orchestrator.md)
 - API documentation (OpenAPI spec)
 - Docker Compose setup
 - End-to-end validation script

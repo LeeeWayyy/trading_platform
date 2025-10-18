@@ -80,6 +80,21 @@ make circuit-trip # Manually trip circuit breaker
 make kill-switch  # Cancel all orders, flatten positions, block new signals
 ```
 
+### Git & Pull Requests
+```bash
+git checkout -b feature/task-name     # Create feature branch
+git commit -m "Progressive commit"    # Commit often (every 30-60 min)
+git push -u origin feature/task-name  # Push regularly
+gh pr create                          # Create pull request
+gh pr comment <PR> --body "@codex"    # Request automated review
+```
+
+**IMPORTANT:** See `/docs/STANDARDS/GIT_WORKFLOW.md` for:
+- Progressive committing requirements (commit every 30-60 min)
+- PR creation workflow and templates
+- Codex review requirements (MUST @codex on all PRs)
+- Branch naming conventions
+
 ## Development Workflow
 
 ### Source of Truth (in order of priority)
