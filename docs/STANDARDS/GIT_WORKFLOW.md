@@ -431,9 +431,9 @@ This ensures multiple automated code reviewers catch issues before human review,
 
 **ALL review feedback MUST be addressed before merging. You are NOT allowed to merge unless:**
 
-1. **All High Priority Issues**: MUST be considered and fixed immediately if you notice the issue is indeed exist, and create test cases to cover if necessary
-2. **All Medium Priority Issues**: MUST be considered and fixed immediately if you notice the issue is indeed exist, and create test cases to cover if necessary
-3. **All Low Priority Issues**: MUST be considered and fixed immediately if you notice the issue is indeed exist, and create test cases to cover if necessary
+1. **All High Priority Issues**: MUST be considered and fixed immediately if the issue is confirmed to exist, with test cases created to cover the fix if necessary
+2. **All Medium Priority Issues**: MUST be considered and fixed immediately if the issue is confirmed to exist, with test cases created to cover the fix if necessary
+3. **All Low Priority Issues**: MUST be considered and fixed immediately if the issue is confirmed to exist, with test cases created to cover the fix if necessary
 4. **Only Exception**: Owner explicitly says you can defer specific issues to future work
 
 **After fixing review feedback:**
