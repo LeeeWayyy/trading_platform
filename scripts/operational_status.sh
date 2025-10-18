@@ -80,8 +80,8 @@ check_service_health() {
     local response
     local http_code
 
-    # Try to query health endpoint
-    response=$(curl -s -w "\n%{http_code}" --max-time "$timeout" "$url/health" 2>/dev/null || echo "000")
+    # Try to query health endpoint (allow curl errors to show for diagnostics)
+    response=$(curl -s -w "\n%{http_code}" --max-time "$timeout" "$url/health" || echo "000")
     http_code=$(echo "$response" | tail -n1)
 
     if [ "$http_code" = "200" ]; then
@@ -101,7 +101,7 @@ get_positions() {
     local response
     local http_code
 
-    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$EXECUTION_GATEWAY_URL/api/v1/positions" 2>/dev/null || echo "{}\n000")
+    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$EXECUTION_GATEWAY_URL/api/v1/positions" || echo "{}\n000")
     http_code=$(echo "$response" | tail -n1)
 
     if [ "$http_code" != "200" ]; then
@@ -131,7 +131,7 @@ get_recent_runs() {
     local response
     local http_code
 
-    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$ORCHESTRATOR_URL/api/v1/orchestration/runs?limit=5" 2>/dev/null || echo "{}\n000")
+    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$ORCHESTRATOR_URL/api/v1/orchestration/runs?limit=5" || echo "{}\n000")
     http_code=$(echo "$response" | tail -n1)
 
     if [ "$http_code" != "200" ]; then
@@ -161,7 +161,7 @@ get_pnl_summary() {
     local response
     local http_code
 
-    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$EXECUTION_GATEWAY_URL/api/v1/positions/pnl" 2>/dev/null || echo "{}\n000")
+    response=$(curl -s -w "\n%{http_code}" --max-time 3 "$EXECUTION_GATEWAY_URL/api/v1/positions/pnl" || echo "{}\n000")
     http_code=$(echo "$response" | tail -n1)
 
     if [ "$http_code" != "200" ]; then
@@ -172,12 +172,15 @@ get_pnl_summary() {
     local body
     body=$(echo "$response" | sed '$d')
 
-    # Extract P&L values with single jq call for efficiency
+    # Extract P&L values with single jq call for efficiency (portable bash 3.2+ compatible)
     local realized
     local unrealized
     local total
+    local pnl_values=()
 
-    mapfile -t pnl_values < <(echo "$body" | jq -r '(.realized_pnl // "0.00"), (.unrealized_pnl // "0.00"), (.total_pnl // "0.00")' 2>/dev/null)
+    while IFS= read -r line; do
+        pnl_values+=("$line")
+    done < <(echo "$body" | jq -r '(.realized_pnl // "0.00"), (.unrealized_pnl // "0.00"), (.total_pnl // "0.00")' 2>/dev/null)
     realized=${pnl_values[0]:-"0.00"}
     unrealized=${pnl_values[1]:-"0.00"}
     total=${pnl_values[2]:-"0.00"}
