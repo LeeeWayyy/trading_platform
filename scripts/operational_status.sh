@@ -172,45 +172,28 @@ get_pnl_summary() {
     local body
     body=$(echo "$response" | sed '$d')
 
-    # Extract P&L values
+    # Extract P&L values with single jq call for efficiency
     local realized
     local unrealized
     local total
 
-    realized=$(echo "$body" | jq -r '.realized_pnl // "0.00"' 2>/dev/null || echo "0.00")
-    unrealized=$(echo "$body" | jq -r '.unrealized_pnl // "0.00"' 2>/dev/null || echo "0.00")
-    total=$(echo "$body" | jq -r '.total_pnl // "0.00"' 2>/dev/null || echo "0.00")
+    mapfile -t pnl_values < <(echo "$body" | jq -r '(.realized_pnl // "0.00"), (.unrealized_pnl // "0.00"), (.total_pnl // "0.00")' 2>/dev/null)
+    realized=${pnl_values[0]:-"0.00"}
+    unrealized=${pnl_values[1]:-"0.00"}
+    total=${pnl_values[2]:-"0.00"}
 
     # Format with colors based on positive/negative
     local realized_color=$GREEN
+    if [[ "$realized" == -* ]]; then realized_color=$RED; fi
     local unrealized_color=$GREEN
+    if [[ "$unrealized" == -* ]]; then unrealized_color=$RED; fi
     local total_color=$GREEN
-    local realized_sign=""
-    local unrealized_sign=""
-    local total_sign=""
+    if [[ "$total" == -* ]]; then total_color=$RED; fi
 
-    if [[ "$realized" == -* ]]; then
-        realized_color=$RED
-    else
-        realized_sign="+"
-    fi
-
-    if [[ "$unrealized" == -* ]]; then
-        unrealized_color=$RED
-    else
-        unrealized_sign="+"
-    fi
-
-    if [[ "$total" == -* ]]; then
-        total_color=$RED
-    else
-        total_sign="+"
-    fi
-
-    # Use printf for consistent alignment and formatting
-    printf "  %-12s ${realized_color}%s\$%.2f${NC}\n" "Realized:" "$realized_sign" "${realized#-}"
-    printf "  %-12s ${unrealized_color}%s\$%.2f${NC}\n" "Unrealized:" "$unrealized_sign" "${unrealized#-}"
-    printf "  ${BOLD}%-12s${NC} ${total_color}%s\$%.2f${NC}\n" "Total:" "$total_sign" "${total#-}"
+    # Use printf with %+f for automatic sign handling and consistent formatting
+    printf "  %-12s ${realized_color}\$%+.2f${NC}\n" "Realized:" "$realized"
+    printf "  %-12s ${unrealized_color}\$%+.2f${NC}\n" "Unrealized:" "$unrealized"
+    printf "  ${BOLD}%-12s${NC} ${total_color}\$%+.2f${NC}\n" "Total:" "$total"
 }
 
 # Main function
