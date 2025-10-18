@@ -992,7 +992,8 @@ def calculate_simple_pnl(result: Dict[str, Any]) -> Dict[str, Any]:
 def format_console_output(
     config: Dict[str, Any],
     result: Dict[str, Any],
-    pnl_metrics: Dict[str, Any]
+    pnl_metrics: Dict[str, Any],
+    run_timestamp: datetime
 ) -> None:
     """
     Display formatted results to console.
@@ -1007,6 +1008,8 @@ def format_console_output(
         config: Configuration used for the run
         result: Orchestration result from T5
         pnl_metrics: P&L metrics calculated
+        run_timestamp: Timezone-aware UTC timestamp for this run
+                      (should be generated once and reused for consistency)
 
     Example output:
         ========================================================================
@@ -1022,8 +1025,9 @@ def format_console_output(
         ========================================================================
     """
     # Header with timezone-aware UTC timestamp (ISO 8601 format)
+    # Use provided run_timestamp for consistency with JSON export
     print("\n" + "=" * 80)
-    print(f"  PAPER TRADING RUN - {datetime.now(timezone.utc).isoformat()}")
+    print(f"  PAPER TRADING RUN - {run_timestamp.isoformat()}")
     print("=" * 80 + "\n")
 
     # Configuration summary
@@ -1045,7 +1049,8 @@ def format_console_output(
 async def save_results(
     config: Dict[str, Any],
     result: Dict[str, Any],
-    pnl_metrics: Dict[str, Any]
+    pnl_metrics: Dict[str, Any],
+    run_timestamp: datetime
 ) -> None:
     """
     Save results to JSON file if --output specified.
@@ -1064,10 +1069,13 @@ async def save_results(
         config: Configuration dictionary
         result: Orchestration result from T5
         pnl_metrics: Calculated P&L metrics
+        run_timestamp: Timezone-aware UTC timestamp for this run
+                      (should be generated once and reused for consistency)
 
     Example:
         >>> config = {'output_file': '/tmp/results.json'}
-        >>> await save_results(config, result, pnl_metrics)
+        >>> run_ts = datetime.now(timezone.utc)
+        >>> await save_results(config, result, pnl_metrics, run_ts)
         # Creates /tmp/results.json with complete results
 
     Notes:
@@ -1075,6 +1083,7 @@ async def save_results(
         - Creates parent directories automatically
         - Converts Decimal to float for JSON serialization
         - Timezone-aware UTC timestamp in ISO 8601 format for easy parsing
+        - Uses provided run_timestamp for consistency with console output
     """
     if not config.get('output_file'):
         return
@@ -1119,8 +1128,9 @@ async def save_results(
         }
 
     # Create output data with timezone-aware UTC timestamp (ISO 8601 format)
+    # Use provided run_timestamp for consistency with console output
     output_data = {
-        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'timestamp': run_timestamp.isoformat(),
         'timezone': 'UTC',
         'parameters': {
             'symbols': config['symbols'],
@@ -1201,6 +1211,10 @@ async def main() -> int:
         # [2/5] Trigger orchestration
         result = await trigger_orchestration(config)
 
+        # Generate timestamp once for consistency across all outputs
+        # This ensures console and JSON have identical timestamps
+        run_timestamp = datetime.now(timezone.utc)
+
         # [3/5] Calculate enhanced P&L
         print("\n[3/5] Calculating enhanced P&L...")
 
@@ -1255,10 +1269,12 @@ async def main() -> int:
             pnl_data = calculate_simple_pnl(result)
 
         # [4/5] Save results (if --output specified)
-        await save_results(config, result, pnl_data)
+        # Pass run_timestamp for consistency with console output
+        await save_results(config, result, pnl_data, run_timestamp)
 
         # [5/5] Format and display final output
-        format_console_output(config, result, pnl_data)
+        # Pass run_timestamp for consistency with JSON export
+        format_console_output(config, result, pnl_data, run_timestamp)
 
         # Success!
         return 0

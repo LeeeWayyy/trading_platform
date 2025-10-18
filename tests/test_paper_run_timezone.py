@@ -61,25 +61,19 @@ class TestConsoleOutputTimezone:
         result = {'status': 'completed'}
         pnl_metrics = create_simple_pnl_metrics(Decimal('50000'))
 
-        # Mock datetime.now to return a fixed timezone-aware timestamp
+        # Fixed timezone-aware timestamp
         fixed_time = datetime(2025, 1, 17, 9, 0, 0, tzinfo=timezone.utc)
 
-        with patch('scripts.paper_run.datetime') as mock_datetime:
-            mock_datetime.now.return_value = fixed_time
+        # Act
+        format_console_output(config, result, pnl_metrics, fixed_time)
 
-            # Act
-            format_console_output(config, result, pnl_metrics)
+        # Assert
+        captured = capsys.readouterr()
+        output = captured.out
 
-            # Assert
-            captured = capsys.readouterr()
-            output = captured.out
-
-            # Check that datetime.now was called with timezone.utc
-            mock_datetime.now.assert_called_with(timezone.utc)
-
-            # Check that timestamp appears in ISO 8601 format
-            assert '2025-01-17T09:00:00+00:00' in output, \
-                "Timestamp should be in ISO 8601 format with timezone offset"
+        # Check that timestamp appears in ISO 8601 format
+        assert '2025-01-17T09:00:00+00:00' in output, \
+            "Timestamp should be in ISO 8601 format with timezone offset"
 
     def test_console_output_timestamp_includes_timezone(self, capsys):
         """Test that console timestamp includes +00:00 timezone offset."""
@@ -94,7 +88,7 @@ class TestConsoleOutputTimezone:
         pnl_metrics = {}
 
         # Act
-        format_console_output(config, result, pnl_metrics)
+        format_console_output(config, result, pnl_metrics, datetime.now(timezone.utc))
 
         # Assert
         captured = capsys.readouterr()
@@ -117,17 +111,17 @@ class TestConsoleOutputTimezone:
         result = {'status': 'completed'}
         pnl_metrics = {}
 
-        # Mock to verify UTC is used
-        with patch('scripts.paper_run.datetime') as mock_datetime:
-            mock_now = MagicMock()
-            mock_now.isoformat.return_value = '2025-01-17T14:30:00+00:00'
-            mock_datetime.now.return_value = mock_now
+        # Fixed UTC timestamp
+        fixed_time = datetime(2025, 1, 17, 14, 30, 0, tzinfo=timezone.utc)
 
-            # Act
-            format_console_output(config, result, pnl_metrics)
+        # Act
+        format_console_output(config, result, pnl_metrics, fixed_time)
 
-            # Assert - verify datetime.now() was called with timezone.utc
-            mock_datetime.now.assert_called_with(timezone.utc)
+        # Assert - verify timestamp is in UTC format
+        captured = capsys.readouterr()
+        output = captured.out
+        assert '2025-01-17T14:30:00+00:00' in output, \
+            "Timestamp should be in UTC timezone"
 
 
 class TestJSONExportTimezone:
@@ -152,26 +146,20 @@ class TestJSONExportTimezone:
         }
         pnl_metrics = create_simple_pnl_metrics(Decimal('50000'))
 
-        # Mock datetime.now to return fixed timezone-aware timestamp
+        # Fixed timezone-aware timestamp
         fixed_time = datetime(2025, 1, 17, 14, 30, 0, tzinfo=timezone.utc)
 
-        with patch('scripts.paper_run.datetime') as mock_datetime:
-            mock_datetime.now.return_value = fixed_time
+        # Act
+        await save_results(config, result, pnl_metrics, fixed_time)
 
-            # Act
-            await save_results(config, result, pnl_metrics)
+        # Assert
+        # Load and verify JSON content
+        with open(output_file) as f:
+            data = json.load(f)
 
-            # Assert
-            # Verify datetime.now was called with timezone.utc
-            mock_datetime.now.assert_called_with(timezone.utc)
-
-            # Load and verify JSON content
-            with open(output_file) as f:
-                data = json.load(f)
-
-            assert 'timestamp' in data, "JSON should include timestamp field"
-            assert data['timestamp'] == '2025-01-17T14:30:00+00:00', \
-                "Timestamp should be in ISO 8601 format with timezone"
+        assert 'timestamp' in data, "JSON should include timestamp field"
+        assert data['timestamp'] == '2025-01-17T14:30:00+00:00', \
+            "Timestamp should be in ISO 8601 format with timezone"
 
     @pytest.mark.asyncio
     async def test_json_export_includes_timezone_field(self, tmp_path):
@@ -192,7 +180,7 @@ class TestJSONExportTimezone:
         pnl_metrics = create_simple_pnl_metrics(Decimal('30000'))
 
         # Act
-        await save_results(config, result, pnl_metrics)
+        await save_results(config, result, pnl_metrics, datetime.now(timezone.utc))
 
         # Assert
         with open(output_file) as f:
@@ -220,17 +208,18 @@ class TestJSONExportTimezone:
         }
         pnl_metrics = create_simple_pnl_metrics(Decimal('25000'))
 
-        # Mock to verify UTC is used
-        with patch('scripts.paper_run.datetime') as mock_datetime:
-            mock_now = MagicMock()
-            mock_now.isoformat.return_value = '2025-01-17T09:00:00+00:00'
-            mock_datetime.now.return_value = mock_now
+        # Fixed UTC timestamp
+        fixed_time = datetime(2025, 1, 17, 9, 0, 0, tzinfo=timezone.utc)
 
-            # Act
-            await save_results(config, result, pnl_metrics)
+        # Act
+        await save_results(config, result, pnl_metrics, fixed_time)
 
-            # Assert - verify datetime.now() was called with timezone.utc
-            mock_datetime.now.assert_called_with(timezone.utc)
+        # Assert - verify timestamp is in UTC format
+        with open(output_file) as f:
+            data = json.load(f)
+
+        assert data['timestamp'] == '2025-01-17T09:00:00+00:00', \
+            "Timestamp should be in UTC timezone"
 
     @pytest.mark.asyncio
     async def test_json_timestamp_ends_with_utc_offset(self, tmp_path):
@@ -251,7 +240,7 @@ class TestJSONExportTimezone:
         pnl_metrics = create_simple_pnl_metrics(Decimal('15000'))
 
         # Act
-        await save_results(config, result, pnl_metrics)
+        await save_results(config, result, pnl_metrics, datetime.now(timezone.utc))
 
         # Assert
         with open(output_file) as f:
@@ -280,7 +269,7 @@ class TestJSONExportTimezone:
         pnl_metrics = create_simple_pnl_metrics(Decimal('40000'))
 
         # Act
-        await save_results(config, result, pnl_metrics)
+        await save_results(config, result, pnl_metrics, datetime.now(timezone.utc))
 
         # Assert
         with open(output_file) as f:
@@ -304,8 +293,8 @@ class TestTimezoneConsistency:
     """Test that timestamps are consistent across console and JSON output."""
 
     @pytest.mark.asyncio
-    async def test_console_and_json_use_same_timezone(self, tmp_path, capsys):
-        """Test that console and JSON both use UTC timezone."""
+    async def test_console_and_json_use_same_timestamp(self, tmp_path, capsys):
+        """Test that console and JSON use the exact same timestamp when passed the same value."""
         # Arrange
         output_file = tmp_path / "results.json"
         config = {
@@ -322,32 +311,26 @@ class TestTimezoneConsistency:
         }
         pnl_metrics = create_simple_pnl_metrics(Decimal('35000'))
 
-        # Mock to use consistent timestamp
-        fixed_time = datetime(2025, 1, 17, 12, 0, 0, tzinfo=timezone.utc)
+        # Generate timestamp once (simulating what main() does)
+        run_timestamp = datetime(2025, 1, 17, 12, 0, 0, tzinfo=timezone.utc)
 
-        with patch('scripts.paper_run.datetime') as mock_datetime:
-            mock_datetime.now.return_value = fixed_time
+        # Act - both console and JSON output with same timestamp
+        format_console_output(config, result, pnl_metrics, run_timestamp)
+        await save_results(config, result, pnl_metrics, run_timestamp)
 
-            # Act - both console and JSON output
-            format_console_output(config, result, pnl_metrics)
-            await save_results(config, result, pnl_metrics)
+        # Assert
+        # Verify console output
+        captured = capsys.readouterr()
+        assert '2025-01-17T12:00:00+00:00' in captured.out, \
+            "Console should show the provided timestamp"
 
-            # Assert
-            # Both should call datetime.now(timezone.utc)
-            assert mock_datetime.now.call_count == 2
-            for call in mock_datetime.now.call_args_list:
-                assert call[0][0] == timezone.utc, \
-                    "All timestamp calls should use timezone.utc"
+        # Verify JSON output
+        with open(output_file) as f:
+            data = json.load(f)
 
-            # Verify console output
-            captured = capsys.readouterr()
-            assert '2025-01-17T12:00:00+00:00' in captured.out
-
-            # Verify JSON output
-            with open(output_file) as f:
-                data = json.load(f)
-            assert data['timestamp'] == '2025-01-17T12:00:00+00:00'
-            assert data['timezone'] == 'UTC'
+        assert data['timestamp'] == '2025-01-17T12:00:00+00:00', \
+            "JSON should have the exact same timestamp as console"
+        assert data['timezone'] == 'UTC'
 
 
 class TestTimezoneRegression:
@@ -382,7 +365,7 @@ class TestTimezoneRegression:
         pnl_metrics = create_simple_pnl_metrics(Decimal('45000'))
 
         # Act
-        await save_results(config, result, pnl_metrics)
+        await save_results(config, result, pnl_metrics, datetime.now(timezone.utc))
 
         # Assert
         with open(output_file) as f:
@@ -452,7 +435,7 @@ class TestEnhancedPnLTimezone:
         }
 
         # Act
-        await save_results(config, result, pnl_metrics)
+        await save_results(config, result, pnl_metrics, datetime.now(timezone.utc))
 
         # Assert
         with open(output_file) as f:
