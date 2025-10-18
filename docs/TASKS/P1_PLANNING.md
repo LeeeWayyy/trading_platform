@@ -595,7 +595,7 @@ $ make status
 
 - [P0 Tickets](./P0_TICKETS.md) - Completed MVP tasks
 - [T6 Retrospective](../LESSONS_LEARNED/t6-paper-run-retrospective.md) - P0 lessons learned
-- [Trading Platform Realization Plan](../../trading_platform_realization_plan.md) - Original plan
+- [Trading Platform Realization Plan](../trading_platform_realization_plan.md) - Original plan
 
 ---
 
