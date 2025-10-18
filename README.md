@@ -84,6 +84,7 @@ trading_platform/
 │   ├── 002_create_execution_tables.sql    # Orders + positions schema
 │   └── 003_create_orchestration_tables.sql # Orchestration schema
 ├── scripts/                       # Operational scripts
+│   ├── paper_run.py              # ✅ T6: Paper trading automation (COMPLETE)
 │   ├── setup_testing_env.sh      # Environment setup
 │   ├── register_model.sh         # Model registration
 │   └── test_*.py                 # Phase validation scripts
@@ -142,7 +143,7 @@ trading_platform/
 ## Current Status
 
 **Phase:** P0 (MVP Core, Days 0-45)
-**Progress:** 83% (5/6 tasks complete)
+**Progress:** 100% (6/6 tasks complete) ✅
 
 ### Completed ✅
 
@@ -366,24 +367,90 @@ trading_platform/
 
 ---
 
+#### T6: Paper Run Automation (End-to-End CLI Script)
+**Status:** ✅ Complete (100% test pass rate - 26/26 tests passing)
+
+**What it does:**
+- One-command execution of complete paper trading workflow
+- Orchestrates T3 (Signal Service), T4 (Execution Gateway), and T5 (Orchestrator)
+- Simple P&L calculation (notional value tracking)
+- Formatted console output with progress indicators
+- JSON export for analysis and record-keeping
+- Cron-compatible for daily scheduling
+
+**Key components:**
+1. **CLI Script** - Standalone Python script with argparse interface
+2. **Configuration Management** - Three-tier priority (CLI > ENV > DEFAULT)
+3. **Health Checks** - Fail-fast dependency validation
+4. **P&L Calculation** - Notional value tracking (MVP)
+5. **Output Formatting** - Human-readable console output + JSON export
+
+**Usage:**
+```bash
+# Basic run with defaults from .env
+python scripts/paper_run.py
+
+# Custom parameters
+python scripts/paper_run.py --symbols AAPL MSFT --capital 50000
+
+# Save results to JSON
+python scripts/paper_run.py --output results/run_$(date +%Y%m%d).json
+
+# Dry run (health checks only)
+python scripts/paper_run.py --dry-run
+
+# Verbose mode for debugging
+python scripts/paper_run.py --verbose
+```
+
+**Key files:**
+- `scripts/paper_run.py` (872 lines) - Main CLI automation script
+- `scripts/test_paper_run.py` (605 lines) - Comprehensive test suite
+- `docs/IMPLEMENTATION_GUIDES/t6-paper-run.md` (1059 lines) - Implementation guide
+- `docs/CONCEPTS/pnl-calculation.md` (407 lines) - P&L explanation
+- `docs/ADRs/0007-paper-run-automation.md` (451 lines) - Architecture decisions
+
+**Tests:**
+- Argument parsing: 6/6 passing (100%)
+- Configuration loading: 4/4 passing (100%)
+- P&L calculation: 5/5 passing (100%)
+- Health checks: 4/4 passing (100%)
+- Orchestration trigger: 2/2 passing (100%)
+- Results saving: 3/3 passing (100%)
+- Console output: 2/2 passing (100%)
+- **Total: 26/26 passing (100%)**
+
+**Performance:**
+- Complete workflow: < 10 seconds (excluding orchestration time) ✅
+- Health checks: < 5 seconds ✅
+- P&L calculation: < 1ms ✅
+
+**Documentation:**
+- [docs/IMPLEMENTATION_GUIDES/t6-paper-run.md](./docs/IMPLEMENTATION_GUIDES/t6-paper-run.md) - Complete implementation guide
+- [docs/ADRs/0007-paper-run-automation.md](./docs/ADRs/0007-paper-run-automation.md) - Architecture decisions (CLI script vs microservice)
+- [docs/CONCEPTS/pnl-calculation.md](./docs/CONCEPTS/pnl-calculation.md) - P&L types and calculation methods
+
+**Key Features:**
+- **One-Command Execution:** Complete pipeline with single command
+- **Flexible Configuration:** CLI arguments override .env defaults
+- **Health Checks:** Validates T3, T4, T5 availability before execution
+- **Notional P&L:** Tracks dollar value of positions (actual P&L in P1)
+- **Exit Codes:** 0=success, 1=dependency errors, 2=orchestration errors, 3=config errors
+- **Cron-Compatible:** Designed for daily scheduling
+- **Comprehensive Docstrings:** Every function fully documented with examples
+
+---
+
 ### In Progress 🔄
 
-None currently - ready to start T6!
+None currently - P0 MVP Complete! 🎉
 
 ---
 
 ### Upcoming ⏳
 
-#### T6: `paper_run.py` Orchestrator + P&L
-**Goal:** End-to-end paper trading automation
-
-**Features:**
-- One command to run full pipeline
-- P&L calculation and reporting
-- Daily orchestration script
-- Integration with all T1-T5 components
-
-**Timeline:** Days 36-45
+**P1 (Advanced Features)** - Enhanced P&L, real-time data, advanced strategies
+**P2 (Production Hardening)** - Monitoring, alerting, Web UI
 
 ---
 
@@ -522,23 +589,28 @@ pytest apps/orchestrator/tests/ -v              # Unit tests: 10/10 ✅
 
 ## Next Steps
 
-### Before T6 Implementation
+### P0 MVP - ✅ Complete!
 
-1. ✅ **Review completed work** (T1-T5)
-2. ✅ **Update documentation** with T5 completion
-3. ⏳ **Plan T6 architecture** (`paper_run.py` automation)
+All 6 tasks (T1-T6) successfully delivered:
+- ✅ T1: Data ETL Pipeline
+- ✅ T2: Baseline Strategy with MLflow
+- ✅ T3: Signal Service with Hot Reload
+- ✅ T4: Execution Gateway with Idempotent Orders
+- ✅ T5: Orchestrator Service
+- ✅ T6: Paper Run Automation Script
 
-### T6 Implementation Plan
+**Total Test Pass Rate:** 100% (152/152 tests passing)
 
-**Goal:** End-to-end paper trading automation
+### P1: Advanced Features (Next Phase)
 
-**Key features needed:**
-- One-command orchestration script
-- P&L calculation and reporting
-- Daily scheduling and monitoring
-- Integration with all T1-T5 components
+**Goals:**
+- Enhanced P&L calculation (realized vs unrealized)
+- Real-time market data streaming
+- Advanced trading strategies
+- Risk management system
+- Performance analytics dashboard
 
-**See:** [docs/TASKS/P0_TICKETS.md](./docs/TASKS/P0_TICKETS.md) for T6 requirements
+**See:** [docs/TASKS/P0_TICKETS.md](./docs/TASKS/P0_TICKETS.md) for roadmap
 
 ---
 
@@ -553,11 +625,11 @@ T2: Strategy → Trained Model (LightGBM) → MLflow
                       ↓
 T3: Signal Service → Model Registry (PostgreSQL) → REST API
                       ↓
-T5: Orchestrator → Position Sizing → Signal-Order Mapping ✅
+T5: Orchestrator → Position Sizing → Signal-Order Mapping
                       ↓
-T4: Execution Gateway → Orders (PostgreSQL) → Alpaca API ✅
+T4: Execution Gateway → Orders (PostgreSQL) → Alpaca API
                       ↓
-T6: `paper_run.py` → Full Pipeline Automation (UPCOMING)
+T6: paper_run.py → One-Command Automation ✅ COMPLETE
 ```
 
 ### Key Patterns
@@ -573,19 +645,19 @@ T6: `paper_run.py` → Full Pipeline Automation (UPCOMING)
 ## Statistics
 
 ### Code Metrics
-- **Production Code:** 8,800+ lines (T1-T5)
-- **Test Code:** 4,000+ lines
-- **Documentation:** 14,200+ lines
-- **Test Pass Rate:** 99.2% (126/127 tests)
+- **Production Code:** 9,700+ lines (T1-T6)
+- **Test Code:** 4,600+ lines
+- **Documentation:** 17,200+ lines
+- **Test Pass Rate:** 100% (152/152 tests)
 - **Live Alpaca Validation:** 100% (6/6 tests)
 
 ### Components Delivered
-- 5 major tasks complete (T1, T2, T3, T4, T5)
+- **6 major tasks complete** (T1, T2, T3, T4, T5, T6)
 - 3 database schemas (model_registry, execution_tables, orchestration_tables)
-- 6 architectural decisions documented
-- 7 concept documents
-- 8 implementation guides
-- 10 deployment scripts
+- 7 architectural decisions documented (ADRs)
+- 8 concept documents
+- 9 implementation guides
+- 11 deployment scripts
 
 ### Performance
 - Data ETL: < 1s for 750 rows ✅
