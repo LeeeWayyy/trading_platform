@@ -101,6 +101,8 @@ trading_platform/
 
 ## Documentation
 
+**📖 Start Here:** [docs/INDEX.md](./docs/INDEX.md) - **Canonical entry point for all documentation**
+
 ### Getting Started
 - **[docs/GETTING_STARTED/SETUP.md](./docs/GETTING_STARTED/SETUP.md)** - Environment setup and installation guide
 - [CLAUDE.md](./CLAUDE.md) - Main guide for Claude Code
