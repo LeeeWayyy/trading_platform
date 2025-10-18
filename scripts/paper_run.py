@@ -65,6 +65,343 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import httpx
 from dotenv import load_dotenv
 
+# Local imports (Alpaca client for price fetching)
+from apps.execution_gateway.alpaca_client import (
+    AlpacaExecutor,
+    AlpacaConnectionError
+)
+
+
+async def fetch_current_prices(
+    symbols: List[str],
+    config: Dict[str, Any]
+) -> Dict[str, Decimal]:
+    """
+    Fetch current market prices from Alpaca API.
+
+    Uses Alpaca's Latest Quote API to fetch real-time market prices
+    for position valuation and P&L calculation. This provides
+    mark-to-market prices for unrealized P&L calculation.
+
+    Args:
+        symbols: List of stock symbols to fetch prices for
+        config: Configuration dictionary containing Alpaca credentials
+                (ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
+
+    Returns:
+        Dictionary mapping symbol -> current_price (Decimal)
+        Example: {'AAPL': Decimal('152.75'), 'MSFT': Decimal('380.50')}
+
+    Raises:
+        AlpacaConnectionError: If Alpaca API is unavailable (logged as warning)
+
+    Notes:
+        - Uses mid-quote price: (bid + ask) / 2
+        - Fallback to last trade price if bid/ask unavailable
+        - Returns empty dict if API fails (graceful degradation)
+        - Batch fetching for efficiency (1 API call for all symbols)
+
+    Example:
+        >>> config = {
+        ...     'alpaca_api_key': 'PK...',
+        ...     'alpaca_secret_key': 'secret...',
+        ...     'alpaca_base_url': 'https://paper-api.alpaca.markets'
+        ... }
+        >>> prices = await fetch_current_prices(['AAPL', 'MSFT'], config)
+        >>> prices['AAPL']
+        Decimal('152.75')
+
+    See Also:
+        - ADR-0008: Enhanced P&L calculation architecture
+        - apps/execution_gateway/alpaca_client.py: AlpacaExecutor implementation
+    """
+    if not symbols:
+        return {}
+
+    try:
+        # Initialize Alpaca client with credentials from config
+        # Note: Reuse same credentials as execution gateway
+        alpaca_client = AlpacaExecutor(
+            api_key=os.getenv('ALPACA_API_KEY'),
+            secret_key=os.getenv('ALPACA_SECRET_KEY'),
+            base_url=os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+        )
+
+        # Fetch latest quotes for all symbols (batch request)
+        quotes = alpaca_client.get_latest_quotes(symbols)
+
+        # Extract prices from quote data
+        prices = {}
+        for symbol, quote_data in quotes.items():
+            # Prefer last_price (mid-quote calculated in get_latest_quotes)
+            # Fallback to ask_price or bid_price if last_price unavailable
+            last_price = quote_data.get('last_price')
+            ask_price = quote_data.get('ask_price')
+            bid_price = quote_data.get('bid_price')
+
+            if last_price is not None:
+                prices[symbol] = last_price
+            elif ask_price is not None and bid_price is not None:
+                # Calculate mid-quote manually if last_price is None
+                prices[symbol] = (ask_price + bid_price) / Decimal('2')
+            elif ask_price is not None:
+                prices[symbol] = ask_price
+            elif bid_price is not None:
+                prices[symbol] = bid_price
+            else:
+                # No price data available for this symbol
+                print(f"  ⚠️  Warning: No price data for {symbol}", file=sys.stderr)
+
+        return prices
+
+    except AlpacaConnectionError as e:
+        # Log warning but don't fail - caller can use fallback prices
+        print(f"  ⚠️  Warning: Failed to fetch prices from Alpaca: {e}", file=sys.stderr)
+        print(f"     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
+        return {}
+
+    except Exception as e:
+        # Unexpected error - log and return empty dict
+        print(f"  ⚠️  Unexpected error fetching prices: {e}", file=sys.stderr)
+        return {}
+
+
+async def fetch_positions(execution_gateway_url: str) -> List[Dict[str, Any]]:
+    """
+    Fetch current positions from T4 Execution Gateway.
+
+    Queries T4's /api/v1/positions endpoint to retrieve all positions
+    including both open (qty != 0) and closed (qty = 0) positions.
+    Closed positions are needed for realized P&L calculation.
+
+    Args:
+        execution_gateway_url: Base URL of T4 Execution Gateway
+                              Example: 'http://localhost:8002'
+
+    Returns:
+        List of position dictionaries, each containing:
+        - symbol: Stock symbol (str)
+        - qty: Current quantity (int, 0 for closed positions)
+        - avg_entry_price: Average entry price (Decimal)
+        - current_price: Last known price (may be stale)
+        - unrealized_pl: Unrealized P&L from T4 (may be stale)
+        - realized_pl: Realized P&L for closed positions
+
+    Raises:
+        httpx.HTTPStatusError: If T4 API returns error
+        RuntimeError: If positions endpoint unavailable
+
+    Example:
+        >>> positions = await fetch_positions('http://localhost:8002')
+        >>> positions[0]
+        {
+            'symbol': 'AAPL',
+            'qty': 100,
+            'avg_entry_price': '150.00',
+            'current_price': '152.75',
+            'unrealized_pl': '275.00',
+            'realized_pl': '0.00'
+        }
+
+    Notes:
+        - Includes both open and closed positions (closed have qty=0)
+        - current_price may be stale (from last fill, not updated)
+        - Use fetch_current_prices() for accurate mark-to-market
+        - T4 retains closed positions for realized P&L tracking
+
+    See Also:
+        - apps/execution_gateway/main.py: /api/v1/positions endpoint
+        - ADR-0008: Why positions with qty=0 are tracked
+    """
+    url = f"{execution_gateway_url}/api/v1/positions"
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+            positions = response.json()
+
+            # Validate response structure
+            if not isinstance(positions, list):
+                raise RuntimeError(
+                    f"T4 positions endpoint returned unexpected format: {type(positions)}\n"
+                    f"Expected list, got {type(positions).__name__}"
+                )
+
+            return positions
+
+        except httpx.HTTPStatusError as e:
+            error_detail = "Unknown error"
+            try:
+                error_json = e.response.json()
+                error_detail = error_json.get('detail', str(error_json))
+            except Exception:
+                error_detail = e.response.text[:500]
+
+            raise RuntimeError(
+                f"T4 positions API error: HTTP {e.response.status_code}\n"
+                f"URL: {url}\n"
+                f"Error: {error_detail}\n"
+                f"\n"
+                f"Troubleshooting:\n"
+                f"1. Check T4 Execution Gateway is running\n"
+                f"2. Verify database connectivity\n"
+                f"3. Check T4 logs for errors"
+            )
+
+        except httpx.ConnectError:
+            raise RuntimeError(
+                f"T4 Execution Gateway unavailable: Connection refused\n"
+                f"URL: {url}\n"
+                f"\n"
+                f"Troubleshooting:\n"
+                f"1. Start T4 Execution Gateway:\n"
+                f"   uvicorn apps.execution_gateway.main:app --port 8002\n"
+                f"2. Check if port 8002 is in use\n"
+                f"3. Verify firewall settings"
+            )
+
+
+async def calculate_enhanced_pnl(
+    positions: List[Dict[str, Any]],
+    current_prices: Dict[str, Decimal]
+) -> Dict[str, Any]:
+    """
+    Calculate enhanced P&L with realized/unrealized breakdown.
+
+    Computes comprehensive P&L metrics from positions and market prices:
+    - Realized P&L: From closed positions (qty=0)
+    - Unrealized P&L: Mark-to-market on open positions (qty!=0)
+    - Total P&L: Sum of realized + unrealized
+    - Per-symbol breakdown: Individual P&L for each symbol
+
+    Args:
+        positions: List of position dicts from T4 /api/v1/positions
+        current_prices: Dict mapping symbol -> current_price from Alpaca
+
+    Returns:
+        Dictionary with comprehensive P&L metrics:
+        {
+            'realized_pnl': Decimal('1234.56'),      # Closed positions
+            'unrealized_pnl': Decimal('789.01'),     # Open positions
+            'total_pnl': Decimal('2023.57'),         # Total
+            'per_symbol': {
+                'AAPL': {
+                    'realized': Decimal('500.00'),
+                    'unrealized': Decimal('200.00'),
+                    'qty': 100,
+                    'avg_entry_price': Decimal('150.00'),
+                    'current_price': Decimal('152.00')
+                }
+            },
+            'num_open_positions': 3,
+            'num_closed_positions': 2,
+            'total_positions': 5
+        }
+
+    Example:
+        >>> positions = [
+        ...     {'symbol': 'AAPL', 'qty': 100, 'avg_entry_price': '150.00', 'realized_pl': '0'},
+        ...     {'symbol': 'MSFT', 'qty': 0, 'avg_entry_price': '300.00', 'realized_pl': '500'}
+        ... ]
+        >>> prices = {'AAPL': Decimal('152.00')}
+        >>> pnl = await calculate_enhanced_pnl(positions, prices)
+        >>> pnl['realized_pnl']
+        Decimal('500.00')
+        >>> pnl['unrealized_pnl']
+        Decimal('200.00')
+        >>> pnl['total_pnl']
+        Decimal('700.00')
+
+    Notes:
+        - Closed positions (qty=0): Only realized P&L counted
+        - Open positions (qty!=0): Unrealized P&L = (current - entry) * qty
+        - Missing prices: Falls back to avg_entry_price (zero unrealized P&L)
+        - Long positions: Positive unrealized when price increases
+        - Short positions: Positive unrealized when price decreases
+
+    Formula:
+        Unrealized P&L = (current_price - avg_entry_price) * qty
+        - Positive qty (long): Profit when current > entry
+        - Negative qty (short): Profit when current < entry
+
+    See Also:
+        - ADR-0008: Enhanced P&L calculation architecture
+        - /docs/CONCEPTS/pnl-calculation.md: P&L formulas explained
+    """
+    realized_pnl = Decimal("0")
+    unrealized_pnl = Decimal("0")
+    per_symbol_pnl = {}
+    num_open = 0
+    num_closed = 0
+
+    for position in positions:
+        symbol = position['symbol']
+        qty = int(position.get('qty', 0))
+        avg_entry_price = Decimal(str(position.get('avg_entry_price', 0)))
+        position_realized = Decimal(str(position.get('realized_pl', 0)))
+
+        if qty == 0:
+            # Closed position - only realized P&L
+            num_closed += 1
+            realized_pnl += position_realized
+
+            per_symbol_pnl[symbol] = {
+                'realized': position_realized,
+                'unrealized': Decimal("0"),
+                'qty': 0,
+                'avg_entry_price': avg_entry_price,
+                'current_price': None,
+                'status': 'closed'
+            }
+
+        else:
+            # Open position - calculate unrealized P&L
+            num_open += 1
+
+            # Get current price (fallback to avg_entry_price if not available)
+            current_price = current_prices.get(symbol)
+
+            if current_price is None:
+                # No current price - use avg_entry_price (zero unrealized P&L)
+                current_price = avg_entry_price
+                print(
+                    f"  ⚠️  Warning: No current price for {symbol}, "
+                    f"using avg_entry_price ${avg_entry_price:.2f}",
+                    file=sys.stderr
+                )
+
+            # Calculate unrealized P&L: (current - entry) * qty
+            # Positive qty (long): Profit when current > entry
+            # Negative qty (short): Profit when current < entry
+            position_unrealized = (current_price - avg_entry_price) * qty
+            unrealized_pnl += position_unrealized
+
+            # Add to realized P&L if position has some
+            realized_pnl += position_realized
+
+            per_symbol_pnl[symbol] = {
+                'realized': position_realized,
+                'unrealized': position_unrealized,
+                'qty': qty,
+                'avg_entry_price': avg_entry_price,
+                'current_price': current_price,
+                'status': 'open'
+            }
+
+    # Calculate total P&L
+    total_pnl = realized_pnl + unrealized_pnl
+
+    return {
+        'realized_pnl': realized_pnl,
+        'unrealized_pnl': unrealized_pnl,
+        'total_pnl': total_pnl,
+        'per_symbol': per_symbol_pnl,
+        'num_open_positions': num_open,
+        'num_closed_positions': num_closed,
+        'total_positions': num_open + num_closed
+    }
+
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -155,6 +492,13 @@ Exit codes:
         type=str,
         default=None,
         help='Orchestrator service URL (default: from ORCHESTRATOR_URL env var)'
+    )
+
+    parser.add_argument(
+        '--execution-gateway-url',
+        type=str,
+        default=None,
+        help='Execution Gateway URL (default: from EXECUTION_GATEWAY_URL env var)'
     )
 
     # Output options
@@ -307,6 +651,11 @@ def load_configuration(args: argparse.Namespace) -> Dict[str, Any]:
             args.orchestrator_url,
             'ORCHESTRATOR_URL',
             'http://localhost:8003'  # T5 default port
+        ),
+        'execution_gateway_url': get_config(
+            args.execution_gateway_url,
+            'EXECUTION_GATEWAY_URL',
+            'http://localhost:8002'  # T4 default port
         ),
 
         # Output options
@@ -734,6 +1083,41 @@ async def save_results(
 
     # Build output data structure
     # Note: Convert Decimal to float for JSON serialization
+
+    # Check if this is enhanced P&L or simple notional P&L
+    if 'total_pnl' in pnl_metrics:
+        # Enhanced P&L data
+        results_data = {
+            'realized_pnl': float(pnl_metrics['realized_pnl']),
+            'unrealized_pnl': float(pnl_metrics['unrealized_pnl']),
+            'total_pnl': float(pnl_metrics['total_pnl']),
+            'num_open_positions': pnl_metrics['num_open_positions'],
+            'num_closed_positions': pnl_metrics['num_closed_positions'],
+            'total_positions': pnl_metrics['total_positions'],
+            'per_symbol': {
+                symbol: {
+                    'realized': float(info['realized']),
+                    'unrealized': float(info['unrealized']),
+                    'qty': info['qty'],
+                    'avg_entry_price': float(info['avg_entry_price']) if info['avg_entry_price'] else None,
+                    'current_price': float(info['current_price']) if info['current_price'] else None,
+                    'status': info['status']
+                }
+                for symbol, info in pnl_metrics['per_symbol'].items()
+            }
+        }
+    else:
+        # Simple notional P&L data (fallback)
+        results_data = {
+            'total_notional': float(pnl_metrics['total_notional']),
+            'num_signals': pnl_metrics['num_signals'],
+            'num_orders_submitted': pnl_metrics['num_orders_submitted'],
+            'num_orders_accepted': pnl_metrics['num_orders_accepted'],
+            'num_orders_rejected': pnl_metrics['num_orders_rejected'],
+            'success_rate': pnl_metrics['success_rate'],
+            'duration_seconds': pnl_metrics['duration_seconds'],
+        }
+
     output_data = {
         'timestamp': datetime.now().isoformat(),
         'parameters': {
@@ -742,15 +1126,7 @@ async def save_results(
             'max_position_size': float(config['max_position_size']),
             'as_of_date': config.get('as_of_date'),
         },
-        'results': {
-            'total_notional': float(pnl_metrics['total_notional']),
-            'num_signals': pnl_metrics['num_signals'],
-            'num_orders_submitted': pnl_metrics['num_orders_submitted'],
-            'num_orders_accepted': pnl_metrics['num_orders_accepted'],
-            'num_orders_rejected': pnl_metrics['num_orders_rejected'],
-            'success_rate': pnl_metrics['success_rate'],
-            'duration_seconds': pnl_metrics['duration_seconds'],
-        },
+        'results': results_data,
         'run_id': result.get('run_id'),
         'status': result.get('status'),
         'orders': [
@@ -823,14 +1199,64 @@ async def main() -> int:
         # [2/5] Trigger orchestration
         result = await trigger_orchestration(config)
 
-        # [3/5] Calculate P&L
-        pnl_metrics = calculate_simple_pnl(result)
+        # [3/5] Calculate enhanced P&L
+        print("\n[3/5] Calculating enhanced P&L...")
+
+        # Fetch positions from T4
+        try:
+            positions = await fetch_positions(config['execution_gateway_url'])
+            print(f"  Positions Fetched:  {len(positions)} total")
+        except RuntimeError as e:
+            print(f"  ⚠️  Warning: Could not fetch positions: {e}", file=sys.stderr)
+            print(f"     Falling back to notional P&L only", file=sys.stderr)
+            positions = []
+
+        # Fetch current prices from Alpaca
+        if positions:
+            # Extract symbols from open positions
+            open_symbols = [p['symbol'] for p in positions if p.get('qty', 0) != 0]
+            if open_symbols:
+                current_prices = await fetch_current_prices(open_symbols, config)
+                print(f"  Prices Updated:     {len(current_prices)} symbols")
+            else:
+                current_prices = {}
+                print(f"  Prices Updated:     0 symbols (no open positions)")
+
+            # Calculate enhanced P&L
+            pnl_data = await calculate_enhanced_pnl(positions, current_prices)
+
+            # Display P&L breakdown
+            print(f"\n  Realized P&L:       ${pnl_data['realized_pnl']:+,.2f}")
+            print(f"  Unrealized P&L:     ${pnl_data['unrealized_pnl']:+,.2f}")
+            print(f"  Total P&L:          ${pnl_data['total_pnl']:+,.2f}")
+            print(f"\n  Open Positions:     {pnl_data['num_open_positions']}")
+            print(f"  Closed Positions:   {pnl_data['num_closed_positions']}")
+
+            # Display per-symbol breakdown
+            if pnl_data['per_symbol']:
+                print(f"\n  Per-Symbol P&L:")
+                for symbol, pnl_info in pnl_data['per_symbol'].items():
+                    if pnl_info['status'] == 'open':
+                        print(
+                            f"    {symbol:6} ({pnl_info['qty']:>5} shares): "
+                            f"Realized: ${pnl_info['realized']:+,.2f}, "
+                            f"Unrealized: ${pnl_info['unrealized']:+,.2f}"
+                        )
+                    else:
+                        print(
+                            f"    {symbol:6} (closed): "
+                            f"Realized: ${pnl_info['realized']:+,.2f}"
+                        )
+        else:
+            # Fallback to simple notional P&L
+            print(f"  ⚠️  Enhanced P&L not available, calculating notional only...")
+            pnl_data = calculate_simple_pnl(result)
 
         # [4/5] Save results (if --output specified)
-        await save_results(config, result, pnl_metrics)
+        await save_results(config, result, pnl_data)
 
         # [5/5] Format and display final output
-        format_console_output(config, result, pnl_metrics)
+        format_console_output(config, result, pnl_data)
 
         # Success!
         return 0
