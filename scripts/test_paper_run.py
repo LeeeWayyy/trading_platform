@@ -410,9 +410,10 @@ class TestOrchestrationTrigger:
             'num_orders_accepted': 2,
         }
 
+        # Mock response - json() is synchronous in httpx
         mock_response = AsyncMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = expected_result
+        mock_response.json = Mock(return_value=expected_result)  # Synchronous method
         mock_response.raise_for_status = Mock()
 
         mock_client = AsyncMock()
@@ -440,16 +441,17 @@ class TestOrchestrationTrigger:
             'verbose': False,
         }
 
+        # Mock response - json() and raise_for_status() are synchronous
         mock_response = AsyncMock()
         mock_response.status_code = 500
         mock_response.text = "Internal error"
-        mock_response.json.return_value = {'detail': 'Orchestration failed'}
+        mock_response.json = Mock(return_value={'detail': 'Orchestration failed'})  # Synchronous
+        mock_response.raise_for_status = Mock(side_effect=httpx.HTTPStatusError(
+            "500", request=Mock(), response=mock_response
+        ))  # Synchronous
 
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
-        mock_client.post.return_value.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "500", request=Mock(), response=mock_response
-        )
         mock_client.__aenter__.return_value = mock_client
         mock_client.__aexit__.return_value = None
 
