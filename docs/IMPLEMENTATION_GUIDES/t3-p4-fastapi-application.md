@@ -989,7 +989,7 @@ After P4 is complete:
 
 - **Related Guides:**
   - /docs/IMPLEMENTATION_GUIDES/t3-signal-service.md (overall T3 guide)
-  - /docs/TESTING_SETUP.md (testing environment setup)
+  - /docs/GETTING_STARTED/TESTING_SETUP.md (testing environment setup)
 
 - **External Resources:**
   - [FastAPI Documentation](https://fastapi.tiangolo.com/)
