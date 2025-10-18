@@ -28,8 +28,7 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    reraise
+    retry_if_exception_type
 )
 
 logger = logging.getLogger(__name__)
@@ -128,8 +127,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
-        reraise=True
+        retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
     def get(self, key: str) -> Optional[str]:
         """
@@ -158,8 +156,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
-        reraise=True
+        retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
     def set(self, key: str, value: str, ttl: Optional[int] = None) -> None:
         """
@@ -188,8 +185,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
-        reraise=True
+        retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
     def delete(self, key: str) -> int:
         """
@@ -217,8 +213,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
-        reraise=True
+        retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
     def publish(self, channel: str, message: str) -> int:
         """
