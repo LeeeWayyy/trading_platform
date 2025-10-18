@@ -431,13 +431,13 @@ This ensures multiple automated code reviewers catch issues before human review,
 
 **ALL review feedback MUST be addressed before merging. You are NOT allowed to merge unless:**
 
-1. **All High Priority Issues**: MUST be fixed immediately
-2. **All Medium Priority Issues**: MUST be fixed immediately
-3. **All Low Priority Issues**: MUST be fixed immediately
+1. **All High Priority Issues**: MUST be considered and fixed immediately if you notice the issue is indeed exist, and create test cases to cover if necessary
+2. **All Medium Priority Issues**: MUST be considered and fixed immediately if you notice the issue is indeed exist, and create test cases to cover if necessary
+3. **All Low Priority Issues**: MUST be considered and fixed immediately if you notice the issue is indeed exist, and create test cases to cover if necessary
 4. **Only Exception**: Owner explicitly says you can defer specific issues to future work
 
 **After fixing review feedback:**
-- Push fixes and request re-review from `@codex` and `@gemini-code-assist`
+- Push fixes and request re-review from `@codex` and `@gemini-code-assist`, need to ask them to check out lastest commit in case of caching.
 - **WAIT for reviewers to explicitly confirm "no issues" or approve the PR**
 - Do NOT assume fixes are sufficient - reviewers must explicitly approve
 
