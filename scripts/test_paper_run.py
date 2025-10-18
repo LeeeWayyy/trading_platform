@@ -37,6 +37,9 @@ from scripts.paper_run import (
     parse_arguments,
     load_configuration,
     calculate_simple_pnl,
+    calculate_enhanced_pnl,
+    fetch_current_prices,
+    fetch_positions,
     format_console_output,
     check_dependencies,
     trigger_orchestration,
@@ -108,6 +111,7 @@ class TestConfigurationLoading:
             max_position_size=15000,
             as_of_date='2024-12-31',
             orchestrator_url='http://example.com',
+            execution_gateway_url='http://example.com:8002',
             output='/tmp/out.json',
             dry_run=True,
             verbose=True
@@ -136,6 +140,7 @@ class TestConfigurationLoading:
             max_position_size=None,
             as_of_date=None,
             orchestrator_url=None,
+            execution_gateway_url=None,
             output=None,
             dry_run=False,
             verbose=False
@@ -162,6 +167,7 @@ class TestConfigurationLoading:
             max_position_size=None,
             as_of_date=None,
             orchestrator_url=None,
+            execution_gateway_url=None,
             output=None,
             dry_run=False,
             verbose=False
@@ -184,6 +190,7 @@ class TestConfigurationLoading:
             max_position_size=20000.25,
             as_of_date=None,
             orchestrator_url=None,
+            execution_gateway_url=None,
             output=None,
             dry_run=False,
             verbose=False
@@ -313,6 +320,354 @@ class TestPNLCalculation:
 
         assert pnl['total_notional'] == Decimal('0')
         assert pnl['success_rate'] == 0  # Avoid division by zero
+
+
+class TestEnhancedPNLCalculation:
+    """Test enhanced P&L calculation with realized/unrealized breakdown."""
+
+    @pytest.mark.asyncio
+    async def test_calculate_enhanced_pnl_open_positions_only(self):
+        """Test enhanced P&L with only open positions (unrealized only)."""
+        positions = [
+            {
+                'symbol': 'AAPL',
+                'qty': 100,
+                'avg_entry_price': '150.00',
+                'realized_pl': '0.00'
+            },
+            {
+                'symbol': 'MSFT',
+                'qty': 50,
+                'avg_entry_price': '300.00',
+                'realized_pl': '0.00'
+            }
+        ]
+
+        current_prices = {
+            'AAPL': Decimal('152.00'),  # +$2 per share
+            'MSFT': Decimal('305.00')   # +$5 per share
+        }
+
+        pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+        # Unrealized P&L
+        # AAPL: (152 - 150) * 100 = +$200
+        # MSFT: (305 - 300) * 50 = +$250
+        # Total: +$450
+        assert pnl['unrealized_pnl'] == Decimal('450.00')
+        assert pnl['realized_pnl'] == Decimal('0.00')
+        assert pnl['total_pnl'] == Decimal('450.00')
+        assert pnl['num_open_positions'] == 2
+        assert pnl['num_closed_positions'] == 0
+
+        # Per-symbol checks
+        assert pnl['per_symbol']['AAPL']['unrealized'] == Decimal('200.00')
+        assert pnl['per_symbol']['AAPL']['realized'] == Decimal('0.00')
+        assert pnl['per_symbol']['AAPL']['status'] == 'open'
+        assert pnl['per_symbol']['MSFT']['unrealized'] == Decimal('250.00')
+
+    @pytest.mark.asyncio
+    async def test_calculate_enhanced_pnl_closed_positions_only(self):
+        """Test enhanced P&L with only closed positions (realized only)."""
+        positions = [
+            {
+                'symbol': 'AAPL',
+                'qty': 0,  # Closed
+                'avg_entry_price': '150.00',
+                'realized_pl': '500.00'
+            },
+            {
+                'symbol': 'MSFT',
+                'qty': 0,  # Closed
+                'avg_entry_price': '300.00',
+                'realized_pl': '-100.00'
+            }
+        ]
+
+        current_prices = {}  # No prices needed for closed positions
+
+        pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+        assert pnl['realized_pnl'] == Decimal('400.00')  # 500 - 100
+        assert pnl['unrealized_pnl'] == Decimal('0.00')
+        assert pnl['total_pnl'] == Decimal('400.00')
+        assert pnl['num_open_positions'] == 0
+        assert pnl['num_closed_positions'] == 2
+
+        # Per-symbol checks
+        assert pnl['per_symbol']['AAPL']['realized'] == Decimal('500.00')
+        assert pnl['per_symbol']['AAPL']['unrealized'] == Decimal('0.00')
+        assert pnl['per_symbol']['AAPL']['status'] == 'closed'
+        assert pnl['per_symbol']['MSFT']['realized'] == Decimal('-100.00')
+
+    @pytest.mark.asyncio
+    async def test_calculate_enhanced_pnl_mixed_positions(self):
+        """Test enhanced P&L with both open and closed positions."""
+        positions = [
+            {
+                'symbol': 'AAPL',
+                'qty': 100,  # Open long
+                'avg_entry_price': '150.00',
+                'realized_pl': '0.00'
+            },
+            {
+                'symbol': 'MSFT',
+                'qty': 0,  # Closed
+                'avg_entry_price': '300.00',
+                'realized_pl': '500.00'
+            },
+            {
+                'symbol': 'GOOGL',
+                'qty': -50,  # Open short
+                'avg_entry_price': '140.00',
+                'realized_pl': '100.00'  # Some realized from partial close
+            }
+        ]
+
+        current_prices = {
+            'AAPL': Decimal('152.00'),   # +$2 profit (long)
+            'GOOGL': Decimal('135.00')   # +$5 profit (short)
+        }
+
+        pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+        # Realized: 0 + 500 + 100 = 600
+        # Unrealized: (152-150)*100 + (135-140)*(-50) = 200 + 250 = 450
+        # Total: 1050
+        assert pnl['realized_pnl'] == Decimal('600.00')
+        assert pnl['unrealized_pnl'] == Decimal('450.00')
+        assert pnl['total_pnl'] == Decimal('1050.00')
+        assert pnl['num_open_positions'] == 2
+        assert pnl['num_closed_positions'] == 1
+
+    @pytest.mark.asyncio
+    async def test_calculate_enhanced_pnl_short_position_profit(self):
+        """Test unrealized P&L for profitable short position."""
+        positions = [
+            {
+                'symbol': 'AAPL',
+                'qty': -100,  # Short 100 shares at $150
+                'avg_entry_price': '150.00',
+                'realized_pl': '0.00'
+            }
+        ]
+
+        current_prices = {
+            'AAPL': Decimal('145.00')  # Price dropped to $145 (profit)
+        }
+
+        pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+        # Short profit: (145 - 150) * (-100) = (-5) * (-100) = +500
+        assert pnl['unrealized_pnl'] == Decimal('500.00')
+        assert pnl['total_pnl'] == Decimal('500.00')
+
+    @pytest.mark.asyncio
+    async def test_calculate_enhanced_pnl_short_position_loss(self):
+        """Test unrealized P&L for losing short position."""
+        positions = [
+            {
+                'symbol': 'AAPL',
+                'qty': -100,  # Short 100 shares at $150
+                'avg_entry_price': '150.00',
+                'realized_pl': '0.00'
+            }
+        ]
+
+        current_prices = {
+            'AAPL': Decimal('155.00')  # Price rose to $155 (loss)
+        }
+
+        pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+        # Short loss: (155 - 150) * (-100) = 5 * (-100) = -500
+        assert pnl['unrealized_pnl'] == Decimal('-500.00')
+        assert pnl['total_pnl'] == Decimal('-500.00')
+
+    @pytest.mark.asyncio
+    async def test_calculate_enhanced_pnl_missing_price_fallback(self):
+        """Test fallback to avg_entry_price when current price unavailable."""
+        positions = [
+            {
+                'symbol': 'AAPL',
+                'qty': 100,
+                'avg_entry_price': '150.00',
+                'realized_pl': '0.00'
+            }
+        ]
+
+        current_prices = {}  # Missing AAPL price
+
+        # Capture stderr to check warning
+        with patch('sys.stderr', new=StringIO()):
+            pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+        # Fallback to avg_entry_price means zero unrealized P&L
+        assert pnl['unrealized_pnl'] == Decimal('0.00')
+        assert pnl['per_symbol']['AAPL']['current_price'] == Decimal('150.00')
+
+    @pytest.mark.asyncio
+    async def test_calculate_enhanced_pnl_empty_positions(self):
+        """Test enhanced P&L with no positions."""
+        positions = []
+        current_prices = {}
+
+        pnl = await calculate_enhanced_pnl(positions, current_prices)
+
+        assert pnl['realized_pnl'] == Decimal('0.00')
+        assert pnl['unrealized_pnl'] == Decimal('0.00')
+        assert pnl['total_pnl'] == Decimal('0.00')
+        assert pnl['num_open_positions'] == 0
+        assert pnl['num_closed_positions'] == 0
+        assert pnl['per_symbol'] == {}
+
+
+class TestFetchPositions:
+    """Test position fetching from T4 Execution Gateway."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_positions_success(self):
+        """Test successful position fetching."""
+        expected_positions = [
+            {'symbol': 'AAPL', 'qty': 100, 'avg_entry_price': '150.00'},
+            {'symbol': 'MSFT', 'qty': 50, 'avg_entry_price': '300.00'}
+        ]
+
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=expected_positions)
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+
+        with patch('httpx.AsyncClient', return_value=mock_client):
+            positions = await fetch_positions('http://localhost:8002')
+
+        assert positions == expected_positions
+
+    @pytest.mark.asyncio
+    async def test_fetch_positions_invalid_format(self):
+        """Test error handling for invalid response format."""
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value={'invalid': 'format'})  # Not a list
+        mock_response.raise_for_status = Mock()
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+
+        with patch('httpx.AsyncClient', return_value=mock_client):
+            with pytest.raises(RuntimeError, match="unexpected format"):
+                await fetch_positions('http://localhost:8002')
+
+    @pytest.mark.asyncio
+    async def test_fetch_positions_connection_error(self):
+        """Test handling of connection errors."""
+        import httpx
+
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+
+        with patch('httpx.AsyncClient', return_value=mock_client):
+            with pytest.raises(RuntimeError, match="unavailable"):
+                await fetch_positions('http://localhost:8002')
+
+
+class TestFetchCurrentPrices:
+    """Test price fetching from Alpaca API."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_current_prices_success(self):
+        """Test successful price fetching."""
+        symbols = ['AAPL', 'MSFT']
+        config = {}
+
+        # Mock AlpacaExecutor
+        mock_executor = Mock()
+        mock_executor.get_latest_quotes = Mock(return_value={
+            'AAPL': {
+                'last_price': Decimal('152.75'),
+                'bid_price': Decimal('152.74'),
+                'ask_price': Decimal('152.76')
+            },
+            'MSFT': {
+                'last_price': Decimal('380.50'),
+                'bid_price': Decimal('380.49'),
+                'ask_price': Decimal('380.51')
+            }
+        })
+
+        with patch('scripts.paper_run.AlpacaExecutor', return_value=mock_executor):
+            with patch.dict(os.environ, {
+                'ALPACA_API_KEY': 'test_key',
+                'ALPACA_SECRET_KEY': 'test_secret',
+                'ALPACA_BASE_URL': 'https://paper-api.alpaca.markets'
+            }):
+                prices = await fetch_current_prices(symbols, config)
+
+        assert prices['AAPL'] == Decimal('152.75')
+        assert prices['MSFT'] == Decimal('380.50')
+
+    @pytest.mark.asyncio
+    async def test_fetch_current_prices_empty_symbols(self):
+        """Test fetching prices with empty symbol list."""
+        prices = await fetch_current_prices([], {})
+        assert prices == {}
+
+    @pytest.mark.asyncio
+    async def test_fetch_current_prices_alpaca_error(self):
+        """Test graceful degradation when Alpaca API fails."""
+        from apps.execution_gateway.alpaca_client import AlpacaConnectionError
+
+        symbols = ['AAPL']
+        config = {}
+
+        mock_executor = Mock()
+        mock_executor.get_latest_quotes = Mock(side_effect=AlpacaConnectionError("API down"))
+
+        with patch('scripts.paper_run.AlpacaExecutor', return_value=mock_executor):
+            with patch.dict(os.environ, {
+                'ALPACA_API_KEY': 'test_key',
+                'ALPACA_SECRET_KEY': 'test_secret'
+            }):
+                with patch('sys.stderr', new=StringIO()):
+                    prices = await fetch_current_prices(symbols, config)
+
+        # Should return empty dict on error (graceful degradation)
+        assert prices == {}
+
+    @pytest.mark.asyncio
+    async def test_fetch_current_prices_missing_quote_fields(self):
+        """Test handling of missing quote fields."""
+        symbols = ['AAPL']
+        config = {}
+
+        # Mock quote with only bid_price (no last_price)
+        mock_executor = Mock()
+        mock_executor.get_latest_quotes = Mock(return_value={
+            'AAPL': {
+                'last_price': None,
+                'bid_price': Decimal('152.00'),
+                'ask_price': Decimal('153.00')
+            }
+        })
+
+        with patch('scripts.paper_run.AlpacaExecutor', return_value=mock_executor):
+            with patch.dict(os.environ, {
+                'ALPACA_API_KEY': 'test_key',
+                'ALPACA_SECRET_KEY': 'test_secret'
+            }):
+                prices = await fetch_current_prices(symbols, config)
+
+        # Should calculate mid-quote: (152 + 153) / 2 = 152.50
+        assert prices['AAPL'] == Decimal('152.50')
 
 
 class TestHealthChecks:
@@ -547,6 +902,77 @@ class TestResultsSaving:
 
         # Should do nothing (not raise)
         await save_results(config, result, pnl_metrics)
+
+    @pytest.mark.asyncio
+    async def test_save_results_enhanced_pnl(self, tmp_path):
+        """Test saving results with enhanced P&L format."""
+        output_file = tmp_path / "results.json"
+
+        config = {
+            'symbols': ['AAPL', 'MSFT'],
+            'capital': Decimal('100000'),
+            'max_position_size': Decimal('20000'),
+            'as_of_date': None,
+            'output_file': str(output_file),
+        }
+
+        result = {
+            'run_id': 'test-enhanced-pnl',
+            'status': 'completed',
+            'mappings': [],
+        }
+
+        # Enhanced P&L data structure
+        pnl_metrics = {
+            'realized_pnl': Decimal('500.00'),
+            'unrealized_pnl': Decimal('200.00'),
+            'total_pnl': Decimal('700.00'),
+            'num_open_positions': 2,
+            'num_closed_positions': 1,
+            'total_positions': 3,
+            'per_symbol': {
+                'AAPL': {
+                    'realized': Decimal('100.00'),
+                    'unrealized': Decimal('150.00'),
+                    'qty': 100,
+                    'avg_entry_price': Decimal('150.00'),
+                    'current_price': Decimal('151.50'),
+                    'status': 'open'
+                },
+                'MSFT': {
+                    'realized': Decimal('400.00'),
+                    'unrealized': Decimal('0.00'),
+                    'qty': 0,
+                    'avg_entry_price': Decimal('300.00'),
+                    'current_price': None,
+                    'status': 'closed'
+                }
+            }
+        }
+
+        with patch('sys.stdout', new=StringIO()):
+            await save_results(config, result, pnl_metrics)
+
+        # File should exist
+        assert output_file.exists()
+
+        # Load and verify content
+        with open(output_file) as f:
+            data = json.load(f)
+
+        assert data['run_id'] == 'test-enhanced-pnl'
+        assert data['status'] == 'completed'
+        assert data['results']['realized_pnl'] == 500.00
+        assert data['results']['unrealized_pnl'] == 200.00
+        assert data['results']['total_pnl'] == 700.00
+        assert data['results']['num_open_positions'] == 2
+        assert data['results']['num_closed_positions'] == 1
+
+        # Check per-symbol data
+        assert 'AAPL' in data['results']['per_symbol']
+        assert data['results']['per_symbol']['AAPL']['qty'] == 100
+        assert data['results']['per_symbol']['AAPL']['status'] == 'open'
+        assert data['results']['per_symbol']['MSFT']['status'] == 'closed'
 
 
 class TestConsoleOutput:
