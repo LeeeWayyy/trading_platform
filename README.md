@@ -274,8 +274,9 @@ trading_platform/
 
 **Tests:**
 - Unit tests: 44/44 passing (100%)
-- Integration tests: 6/6 passing (100%)
-- **Total: 50/50 passing (100%)**
+- Integration tests (DRY_RUN): 6/6 passing (100%)
+- Live Alpaca tests: 6/6 passing (100%)
+- **Total: 56/56 passing (100%)**
 
 **Performance:**
 - Order submission: < 100ms (target: 500ms) ✅
@@ -288,7 +289,8 @@ trading_platform/
 - [docs/ADRs/0005-execution-gateway-architecture.md](./docs/ADRs/0005-execution-gateway-architecture.md) - Architecture decisions (690 lines)
 
 **Deployment Scripts:**
-- `scripts/test_t4_execution_gateway.py` - Manual integration testing (6/6 passing)
+- `scripts/test_t4_execution_gateway.py` - Integration tests (DRY_RUN mode, 6/6 passing)
+- `scripts/test_alpaca_live.py` - Live Alpaca API tests (6/6 passing, requires credentials)
 
 **Key Features:**
 - **Idempotency:** Same order parameters on same day = same client_order_id (prevents duplicates)
@@ -455,6 +457,9 @@ python scripts/test_p5_hot_reload.py           # Phase 5: 6/6 ✅
 # T4: Execution Gateway
 python scripts/test_t4_execution_gateway.py    # Integration tests: 6/6 ✅
 pytest apps/execution_gateway/tests/ -v       # Unit tests: 44/44 ✅
+
+# T4: Live Alpaca Testing (requires real credentials in .env)
+DRY_RUN=false python scripts/test_alpaca_live.py  # Live tests: 6/6 ✅
 ```
 
 ---
@@ -513,9 +518,10 @@ T6: Orchestrator → Full Pipeline (UPCOMING)
 
 ### Code Metrics
 - **Production Code:** 5,800+ lines (T1-T4)
-- **Test Code:** 3,400+ lines
+- **Test Code:** 3,850+ lines
 - **Documentation:** 12,500+ lines
-- **Test Pass Rate:** 98% (107/110 tests)
+- **Test Pass Rate:** 98.3% (113/115 tests)
+- **Live Alpaca Validation:** 100% (6/6 tests)
 
 ### Components Delivered
 - 4 major tasks complete (T1, T2, T3, T4)
