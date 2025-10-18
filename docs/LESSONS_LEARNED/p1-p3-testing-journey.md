@@ -458,7 +458,7 @@ python scripts/test_p3_signal_generator.py
 
 ---
 
-### 5. Documentation (`docs/TESTING_SETUP.md`)
+### 5. Documentation (`docs/GETTING_STARTED/TESTING_SETUP.md`)
 
 Complete 600+ line testing guide covering:
 - Prerequisites and installation
@@ -750,7 +750,7 @@ def test_hot_reload_during_signal_generation():
    - `scripts/test_p3_signal_generator.py` (354 lines)
 
 2. **Documentation:**
-   - `docs/TESTING_SETUP.md` (600+ lines)
+   - `docs/GETTING_STARTED/TESTING_SETUP.md` (600+ lines)
    - `docs/LESSONS_LEARNED/p1-p3-testing-journey.md` (this file)
 
 3. **Mock/test utilities:**

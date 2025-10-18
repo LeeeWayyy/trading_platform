@@ -1,5 +1,5 @@
 # Assistant Rules (Load this into your AI tool)
-- Follow /docs/REPO_MAP.md for where code lives.
+- Follow /docs/GETTING_STARTED/REPO_MAP.md for where code lives.
 - Adhere to OpenAPI contracts; do not change without PR + ADR.
 - Do not create new services; extend existing ones.
 - Prefer small, isolated commits per ticket.

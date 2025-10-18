@@ -12,7 +12,7 @@ A production-grade algorithmic trading platform integrating Qlib for signal gene
 
 ### Installation
 
-**See [docs/SETUP.md](./docs/SETUP.md) for detailed environment setup instructions.**
+**See [docs/GETTING_STARTED/SETUP.md](./docs/GETTING_STARTED/SETUP.md) for detailed environment setup instructions.**
 
 #### Quick Setup (venv)
 
@@ -101,17 +101,19 @@ trading_platform/
 
 ## Documentation
 
+**📖 Start Here:** [docs/INDEX.md](./docs/INDEX.md) - **Canonical entry point for all documentation**
+
 ### Getting Started
-- **[docs/SETUP.md](./docs/SETUP.md)** - Environment setup and installation guide
+- **[docs/GETTING_STARTED/SETUP.md](./docs/GETTING_STARTED/SETUP.md)** - Environment setup and installation guide
 - [CLAUDE.md](./CLAUDE.md) - Main guide for Claude Code
-- **[docs/TESTING_SETUP.md](./docs/TESTING_SETUP.md)** - Testing environment setup
+- **[docs/GETTING_STARTED/TESTING_SETUP.md](./docs/GETTING_STARTED/TESTING_SETUP.md)** - Testing environment setup
 
 ### Development Guidelines
-- [docs/ADR_GUIDE.md](./docs/ADR_GUIDE.md) - Architecture Decision Records guide
-- [docs/DOCUMENTATION_STANDARDS.md](./docs/DOCUMENTATION_STANDARDS.md) - Code documentation standards
-- [docs/GIT_WORKFLOW.md](./docs/GIT_WORKFLOW.md) - Git workflow and PR automation
-- [docs/CODING_STANDARDS.md](./docs/CODING_STANDARDS.md) - Python coding standards
-- [docs/TESTING.md](./docs/TESTING.md) - Testing strategy and requirements
+- [docs/STANDARDS/ADR_GUIDE.md](./docs/STANDARDS/ADR_GUIDE.md) - Architecture Decision Records guide
+- [docs/STANDARDS/DOCUMENTATION_STANDARDS.md](./docs/STANDARDS/DOCUMENTATION_STANDARDS.md) - Code documentation standards
+- [docs/STANDARDS/GIT_WORKFLOW.md](./docs/STANDARDS/GIT_WORKFLOW.md) - Git workflow and PR automation
+- [docs/STANDARDS/CODING_STANDARDS.md](./docs/STANDARDS/CODING_STANDARDS.md) - Python coding standards
+- [docs/STANDARDS/TESTING.md](./docs/STANDARDS/TESTING.md) - Testing strategy and requirements
 
 ### Implementation Guides
 - **[docs/IMPLEMENTATION_GUIDES/t1-data-etl.md](./docs/IMPLEMENTATION_GUIDES/t1-data-etl.md)** - T1: Data ETL implementation
@@ -674,7 +676,7 @@ T6: paper_run.py → One-Command Automation ✅ COMPLETE
 ## Contributing
 
 1. Read [CLAUDE.md](./CLAUDE.md) for comprehensive guidance
-2. Follow [docs/DOCUMENTATION_STANDARDS.md](./docs/DOCUMENTATION_STANDARDS.md)
+2. Follow [docs/STANDARDS/DOCUMENTATION_STANDARDS.md](./docs/STANDARDS/DOCUMENTATION_STANDARDS.md)
 3. Write tests first (TDD)
 4. Create ADR for architectural changes
 5. Document trading concepts in /docs/CONCEPTS/

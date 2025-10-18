@@ -11,8 +11,8 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - Feature parity: research and production feature definitions must share code
 - Never produce duplicate orders
 - Circuit breakers override signals
-- **Every architectural change requires an ADR** (see `/docs/ADR_GUIDE.md`)
-- **All code must be educational and well-documented for learning** (see `/docs/DOCUMENTATION_STANDARDS.md`)
+- **Every architectural change requires an ADR** (see `/docs/STANDARDS/ADR_GUIDE.md`)
+- **All code must be educational and well-documented for learning** (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
 
 ## Repository Structure
 
@@ -30,15 +30,28 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
   - `feature_store/` — Feature computation and storage
   - `common/` — Shared utilities and models
 - `docs/` — Documentation and specifications
+  - `INDEX.md` — **START HERE**: Canonical entry point for all documentation
+  - `AI_GUIDE.md` — Quick-start guide for AI assistants
+  - `STANDARDS/` — **Normative guidance (MUST follow)**
+    - `CODING_STANDARDS.md` — Python style, type hints, error handling
+    - `DOCUMENTATION_STANDARDS.md` — Docstring and comment requirements
+    - `GIT_WORKFLOW.md` — Commit messages, PR process
+    - `TESTING.md` — Test structure, coverage requirements
+    - `ADR_GUIDE.md` — When/how to write ADRs
+  - `GETTING_STARTED/` — Setup and orientation
+    - `SETUP.md` — Environment setup
+    - `TESTING_SETUP.md` — Test environment configuration
+    - `PROJECT_STATUS.md` — Current implementation status
+    - `REPO_MAP.md` — Directory structure and module ownership
+    - `GLOSSARY.md` — Trading and ML terminology
   - `API/*.openapi.yaml` — API contracts (strict, require ADR for changes)
   - `DB/*.sql` — Database schemas (strict)
   - `TASKS/*.md` — Ticket backlog with acceptance criteria
-  - `ADRs/` — Architecture Decision Records (REQUIRED, see ADR_GUIDE.md)
+  - `ADRs/` — Architecture Decision Records (REQUIRED)
   - `RUNBOOKS/` — Operational procedures
   - `CONCEPTS/` — Trading concepts explained for beginners
   - `IMPLEMENTATION_GUIDES/` — Step-by-step implementation details
-  - `ADR_GUIDE.md` — Comprehensive guide for writing ADRs
-  - `DOCUMENTATION_STANDARDS.md` — Docstring and comment requirements
+  - `LESSONS_LEARNED/` — Post-implementation retrospectives
 - `prompts/` — Guidance for AI coding tools
 - `data/` — Parquet files, DuckDB catalogs
 - `artifacts/` — Models, backtests, reports
@@ -70,22 +83,36 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 ## Development Workflow
 
 ### Source of Truth (in order of priority)
-1. `/docs/REPO_MAP.md` — Directory purpose and module ownership
-2. `/docs/API/*.openapi.yaml` — API contracts (strict)
-3. `/docs/DB/*.sql` — Database schemas (strict)
-4. `/docs/TASKS/*.md` — Ticket backlog and acceptance criteria
-5. `/docs/ADRs/*.md` — All architectural decisions (MANDATORY)
-6. `/docs/CODING_STANDARDS.md` — Style, patterns, error handling
-7. `/docs/TESTING.md` — Required tests and test pyramid
-8. `/docs/GLOSSARY.md` — Project-specific terminology
-9. `/docs/CONCEPTS/*.md` — Trading concepts for learning
-10. `/docs/IMPLEMENTATION_GUIDES/*.md` — Detailed implementation steps
+
+**📖 First Time? Start Here:**
+1. `/docs/INDEX.md` — **Canonical entry point** with reading order for all docs
+2. `/docs/AI_GUIDE.md` — Quick-start workflow for AI assistants
+
+**🎯 Normative Standards (MUST follow):**
+3. `/docs/STANDARDS/CODING_STANDARDS.md` — Python style, patterns, error handling
+4. `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md` — Docstring requirements
+5. `/docs/STANDARDS/GIT_WORKFLOW.md` — Commit messages, PR process
+6. `/docs/STANDARDS/TESTING.md` — Test structure, coverage requirements
+7. `/docs/STANDARDS/ADR_GUIDE.md` — When/how to write ADRs
+
+**📋 Project Context:**
+8. `/docs/GETTING_STARTED/REPO_MAP.md` — Directory purpose and module ownership
+9. `/docs/GETTING_STARTED/GLOSSARY.md` — Project-specific terminology
+10. `/docs/GETTING_STARTED/PROJECT_STATUS.md` — Current implementation status
+
+**🔧 Implementation References:**
+11. `/docs/API/*.openapi.yaml` — API contracts (strict)
+12. `/docs/DB/*.sql` — Database schemas (strict)
+13. `/docs/TASKS/*.md` — Ticket backlog and acceptance criteria
+14. `/docs/ADRs/*.md` — All architectural decisions (MANDATORY)
+15. `/docs/CONCEPTS/*.md` — Trading concepts for learning
+16. `/docs/IMPLEMENTATION_GUIDES/*.md` — Detailed implementation steps
 
 ### Implementation Process (STRICT ORDER)
 
 1. **Pre-Implementation Phase**
    - Read ticket in `/docs/TASKS/`
-   - If architectural change needed → Create ADR FIRST (see `/docs/ADR_GUIDE.md`)
+   - If architectural change needed → Create ADR FIRST (see `/docs/STANDARDS/ADR_GUIDE.md`)
    - If trading concept involved → Document in `/docs/CONCEPTS/` FIRST
 
 2. **Documentation Phase**
@@ -93,11 +120,11 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
    - Document expected behavior, edge cases, examples
 
 3. **Test-Driven Development Phase**
-   - Write tests per `/docs/TESTING.md` (TDD: red first)
+   - Write tests per `/docs/STANDARDS/TESTING.md` (TDD: red first)
    - Run `make test` → should FAIL (red)
 
 4. **Implementation Phase**
-   - Implement code following `/docs/DOCUMENTATION_STANDARDS.md`
+   - Implement code following `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`
    - Add comprehensive docstrings (see standards doc for examples)
    - Implement only what's in the ticket (no scope creep)
 
@@ -107,27 +134,27 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
    - Manual testing in DRY_RUN mode
 
 6. **Documentation Update Phase**
-   - Update REPO_MAP.md if structure changed
+   - Update GETTING_STARTED/REPO_MAP.md if structure changed
    - Update OpenAPI specs if API changed
    - Update DB schemas if database changed
    - Add lessons learned to `/docs/LESSONS_LEARNED/`
 
 7. **Pull Request Phase**
    - Reference ADR if applicable
-   - Include checklist from `/docs/TESTING.md`
+   - Include checklist from `/docs/STANDARDS/TESTING.md`
    - Describe educational value
 
 ### Decision-Making
 - **No silent scope changes** — If ticket lacks detail, propose ADR or add TODOs with rationale
 - Never change OpenAPI contracts without PR + ADR
 - Do not create new services; extend existing ones
-- If architectural change needed, see `/docs/ADR_GUIDE.md`
+- If architectural change needed, see `/docs/STANDARDS/ADR_GUIDE.md`
 
 ## Documentation Requirements
 
 ### **CRITICAL: All functions must follow strict documentation standards**
 
-See `/docs/DOCUMENTATION_STANDARDS.md` for comprehensive examples and requirements.
+See `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md` for comprehensive examples and requirements.
 
 **Quick reference:**
 - Every function MUST have Google-style docstring with examples
@@ -238,7 +265,7 @@ Boot-time and periodic:
 - Migrations for schema changes (Alembic)
 - Async FastAPI + httpx for HTTP
 
-**See `/docs/CODING_STANDARDS.md` for detailed patterns**
+**See `/docs/STANDARDS/CODING_STANDARDS.md` for detailed patterns**
 
 ## Testing Strategy
 
@@ -253,7 +280,7 @@ Boot-time and periodic:
 - Stale order cleanup test (>15m → cancel)
 - Backtest replay test (same signals from saved data)
 
-**See `/docs/TESTING.md` for detailed requirements**
+**See `/docs/STANDARDS/TESTING.md` for detailed requirements**
 
 ## Environment Modes
 
@@ -349,7 +376,7 @@ Background job every 5min: cancel orders in `('new', 'accepted', 'partially_fill
 
 ## Key Terminology
 
-See `/docs/GLOSSARY.md` for full definitions:
+See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 
 - **Alpha** — Model signal predicting returns
 - **Circuit Breaker** — Safety mechanism (OPEN/TRIPPED)
@@ -372,29 +399,35 @@ See `/docs/GLOSSARY.md` for full definitions:
 
 ## When Making Changes
 
-1. Check existing docs (REPO_MAP, API specs, DB schemas)
-2. **Propose ADR for architectural changes** (see `/docs/ADR_GUIDE.md`)
-3. **Document trading concepts** (see `/docs/DOCUMENTATION_STANDARDS.md`)
+1. Check existing docs (GETTING_STARTED/REPO_MAP, API specs, DB schemas)
+2. **Propose ADR for architectural changes** (see `/docs/STANDARDS/ADR_GUIDE.md`)
+3. **Document trading concepts** (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
 4. Write tests first (TDD enforced)
 5. Add comprehensive docstrings (see standards doc)
 6. Update all affected docs
 7. Run `make test && make lint`
-8. Follow PR checklist from `/docs/TESTING.md`
+8. Follow PR checklist from `/docs/STANDARDS/TESTING.md`
 
 ## Essential Documentation
 
-**Before coding anything, read:**
-1. `/docs/ADR_GUIDE.md` — When and how to write ADRs (MANDATORY for arch changes)
-2. `/docs/DOCUMENTATION_STANDARDS.md` — Docstring requirements with examples
-3. `/docs/CODING_STANDARDS.md` — Python patterns and standards
-4. `/docs/TESTING.md` — Test pyramid and requirements
+**📖 First Time? Start Here:**
+1. `/docs/INDEX.md` — **Canonical entry point** with complete navigation guide
+2. `/docs/AI_GUIDE.md` — Quick-start workflow for AI assistants
+
+**⚠️ Before coding anything, read these STANDARDS (MUST follow):**
+1. `/docs/STANDARDS/ADR_GUIDE.md` — When and how to write ADRs (MANDATORY for arch changes)
+2. `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md` — Docstring requirements with examples
+3. `/docs/STANDARDS/CODING_STANDARDS.md` — Python patterns and standards
+4. `/docs/STANDARDS/TESTING.md` — Test pyramid and requirements
+5. `/docs/STANDARDS/GIT_WORKFLOW.md` — Commit messages and PR process
 
 **During implementation:**
 - Create concept docs in `/docs/CONCEPTS/` for trading-specific features
 - Create implementation guides in `/docs/IMPLEMENTATION_GUIDES/` from tickets
-- Follow docstring examples in DOCUMENTATION_STANDARDS.md
+- Follow docstring examples in STANDARDS/DOCUMENTATION_STANDARDS.md
 
 **Additional resources:**
-- Implementation plan: `trading_platform_realization_plan.md`
+- Project status: `/docs/GETTING_STARTED/PROJECT_STATUS.md`
+- Implementation plan: `/docs/trading_platform_realization_plan.md`
 - AI assistant rules: `prompts/assistant_rules.md`
 - Execution Gateway API: `docs/API/execution_gateway.openapi.yaml`
