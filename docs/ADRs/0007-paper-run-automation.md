@@ -447,5 +447,5 @@ async def test_paper_run_against_real_services():
 ## References
 
 - [P0_TICKETS.md - T6 Requirements](../TASKS/P0_TICKETS.md#t6)
-- [Trading Platform Realization Plan](../../trading_platform_realization_plan.md)
-- [GIT_WORKFLOW.md](../GIT_WORKFLOW.md) - Commit and PR guidelines
+- [Trading Platform Realization Plan](../trading_platform_realization_plan.md)
+- [GIT_WORKFLOW.md](../STANDARDS/GIT_WORKFLOW.md) - Commit and PR guidelines
