@@ -144,15 +144,18 @@ git mv p0t2-baseline-strategy.md t2-baseline-strategy-qlib.md
 
 ## Verification
 
-After completion, verify:
+After **all** migration steps complete, verify:
 
-1. ✅ All files renamed
-2. ✅ No broken links (`grep -r "]\(.*\.md\)" docs/ | grep "t[1-6]-"`)
-3. ✅ INDEX.md updated
-4. ✅ PROJECT_STATUS.md updated
-5. ✅ Git history preserved (use `git log --follow`)
+1. ✅ All files renamed (completed in this PR)
+2. ⏳ No broken links (`grep -r "]\(.*\.md\)" docs/ | grep "t[1-6]-"`) - **Pending**
+3. ⏳ INDEX.md updated - **Pending**
+4. ⏳ PROJECT_STATUS.md updated - **Pending**
+5. ✅ Git history preserved (use `git log --follow`) - Verified
 
 ---
 
-**Status:** Complete
-**Next Step:** Update all cross-references in markdown files
+**Status:** Phase 1 Complete (File Renames)
+**Next Steps:**
+1. Update all cross-references in markdown files (separate PR)
+2. Update INDEX.md and REPO_MAP.md (separate PR)
+3. Update PROJECT_STATUS.md (separate PR)
