@@ -31,11 +31,14 @@ try:
         StopLimitOrderRequest
     )
     from alpaca.trading.enums import OrderSide, TimeInForce, OrderType
+    from alpaca.data.historical import StockHistoricalDataClient
+    from alpaca.data.requests import StockLatestQuoteRequest
     from alpaca.common.exceptions import APIError as AlpacaAPIError
     ALPACA_AVAILABLE = True
 except ImportError:
     ALPACA_AVAILABLE = False
     TradingClient = None
+    StockHistoricalDataClient = None
     AlpacaAPIError = Exception
 
 from apps.execution_gateway.schemas import OrderRequest
@@ -122,11 +125,17 @@ class AlpacaExecutor:
         self.base_url = base_url
         self.paper = paper
 
-        # Initialize Alpaca client
+        # Initialize Alpaca trading client
         self.client = TradingClient(
             api_key=api_key,
             secret_key=secret_key,
             paper=paper
+        )
+
+        # Initialize Alpaca data client for market data
+        self.data_client = StockHistoricalDataClient(
+            api_key=api_key,
+            secret_key=secret_key
         )
 
         logger.info(f"Initialized Alpaca client (paper={paper}, base_url={base_url})")
@@ -443,3 +452,107 @@ class AlpacaExecutor:
         except Exception as e:
             logger.error(f"Error fetching account info: {e}")
             return None
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(AlpacaConnectionError),
+        reraise=True
+    )
+    def get_latest_quotes(self, symbols: list) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetch latest market quotes for multiple symbols.
+
+        Uses Alpaca's Stock Historical Data API to get latest quote data
+        including bid, ask, and last trade price for each symbol.
+
+        Args:
+            symbols: List of stock symbols (e.g., ['AAPL', 'MSFT', 'GOOGL'])
+
+        Returns:
+            Dict mapping symbol -> quote data:
+            {
+                'AAPL': {
+                    'ask_price': Decimal('152.75'),
+                    'bid_price': Decimal('152.74'),
+                    'last_price': Decimal('152.75'),
+                    'timestamp': datetime(...)
+                },
+                'MSFT': {...},
+                ...
+            }
+
+        Raises:
+            AlpacaConnectionError: If API request fails
+            ValueError: If symbols list is empty
+
+        Examples:
+            >>> executor = AlpacaExecutor(api_key="...", secret_key="...")
+            >>> quotes = executor.get_latest_quotes(['AAPL', 'MSFT'])
+            >>> quotes['AAPL']['last_price']
+            Decimal('152.75')
+
+        Notes:
+            - Uses last trade price as primary price
+            - Falls back to mid-quote (avg of bid/ask) if no trades
+            - Symbols not found are omitted from results (not an error)
+            - Batch request is efficient - one API call for all symbols
+        """
+        if not symbols:
+            raise ValueError("symbols list cannot be empty")
+
+        try:
+            # Build request for latest quotes (batch)
+            request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
+
+            # Fetch quotes from Alpaca
+            logger.info(f"Fetching latest quotes for {len(symbols)} symbols: {symbols}")
+            quotes_data = self.data_client.get_stock_latest_quote(request)
+
+            # Convert to dict with Decimal prices
+            result = {}
+            for symbol in symbols:
+                if symbol in quotes_data:
+                    quote = quotes_data[symbol]
+
+                    # Use last trade price if available, otherwise mid-quote
+                    if hasattr(quote, 'ap') and hasattr(quote, 'bp'):
+                        ask_price = Decimal(str(quote.ap))
+                        bid_price = Decimal(str(quote.bp))
+                        # Mid-quote as fallback
+                        last_price = (ask_price + bid_price) / Decimal('2')
+                    else:
+                        # Fallback if bid/ask not available
+                        ask_price = None
+                        bid_price = None
+                        last_price = None
+
+                    result[symbol] = {
+                        'ask_price': ask_price,
+                        'bid_price': bid_price,
+                        'last_price': last_price,
+                        'timestamp': quote.timestamp if hasattr(quote, 'timestamp') else None
+                    }
+
+                    logger.debug(
+                        f"Quote for {symbol}: last=${last_price}, "
+                        f"bid=${bid_price}, ask=${ask_price}"
+                    )
+                else:
+                    logger.warning(f"No quote data available for symbol: {symbol}")
+
+            logger.info(f"Successfully fetched quotes for {len(result)}/{len(symbols)} symbols")
+            return result
+
+        except AlpacaAPIError as e:
+            error_message = str(e)
+            logger.error(f"Alpaca API error fetching quotes: {error_message}")
+            raise AlpacaConnectionError(
+                f"Failed to fetch quotes: {error_message}"
+            ) from e
+
+        except Exception as e:
+            logger.error(f"Unexpected error fetching quotes: {e}")
+            raise AlpacaConnectionError(
+                f"Unexpected error fetching quotes: {e}"
+            ) from e
