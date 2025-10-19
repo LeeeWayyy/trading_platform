@@ -71,7 +71,7 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
     extract_signature_from_header,
 )
-from libs.redis_client import RedisClient
+from libs.redis_client import RedisClient, RedisConnectionError
 
 
 # ============================================================================
@@ -120,7 +120,7 @@ try:
         password=REDIS_PASSWORD if REDIS_PASSWORD else None,
     )
     logger.info("Redis client initialized successfully")
-except Exception as e:
+except RedisConnectionError as e:
     logger.warning(f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices.")
 
 # Alpaca client (only if not in dry run mode and credentials provided)

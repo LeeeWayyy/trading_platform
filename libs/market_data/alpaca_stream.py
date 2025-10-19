@@ -5,6 +5,7 @@ WebSocket client for real-time market data from Alpaca.
 """
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 from datetime import datetime, timezone
@@ -194,6 +195,7 @@ class AlpacaMarketDataStream:
         Start WebSocket connection with automatic reconnection.
 
         Implements exponential backoff for reconnection attempts.
+        Runs the synchronous StockDataStream.run() in a thread pool to avoid blocking.
 
         Raises:
             ConnectionError: If max reconnection attempts exceeded
@@ -211,18 +213,20 @@ class AlpacaMarketDataStream:
                 # Mark as connected before running
                 self._connected = True
 
-                # Reset reconnect counter on successful connection
+                # Run WebSocket in thread pool (StockDataStream.run() is synchronous, not async)
+                # This blocks until disconnect
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, self.stream.run)
+
+                # If we reach here, connection was established and then closed gracefully
+                # This is a "successful" cycle, so reset the counter
+                self._connected = False
                 if self._reconnect_attempts > 0:
-                    logger.info(f"Connection successful, resetting reconnect counter (was {self._reconnect_attempts})")
+                    logger.info(f"Resetting reconnect counter to 0 (was {self._reconnect_attempts})")
                     self._reconnect_attempts = 0
 
-                # Run WebSocket (blocks until disconnect)
-                await self.stream.run()
-
-                # If we reach here, connection was closed gracefully
-                self._connected = False
                 if self._running:
-                    logger.warning("WebSocket connection closed unexpectedly")
+                    logger.warning("WebSocket connection closed unexpectedly, will reconnect immediately.")
 
             except Exception as e:
                 self._connected = False
@@ -256,7 +260,8 @@ class AlpacaMarketDataStream:
         self._connected = False
 
         try:
-            await self.stream.stop()
+            # stream.stop() is synchronous, not async
+            self.stream.stop()
             logger.info("WebSocket stopped successfully")
         except Exception as e:
             logger.error(f"Error stopping WebSocket: {e}")
