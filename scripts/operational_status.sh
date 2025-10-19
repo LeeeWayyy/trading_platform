@@ -85,7 +85,7 @@ check_service_health() {
     local response
     local http_code
 
-    # Try to query health endpoint (allow curl errors to show for diagnostics)
+    # Query health endpoint (curl -s suppresses progress meter, not errors)
     response=$(curl -s -w "\n%{http_code}" --max-time "$timeout" "$url/health" || echo "000")
     http_code=$(echo "$response" | tail -n1)
 
@@ -139,7 +139,7 @@ get_positions() {
     fi
 
     # Display each position with consistent 2 decimal place formatting
-    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(try (.avg_entry_price | tonumber | . * 100 | round / 100) catch .) avg"' || \
+    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(try (.avg_entry_price | tonumber | . * 100 | round / 100) catch "N/A") avg"' || \
         echo "  ${YELLOW}${WARN} Error parsing positions${NC}"
 }
 
@@ -216,17 +216,17 @@ main() {
 
     # Positions
     echo -e "${CHART} ${BOLD}Positions (T4):${NC}"
-    get_positions || true  # Allow failure without terminating
+    get_positions || all_healthy=1  # Track data fetch failures
     echo ""
 
     # Recent Runs
     echo -e "${LIST} ${BOLD}Recent Runs (T5):${NC}"
-    get_recent_runs || true  # Allow failure without terminating
+    get_recent_runs || all_healthy=1  # Track data fetch failures
     echo ""
 
     # P&L Summary
     echo -e "${MONEY} ${BOLD}Latest P&L:${NC}"
-    get_pnl_summary || true  # Allow failure without terminating
+    get_pnl_summary || all_healthy=1  # Track data fetch failures
     echo ""
 
     echo -e "${BOLD}========================================================================${NC}"
