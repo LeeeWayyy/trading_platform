@@ -615,6 +615,69 @@ $ make status
 
 ---
 
+## CI/CD & Technical Debt
+
+### Mypy Type Checking Issues (Found in PR #18)
+
+**Status:** 📋 Backlog - Not blocking, address during maintenance window
+
+**Context:** First PR with automated CI/CD testing revealed pre-existing mypy type checking errors. These are not introduced by recent changes but exist in the codebase.
+
+**Issues Found (5 total):**
+
+1. **Missing `alpaca.data.live` import stub**
+   - **File:** `libs/market_data/alpaca_stream.py:14`
+   - **Error:** Cannot find implementation or library stub
+   - **Fix:** Install alpaca-py type stubs OR add `# type: ignore`
+   - **Priority:** Low (non-blocking)
+
+2. **Missing `alpaca.data.models` import stub**
+   - **File:** `libs/market_data/alpaca_stream.py:15`
+   - **Error:** Cannot find implementation or library stub
+   - **Fix:** Install alpaca-py type stubs OR add `# type: ignore`
+   - **Priority:** Low (non-blocking)
+
+3. **Missing `tenacity` import stub**
+   - **File:** `libs/redis_client/client.py:27`
+   - **Error:** Cannot find implementation or library stub
+   - **Fix:** `pip install types-tenacity`
+   - **Priority:** Low (non-blocking)
+
+4. **Missing `duckdb` import stub**
+   - **File:** `libs/duckdb_catalog.py:48`
+   - **Error:** Cannot find implementation or library stub
+   - **Fix:** Install duckdb type stubs OR add `# type: ignore`
+   - **Priority:** Low (non-blocking)
+
+5. **Duplicate module name: `execution_gateway.schemas`**
+   - **File:** `apps/execution_gateway/schemas.py`
+   - **Error:** Source file found twice under different module names
+   - **Fix:** Investigate PYTHONPATH/import configuration
+   - **Priority:** Medium (confusing for type checker)
+
+**Recommended Approach:**
+
+Option A (Quick fix - 15 min):
+```bash
+pip install types-tenacity  # Fix issue #3
+# Add type: ignore for alpaca and duckdb imports
+```
+
+Option B (Proper fix - 1-2 hours):
+```bash
+# Install all missing type stubs
+pip install types-tenacity
+pip install types-duckdb  # if available
+# Research alpaca-py type stub availability
+# Fix PYTHONPATH for execution_gateway.schemas
+```
+
+**Timeline:** Address during next maintenance window or when working on affected files
+
+**Reference:** PR #18 CI failure logs
+
+---
+
 ## Related Documents
 
 - [P0 Tasks](./P0_TASKS.md) - Completed MVP tasks (100%)
