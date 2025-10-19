@@ -439,3 +439,50 @@ class TestRealtimePnLEndpoint:
         assert abs(Decimal(short_pos["unrealized_pl_pct"]) - Decimal("6.67")) < Decimal(
             "0.01"
         )
+
+    @patch("apps.execution_gateway.main.db_client")
+    @patch("apps.execution_gateway.main.redis_client")
+    def test_realtime_pnl_with_zero_price_edge_case(
+        self, mock_redis, mock_db, test_client
+    ):
+        """
+        Test that Decimal('0') is treated as a valid price (not falsy).
+
+        This is an edge case fix from automated review: the condition
+        `if pos.current_price:` would incorrectly skip Decimal('0') because
+        it's falsy in Python. The fix uses `if pos.current_price is not None:`
+        to explicitly check for None.
+        """
+        # Position with current_price = Decimal('0') (edge case)
+        position = Position(
+            symbol="ZERO",
+            qty=Decimal("100"),
+            avg_entry_price=Decimal("10.00"),
+            current_price=Decimal("0"),  # Zero price should be valid
+            unrealized_pl=Decimal("-1000.00"),  # Calculated from zero price
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        mock_db.get_all_positions.return_value = [position]
+
+        # Redis has no real-time price - should fall back to database
+        mock_redis.get = MagicMock(return_value=None)
+
+        # Make request
+        response = test_client.get("/api/v1/positions/pnl/realtime")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify zero price is used from database (not fallback to entry price)
+        zero_pos = data["positions"][0]
+        assert zero_pos["price_source"] == "database"  # NOT "fallback"
+        assert Decimal(zero_pos["current_price"]) == Decimal("0.00")
+
+        # P&L should be calculated correctly with zero price
+        # P&L = (0 - 10) * 100 = -1000
+        assert Decimal(zero_pos["unrealized_pl"]) == Decimal("-1000.00")
+
+        # P&L % = (-1000 / (10 * 100)) * 100 = -100%
+        assert Decimal(zero_pos["unrealized_pl_pct"]) == Decimal("-100.00")

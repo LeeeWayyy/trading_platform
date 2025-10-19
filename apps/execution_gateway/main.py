@@ -277,7 +277,7 @@ def _determine_current_price(
         return current_price, "real-time", last_price_update, True
 
     # Fallback to database price
-    if pos.current_price:
+    if pos.current_price is not None:
         logger.debug(f"Using database price for {pos.symbol}: ${pos.current_price}")
         return pos.current_price, "database", None, False
 

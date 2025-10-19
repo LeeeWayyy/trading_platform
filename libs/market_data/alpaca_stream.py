@@ -211,10 +211,15 @@ class AlpacaMarketDataStream:
                 # Mark as connected before running
                 self._connected = True
 
+                # Reset reconnect counter on successful connection
+                if self._reconnect_attempts > 0:
+                    logger.info(f"Connection successful, resetting reconnect counter (was {self._reconnect_attempts})")
+                    self._reconnect_attempts = 0
+
                 # Run WebSocket (blocks until disconnect)
                 await self.stream.run()
 
-                # If we reach here, connection was closed
+                # If we reach here, connection was closed gracefully
                 self._connected = False
                 if self._running:
                     logger.warning("WebSocket connection closed unexpectedly")

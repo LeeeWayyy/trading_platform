@@ -189,3 +189,44 @@ class TestAlpacaMarketDataStream:
         stream._running = False
 
         assert stream.is_connected() is False
+
+    @pytest.mark.asyncio
+    async def test_reconnect_counter_resets_after_successful_connection(self, stream):
+        """
+        Test that reconnect counter resets after successful connection.
+
+        This is a P1 fix from automated review: without resetting the counter,
+        transient network failures over the lifetime of a process accumulate
+        toward max_reconnect_attempts (10), eventually causing permanent failure.
+
+        The fix ensures reconnect counter resets to 0 after each successful connection.
+        """
+        # Simulate a scenario where connection fails twice, then succeeds
+        stream._reconnect_attempts = 2  # Simulate 2 previous failed attempts
+
+        # Mock stream.run() to succeed immediately (no exception)
+        async def mock_run():
+            # Simulate successful connection that runs and then gracefully closes
+            await asyncio.sleep(0.01)  # Simulate brief connection
+            # When run() returns normally, it means connection closed gracefully
+
+        stream.stream.run = AsyncMock(side_effect=mock_run)
+
+        # Start the stream in background
+        task = asyncio.create_task(stream.start())
+
+        # Wait briefly for connection to establish and counter to reset
+        await asyncio.sleep(0.05)
+
+        # Stop the stream to exit cleanly
+        await stream.stop()
+
+        # Wait for task to complete
+        try:
+            await asyncio.wait_for(task, timeout=1.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+
+        # Verify reconnect counter was reset to 0 after successful connection
+        # (before it was 2, after successful run() it should be 0)
+        assert stream._reconnect_attempts == 0
