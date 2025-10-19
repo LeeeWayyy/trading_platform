@@ -452,6 +452,108 @@ This ensures multiple automated code reviewers catch issues before human review,
 - Wait for owner's explicit approval before deferring
 - Document deferred issues in the PR description or create follow-up tickets
 
+### Handling Conflicting Reviewer Feedback
+
+**Problem: Review Deadlocks**
+
+Sometimes reviewers may provide conflicting feedback that creates a loop:
+1. Gemini suggests adding feature X
+2. You implement feature X
+3. Codex says feature X causes regression issues
+4. You remove feature X
+5. Gemini complains feature X is missing again
+6. **Review deadlock** - cannot satisfy both reviewers
+
+**Resolution Strategy: Codex as Tie-Breaker**
+
+When conflicting feedback creates a review loop on a **specific change**:
+
+1. **Identify the Conflict**: Recognize when two reviewers disagree on the same specific implementation detail
+2. **Use Codex as Golden Standard**: If Codex approves the implementation, defer Gemini's conflicting suggestion
+3. **Document the Decision**: Add a comment explaining why Gemini's suggestion was not implemented
+4. **Scope is Limited**: This only applies to the specific conflicting change, NOT all of Gemini's feedback
+
+**Example Scenario:**
+
+```bash
+# Round 1: Gemini review
+Gemini: "Add error handling for network timeouts in fetch_positions()"
+
+# Round 2: You implement
+git commit -m "Add network timeout handling to fetch_positions()"
+
+# Round 3: Codex review
+Codex: "The timeout handling in fetch_positions() will cause regression -
+        it prevents graceful degradation when Execution Gateway is temporarily down.
+        The existing error handling is correct."
+
+# Round 4: You revert
+git revert <commit-hash>
+git commit -m "Revert timeout handling - causes regression per Codex review"
+
+# Round 5: Gemini review
+Gemini: "Still missing timeout handling in fetch_positions()"
+
+# RESOLUTION: Break the loop
+gh pr comment <PR_NUMBER> --body "@codex confirmed the existing error
+handling is correct and adding timeout handling would cause regression.
+Deferring Gemini's suggestion on this specific change.
+
+@codex please confirm this implementation is still acceptable."
+```
+
+**When to Apply This Rule:**
+
+✅ **Apply tie-breaker when:**
+- Same specific change reviewed multiple times
+- Clear conflict between reviewer suggestions (not just different perspectives)
+- Codex explicitly says implementation is correct
+- Loop has occurred 2+ times on same issue
+- Regression or correctness is at stake
+
+❌ **Do NOT apply tie-breaker when:**
+- Reviewers comment on different parts of the code
+- Suggestions are complementary (can implement both)
+- Only 1 round of feedback (not yet a loop)
+- Owner has not explicitly approved using tie-breaker
+- Issue is about code style (not correctness)
+
+**Proper Documentation:**
+
+When using Codex as tie-breaker, document clearly:
+
+```bash
+# In PR comment:
+gh pr comment <PR_NUMBER> --body "## Conflicting Reviewer Feedback Resolution
+
+**Issue:** Gemini suggests adding timeout handling, Codex says it causes regression
+
+**Attempts:**
+1. Implemented Gemini's suggestion (commit abc123)
+2. Codex identified regression risk
+3. Reverted (commit def456)
+4. Gemini re-requested same change
+
+**Resolution:** Using Codex as tie-breaker per GIT_WORKFLOW.md
+- Codex confirmed existing implementation is correct
+- Timeout handling would prevent graceful degradation
+- Keeping current implementation
+
+**Scope:** This decision applies ONLY to timeout handling in fetch_positions()
+- All other Gemini feedback is still being addressed
+- Not deferring any other suggestions
+
+@codex please confirm this is still acceptable"
+```
+
+**Important Notes:**
+
+1. **Limited Scope**: Tie-breaker only applies to the specific conflicting change
+2. **All Other Feedback Remains**: Continue addressing all non-conflicting feedback
+3. **Owner Awareness**: If uncertain, ask owner before using tie-breaker
+4. **Final Approval Still Required**: Codex must still explicitly approve the PR
+5. **Document Everything**: Clear audit trail of decision process
+
 ## Best Practices
 
 ### 1. One Feature Per PR
