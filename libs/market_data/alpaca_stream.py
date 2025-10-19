@@ -5,7 +5,6 @@ WebSocket client for real-time market data from Alpaca.
 """
 
 import asyncio
-import concurrent.futures
 import json
 import logging
 from datetime import datetime, timezone
@@ -203,7 +202,7 @@ class AlpacaMarketDataStream:
         Start WebSocket connection with automatic reconnection.
 
         Implements exponential backoff for reconnection attempts.
-        Runs the synchronous StockDataStream.run() in a thread pool to avoid blocking.
+        StockDataStream.run() is an async coroutine that must be awaited.
 
         Raises:
             ConnectionError: If max reconnection attempts exceeded
@@ -221,10 +220,9 @@ class AlpacaMarketDataStream:
                 # Mark as connected before running
                 self._connected = True
 
-                # Run WebSocket in thread pool (StockDataStream.run() is synchronous, not async)
-                # This blocks until disconnect
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self.stream.run)
+                # Await the async WebSocket coroutine (NOT synchronous - do not use executor)
+                # This will block until disconnect or error
+                await self.stream.run()
 
                 # If we reach here, connection was established and then closed gracefully
                 # This is a "successful" cycle, so reset the counter
