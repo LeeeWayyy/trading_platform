@@ -11,6 +11,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from redis.exceptions import RedisError
 
 from libs.market_data.alpaca_stream import AlpacaMarketDataStream
 from libs.market_data.exceptions import QuoteHandlingError
@@ -315,3 +316,41 @@ class TestAlpacaMarketDataStream:
 
         # Verify AAPL is in subscribed_symbols
         assert "AAPL" in stream.subscribed_symbols
+
+    @pytest.mark.asyncio
+    async def test_handle_quote_redis_timeout_does_not_crash_stream(
+        self, stream, mock_alpaca_quote, mock_redis, mock_publisher
+    ):
+        """
+        Test that Redis timeout errors don't crash the WebSocket stream.
+
+        P1 fix: RedisClient.set() can raise RedisError subtypes (timeout, memory, etc.),
+        not just RedisConnectionError. The _handle_quote callback must catch ALL
+        RedisError types to prevent stream termination on transient Redis failures.
+
+        This test verifies that when Redis.set() raises a RedisError (e.g., timeout),
+        the stream logs the error but continues processing.
+        """
+        # Mock Redis.set() to raise RedisError (simulating timeout)
+        mock_redis.set.side_effect = RedisError("Connection timeout")
+
+        # Process quote - should NOT raise exception
+        await stream._handle_quote(mock_alpaca_quote)
+
+        # Verify Redis.set() was called (and failed)
+        assert mock_redis.set.called
+
+        # Verify event was not published (quote processing failed)
+        assert not mock_publisher.publish.called
+
+        # Reset mocks
+        mock_redis.set.reset_mock()
+        mock_redis.set.side_effect = None  # Remove error
+        mock_publisher.publish.reset_mock()
+
+        # Now process a valid quote - stream should still work
+        await stream._handle_quote(mock_alpaca_quote)
+
+        # Verify valid quote was processed successfully
+        assert mock_redis.set.called
+        assert mock_publisher.publish.called

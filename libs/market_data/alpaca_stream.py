@@ -16,9 +16,11 @@ from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
 from pydantic import ValidationError
 
+from redis.exceptions import RedisError
+
 from libs.market_data.exceptions import ConnectionError, QuoteHandlingError, SubscriptionError
 from libs.market_data.types import PriceData, PriceUpdateEvent, QuoteData
-from libs.redis_client import EventPublisher, RedisClient, RedisConnectionError
+from libs.redis_client import EventPublisher, RedisClient
 
 logger = logging.getLogger(__name__)
 
@@ -187,9 +189,9 @@ class AlpacaMarketDataStream:
                 f"(spread: {quote_data.spread_bps:.1f} bps)"
             )
 
-        except (ValidationError, ValueError, AttributeError, RedisConnectionError) as e:
+        except (ValidationError, ValueError, AttributeError, RedisError) as e:
             # Catch specific errors: Pydantic validation, invalid decimal conversion,
-            # missing quote attributes, or Redis connection issues
+            # missing quote attributes, or ALL Redis failures (connection, timeout, memory, etc.)
             # Do not re-raise to prevent stream crash on single bad quote
             logger.error(f"Error handling quote for {quote.symbol}: {e}", exc_info=True)
 
