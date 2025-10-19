@@ -19,16 +19,16 @@ from libs.market_data.exceptions import QuoteHandlingError
 @pytest.fixture
 def mock_redis():
     """Mock Redis client."""
-    redis = AsyncMock()
-    redis.setex = AsyncMock()
+    redis = MagicMock()  # Changed from AsyncMock since RedisClient is synchronous
+    redis.set = MagicMock()
     return redis
 
 
 @pytest.fixture
 def mock_publisher():
     """Mock event publisher."""
-    publisher = AsyncMock()
-    publisher.publish = AsyncMock()
+    publisher = MagicMock()  # Changed from AsyncMock since EventPublisher is synchronous
+    publisher.publish = MagicMock()
     return publisher
 
 
@@ -126,16 +126,20 @@ class TestAlpacaMarketDataStream:
         """Test handling incoming quote."""
         await stream._handle_quote(mock_alpaca_quote)
 
-        # Verify Redis cache was updated
-        assert mock_redis.setex.called
-        call_args = mock_redis.setex.call_args
+        # Verify Redis cache was updated (changed from setex to set with ttl parameter)
+        assert mock_redis.set.called
+        call_args = mock_redis.set.call_args
         assert call_args[0][0] == "price:AAPL"  # Cache key
-        assert call_args[0][1] == 300  # TTL
+        # Second arg is JSON string, third arg (ttl keyword) is TTL
+        assert call_args[1]["ttl"] == 300  # TTL as keyword argument
 
-        # Verify event was published
+        # Verify event was published (changed to expect Pydantic model, not dict)
         assert mock_publisher.publish.called
         pub_call_args = mock_publisher.publish.call_args
         assert pub_call_args[0][0] == "price.updated.AAPL"  # Channel
+        # Second argument should be a Pydantic model, not a dict
+        from libs.market_data.types import PriceUpdateEvent
+        assert isinstance(pub_call_args[0][1], PriceUpdateEvent)
 
     @pytest.mark.asyncio
     async def test_handle_quote_with_invalid_data(self, stream):
@@ -176,7 +180,7 @@ class TestAlpacaMarketDataStream:
     def test_is_connected_when_running(self, stream):
         """Test is_connected returns True when stream is running."""
         stream._running = True
-        stream.stream._running = True
+        stream._connected = True  # Changed from stream._running to self._connected
 
         assert stream.is_connected() is True
 
