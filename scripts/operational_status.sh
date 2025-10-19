@@ -116,7 +116,7 @@ fetch_api_data() {
     http_code=$(echo "$response" | tail -n1)
 
     if [ "$http_code" != "200" ]; then
-        echo -e "${YELLOW}${WARN} $error_message (HTTP $http_code)${NC}"
+        echo -e "${YELLOW}${WARN} $error_message (HTTP $http_code)${NC}" >&2
         return 1
     fi
 
