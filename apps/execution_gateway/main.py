@@ -259,21 +259,25 @@ def _batch_fetch_realtime_prices_from_redis(
         # Batch fetch all prices in one Redis call (O(1) network round-trip)
         price_values = redis_client.mget(price_keys)
 
-        # Parse results and build symbol -> (price, timestamp) mapping
-        result = {}
+        # Initialize results with default (None, None) for all symbols (DRY principle)
+        result: dict[str, tuple[Optional[Decimal], Optional[datetime]]] = {
+            symbol: (None, None) for symbol in symbols
+        }
+
+        # Parse results and update dictionary for symbols with valid data
         for symbol, price_json in zip(symbols, price_values):
-            if price_json:
-                try:
-                    price_data = json.loads(price_json)
-                    price = Decimal(str(price_data["mid"]))
-                    timestamp = datetime.fromisoformat(price_data["timestamp"])
-                    result[symbol] = (price, timestamp)
-                    logger.debug(f"Batch fetched price for {symbol}: ${price}")
-                except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
-                    logger.warning(f"Failed to parse price for {symbol} from batch fetch: {e}")
-                    result[symbol] = (None, None)
-            else:
-                result[symbol] = (None, None)
+            if not price_json:
+                continue  # Skip symbols not found in cache (already (None, None))
+
+            try:
+                price_data = json.loads(price_json)
+                price = Decimal(str(price_data["mid"]))
+                timestamp = datetime.fromisoformat(price_data["timestamp"])
+                result[symbol] = (price, timestamp)
+                logger.debug(f"Batch fetched price for {symbol}: ${price}")
+            except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
+                # Log error but no need to set result[symbol] - already (None, None)
+                logger.warning(f"Failed to parse price for {symbol} from batch fetch: {e}")
 
         return result
 
