@@ -187,8 +187,8 @@ class AlpacaMarketDataStream:
         except (ValidationError, ValueError, AttributeError, RedisConnectionError) as e:
             # Catch specific errors: Pydantic validation, invalid decimal conversion,
             # missing quote attributes, or Redis connection issues
+            # Do not re-raise to prevent stream crash on single bad quote
             logger.error(f"Error handling quote for {quote.symbol}: {e}", exc_info=True)
-            raise QuoteHandlingError(f"Failed to process quote for {quote.symbol}: {e}")
 
     async def start(self) -> None:
         """

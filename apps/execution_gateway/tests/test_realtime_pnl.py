@@ -13,9 +13,10 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from redis.exceptions import RedisError
+
 from apps.execution_gateway.main import app
 from apps.execution_gateway.schemas import Position
-from libs.redis_client import RedisConnectionError
 
 
 @pytest.fixture
@@ -264,8 +265,8 @@ class TestRealtimePnLEndpoint:
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
 
-        # Setup Redis mock to raise RedisConnectionError
-        mock_redis.get = MagicMock(side_effect=RedisConnectionError("Redis connection error"))
+        # Setup Redis mock to raise RedisError
+        mock_redis.get = MagicMock(side_effect=RedisError("Redis connection error"))
 
         # Make request - should still work with database fallback
         response = test_client.get("/api/v1/positions/pnl/realtime")

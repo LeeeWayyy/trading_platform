@@ -142,8 +142,8 @@ class TestAlpacaMarketDataStream:
         assert isinstance(pub_call_args[0][1], PriceUpdateEvent)
 
     @pytest.mark.asyncio
-    async def test_handle_quote_with_invalid_data(self, stream):
-        """Test handling quote with invalid data raises error."""
+    async def test_handle_quote_with_invalid_data(self, stream, mock_redis, mock_publisher):
+        """Test handling quote with invalid data logs error but doesn't crash stream."""
         # Create quote with crossed market (ask < bid)
         bad_quote = Mock()
         bad_quote.symbol = "AAPL"
@@ -154,8 +154,14 @@ class TestAlpacaMarketDataStream:
         bad_quote.timestamp = datetime.now(timezone.utc)
         bad_quote.exchange = "NASDAQ"
 
-        with pytest.raises(QuoteHandlingError):
-            await stream._handle_quote(bad_quote)
+        # Should NOT raise exception - stream should continue processing
+        await stream._handle_quote(bad_quote)
+
+        # Verify Redis was not updated (bad quote rejected)
+        assert not mock_redis.set.called
+
+        # Verify event was not published (bad quote rejected)
+        assert not mock_publisher.publish.called
 
     def test_get_subscribed_symbols(self, stream):
         """Test getting list of subscribed symbols."""
