@@ -94,9 +94,9 @@ gh pr create                          # Create pull request
 - Automated review requirements (GitHub Actions automatically requests reviews)
 - Branch naming conventions
 
-### Code Review with Codex MCP (Optional but Recommended)
+### Code Review with Codex MCP (REQUIRED)
 
-**Before committing**, use Codex MCP to review your changes and verify test coverage:
+**Before committing**, you MUST use Codex MCP to review your changes and verify test coverage:
 
 ```bash
 # Stage your changes
@@ -110,7 +110,7 @@ git add <files>
 #  - Compliance with project standards"
 ```
 
-**Codex MCP Setup:** If not yet configured, see `/docs/IMPLEMENTATION_GUIDES/codex-mcp-integration.md`
+**Codex MCP Setup:** MUST be configured before development. See `/docs/IMPLEMENTATION_GUIDES/codex-mcp-integration.md`
 
 **What Codex checks:**
 - Logic errors and edge cases
@@ -119,11 +119,16 @@ git add <files>
 - Documentation completeness
 - Compliance with CODING_STANDARDS.md
 
-**When to use Codex:**
-- ✅ Before committing significant changes (>50 lines)
-- ✅ Before creating PR (final check)
-- ✅ When adding critical features (circuit breakers, risk checks, order placement)
-- ✅ When test coverage drops below 80%
+**MANDATORY usage:**
+- ✅ BEFORE EVERY commit (no exceptions)
+- ✅ BEFORE creating PR (final comprehensive check)
+- ✅ ESPECIALLY for critical features (circuit breakers, risk checks, order placement)
+- ✅ WHENEVER test coverage drops below 90%
+
+**Workflow enforcement:**
+- Codex review is step 8 in "When Making Changes" (MUST not skip)
+- Commits without Codex review will be rejected during PR review
+- This is enforced to maintain code quality and catch bugs early
 
 ## Development Workflow
 
@@ -185,9 +190,11 @@ git add <files>
    - Add lessons learned to `/docs/LESSONS_LEARNED/`
 
 7. **Pull Request Phase**
-   - **Use Codex MCP for final review** (if configured):
+   - **REQUIRED: Use Codex MCP for final comprehensive review**:
      * "Use codex to review all changes in this branch vs master"
      * "Use codex to verify test coverage is complete"
+     * "Use codex to check for security vulnerabilities"
+     * DO NOT create PR until Codex review is complete and issues are fixed
    - Reference ADR if applicable
    - Include checklist from `/docs/STANDARDS/TESTING.md`
    - Describe educational value
@@ -455,9 +462,10 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 5. Add comprehensive docstrings (see standards doc)
 6. Update all affected docs
 7. Run `make test && make lint`
-8. **Use Codex MCP for pre-commit review** (if configured):
+8. **REQUIRED: Use Codex MCP for pre-commit review**:
    - "Use codex to review my staged changes"
    - "Use codex to check test coverage gaps"
+   - DO NOT commit until Codex review is complete and issues are addressed
 9. Follow PR checklist from `/docs/STANDARDS/TESTING.md`
 
 ## Essential Documentation
