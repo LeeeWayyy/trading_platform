@@ -174,12 +174,10 @@ This is a **MANDATORY** quality gate, not optional. Exceptions require explicit 
 
 2. **Request zen-mcp review (REQUIRED)**
    ```
-   "Use zen clink with codex codereviewer to review my staged changes.
-   Check for: trading safety (circuit breakers, idempotent IDs, position limits),
-   concurrency (race conditions, transactions), error handling, type hints,
-   security (secrets, SQL injection), configuration (DRY_RUN), standards
-   (docstrings, tests), and domain-specific (feature parity, timezones, API contracts).
-   Focus on HIGH/CRITICAL issues."
+   Use slash command: /zen-review quick
+   Or tell Claude: "Review my staged changes with zen-mcp"
+
+   (See .claude/commands/zen-review.md for full review criteria)
    ```
 
 3. **Address ALL findings**
@@ -254,16 +252,10 @@ Before creating ANY pull request, Claude Code MUST:
 
 1. **Request comprehensive zen-mcp review**
    ```
-   "Use zen clink with codex codereviewer for comprehensive review of all branch changes.
-   Review all files changed in this branch (compare HEAD to origin/main).
-   Check: trading safety (circuit breakers, idempotent IDs, position limits, order validation),
-   concurrency (race conditions, transactions, atomic operations), error handling,
-   type hints, security (secrets, SQL injection, input validation), code quality,
-   configuration (DRY_RUN, no hardcoding), standards (docstrings, tests),
-   domain-specific (feature parity, timezones, API contracts), architecture,
-   test coverage, edge cases, integration points, documentation, performance.
-   Provide detailed analysis with severity levels (CRITICAL/HIGH/MEDIUM/LOW).
-   Be thorough - this is the final gate before PR."
+   Use slash command: /zen-review deep
+   Or tell Claude: "Deep review all branch changes with zen-mcp"
+
+   (See .claude/commands/zen-review.md for full comprehensive review criteria)
    ```
 
 2. **Address ALL findings by severity:**

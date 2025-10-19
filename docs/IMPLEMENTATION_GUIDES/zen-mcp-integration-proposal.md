@@ -1174,19 +1174,26 @@ export OPENROUTER_API_KEY="your-key"  # Optional: 50+ models
 
 ### What to Keep from PR #17
 
-**Keep (still valuable):**
+**Keep (all still valuable):**
 - ✅ `.github/workflows/ci-tests-coverage.yml` - Automated testing, linting, coverage
+- ✅ `.github/workflows/pr-auto-review-request.yml` - Automated PR review requests
 - ✅ GitHub Actions automation for CI/CD
+- ✅ GitHub Apps (@codex @gemini-code-assist) - Additional PR review layer
 
-**Replace:**
-- ❌ `.github/workflows/pr-auto-review-request.yml` - No longer needed (Zen handles reviews)
-- ❌ Codex MCP manual setup - Zen includes multi-model orchestration
-- ❌ Gemini Code Assist GitHub App - Zen accesses Gemini API directly
+**Enhance (not replace):**
+- ✨ Zen-mcp adds pre-commit reviews (before code is committed)
+- ✨ Zen-mcp adds deep branch reviews (before PR is created)
+- ✨ GitHub Apps still provide PR-level reviews (after PR created)
 
-**Why keep CI/CD but replace review workflows?**
-- **CI/CD** = Automated testing (objective: does it work?)
-- **Zen MCP** = Code review (subjective: is it good code?)
-- They complement each other, not compete
+**Three-tier review system (complementary, not competing):**
+1. **Zen-mcp pre-commit** = Quick safety checks every 30-60 min commits
+2. **Zen-mcp deep review** = Comprehensive branch review before PR creation
+3. **GitHub Apps PR review** = Final validation after PR created (via `.github/workflows/pr-auto-review-request.yml`)
+
+**Why use all three?**
+- **Zen pre-commit** = Catch issues early (before commit)
+- **Zen deep review** = Comprehensive branch validation (before PR)
+- **GitHub Apps** = Independent validation + community visibility (on PR)
 
 ---
 

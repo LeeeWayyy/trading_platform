@@ -11,11 +11,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if [ "$MODE" = "quick" ]; then
-  # Quick mode: Review staged changes
-  STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+  # Quick mode: Review staged changes (all file types)
+  STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM || true)
 
   if [ -z "$STAGED_FILES" ]; then
-    echo "❌ No Python files staged for commit"
+    echo "❌ No files staged for commit"
     echo "   Use: git add <files>"
     exit 1
   fi
@@ -52,81 +52,27 @@ elif [ "$MODE" = "deep" ]; then
 fi
 
 if [ "$MODE" = "quick" ]; then
-  echo "📝 Tell Claude Code to run quick comprehensive review:"
+  echo "📝 Tell Claude Code:"
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo '"Use zen clink with codex codereviewer to review my staged changes for:'
-  echo ''
-  echo '**Trading Safety (CRITICAL):**'
-  echo ' - Circuit breaker checks'
-  echo ' - Idempotent order IDs'
-  echo ' - Position limit validation'
-  echo ' - Order state validation'
-  echo ''
-  echo '**Concurrency & Data Safety (HIGH):**'
-  echo ' - Race conditions (Redis WATCH/MULTI/EXEC)'
-  echo ' - Database transactions'
-  echo ' - Atomic operations'
-  echo ''
-  echo '**Error Handling (HIGH):**'
-  echo ' - Exception handling with context'
-  echo ' - Logging completeness'
-  echo ' - Error propagation'
-  echo ''
-  echo '**Code Quality (MEDIUM):**'
-  echo ' - Type hints'
-  echo ' - Data validation'
-  echo ' - Resource cleanup'
-  echo ''
-  echo '**Security (HIGH):**'
-  echo ' - Secrets handling'
-  echo ' - SQL injection prevention'
-  echo ' - Input validation'
-  echo ''
-  echo '**Configuration (MEDIUM):**'
-  echo ' - DRY_RUN mode respect'
-  echo ' - No hardcoded values'
-  echo ''
-  echo '**Standards (MEDIUM):**'
-  echo ' - Docstrings complete'
-  echo ' - Test coverage'
-  echo ''
-  echo '**Domain-Specific (HIGH):**'
-  echo ' - Feature parity'
-  echo ' - Timezone handling (UTC)'
-  echo ' - API contract compliance'
-  echo ''
-  echo 'Focus on HIGH and CRITICAL severity issues."'
+  echo ""
+  echo "   Use slash command: /zen-review quick"
+  echo "   Or say: \"Review my staged changes with zen-mcp\""
+  echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "ℹ️  Full review criteria in: .claude/commands/zen-review.md"
 elif [ "$MODE" = "deep" ]; then
-  echo "📝 Tell Claude Code to run comprehensive deep review:"
+  echo "📝 Tell Claude Code:"
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo '"Use zen clink with codex codereviewer for comprehensive review of ALL branch changes.'
-  echo ''
-  echo 'IMPORTANT: Review all files changed in this branch (compare HEAD to origin/main),'
-  echo 'NOT just staged files. The staging area may be clean - all commits are already made.'
-  echo ''
-  echo 'Check comprehensively:'
-  echo ' - Overall architecture and design patterns'
-  echo ' - Test coverage (unit, integration, edge cases)'
-  echo ' - Edge cases and error handling'
-  echo ' - Integration points with other services'
-  echo ' - Documentation completeness (docstrings, ADRs, guides)'
-  echo ' - Performance implications'
-  echo ' - Security considerations'
-  echo ' - Feature parity between research and production'
-  echo ' - Idempotency guarantees'
-  echo ' - Circuit breaker integration'
-  echo ' - Type hints and data validation'
-  echo ' - Concurrency safety (transactions, atomic operations)'
-  echo ' - Configuration and environment handling'
-  echo ' - Timezone handling (UTC timezone-aware)'
-  echo ' - API contract compliance'
-  echo ''
-  echo 'Provide detailed analysis with severity levels (CRITICAL/HIGH/MEDIUM/LOW).'
-  echo 'Be thorough - this is the final gate before PR creation."'
+  echo ""
+  echo "   Use slash command: /zen-review deep"
+  echo "   Or say: \"Deep review all branch changes with zen-mcp\""
+  echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "ℹ️  Full comprehensive review criteria in: .claude/commands/zen-review.md"
 else
   echo "❌ Invalid mode: $MODE"
   echo "   Usage: ./scripts/zen_review.sh [quick|deep]"

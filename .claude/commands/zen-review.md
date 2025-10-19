@@ -30,15 +30,15 @@ When this command is invoked, follow this workflow:
 
 **For Quick Mode:**
 ```bash
-git diff --cached --name-only --diff-filter=ACM | grep '\.py$'
+git diff --cached --name-only --diff-filter=ACM
 ```
 
 **If no files staged:**
-- Tell user: "❌ No Python files staged for commit. Please stage files first with `git add <files>`"
+- Tell user: "❌ No files staged for commit. Please stage files first with `git add <files>`"
 - Stop here
 
 **If files staged:**
-- List the files to user
+- List the files to user (all types: .py, .sh, .yaml, .md, .sql, etc.)
 - Proceed to Step 3
 
 **For Deep Mode:**
