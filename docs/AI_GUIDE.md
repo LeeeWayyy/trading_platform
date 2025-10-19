@@ -50,20 +50,69 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 - Document per **[STANDARDS/DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md)**
 - Implement in specified module only (see **[GETTING_STARTED/REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md)**)
 
-### 5. Verify
+### 5. Request Zen-MCP Review ⚠️ **MANDATORY**
+
+**BEFORE each commit (every 30-60 min):**
+
+1. **Stage changes:** `git add <files>`
+
+2. **Request review:**
+   ```
+   "Use zen clink with codex codereviewer to review my staged changes.
+   Check for: trading safety (circuit breakers, idempotent IDs, position limits),
+   concurrency (race conditions, transactions), error handling, type hints,
+   security (secrets, SQL injection), configuration (DRY_RUN), standards
+   (docstrings, tests), and domain-specific (feature parity, timezones, API contracts).
+   Focus on HIGH/CRITICAL issues."
+   ```
+
+3. **Fix ALL issues found:**
+   - HIGH/CRITICAL: Blocking (must fix)
+   - MEDIUM: Must fix or document deferral
+   - LOW: Fix if time permits
+
+4. **Re-request review to verify:** "I've fixed the issues, please verify"
+
+5. **Commit only when approved:** `git commit -m "Message"`
+
+**Progressive commits:** Review → Fix → Commit (repeat every 30-60 min)
+
+**See:** **[IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md](./IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md)**
+
+### 6. Verify
 - Run `make test` and `make lint` (expect success = green)
 - All tests must pass (100%)
 
-### 6. Commit
-- Follow **[STANDARDS/GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md)**
-- Incremental commits, clear messages
+### 7. Deep Review Before PR ⚠️ **MANDATORY**
 
-### 7. Document
+**Before creating ANY pull request:**
+
+1. **Request comprehensive zen-mcp review:**
+   ```
+   "Use zen clink with codex codereviewer for comprehensive review of all branch changes.
+   Review all files changed in this branch (compare HEAD to origin/main).
+   Check: trading safety (circuit breakers, idempotent IDs, position limits, order validation),
+   concurrency (race conditions, transactions, atomic operations), error handling,
+   type hints, security (secrets, SQL injection, input validation), code quality,
+   configuration (DRY_RUN, no hardcoding), standards (docstrings, tests),
+   domain-specific (feature parity, timezones, API contracts), architecture,
+   test coverage, edge cases, integration points, documentation, performance.
+   Provide detailed analysis with severity levels (CRITICAL/HIGH/MEDIUM/LOW).
+   Be thorough - this is the final gate before PR."
+   ```
+
+2. **Fix all HIGH/CRITICAL issues** (blocking)
+
+3. **Document any deferred issues** in PR description
+
+### 8. Document
 - Update relevant docs if needed
 - Update ADRs if architecture changed
 
-### 8. Create PR
+### 9. Create PR
+- **Include zen-mcp review confirmation** (MANDATORY)
 - Follow checklist from **[STANDARDS/TESTING.md](./STANDARDS/TESTING.md)**
+- Request GitHub App reviews (@codex @gemini-code-assist)
 - Reference ticket number
 
 ---

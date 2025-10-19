@@ -81,18 +81,63 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 ```
 
 ### Git & Pull Requests
+
+**Progressive Commit with Zen-MCP Review (MANDATORY):**
 ```bash
-git checkout -b feature/task-name     # Create feature branch
-git commit -m "Progressive commit"    # Commit often (every 30-60 min)
-git push -u origin feature/task-name  # Push regularly
-gh pr create                          # Create pull request
-gh pr comment <PR> --body "@codex @gemini-code-assist" # Request automated reviews
+# 1. Implement code (30-60 min of work)
+
+# 2. Stage changes
+git add <files>
+
+# 3. Request zen-mcp review (REQUIRED before commit)
+"Use zen clink with codex codereviewer to review my staged changes.
+Check for: trading safety (circuit breakers, idempotent IDs, position limits),
+concurrency (race conditions, transactions), error handling, type hints,
+security (secrets, SQL injection), configuration (DRY_RUN), standards
+(docstrings, tests), and domain-specific (feature parity, timezones, API contracts).
+Focus on HIGH/CRITICAL issues."
+
+# 4. If issues found:
+#    - Fix immediately
+#    - Re-request review: "I've fixed the issues, please verify"
+#    - Repeat until approved
+
+# 5. Commit only when approved
+git commit -m "Progressive commit message"
+
+# 6. Push regularly
+git push -u origin feature/task-name
+
+# 7. Repeat every 30-60 min
+```
+
+**Before Creating PR (MANDATORY Deep Review):**
+```bash
+# After all progressive commits complete (staging area can be clean)
+# Review ALL branch changes vs main
+"Use zen clink with codex codereviewer for comprehensive review of all branch changes.
+Review all files changed in this branch (compare HEAD to origin/main).
+Check: trading safety (circuit breakers, idempotent IDs, position limits, order validation),
+concurrency (race conditions, transactions, atomic operations), error handling,
+type hints, security (secrets, SQL injection, input validation), code quality,
+configuration (DRY_RUN, no hardcoding), standards (docstrings, tests),
+domain-specific (feature parity, timezones, API contracts), architecture,
+test coverage, edge cases, integration points, documentation, performance.
+Provide detailed analysis with severity levels (CRITICAL/HIGH/MEDIUM/LOW).
+Be thorough - this is the final gate before PR."
+
+# Fix all HIGH/CRITICAL issues, then create PR
+gh pr create
+
+# Request GitHub App reviews (backup validation)
+gh pr comment <PR> --body "@codex @gemini-code-assist"
 ```
 
 **IMPORTANT:** See `/docs/STANDARDS/GIT_WORKFLOW.md` for:
+- Mandatory zen-mcp pre-commit review process
 - Progressive committing requirements (commit every 30-60 min)
 - PR creation workflow and templates
-- Automated review requirements (MUST @codex @gemini-code-assist on all PRs)
+- Zen-mcp review confirmation requirements
 - Branch naming conventions
 
 ## Development Workflow
@@ -143,20 +188,37 @@ gh pr comment <PR> --body "@codex @gemini-code-assist" # Request automated revie
    - Add comprehensive docstrings (see standards doc for examples)
    - Implement only what's in the ticket (no scope creep)
 
-5. **Validation Phase**
+5. **Code Review Phase** ⚠️ **MANDATORY**
+   - **BEFORE each commit:** Request zen-mcp review of staged changes
+   - Focus: Circuit breakers, idempotency, concurrency, trading safety
+   - Fix ALL issues found (HIGH/CRITICAL are blocking)
+   - Re-request review to verify fixes (preserves context via continuation_id)
+   - Only commit when zen-mcp approves OR user explicitly overrides
+   - **Progressive commits:** Review → Fix → Commit (repeat every 30-60 min)
+   - See: `/docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md`
+
+6. **Test Validation Phase**
    - Run `make test` → should PASS (green)
    - Run `make lint` → should PASS
    - Manual testing in DRY_RUN mode
 
-6. **Documentation Update Phase**
+7. **Documentation Update Phase**
    - Update GETTING_STARTED/REPO_MAP.md if structure changed
    - Update OpenAPI specs if API changed
    - Update DB schemas if database changed
    - Add lessons learned to `/docs/LESSONS_LEARNED/`
 
-7. **Pull Request Phase**
-   - Reference ADR if applicable
+8. **Deep Review Before PR** ⚠️ **MANDATORY**
+   - Request comprehensive zen-mcp review of ALL branch changes
+   - Include: architecture, test coverage, edge cases, integration points
+   - Fix all HIGH/CRITICAL issues before creating PR
+   - Document deferred MEDIUM/LOW issues in PR description
+
+9. **Pull Request Phase**
+   - Include zen-mcp review confirmation in PR description
    - Include checklist from `/docs/STANDARDS/TESTING.md`
+   - Request GitHub App reviews (@codex @gemini-code-assist)
+   - Reference ADR if applicable
    - Describe educational value
 
 ### Decision-Making
@@ -404,6 +466,7 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 
 ## Anti-Patterns to Avoid
 
+- **No committing without zen-mcp review** — MANDATORY quality gate before every commit
 - **No duplicate feature logic** — Share code between research/production
 - **No in-memory state** — Use DB for positions/orders/breakers
 - **No silent failures** — Always log and raise with context
@@ -411,6 +474,7 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 - **No unvalidated data** — Quality gate before storage
 - **No untested order paths** — Require backtest replay parity
 - **No live without paper** — Paper validation required first
+- **No PRs without deep zen-mcp review** — Comprehensive review required before PR creation
 
 ## When Making Changes
 
