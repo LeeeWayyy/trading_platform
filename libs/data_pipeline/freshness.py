@@ -81,7 +81,13 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
         )
 
     # Convert Polars datetime to Python datetime for comparison
-    latest_dt = latest_timestamp
+    # Polars .max() returns the scalar value, but mypy types it as Any
+    # We need type narrowing to satisfy strict type checking
+    if not isinstance(latest_timestamp, datetime):
+        raise ValueError(
+            f"Expected datetime from timestamp.max(), got {type(latest_timestamp).__name__}"
+        )
+    latest_dt: datetime = latest_timestamp
 
     # Get current time in UTC
     now = datetime.now(timezone.utc)
