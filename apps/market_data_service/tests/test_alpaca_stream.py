@@ -163,6 +163,55 @@ class TestAlpacaMarketDataStream:
         # Verify event was not published (bad quote rejected)
         assert not mock_publisher.publish.called
 
+    @pytest.mark.asyncio
+    async def test_stream_continues_after_bad_quote(
+        self, stream, mock_alpaca_quote, mock_redis, mock_publisher
+    ):
+        """
+        Test stream continues processing valid quotes after encountering a bad quote.
+
+        This is a HIGH priority fix from automated review: if _handle_quote raises
+        exceptions for bad data, it could crash the entire WebSocket stream since
+        Alpaca SDK's asyncio.gather() doesn't use return_exceptions=True.
+
+        The fix ensures _handle_quote logs errors but doesn't re-raise, allowing
+        the stream to continue processing subsequent valid quotes.
+        """
+        # Create a bad quote (crossed market)
+        bad_quote = Mock()
+        bad_quote.symbol = "AAPL"
+        bad_quote.bid_price = 150.10
+        bad_quote.ask_price = 150.00  # Invalid: ask < bid
+        bad_quote.bid_size = 100
+        bad_quote.ask_size = 200
+        bad_quote.timestamp = datetime.now(timezone.utc)
+        bad_quote.exchange = "NASDAQ"
+
+        # Process bad quote - should NOT crash
+        await stream._handle_quote(bad_quote)
+
+        # Verify bad quote was rejected
+        assert not mock_redis.set.called
+        assert not mock_publisher.publish.called
+
+        # Reset mocks
+        mock_redis.set.reset_mock()
+        mock_publisher.publish.reset_mock()
+
+        # Now process a valid quote - stream should still work
+        await stream._handle_quote(mock_alpaca_quote)
+
+        # Verify valid quote was processed successfully
+        assert mock_redis.set.called
+        assert mock_publisher.publish.called
+
+        # Verify the valid quote data is correct
+        call_args = mock_redis.set.call_args
+        assert call_args[0][0] == "price:AAPL"
+
+        pub_call_args = mock_publisher.publish.call_args
+        assert pub_call_args[0][0] == "price.updated.AAPL"
+
     def test_get_subscribed_symbols(self, stream):
         """Test getting list of subscribed symbols."""
         stream.subscribed_symbols = {"AAPL", "MSFT", "GOOGL"}

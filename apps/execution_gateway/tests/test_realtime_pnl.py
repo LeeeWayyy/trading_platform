@@ -280,6 +280,30 @@ class TestRealtimePnLEndpoint:
             assert pos["price_source"] == "database"
 
     @patch("apps.execution_gateway.main.db_client")
+    @patch("apps.execution_gateway.main.redis_client")
+    def test_realtime_pnl_redis_timeout_error(
+        self, mock_redis, mock_db, test_client, mock_positions
+    ):
+        """Test graceful handling of Redis timeout errors (not just ConnectionError)."""
+        # Setup database mock
+        mock_db.get_all_positions.return_value = mock_positions
+
+        # Setup Redis mock to raise TimeoutError (different from ConnectionError)
+        from redis.exceptions import TimeoutError as RedisTimeoutError
+        mock_redis.get = MagicMock(side_effect=RedisTimeoutError("Redis timeout"))
+
+        # Make request - should still work with database fallback
+        response = test_client.get("/api/v1/positions/pnl/realtime")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should fall back to database prices
+        assert data["realtime_prices_available"] == 0
+        for pos in data["positions"]:
+            assert pos["price_source"] == "database"
+
+    @patch("apps.execution_gateway.main.db_client")
     def test_realtime_pnl_no_positions(self, mock_db, test_client):
         """Test endpoint with no open positions."""
         # Setup database mock - no positions
