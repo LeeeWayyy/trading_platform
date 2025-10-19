@@ -31,6 +31,7 @@ from .client import RedisClient, RedisConnectionError
 from .feature_cache import FeatureCache
 from .events import SignalEvent, OrderEvent, PositionEvent
 from .event_publisher import EventPublisher
+from .keys import RedisKeys
 
 __all__ = [
     "RedisClient",
@@ -40,6 +41,7 @@ __all__ = [
     "OrderEvent",
     "PositionEvent",
     "EventPublisher",
+    "RedisKeys",
 ]
 
 __version__ = "0.1.0"

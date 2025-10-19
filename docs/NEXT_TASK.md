@@ -1,79 +1,224 @@
 # Next Task - Single Source of Truth
 
-**Last Updated:** October 18, 2024
+**Last Updated:** October 19, 2024
 **Current Phase:** P1 (Advanced Features)
-**Overall Progress:** 15% (2/13 tasks complete)
+**Overall Progress:** 38% (5/13 tasks complete)
+**Track 1 Status:** ✅ **100% COMPLETE** (5/5 tasks)
+**Track 2 Status:** 🔄 **STARTING** (0/3 tasks)
 
 ---
 
 ## 🎯 CURRENT TASK
 
-### P1.1T3 - DuckDB Analytics Layer
+### P1.2T1 - Real-Time Market Data Streaming
 
 **Status:** Ready to Start
-**Branch:** `feature/p1.1t3-duckdb-analytics` (to be created)
-**Priority:** 🔶 Medium
-**Estimated Effort:** 1-2 days
+**Branch:** `feature/p1.2t1-realtime-market-data` (to be created)
+**Priority:** ⭐ High
+**Estimated Effort:** 5-7 days
 
 ---
 
 ## What to Build
 
-Add SQL interface for ad-hoc analytics on historical Parquet data.
+Add WebSocket connection for real-time price updates from Alpaca.
 
 **Current State:**
-- Data in Parquet files (`data/adjusted/YYYY-MM-DD/`)
-- Polars for ETL operations
-- No SQL query capability
+- Data loaded from Parquet files (batch/historical only)
+- No real-time price feeds
+- Unrealized P&L calculated only at paper_run.py execution time
 
-**P1 Goal:**
-Enable SQL queries on Parquet data for analytics:
+**P1.2T1 Goal:**
+Enable real-time market data streaming for live price updates:
 
-```sql
--- Ad-hoc queries on historical data
-SELECT
-  symbol,
-  date,
-  close,
-  volume
-FROM read_parquet('data/adjusted/*/AAPL.parquet')
-WHERE date >= '2024-01-01'
-  AND close > 150
-ORDER BY date DESC
-LIMIT 100;
+```python
+# WebSocket connection to Alpaca
+from alpaca.data.live import StockDataStream
+
+# Subscribe to real-time quotes
+stream = StockDataStream(api_key, secret_key)
+
+@stream.on_quote
+async def on_quote(quote):
+    symbol = quote.symbol
+    bid = quote.bid_price
+    ask = quote.ask_price
+
+    # Update Redis with latest price
+    redis_client.set(f"price:{symbol}", json.dumps({
+        'bid': bid,
+        'ask': ask,
+        'timestamp': quote.timestamp
+    }))
+
+    # Publish price update event
+    await event_publisher.publish('price.updated', {
+        'symbol': symbol,
+        'price': (bid + ask) / 2
+    })
+
+# Start streaming
+await stream.subscribe_quotes(['AAPL', 'MSFT', 'GOOGL'])
 ```
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] DuckDB can query existing Parquet files
-- [ ] Helper functions for common analytics queries
-- [ ] Jupyter notebook with query examples
-- [ ] Tests verify query correctness
-- [ ] Documentation includes SQL patterns
+- [ ] WebSocket connection to Alpaca real-time data
+- [ ] Subscribe to quotes for all active positions
+- [ ] Store latest prices in Redis with TTL
+- [ ] Publish price update events via Redis pub/sub
+- [ ] Execution Gateway subscribes to price updates
+- [ ] Real-time unrealized P&L updates
+- [ ] Graceful handling of WebSocket disconnections
+- [ ] Tests verify streaming and reconnection logic
+- [ ] Documentation includes WebSocket patterns
 
 ---
 
 ## Implementation Steps
 
-1. **Add DuckDB dependency** to `requirements.txt`
-2. **Create catalog module** (`libs/duckdb_catalog.py`)
-   - Connection management
-   - Parquet file registration
-   - Helper query functions
-3. **Create Jupyter notebook** (`notebooks/analytics.ipynb`)
-   - Example queries
-   - Visualization examples
-   - Analytics patterns
-4. **Add tests** (`tests/test_duckdb_catalog.py`)
-   - Query correctness
-   - Performance benchmarks
-   - Error handling
-5. **Create documentation** (`docs/IMPLEMENTATION_GUIDES/p1.1t3-duckdb-analytics.md`)
-   - Architecture overview
-   - Query patterns
-   - Best practices
+###  1. **Add Alpaca WebSocket Client** (`libs/market_data/`)
+
+Create market data library:
+```python
+# libs/market_data/alpaca_stream.py
+class AlpacaMarketDataStream:
+    """WebSocket client for Alpaca real-time market data."""
+
+    def __init__(self, api_key: str, secret_key: str, redis_client: RedisClient):
+        self.stream = StockDataStream(api_key, secret_key)
+        self.redis = redis_client
+        self.subscribed_symbols: Set[str] = set()
+
+    async def subscribe_symbols(self, symbols: List[str]):
+        """Subscribe to real-time quotes for symbols."""
+        await self.stream.subscribe_quotes(symbols)
+        self.subscribed_symbols.update(symbols)
+
+    async def on_quote(self, quote: Quote):
+        """Handle incoming quote."""
+        mid_price = (quote.bid_price + quote.ask_price) / 2
+
+        # Store in Redis
+        await self.redis.set(
+            f"price:{quote.symbol}",
+            json.dumps({
+                'price': mid_price,
+                'bid': quote.bid_price,
+                'ask': quote.ask_price,
+                'timestamp': quote.timestamp.isoformat()
+            }),
+            ex=300  # 5-minute TTL
+        )
+
+        # Publish event
+        await self.event_publisher.publish('price.updated', {
+            'symbol': quote.symbol,
+            'price': mid_price
+        })
+```
+
+### 2. **Create Market Data Service** (new FastAPI service)
+
+```python
+# apps/market_data_service/main.py
+@app.on_event("startup")
+async def startup():
+    # Initialize Alpaca stream
+    stream = AlpacaMarketDataStream(
+        api_key=settings.ALPACA_API_KEY,
+        secret_key=settings.ALPACA_SECRET_KEY,
+        redis_client=redis_client
+    )
+
+    # Get active positions from Execution Gateway
+    positions = await fetch_active_positions()
+    symbols = [p['symbol'] for p in positions]
+
+    # Subscribe to real-time data
+    await stream.subscribe_symbols(symbols)
+    await stream.start()
+
+@app.post("/api/v1/market-data/subscribe")
+async def subscribe_symbol(symbol: str):
+    """Subscribe to real-time data for a symbol."""
+    await stream.subscribe_symbols([symbol])
+    return {"status": "subscribed", "symbol": symbol}
+```
+
+### 3. **Update Execution Gateway**
+
+Add real-time P&L endpoint:
+```python
+# apps/execution_gateway/main.py
+@app.get("/api/v1/positions/pnl/realtime")
+async def get_realtime_pnl():
+    """Get real-time P&L with latest market prices."""
+    positions = db.get_open_positions()
+
+    pnl_data = []
+    for position in positions:
+        # Get latest price from Redis
+        price_data = await redis.get(f"price:{position.symbol}")
+        current_price = json.loads(price_data)['price'] if price_data else None
+
+        if current_price:
+            unrealized = (current_price - position.avg_entry_price) * position.qty
+            pnl_data.append({
+                'symbol': position.symbol,
+                'unrealized_pnl': unrealized,
+                'current_price': current_price,
+                'last_updated': json.loads(price_data)['timestamp']
+            })
+
+    return {'positions': pnl_data}
+```
+
+### 4. **Add Redis Pub/Sub Subscriber**
+
+```python
+# apps/execution_gateway/price_subscriber.py
+class PriceUpdateSubscriber:
+    """Subscribe to price update events and update P&L."""
+
+    def __init__(self, redis_client: RedisClient):
+        self.redis = redis_client
+        self.pubsub = redis_client.pubsub()
+
+    async def start(self):
+        await self.pubsub.subscribe('price.updated')
+
+        async for message in self.pubsub.listen():
+            if message['type'] == 'message':
+                data = json.loads(message['data'])
+                await self.handle_price_update(data)
+
+    async def handle_price_update(self, data: dict):
+        """Update unrealized P&L when price changes."""
+        symbol = data['symbol']
+        price = data['price']
+
+        # Log price update
+        logger.info(f"Price update: {symbol} = ${price:.2f}")
+
+        # Could trigger alerts if P&L crosses thresholds
+```
+
+### 5. **Add Tests**
+
+- WebSocket connection and subscription tests
+- Quote handling and Redis storage tests
+- Price update event publishing tests
+- Reconnection logic tests
+- Real-time P&L calculation tests
+
+### 6. **Create Documentation**
+
+- `docs/IMPLEMENTATION_GUIDES/p1.2t1-realtime-market-data.md`
+- `docs/CONCEPTS/websocket-streaming.md`
+- `docs/ADRs/0010-realtime-market-data.md`
 
 ---
 
@@ -81,19 +226,31 @@ LIMIT 100;
 
 ```
 libs/
-└── duckdb_catalog.py          # DuckDB catalog module (~200 lines)
+└── market_data/
+    ├── __init__.py
+    ├── alpaca_stream.py        # WebSocket client (~300 lines)
+    └── types.py                # Pydantic models
 
-notebooks/
-└── analytics.ipynb             # Query examples
+apps/
+└── market_data_service/        # New service
+    ├── __init__.py
+    ├── main.py                 # FastAPI app (~200 lines)
+    └── config.py
 
 tests/
-└── test_duckdb_catalog.py     # Test suite (~150 lines)
+├── market_data/
+│   ├── test_alpaca_stream.py  # WebSocket tests
+│   └── test_price_updates.py
+└── integration/
+    └── test_realtime_pnl.py    # End-to-end tests
 
 docs/
 ├── IMPLEMENTATION_GUIDES/
-│   └── p1.1t3-duckdb-analytics.md  # Implementation guide
-└── CONCEPTS/
-    └── duckdb-analytics.md     # DuckDB concepts (optional)
+│   └── p1.2t1-realtime-market-data.md
+├── CONCEPTS/
+│   └── websocket-streaming.md
+└── ADRs/
+    └── 0010-realtime-market-data.md
 ```
 
 ---
@@ -102,21 +259,24 @@ docs/
 
 ```bash
 # 1. Create feature branch
-git checkout -b feature/p1.1t3-duckdb-analytics
+git checkout -b feature/p1.2t1-realtime-market-data
 
-# 2. Add DuckDB dependency
-echo "duckdb>=0.9.0" >> requirements.txt
+# 2. Add Alpaca WebSocket dependency
+echo "alpaca-py>=0.9.0" >> requirements.txt
 pip install -r requirements.txt
 
-# 3. Create catalog module
-touch libs/duckdb_catalog.py
+# 3. Create library structure
+mkdir -p libs/market_data
+touch libs/market_data/__init__.py
+touch libs/market_data/alpaca_stream.py
 
-# 4. Create notebook
-mkdir -p notebooks
-touch notebooks/analytics.ipynb
+# 4. Create new service
+mkdir -p apps/market_data_service
+touch apps/market_data_service/main.py
 
-# 5. Create tests
-touch tests/test_duckdb_catalog.py
+# 5. Create test structure
+mkdir -p tests/market_data
+touch tests/market_data/test_alpaca_stream.py
 
 # 6. Start implementation
 # See docs/TASKS/P1_PLANNING.md for detailed requirements
@@ -127,28 +287,36 @@ touch tests/test_duckdb_catalog.py
 ## Dependencies
 
 **Required:**
-- Existing Parquet data from P0T1 (data ETL)
-- DuckDB Python library (>= 0.9.0)
+- Alpaca account with real-time data subscription
+- Alpaca API credentials (API key + secret)
+- Redis running (for price caching and pub/sub)
+- Existing Execution Gateway (for position queries)
 
 **Optional:**
-- Jupyter Lab for notebook development
-- Matplotlib/Plotly for visualization examples
+- WebSocket debugging tools (wscat, websocat)
 
 ---
 
 ## Success Metrics
 
 **Performance:**
-- Query 1M rows in < 1 second
-- Join across multiple symbols in < 2 seconds
+- WebSocket latency < 100ms from Alpaca to Redis
+- Price updates processed in < 10ms
+- Real-time P&L calculation < 50ms for 100 positions
+
+**Reliability:**
+- Automatic reconnection on WebSocket disconnect
+- No data loss during brief disconnections
+- Graceful degradation if Alpaca unavailable
 
 **Coverage:**
-- 90%+ test coverage for catalog module
-- At least 5 example queries in notebook
+- 90%+ test coverage for market data library
+- Integration tests for full streaming pipeline
 
 **Documentation:**
 - Implementation guide (500+ lines)
-- At least 3 query pattern examples
+- WebSocket patterns documented
+- ADR explaining architecture decisions
 
 ---
 
@@ -156,17 +324,18 @@ touch tests/test_duckdb_catalog.py
 
 ### Next Tasks in Order:
 
-1. **P1.1T4 - Timezone-Aware Timestamps** (1 day)
-   - Update all timestamps to UTC
-   - Improve logging and debugging
+1. **P1.2T3 - Risk Management System** (5-7 days)
+   - Position size limits
+   - Daily loss limits
+   - Circuit breakers
 
-2. **P1.1T5 - Operational Status Command** (1 day)
-   - Create `make status` wrapper
-   - Unified operational view
+2. **P1.3T1 - Monitoring & Alerting** (5-7 days)
+   - Prometheus metrics
+   - Grafana dashboards
 
-3. **Phase 1B** - Real-Time & Risk Management
-   - P1.2T1: Real-Time Market Data (5-7 days)
-   - P1.2T3: Risk Management System (5-7 days)
+3. **Phase 1C** - Production Hardening
+   - Centralized logging
+   - CI/CD pipeline
 
 ---
 
@@ -188,9 +357,9 @@ cat docs/NEXT_TASK.md
 cat docs/GETTING_STARTED/P1_PROGRESS.md
 
 # Start next task
-git checkout -b feature/p1.1t3-duckdb-analytics
+git checkout -b feature/p1.2t1-realtime-market-data
 ```
 
 ---
 
-**🎯 ACTION REQUIRED:** Create branch and begin P1.1T3 - DuckDB Analytics Layer
+**🎯 ACTION REQUIRED:** Create branch and begin P1.2T1 - Real-Time Market Data Streaming

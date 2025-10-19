@@ -264,6 +264,89 @@ class PositionsResponse(BaseModel):
     }
 
 
+class RealtimePositionPnL(BaseModel):
+    """
+    Real-time P&L for a single position.
+
+    Uses latest prices from Redis cache (market data service).
+    Falls back to database price if real-time data unavailable.
+    """
+    symbol: str
+    qty: Decimal
+    avg_entry_price: Decimal
+    current_price: Decimal
+    price_source: Literal["real-time", "database", "fallback"] = Field(
+        description="Source of current price (real-time=Redis, database=last known, fallback=entry price)"
+    )
+    unrealized_pl: Decimal
+    unrealized_pl_pct: Decimal = Field(description="Unrealized P&L as percentage")
+    last_price_update: Optional[datetime] = Field(
+        None, description="Timestamp of last price update from market data"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "symbol": "AAPL",
+                    "qty": "10",
+                    "avg_entry_price": "150.00",
+                    "current_price": "152.50",
+                    "price_source": "real-time",
+                    "unrealized_pl": "25.00",
+                    "unrealized_pl_pct": "1.67",
+                    "last_price_update": "2024-10-19T14:30:15Z"
+                }
+            ]
+        }
+    }
+
+
+class RealtimePnLResponse(BaseModel):
+    """
+    Response with real-time P&L for all positions.
+
+    Fetches latest prices from Redis (populated by Market Data Service).
+    Falls back to database prices if real-time data unavailable.
+    """
+    positions: List[RealtimePositionPnL]
+    total_positions: int
+    total_unrealized_pl: Decimal
+    total_unrealized_pl_pct: Optional[Decimal] = Field(
+        None, description="Total unrealized P&L as percentage of total investment"
+    )
+    realtime_prices_available: int = Field(
+        description="Number of positions with real-time prices"
+    )
+    timestamp: datetime = Field(description="Response generation timestamp")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "positions": [
+                        {
+                            "symbol": "AAPL",
+                            "qty": "10",
+                            "avg_entry_price": "150.00",
+                            "current_price": "152.50",
+                            "price_source": "real-time",
+                            "unrealized_pl": "25.00",
+                            "unrealized_pl_pct": "1.67",
+                            "last_price_update": "2024-10-19T14:30:15Z"
+                        }
+                    ],
+                    "total_positions": 1,
+                    "total_unrealized_pl": "25.00",
+                    "total_unrealized_pl_pct": "1.67",
+                    "realtime_prices_available": 1,
+                    "timestamp": "2024-10-19T14:30:20Z"
+                }
+            ]
+        }
+    }
+
+
 # ============================================================================
 # Webhook Schemas
 # ============================================================================

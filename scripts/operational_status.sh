@@ -18,6 +18,7 @@
 #     - Signal Service: 8001
 #     - Execution Gateway: 8002
 #     - Orchestrator: 8003
+#     - Market Data Service: 8004
 #
 # Exit codes:
 #   0 - All services healthy
@@ -31,6 +32,7 @@ set -euo pipefail
 SIGNAL_SERVICE_URL="${SIGNAL_SERVICE_URL:-http://localhost:8001}"
 EXECUTION_GATEWAY_URL="${EXECUTION_GATEWAY_URL:-http://localhost:8002}"
 ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://localhost:8003}"
+MARKET_DATA_SERVICE_URL="${MARKET_DATA_SERVICE_URL:-http://localhost:8004}"
 
 # Colors for terminal output
 RED='\033[0;31m'
@@ -49,6 +51,7 @@ LIST="📋"
 MONEY="💰"
 GEAR="🔧"
 WARN="⚠️"
+ROCKET="🚀"
 
 # Check dependencies
 check_dependencies() {
@@ -200,6 +203,56 @@ get_pnl_summary() {
     printf "  ${BOLD}%-12s${NC} ${total_color}\$%+.2f${NC}\n" "Total:" "$total"
 }
 
+# Get real-time P&L from Execution Gateway (with live market prices)
+get_realtime_pnl() {
+    local body
+    body=$(fetch_api_data "$EXECUTION_GATEWAY_URL/api/v1/positions/pnl/realtime" "Unable to fetch real-time P&L") || return 1
+
+    # Check if there are any positions
+    local position_count
+    position_count=$(echo "$body" | jq -r '.total_positions' || echo "0")
+
+    if [ "$position_count" = "0" ]; then
+        echo "  No open positions"
+        return 0
+    fi
+
+    # Extract summary metrics
+    local total_unrealized
+    local total_pct
+    local realtime_count
+    total_unrealized=$(echo "$body" | jq -r '.total_unrealized_pl // "0.00"')
+    total_pct=$(echo "$body" | jq -r '.total_unrealized_pl_pct // "0.00"')
+    realtime_count=$(echo "$body" | jq -r '.realtime_prices_available')
+
+    # Format total P&L with color
+    local total_color=$GREEN
+    if (( $(echo "$total_unrealized < 0" | bc -l) )); then total_color=$RED; fi
+
+    # Display summary
+    printf "  ${BOLD}Total Unrealized:${NC} ${total_color}\$%+.2f${NC} (${total_color}%+.2f%%${NC})\n" "$total_unrealized" "$total_pct"
+    echo "  Real-time prices: $realtime_count/$position_count positions"
+    echo ""
+
+    # Display per-position details
+    echo "  Per-Position P&L:"
+    echo "$body" | jq -r '.positions[] |
+        "    \(.symbol): \(
+            if (.unrealized_pl | startswith("-")) then
+                "-$\(.unrealized_pl | ltrimstr("-"))"
+            else
+                "+$\(.unrealized_pl)"
+            end
+        ) (\(
+            if (.unrealized_pl_pct | tonumber) >= 0 then
+                "+\(.unrealized_pl_pct)"
+            else
+                "\(.unrealized_pl_pct)"
+            end
+        )%) [\(.price_source)]"' || \
+        (echo "  ${YELLOW}${WARN} Error parsing positions${NC}" && return 1)
+}
+
 # Main function
 main() {
     check_dependencies
@@ -217,6 +270,7 @@ main() {
     check_service_health "Signal Service (T3)" "$SIGNAL_SERVICE_URL" || all_healthy=1
     check_service_health "Execution Gateway (T4)" "$EXECUTION_GATEWAY_URL" || all_healthy=1
     check_service_health "Orchestrator (T5)" "$ORCHESTRATOR_URL" || all_healthy=1
+    check_service_health "Market Data Service (P1.2T1)" "$MARKET_DATA_SERVICE_URL" || all_healthy=1
     echo ""
 
     # Positions
@@ -232,6 +286,11 @@ main() {
     # P&L Summary
     echo -e "${MONEY} ${BOLD}Latest P&L:${NC}"
     get_pnl_summary || all_healthy=1  # Track data fetch failures
+    echo ""
+
+    # Real-Time P&L (with live market prices)
+    echo -e "${ROCKET} ${BOLD}Real-Time P&L (Live Market Prices):${NC}"
+    get_realtime_pnl || all_healthy=1  # Track data fetch failures
     echo ""
 
     echo -e "${BOLD}========================================================================${NC}"
