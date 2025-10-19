@@ -34,9 +34,10 @@ Usage:
 See ADR-0005 for architecture decisions.
 """
 
+import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -51,6 +52,8 @@ from apps.execution_gateway.schemas import (
     OrderDetail,
     PositionsResponse,
     Position,
+    RealtimePnLResponse,
+    RealtimePositionPnL,
     WebhookEvent,
     HealthResponse,
     ErrorResponse,
@@ -68,6 +71,7 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
     extract_signature_from_header,
 )
+from libs.redis_client import RedisClient
 
 
 # ============================================================================
@@ -91,6 +95,12 @@ STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
+# Redis configuration (for real-time price lookups)
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
 # ============================================================================
@@ -99,6 +109,19 @@ logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RU
 
 # Database client
 db_client = DatabaseClient(DATABASE_URL)
+
+# Redis client (for real-time price lookups from Market Data Service)
+redis_client: Optional[RedisClient] = None
+try:
+    redis_client = RedisClient(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=REDIS_PASSWORD if REDIS_PASSWORD else None,
+    )
+    logger.info("Redis client initialized successfully")
+except Exception as e:
+    logger.warning(f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices.")
 
 # Alpaca client (only if not in dry run mode and credentials provided)
 alpaca_client: Optional[AlpacaExecutor] = None
@@ -544,6 +567,145 @@ async def get_positions():
         total_positions=len(positions),
         total_unrealized_pl=total_unrealized_pl if positions else None,
         total_realized_pl=total_realized_pl
+    )
+
+
+@app.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
+async def get_realtime_pnl():
+    """
+    Get real-time P&L with latest market prices.
+
+    Fetches latest prices from Redis cache (populated by Market Data Service).
+    Falls back to database prices if real-time data is unavailable.
+
+    Price source priority:
+    1. real-time: Latest price from Redis (Market Data Service via WebSocket)
+    2. database: Last known price from database (closing price or last fill)
+    3. fallback: Entry price (if no other price available)
+
+    Returns:
+        RealtimePnLResponse with real-time P&L for all positions
+
+    Examples:
+        >>> import requests
+        >>> response = requests.get("http://localhost:8002/api/v1/positions/pnl/realtime")
+        >>> response.json()
+        {
+            "positions": [
+                {
+                    "symbol": "AAPL",
+                    "qty": "10",
+                    "avg_entry_price": "150.00",
+                    "current_price": "152.50",
+                    "price_source": "real-time",
+                    "unrealized_pl": "25.00",
+                    "unrealized_pl_pct": "1.67",
+                    "last_price_update": "2024-10-19T14:30:15Z"
+                }
+            ],
+            "total_positions": 1,
+            "total_unrealized_pl": "25.00",
+            "total_unrealized_pl_pct": "1.67",
+            "realtime_prices_available": 1,
+            "timestamp": "2024-10-19T14:30:20Z"
+        }
+    """
+    # Get all positions from database
+    db_positions = db_client.get_all_positions()
+
+    if not db_positions:
+        return RealtimePnLResponse(
+            positions=[],
+            total_positions=0,
+            total_unrealized_pl=Decimal("0"),
+            total_unrealized_pl_pct=None,
+            realtime_prices_available=0,
+            timestamp=datetime.now(timezone.utc),
+        )
+
+    # Calculate real-time P&L for each position
+    realtime_positions = []
+    realtime_count = 0
+    total_investment = Decimal("0")
+
+    for pos in db_positions:
+        current_price = None
+        price_source = "fallback"
+        last_price_update = None
+
+        # Try to get real-time price from Redis (Market Data Service)
+        if redis_client:
+            try:
+                price_key = f"price:{pos.symbol}"
+                price_json = redis_client.get(price_key)
+
+                if price_json:
+                    price_data = json.loads(price_json)
+                    current_price = Decimal(str(price_data["mid"]))
+                    price_source = "real-time"
+                    last_price_update = datetime.fromisoformat(price_data["timestamp"])
+                    realtime_count += 1
+
+                    logger.debug(
+                        f"Real-time price for {pos.symbol}: ${current_price} from Redis"
+                    )
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch real-time price for {pos.symbol} from Redis: {e}")
+
+        # Fallback to database price
+        if current_price is None and pos.current_price:
+            current_price = pos.current_price
+            price_source = "database"
+            logger.debug(f"Using database price for {pos.symbol}: ${current_price}")
+
+        # Ultimate fallback to entry price
+        if current_price is None:
+            current_price = pos.avg_entry_price
+            price_source = "fallback"
+            logger.warning(
+                f"No current price available for {pos.symbol}, using entry price: ${current_price}"
+            )
+
+        # Calculate unrealized P&L
+        unrealized_pl = (current_price - pos.avg_entry_price) * pos.qty
+        unrealized_pl_pct = (
+            ((current_price - pos.avg_entry_price) / pos.avg_entry_price) * Decimal("100")
+            if pos.avg_entry_price > 0
+            else Decimal("0")
+        )
+
+        # Track total investment for portfolio-level percentage
+        total_investment += pos.avg_entry_price * abs(pos.qty)
+
+        realtime_positions.append(
+            RealtimePositionPnL(
+                symbol=pos.symbol,
+                qty=pos.qty,
+                avg_entry_price=pos.avg_entry_price,
+                current_price=current_price,
+                price_source=price_source,
+                unrealized_pl=unrealized_pl,
+                unrealized_pl_pct=unrealized_pl_pct,
+                last_price_update=last_price_update,
+            )
+        )
+
+    # Calculate totals
+    total_unrealized_pl = sum(p.unrealized_pl for p in realtime_positions)
+    total_unrealized_pl_pct = (
+        (total_unrealized_pl / total_investment) * Decimal("100")
+        if total_investment > 0
+        else None
+    )
+
+    return RealtimePnLResponse(
+        positions=realtime_positions,
+        total_positions=len(realtime_positions),
+        total_unrealized_pl=total_unrealized_pl,
+        total_unrealized_pl_pct=total_unrealized_pl_pct,
+        realtime_prices_available=realtime_count,
+        timestamp=datetime.now(timezone.utc),
     )
 
 
