@@ -9,7 +9,7 @@ import concurrent.futures
 import json
 import logging
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional, Set
 
 from alpaca.data.live import StockDataStream
@@ -189,11 +189,14 @@ class AlpacaMarketDataStream:
                 f"(spread: {quote_data.spread_bps:.1f} bps)"
             )
 
-        except (ValidationError, ValueError, AttributeError, RedisError) as e:
+        except (ValidationError, ValueError, AttributeError, InvalidOperation, RedisError) as e:
             # Catch specific errors: Pydantic validation, invalid decimal conversion,
-            # missing quote attributes, or ALL Redis failures (connection, timeout, memory, etc.)
+            # missing quote attributes, decimal parsing errors (NaN, None, etc.),
+            # or ALL Redis failures (connection, timeout, memory, etc.)
             # Do not re-raise to prevent stream crash on single bad quote
-            logger.error(f"Error handling quote for {quote.symbol}: {e}", exc_info=True)
+            # Use getattr to safely access symbol in case quote object is malformed
+            symbol = getattr(quote, "symbol", "<unknown>")
+            logger.error(f"Error handling quote for {symbol}: {e}", exc_info=True)
 
     async def start(self) -> None:
         """

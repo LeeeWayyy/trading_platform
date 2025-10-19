@@ -122,7 +122,9 @@ try:
         password=REDIS_PASSWORD,
     )
     logger.info("Redis client initialized successfully")
-except RedisConnectionError as e:
+except RedisError as e:
+    # Catch all Redis errors (connection, authentication, configuration, etc.)
+    # Service should start even if Redis is misconfigured or unavailable
     logger.warning(f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices.")
 
 # Alpaca client (only if not in dry run mode and credentials provided)

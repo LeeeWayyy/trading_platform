@@ -7,7 +7,7 @@ Integration tests with real Alpaca API are separate.
 
 import asyncio
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -354,3 +354,68 @@ class TestAlpacaMarketDataStream:
         # Verify valid quote was processed successfully
         assert mock_redis.set.called
         assert mock_publisher.publish.called
+
+    @pytest.mark.asyncio
+    async def test_handle_quote_with_invalid_decimal_does_not_crash_stream(
+        self, stream, mock_redis, mock_publisher
+    ):
+        """
+        Test that invalid decimal values (NaN, None, etc.) don't crash the stream.
+
+        P1 fix: Decimal(str(...)) can raise InvalidOperation for NaN, None, or
+        non-numeric values. The _handle_quote callback must catch InvalidOperation
+        to prevent stream termination on malformed quote data.
+
+        This test verifies that when quote contains invalid price data (NaN),
+        the stream logs the error but continues processing.
+        """
+        # Create quote with NaN price (triggers InvalidOperation)
+        bad_quote = Mock()
+        bad_quote.symbol = "AAPL"
+        bad_quote.bid_price = float("nan")  # Invalid: will cause Decimal(str(...)) to raise InvalidOperation
+        bad_quote.ask_price = 150.10
+        bad_quote.bid_size = 100
+        bad_quote.ask_size = 200
+        bad_quote.timestamp = datetime.now(timezone.utc)
+        bad_quote.exchange = "NASDAQ"
+
+        # Process quote - should NOT raise exception
+        await stream._handle_quote(bad_quote)
+
+        # Verify Redis was not updated (bad quote rejected)
+        assert not mock_redis.set.called
+
+        # Verify event was not published (bad quote rejected)
+        assert not mock_publisher.publish.called
+
+    @pytest.mark.asyncio
+    async def test_handle_quote_missing_symbol_attribute_does_not_crash_stream(
+        self, stream, mock_redis, mock_publisher
+    ):
+        """
+        Test that quotes missing symbol attribute don't crash the stream.
+
+        P1 fix: Logging quote.symbol in exception handler can raise AttributeError
+        if the quote object is missing the symbol attribute. Must use getattr()
+        with default value to safely access symbol in error logging.
+
+        This test verifies that when quote is missing symbol attribute,
+        the stream logs the error with <unknown> and continues processing.
+        """
+        # Create quote object missing symbol attribute
+        bad_quote = Mock(spec=[])  # Empty spec = no attributes
+        bad_quote.bid_price = 150.00
+        bad_quote.ask_price = 150.10
+        bad_quote.bid_size = 100
+        bad_quote.ask_size = 200
+        bad_quote.timestamp = datetime.now(timezone.utc)
+        bad_quote.exchange = "NASDAQ"
+
+        # Process quote - should NOT raise exception even when accessing symbol fails
+        await stream._handle_quote(bad_quote)
+
+        # Verify Redis was not updated (bad quote rejected)
+        assert not mock_redis.set.called
+
+        # Verify event was not published (bad quote rejected)
+        assert not mock_publisher.publish.called
