@@ -12,8 +12,19 @@ echo ""
 
 if [ "$MODE" = "quick" ]; then
   # Quick mode: Review staged changes (all file types)
-  STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM || true)
 
+  # Execute git diff and capture exit status
+  STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM 2>&1)
+  GIT_EXIT=$?
+
+  # Check for git command errors (non-zero exit code)
+  if [ $GIT_EXIT -ne 0 ]; then
+    echo "❌ Git command failed: $STAGED_FILES"
+    echo "   Are you in a git repository?"
+    exit 1
+  fi
+
+  # Check if any files are staged
   if [ -z "$STAGED_FILES" ]; then
     echo "❌ No files staged for commit"
     echo "   Use: git add <files>"
@@ -28,7 +39,16 @@ if [ "$MODE" = "quick" ]; then
 
 elif [ "$MODE" = "deep" ]; then
   # Deep mode: Review all branch changes (even with clean staging area)
-  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+  # Check current branch
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>&1)
+  GIT_EXIT=$?
+
+  if [ $GIT_EXIT -ne 0 ]; then
+    echo "❌ Git command failed: $CURRENT_BRANCH"
+    echo "   Are you in a git repository?"
+    exit 1
+  fi
 
   if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "master" ]; then
     echo "⚠️  Already on $CURRENT_BRANCH branch"
@@ -36,8 +56,20 @@ elif [ "$MODE" = "deep" ]; then
     exit 1
   fi
 
-  BRANCH_FILES=$(git diff origin/main...HEAD --name-only --diff-filter=ACM || true)
+  # Get branch changes
+  BRANCH_FILES=$(git diff origin/main...HEAD --name-only --diff-filter=ACM 2>&1)
+  GIT_EXIT=$?
 
+  # Check for git command errors
+  if [ $GIT_EXIT -ne 0 ]; then
+    echo "❌ Git command failed: $BRANCH_FILES"
+    echo "   Possible causes:"
+    echo "   - origin/main doesn't exist (try: git fetch origin)"
+    echo "   - Not in a git repository"
+    exit 1
+  fi
+
+  # Check if any changes exist
   if [ -z "$BRANCH_FILES" ]; then
     echo "❌ No changes in this branch vs origin/main"
     exit 1
