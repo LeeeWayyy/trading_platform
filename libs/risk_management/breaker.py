@@ -38,6 +38,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
 
+import redis.exceptions
+
 from libs.redis_client import RedisClient
 from libs.risk_management.exceptions import CircuitBreakerError, CircuitBreakerTripped
 
@@ -197,9 +199,11 @@ class CircuitBreaker:
         details: Optional[dict] = None,
     ) -> None:
         """
-        Trip the circuit breaker.
+        Trip the circuit breaker atomically.
 
         Transitions state from OPEN/QUIET_PERIOD to TRIPPED and logs reason.
+        Uses WATCH/MULTI/EXEC transaction to prevent race conditions in
+        multi-process/multi-threaded environments.
 
         Args:
             reason: Trip reason (from TripReason enum or custom string)
@@ -211,58 +215,87 @@ class CircuitBreaker:
             True
 
         Notes:
-            - If already TRIPPED, logs warning but doesn't error
-            - Increments trip_count_today
+            - This operation is atomic and safe for concurrent use
+            - If already TRIPPED, logs warning but doesn't error (idempotent)
+            - Increments trip_count_today atomically
             - Appends to trip history log
+            - Retries automatically on concurrent modification (WatchError)
         """
-        current_state = self.get_state()
+        # TODO: Consider exposing zadd/pipeline operations in RedisClient public API
+        # to avoid accessing private _client attribute (breaks encapsulation).
+        # Tracked for future PR to extend RedisClient interface.
+        redis_conn = self.redis._client
 
-        if current_state == CircuitBreakerState.TRIPPED:
-            logger.warning(
-                f"Circuit breaker already TRIPPED: {self.get_trip_reason()}"
-            )
-            return  # Already tripped, no-op
+        with redis_conn.pipeline() as pipe:
+            while True:
+                try:
+                    # Watch the state key for changes from other clients
+                    pipe.watch(self.state_key)
 
-        # Get current state data
-        state_json = self.redis.get(self.state_key)
-        state_data = json.loads(state_json)
+                    state_json = pipe.get(self.state_key)
+                    if not state_json:
+                        self._initialize_state()
+                        state_json = pipe.get(self.state_key)
 
-        # Update state
-        now = datetime.now(timezone.utc).isoformat()
-        state_data.update(
-            {
-                "state": CircuitBreakerState.TRIPPED.value,
-                "tripped_at": now,
-                "trip_reason": reason,
-                "trip_details": details,
-                "trip_count_today": state_data.get("trip_count_today", 0) + 1,
-            }
-        )
+                    state_data = json.loads(state_json)
 
-        # Save to Redis
-        self.redis.set(self.state_key, json.dumps(state_data))
+                    # Check if already tripped (idempotent behavior)
+                    if state_data["state"] == CircuitBreakerState.TRIPPED.value:
+                        logger.warning(
+                            f"Circuit breaker already TRIPPED: {state_data.get('trip_reason')}"
+                        )
+                        pipe.unwatch()
+                        return
 
-        # Log to history
-        history_entry = {
-            "tripped_at": now,
-            "reason": reason,
-            "details": details,
-            "reset_at": None,
-            "reset_by": None,
-        }
-        self._append_to_history(history_entry)
+                    # Start atomic transaction
+                    pipe.multi()
 
-        logger.warning(
-            f"Circuit breaker TRIPPED: reason={reason}, details={details}, "
-            f"trip_count_today={state_data['trip_count_today']}"
-        )
+                    # Update state
+                    now = datetime.now(timezone.utc).isoformat()
+                    state_data.update(
+                        {
+                            "state": CircuitBreakerState.TRIPPED.value,
+                            "tripped_at": now,
+                            "trip_reason": reason,
+                            "trip_details": details,
+                            "trip_count_today": state_data.get("trip_count_today", 0) + 1,
+                        }
+                    )
+
+                    pipe.set(self.state_key, json.dumps(state_data))
+
+                    # Execute transaction atomically
+                    pipe.execute()
+
+                    # Log to history (outside transaction)
+                    history_entry = {
+                        "tripped_at": now,
+                        "reason": reason,
+                        "details": details,
+                        "reset_at": None,
+                        "reset_by": None,
+                    }
+                    self._append_to_history(history_entry)
+
+                    logger.warning(
+                        f"Circuit breaker TRIPPED: reason={reason}, details={details}, "
+                        f"trip_count_today={state_data['trip_count_today']}"
+                    )
+
+                    break  # Success
+
+                except redis.exceptions.WatchError:
+                    # The key was modified by another client. Retry the transaction.
+                    logger.warning("WatchError on circuit breaker state, retrying trip transaction")
+                    continue
 
     def reset(self, reset_by: str = "system") -> None:
         """
-        Reset circuit breaker from TRIPPED to QUIET_PERIOD.
+        Reset circuit breaker from TRIPPED to QUIET_PERIOD atomically.
 
         Requires manual intervention. Starts 5-minute quiet period before
-        returning to OPEN state.
+        returning to OPEN state. Uses WATCH/MULTI/EXEC transaction to prevent
+        race conditions.
 
         Args:
             reset_by: Identifier of who/what reset the breaker (e.g., "operator", "system")
@@ -281,57 +314,111 @@ class CircuitBreaker:
             - Only valid when state is TRIPPED
             - Automatically transitions to OPEN after 5 minutes
             - Updates trip history with reset timestamp
+            - Retries automatically on concurrent modification (WatchError)
         """
-        current_state = self.get_state()
+        redis_conn = self.redis._client
 
-        if current_state != CircuitBreakerState.TRIPPED:
-            raise CircuitBreakerError(
-                f"Cannot reset circuit breaker: current state is {current_state.value}, "
-                f"must be TRIPPED"
-            )
+        with redis_conn.pipeline() as pipe:
+            while True:
+                try:
+                    # Watch the state key for changes from other clients
+                    pipe.watch(self.state_key)
 
-        # Get current state data
-        state_json = self.redis.get(self.state_key)
-        state_data = json.loads(state_json)
+                    state_json = pipe.get(self.state_key)
+                    if not state_json:
+                        self._initialize_state()
+                        state_json = pipe.get(self.state_key)
 
-        # Transition to QUIET_PERIOD
-        now = datetime.now(timezone.utc).isoformat()
-        state_data.update(
-            {
-                "state": CircuitBreakerState.QUIET_PERIOD.value,
-                "reset_at": now,
-                "reset_by": reset_by,
-            }
-        )
+                    state_data = json.loads(state_json)
 
-        # Save to Redis
-        self.redis.set(self.state_key, json.dumps(state_data))
+                    # Validate current state
+                    current_state = CircuitBreakerState(state_data["state"])
+                    if current_state != CircuitBreakerState.TRIPPED:
+                        pipe.unwatch()
+                        raise CircuitBreakerError(
+                            f"Cannot reset circuit breaker: current state is {current_state.value}, "
+                            f"must be TRIPPED"
+                        )
 
-        logger.info(
-            f"Circuit breaker reset to QUIET_PERIOD: reset_by={reset_by}, "
-            f"duration={self.QUIET_PERIOD_DURATION}s"
-        )
+                    # Start atomic transaction
+                    pipe.multi()
+
+                    # Transition to QUIET_PERIOD
+                    now = datetime.now(timezone.utc).isoformat()
+                    state_data.update(
+                        {
+                            "state": CircuitBreakerState.QUIET_PERIOD.value,
+                            "reset_at": now,
+                            "reset_by": reset_by,
+                        }
+                    )
+
+                    pipe.set(self.state_key, json.dumps(state_data))
+
+                    # Execute transaction atomically
+                    pipe.execute()
+
+                    logger.info(
+                        f"Circuit breaker reset to QUIET_PERIOD: reset_by={reset_by}, "
+                        f"duration={self.QUIET_PERIOD_DURATION}s"
+                    )
+
+                    break  # Success
+
+                except redis.exceptions.WatchError:
+                    # The key was modified by another client. Retry the transaction.
+                    logger.warning("WatchError on circuit breaker state, retrying reset transaction")
+                    continue
 
     def _transition_to_open(self) -> None:
         """
-        Internal method to transition from QUIET_PERIOD to OPEN.
+        Internal method to transition from QUIET_PERIOD to OPEN atomically.
 
-        Called automatically when quiet period expires.
+        Called automatically when quiet period expires. Uses WATCH/MULTI/EXEC
+        transaction to prevent race conditions.
         """
-        state_json = self.redis.get(self.state_key)
-        state_data = json.loads(state_json)
+        redis_conn = self.redis._client
 
-        state_data.update(
-            {
-                "state": CircuitBreakerState.OPEN.value,
-                "tripped_at": None,
-                "trip_reason": None,
-                "trip_details": None,
-            }
-        )
+        with redis_conn.pipeline() as pipe:
+            while True:
+                try:
+                    # Watch the state key for changes from other clients
+                    pipe.watch(self.state_key)
 
-        self.redis.set(self.state_key, json.dumps(state_data))
-        logger.info("Circuit breaker transitioned to OPEN")
+                    state_json = pipe.get(self.state_key)
+                    if not state_json:
+                        # State was deleted, just initialize and exit
+                        pipe.unwatch()
+                        self._initialize_state()
+                        return
+
+                    state_data = json.loads(state_json)
+
+                    # Start atomic transaction
+                    pipe.multi()
+
+                    state_data.update(
+                        {
+                            "state": CircuitBreakerState.OPEN.value,
+                            "tripped_at": None,
+                            "trip_reason": None,
+                            "trip_details": None,
+                        }
+                    )
+
+                    pipe.set(self.state_key, json.dumps(state_data))
+
+                    # Execute transaction atomically
+                    pipe.execute()
+
+                    logger.info("Circuit breaker transitioned to OPEN")
+
+                    break  # Success
+
+                except redis.exceptions.WatchError:
+                    # The key was modified by another client. Retry the transaction.
+                    logger.warning("WatchError on circuit breaker state, retrying transition to OPEN")
+                    continue
 
     def get_trip_reason(self) -> Optional[str]:
         """

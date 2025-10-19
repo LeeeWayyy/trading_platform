@@ -237,7 +237,7 @@ RISK_BLACKLIST: list[str] = []
 
 ```json
 {
-  "state": "OPEN",  // OPEN | TRIPPED | QUIET_PERIOD
+  "state": "OPEN",
   "tripped_at": null,
   "trip_reason": null,
   "reset_at": null,
@@ -245,6 +245,8 @@ RISK_BLACKLIST: list[str] = []
   "trip_count_today": 0
 }
 ```
+
+Possible values for `state`: `OPEN`, `TRIPPED`, `QUIET_PERIOD`
 
 **Additional Keys:**
 - `circuit_breaker:trip_history` - List of all trips (append-only log)
@@ -422,7 +424,7 @@ class RiskMonitor:
 
         # 3. Check data staleness
         latest_price_timestamp = await self.get_latest_price_timestamp()
-        if (datetime.now(UTC) - latest_price_timestamp).seconds > 1800:  # 30 minutes
+        if (datetime.now(UTC) - latest_price_timestamp).total_seconds() > 1800:  # 30 minutes
             await self.breaker.trip("DATA_STALE")
             return
 ```

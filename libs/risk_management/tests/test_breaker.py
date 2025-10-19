@@ -14,6 +14,83 @@ from libs.risk_management.breaker import (
 from libs.risk_management.exceptions import CircuitBreakerError
 
 
+class MockPipeline:
+    """Mock Redis pipeline for WATCH/MULTI/EXEC transactions."""
+
+    def __init__(self, state, sorted_sets):
+        self.state = state
+        self.sorted_sets = sorted_sets
+        self.watched_keys = {}
+        self.commands = []
+        self.is_transaction = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.watched_keys.clear()
+        self.commands.clear()
+        return False
+
+    def watch(self, *keys):
+        """Watch keys for changes."""
+        for key in keys:
+            # Store snapshot of watched key value
+            self.watched_keys[key] = self.state.get(key)
+
+    def unwatch(self):
+        """Unwatch all keys."""
+        self.watched_keys.clear()
+
+    def multi(self):
+        """Start transaction."""
+        self.is_transaction = True
+        self.commands.clear()
+
+    def get(self, key):
+        """Get value (executed immediately, not queued)."""
+        if self.is_transaction:
+            # In transaction mode, queue the command
+            self.commands.append(("get", key))
+            return None
+        else:
+            # Outside transaction, execute immediately
+            return self.state.get(key)
+
+    def set(self, key, value, ttl=None):
+        """Set value (queued in transaction)."""
+        if self.is_transaction:
+            self.commands.append(("set", key, value))
+        else:
+            self.state[key] = value
+
+    def execute(self):
+        """Execute queued commands atomically."""
+        # Check if any watched keys were modified
+        for key, original_value in self.watched_keys.items():
+            if self.state.get(key) != original_value:
+                # WatchError: key was modified
+                self.is_transaction = False
+                self.commands.clear()
+                raise redis.exceptions.WatchError("Watched key modified")
+
+        # Execute all queued commands
+        results = []
+        for cmd in self.commands:
+            if cmd[0] == "set":
+                _, key, value = cmd
+                self.state[key] = value
+                results.append(True)
+            elif cmd[0] == "get":
+                _, key = cmd
+                results.append(self.state.get(key))
+
+        self.is_transaction = False
+        self.commands.clear()
+        self.watched_keys.clear()
+        return results
+
+
 @pytest.fixture
 def mock_redis():
     """Mock Redis client for testing."""
@@ -63,15 +140,20 @@ def mock_redis():
             zset.remove(item)
         return len(to_remove)
 
+    def mock_pipeline():
+        """Create a mock pipeline."""
+        return MockPipeline(redis._state, redis._sorted_sets)
+
     redis.get = MagicMock(side_effect=mock_get)
     redis.set = MagicMock(side_effect=mock_set)
 
-    # Create mock _client attribute with zadd/zremrangebyrank support
+    # Create mock _client attribute with zadd/zremrangebyrank/pipeline support
     redis._client = MagicMock()
     redis._client.zadd = MagicMock(side_effect=mock_zadd)
     redis._client.zcard = MagicMock(side_effect=mock_zcard)
     redis._client.zrange = MagicMock(side_effect=mock_zrange)
     redis._client.zremrangebyrank = MagicMock(side_effect=mock_zremrangebyrank)
+    redis._client.pipeline = MagicMock(side_effect=mock_pipeline)
 
     return redis
 
