@@ -6,7 +6,7 @@ Pydantic models for type-safe market data handling.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -28,7 +28,7 @@ class QuoteData(BaseModel):
 
     @field_validator("ask_price")
     @classmethod
-    def ask_must_be_gte_bid(cls, v, info):
+    def ask_must_be_gte_bid(cls, v: Decimal, info: Any) -> Decimal:  # type: ignore[misc]
         """Validate that ask >= bid (no crossed market)."""
         if "bid_price" in info.data and v < info.data["bid_price"]:
             raise ValueError(f"Ask price {v} < bid price {info.data['bid_price']} (crossed market)")
