@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     max_reconnect_attempts: int = 10
     reconnect_base_delay: int = 5  # Base delay in seconds
 
+    # Auto-Subscription Configuration
+    execution_gateway_url: str = "http://localhost:8002"
+    subscription_sync_interval: int = 300  # 5 minutes
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

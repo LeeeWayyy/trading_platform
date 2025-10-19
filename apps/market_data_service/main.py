@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 
 from apps.market_data_service.config import settings
+from apps.market_data_service.position_sync import PositionBasedSubscription
 from libs.market_data import AlpacaMarketDataStream, ConnectionError, SubscriptionError
 from libs.redis_client import EventPublisher, RedisClient
 
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Global WebSocket stream instance
 stream: Optional[AlpacaMarketDataStream] = None
+
+# Global position-based subscription manager
+subscription_manager: Optional[PositionBasedSubscription] = None
 
 
 # Request/Response Models
@@ -74,7 +78,7 @@ async def lifespan(app: FastAPI):
 
     Starts WebSocket connection on startup, stops on shutdown.
     """
-    global stream
+    global stream, subscription_manager
 
     logger.info("Starting Market Data Service...")
 
@@ -106,8 +110,22 @@ async def lifespan(app: FastAPI):
         # Start WebSocket in background task
         asyncio.create_task(stream.start())
 
+        # Initialize position-based subscription manager
+        subscription_manager = PositionBasedSubscription(
+            stream=stream,
+            execution_gateway_url=settings.execution_gateway_url,
+            sync_interval=settings.subscription_sync_interval,
+            initial_sync=True,
+        )
+
+        # Start subscription sync loop in background
+        asyncio.create_task(subscription_manager.start_sync_loop())
+
         logger.info(
             f"Market Data Service started successfully on port {settings.port}"
+        )
+        logger.info(
+            f"Auto-subscription enabled: syncing every {settings.subscription_sync_interval}s"
         )
 
         yield
@@ -120,6 +138,11 @@ async def lifespan(app: FastAPI):
         # Cleanup on shutdown
         logger.info("Shutting down Market Data Service...")
 
+        # Stop subscription manager
+        if subscription_manager:
+            subscription_manager.stop()
+
+        # Stop WebSocket
         if stream:
             try:
                 await stream.stop()
@@ -272,6 +295,33 @@ async def get_subscriptions():
         symbols=symbols,
         count=len(symbols),
     )
+
+
+@app.get("/api/v1/subscriptions/stats", tags=["Subscriptions"])
+async def get_subscription_stats():
+    """
+    Get subscription manager statistics.
+
+    Returns detailed stats about auto-subscription including:
+    - Whether auto-subscription is running
+    - Execution Gateway URL
+    - Sync interval
+    - Last known position count and symbols
+    - Currently subscribed symbols
+
+    Returns:
+        Dictionary with subscription manager stats
+    """
+    if not subscription_manager:
+        return {
+            "auto_subscription_enabled": False,
+            "message": "Auto-subscription not configured"
+        }
+
+    stats = subscription_manager.get_stats()
+    stats["auto_subscription_enabled"] = True
+
+    return stats
 
 
 if __name__ == "__main__":
