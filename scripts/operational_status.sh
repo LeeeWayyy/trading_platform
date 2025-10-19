@@ -13,6 +13,7 @@
 # Requirements:
 #   - jq (brew install jq)
 #   - curl
+#   - bc (for numeric comparisons)
 #   - Services running on default ports:
 #     - Signal Service: 8001
 #     - Execution Gateway: 8002
@@ -59,6 +60,10 @@ check_dependencies() {
 
     if ! command -v curl &> /dev/null; then
         missing+=("curl")
+    fi
+
+    if ! command -v bc &> /dev/null; then
+        missing+=("bc")
     fi
 
     if [ ${#missing[@]} -gt 0 ]; then
@@ -176,13 +181,13 @@ get_pnl_summary() {
     unrealized=${pnl_values[1]:-"0.00"}
     total=${pnl_values[2]:-"0.00"}
 
-    # Format with colors based on positive/negative
+    # Format with colors based on positive/negative using numeric comparison
     local realized_color=$GREEN
-    if [[ "$realized" == -* ]]; then realized_color=$RED; fi
+    if (( $(echo "$realized < 0" | bc -l) )); then realized_color=$RED; fi
     local unrealized_color=$GREEN
-    if [[ "$unrealized" == -* ]]; then unrealized_color=$RED; fi
+    if (( $(echo "$unrealized < 0" | bc -l) )); then unrealized_color=$RED; fi
     local total_color=$GREEN
-    if [[ "$total" == -* ]]; then total_color=$RED; fi
+    if (( $(echo "$total < 0" | bc -l) )); then total_color=$RED; fi
 
     # Use printf with %+f for automatic sign handling and consistent formatting
     printf "  %-12s ${realized_color}\$%+.2f${NC}\n" "Realized:" "$realized"
