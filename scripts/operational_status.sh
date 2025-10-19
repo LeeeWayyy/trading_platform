@@ -139,7 +139,7 @@ get_positions() {
     fi
 
     # Display each position with consistent 2 decimal place formatting
-    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(try (.avg_entry_price | tonumber | . * 100 | round / 100) catch "N/A") avg"' >/dev/null 2>&1 || \
+    echo "$body" | jq -r '.positions[] | "  \(.symbol): \(.qty) shares @ $\(try (.avg_entry_price | tonumber | . * 100 | round / 100) catch \"N/A\") avg"' || \
         (echo "  ${YELLOW}${WARN} Error parsing positions${NC}" && return 1)
 }
 
