@@ -32,8 +32,12 @@ httpx = "^0.26.0"
 # Database
 psycopg = {extras = ["binary"], version = "^3.1.0"}
 redis = "^5.0.0"
+duckdb = "^0.9.0"
+# Market data & Trading
+alpaca-py = "^0.15.0"
 # Utilities
 python-dotenv = "^1.0.0"
+tenacity = "^8.2.0"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
@@ -89,6 +93,16 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = "*.tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
