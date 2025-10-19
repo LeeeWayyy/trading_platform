@@ -91,12 +91,8 @@ async def lifespan(app: FastAPI):
             password=settings.redis_password,
         )
 
-        event_publisher = EventPublisher(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            db=settings.redis_db,
-            password=settings.redis_password,
-        )
+        # EventPublisher takes a RedisClient instance, not individual connection params
+        event_publisher = EventPublisher(redis_client=redis_client)
 
         # Initialize WebSocket stream
         stream = AlpacaMarketDataStream(

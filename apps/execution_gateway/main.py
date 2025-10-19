@@ -245,8 +245,8 @@ def _fetch_realtime_price_from_redis(
 
     except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
         logger.warning(f"Failed to parse real-time price for {symbol} from Redis: {e}")
-    except Exception as e:
-        # Catch all other errors (e.g., Redis connection errors) for graceful degradation
+    except RedisConnectionError as e:
+        # Catch specific Redis connection errors for graceful degradation
         logger.warning(f"Failed to fetch real-time price for {symbol} from Redis: {e}")
 
     return None, None

@@ -16,7 +16,7 @@ from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
 from pydantic import ValidationError
 
-from libs.market_data.exceptions import ConnectionError, QuoteHandlingError
+from libs.market_data.exceptions import ConnectionError, QuoteHandlingError, SubscriptionError
 from libs.market_data.types import PriceData, PriceUpdateEvent, QuoteData
 from libs.redis_client import EventPublisher, RedisClient, RedisConnectionError
 
@@ -112,7 +112,7 @@ class AlpacaMarketDataStream:
 
         except Exception as e:
             logger.error(f"Failed to subscribe to symbols {new_symbols}: {e}")
-            raise
+            raise SubscriptionError(f"Failed to subscribe to symbols {new_symbols}: {e}") from e
 
     async def unsubscribe_symbols(self, symbols: list[str]) -> None:
         """
@@ -136,7 +136,7 @@ class AlpacaMarketDataStream:
 
         except Exception as e:
             logger.error(f"Failed to unsubscribe from symbols {symbols}: {e}")
-            raise
+            raise SubscriptionError(f"Failed to unsubscribe from symbols {symbols}: {e}") from e
 
     async def _handle_quote(self, quote: Quote) -> None:
         """
@@ -260,8 +260,9 @@ class AlpacaMarketDataStream:
         self._connected = False
 
         try:
-            # stream.stop() is synchronous, not async
-            self.stream.stop()
+            # stream.stop() is synchronous and may block, run in executor
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.stream.stop)
             logger.info("WebSocket stopped successfully")
         except Exception as e:
             logger.error(f"Error stopping WebSocket: {e}")

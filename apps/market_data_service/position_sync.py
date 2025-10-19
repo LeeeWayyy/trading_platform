@@ -12,6 +12,7 @@ from typing import Optional, Set
 import httpx
 
 from libs.market_data import AlpacaMarketDataStream
+from libs.market_data.exceptions import SubscriptionError
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ class PositionBasedSubscription:
                         f"Auto-subscribed to {len(new_symbols)} new symbols: "
                         f"{sorted(new_symbols)}"
                     )
-                except Exception as e:
+                except SubscriptionError as e:
                     logger.error(f"Failed to subscribe to new symbols: {e}")
 
             # Unsubscribe from closed positions
@@ -151,7 +152,7 @@ class PositionBasedSubscription:
                         f"Auto-unsubscribed from {len(closed_symbols)} closed symbols: "
                         f"{sorted(closed_symbols)}"
                     )
-                except Exception as e:
+                except SubscriptionError as e:
                     logger.error(f"Failed to unsubscribe from closed symbols: {e}")
 
             # Log summary
