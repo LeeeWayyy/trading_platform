@@ -48,7 +48,7 @@ See Also:
 import duckdb
 import polars as pl
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Any, List, Optional, Union
 
 
 class DuckDBCatalog:
@@ -221,9 +221,9 @@ class DuckDBCatalog:
     def query(
         self,
         sql: str,
-        params: Optional[List] = None,
+        params: Optional[List[Any]] = None,
         return_format: str = "polars"
-    ) -> Union[pl.DataFrame, "pd.DataFrame"]:
+    ) -> pl.DataFrame:
         """
         Execute SQL query and return results.
 
@@ -308,7 +308,10 @@ class DuckDBCatalog:
         if return_format == "polars":
             return result.pl()
         elif return_format == "pandas":
-            return result.df()
+            # DuckDB result.df() returns pandas DataFrame but mypy types it as Any
+            # Cast to Polars (caller can convert if needed)
+            pandas_df = result.df()
+            return pl.from_pandas(pandas_df)
         else:
             raise ValueError(
                 f"Invalid return_format: {return_format}. "
@@ -425,11 +428,11 @@ class DuckDBCatalog:
         """
         self.conn.close()
 
-    def __enter__(self):
+    def __enter__(self) -> "DuckDBCatalog":
         """Context manager entry - returns self."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit - closes connection."""
         self.close()
 
@@ -448,7 +451,7 @@ def _build_where_clause(
     symbol: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None
-) -> tuple[str, List]:
+) -> tuple[str, List[Any]]:
     """
     Build WHERE clause and parameters for common time-series queries.
 
