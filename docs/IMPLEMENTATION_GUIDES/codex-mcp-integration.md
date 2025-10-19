@@ -122,8 +122,6 @@ If the inspector works, you're ready to configure Claude Code!
 
 ### Add Codex to Claude Code
 
-**Method 1: Using CLI (Recommended)**
-
 ```bash
 # Add Codex MCP server to Claude Code
 claude mcp add --transport stdio codex-mcp -- codex mcp-server
@@ -131,24 +129,6 @@ claude mcp add --transport stdio codex-mcp -- codex mcp-server
 # Verify it was added
 claude mcp list
 # Should show: codex-mcp
-```
-
-**Method 2: Manual Configuration**
-
-Edit `~/.claude.json`:
-
-```json
-{
-  "mcpServers": {
-    "codex": {
-      "command": "codex",
-      "args": ["mcp-server"],
-      "env": {
-        "CODEX_MODEL": "gpt-5"
-      }
-    }
-  }
-}
 ```
 
 **Restart Claude Code** for changes to take effect.
