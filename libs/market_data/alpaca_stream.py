@@ -71,6 +71,7 @@ class AlpacaMarketDataStream:
 
         # Track subscribed symbols
         self.subscribed_symbols: Set[str] = set()
+        self._subscription_lock = asyncio.Lock()  # Prevent concurrent subscription/unsubscription
 
         # Connection state
         self._running = False
@@ -94,25 +95,26 @@ class AlpacaMarketDataStream:
             logger.warning("subscribe_symbols called with empty list")
             return
 
-        # Filter out already subscribed symbols
-        new_symbols = [s for s in symbols if s not in self.subscribed_symbols]
+        async with self._subscription_lock:
+            # Filter out already subscribed symbols
+            new_symbols = [s for s in symbols if s not in self.subscribed_symbols]
 
-        if not new_symbols:
-            logger.debug(f"All symbols already subscribed: {symbols}")
-            return
+            if not new_symbols:
+                logger.debug(f"All symbols already subscribed: {symbols}")
+                return
 
-        try:
-            # Subscribe to quotes via Alpaca SDK
-            self.stream.subscribe_quotes(self._handle_quote, *new_symbols)
+            try:
+                # Subscribe to quotes via Alpaca SDK
+                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)
 
-            # Update tracking
-            self.subscribed_symbols.update(new_symbols)
+                # Update tracking
+                self.subscribed_symbols.update(new_symbols)
 
-            logger.info(f"Subscribed to {len(new_symbols)} symbols: {new_symbols}")
+                logger.info(f"Subscribed to {len(new_symbols)} symbols: {new_symbols}")
 
-        except Exception as e:
-            logger.error(f"Failed to subscribe to symbols {new_symbols}: {e}")
-            raise SubscriptionError(f"Failed to subscribe to symbols {new_symbols}: {e}") from e
+            except Exception as e:
+                logger.error(f"Failed to subscribe to symbols {new_symbols}: {e}")
+                raise SubscriptionError(f"Failed to subscribe to symbols {new_symbols}: {e}") from e
 
     async def unsubscribe_symbols(self, symbols: list[str]) -> None:
         """
@@ -127,16 +129,17 @@ class AlpacaMarketDataStream:
         if not symbols:
             return
 
-        try:
-            for symbol in symbols:
-                if symbol in self.subscribed_symbols:
-                    self.stream.unsubscribe_quotes(symbol)
-                    self.subscribed_symbols.remove(symbol)
-                    logger.info(f"Unsubscribed from {symbol}")
+        async with self._subscription_lock:
+            try:
+                for symbol in symbols:
+                    if symbol in self.subscribed_symbols:
+                        self.stream.unsubscribe_quotes(symbol)
+                        self.subscribed_symbols.remove(symbol)
+                        logger.info(f"Unsubscribed from {symbol}")
 
-        except Exception as e:
-            logger.error(f"Failed to unsubscribe from symbols {symbols}: {e}")
-            raise SubscriptionError(f"Failed to unsubscribe from symbols {symbols}: {e}") from e
+            except Exception as e:
+                logger.error(f"Failed to unsubscribe from symbols {symbols}: {e}")
+                raise SubscriptionError(f"Failed to unsubscribe from symbols {symbols}: {e}") from e
 
     async def _handle_quote(self, quote: Quote) -> None:
         """

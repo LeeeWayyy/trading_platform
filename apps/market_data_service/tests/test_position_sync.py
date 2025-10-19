@@ -149,18 +149,29 @@ class TestPositionBasedSubscription:
 
     @pytest.mark.asyncio
     async def test_sync_subscriptions_closed_symbols(self, subscription_manager, mock_stream):
-        """Test sync unsubscribes from closed symbols."""
-        # Mock stream currently subscribed to AAPL and MSFT
-        mock_stream.get_subscribed_symbols.return_value = ["AAPL", "MSFT"]
+        """
+        Test sync unsubscribes from closed symbols.
 
-        # Mock HTTP response with only AAPL position (MSFT closed)
+        HIGH priority fix: Only unsubscribe from symbols that THIS auto-subscriber
+        was managing (tracked in _last_position_symbols), not ALL subscribed symbols.
+        This prevents accidentally unsubscribing from manually-added symbols.
+        """
+        # Set up: last sync had AAPL and MSFT positions
+        subscription_manager._last_position_symbols = {"AAPL", "MSFT"}
+
+        # Mock stream is currently subscribed to AAPL, MSFT, and GOOGL
+        # (GOOGL was manually added via API, not by this auto-subscriber)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL", "MSFT", "GOOGL"]
+
+        # Mock HTTP response: only AAPL position remains (MSFT closed)
         with patch.object(subscription_manager, "_fetch_position_symbols", return_value={"AAPL"}):
             await subscription_manager._sync_subscriptions()
 
-        # Verify unsubscribe was called with closed symbol
+        # Verify unsubscribe was called ONLY with MSFT (not GOOGL)
+        # GOOGL should remain subscribed since it wasn't managed by auto-subscriber
         mock_stream.unsubscribe_symbols.assert_called_once()
         call_args = mock_stream.unsubscribe_symbols.call_args[0][0]
-        assert set(call_args) == {"MSFT"}
+        assert set(call_args) == {"MSFT"}  # Only MSFT, NOT GOOGL
 
     @pytest.mark.asyncio
     async def test_sync_subscriptions_no_changes(self, subscription_manager, mock_stream):

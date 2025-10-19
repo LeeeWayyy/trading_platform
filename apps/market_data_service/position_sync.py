@@ -127,11 +127,13 @@ class PositionBasedSubscription:
                 return
 
             # Determine what changed
-            current_subscribed = self.stream.get_subscribed_symbols()
-            current_subscribed_set = set(current_subscribed)
-
+            # Only subscribe to symbols that aren't already subscribed
+            current_subscribed_set = set(self.stream.get_subscribed_symbols())
             new_symbols = position_symbols - current_subscribed_set
-            closed_symbols = current_subscribed_set - position_symbols
+
+            # Only unsubscribe from symbols that THIS auto-subscriber was managing
+            # (don't touch manually-subscribed symbols)
+            closed_symbols = self._last_position_symbols - position_symbols
 
             # Subscribe to new symbols
             if new_symbols:

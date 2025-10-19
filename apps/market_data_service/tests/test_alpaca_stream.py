@@ -285,3 +285,33 @@ class TestAlpacaMarketDataStream:
         # Verify reconnect counter was reset to 0 after successful connection
         # (before it was 2, after successful run() it should be 0)
         assert stream._reconnect_attempts == 0
+
+    @pytest.mark.asyncio
+    async def test_concurrent_subscribe_with_lock(self, stream):
+        """
+        Test that concurrent subscribe calls are handled atomically with lock.
+
+        MEDIUM priority fix: Without a lock, concurrent subscribe_symbols calls
+        could lead to race conditions where:
+        1. Both calls check subscribed_symbols at the same time
+        2. Both think they need to subscribe to the same symbol
+        3. Both call the broker API, hitting rate limits or causing duplicate subscriptions
+
+        The fix uses asyncio.Lock to ensure subscription operations are atomic.
+        """
+        # Create multiple concurrent subscription tasks for the same symbol
+        tasks = [
+            stream.subscribe_symbols(["AAPL"]),
+            stream.subscribe_symbols(["AAPL"]),
+            stream.subscribe_symbols(["AAPL"]),
+        ]
+
+        # Run all tasks concurrently
+        await asyncio.gather(*tasks)
+
+        # Verify that subscribe_quotes was only called once (not three times)
+        # This proves the lock prevented duplicate subscriptions
+        assert stream.stream.subscribe_quotes.call_count == 1
+
+        # Verify AAPL is in subscribed_symbols
+        assert "AAPL" in stream.subscribed_symbols
