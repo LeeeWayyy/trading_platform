@@ -38,7 +38,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -122,9 +122,10 @@ try:
         password=REDIS_PASSWORD,
     )
     logger.info("Redis client initialized successfully")
-except RedisError as e:
-    # Catch all Redis errors (connection, authentication, configuration, etc.)
+except (RedisError, RedisConnectionError) as e:
+    # Catch both redis-py errors (RedisError) and our custom RedisConnectionError
     # Service should start even if Redis is misconfigured or unavailable
+    # RedisConnectionError is raised by RedisClient when initial ping() fails
     logger.warning(f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices.")
 
 # Alpaca client (only if not in dry run mode and credentials provided)
@@ -247,7 +248,8 @@ def _fetch_realtime_price_from_redis(
             logger.debug(f"Real-time price for {symbol}: ${price} from Redis")
             return price, timestamp
 
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
+        # Catch JSON parsing errors, missing keys, type errors, and decimal conversion errors
         logger.warning(f"Failed to parse real-time price for {symbol} from Redis: {e}")
     except RedisError as e:
         # Catch all Redis errors (connection, timeout, etc.) for graceful degradation
