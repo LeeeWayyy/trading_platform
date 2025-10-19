@@ -221,42 +221,6 @@ async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError
 # Helper Functions
 # ============================================================================
 
-def _fetch_realtime_price_from_redis(
-    symbol: str, redis_client: Optional[RedisClient]
-) -> tuple[Optional[Decimal], Optional[datetime]]:
-    """
-    Fetch real-time price from Redis cache.
-
-    Args:
-        symbol: Stock symbol
-        redis_client: Redis client instance
-
-    Returns:
-        Tuple of (price, timestamp) or (None, None) if unavailable
-    """
-    if not redis_client:
-        return None, None
-
-    try:
-        price_key = RedisKeys.price(symbol)
-        price_json = redis_client.get(price_key)
-
-        if price_json:
-            price_data = json.loads(price_json)
-            price = Decimal(str(price_data["mid"]))
-            timestamp = datetime.fromisoformat(price_data["timestamp"])
-            logger.debug(f"Real-time price for {symbol}: ${price} from Redis")
-            return price, timestamp
-
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError, InvalidOperation) as e:
-        # Catch JSON parsing errors, missing keys, type errors, and decimal conversion errors
-        logger.warning(f"Failed to parse real-time price for {symbol} from Redis: {e}")
-    except RedisError as e:
-        # Catch all Redis errors (connection, timeout, etc.) for graceful degradation
-        logger.warning(f"Failed to fetch real-time price for {symbol} from Redis: {e}")
-
-    return None, None
-
 
 def _batch_fetch_realtime_prices_from_redis(
     symbols: list[str], redis_client: Optional[RedisClient]
@@ -319,40 +283,6 @@ def _batch_fetch_realtime_prices_from_redis(
         return {symbol: (None, None) for symbol in symbols}
 
 
-def _determine_current_price(
-    pos: Position, redis_client: Optional[RedisClient]
-) -> tuple[Decimal, str, Optional[datetime], bool]:
-    """
-    Determine current price with three-tier fallback.
-
-    Price source priority:
-    1. real-time: Latest price from Redis (Market Data Service via WebSocket)
-    2. database: Last known price from database (closing price or last fill)
-    3. fallback: Entry price (if no other price available)
-
-    Args:
-        pos: Position from database
-        redis_client: Redis client instance
-
-    Returns:
-        Tuple of (price, source, last_update, is_realtime)
-        where is_realtime indicates if real-time data was used
-    """
-    # Try real-time price from Redis
-    current_price, last_price_update = _fetch_realtime_price_from_redis(pos.symbol, redis_client)
-    if current_price is not None:
-        return current_price, "real-time", last_price_update, True
-
-    # Fallback to database price
-    if pos.current_price is not None:
-        logger.debug(f"Using database price for {pos.symbol}: ${pos.current_price}")
-        return pos.current_price, "database", None, False
-
-    # Ultimate fallback to entry price
-    logger.warning(
-        f"No current price available for {pos.symbol}, using entry price: ${pos.avg_entry_price}"
-    )
-    return pos.avg_entry_price, "fallback", None, False
 
 
 def _calculate_position_pnl(
@@ -414,8 +344,8 @@ def _resolve_and_calculate_pnl(
 
     Notes:
         - Extracted from get_realtime_pnl for improved modularity
-        - Reduces duplication with _determine_current_price logic
         - Makes main endpoint loop more concise and readable
+        - Replaces deprecated single-symbol _fetch_realtime_price_from_redis
 
     See Also:
         - Gemini review: apps/execution_gateway/main.py MEDIUM priority refactoring
