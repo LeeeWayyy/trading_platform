@@ -32,6 +32,8 @@ See Also:
     - docs/ADRs/0011-risk-management-system.md - Architecture decisions
 """
 
+from libs.risk_management.breaker import CircuitBreaker, CircuitBreakerState, TripReason
+from libs.risk_management.checker import RiskChecker
 from libs.risk_management.config import (
     LossLimits,
     PortfolioLimits,
@@ -50,6 +52,12 @@ __all__ = [
     "PositionLimits",
     "PortfolioLimits",
     "LossLimits",
+    # Circuit Breaker
+    "CircuitBreaker",
+    "CircuitBreakerState",
+    "TripReason",
+    # Risk Checker
+    "RiskChecker",
     # Exceptions
     "RiskViolation",
     "CircuitBreakerTripped",
