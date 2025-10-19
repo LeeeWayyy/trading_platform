@@ -433,7 +433,9 @@ class TestRealtimePnLEndpoint:
         short_pos = data["positions"][0]
         # P&L = (140 - 150) * (-10) = (-10) * (-10) = 100
         assert Decimal(short_pos["unrealized_pl"]) == Decimal("100.00")
-        # P&L % = (140 - 150) / 150 * 100 = -6.67%
-        assert abs(Decimal(short_pos["unrealized_pl_pct"]) - Decimal("-6.67")) < Decimal(
+        # P&L % = (unrealized_pl / (entry_price * abs(qty))) * 100
+        # = (100 / (150 * 10)) * 100 = (100 / 1500) * 100 = 6.67%
+        # Profitable short shows positive percentage (based on actual profit)
+        assert abs(Decimal(short_pos["unrealized_pl_pct"]) - Decimal("6.67")) < Decimal(
             "0.01"
         )

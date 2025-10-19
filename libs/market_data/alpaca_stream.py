@@ -13,10 +13,11 @@ from typing import Optional, Set
 
 from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
+from pydantic import ValidationError
 
 from libs.market_data.exceptions import ConnectionError, QuoteHandlingError
 from libs.market_data.types import PriceData, PriceUpdateEvent, QuoteData
-from libs.redis_client import EventPublisher, RedisClient
+from libs.redis_client import EventPublisher, RedisClient, RedisConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class AlpacaMarketDataStream:
 
         # Connection state
         self._running = False
+        self._connected = False  # Track actual connection state
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
 
@@ -164,24 +166,26 @@ class AlpacaMarketDataStream:
 
             # Store in Redis with TTL
             cache_key = f"price:{quote_data.symbol}"
-            await self.redis.setex(
+            self.redis.set(
                 cache_key,
-                self.price_ttl,
                 price_data.model_dump_json(),
+                ttl=self.price_ttl,
             )
 
             # Publish price update event
             event = PriceUpdateEvent.from_quote(quote_data)
             channel = f"price.updated.{quote_data.symbol}"
 
-            await self.publisher.publish(channel, event.model_dump())
+            self.publisher.publish(channel, event)
 
             logger.debug(
                 f"Price update: {quote_data.symbol} = ${quote_data.mid_price:.2f} "
                 f"(spread: {quote_data.spread_bps:.1f} bps)"
             )
 
-        except Exception as e:
+        except (ValidationError, ValueError, AttributeError, RedisConnectionError) as e:
+            # Catch specific errors: Pydantic validation, invalid decimal conversion,
+            # missing quote attributes, or Redis connection issues
             logger.error(f"Error handling quote for {quote.symbol}: {e}", exc_info=True)
             raise QuoteHandlingError(f"Failed to process quote for {quote.symbol}: {e}")
 
@@ -204,14 +208,19 @@ class AlpacaMarketDataStream:
                     f"(attempt {self._reconnect_attempts + 1}/{self._max_reconnect_attempts})..."
                 )
 
+                # Mark as connected before running
+                self._connected = True
+
                 # Run WebSocket (blocks until disconnect)
                 await self.stream.run()
 
-                # If we reach here, connection was closed gracefully
+                # If we reach here, connection was closed
+                self._connected = False
                 if self._running:
                     logger.warning("WebSocket connection closed unexpectedly")
 
             except Exception as e:
+                self._connected = False
                 self._reconnect_attempts += 1
 
                 if self._reconnect_attempts >= self._max_reconnect_attempts:
@@ -232,12 +241,14 @@ class AlpacaMarketDataStream:
                 await asyncio.sleep(delay)
 
         if not self._running:
+            self._connected = False
             logger.info("WebSocket stopped gracefully")
 
     async def stop(self) -> None:
         """Stop WebSocket connection gracefully."""
         logger.info("Stopping WebSocket connection...")
         self._running = False
+        self._connected = False
 
         try:
             await self.stream.stop()
@@ -252,7 +263,7 @@ class AlpacaMarketDataStream:
         Returns:
             True if connected, False otherwise
         """
-        return self._running and hasattr(self.stream, "_running") and self.stream._running
+        return self._running and self._connected
 
     def get_subscribed_symbols(self) -> list[str]:
         """

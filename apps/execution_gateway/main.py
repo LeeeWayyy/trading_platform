@@ -213,6 +213,117 @@ async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+def _fetch_realtime_price_from_redis(
+    symbol: str, redis_client: Optional[RedisClient]
+) -> tuple[Optional[Decimal], Optional[datetime]]:
+    """
+    Fetch real-time price from Redis cache.
+
+    Args:
+        symbol: Stock symbol
+        redis_client: Redis client instance
+
+    Returns:
+        Tuple of (price, timestamp) or (None, None) if unavailable
+    """
+    if not redis_client:
+        return None, None
+
+    try:
+        price_key = f"price:{symbol}"
+        price_json = redis_client.get(price_key)
+
+        if price_json:
+            price_data = json.loads(price_json)
+            price = Decimal(str(price_data["mid"]))
+            timestamp = datetime.fromisoformat(price_data["timestamp"])
+            logger.debug(f"Real-time price for {symbol}: ${price} from Redis")
+            return price, timestamp
+
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+        logger.warning(f"Failed to parse real-time price for {symbol} from Redis: {e}")
+
+    return None, None
+
+
+def _determine_current_price(
+    pos: Position, redis_client: Optional[RedisClient]
+) -> tuple[Decimal, str, Optional[datetime], bool]:
+    """
+    Determine current price with three-tier fallback.
+
+    Price source priority:
+    1. real-time: Latest price from Redis (Market Data Service via WebSocket)
+    2. database: Last known price from database (closing price or last fill)
+    3. fallback: Entry price (if no other price available)
+
+    Args:
+        pos: Position from database
+        redis_client: Redis client instance
+
+    Returns:
+        Tuple of (price, source, last_update, is_realtime)
+        where is_realtime indicates if real-time data was used
+    """
+    # Try real-time price from Redis
+    current_price, last_price_update = _fetch_realtime_price_from_redis(pos.symbol, redis_client)
+    if current_price is not None:
+        return current_price, "real-time", last_price_update, True
+
+    # Fallback to database price
+    if pos.current_price:
+        logger.debug(f"Using database price for {pos.symbol}: ${pos.current_price}")
+        return pos.current_price, "database", None, False
+
+    # Ultimate fallback to entry price
+    logger.warning(
+        f"No current price available for {pos.symbol}, using entry price: ${pos.avg_entry_price}"
+    )
+    return pos.avg_entry_price, "fallback", None, False
+
+
+def _calculate_position_pnl(
+    pos: Position, current_price: Decimal, price_source: str, last_price_update: Optional[datetime]
+) -> RealtimePositionPnL:
+    """
+    Calculate unrealized P&L for a single position.
+
+    Args:
+        pos: Position from database
+        current_price: Current market price
+        price_source: Source of current price (real-time/database/fallback)
+        last_price_update: Timestamp of last price update (if available)
+
+    Returns:
+        RealtimePositionPnL with calculated P&L values
+    """
+    # Calculate unrealized P&L
+    unrealized_pl = (current_price - pos.avg_entry_price) * pos.qty
+
+    # Calculate P&L percentage based on actual profit/loss
+    # This works correctly for both long and short positions
+    unrealized_pl_pct = (
+        (unrealized_pl / (pos.avg_entry_price * abs(pos.qty))) * Decimal("100")
+        if pos.avg_entry_price > 0 and pos.qty != 0
+        else Decimal("0")
+    )
+
+    return RealtimePositionPnL(
+        symbol=pos.symbol,
+        qty=pos.qty,
+        avg_entry_price=pos.avg_entry_price,
+        current_price=current_price,
+        price_source=price_source,
+        unrealized_pl=unrealized_pl,
+        unrealized_pl_pct=unrealized_pl_pct,
+        last_price_update=last_price_update,
+    )
+
+
+# ============================================================================
 # Endpoints
 # ============================================================================
 
@@ -629,67 +740,20 @@ async def get_realtime_pnl():
     total_investment = Decimal("0")
 
     for pos in db_positions:
-        current_price = None
-        price_source = "fallback"
-        last_price_update = None
-
-        # Try to get real-time price from Redis (Market Data Service)
-        if redis_client:
-            try:
-                price_key = f"price:{pos.symbol}"
-                price_json = redis_client.get(price_key)
-
-                if price_json:
-                    price_data = json.loads(price_json)
-                    current_price = Decimal(str(price_data["mid"]))
-                    price_source = "real-time"
-                    last_price_update = datetime.fromisoformat(price_data["timestamp"])
-                    realtime_count += 1
-
-                    logger.debug(
-                        f"Real-time price for {pos.symbol}: ${current_price} from Redis"
-                    )
-
-            except Exception as e:
-                logger.warning(f"Failed to fetch real-time price for {pos.symbol} from Redis: {e}")
-
-        # Fallback to database price
-        if current_price is None and pos.current_price:
-            current_price = pos.current_price
-            price_source = "database"
-            logger.debug(f"Using database price for {pos.symbol}: ${current_price}")
-
-        # Ultimate fallback to entry price
-        if current_price is None:
-            current_price = pos.avg_entry_price
-            price_source = "fallback"
-            logger.warning(
-                f"No current price available for {pos.symbol}, using entry price: ${current_price}"
-            )
-
-        # Calculate unrealized P&L
-        unrealized_pl = (current_price - pos.avg_entry_price) * pos.qty
-        unrealized_pl_pct = (
-            ((current_price - pos.avg_entry_price) / pos.avg_entry_price) * Decimal("100")
-            if pos.avg_entry_price > 0
-            else Decimal("0")
+        # Determine current price with three-tier fallback
+        current_price, price_source, last_price_update, is_realtime = _determine_current_price(
+            pos, redis_client
         )
+
+        if is_realtime:
+            realtime_count += 1
+
+        # Calculate P&L for this position
+        position_pnl = _calculate_position_pnl(pos, current_price, price_source, last_price_update)
+        realtime_positions.append(position_pnl)
 
         # Track total investment for portfolio-level percentage
         total_investment += pos.avg_entry_price * abs(pos.qty)
-
-        realtime_positions.append(
-            RealtimePositionPnL(
-                symbol=pos.symbol,
-                qty=pos.qty,
-                avg_entry_price=pos.avg_entry_price,
-                current_price=current_price,
-                price_source=price_source,
-                unrealized_pl=unrealized_pl,
-                unrealized_pl_pct=unrealized_pl_pct,
-                last_price_update=last_price_update,
-            )
-        )
 
     # Calculate totals
     total_unrealized_pl = sum(p.unrealized_pl for p in realtime_positions)
