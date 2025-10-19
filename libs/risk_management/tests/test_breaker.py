@@ -6,6 +6,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+import redis.exceptions
+
 from libs.risk_management.breaker import (
     CircuitBreaker,
     CircuitBreakerState,

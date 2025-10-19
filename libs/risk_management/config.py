@@ -119,8 +119,9 @@ class LossLimits(BaseModel):
 
     Attributes:
         daily_loss_limit: Maximum daily loss before trading stops ($).
-            Stored as positive value representing loss threshold.
-            Example: 5000.00 means stop at $5k daily loss.
+            Stored as a positive value. A trip occurs when the day's P&L
+            (a negative number) falls below the negative of this limit.
+            Example: 5000.00 means trip when today_pnl < -5000.00.
         max_drawdown_pct: Maximum drawdown from peak equity.
             Example: 0.10 = 10% max drawdown from all-time high.
 

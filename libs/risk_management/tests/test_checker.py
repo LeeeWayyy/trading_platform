@@ -4,6 +4,8 @@ import pytest
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import redis.exceptions
+
 from libs.risk_management.checker import RiskChecker
 from libs.risk_management.config import (
     RiskConfig,
