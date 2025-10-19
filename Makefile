@@ -51,8 +51,8 @@ clean: ## Clean up generated files
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 
-status: ## Show current positions, orders, P&L (placeholder for T5+)
-	@echo "Status command not yet implemented (T5+)"
+status: ## Show current positions, orders, P&L and service health
+	@./scripts/operational_status.sh
 
 circuit-trip: ## Manually trip circuit breaker (placeholder for P1)
 	@echo "Circuit breaker command not yet implemented (P1)"
