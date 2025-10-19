@@ -92,6 +92,49 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 
 ---
 
+## 🔧 Python Environment Setup
+
+### ⚠️ CRITICAL: Always Use Virtual Environment
+
+**NEVER use system Python directly!** Always activate the virtual environment first:
+
+```bash
+# Activate virtual environment (REQUIRED before ANY Python command)
+source .venv/bin/activate
+
+# Verify you're in venv (should show .venv path)
+which python3
+# Output: /Users/.../trading_platform/.venv/bin/python3
+```
+
+### Running Python Commands
+
+**DO:**
+```bash
+source .venv/bin/activate     # Activate first
+python3 -m pytest             # Then run commands
+pip install -r requirements.txt
+PYTHONPATH=. python3 scripts/paper_run.py
+```
+
+**DON'T:**
+```bash
+# ❌ WRONG - Uses system Python
+python3 -m pytest
+
+# ❌ WRONG - Missing virtual environment
+pip install package
+```
+
+### Why Virtual Environment?
+
+1. **Isolated Dependencies**: Project packages don't interfere with system Python
+2. **Reproducible Environment**: Everyone uses same package versions
+3. **Clean Testing**: Tests run with correct dependencies
+4. **Prevents Version Conflicts**: System Python may have incompatible packages
+
+---
+
 ## 🌍 Environments
 
 ### Development (Default)

@@ -59,3 +59,6 @@ circuit-trip: ## Manually trip circuit breaker (placeholder for P1)
 
 kill-switch: ## Emergency kill switch (placeholder for P1)
 	@echo "Kill switch not yet implemented (P1)"
+
+market-data: ## Run Market Data Service (port 8004)
+	PYTHONPATH=. poetry run uvicorn apps.market_data_service.main:app --host 0.0.0.0 --port 8004 --reload
