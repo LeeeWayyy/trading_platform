@@ -440,7 +440,7 @@ This ensures multiple automated code reviewers catch issues before human review,
 
 - **Gemini Code Assist**: Configured via `.gemini/config.yaml` and `GEMINI.md`
 - **CI/CD Pipeline**: `.github/workflows/ci-tests-coverage.yml` runs tests and coverage automatically
-- **Codex CLI** (Optional): See `docs/IMPLEMENTATION_GUIDES/codex-cli-integration.md` for local review setup
+- **Codex CLI** (MANDATORY): See `docs/IMPLEMENTATION_GUIDES/codex-mcp-integration.md` for local review setup
 
 ### CRITICAL: Review Feedback and Merge Policy
 
@@ -806,7 +806,7 @@ code_review:
     low: false  # Disable low-priority nitpicks
 ```
 
-### 4. Codex via MCP (Optional)
+### 4. Codex via MCP (MANDATORY Pre-Commit Review)
 
 **Purpose:** Integrate OpenAI Codex directly into Claude Code for code review and test generation
 
@@ -878,7 +878,7 @@ gh auth login
 3. **After you fix review issues:**
    - Push fixes to same branch
    - CI/CD pipeline re-runs automatically
-   - **Manually request re-review:** `gh pr comment <PR> --body "@codex @gemini-code-assist please re-review"`
+   - **Manually request re-review:** `gh pr comment <PR> --body "Fixed the issues you identified. @codex @gemini-code-assist please review the latest changes on this branch."`
    - Wait for approval from all reviewers
    - Merge when all checks pass ✅
 

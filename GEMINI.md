@@ -149,9 +149,9 @@ def compute_momentum(df: pl.DataFrame, lookback: int = 20) -> pl.DataFrame:
 ### Idempotent Order IDs
 ```python
 def deterministic_order_id(symbol: str, side: str, qty: int,
-                          price: Decimal, date: str) -> str:
+                          price: Decimal, date: datetime.date) -> str:
     """Generate deterministic client_order_id for idempotency."""
-    data = f"{symbol}|{side}|{qty}|{price}|{date}"
+    data = f"{symbol}|{side}|{qty}|{price}|{date.isoformat()}"
     return hashlib.sha256(data.encode()).hexdigest()[:24]
 ```
 
