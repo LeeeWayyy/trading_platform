@@ -158,7 +158,7 @@ get_recent_runs() {
     fi
 
     # Display each run (API already limits to 5)
-    echo "$body" | jq -r '.runs[] | "  \(.created_at | split("T")[0]) \(.created_at | split("T")[1] | split(".")[0]): \(.status // "UNKNOWN")"' >/dev/null 2>&1 || \
+    echo "$body" | jq -r '.runs[] | "  \(.created_at | split(\"T\")[0]) \(.created_at | split(\"T\")[1] | split(\".\")[0]): \(.status // \"UNKNOWN\")"' || \
         (echo "  ${YELLOW}${WARN} Error parsing runs${NC}" && return 1)
 }
 
