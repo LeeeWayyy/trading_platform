@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from redis.exceptions import RedisError
 
-from apps.execution_gateway.main import app
+from apps.execution_gateway.main import app, _resolve_and_calculate_pnl
 from apps.execution_gateway.schemas import Position
 
 
@@ -517,3 +517,188 @@ class TestRealtimePnLEndpoint:
 
         # P&L % = (-1000 / (10 * 100)) * 100 = -100%
         assert Decimal(zero_pos["unrealized_pl_pct"]) == Decimal("-100.00")
+
+
+class TestResolveAndCalculatePnL:
+    """Unit tests for _resolve_and_calculate_pnl helper function.
+    
+    This tests the refactored helper function that resolves price sources
+    and calculates P&L, addressing Gemini's MEDIUM priority review feedback
+    about improving modularity and readability.
+    """
+
+    def test_resolve_with_realtime_price(self):
+        """Test price resolution when real-time price is available."""
+        position = Position(
+            symbol="AAPL",
+            qty=Decimal("10"),
+            avg_entry_price=Decimal("150.00"),
+            current_price=Decimal("148.00"),  # Database price (should be ignored)
+            unrealized_pl=Decimal("0"),
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        
+        # Real-time price data from Redis
+        realtime_price_data = (Decimal("152.50"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=timezone.utc))
+        
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        
+        # Should use real-time price (not database price)
+        assert position_pnl.price_source == "real-time"
+        assert position_pnl.current_price == Decimal("152.50")
+        assert is_realtime is True
+        
+        # Should have correct P&L: (152.50 - 150.00) * 10 = 25.00
+        assert position_pnl.unrealized_pl == Decimal("25.00")
+        assert position_pnl.last_price_update == datetime(2024, 10, 19, 14, 30, 0, tzinfo=timezone.utc)
+
+    def test_resolve_with_database_fallback(self):
+        """Test price resolution when real-time unavailable, falls back to database."""
+        position = Position(
+            symbol="MSFT",
+            qty=Decimal("5"),
+            avg_entry_price=Decimal("300.00"),
+            current_price=Decimal("295.00"),  # Database price (should be used)
+            unrealized_pl=Decimal("0"),
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        
+        # No real-time price available
+        realtime_price_data = (None, None)
+        
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        
+        # Should use database price
+        assert position_pnl.price_source == "database"
+        assert position_pnl.current_price == Decimal("295.00")
+        assert is_realtime is False
+        
+        # Should have correct P&L: (295.00 - 300.00) * 5 = -25.00
+        assert position_pnl.unrealized_pl == Decimal("-25.00")
+        assert position_pnl.last_price_update is None  # Database source has no timestamp
+
+    def test_resolve_with_entry_price_fallback(self):
+        """Test price resolution when both real-time and database unavailable."""
+        position = Position(
+            symbol="GOOGL",
+            qty=Decimal("3"),
+            avg_entry_price=Decimal("140.00"),
+            current_price=None,  # No database price
+            unrealized_pl=Decimal("0"),
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        
+        # No real-time price available
+        realtime_price_data = (None, None)
+        
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        
+        # Should use entry price as fallback
+        assert position_pnl.price_source == "fallback"
+        assert position_pnl.current_price == Decimal("140.00")
+        assert is_realtime is False
+        
+        # Should have zero P&L (using entry price)
+        assert position_pnl.unrealized_pl == Decimal("0.00")
+        assert position_pnl.last_price_update is None
+
+    def test_resolve_with_short_position(self):
+        """Test price resolution and P&L calculation for short positions."""
+        position = Position(
+            symbol="SHORT",
+            qty=Decimal("-10"),  # Short position (negative qty)
+            avg_entry_price=Decimal("150.00"),
+            current_price=None,
+            unrealized_pl=Decimal("0"),
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        
+        # Price went down (profitable for short)
+        realtime_price_data = (Decimal("140.00"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=timezone.utc))
+        
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        
+        # Should use real-time price
+        assert position_pnl.price_source == "real-time"
+        assert position_pnl.current_price == Decimal("140.00")
+        assert is_realtime is True
+        
+        # Should have positive P&L for profitable short: (140 - 150) * (-10) = 100
+        assert position_pnl.unrealized_pl == Decimal("100.00")
+        
+        # P&L percentage should be positive: (100 / (150 * 10)) * 100 = 6.67%
+        assert abs(position_pnl.unrealized_pl_pct - Decimal("6.67")) < Decimal("0.01")
+
+    def test_resolve_with_zero_database_price(self):
+        """Test that Decimal('0') database price is treated as valid (not None)."""
+        position = Position(
+            symbol="ZERO",
+            qty=Decimal("100"),
+            avg_entry_price=Decimal("10.00"),
+            current_price=Decimal("0"),  # Zero is a valid price (edge case)
+            unrealized_pl=Decimal("0"),
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        
+        # No real-time price
+        realtime_price_data = (None, None)
+        
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        
+        # Should use database price (Decimal('0') is valid, not fallback)
+        assert position_pnl.price_source == "database"
+        assert position_pnl.current_price == Decimal("0.00")
+        assert is_realtime is False
+        
+        # Should have correct loss: (0 - 10) * 100 = -1000
+        assert position_pnl.unrealized_pl == Decimal("-1000.00")
+
+    def test_resolve_percentage_calculations(self):
+        """Test that P&L percentage is calculated correctly."""
+        position = Position(
+            symbol="TEST",
+            qty=Decimal("100"),
+            avg_entry_price=Decimal("100.00"),
+            current_price=None,
+            unrealized_pl=Decimal("0"),
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        
+        # 10% gain
+        realtime_price_data = (Decimal("110.00"), datetime.now(timezone.utc))
+        
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        
+        # P&L: (110 - 100) * 100 = 1000
+        assert position_pnl.unrealized_pl == Decimal("1000.00")
+        
+        # P&L %: (1000 / (100 * 100)) * 100 = 10%
+        assert position_pnl.unrealized_pl_pct == Decimal("10.00")
+
+    def test_resolve_with_none_tuple(self):
+        """Test handling of (None, None) tuple for missing symbols."""
+        position = Position(
+            symbol="MISSING",
+            qty=Decimal("10"),
+            avg_entry_price=Decimal("50.00"),
+            current_price=Decimal("55.00"),
+            unrealized_pl=Decimal("0"),
+            realized_pl=Decimal("0"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        
+        # Explicitly (None, None) from .get() fallback
+        realtime_price_data = (None, None)
+        
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
+        
+        # Should fall back to database price
+        assert position_pnl.price_source == "database"
+        assert position_pnl.current_price == Decimal("55.00")
+        assert is_realtime is False

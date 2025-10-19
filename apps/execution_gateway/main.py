@@ -393,6 +393,53 @@ def _calculate_position_pnl(
     )
 
 
+def _resolve_and_calculate_pnl(
+    pos: Position,
+    realtime_price_data: tuple[Optional[Decimal], Optional[datetime]],
+) -> tuple[RealtimePositionPnL, bool]:
+    """
+    Resolve price from multiple sources and calculate P&L for a position.
+
+    Implements three-tier price fallback:
+    1. Real-time price from Redis (Market Data Service)
+    2. Database price (last known price)
+    3. Entry price (ultimate fallback)
+
+    Args:
+        pos: Position from database
+        realtime_price_data: Tuple of (price, timestamp) from batch Redis fetch
+
+    Returns:
+        Tuple of (position P&L, is_realtime flag)
+
+    Notes:
+        - Extracted from get_realtime_pnl for improved modularity
+        - Reduces duplication with _determine_current_price logic
+        - Makes main endpoint loop more concise and readable
+
+    See Also:
+        - Gemini review: apps/execution_gateway/main.py MEDIUM priority refactoring
+    """
+    realtime_price, last_price_update = realtime_price_data
+
+    # Three-tier price fallback
+    if realtime_price is not None:
+        current_price, price_source, is_realtime = realtime_price, "real-time", True
+    elif pos.current_price is not None:
+        current_price, price_source, is_realtime = pos.current_price, "database", False
+        last_price_update = None
+    else:
+        current_price, price_source, is_realtime = pos.avg_entry_price, "fallback", False
+        last_price_update = None
+
+    # Calculate P&L with resolved price
+    position_pnl = _calculate_position_pnl(
+        pos, current_price, price_source, last_price_update
+    )
+
+    return position_pnl, is_realtime
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -814,30 +861,15 @@ async def get_realtime_pnl():
     total_investment = Decimal("0")
 
     for pos in db_positions:
-        # Get real-time price from batch fetch results
-        realtime_price, last_price_update = realtime_prices[pos.symbol]
+        # Using .get() for safer access (though all symbols should be in dict from batch fetch)
+        realtime_price_data = realtime_prices.get(pos.symbol, (None, None))
 
-        # Determine current price with three-tier fallback
-        if realtime_price is not None:
-            current_price = realtime_price
-            price_source = "real-time"
-            is_realtime = True
-        elif pos.current_price is not None:
-            current_price = pos.current_price
-            price_source = "database"
-            is_realtime = False
-            last_price_update = None
-        else:
-            current_price = pos.avg_entry_price
-            price_source = "fallback"
-            is_realtime = False
-            last_price_update = None
+        # Resolve price and calculate P&L (extracted for modularity)
+        position_pnl, is_realtime = _resolve_and_calculate_pnl(pos, realtime_price_data)
 
         if is_realtime:
             realtime_count += 1
 
-        # Calculate P&L for this position
-        position_pnl = _calculate_position_pnl(pos, current_price, price_source, last_price_update)
         realtime_positions.append(position_pnl)
 
         # Track total investment for portfolio-level percentage
