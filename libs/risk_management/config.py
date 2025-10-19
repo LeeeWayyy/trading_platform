@@ -129,10 +129,13 @@ class LossLimits(BaseModel):
         ...     daily_loss_limit=Decimal("5000.00"),
         ...     max_drawdown_pct=Decimal("0.10")
         ... )
-        >>> # Check daily loss
-        >>> if abs(today_pnl) > limits.daily_loss_limit:
+        >>> # Check daily loss (PnL is negative for losses)
+        >>> today_pnl = Decimal("-5200.00")  # Example: $5200 loss
+        >>> if today_pnl < -limits.daily_loss_limit:
         ...     circuit_breaker.trip("DAILY_LOSS_EXCEEDED")
         >>> # Check drawdown
+        >>> peak_equity = Decimal("100000.00")
+        >>> current_equity = Decimal("89000.00")
         >>> drawdown_pct = (peak_equity - current_equity) / peak_equity
         >>> if drawdown_pct > limits.max_drawdown_pct:
         ...     circuit_breaker.trip("MAX_DRAWDOWN")

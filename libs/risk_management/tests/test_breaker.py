@@ -19,6 +19,7 @@ def mock_redis():
     """Mock Redis client for testing."""
     redis = MagicMock()
     redis._state = {}  # Internal state storage for testing
+    redis._sorted_sets = {}  # Storage for sorted sets (zsets)
 
     def mock_get(key):
         return redis._state.get(key)
@@ -26,8 +27,51 @@ def mock_redis():
     def mock_set(key, value, ttl=None):
         redis._state[key] = value
 
+    def mock_zadd(key, mapping):
+        """Mock zadd operation for sorted sets."""
+        if key not in redis._sorted_sets:
+            redis._sorted_sets[key] = []
+        # mapping is {member: score}
+        for member, score in mapping.items():
+            redis._sorted_sets[key].append((score, member))
+
+    def mock_zcard(key):
+        """Mock zcard operation (count members in sorted set)."""
+        return len(redis._sorted_sets.get(key, []))
+
+    def mock_zrange(key, start, end, withscores=False):
+        """Mock zrange operation (get members by rank)."""
+        zset = redis._sorted_sets.get(key, [])
+        sorted_zset = sorted(zset, key=lambda x: x[0])  # Sort by score
+        result = sorted_zset[start:end+1 if end >= 0 else None]
+        if withscores:
+            return result
+        return [member for score, member in result]
+
+    def mock_zremrangebyrank(key, start, stop):
+        """Mock zremrangebyrank operation (remove members by rank)."""
+        if key not in redis._sorted_sets:
+            return 0
+        zset = redis._sorted_sets[key]
+        sorted_zset = sorted(zset, key=lambda x: x[0])  # Sort by score
+        # Remove elements in range [start, stop]
+        if stop < 0:
+            # Negative indices count from end
+            stop = len(sorted_zset) + stop
+        to_remove = sorted_zset[start:stop+1]
+        for item in to_remove:
+            zset.remove(item)
+        return len(to_remove)
+
     redis.get = MagicMock(side_effect=mock_get)
     redis.set = MagicMock(side_effect=mock_set)
+
+    # Create mock _client attribute with zadd/zremrangebyrank support
+    redis._client = MagicMock()
+    redis._client.zadd = MagicMock(side_effect=mock_zadd)
+    redis._client.zcard = MagicMock(side_effect=mock_zcard)
+    redis._client.zrange = MagicMock(side_effect=mock_zrange)
+    redis._client.zremrangebyrank = MagicMock(side_effect=mock_zremrangebyrank)
 
     return redis
 
@@ -352,20 +396,18 @@ class TestCircuitBreakerHistory:
     """Test circuit breaker trip history logging."""
 
     def test_history_entry_created_on_trip(self, breaker, mock_redis):
-        """Test trip creates history entry in Redis."""
+        """Test trip creates history entry in Redis Sorted Set."""
         breaker.trip("TEST_REASON", details={"test": "data"})
 
-        # Check for history entry (key pattern: circuit_breaker:trip_history:*)
-        history_keys = [
-            k
-            for k in mock_redis._state.keys()
-            if k.startswith("circuit_breaker:trip_history:")
-        ]
-        assert len(history_keys) == 1
+        # Check history entry count using zcard
+        history_count = mock_redis._client.zcard("circuit_breaker:trip_history")
+        assert history_count == 1
 
-        # Verify history entry contents
-        history_json = mock_redis._state[history_keys[0]]
-        history_entry = json.loads(history_json)
+        # Verify history entry contents using zrange
+        history_entries = mock_redis._client.zrange("circuit_breaker:trip_history", 0, -1)
+        assert len(history_entries) == 1
+
+        history_entry = json.loads(history_entries[0])
         assert history_entry["reason"] == "TEST_REASON"
         assert history_entry["details"] == {"test": "data"}
         assert history_entry["tripped_at"] is not None
@@ -377,9 +419,40 @@ class TestCircuitBreakerHistory:
         time.sleep(0.01)  # Ensure different timestamps
         breaker.trip("REASON_2")
 
-        history_keys = [
-            k
-            for k in mock_redis._state.keys()
-            if k.startswith("circuit_breaker:trip_history:")
-        ]
-        assert len(history_keys) == 2
+        # Check history entry count using zcard
+        history_count = mock_redis._client.zcard("circuit_breaker:trip_history")
+        assert history_count == 2
+
+        # Verify both entries exist
+        history_entries = mock_redis._client.zrange("circuit_breaker:trip_history", 0, -1)
+        assert len(history_entries) == 2
+
+        # Verify entries are in chronological order (sorted by score/timestamp)
+        entry_1 = json.loads(history_entries[0])
+        entry_2 = json.loads(history_entries[1])
+        assert entry_1["reason"] == "REASON_1"
+        assert entry_2["reason"] == "REASON_2"
+
+    def test_history_automatically_trimmed_to_max_entries(self, mock_redis):
+        """Test history is automatically trimmed to prevent unbounded growth."""
+        # Create breaker with small max_history_entries for testing
+        breaker = CircuitBreaker(redis_client=mock_redis)
+        breaker.max_history_entries = 5  # Override to 5 for testing
+
+        # Trip and reset 10 times (exceed max_history_entries)
+        for i in range(10):
+            breaker.trip(f"REASON_{i}")
+            breaker.reset()
+            time.sleep(0.001)  # Ensure different timestamps
+
+        # Verify only last 5 entries kept
+        history_count = mock_redis._client.zcard("circuit_breaker:trip_history")
+        assert history_count == 5
+
+        # Verify oldest entries removed (REASON_0 to REASON_4 removed, REASON_5 to REASON_9 kept)
+        history_entries = mock_redis._client.zrange("circuit_breaker:trip_history", 0, -1)
+        reasons = [json.loads(entry)["reason"] for entry in history_entries]
+        assert "REASON_5" in reasons
+        assert "REASON_9" in reasons
+        assert "REASON_0" not in reasons
+        assert "REASON_4" not in reasons

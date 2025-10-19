@@ -18,6 +18,7 @@ def mock_redis():
     """Mock Redis client."""
     redis = MagicMock()
     redis._state = {}
+    redis._sorted_sets = {}  # Storage for sorted sets (zsets)
 
     def mock_get(key):
         return redis._state.get(key)
@@ -25,8 +26,52 @@ def mock_redis():
     def mock_set(key, value, ttl=None):
         redis._state[key] = value
 
+    def mock_zadd(key, mapping):
+        """Mock zadd operation for sorted sets."""
+        if key not in redis._sorted_sets:
+            redis._sorted_sets[key] = []
+        # mapping is {member: score}
+        for member, score in mapping.items():
+            redis._sorted_sets[key].append((score, member))
+
+    def mock_zcard(key):
+        """Mock zcard operation (count members in sorted set)."""
+        return len(redis._sorted_sets.get(key, []))
+
+    def mock_zrange(key, start, end, withscores=False):
+        """Mock zrange operation (get members by rank)."""
+        zset = redis._sorted_sets.get(key, [])
+        sorted_zset = sorted(zset, key=lambda x: x[0])  # Sort by score
+        result = sorted_zset[start:end+1 if end >= 0 else None]
+        if withscores:
+            return result
+        return [member for score, member in result]
+
+    def mock_zremrangebyrank(key, start, stop):
+        """Mock zremrangebyrank operation (remove members by rank)."""
+        if key not in redis._sorted_sets:
+            return 0
+        zset = redis._sorted_sets[key]
+        sorted_zset = sorted(zset, key=lambda x: x[0])  # Sort by score
+        # Remove elements in range [start, stop]
+        if stop < 0:
+            # Negative indices count from end
+            stop = len(sorted_zset) + stop
+        to_remove = sorted_zset[start:stop+1]
+        for item in to_remove:
+            zset.remove(item)
+        return len(to_remove)
+
     redis.get = MagicMock(side_effect=mock_get)
     redis.set = MagicMock(side_effect=mock_set)
+
+    # Create mock _client attribute with zadd/zremrangebyrank support
+    redis._client = MagicMock()
+    redis._client.zadd = MagicMock(side_effect=mock_zadd)
+    redis._client.zcard = MagicMock(side_effect=mock_zcard)
+    redis._client.zrange = MagicMock(side_effect=mock_zrange)
+    redis._client.zremrangebyrank = MagicMock(side_effect=mock_zremrangebyrank)
+
     return redis
 
 

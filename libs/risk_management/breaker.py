@@ -118,6 +118,7 @@ class CircuitBreaker:
         self.redis = redis_client
         self.state_key = "circuit_breaker:state"
         self.history_key = "circuit_breaker:trip_history"
+        self.max_history_entries = 1000  # Keep last 1000 trip events
 
         # Initialize state if not exists
         if not self.redis.get(self.state_key):
@@ -372,20 +373,37 @@ class CircuitBreaker:
 
     def _append_to_history(self, entry: dict) -> None:
         """
-        Append trip event to history log.
+        Append trip event to history log using Redis Sorted Set.
 
         Args:
             entry: History entry dict with trip/reset details
 
         Notes:
-            - Uses timestamp-based keys for append-only log
-            - History can grow unbounded (consider TTL or cleanup job for production)
+            - Uses Redis Sorted Set (ZADD) with score = timestamp
+            - Automatically trims to last `max_history_entries` (default 1000)
+            - Prevents unbounded growth while maintaining recent history
+            - Score allows chronological ordering and range queries
         """
-        # Use timestamp-based key for append-only log
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-        history_entry_key = f"{self.history_key}:{timestamp}"
+        # Use current timestamp (microseconds since epoch) as score for chronological ordering
+        timestamp = datetime.now(timezone.utc).timestamp()
+
+        # Serialize entry to JSON
         history_json = json.dumps(entry)
-        self.redis.set(history_entry_key, history_json)
+
+        # Add to sorted set with timestamp as score
+        # RedisClient wraps redis-py, which supports zadd
+        redis_conn = self.redis._client  # Access underlying redis-py connection
+        redis_conn.zadd(self.history_key, {history_json: timestamp})
+
+        # Trim to keep only last max_history_entries (oldest entries removed first)
+        # Only trim if we exceed the limit
+        current_count = redis_conn.zcard(self.history_key)
+        if current_count > self.max_history_entries:
+            # Remove oldest entries (lowest scores/ranks)
+            # Keep ranks from (current_count - max_history_entries) onwards
+            # Example: 10 entries, keep last 5 → remove ranks 0-4, keep 5-9
+            num_to_remove = current_count - self.max_history_entries
+            redis_conn.zremrangebyrank(self.history_key, 0, num_to_remove - 1)
 
     def get_status(self) -> dict:
         """
