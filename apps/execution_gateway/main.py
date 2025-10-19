@@ -119,7 +119,7 @@ try:
         host=REDIS_HOST,
         port=REDIS_PORT,
         db=REDIS_DB,
-        password=REDIS_PASSWORD if REDIS_PASSWORD else None,
+        password=REDIS_PASSWORD,
     )
     logger.info("Redis client initialized successfully")
 except RedisConnectionError as e:
