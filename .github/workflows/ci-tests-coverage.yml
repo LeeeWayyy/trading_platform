@@ -1,0 +1,122 @@
+name: CI - Tests & Coverage
+
+# Run tests and check coverage on all PRs and pushes to master
+# Ensures code quality and test completeness before merge
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  test-and-coverage:
+    name: Run tests and check coverage
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: trading_platform
+          POSTGRES_PASSWORD: dev_password
+          POSTGRES_DB: trading_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Run mypy type checking
+        run: |
+          echo "::group::Running mypy type checks"
+          mypy libs/ apps/ --strict
+          echo "::endgroup::"
+
+      - name: Run ruff linter
+        run: |
+          echo "::group::Running ruff linter"
+          ruff check libs/ apps/
+          echo "::endgroup::"
+
+      - name: Run tests with coverage
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql://trading_platform:dev_password@localhost:5432/trading_platform_test
+        run: |
+          pytest --cov=libs --cov=apps --cov-report=xml --cov-report=term-missing --cov-report=html
+
+      - name: Check coverage threshold
+        run: |
+          coverage report --fail-under=80
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 90
+          MINIMUM_ORANGE: 80
+
+      - name: Archive coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 14
+
+      - name: Test summary
+        if: success()
+        run: |
+          echo "## Test Results 🧪" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Type checking (mypy): Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Linting (ruff): Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Tests: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Coverage: $(coverage report --precision=2 | tail -1 | awk '{print $NF}')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View detailed coverage report in artifacts." >> $GITHUB_STEP_SUMMARY

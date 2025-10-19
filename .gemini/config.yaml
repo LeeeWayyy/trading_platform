@@ -1,0 +1,76 @@
+# Gemini Code Assist Configuration
+# Customizes behavior of @gemini-code-assist bot for automated code reviews
+# See: https://developers.google.com/gemini-code-assist/docs/customize-gemini-behavior-github
+
+# General behavior settings
+have_fun: false  # Keep responses professional and focused
+
+# Code review settings
+code_review:
+  # Comment severity threshold (CRITICAL, HIGH, MEDIUM, LOW)
+  # Only comments at or above this severity will be posted
+  comment_severity_threshold: MEDIUM
+
+  # Enable inline code suggestions
+  inline_suggestions: true
+
+  # Auto-approve PRs (disabled for safety)
+  auto_approve: false
+
+  # Severity filters for what types of issues to report
+  severity_filters:
+    critical: true   # Security vulnerabilities, data loss risks
+    high: true       # Bugs, incorrect logic, performance issues
+    medium: true     # Code quality, maintainability, style violations
+    low: false       # Nitpicks, minor style preferences (reduce noise)
+
+# Pull request opened settings
+pull_request_opened:
+  # Generate PR summary when opened
+  summary: true
+
+  # Automatically trigger code review
+  code_review: true
+
+  # Post review summary as a comment
+  post_review_summary: true
+
+# Files and directories to ignore during review
+ignore_patterns:
+  - "*.md"           # Markdown files (documentation)
+  - "*.txt"          # Text files
+  - "*.json"         # JSON config files
+  - "*.yaml"         # YAML config files
+  - "*.yml"          # YAML config files
+  - ".github/**"     # GitHub Actions workflows
+  - "data/**"        # Data files (Parquet, DuckDB)
+  - "artifacts/**"   # Model artifacts, backtests
+  - "htmlcov/**"     # Coverage reports
+  - ".pytest_cache/**"
+  - "__pycache__/**"
+  - "*.pyc"
+  - ".venv/**"
+  - "venv/**"
+  - "node_modules/**"
+
+# Focus areas for code review
+focus_areas:
+  - security          # Security vulnerabilities, injection risks
+  - correctness       # Logic errors, bugs, edge cases
+  - performance       # Inefficient algorithms, memory leaks
+  - testing           # Missing tests, inadequate coverage
+  - documentation     # Missing docstrings, unclear comments
+  - best_practices    # Python style, design patterns
+  - error_handling    # Exception handling, error messages
+  - type_safety       # Type hints, mypy compliance
+
+# Custom project context
+# Reference CLAUDE.md for project-specific standards
+project_standards:
+  python_version: "3.11"
+  type_checking: "mypy --strict"
+  linting: "ruff"
+  testing_framework: "pytest"
+  async_preferred: true
+  logging_format: "structured JSON"
+  timezone: "UTC only"

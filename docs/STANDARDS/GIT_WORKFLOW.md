@@ -407,25 +407,40 @@ gh pr comment <PR_NUMBER> --body "Updated to address review feedback.
 
 ### IMPORTANT: Automated Code Review Requirement
 
-**After creating or updating ANY pull request, you MUST:**
+**✨ NEW: Automatic Review Requests (2025-10-19)**
 
-1. Add a comment to the PR mentioning `@codex` and `@gemini-code-assist`
-2. Ask both automated reviewers to checkout and review the latest branch
-3. **WAIT for reviewers to respond and confirm no issues before merging**
+Review requests are now **automated via GitHub Actions**! When you create or reopen a PR, the workflow automatically:
+- Posts a comment mentioning `@codex` and `@gemini-code-assist`
+- Requests comprehensive code review (quality, security, testing, documentation)
+- References this document for review policy
 
-**Example after PR creation:**
-```bash
-gh pr comment <PR_NUMBER> --body "@codex @gemini-code-assist please review this PR and check for any issues."
-```
+**See:** `.github/workflows/pr-auto-review-request.yml`
 
-**Example after PR updates:**
+**What this means for you:**
+- ✅ No need to manually request reviews on PR creation
+- ✅ Consistent review requests across all PRs
+- ✅ Never forget to request automated reviews
+- ⚠️  Still need to manually request re-review after fixing issues
+
+**Manual re-review after fixes:**
+
+After addressing review feedback and pushing new commits, you **MUST manually request re-review**:
+
 ```bash
 gh pr comment <PR_NUMBER> --body "Fixed the issues you identified.
 
 @codex @gemini-code-assist please review the latest changes on this branch."
 ```
 
+**WAIT for reviewers to respond and confirm no issues before merging.**
+
 This ensures multiple automated code reviewers catch issues before human review, providing diverse perspectives on code quality, security, and best practices.
+
+**Additional Automation:**
+
+- **Gemini Code Assist**: Configured via `.gemini/config.yaml` and `GEMINI.md`
+- **CI/CD Pipeline**: `.github/workflows/ci-tests-coverage.yml` runs tests and coverage automatically
+- **Codex CLI** (Optional): See `docs/IMPLEMENTATION_GUIDES/codex-cli-integration.md` for local review setup
 
 ### CRITICAL: Review Feedback and Merge Policy
 
@@ -707,36 +722,135 @@ git push -u origin correct-branch-name
 gh pr create
 ```
 
-## Advanced: CI Integration
+## Automated Code Review & CI/CD Integration
 
-If you have GitHub Actions:
+### Overview of Automation
 
-```yaml
-# .github/workflows/ci.yml
-name: CI
-on: [pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - run: pip install poetry
-      - run: poetry install
-      - run: poetry run pytest
-      - run: poetry run mypy .
-      - run: poetry run ruff check .
+This project uses multiple layers of automated code quality checks:
+
+1. **Automatic Review Requests** (GitHub Actions)
+2. **CI/CD Pipeline** (Tests + Coverage)
+3. **Gemini Code Assist** (AI-powered code review)
+4. **Codex CLI** (Optional local review)
+
+### 1. Automatic Review Requests
+
+**File:** `.github/workflows/pr-auto-review-request.yml`
+
+**Triggers:** When PR is opened, reopened, or marked ready for review
+
+**What it does:**
+- Automatically posts comment mentioning `@codex` and `@gemini-code-assist`
+- Requests comprehensive review (quality, security, testing, documentation)
+- References review policy from this document
+
+**No configuration needed** - works out of the box!
+
+### 2. CI/CD Pipeline (Tests & Coverage)
+
+**File:** `.github/workflows/ci-tests-coverage.yml`
+
+**Triggers:** On all PRs and pushes to master
+
+**What it does:**
+- Spins up Redis and Postgres test services
+- Runs full test suite with pytest
+- Checks test coverage (fails if < 80%)
+- Runs linting (mypy, ruff)
+- Posts coverage report as PR comment
+- Uploads coverage HTML report as artifact
+
+**Configuration:**
+- Minimum coverage threshold: 80% (configurable in workflow)
+- Coverage report posted to PRs automatically
+- Integrates with Codecov (optional)
+
+**Example workflow output:**
+```
+✅ Tests: 74 passed
+✅ Coverage: 87%
+✅ Linting: Passed
 ```
 
-This will automatically run tests on every PR Claude creates.
+### 3. Gemini Code Assist Integration
 
-## Summary: Enabling Automatic PRs
+**Configuration files:**
+- `.gemini/config.yaml` - Review settings and focus areas
+- `GEMINI.md` - Project-specific context and standards
+
+**What it does:**
+- Automatically reviews all new PRs within 5 minutes
+- Posts inline comments on code issues
+- Generates PR summaries
+- Severity filtering (CRITICAL, HIGH, MEDIUM, LOW)
+
+**Focus areas:**
+- Security vulnerabilities
+- Logic errors and bugs
+- Performance issues
+- Test coverage gaps
+- Documentation completeness
+- Best practices violations
+
+**Customization:**
+
+Edit `.gemini/config.yaml` to adjust:
+```yaml
+code_review:
+  comment_severity_threshold: MEDIUM  # Change to HIGH to reduce noise
+  inline_suggestions: true
+  severity_filters:
+    critical: true
+    high: true
+    medium: true
+    low: false  # Disable low-priority nitpicks
+```
+
+### 4. Codex via MCP (Optional)
+
+**Purpose:** Integrate OpenAI Codex directly into Claude Code for code review and test generation
+
+**Setup:** See `docs/IMPLEMENTATION_GUIDES/codex-mcp-integration.md`
+
+**What it provides:**
+- Code review using GPT-5 or O3 models
+- Automatic test generation
+- Coverage gap analysis
+- Bug fixing assistance
+- Direct integration with Claude Code (no separate CLI needed)
+
+**Quick start:**
+```bash
+# Install Codex CLI
+npm install -g @openai/codex
+
+# Authenticate
+codex exec "echo test"  # Follow prompts
+
+# Test MCP server
+npx @modelcontextprotocol/inspector codex mcp-server
+
+# Register with Claude Code
+claude mcp add --transport stdio codex-mcp -- codex mcp-server
+
+# Restart Claude Code
+# Then invoke codex from Claude Code
+```
+
+**Usage in Claude Code:**
+- "Use codex to review libs/risk_management/breaker.py"
+- "Ask codex to generate tests for this file"
+- "Use codex to analyze coverage gaps"
+
+**See full guide:** `docs/IMPLEMENTATION_GUIDES/codex-mcp-integration.md`
+
+## Summary: Complete Automation Workflow
+
+### For Developers
 
 **Minimal setup:**
 ```bash
-# 1. Install and authenticate
+# 1. Install and authenticate GitHub CLI
 brew install gh
 gh auth login
 
@@ -744,17 +858,109 @@ gh auth login
 "Implement ticket T4 and create a PR when done"
 ```
 
-**That's it!** Claude will handle:
-- Branch creation
-- Commits
-- Testing
-- Pushing
-- PR creation with detailed description
+**What happens automatically:**
 
-You retain control:
-- Review the PR before merging
-- Request changes via GitHub UI
-- Close/modify as needed
-- Merge when satisfied
+1. **During PR creation:**
+   - Claude creates feature branch
+   - Commits with progressive commits throughout development
+   - Runs tests locally
+   - Pushes to remote
+   - Creates PR with detailed description
+   - **GitHub Actions automatically requests reviews from @codex and @gemini-code-assist** ✨
 
-This workflow keeps you in the driver's seat while automating the tedious parts.
+2. **After PR is created:**
+   - CI/CD pipeline runs tests and coverage checks
+   - Gemini Code Assist reviews code within 5 minutes
+   - @codex and @gemini-code-assist post review comments
+   - Coverage report posted to PR
+   - Test results visible in GitHub UI
+
+3. **After you fix review issues:**
+   - Push fixes to same branch
+   - CI/CD pipeline re-runs automatically
+   - **Manually request re-review:** `gh pr comment <PR> --body "@codex @gemini-code-assist please re-review"`
+   - Wait for approval from all reviewers
+   - Merge when all checks pass ✅
+
+### For AI Assistants (Claude Code)
+
+**Your automated workflow:**
+
+1. **During implementation:**
+   - Make progressive commits every 30-60 minutes
+   - Push regularly to backup work
+   - Run tests locally before pushing
+
+2. **When creating PR:**
+   - Create PR with comprehensive description
+   - Include checklist from TESTING.md
+   - Reference ADRs and implementation guides
+   - **No need to manually request reviews** - automated by GitHub Actions! ✨
+
+3. **After receiving reviews:**
+   - Address ALL HIGH and MEDIUM priority issues
+   - Create test cases for reported bugs
+   - Push fixes to same branch
+   - **Manually comment to request re-review:**
+     ```bash
+     gh pr comment <PR> --body "Fixed issues X, Y, Z.
+
+     @codex @gemini-code-assist please review latest commit."
+     ```
+   - Wait for explicit approval from reviewers
+   - Only merge when all reviewers approve
+
+### File Structure Summary
+
+```
+.github/
+├── workflows/
+│   ├── pr-auto-review-request.yml    # ✨ Auto-requests reviews on PR creation
+│   └── ci-tests-coverage.yml         # Runs tests, coverage, linting
+├── CODEOWNERS                         # Code ownership rules
+└── pull_request_template.md          # PR template
+
+.gemini/
+└── config.yaml                        # Gemini Code Assist settings
+
+GEMINI.md                              # Project context for Gemini reviews
+
+docs/
+├── STANDARDS/
+│   └── GIT_WORKFLOW.md               # This file
+└── IMPLEMENTATION_GUIDES/
+    └── codex-mcp-integration.md      # Codex MCP integration (optional)
+```
+
+### Benefits
+
+**For developers:**
+- ✅ Never forget to request automated reviews
+- ✅ Consistent review quality across all PRs
+- ✅ Faster feedback (reviews within 5 minutes)
+- ✅ Multiple AI perspectives (Codex + Gemini)
+- ✅ Test coverage automatically tracked
+
+**For AI assistants:**
+- ✅ Reduced cognitive load (one less step to remember)
+- ✅ Consistent workflow across all PRs
+- ✅ Clear expectations for review policy
+- ✅ Automated initial review request
+
+**For the project:**
+- ✅ Higher code quality (caught by AI before human review)
+- ✅ Better security (automated security scanning)
+- ✅ Improved test coverage (coverage gates enforced)
+- ✅ Faster iteration (early feedback)
+- ✅ Educational value (AI reviewers explain issues)
+
+### You Retain Control
+
+Despite automation, you remain in control:
+- Review PR before merging (human approval still required)
+- Can bypass specific review comments with justification
+- Can adjust automation settings (`.gemini/config.yaml`)
+- Can disable workflows if needed
+- Merge only when satisfied with quality
+
+**This workflow keeps you in the driver's seat while automating the tedious parts.**

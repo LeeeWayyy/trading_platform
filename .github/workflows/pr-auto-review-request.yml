@@ -1,0 +1,46 @@
+name: Auto Request Code Review
+
+# Automatically request reviews from @codex and @gemini-code-assist when PRs are opened
+# This ensures we never forget to request automated code reviews
+# See: docs/STANDARDS/GIT_WORKFLOW.md for review policy
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  request-reviews:
+    name: Request automated code reviews
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Add comment requesting reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment $PR_NUMBER --body "🤖 **Automated Review Request**
+
+          @codex @gemini-code-assist please review this pull request and check for:
+          - Code quality issues
+          - Potential bugs or security vulnerabilities
+          - Test coverage gaps
+          - Documentation completeness
+          - Compliance with project standards
+
+          See [\`docs/STANDARDS/GIT_WORKFLOW.md\`](../docs/STANDARDS/GIT_WORKFLOW.md) for review policy.
+
+          **All review feedback must be addressed before merging.**"
+
+      - name: Summary
+        run: |
+          echo "✅ Automatically requested reviews from @codex and @gemini-code-assist"
+          echo "PR: #${{ github.event.pull_request.number }}"
+          echo "Author: @${{ github.event.pull_request.user.login }}"

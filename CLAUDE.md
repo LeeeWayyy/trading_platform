@@ -86,14 +86,44 @@ git checkout -b feature/task-name     # Create feature branch
 git commit -m "Progressive commit"    # Commit often (every 30-60 min)
 git push -u origin feature/task-name  # Push regularly
 gh pr create                          # Create pull request
-gh pr comment <PR> --body "@codex @gemini-code-assist" # Request automated reviews
 ```
 
 **IMPORTANT:** See `/docs/STANDARDS/GIT_WORKFLOW.md` for:
 - Progressive committing requirements (commit every 30-60 min)
 - PR creation workflow and templates
-- Automated review requirements (MUST @codex @gemini-code-assist on all PRs)
+- Automated review requirements (GitHub Actions automatically requests reviews)
 - Branch naming conventions
+
+### Code Review with Codex MCP (Optional but Recommended)
+
+**Before committing**, use Codex MCP to review your changes and verify test coverage:
+
+```bash
+# Stage your changes
+git add <files>
+
+# Ask Claude Code to use Codex for pre-commit review:
+# "Use the codex tool to review my staged changes focusing on:
+#  - Code quality and potential bugs
+#  - Security vulnerabilities
+#  - Test coverage gaps
+#  - Compliance with project standards"
+```
+
+**Codex MCP Setup:** If not yet configured, see `/docs/IMPLEMENTATION_GUIDES/codex-mcp-integration.md`
+
+**What Codex checks:**
+- Logic errors and edge cases
+- Security issues (SQL injection, XSS, etc.)
+- Missing tests for new code
+- Documentation completeness
+- Compliance with CODING_STANDARDS.md
+
+**When to use Codex:**
+- ✅ Before committing significant changes (>50 lines)
+- ✅ Before creating PR (final check)
+- ✅ When adding critical features (circuit breakers, risk checks, order placement)
+- ✅ When test coverage drops below 80%
 
 ## Development Workflow
 
@@ -155,9 +185,13 @@ gh pr comment <PR> --body "@codex @gemini-code-assist" # Request automated revie
    - Add lessons learned to `/docs/LESSONS_LEARNED/`
 
 7. **Pull Request Phase**
+   - **Use Codex MCP for final review** (if configured):
+     * "Use codex to review all changes in this branch vs master"
+     * "Use codex to verify test coverage is complete"
    - Reference ADR if applicable
    - Include checklist from `/docs/STANDARDS/TESTING.md`
    - Describe educational value
+   - GitHub Actions will automatically request @codex and @gemini-code-assist reviews
 
 ### Decision-Making
 - **No silent scope changes** — If ticket lacks detail, propose ADR or add TODOs with rationale
@@ -421,7 +455,10 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 5. Add comprehensive docstrings (see standards doc)
 6. Update all affected docs
 7. Run `make test && make lint`
-8. Follow PR checklist from `/docs/STANDARDS/TESTING.md`
+8. **Use Codex MCP for pre-commit review** (if configured):
+   - "Use codex to review my staged changes"
+   - "Use codex to check test coverage gaps"
+9. Follow PR checklist from `/docs/STANDARDS/TESTING.md`
 
 ## Essential Documentation
 
