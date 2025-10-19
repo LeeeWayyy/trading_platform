@@ -238,10 +238,10 @@ get_realtime_pnl() {
     echo "  Per-Position P&L:"
     echo "$body" | jq -r '.positions[] |
         "    \(.symbol): \(
-            if (.unrealized_pl | tonumber) >= 0 then
-                "$+\(.unrealized_pl)"
+            if (.unrealized_pl | startswith("-")) then
+                "-$\(.unrealized_pl | ltrimstr("-"))"
             else
-                "$\(.unrealized_pl)"
+                "+$\(.unrealized_pl)"
             end
         ) (\(
             if (.unrealized_pl_pct | tonumber) >= 0 then

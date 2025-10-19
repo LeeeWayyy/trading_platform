@@ -151,8 +151,10 @@ class AlpacaMarketDataStream:
         Args:
             quote: Quote object from Alpaca SDK
 
-        Raises:
-            QuoteHandlingError: If quote processing fails
+        Notes:
+            - Errors are handled gracefully within this function and not re-raised
+            - This prevents individual quote errors from crashing the WebSocket stream
+            - Failed quotes are logged with full traceback for debugging
         """
         try:
             # Convert Alpaca Quote to our QuoteData model
