@@ -20,7 +20,7 @@ from redis.exceptions import RedisError
 
 from libs.market_data.exceptions import ConnectionError, QuoteHandlingError, SubscriptionError
 from libs.market_data.types import PriceData, PriceUpdateEvent, QuoteData
-from libs.redis_client import EventPublisher, RedisClient
+from libs.redis_client import EventPublisher, RedisClient, RedisKeys
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ class AlpacaMarketDataStream:
             price_data = PriceData.from_quote(quote_data)
 
             # Store in Redis with TTL
-            cache_key = f"price:{quote_data.symbol}"
+            cache_key = RedisKeys.price(quote_data.symbol)
             self.redis.set(
                 cache_key,
                 price_data.model_dump_json(),

@@ -76,31 +76,32 @@ class TestRealtimePnLEndpoint:
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
 
-        # Setup Redis mock with real-time prices
-        def redis_get(key):
-            if key == "price:AAPL":
-                return json.dumps(
-                    {
+        # Setup Redis mock with real-time prices using mget (batch fetch)
+        def redis_mget(keys):
+            # Return prices for all keys in order
+            result = []
+            for key in keys:
+                if key == "price:AAPL":
+                    result.append(json.dumps({
                         "symbol": "AAPL",
                         "bid": 152.00,
                         "ask": 152.10,
                         "mid": 152.05,
                         "timestamp": "2024-10-19T14:30:00+00:00",
-                    }
-                )
-            elif key == "price:MSFT":
-                return json.dumps(
-                    {
+                    }))
+                elif key == "price:MSFT":
+                    result.append(json.dumps({
                         "symbol": "MSFT",
                         "bid": 305.00,
                         "ask": 305.10,
                         "mid": 305.05,
                         "timestamp": "2024-10-19T14:30:05+00:00",
-                    }
-                )
-            return None
+                    }))
+                else:
+                    result.append(None)
+            return result
 
-        mock_redis.get = MagicMock(side_effect=redis_get)
+        mock_redis.mget = MagicMock(side_effect=redis_mget)
 
         # Make request
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -150,8 +151,8 @@ class TestRealtimePnLEndpoint:
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
 
-        # Setup Redis mock - no prices available
-        mock_redis.get = MagicMock(return_value=None)
+        # Setup Redis mock - no prices available (returns None for each key)
+        mock_redis.mget = MagicMock(side_effect=lambda keys: [None] * len(keys))
 
         # Make request
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -196,8 +197,8 @@ class TestRealtimePnLEndpoint:
         # Setup database mock
         mock_db.get_all_positions.return_value = [position]
 
-        # Setup Redis mock - no prices available
-        mock_redis.get = MagicMock(return_value=None)
+        # Setup Redis mock - no prices available (returns None for each key)
+        mock_redis.mget = MagicMock(side_effect=lambda keys: [None] * len(keys))
 
         # Make request
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -223,21 +224,23 @@ class TestRealtimePnLEndpoint:
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
 
-        # Setup Redis mock - only AAPL has real-time price
-        def redis_get(key):
-            if key == "price:AAPL":
-                return json.dumps(
-                    {
+        # Setup Redis mock - only AAPL has real-time price (using mget for batch fetch)
+        def redis_mget(keys):
+            result = []
+            for key in keys:
+                if key == "price:AAPL":
+                    result.append(json.dumps({
                         "symbol": "AAPL",
                         "bid": 151.00,
                         "ask": 151.10,
                         "mid": 151.05,
                         "timestamp": "2024-10-19T14:30:00+00:00",
-                    }
-                )
-            return None
+                    }))
+                else:
+                    result.append(None)
+            return result
 
-        mock_redis.get = MagicMock(side_effect=redis_get)
+        mock_redis.mget = MagicMock(side_effect=redis_mget)
 
         # Make request
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -266,7 +269,7 @@ class TestRealtimePnLEndpoint:
         mock_db.get_all_positions.return_value = mock_positions
 
         # Setup Redis mock to raise RedisError
-        mock_redis.get = MagicMock(side_effect=RedisError("Redis connection error"))
+        mock_redis.mget = MagicMock(side_effect=RedisError("Redis connection error"))
 
         # Make request - should still work with database fallback
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -290,7 +293,7 @@ class TestRealtimePnLEndpoint:
 
         # Setup Redis mock to raise TimeoutError (different from ConnectionError)
         from redis.exceptions import TimeoutError as RedisTimeoutError
-        mock_redis.get = MagicMock(side_effect=RedisTimeoutError("Redis timeout"))
+        mock_redis.mget = MagicMock(side_effect=RedisTimeoutError("Redis timeout"))
 
         # Make request - should still work with database fallback
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -351,31 +354,31 @@ class TestRealtimePnLEndpoint:
 
         mock_db.get_all_positions.return_value = positions
 
-        # Setup Redis with prices that give 10% gain for both
-        def redis_get(key):
-            if key == "price:TEST1":
-                return json.dumps(
-                    {
+        # Setup Redis with prices that give 10% gain for both (using mget for batch fetch)
+        def redis_mget(keys):
+            result = []
+            for key in keys:
+                if key == "price:TEST1":
+                    result.append(json.dumps({
                         "symbol": "TEST1",
                         "bid": 110.00,
                         "ask": 110.00,
                         "mid": 110.00,  # 10% gain
                         "timestamp": "2024-10-19T14:30:00+00:00",
-                    }
-                )
-            elif key == "price:TEST2":
-                return json.dumps(
-                    {
+                    }))
+                elif key == "price:TEST2":
+                    result.append(json.dumps({
                         "symbol": "TEST2",
                         "bid": 220.00,
                         "ask": 220.00,
                         "mid": 220.00,  # 10% gain
                         "timestamp": "2024-10-19T14:30:00+00:00",
-                    }
-                )
-            return None
+                    }))
+                else:
+                    result.append(None)
+            return result
 
-        mock_redis.get = MagicMock(side_effect=redis_get)
+        mock_redis.mget = MagicMock(side_effect=redis_mget)
 
         # Make request
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -403,7 +406,7 @@ class TestRealtimePnLEndpoint:
     ):
         """Test that response includes timestamp."""
         mock_db.get_all_positions.return_value = mock_positions
-        mock_redis.get = MagicMock(return_value=None)
+        mock_redis.mget = MagicMock(side_effect=lambda keys: [None] * len(keys))
 
         response = test_client.get("/api/v1/positions/pnl/realtime")
 
@@ -433,21 +436,23 @@ class TestRealtimePnLEndpoint:
 
         mock_db.get_all_positions.return_value = [position]
 
-        # Setup Redis with price that's lower (profit for short)
-        def redis_get(key):
-            if key == "price:SHORT":
-                return json.dumps(
-                    {
+        # Setup Redis with price that's lower (profit for short) - using mget for batch fetch
+        def redis_mget(keys):
+            result = []
+            for key in keys:
+                if key == "price:SHORT":
+                    result.append(json.dumps({
                         "symbol": "SHORT",
                         "bid": 140.00,
                         "ask": 140.00,
                         "mid": 140.00,  # Price down $10
                         "timestamp": "2024-10-19T14:30:00+00:00",
-                    }
-                )
-            return None
+                    }))
+                else:
+                    result.append(None)
+            return result
 
-        mock_redis.get = MagicMock(side_effect=redis_get)
+        mock_redis.mget = MagicMock(side_effect=redis_mget)
 
         # Make request
         response = test_client.get("/api/v1/positions/pnl/realtime")
@@ -493,7 +498,7 @@ class TestRealtimePnLEndpoint:
         mock_db.get_all_positions.return_value = [position]
 
         # Redis has no real-time price - should fall back to database
-        mock_redis.get = MagicMock(return_value=None)
+        mock_redis.mget = MagicMock(side_effect=lambda keys: [None] * len(keys))
 
         # Make request
         response = test_client.get("/api/v1/positions/pnl/realtime")
