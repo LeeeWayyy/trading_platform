@@ -14,13 +14,13 @@ See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 """
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 import warnings
 
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score  # type: ignore[import-untyped]
 
 from strategies.alpha_baseline.config import StrategyConfig, DEFAULT_CONFIG
 from strategies.alpha_baseline.features import compute_features_and_labels
@@ -72,7 +72,7 @@ class BaselineTrainer:
         self.config = config or DEFAULT_CONFIG
         self.model: Optional[lgb.Booster] = None
         self.best_iteration: int = 0
-        self.metrics: dict = {}
+        self.metrics: dict[str, float] = {}
         self.use_mlflow = use_mlflow
         self.mlflow_run_id: Optional[str] = None
 
@@ -209,7 +209,7 @@ class BaselineTrainer:
                     num_boost_round=self.config.model.num_boost_round,
                     valid_sets=[train_data, valid_data],
                     valid_names=["train", "valid"],
-                    callbacks=callbacks,
+                    callbacks=callbacks,  # type: ignore[arg-type]
                 )
 
             # Store best iteration
@@ -268,6 +268,7 @@ class BaselineTrainer:
             y_valid: Validation labels
         """
         # Get predictions
+        assert self.model is not None, "Model must be trained before evaluation"
         y_train_pred = self.model.predict(X_train, num_iteration=self.best_iteration)
         y_valid_pred = self.model.predict(X_valid, num_iteration=self.best_iteration)
 
@@ -341,7 +342,7 @@ class BaselineTrainer:
         if num_iteration is None:
             num_iteration = self.best_iteration
 
-        return self.model.predict(X, num_iteration=num_iteration)
+        return cast(np.ndarray, self.model.predict(X, num_iteration=num_iteration))
 
     def save_model(self, path: Optional[Path] = None) -> Path:
         """
