@@ -102,7 +102,7 @@ class AlpacaMarketDataStream:
 
             try:
                 # Subscribe to quotes via Alpaca SDK
-                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)  # type: ignore[arg-type]
+                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)
 
                 # Update tracking
                 self.subscribed_symbols.update(new_symbols)

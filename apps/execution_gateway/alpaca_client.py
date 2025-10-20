@@ -200,9 +200,9 @@ class AlpacaExecutor:
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value,  # type: ignore[union-attr]  # alpaca-py types side as OrderSide | None
+                "side": alpaca_order.side.value,
                 "qty": float(alpaca_order.qty),  # type: ignore[arg-type]  # alpaca-py types qty as str|float|None
-                "order_type": alpaca_order.order_type.value,  # type: ignore[union-attr]  # alpaca-py types order_type as OrderType | None
+                "order_type": alpaca_order.order_type.value,
                 "status": alpaca_order.status.value,
                 "created_at": alpaca_order.created_at,
                 "limit_price": (
@@ -361,9 +361,9 @@ class AlpacaExecutor:
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value,  # type: ignore[union-attr]  # alpaca-py types side as OrderSide | None
+                "side": alpaca_order.side.value,
                 "qty": float(alpaca_order.qty),  # type: ignore[arg-type]  # alpaca-py types qty as str|float|None
-                "order_type": alpaca_order.order_type.value,  # type: ignore[union-attr]  # alpaca-py types order_type as OrderType | None
+                "order_type": alpaca_order.order_type.value,
                 "status": alpaca_order.status.value,
                 "filled_qty": float(alpaca_order.filled_qty or 0),
                 "filled_avg_price": (
