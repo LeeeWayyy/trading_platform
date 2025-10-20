@@ -11,7 +11,7 @@ See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, cast
 from datetime import datetime
 
 import pandas as pd
@@ -187,7 +187,7 @@ class PortfolioBacktest:
 
             daily_returns.append(portfolio_return)
 
-        return pd.Series(daily_returns, index=dates[:len(daily_returns)])
+        return cast(pd.Series, pd.Series(daily_returns, index=dates[:len(daily_returns)]))
 
     def _compute_metrics(self) -> Dict[str, float]:
         """
@@ -215,6 +215,7 @@ class PortfolioBacktest:
             return {}
 
         returns = self.portfolio_returns
+        assert self.cumulative_returns is not None, "cumulative_returns must be set after portfolio_returns"
 
         # Total return
         total_return = self.cumulative_returns.iloc[-1]
@@ -274,7 +275,7 @@ class PortfolioBacktest:
             raise ValueError("Must run backtest first (call .run())")
 
         plt.figure(figsize=(12, 6))
-        plt.plot(self.cumulative_returns.index, self.cumulative_returns.values * 100)
+        plt.plot(self.cumulative_returns.index, self.cumulative_returns.values * 100)  # type: ignore[operator]
         plt.title("Cumulative Portfolio Returns", fontsize=14, fontweight="bold")
         plt.xlabel("Date")
         plt.ylabel("Cumulative Return (%)")
@@ -313,9 +314,9 @@ class PortfolioBacktest:
 
         plt.figure(figsize=(12, 6))
         plt.fill_between(
-            drawdown.index, drawdown.values * 100, 0, alpha=0.3, color='red'
+            drawdown.index, drawdown.values * 100, 0, alpha=0.3, color='red'  # type: ignore[operator]
         )
-        plt.plot(drawdown.index, drawdown.values * 100, color='red')
+        plt.plot(drawdown.index, drawdown.values * 100, color='red')  # type: ignore[operator]
         plt.title("Portfolio Drawdown", fontsize=14, fontweight="bold")
         plt.xlabel("Date")
         plt.ylabel("Drawdown (%)")
@@ -347,6 +348,8 @@ class PortfolioBacktest:
         """
         if not self.metrics:
             raise ValueError("Must run backtest first (call .run())")
+
+        assert self.cumulative_returns is not None, "cumulative_returns must be set after run()"
 
         report = "=" * 50 + "\n"
         report += "Portfolio Backtest Report\n"
