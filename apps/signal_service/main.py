@@ -798,11 +798,23 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
         )
 
     # Convert DataFrame to list of dicts
-    signals = signals_df.to_dict(orient="records")
+    raw_signals = signals_df.to_dict(orient="records")
+
+    # Validate all dict keys are strings (pandas returns dict[Hashable, Any])
+    # This ensures type safety even if DataFrame has non-string column names
+    signals: list[dict[str, Any]] = []
+    for signal in raw_signals:
+        if not all(isinstance(k, str) for k in signal.keys()):
+            logger.error(f"Non-string keys found in signal dict: {list(signal.keys())}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal error: signal data contains non-string keys"
+            )
+        signals.append(signal)  # type: ignore[arg-type]
 
     # Build response
     return SignalResponse(
-        signals=signals,  # type: ignore[arg-type]
+        signals=signals,
         metadata={
             "as_of_date": as_of_date.date().isoformat(),
             "model_version": model_registry.current_metadata.version if model_registry.current_metadata else "unknown",
