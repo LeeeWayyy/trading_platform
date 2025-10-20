@@ -66,11 +66,11 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Third-party imports
-import httpx
-from dotenv import load_dotenv
+import httpx  # noqa: E402 - import after path manipulation
+from dotenv import load_dotenv  # noqa: E402 - import after path manipulation
 
 # Local imports (Alpaca client for price fetching)
-from apps.execution_gateway.alpaca_client import AlpacaConnectionError, AlpacaExecutor
+from apps.execution_gateway.alpaca_client import AlpacaConnectionError, AlpacaExecutor  # noqa: E402
 
 
 async def fetch_current_prices(symbols: list[str], config: dict[str, Any]) -> dict[str, Decimal]:
@@ -245,9 +245,9 @@ async def fetch_positions(execution_gateway_url: str) -> list[dict[str, Any]]:
                 f"1. Check T4 Execution Gateway is running\n"
                 f"2. Verify database connectivity\n"
                 f"3. Check T4 logs for errors"
-            )
+            ) from e
 
-        except httpx.ConnectError:
+        except httpx.ConnectError as e:
             raise RuntimeError(
                 f"T4 Execution Gateway unavailable: Connection refused\n"
                 f"URL: {url}\n"
@@ -257,7 +257,7 @@ async def fetch_positions(execution_gateway_url: str) -> list[dict[str, Any]]:
                 f"   uvicorn apps.execution_gateway.main:app --port 8002\n"
                 f"2. Check if port 8002 is in use\n"
                 f"3. Verify firewall settings"
-            )
+            ) from e
 
 
 async def calculate_enhanced_pnl(
@@ -721,9 +721,9 @@ async def check_dependencies(config: dict[str, Any]) -> None:
                     f"   uvicorn apps.orchestrator.main:app --port 8003\n"
                     f"3. Check firewall/network settings\n"
                     f"4. Verify port {url.split(':')[-1].split('/')[0]} is not in use"
-                )
+                ) from e
 
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
                 raise RuntimeError(
                     f"{name} timeout: No response within 5 seconds\n"
                     f"URL: {url}\n"
@@ -737,7 +737,7 @@ async def check_dependencies(config: dict[str, Any]) -> None:
                     f"1. Check service logs: tail -f logs/{name.lower()}.log\n"
                     f"2. Check system resources: top or htop\n"
                     f"3. Restart service if stuck"
-                )
+                ) from e
 
 
 async def trigger_orchestration(config: dict[str, Any]) -> dict[str, Any]:
@@ -844,9 +844,9 @@ async def trigger_orchestration(config: dict[str, Any]) -> dict[str, Any]:
                 f"2. Verify T3 and T4 services are healthy\n"
                 f"3. Check database connectivity\n"
                 f"4. Validate request parameters are correct"
-            )
+            ) from e
 
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as e:
             raise RuntimeError(
                 f"Orchestration timeout: No response within 60 seconds\n"
                 f"URL: {url}\n"
@@ -858,7 +858,7 @@ async def trigger_orchestration(config: dict[str, Any]) -> dict[str, Any]:
                 f"- Database queries are slow\n"
                 f"\n"
                 f"Check Orchestrator logs for progress."
-            )
+            ) from e
 
 
 def calculate_simple_pnl(result: dict[str, Any]) -> dict[str, Any]:
