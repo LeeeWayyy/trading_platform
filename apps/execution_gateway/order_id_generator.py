@@ -17,7 +17,7 @@ See ADR-0005 for design rationale.
 
 import hashlib
 from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from apps.execution_gateway.schemas import OrderRequest
 
@@ -25,6 +25,34 @@ from apps.execution_gateway.schemas import OrderRequest
 # This ensures Decimal("150.00") and Decimal("150.0") produce same ID
 # while maintaining backwards compatibility (no scientific notation)
 PRICE_PRECISION = Decimal("0.01")
+
+
+def _format_price_for_id(price: Decimal | None) -> str:
+    """
+    Format price for client_order_id generation.
+
+    Normalizes Decimal precision to ensure idempotency.
+
+    Args:
+        price: Price to format (None for market orders)
+
+    Returns:
+        Normalized price string or "None"
+
+    Examples:
+        >>> _format_price_for_id(Decimal("150.00"))
+        '150.00'
+        >>> _format_price_for_id(Decimal("150.0"))
+        '150.00'
+        >>> _format_price_for_id(None)
+        'None'
+
+    Notes:
+        Uses quantize() instead of normalize() to avoid scientific notation.
+    """
+    if price is None:
+        return "None"
+    return str(price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
 
 
 def generate_client_order_id(
@@ -87,19 +115,8 @@ def generate_client_order_id(
     order_date = as_of_date or date.today()
 
     # Convert prices to strings (quantize to fixed precision for idempotency)
-    # Decimal("150.00") and Decimal("150.0") both become "150.00"
-    # This prevents duplicate orders when JSON parsers use different precision
-    # Uses quantize() instead of normalize() to avoid scientific notation
-    limit_price_str = (
-        str(order.limit_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
-        if order.limit_price is not None
-        else "None"
-    )
-    stop_price_str = (
-        str(order.stop_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
-        if order.stop_price is not None
-        else "None"
-    )
+    limit_price_str = _format_price_for_id(order.limit_price)
+    stop_price_str = _format_price_for_id(order.stop_price)
 
     # Build raw string with all order parameters
     raw = (
@@ -194,16 +211,8 @@ def reconstruct_order_params_hash(
         24
     """
     # Convert prices to strings (quantize to fixed precision for idempotency)
-    limit_price_str = (
-        str(limit_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
-        if limit_price is not None
-        else "None"
-    )
-    stop_price_str = (
-        str(stop_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
-        if stop_price is not None
-        else "None"
-    )
+    limit_price_str = _format_price_for_id(limit_price)
+    stop_price_str = _format_price_for_id(stop_price)
 
     # Build raw string
     raw = (

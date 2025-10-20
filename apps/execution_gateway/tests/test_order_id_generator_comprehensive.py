@@ -16,10 +16,8 @@ See Also:
     - /docs/ADRs/0005-execution-gateway-architecture.md - Idempotency design
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-
-import pytest
 
 from apps.execution_gateway.order_id_generator import (
     generate_client_order_id,
@@ -226,8 +224,9 @@ class TestGenerateClientOrderId:
         Using quantize() instead of normalize() ensures backwards
         compatibility - scientific notation would change all existing IDs.
         """
-        from apps.execution_gateway.order_id_generator import PRICE_PRECISION
         from decimal import ROUND_HALF_UP
+
+        from apps.execution_gateway.order_id_generator import PRICE_PRECISION
 
         # Test prices that might trigger scientific notation with normalize()
         test_prices = [
@@ -243,9 +242,9 @@ class TestGenerateClientOrderId:
             quantized_str = str(quantized)
 
             # Should not contain 'E' or 'e' (scientific notation marker)
-            assert "E" not in quantized_str and "e" not in quantized_str, (
-                f"Price {price} produced scientific notation: {quantized_str}"
-            )
+            assert (
+                "E" not in quantized_str and "e" not in quantized_str
+            ), f"Price {price} produced scientific notation: {quantized_str}"
 
     def test_generate_uses_today_by_default(self):
         """
@@ -473,7 +472,7 @@ class TestParseOrderDateFromTimestamp:
 
     def test_parse_timezone_aware_datetime(self):
         """Should extract date from timezone-aware datetime."""
-        timestamp = datetime(2024, 10, 17, 16, 30, 45, tzinfo=timezone.utc)
+        timestamp = datetime(2024, 10, 17, 16, 30, 45, tzinfo=UTC)
 
         result = parse_order_date_from_timestamp(timestamp)
 
@@ -589,7 +588,7 @@ class TestOrderIdGeneratorIntegration:
         """
         order = OrderRequest(symbol="GOOGL", side="sell", qty=25, order_type="market")
         strategy_id = "alpha_baseline"
-        order_timestamp = datetime(2024, 10, 17, 15, 30, 0, tzinfo=timezone.utc)
+        order_timestamp = datetime(2024, 10, 17, 15, 30, 0, tzinfo=UTC)
 
         # Extract date from timestamp
         order_date = parse_order_date_from_timestamp(order_timestamp)

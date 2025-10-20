@@ -20,7 +20,7 @@ See Also:
     - /docs/ADRs/0005-execution-gateway-architecture.md - Architecture decisions
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
@@ -59,14 +59,14 @@ def create_mock_alpaca_error(message: str, status_code: int):
             def __init__(self, msg: str, code: int):
                 # AlpacaAPIError might have complex initialization
                 # Try to initialize it simply
-                super().__init__(msg)
+                super().__init__(msg)  # type: ignore[no-untyped-call]
                 # Override the status_code property by setting the underlying attribute
                 # This is a hack but necessary for testing
                 object.__setattr__(self, "_status_code", code)
 
             @property
             def status_code(self) -> int:
-                return getattr(self, "_status_code", None)
+                return getattr(self, "_status_code", 0)
 
         return TestAlpacaAPIError(message, status_code)
 
@@ -98,7 +98,9 @@ class TestAlpacaExecutorInitialization:
 
         with (
             patch("apps.execution_gateway.alpaca_client.TradingClient") as mock_trading_client,
-            patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient") as mock_data_client,
+            patch(
+                "apps.execution_gateway.alpaca_client.StockHistoricalDataClient"
+            ) as mock_data_client,
         ):
             executor = AlpacaExecutor(
                 api_key="test_key",
@@ -128,7 +130,10 @@ class TestAlpacaExecutorInitialization:
             patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient"),
         ):
             executor = AlpacaExecutor(
-                api_key="live_key", secret_key="live_secret", base_url="https://api.alpaca.markets", paper=False
+                api_key="live_key",
+                secret_key="live_secret",
+                base_url="https://api.alpaca.markets",
+                paper=False,
             )
 
             assert executor.paper is False
@@ -173,7 +178,7 @@ class TestAlpacaExecutorOrderSubmission:
         mock_order.qty = 100
         mock_order.order_type = Mock(value="market")
         mock_order.status = Mock(value="accepted")
-        mock_order.created_at = datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc)
+        mock_order.created_at = datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC)
         mock_order.limit_price = None
         mock_order.stop_price = None
         return mock_order
@@ -210,7 +215,11 @@ class TestAlpacaExecutorOrderSubmission:
             executor.client.submit_order = Mock(return_value=mock_order_response)
 
             order_request = OrderRequest(
-                symbol="AAPL", side="buy", qty=100, order_type="limit", limit_price=Decimal("150.50")
+                symbol="AAPL",
+                side="buy",
+                qty=100,
+                order_type="limit",
+                limit_price=Decimal("150.50"),
             )
             result = executor.submit_order(order_request, "client_order_abc")
 
@@ -336,9 +345,7 @@ class TestAlpacaExecutorOrderSubmission:
         api_error = create_mock_alpaca_error("Service temporarily unavailable", 503)
 
         # Fail twice, then succeed on third attempt
-        executor.client.submit_order = Mock(
-            side_effect=[api_error, api_error, mock_order_response]
-        )
+        executor.client.submit_order = Mock(side_effect=[api_error, api_error, mock_order_response])
 
         # Stub sleep to avoid 6s delay in tests
         with (
@@ -402,7 +409,7 @@ class TestAlpacaExecutorOrderSubmission:
         mock_order.qty = None  # Edge case: qty is None
         mock_order.order_type = Mock(value="market")
         mock_order.status = Mock(value="pending")
-        mock_order.created_at = datetime.now(timezone.utc)
+        mock_order.created_at = datetime.now(UTC)
         mock_order.limit_price = None
         mock_order.stop_price = None
 
@@ -541,8 +548,8 @@ class TestAlpacaExecutorOrderQuery:
         mock_order.status = Mock(value="filled")
         mock_order.filled_qty = 100
         mock_order.filled_avg_price = 150.50
-        mock_order.created_at = datetime.now(timezone.utc)
-        mock_order.updated_at = datetime.now(timezone.utc)
+        mock_order.created_at = datetime.now(UTC)
+        mock_order.updated_at = datetime.now(UTC)
 
         with patch("apps.execution_gateway.alpaca_client.Order", type(mock_order)):
             executor.client.get_order_by_client_id = Mock(return_value=mock_order)
@@ -585,8 +592,8 @@ class TestAlpacaExecutorOrderQuery:
         mock_order.status = Mock(value="pending")
         mock_order.filled_qty = None  # Not filled yet
         mock_order.filled_avg_price = None
-        mock_order.created_at = datetime.now(timezone.utc)
-        mock_order.updated_at = datetime.now(timezone.utc)
+        mock_order.created_at = datetime.now(UTC)
+        mock_order.updated_at = datetime.now(UTC)
 
         with patch("apps.execution_gateway.alpaca_client.Order", type(mock_order)):
             executor.client.get_order_by_client_id = Mock(return_value=mock_order)
@@ -749,7 +756,7 @@ class TestAlpacaExecutorLatestQuotes:
         mock_quote = Mock()
         mock_quote.ap = 152.75  # Ask price
         mock_quote.bp = 152.74  # Bid price
-        mock_quote.timestamp = datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc)
+        mock_quote.timestamp = datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC)
 
         mock_quotes_data = {"AAPL": mock_quote, "MSFT": mock_quote}
 
@@ -776,7 +783,7 @@ class TestAlpacaExecutorLatestQuotes:
         # Remove bid/ask attributes
         del mock_quote.ap
         del mock_quote.bp
-        mock_quote.timestamp = datetime.now(timezone.utc)
+        mock_quote.timestamp = datetime.now(UTC)
 
         mock_quotes_data = {"AAPL": mock_quote}
 
@@ -793,7 +800,7 @@ class TestAlpacaExecutorLatestQuotes:
         mock_quote = Mock()
         mock_quote.ap = 152.75
         mock_quote.bp = 152.74
-        mock_quote.timestamp = datetime.now(timezone.utc)
+        mock_quote.timestamp = datetime.now(UTC)
 
         # Only AAPL in response, TSLA missing
         mock_quotes_data = {"AAPL": mock_quote}
@@ -807,9 +814,7 @@ class TestAlpacaExecutorLatestQuotes:
 
     def test_get_latest_quotes_api_error(self, executor):
         """Should raise AlpacaConnectionError on API error."""
-        from apps.execution_gateway.alpaca_client import AlpacaAPIError
-
-        api_error = AlpacaAPIError("Rate limit exceeded")
+        api_error = create_mock_alpaca_error("Rate limit exceeded", 429)
         executor.data_client.get_stock_latest_quote = Mock(side_effect=api_error)
 
         with pytest.raises(AlpacaConnectionError) as exc_info:
@@ -828,14 +833,12 @@ class TestAlpacaExecutorLatestQuotes:
 
     def test_get_latest_quotes_retry_on_connection_error(self, executor):
         """Should retry up to 3 times on connection errors."""
-        from apps.execution_gateway.alpaca_client import AlpacaAPIError
-
         mock_quote = Mock()
         mock_quote.ap = 152.75
         mock_quote.bp = 152.74
-        mock_quote.timestamp = datetime.now(timezone.utc)
+        mock_quote.timestamp = datetime.now(UTC)
 
-        api_error = AlpacaAPIError("Temporary error")
+        api_error = create_mock_alpaca_error("Temporary error", 503)
 
         # Fail twice, succeed on third attempt
         executor.data_client.get_stock_latest_quote = Mock(

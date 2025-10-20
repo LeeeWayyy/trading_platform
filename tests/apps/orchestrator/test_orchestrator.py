@@ -12,10 +12,9 @@ Tests cover:
 - Error handling and edge cases
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, Mock, patch
-from uuid import UUID
 
 import httpx
 import pytest
@@ -114,7 +113,7 @@ class TestTradingOrchestratorRun:
                     side="buy",
                     qty=66,
                     order_type="market",
-                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
                     message="Order submitted",
                 ),
                 OrderSubmission(
@@ -125,7 +124,7 @@ class TestTradingOrchestratorRun:
                     side="buy",
                     qty=16,
                     order_type="market",
-                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
                     message="Order submitted",
                 ),
             ]
@@ -172,7 +171,7 @@ class TestTradingOrchestratorRun:
                     side="buy",
                     qty=66,
                     order_type="market",
-                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
                     message="Order submitted",
                 ),
                 httpx.HTTPStatusError(
@@ -421,7 +420,7 @@ class TestSubmitOrders:
                 side="buy",
                 qty=100,
                 order_type="market",
-                created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
                 message="Order submitted",
             )
         )

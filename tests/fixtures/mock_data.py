@@ -56,7 +56,7 @@ def create_normal_ohlcv(
 
     # Generate OHLC from close
     data = []
-    for i, (d, close) in enumerate(zip(dates, closes)):
+    for i, (d, close) in enumerate(zip(dates, closes, strict=False)):
         # Intraday range: ±0.5% from close
         high = close * 1.005
         low = close * 0.995

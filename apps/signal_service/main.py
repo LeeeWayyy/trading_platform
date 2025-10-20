@@ -797,7 +797,9 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Internal error: signal data contains non-string keys",
             )
-        signals.append({str(k): v for k, v in signal.items()})  # Explicit str conversion for type safety
+        signals.append(
+            {str(k): v for k, v in signal.items()}
+        )  # Explicit str conversion for type safety
 
     # Build response
     return SignalResponse(

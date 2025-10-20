@@ -426,7 +426,9 @@ class SignalGenerator:
                         extra={"date": date_str, "symbols": symbols_to_generate},
                         exc_info=True,
                     )
-                    raise ValueError(f"No features available for {date_str}: {mock_error}") from mock_error
+                    raise ValueError(
+                        f"No features available for {date_str}: {mock_error}"
+                    ) from mock_error
 
         # Combine all features (cached + freshly generated)
         if features_list:

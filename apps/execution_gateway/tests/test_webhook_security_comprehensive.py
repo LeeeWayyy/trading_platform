@@ -15,8 +15,6 @@ See Also:
     - /docs/ADRs/0005-execution-gateway-architecture.md - Security requirements
 """
 
-import pytest
-
 from apps.execution_gateway.webhook_security import (
     extract_signature_from_header,
     generate_webhook_signature,
@@ -150,7 +148,7 @@ class TestVerifyWebhookSignature:
 
     def test_verify_unicode_payload(self):
         """Should handle unicode characters in payload."""
-        payload = '{"event":"fill","symbol":"特斯拉"}'.encode("utf-8")
+        payload = '{"event":"fill","symbol":"特斯拉"}'.encode()
         secret = "test_webhook_secret"
 
         signature = generate_webhook_signature(payload, secret)
@@ -160,14 +158,17 @@ class TestVerifyWebhookSignature:
 
     def test_verify_exception_handling(self):
         """Should handle unexpected exceptions gracefully and return False."""
-        # Pass invalid types that might cause exceptions
-        # The function should catch and return False
+        from unittest.mock import patch
+
         payload = b'{"event":"fill"}'
+        signature = "a" * 64
+        secret = "test_secret"
 
-        # This might cause encoding issues internally but should be handled
-        result = verify_webhook_signature(payload, "invalid", "secret")
+        # Mock hmac.new to raise an exception
+        with patch("hmac.new", side_effect=ValueError("Unexpected error")):
+            result = verify_webhook_signature(payload, signature, secret)
 
-        # Should not raise, should return False for invalid signature
+        # Should not raise, should return False on exception
         assert result is False
 
 
