@@ -11,7 +11,7 @@ See ADR-0005 for design rationale.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from decimal import Decimal
 
 from tenacity import (
@@ -37,9 +37,9 @@ try:
     ALPACA_AVAILABLE = True
 except ImportError:
     ALPACA_AVAILABLE = False
-    TradingClient = None
-    StockHistoricalDataClient = None
-    AlpacaAPIError = Exception
+    TradingClient = None  # type: ignore[assignment,misc]
+    StockHistoricalDataClient = None  # type: ignore[assignment,misc]
+    AlpacaAPIError = Exception  # type: ignore[assignment,misc]
 
 from apps.execution_gateway.schemas import OrderRequest
 
@@ -197,16 +197,16 @@ class AlpacaExecutor:
 
             # Convert to dict for consistent return type
             order_dict = {
-                "id": str(alpaca_order.id),
-                "client_order_id": alpaca_order.client_order_id,
-                "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value,
-                "qty": float(alpaca_order.qty),
-                "order_type": alpaca_order.order_type.value,
-                "status": alpaca_order.status.value,
-                "created_at": alpaca_order.created_at,
-                "limit_price": float(alpaca_order.limit_price) if alpaca_order.limit_price else None,
-                "stop_price": float(alpaca_order.stop_price) if alpaca_order.stop_price else None,
+                "id": str(alpaca_order.id),  # type: ignore[union-attr]
+                "client_order_id": alpaca_order.client_order_id,  # type: ignore[union-attr]
+                "symbol": alpaca_order.symbol,  # type: ignore[union-attr]
+                "side": alpaca_order.side.value,  # type: ignore[union-attr]
+                "qty": float(alpaca_order.qty),  # type: ignore[union-attr,arg-type]
+                "order_type": alpaca_order.order_type.value,  # type: ignore[union-attr]
+                "status": alpaca_order.status.value,  # type: ignore[union-attr]
+                "created_at": alpaca_order.created_at,  # type: ignore[union-attr]
+                "limit_price": float(alpaca_order.limit_price) if alpaca_order.limit_price else None,  # type: ignore[union-attr]
+                "stop_price": float(alpaca_order.stop_price) if alpaca_order.stop_price else None,  # type: ignore[union-attr]
             }
 
             logger.info(
@@ -248,7 +248,7 @@ class AlpacaExecutor:
         self,
         order: OrderRequest,
         client_order_id: str
-    ):
+    ) -> Union[MarketOrderRequest, LimitOrderRequest, StopOrderRequest, StopLimitOrderRequest]:
         """
         Build Alpaca order request object based on order type.
 
@@ -355,17 +355,17 @@ class AlpacaExecutor:
                 return None
 
             return {
-                "id": str(alpaca_order.id),
-                "client_order_id": alpaca_order.client_order_id,
-                "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value,
-                "qty": float(alpaca_order.qty),
-                "order_type": alpaca_order.order_type.value,
-                "status": alpaca_order.status.value,
-                "filled_qty": float(alpaca_order.filled_qty or 0),
-                "filled_avg_price": float(alpaca_order.filled_avg_price) if alpaca_order.filled_avg_price else None,
-                "created_at": alpaca_order.created_at,
-                "updated_at": alpaca_order.updated_at,
+                "id": str(alpaca_order.id),  # type: ignore[union-attr]
+                "client_order_id": alpaca_order.client_order_id,  # type: ignore[union-attr]
+                "symbol": alpaca_order.symbol,  # type: ignore[union-attr]
+                "side": alpaca_order.side.value,  # type: ignore[union-attr]
+                "qty": float(alpaca_order.qty),  # type: ignore[union-attr,arg-type]
+                "order_type": alpaca_order.order_type.value,  # type: ignore[union-attr]
+                "status": alpaca_order.status.value,  # type: ignore[union-attr]
+                "filled_qty": float(alpaca_order.filled_qty or 0),  # type: ignore[union-attr]
+                "filled_avg_price": float(alpaca_order.filled_avg_price) if alpaca_order.filled_avg_price else None,  # type: ignore[union-attr]
+                "created_at": alpaca_order.created_at,  # type: ignore[union-attr]
+                "updated_at": alpaca_order.updated_at,  # type: ignore[union-attr]
             }
 
         except AlpacaAPIError as e:
@@ -438,15 +438,15 @@ class AlpacaExecutor:
             account = self.client.get_account()
 
             return {
-                "account_number": account.account_number,
-                "status": account.status.value,
-                "currency": account.currency,
-                "buying_power": float(account.buying_power),
-                "cash": float(account.cash),
-                "portfolio_value": float(account.portfolio_value),
-                "pattern_day_trader": account.pattern_day_trader,
-                "trading_blocked": account.trading_blocked,
-                "transfers_blocked": account.transfers_blocked,
+                "account_number": account.account_number,  # type: ignore[union-attr]
+                "status": account.status.value,  # type: ignore[union-attr]
+                "currency": account.currency,  # type: ignore[union-attr]
+                "buying_power": float(account.buying_power),  # type: ignore[union-attr,arg-type]
+                "cash": float(account.cash),  # type: ignore[union-attr,arg-type]
+                "portfolio_value": float(account.portfolio_value),  # type: ignore[union-attr,arg-type]
+                "pattern_day_trader": account.pattern_day_trader,  # type: ignore[union-attr]
+                "trading_blocked": account.trading_blocked,  # type: ignore[union-attr]
+                "transfers_blocked": account.transfers_blocked,  # type: ignore[union-attr]
             }
 
         except Exception as e:
@@ -459,7 +459,7 @@ class AlpacaExecutor:
         retry=retry_if_exception_type(AlpacaConnectionError),
         reraise=True
     )
-    def get_latest_quotes(self, symbols: list) -> Dict[str, Dict[str, Any]]:
+    def get_latest_quotes(self, symbols: list[str]) -> Dict[str, Dict[str, Any]]:
         """
         Fetch latest market quotes for multiple symbols.
 
