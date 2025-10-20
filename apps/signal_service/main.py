@@ -36,7 +36,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, AsyncIterator, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -81,7 +81,7 @@ feature_cache: Optional[FeatureCache] = None
 # Background Tasks
 # ==============================================================================
 
-async def model_reload_task():
+async def model_reload_task() -> None:
     """
     Background task to poll model registry and reload on version changes.
 
@@ -124,11 +124,13 @@ async def model_reload_task():
 
             # Check for model updates
             logger.debug("Checking for model updates...")
+            assert model_registry is not None, "model_registry should be initialized"
             reloaded = model_registry.reload_if_changed(
                 strategy=settings.default_strategy
             )
 
             if reloaded:
+                assert model_registry.current_metadata is not None
                 logger.info(
                     f"Model auto-reloaded: "
                     f"{model_registry.current_metadata.strategy_name} "
@@ -148,7 +150,7 @@ async def model_reload_task():
 # ==============================================================================
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Manage application startup and shutdown.
 
@@ -200,6 +202,7 @@ async def lifespan(app: FastAPI):
                 "Check database has active model registered."
             )
 
+        assert model_registry is not None and model_registry.current_metadata is not None
         logger.info(f"Model loaded: {model_registry.current_metadata.version}")
 
         # Step 3: Initialize Redis client (optional, T1.2)
@@ -252,6 +255,7 @@ async def lifespan(app: FastAPI):
 
         logger.info("=" * 60)
         logger.info("Signal Service Ready!")
+        assert model_registry is not None and model_registry.current_metadata is not None
         logger.info(f"  - Model: {model_registry.current_metadata.strategy_name}")
         logger.info(f"  - Version: {model_registry.current_metadata.version}")
         logger.info(f"  - Top N (long): {settings.top_n}")
@@ -355,33 +359,33 @@ class SignalRequest(BaseModel):
 
     symbols: List[str] = Field(
         ...,
-        min_items=1,
+        min_length=1,
         description="List of stock symbols to generate signals for",
-        example=["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+        examples=[["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]]
     )
 
     as_of_date: Optional[str] = Field(
-        None,
+        default=None,
         description="Date for signal generation (ISO format: YYYY-MM-DD). Defaults to today.",
-        example="2024-12-31"
+        examples=["2024-12-31"]
     )
 
     top_n: Optional[int] = Field(
-        None,
+        default=None,
         ge=0,
         description="Number of long positions (overrides default)",
-        example=3
+        examples=[3]
     )
 
     bottom_n: Optional[int] = Field(
-        None,
+        default=None,
         ge=0,
         description="Number of short positions (overrides default)",
-        example=3
+        examples=[3]
     )
 
     @validator('as_of_date')
-    def validate_date(cls, v):
+    def validate_date(cls, v: Optional[str]) -> Optional[str]:
         """Validate date format."""
         if v is not None:
             try:
@@ -391,7 +395,7 @@ class SignalRequest(BaseModel):
         return v
 
     @validator('symbols')
-    def validate_symbols(cls, v):
+    def validate_symbols(cls, v: List[str]) -> List[str]:
         """Validate symbols are uppercase."""
         return [s.upper() for s in v]
 
@@ -481,7 +485,7 @@ class HealthResponse(BaseModel):
 # ==============================================================================
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Global exception handler for unexpected errors.
 
@@ -522,7 +526,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ==============================================================================
 
 @app.get("/", tags=["Root"])
-async def root():
+async def root() -> dict[str, Any]:
     """
     Root endpoint with service information.
 
@@ -549,7 +553,7 @@ async def root():
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check():
+async def health_check() -> HealthResponse:
     """
     Health check endpoint.
 
@@ -631,7 +635,7 @@ async def health_check():
     tags=["Signals"],
     status_code=status.HTTP_200_OK,
 )
-async def generate_signals(request: SignalRequest):
+async def generate_signals(request: SignalRequest) -> dict[str, Any]:
     """
     Generate trading signals for given symbols.
 
@@ -797,7 +801,7 @@ async def generate_signals(request: SignalRequest):
 
 
 @app.get("/api/v1/model/info", tags=["Model"])
-async def get_model_info():
+async def get_model_info() -> dict[str, Any]:
     """
     Get information about the currently loaded model.
 
@@ -857,7 +861,7 @@ async def get_model_info():
 
 
 @app.post("/api/v1/model/reload", tags=["Model"])
-async def reload_model():
+async def reload_model() -> dict[str, Any]:
     """
     Manually trigger model reload from database registry.
 
