@@ -149,8 +149,8 @@ class TestRunOrchestrationEndpoint:
             num_orders_accepted=2,
             num_orders_rejected=0,
             mappings=[],
-            started_at=datetime.now(timezone.utc),
-            completed_at=datetime.now(timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             duration_seconds=Decimal("1.5"),
         )
         mock_orchestrator.run.return_value = run_result
@@ -200,8 +200,8 @@ class TestRunOrchestrationEndpoint:
             num_orders_accepted=1,
             num_orders_rejected=0,
             mappings=[],
-            started_at=datetime.now(timezone.utc),
-            completed_at=datetime.now(timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             duration_seconds=Decimal("1.0"),
         )
         mock_orchestrator.run.return_value = run_result
@@ -240,8 +240,8 @@ class TestRunOrchestrationEndpoint:
             num_orders_accepted=1,
             num_orders_rejected=0,
             mappings=[],
-            started_at=datetime.now(timezone.utc),
-            completed_at=datetime.now(timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             duration_seconds=Decimal("1.0"),
         )
         mock_orchestrator.run.return_value = run_result
@@ -278,8 +278,8 @@ class TestListRunsEndpoint:
                 num_orders_submitted=2,
                 num_orders_accepted=2,
                 num_orders_rejected=0,
-                started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc),
+                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
                 duration_seconds=Decimal("1.5"),
             ),
             OrchestrationRunSummary(
@@ -291,8 +291,8 @@ class TestListRunsEndpoint:
                 num_orders_submitted=0,
                 num_orders_accepted=0,
                 num_orders_rejected=1,
-                started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc),
+                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
                 duration_seconds=Decimal("0.5"),
             ),
         ]
@@ -320,8 +320,8 @@ class TestListRunsEndpoint:
                 num_orders_submitted=2,
                 num_orders_accepted=2,
                 num_orders_rejected=0,
-                started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc),
+                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
                 duration_seconds=Decimal("1.5"),
             ),
         ]
@@ -376,8 +376,8 @@ class TestGetRunEndpoint:
             num_orders_submitted=2,
             num_orders_accepted=2,
             num_orders_rejected=0,
-            started_at=datetime.now(timezone.utc),
-            completed_at=datetime.now(timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             duration_seconds=Decimal("1.5"),
         )
         mappings = [

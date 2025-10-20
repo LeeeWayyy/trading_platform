@@ -114,7 +114,7 @@ class TestTradingOrchestratorRun:
                     side="buy",
                     qty=66,
                     order_type="market",
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
                     message="Order submitted",
                 ),
                 OrderSubmission(
@@ -125,7 +125,7 @@ class TestTradingOrchestratorRun:
                     side="buy",
                     qty=16,
                     order_type="market",
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
                     message="Order submitted",
                 ),
             ]
@@ -172,7 +172,7 @@ class TestTradingOrchestratorRun:
                     side="buy",
                     qty=66,
                     order_type="market",
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
                     message="Order submitted",
                 ),
                 httpx.HTTPStatusError(
@@ -421,7 +421,7 @@ class TestSubmitOrders:
                 side="buy",
                 qty=100,
                 order_type="market",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
                 message="Order submitted",
             )
         )

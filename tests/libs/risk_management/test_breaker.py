@@ -60,7 +60,7 @@ class TestCircuitBreakerInitialization:
         # Mock: Existing state in TRIPPED
         existing_state = {
             "state": CircuitBreakerState.TRIPPED.value,
-            "tripped_at": datetime.now(UTC).isoformat(),
+            "tripped_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC).isoformat(),
             "trip_reason": "DAILY_LOSS_EXCEEDED",
             "trip_details": {"daily_loss": -5000},
             "trip_count_today": 1,
@@ -102,7 +102,7 @@ class TestCircuitBreakerStateQueries:
         """Test get_state returns TRIPPED when state is TRIPPED."""
         state_data = {
             "state": CircuitBreakerState.TRIPPED.value,
-            "tripped_at": datetime.now(UTC).isoformat(),
+            "tripped_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC).isoformat(),
             "trip_reason": "DAILY_LOSS_EXCEEDED",
             "trip_count_today": 1,
         }
@@ -163,7 +163,7 @@ class TestCircuitBreakerStateQueries:
         """Test is_tripped returns True when TRIPPED."""
         state_data = {
             "state": CircuitBreakerState.TRIPPED.value,
-            "tripped_at": datetime.now(UTC).isoformat(),
+            "tripped_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC).isoformat(),
             "trip_reason": "MAX_DRAWDOWN",
         }
         mock_redis_client.get.return_value = json.dumps(state_data)
@@ -183,6 +183,7 @@ class TestCircuitBreakerStateQueries:
 
     def test_is_tripped_when_quiet_period(self, mock_redis_client):
         """Test is_tripped returns False when QUIET_PERIOD."""
+        # Use recent time to avoid auto-transition to OPEN
         state_data = {
             "state": CircuitBreakerState.QUIET_PERIOD.value,
             "reset_at": datetime.now(UTC).isoformat(),

@@ -107,9 +107,9 @@ class TestSubmitOrderEndpoint:
             broker_order_id=None,
             error_message=None,
             retry_count=0,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-            submitted_at=datetime.now(timezone.utc),
+            created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            submitted_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             filled_at=None,
             filled_qty=Decimal("0"),
             filled_avg_price=None,
@@ -147,9 +147,9 @@ class TestSubmitOrderEndpoint:
             broker_order_id="broker123",
             error_message=None,
             retry_count=0,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-            submitted_at=datetime.now(timezone.utc),
+            created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            submitted_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             filled_at=None,
             filled_qty=Decimal("0"),
             filled_avg_price=None,
@@ -207,10 +207,10 @@ class TestGetOrderEndpoint:
             broker_order_id="broker123",
             error_message=None,
             retry_count=0,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-            submitted_at=datetime.now(timezone.utc),
-            filled_at=datetime.now(timezone.utc),
+            created_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            submitted_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            filled_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             filled_qty=Decimal("10"),
             filled_avg_price=Decimal("150.25"),
         )
@@ -248,7 +248,7 @@ class TestGetPositionsEndpoint:
                 current_price=Decimal("152.00"),
                 unrealized_pl=Decimal("20.00"),
                 realized_pl=Decimal("0.00"),
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             ),
             Position(
                 symbol="MSFT",
@@ -257,7 +257,7 @@ class TestGetPositionsEndpoint:
                 current_price=Decimal("295.00"),
                 unrealized_pl=Decimal("25.00"),
                 realized_pl=Decimal("0.00"),
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             ),
         ]
         mock_db.get_all_positions.return_value = positions
@@ -304,7 +304,7 @@ class TestBatchFetchRealtimePrices:
         assert result["MSFT"][0] == Decimal("295.00")
 
     def test_batch_fetch_redis_unavailable(self):
-        """Test batch fetch returns empty dict when Redis is unavailable."""
+        """Test batch fetch returns dict with None values when Redis is unavailable."""
         from apps.execution_gateway.main import _batch_fetch_realtime_prices_from_redis
 
         result = _batch_fetch_realtime_prices_from_redis(["AAPL"], None)
@@ -334,10 +334,10 @@ class TestCalculatePositionPnL:
             current_price=None,
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         )
 
-        pnl = _calculate_position_pnl(position, Decimal("155.00"), "real-time", datetime.now(timezone.utc))
+        pnl = _calculate_position_pnl(position, Decimal("155.00"), "real-time", datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc))
 
         assert pnl.unrealized_pl == Decimal("50.00")  # 10 shares * $5 profit
         assert pnl.price_source == "real-time"
@@ -353,7 +353,7 @@ class TestCalculatePositionPnL:
             current_price=None,
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         pnl = _calculate_position_pnl(position, Decimal("295.00"), "database", None)
@@ -371,7 +371,7 @@ class TestCalculatePositionPnL:
             current_price=None,
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         pnl = _calculate_position_pnl(position, Decimal("2750.00"), "fallback", None)
@@ -393,11 +393,11 @@ class TestResolveAndCalculatePnL:
             current_price=Decimal("151.00"),  # Database price
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         # Realtime price data is a tuple, not a dict
-        realtime_price_data = (Decimal("152.50"), datetime.now(timezone.utc))
+        realtime_price_data = (Decimal("152.50"), datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc))
 
         pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
 
@@ -415,7 +415,7 @@ class TestResolveAndCalculatePnL:
             current_price=Decimal("302.00"),  # Database price
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         # No real-time data (None, None tuple)
@@ -437,7 +437,7 @@ class TestResolveAndCalculatePnL:
             current_price=None,  # No database price
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         # No real-time data (None, None tuple)

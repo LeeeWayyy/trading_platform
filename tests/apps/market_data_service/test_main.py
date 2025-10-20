@@ -10,6 +10,7 @@ Tests cover:
 """
 
 import os
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -20,7 +21,7 @@ from libs.market_data import SubscriptionError
 
 @pytest.fixture
 def test_client():
-    """Create FastAPI test client with mocked environment."""
+    """Create FastAPI test client with mocked lifespan to avoid external dependencies."""
     # Set required environment variables before importing
     os.environ.setdefault("ALPACA_API_KEY", "test_key")
     os.environ.setdefault("ALPACA_SECRET_KEY", "test_secret")
@@ -28,9 +29,17 @@ def test_client():
     os.environ.setdefault("REDIS_PORT", "6379")
     os.environ.setdefault("EXECUTION_GATEWAY_URL", "http://localhost:8002")
 
-    from apps.market_data_service.main import app
+    # Create a mock lifespan that doesn't connect to external services
+    @asynccontextmanager
+    async def mock_lifespan(app):
+        """Mock lifespan that skips Redis and Alpaca connections."""
+        yield
 
-    return TestClient(app, raise_server_exceptions=False)
+    # Patch the lifespan before importing the app
+    with patch("apps.market_data_service.main.lifespan", mock_lifespan):
+        from apps.market_data_service.main import app
+
+        return TestClient(app, raise_server_exceptions=False)
 
 
 @pytest.fixture

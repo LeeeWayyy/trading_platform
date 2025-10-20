@@ -9,7 +9,7 @@ Tests cover:
 - Connection health checks
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 
@@ -73,9 +73,9 @@ class TestCreateOrder:
             "broker_order_id": "broker123",
             "error_message": None,
             "retry_count": 0,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
-            "submitted_at": datetime.now(),
+            "created_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "submitted_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             "filled_at": None,
             "filled_qty": Decimal("0"),
             "filled_avg_price": None,
@@ -122,8 +122,8 @@ class TestCreateOrder:
             "broker_order_id": None,
             "error_message": None,
             "retry_count": 0,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
+            "created_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             "submitted_at": None,  # Dry run has no submission
             "filled_at": None,
             "filled_qty": Decimal("0"),
@@ -211,10 +211,10 @@ class TestGetOrderByClientId:
             "broker_order_id": "broker123",
             "error_message": None,
             "retry_count": 0,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
-            "submitted_at": datetime.now(),
-            "filled_at": datetime.now(),
+            "created_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "submitted_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "filled_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             "filled_qty": Decimal("10"),
             "filled_avg_price": Decimal("150.25"),
             "metadata": {},
@@ -281,10 +281,10 @@ class TestUpdateOrderStatus:
             "broker_order_id": "broker123",
             "error_message": None,
             "retry_count": 0,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
-            "submitted_at": datetime.now(),
-            "filled_at": datetime.now(),
+            "created_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "submitted_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "filled_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             "filled_qty": Decimal("10"),
             "filled_avg_price": Decimal("150.25"),
             "metadata": {},
@@ -332,9 +332,9 @@ class TestUpdateOrderStatus:
             "broker_order_id": None,
             "error_message": "Insufficient buying power",
             "retry_count": 0,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
-            "submitted_at": datetime.now(),
+            "created_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "submitted_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             "filled_at": None,
             "filled_qty": Decimal("0"),
             "filled_avg_price": None,
@@ -378,8 +378,8 @@ class TestUpdatePositionOnFill:
                 "current_price": None,
                 "unrealized_pl": None,
                 "realized_pl": Decimal("0.00"),
-                "updated_at": datetime.now(),
-                "last_trade_at": datetime.now(),
+                "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             },
         ]
 
@@ -414,8 +414,8 @@ class TestUpdatePositionOnFill:
             "current_price": None,
             "unrealized_pl": None,
             "realized_pl": Decimal("0.00"),
-            "updated_at": datetime.now(),
-            "last_trade_at": datetime.now(),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         }
 
         mock_cursor.fetchone.side_effect = [existing_position, new_position]
@@ -450,8 +450,8 @@ class TestUpdatePositionOnFill:
             "current_price": None,
             "unrealized_pl": None,
             "realized_pl": Decimal("50.00"),  # (155 - 150) * 10
-            "updated_at": datetime.now(),
-            "last_trade_at": datetime.now(),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         }
 
         mock_cursor.fetchone.side_effect = [existing_position, closed_position]
@@ -485,8 +485,8 @@ class TestUpdatePositionOnFill:
             "current_price": None,
             "unrealized_pl": None,
             "realized_pl": Decimal("25.00"),  # (155 - 150) * 5
-            "updated_at": datetime.now(),
-            "last_trade_at": datetime.now(),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         }
 
         mock_cursor.fetchone.side_effect = [existing_position, reduced_position]
@@ -514,8 +514,8 @@ class TestUpdatePositionOnFill:
                 "current_price": None,
                 "unrealized_pl": None,
                 "realized_pl": Decimal("0.00"),
-                "updated_at": datetime.now(),
-                "last_trade_at": datetime.now(),
+                "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             },
         ]
 
@@ -548,8 +548,8 @@ class TestUpdatePositionOnFill:
             "current_price": None,
             "unrealized_pl": None,
             "realized_pl": Decimal("100.00"),  # (300 - 290) * 10
-            "updated_at": datetime.now(),
-            "last_trade_at": datetime.now(),
+            "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
         }
 
         mock_cursor.fetchone.side_effect = [existing_position, closed_position]
@@ -588,8 +588,8 @@ class TestGetAllPositions:
                 "current_price": None,
                 "unrealized_pl": None,
                 "realized_pl": Decimal("0.00"),
-                "updated_at": datetime.now(),
-                "last_trade_at": datetime.now(),
+                "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             },
             {
                 "symbol": "MSFT",
@@ -598,8 +598,8 @@ class TestGetAllPositions:
                 "current_price": None,
                 "unrealized_pl": None,
                 "realized_pl": Decimal("50.00"),
-                "updated_at": datetime.now(),
-                "last_trade_at": datetime.now(),
+                "updated_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                "last_trade_at": datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
             },
         ]
         mock_cursor.fetchall.return_value = positions_data
