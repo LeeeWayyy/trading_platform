@@ -101,18 +101,18 @@ class EventPublisher:
             num_subscribers = self.redis.publish(channel, message)
 
             logger.info(
-                f"Published {event.event_type} to '{channel}' "
+                f"Published {event.event_type} to '{channel}' "  # type: ignore[attr-defined]
                 f"({num_subscribers} subscribers)"
             )
 
             return num_subscribers
 
         except (TypeError, ValueError) as e:
-            logger.error(f"Failed to serialize event {event.event_type}: {e}")
+            logger.error(f"Failed to serialize event {event.event_type}: {e}")  # type: ignore[attr-defined]
             raise ValueError(f"Cannot serialize event: {e}") from e
 
         except RedisError as e:
-            logger.error(f"Failed to publish {event.event_type} to '{channel}': {e}")
+            logger.error(f"Failed to publish {event.event_type} to '{channel}': {e}")  # type: ignore[attr-defined]
             # Return None on error (graceful degradation)
             return None
 
@@ -188,6 +188,6 @@ class EventPublisher:
         """
         return self.publish(self.CHANNEL_POSITIONS, event)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """String representation."""
         return "EventPublisher(channels=['signals.generated', 'orders.executed', 'positions.updated'])"

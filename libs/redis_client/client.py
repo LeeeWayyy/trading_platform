@@ -20,7 +20,7 @@ See Also:
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional, cast
 import redis
 from redis.connection import ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError, RedisError
@@ -148,7 +148,9 @@ class RedisClient:
             ...     features = json.loads(value)
         """
         try:
-            return self._client.get(key)
+            # Redis library returns Awaitable[Any] | Any, cast to expected type
+            result = self._client.get(key)
+            return cast(Optional[str], result)
         except RedisError as e:
             logger.error(f"Redis GET failed for key '{key}': {e}")
             raise
@@ -193,7 +195,8 @@ class RedisClient:
             return []
 
         try:
-            return self._client.mget(keys)
+            result = self._client.mget(keys)
+            return cast(list[Optional[str]], result)
         except RedisError as e:
             logger.error(f"Redis MGET failed for {len(keys)} keys: {e}")
             raise
@@ -250,7 +253,8 @@ class RedisClient:
             >>> assert deleted == 1
         """
         try:
-            return self._client.delete(key)
+            result = self._client.delete(key)
+            return cast(int, result)
         except RedisError as e:
             logger.error(f"Redis DELETE failed for key '{key}': {e}")
             raise
@@ -278,12 +282,13 @@ class RedisClient:
             >>> client.publish("signals.generated", '{"symbol": "AAPL"}')
         """
         try:
-            return self._client.publish(channel, message)
+            result = self._client.publish(channel, message)
+            return cast(int, result)
         except RedisError as e:
             logger.error(f"Redis PUBLISH failed for channel '{channel}': {e}")
             raise
 
-    def pubsub(self):
+    def pubsub(self) -> Any:
         """
         Create a pub/sub object for subscribing to channels.
 
@@ -297,7 +302,7 @@ class RedisClient:
             ...     if message['type'] == 'message':
             ...         print(message['data'])
         """
-        return self._client.pubsub()
+        return self._client.pubsub()  # type: ignore[no-untyped-call]
 
     def health_check(self) -> bool:
         """
@@ -334,12 +339,13 @@ class RedisClient:
             >>> print(f"Used memory: {info.get('used_memory_human')}")
         """
         try:
-            return self._client.info()
+            result = self._client.info()
+            return cast(Dict[str, Any], result)
         except RedisError as e:
             logger.error(f"Redis INFO failed: {e}")
             raise
 
-    def close(self):
+    def close(self) -> None:
         """
         Close connection pool and release resources.
 
@@ -351,14 +357,14 @@ class RedisClient:
         logger.info("Closing Redis connection pool")
         self.pool.disconnect()
 
-    def __enter__(self):
+    def __enter__(self) -> "RedisClient":
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         self.close()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """String representation."""
         return f"RedisClient(host={self.host}, port={self.port}, db={self.db})"

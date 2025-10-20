@@ -139,7 +139,9 @@ class FeatureCache:
                 return None
 
             # Deserialize JSON
-            features = json.loads(data)
+            features_data = json.loads(data)
+            # Cast from Any to expected dict type
+            features: dict[str, Any] = features_data
             logger.debug(f"Cache HIT: {symbol} on {date} ({len(features)} features)")
             return features
 
@@ -260,6 +262,6 @@ class FeatureCache:
             logger.error(f"Cannot retrieve cache stats: {e}")
             return {}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """String representation."""
         return f"FeatureCache(ttl={self.ttl}s, prefix={self.prefix})"
