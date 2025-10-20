@@ -178,8 +178,8 @@ class TestValidateClientOrderId:
 
     def test_invalid_type(self):
         """Non-string type should fail."""
-        assert validate_client_order_id(123) is False
-        assert validate_client_order_id(None) is False
+        assert validate_client_order_id(123) is False  # type: ignore[arg-type]
+        assert validate_client_order_id(None) is False  # type: ignore[arg-type]
 
 
 class TestReconstructOrderParamsHash:

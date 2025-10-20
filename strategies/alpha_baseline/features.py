@@ -14,7 +14,7 @@ See /docs/CONCEPTS/alpha158-features.md for detailed explanation.
 """
 
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, cast
 from pathlib import Path
 
 import pandas as pd
@@ -118,9 +118,9 @@ def get_alpha158_features(
     )
 
     # Fetch features
+    # Qlib handler.fetch() returns Any, cast to pd.DataFrame for type safety
     features = handler.fetch(col_set="feature")
-
-    return features
+    return cast(pd.DataFrame, features)
 
 
 def get_labels(
@@ -173,9 +173,9 @@ def get_labels(
     )
 
     # Fetch labels
+    # Qlib handler.fetch() returns Any, cast to pd.DataFrame for type safety
     labels = handler.fetch(col_set="label")
-
-    return labels
+    return cast(pd.DataFrame, labels)
 
 
 def compute_features_and_labels(

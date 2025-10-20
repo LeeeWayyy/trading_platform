@@ -28,8 +28,8 @@ import psycopg2
 import lightgbm as lgb
 import pandas as pd
 import numpy as np
-from sklearn.datasets import make_regression
-from sklearn.model_selection import train_test_split
+from sklearn.datasets import make_regression  # type: ignore[import-untyped]
+from sklearn.model_selection import train_test_split  # type: ignore[import-untyped]
 
 
 # ============================================================================
