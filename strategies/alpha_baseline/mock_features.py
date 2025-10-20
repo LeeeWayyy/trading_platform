@@ -10,7 +10,7 @@ Qlib data format.
 
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import List
+from typing import List, cast
 
 import pandas as pd
 import polars as pl
@@ -82,13 +82,13 @@ def get_mock_alpha158_features(
     combined = pl.concat(all_data)
 
     # Convert to Pandas for easier manipulation
-    df = combined.to_pandas()
+    pandas_df: pd.DataFrame = combined.to_pandas()
 
     # Compute simple features for each symbol
     feature_dfs = []
 
     for symbol in symbols:
-        symbol_df = df[df["symbol"] == symbol].copy()
+        symbol_df = pandas_df[pandas_df["symbol"] == symbol].copy()
 
         if len(symbol_df) == 0:
             continue
@@ -196,8 +196,8 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     for period in [5, 10, 14, 20, 30]:
         # RSI-like
         delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+        gain = (delta.where(delta > 0, 0)).rolling(period).mean()  # type: ignore[operator]
+        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()  # type: ignore[operator]
         rs = gain / (loss + 1e-10)
         features[f"feature_{feature_idx}"] = 100 - (100 / (1 + rs))
         feature_idx += 1
@@ -267,7 +267,7 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
         feature_idx += 1
 
     # Forward fill NaN values
-    features = features.fillna(method="ffill")
+    features = features.fillna(method="ffill")  # type: ignore[call-overload]
 
     # Backward fill remaining NaN (at start)
     features = features.fillna(method="bfill")
@@ -278,4 +278,4 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     # Replace inf with 0
     features = features.replace([np.inf, -np.inf], 0)
 
-    return features
+    return cast(pd.DataFrame, features)
