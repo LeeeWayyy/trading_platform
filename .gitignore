@@ -57,6 +57,8 @@ dmypy.json
 # Data
 data/raw/*
 data/processed/*
+data/adjusted/*
+data/quarantine/*
 !data/.gitkeep
 
 # Artifacts
@@ -82,3 +84,6 @@ mlruns.db
 
 # OS
 Thumbs.db
+
+# Zen-MCP temporary files
+zen_precommit.changeset
