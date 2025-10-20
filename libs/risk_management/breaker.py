@@ -36,7 +36,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 import redis.exceptions
 
@@ -196,7 +196,7 @@ class CircuitBreaker:
     def trip(
         self,
         reason: str,
-        details: Optional[dict] = None,
+        details: Optional[dict[str, Any]] = None,
     ) -> None:
         """
         Trip the circuit breaker atomically.
@@ -230,14 +230,15 @@ class CircuitBreaker:
             while True:
                 try:
                     # Watch the state key for changes from other clients
-                    pipe.watch(self.state_key)
+                    pipe.watch(self.state_key)  # type: ignore[no-untyped-call]
 
                     state_json = pipe.get(self.state_key)
                     if not state_json:
                         self._initialize_state()
                         state_json = pipe.get(self.state_key)
 
-                    state_data = json.loads(state_json)
+                    assert state_json is not None, "State should exist after initialization"
+                    state_data: dict[str, Any] = json.loads(state_json)  # type: ignore[arg-type]
 
                     # Check if already tripped (idempotent behavior)
                     if state_data["state"] == CircuitBreakerState.TRIPPED.value:
@@ -322,14 +323,15 @@ class CircuitBreaker:
             while True:
                 try:
                     # Watch the state key for changes from other clients
-                    pipe.watch(self.state_key)
+                    pipe.watch(self.state_key)  # type: ignore[no-untyped-call]
 
                     state_json = pipe.get(self.state_key)
                     if not state_json:
                         self._initialize_state()
                         state_json = pipe.get(self.state_key)
 
-                    state_data = json.loads(state_json)
+                    assert state_json is not None, "State should exist after initialization"
+                    state_data: dict[str, Any] = json.loads(state_json)  # type: ignore[arg-type]
 
                     # Validate current state
                     current_state = CircuitBreakerState(state_data["state"])
@@ -383,7 +385,7 @@ class CircuitBreaker:
             while True:
                 try:
                     # Watch the state key for changes from other clients
-                    pipe.watch(self.state_key)
+                    pipe.watch(self.state_key)  # type: ignore[no-untyped-call]
 
                     state_json = pipe.get(self.state_key)
                     if not state_json:
@@ -392,7 +394,7 @@ class CircuitBreaker:
                         self._initialize_state()
                         return
 
-                    state_data = json.loads(state_json)
+                    state_data: dict[str, Any] = json.loads(state_json)  # type: ignore[arg-type]
 
                     # Start atomic transaction
                     pipe.multi()
@@ -437,9 +439,9 @@ class CircuitBreaker:
             return None
 
         state_data = json.loads(state_json)
-        return state_data.get("trip_reason")
+        return state_data.get("trip_reason")  # type: ignore[no-any-return]
 
-    def get_trip_details(self) -> Optional[dict]:
+    def get_trip_details(self) -> Optional[dict[str, Any]]:
         """
         Get details for current trip (if TRIPPED).
 
@@ -456,9 +458,9 @@ class CircuitBreaker:
             return None
 
         state_data = json.loads(state_json)
-        return state_data.get("trip_details")
+        return state_data.get("trip_details")  # type: ignore[no-any-return]
 
-    def _append_to_history(self, entry: dict) -> None:
+    def _append_to_history(self, entry: dict[str, Any]) -> None:
         """
         Append trip event to history log using Redis Sorted Set.
 
@@ -484,7 +486,7 @@ class CircuitBreaker:
 
         # Trim to keep only last max_history_entries (oldest entries removed first)
         # Only trim if we exceed the limit
-        current_count = redis_conn.zcard(self.history_key)
+        current_count: int = redis_conn.zcard(self.history_key)  # type: ignore[assignment]
         if current_count > self.max_history_entries:
             # Remove oldest entries (lowest scores/ranks)
             # Keep ranks from (current_count - max_history_entries) onwards
@@ -492,7 +494,7 @@ class CircuitBreaker:
             num_to_remove = current_count - self.max_history_entries
             redis_conn.zremrangebyrank(self.history_key, 0, num_to_remove - 1)
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """
         Get comprehensive circuit breaker status.
 
@@ -517,4 +519,5 @@ class CircuitBreaker:
             self._initialize_state()
             state_json = self.redis.get(self.state_key)
 
-        return json.loads(state_json)
+        assert state_json is not None, "State should exist after initialization"
+        return json.loads(state_json)  # type: ignore[no-any-return]
