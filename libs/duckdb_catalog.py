@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import pandas as pd
 import polars as pl
 
 
@@ -224,7 +225,7 @@ class DuckDBCatalog:
         sql: str,
         params: list[Any] | None = None,
         return_format: str = "polars"
-    ) -> pl.DataFrame:
+    ) -> pl.DataFrame | pd.DataFrame:
         """
         Execute SQL query and return results.
 
@@ -309,10 +310,8 @@ class DuckDBCatalog:
         if return_format == "polars":
             return result.pl()
         elif return_format == "pandas":
-            # DuckDB result.df() returns pandas DataFrame but mypy types it as Any
-            # Cast to Polars (caller can convert if needed)
-            pandas_df = result.df()
-            return pl.from_pandas(pandas_df)
+            # DuckDB result.df() returns pandas DataFrame
+            return result.df()
         else:
             raise ValueError(
                 f"Invalid return_format: {return_format}. "
