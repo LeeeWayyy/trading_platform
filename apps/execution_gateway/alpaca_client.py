@@ -201,7 +201,7 @@ class AlpacaExecutor:
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
                 "side": alpaca_order.side.value,
-                "qty": float(alpaca_order.qty),  # type: ignore[arg-type]  # alpaca-py types qty as str|float|None
+                "qty": float(alpaca_order.qty or 0),  # Handle None case (alpaca-py types qty as str|float|None)
                 "order_type": alpaca_order.order_type.value,
                 "status": alpaca_order.status.value,
                 "created_at": alpaca_order.created_at,

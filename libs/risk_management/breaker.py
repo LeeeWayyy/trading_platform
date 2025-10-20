@@ -36,7 +36,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 import redis.exceptions
 
@@ -238,7 +238,7 @@ class CircuitBreaker:
                         state_json = pipe.get(self.state_key)
 
                     assert state_json is not None, "State should exist after initialization"
-                    state_data: dict[str, Any] = json.loads(state_json)  # type: ignore[arg-type]
+                    state_data: dict[str, Any] = json.loads(cast(str, state_json))  # Explicit cast for type narrowing
 
                     # Check if already tripped (idempotent behavior)
                     if state_data["state"] == CircuitBreakerState.TRIPPED.value:
@@ -331,7 +331,7 @@ class CircuitBreaker:
                         state_json = pipe.get(self.state_key)
 
                     assert state_json is not None, "State should exist after initialization"
-                    state_data: dict[str, Any] = json.loads(state_json)  # type: ignore[arg-type]
+                    state_data: dict[str, Any] = json.loads(cast(str, state_json))  # Explicit cast for type narrowing
 
                     # Validate current state
                     current_state = CircuitBreakerState(state_data["state"])
