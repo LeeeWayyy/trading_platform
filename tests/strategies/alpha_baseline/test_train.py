@@ -11,16 +11,16 @@ Note: Full training tests require Qlib data format.
 These tests verify structure and interfaces.
 """
 
-from pathlib import Path
-import tempfile
 import shutil
+import tempfile
+from pathlib import Path
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
+from strategies.alpha_baseline.config import DataConfig, ModelConfig, StrategyConfig, TrainingConfig
 from strategies.alpha_baseline.train import BaselineTrainer, train_baseline_model
-from strategies.alpha_baseline.config import StrategyConfig, DataConfig, ModelConfig, TrainingConfig
 
 
 class TestBaselineTrainer:
@@ -196,9 +196,7 @@ class TestBaselineTrainer:
     def test_load_model(self) -> None:
         """Load trained model from disk."""
         # Train and save model first
-        config = StrategyConfig(
-            training=TrainingConfig(model_dir=self.model_dir)
-        )
+        config = StrategyConfig(training=TrainingConfig(model_dir=self.model_dir))
 
         trainer1 = BaselineTrainer(config)
         trainer1.train()

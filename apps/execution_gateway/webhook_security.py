@@ -16,11 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def verify_webhook_signature(
-    payload: bytes,
-    signature: str,
-    secret: str
-) -> bool:
+def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
     """
     Verify webhook signature from Alpaca.
 
@@ -59,11 +55,7 @@ def verify_webhook_signature(
 
     try:
         # Compute expected signature
-        expected_signature = hmac.new(
-            secret.encode('utf-8'),
-            payload,
-            hashlib.sha256
-        ).hexdigest()
+        expected_signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
         # Constant-time comparison to prevent timing attacks
         is_valid = hmac.compare_digest(expected_signature, signature.lower())
@@ -73,8 +65,8 @@ def verify_webhook_signature(
                 "Webhook signature verification failed",
                 extra={
                     "expected_signature_prefix": expected_signature[:8],
-                    "provided_signature_prefix": signature[:8]
-                }
+                    "provided_signature_prefix": signature[:8],
+                },
             )
 
         return is_valid
@@ -110,11 +102,7 @@ def generate_webhook_signature(payload: bytes, secret: str) -> str:
         - Returns lowercase hex string
         - Same algorithm as Alpaca uses for signing
     """
-    return hmac.new(
-        secret.encode('utf-8'),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
+    return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
 
 def extract_signature_from_header(header_value: str | None) -> str | None:

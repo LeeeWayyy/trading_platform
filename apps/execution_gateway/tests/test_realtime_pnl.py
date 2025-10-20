@@ -68,9 +68,7 @@ class TestRealtimePnLEndpoint:
 
     @patch("apps.execution_gateway.main.db_client")
     @patch("apps.execution_gateway.main.redis_client")
-    def test_realtime_pnl_with_redis_prices(
-        self, mock_redis, mock_db, test_client, mock_positions
-    ):
+    def test_realtime_pnl_with_redis_prices(self, mock_redis, mock_db, test_client, mock_positions):
         """Test P&L calculation with real-time prices from Redis."""
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
@@ -81,21 +79,29 @@ class TestRealtimePnLEndpoint:
             result: list[str | None] = []
             for key in keys:
                 if key == "price:AAPL":
-                    result.append(json.dumps({
-                        "symbol": "AAPL",
-                        "bid": 152.00,
-                        "ask": 152.10,
-                        "mid": 152.05,
-                        "timestamp": "2024-10-19T14:30:00+00:00",
-                    }))
+                    result.append(
+                        json.dumps(
+                            {
+                                "symbol": "AAPL",
+                                "bid": 152.00,
+                                "ask": 152.10,
+                                "mid": 152.05,
+                                "timestamp": "2024-10-19T14:30:00+00:00",
+                            }
+                        )
+                    )
                 elif key == "price:MSFT":
-                    result.append(json.dumps({
-                        "symbol": "MSFT",
-                        "bid": 305.00,
-                        "ask": 305.10,
-                        "mid": 305.05,
-                        "timestamp": "2024-10-19T14:30:05+00:00",
-                    }))
+                    result.append(
+                        json.dumps(
+                            {
+                                "symbol": "MSFT",
+                                "bid": 305.00,
+                                "ask": 305.10,
+                                "mid": 305.05,
+                                "timestamp": "2024-10-19T14:30:05+00:00",
+                            }
+                        )
+                    )
                 else:
                     result.append(None)
             return result
@@ -126,9 +132,7 @@ class TestRealtimePnLEndpoint:
         # P&L = (152.05 - 150.00) * 10 = 20.50
         assert Decimal(aapl_pos["unrealized_pl"]) == Decimal("20.50")
         # P&L % = (152.05 - 150.00) / 150.00 * 100 = 1.37%
-        assert abs(Decimal(aapl_pos["unrealized_pl_pct"]) - Decimal("1.37")) < Decimal(
-            "0.01"
-        )
+        assert abs(Decimal(aapl_pos["unrealized_pl_pct"]) - Decimal("1.37")) < Decimal("0.01")
 
         # Verify MSFT position
         msft_pos = next(p for p in data["positions"] if p["symbol"] == "MSFT")
@@ -178,9 +182,7 @@ class TestRealtimePnLEndpoint:
 
     @patch("apps.execution_gateway.main.db_client")
     @patch("apps.execution_gateway.main.redis_client")
-    def test_realtime_pnl_with_entry_price_fallback(
-        self, mock_redis, mock_db, test_client
-    ):
+    def test_realtime_pnl_with_entry_price_fallback(self, mock_redis, mock_db, test_client):
         """Test P&L calculation with entry price fallback when no prices available."""
         # Position with no current_price
         position = Position(
@@ -228,13 +230,17 @@ class TestRealtimePnLEndpoint:
             result: list[str | None] = []
             for key in keys:
                 if key == "price:AAPL":
-                    result.append(json.dumps({
-                        "symbol": "AAPL",
-                        "bid": 151.00,
-                        "ask": 151.10,
-                        "mid": 151.05,
-                        "timestamp": "2024-10-19T14:30:00+00:00",
-                    }))
+                    result.append(
+                        json.dumps(
+                            {
+                                "symbol": "AAPL",
+                                "bid": 151.00,
+                                "ask": 151.10,
+                                "mid": 151.05,
+                                "timestamp": "2024-10-19T14:30:00+00:00",
+                            }
+                        )
+                    )
                 else:
                     result.append(None)
             return result
@@ -292,6 +298,7 @@ class TestRealtimePnLEndpoint:
 
         # Setup Redis mock to raise TimeoutError (different from ConnectionError)
         from redis.exceptions import TimeoutError as RedisTimeoutError
+
         mock_redis.mget = MagicMock(side_effect=RedisTimeoutError("Redis timeout"))
 
         # Make request - should still work with database fallback
@@ -325,9 +332,7 @@ class TestRealtimePnLEndpoint:
 
     @patch("apps.execution_gateway.main.db_client")
     @patch("apps.execution_gateway.main.redis_client")
-    def test_realtime_pnl_percentage_calculations(
-        self, mock_redis, mock_db, test_client
-    ):
+    def test_realtime_pnl_percentage_calculations(self, mock_redis, mock_db, test_client):
         """Test P&L percentage calculations are correct."""
         # Create positions with known prices for easy math
         positions = [
@@ -358,21 +363,29 @@ class TestRealtimePnLEndpoint:
             result: list[str | None] = []
             for key in keys:
                 if key == "price:TEST1":
-                    result.append(json.dumps({
-                        "symbol": "TEST1",
-                        "bid": 110.00,
-                        "ask": 110.00,
-                        "mid": 110.00,  # 10% gain
-                        "timestamp": "2024-10-19T14:30:00+00:00",
-                    }))
+                    result.append(
+                        json.dumps(
+                            {
+                                "symbol": "TEST1",
+                                "bid": 110.00,
+                                "ask": 110.00,
+                                "mid": 110.00,  # 10% gain
+                                "timestamp": "2024-10-19T14:30:00+00:00",
+                            }
+                        )
+                    )
                 elif key == "price:TEST2":
-                    result.append(json.dumps({
-                        "symbol": "TEST2",
-                        "bid": 220.00,
-                        "ask": 220.00,
-                        "mid": 220.00,  # 10% gain
-                        "timestamp": "2024-10-19T14:30:00+00:00",
-                    }))
+                    result.append(
+                        json.dumps(
+                            {
+                                "symbol": "TEST2",
+                                "bid": 220.00,
+                                "ask": 220.00,
+                                "mid": 220.00,  # 10% gain
+                                "timestamp": "2024-10-19T14:30:00+00:00",
+                            }
+                        )
+                    )
                 else:
                     result.append(None)
             return result
@@ -440,13 +453,17 @@ class TestRealtimePnLEndpoint:
             result: list[str | None] = []
             for key in keys:
                 if key == "price:SHORT":
-                    result.append(json.dumps({
-                        "symbol": "SHORT",
-                        "bid": 140.00,
-                        "ask": 140.00,
-                        "mid": 140.00,  # Price down $10
-                        "timestamp": "2024-10-19T14:30:00+00:00",
-                    }))
+                    result.append(
+                        json.dumps(
+                            {
+                                "symbol": "SHORT",
+                                "bid": 140.00,
+                                "ask": 140.00,
+                                "mid": 140.00,  # Price down $10
+                                "timestamp": "2024-10-19T14:30:00+00:00",
+                            }
+                        )
+                    )
                 else:
                     result.append(None)
             return result
@@ -466,15 +483,11 @@ class TestRealtimePnLEndpoint:
         # P&L % = (unrealized_pl / (entry_price * abs(qty))) * 100
         # = (100 / (150 * 10)) * 100 = (100 / 1500) * 100 = 6.67%
         # Profitable short shows positive percentage (based on actual profit)
-        assert abs(Decimal(short_pos["unrealized_pl_pct"]) - Decimal("6.67")) < Decimal(
-            "0.01"
-        )
+        assert abs(Decimal(short_pos["unrealized_pl_pct"]) - Decimal("6.67")) < Decimal("0.01")
 
     @patch("apps.execution_gateway.main.db_client")
     @patch("apps.execution_gateway.main.redis_client")
-    def test_realtime_pnl_with_zero_price_edge_case(
-        self, mock_redis, mock_db, test_client
-    ):
+    def test_realtime_pnl_with_zero_price_edge_case(self, mock_redis, mock_db, test_client):
         """
         Test that Decimal('0') is treated as a valid price (not falsy).
 
@@ -520,7 +533,7 @@ class TestRealtimePnLEndpoint:
 
 class TestResolveAndCalculatePnL:
     """Unit tests for _resolve_and_calculate_pnl helper function.
-    
+
     This tests the refactored helper function that resolves price sources
     and calculates P&L, addressing Gemini's MEDIUM priority review feedback
     about improving modularity and readability.

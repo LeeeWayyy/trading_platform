@@ -11,16 +11,14 @@ See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple, cast
-from datetime import datetime
+from typing import Any, cast
 
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import pandas as pd
 
-from strategies.alpha_baseline.train import BaselineTrainer
 from strategies.alpha_baseline.config import StrategyConfig
+from strategies.alpha_baseline.train import BaselineTrainer
 
 
 class PortfolioBacktest:
@@ -78,11 +76,11 @@ class PortfolioBacktest:
         self.top_n = top_n
         self.bottom_n = bottom_n
 
-        self.portfolio_returns: Optional[pd.Series] = None
-        self.cumulative_returns: Optional[pd.Series] = None
-        self.metrics: Dict[str, float] = {}
+        self.portfolio_returns: pd.Series | None = None
+        self.cumulative_returns: pd.Series | None = None
+        self.metrics: dict[str, float] = {}
 
-    def run(self) -> Dict[str, float]:
+    def run(self) -> dict[str, float]:
         """
         Run portfolio backtest.
 
@@ -187,9 +185,9 @@ class PortfolioBacktest:
 
             daily_returns.append(portfolio_return)
 
-        return cast(pd.Series, pd.Series(daily_returns, index=dates[:len(daily_returns)]))
+        return cast(pd.Series, pd.Series(daily_returns, index=dates[: len(daily_returns)]))
 
-    def _compute_metrics(self) -> Dict[str, float]:
+    def _compute_metrics(self) -> dict[str, float]:
         """
         Compute portfolio performance metrics.
 
@@ -215,7 +213,9 @@ class PortfolioBacktest:
             return {}
 
         returns = self.portfolio_returns
-        assert self.cumulative_returns is not None, "cumulative_returns must be set after portfolio_returns"
+        assert (
+            self.cumulative_returns is not None
+        ), "cumulative_returns must be set after portfolio_returns"
 
         # Total return
         total_return = self.cumulative_returns.iloc[-1]
@@ -256,9 +256,7 @@ class PortfolioBacktest:
             "n_days": n_days,
         }
 
-    def plot_cumulative_returns(
-        self, save_path: Optional[Path] = None, show: bool = True
-    ) -> None:
+    def plot_cumulative_returns(self, save_path: Path | None = None, show: bool = True) -> None:
         """
         Plot cumulative returns over time.
 
@@ -282,7 +280,7 @@ class PortfolioBacktest:
         plt.grid(True, alpha=0.3)
 
         # Add horizontal line at 0
-        plt.axhline(y=0, color='r', linestyle='--', alpha=0.3)
+        plt.axhline(y=0, color="r", linestyle="--", alpha=0.3)
 
         if save_path:
             plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -292,9 +290,7 @@ class PortfolioBacktest:
         else:
             plt.close()
 
-    def plot_drawdown(
-        self, save_path: Optional[Path] = None, show: bool = True
-    ) -> None:
+    def plot_drawdown(self, save_path: Path | None = None, show: bool = True) -> None:
         """
         Plot drawdown over time.
 
@@ -314,9 +310,9 @@ class PortfolioBacktest:
 
         plt.figure(figsize=(12, 6))
         plt.fill_between(
-            drawdown.index, drawdown.values * 100, 0, alpha=0.3, color='red'  # type: ignore[operator]
+            drawdown.index, drawdown.values * 100, 0, alpha=0.3, color="red"  # type: ignore[operator]
         )
-        plt.plot(drawdown.index, drawdown.values * 100, color='red')  # type: ignore[operator]
+        plt.plot(drawdown.index, drawdown.values * 100, color="red")  # type: ignore[operator]
         plt.title("Portfolio Drawdown", fontsize=14, fontweight="bold")
         plt.xlabel("Date")
         plt.ylabel("Drawdown (%)")
@@ -386,8 +382,8 @@ def evaluate_model(
     y_test: pd.DataFrame,
     top_n: int = 3,
     bottom_n: int = 3,
-    save_dir: Optional[Path] = None,
-) -> Dict[str, Any]:
+    save_dir: Path | None = None,
+) -> dict[str, Any]:
     """
     Evaluate trained model on test set.
 
@@ -487,8 +483,8 @@ if __name__ == "__main__":
     # Example usage
     print("Training baseline model and evaluating on test set...")
 
-    from strategies.alpha_baseline.train import train_baseline_model
     from strategies.alpha_baseline.config import StrategyConfig
+    from strategies.alpha_baseline.train import train_baseline_model
 
     # Train model
     config = StrategyConfig()

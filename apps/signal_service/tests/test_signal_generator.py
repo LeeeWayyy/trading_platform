@@ -194,12 +194,14 @@ class TestWeightValidation:
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
         # Create mock signals with correct weights
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
-            "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
-            "rank": [1, 2, 3, 4, 5],
-            "target_weight": [0.5, 0.5, 0.0, -0.5, -0.5],  # 2 long, 2 short
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
+                "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
+                "rank": [1, 2, 3, 4, 5],
+                "target_weight": [0.5, 0.5, 0.0, -0.5, -0.5],  # 2 long, 2 short
+            }
+        )
 
         assert generator.validate_weights(signals) is True
 
@@ -209,12 +211,14 @@ class TestWeightValidation:
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
         # Incorrect long sum (0.9 instead of 1.0)
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
-            "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
-            "rank": [1, 2, 3, 4, 5],
-            "target_weight": [0.4, 0.5, 0.0, -0.5, -0.5],  # Sum = 0.9
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
+                "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
+                "rank": [1, 2, 3, 4, 5],
+                "target_weight": [0.4, 0.5, 0.0, -0.5, -0.5],  # Sum = 0.9
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 
@@ -224,12 +228,14 @@ class TestWeightValidation:
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
         # Only 1 long position instead of 2
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
-            "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
-            "rank": [1, 2, 3, 4, 5],
-            "target_weight": [1.0, 0.0, 0.0, -0.5, -0.5],  # Only 1 long
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
+                "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
+                "rank": [1, 2, 3, 4, 5],
+                "target_weight": [1.0, 0.0, 0.0, -0.5, -0.5],  # Only 1 long
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 
@@ -239,12 +245,14 @@ class TestWeightValidation:
         generator = SignalGenerator(registry, temp_dir, top_n=2, bottom_n=2)
 
         # Weight > 1.0 (out of bounds)
-        signals = pd.DataFrame({
-            "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
-            "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
-            "rank": [1, 2, 3, 4, 5],
-            "target_weight": [1.5, -0.5, 0.0, -0.5, -0.5],  # 1.5 > 1.0
-        })
+        signals = pd.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
+                "predicted_return": [0.02, 0.01, 0.0, -0.01, -0.02],
+                "rank": [1, 2, 3, 4, 5],
+                "target_weight": [1.5, -0.5, 0.0, -0.5, -0.5],  # 1.5 > 1.0
+            }
+        )
 
         assert generator.validate_weights(signals) is False
 

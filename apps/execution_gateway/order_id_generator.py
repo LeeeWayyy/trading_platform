@@ -23,9 +23,7 @@ from apps.execution_gateway.schemas import OrderRequest
 
 
 def generate_client_order_id(
-    order: OrderRequest,
-    strategy_id: str,
-    as_of_date: date | None = None
+    order: OrderRequest, strategy_id: str, as_of_date: date | None = None
 ) -> str:
     """
     Generate deterministic client_order_id for an order.
@@ -99,7 +97,7 @@ def generate_client_order_id(
     )
 
     # Hash with SHA256 and take first 24 characters
-    hash_obj = hashlib.sha256(raw.encode('utf-8'))
+    hash_obj = hashlib.sha256(raw.encode("utf-8"))
     client_order_id = hash_obj.hexdigest()[:24]
 
     return client_order_id
@@ -144,7 +142,7 @@ def reconstruct_order_params_hash(
     limit_price: Decimal | None,
     stop_price: Decimal | None,
     strategy_id: str,
-    order_date: date
+    order_date: date,
 ) -> str:
     """
     Reconstruct client_order_id from raw parameters.
@@ -195,7 +193,7 @@ def reconstruct_order_params_hash(
     )
 
     # Hash and truncate
-    hash_obj = hashlib.sha256(raw.encode('utf-8'))
+    hash_obj = hashlib.sha256(raw.encode("utf-8"))
     return hash_obj.hexdigest()[:24]
 
 

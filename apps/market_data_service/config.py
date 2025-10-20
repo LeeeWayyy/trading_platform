@@ -4,7 +4,6 @@ Market Data Service Configuration
 Settings loaded from environment variables.
 """
 
-
 from pydantic_settings import BaseSettings
 
 

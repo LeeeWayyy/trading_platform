@@ -60,8 +60,7 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
     # Validate inputs
     if "timestamp" not in df.columns:
         raise ValueError(
-            "DataFrame must have 'timestamp' column. "
-            "Available columns: " + ", ".join(df.columns)
+            "DataFrame must have 'timestamp' column. " "Available columns: " + ", ".join(df.columns)
         )
 
     if df.is_empty():

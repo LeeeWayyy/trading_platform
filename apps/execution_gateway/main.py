@@ -78,17 +78,16 @@ from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Environment variables
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "")
 ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+)
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
@@ -122,7 +121,9 @@ except (RedisError, RedisConnectionError) as e:
     # Catch both redis-py errors (RedisError) and our custom RedisConnectionError
     # Service should start even if Redis is misconfigured or unavailable
     # RedisConnectionError is raised by RedisClient when initial ping() fails
-    logger.warning(f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices.")
+    logger.warning(
+        f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices."
+    )
 
 # Alpaca client (only if not in dry run mode and credentials provided)
 alpaca_client: AlpacaExecutor | None = None
@@ -138,7 +139,7 @@ if not DRY_RUN:
                 api_key=ALPACA_API_KEY_ID,
                 secret_key=ALPACA_API_SECRET_KEY,
                 base_url=ALPACA_BASE_URL,
-                paper=True
+                paper=True,
             )
             logger.info("Alpaca client initialized successfully")
         except Exception as e:
@@ -161,16 +162,15 @@ app = FastAPI(
 # Exception Handlers
 # ============================================================================
 
+
 @app.exception_handler(ValidationError)
 async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     """Handle Pydantic validation errors."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Validation error",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Validation error", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
@@ -180,10 +180,8 @@ async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content=ErrorResponse(
-            error="Order validation failed",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Order validation failed", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
@@ -193,10 +191,8 @@ async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError) 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Order rejected by broker",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Order rejected by broker", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
@@ -206,10 +202,8 @@ async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content=ErrorResponse(
-            error="Broker connection error",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Broker connection error", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
@@ -256,7 +250,9 @@ def _batch_fetch_realtime_prices_from_redis(
         price_values = redis_client.mget(price_keys)
 
         # Initialize results with default (None, None) for all symbols (DRY principle)
-        result: dict[str, tuple[Decimal | None, datetime | None]] = dict.fromkeys(symbols, (None, None))
+        result: dict[str, tuple[Decimal | None, datetime | None]] = dict.fromkeys(
+            symbols, (None, None)
+        )
 
         # Parse results and update dictionary for symbols with valid data
         for symbol, price_json in zip(symbols, price_values):
@@ -279,8 +275,6 @@ def _batch_fetch_realtime_prices_from_redis(
         # Catch all Redis errors (connection, timeout, etc.) for graceful degradation
         logger.warning(f"Failed to batch fetch prices for {len(symbols)} symbols: {e}")
         return dict.fromkeys(symbols, (None, None))
-
-
 
 
 def _calculate_position_pnl(
@@ -368,9 +362,7 @@ def _resolve_and_calculate_pnl(
         last_price_update = None
 
     # Calculate P&L with resolved price
-    position_pnl = _calculate_position_pnl(
-        pos, current_price, price_source, last_price_update
-    )
+    position_pnl = _calculate_position_pnl(pos, current_price, price_source, last_price_update)
 
     return position_pnl, is_realtime
 
@@ -378,6 +370,7 @@ def _resolve_and_calculate_pnl(
 # ============================================================================
 # Endpoints
 # ============================================================================
+
 
 @app.get("/", tags=["Health"])
 async def root() -> dict[str, Any]:
@@ -446,7 +439,7 @@ async def health_check() -> HealthResponse:
         details={
             "strategy_id": STRATEGY_ID,
             "alpaca_base_url": ALPACA_BASE_URL if not DRY_RUN else None,
-        }
+        },
     )
 
 
@@ -521,8 +514,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             "symbol": order.symbol,
             "side": order.side,
             "qty": order.qty,
-            "order_type": order.order_type
-        }
+            "order_type": order.order_type,
+        },
     )
 
     # Check if order already exists (idempotency)
@@ -530,7 +523,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
     if existing_order:
         logger.info(
             f"Order already exists (idempotent): {client_order_id}",
-            extra={"client_order_id": client_order_id, "status": existing_order.status}
+            extra={"client_order_id": client_order_id, "status": existing_order.status},
         )
 
         return OrderResponse(
@@ -543,7 +536,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             order_type=existing_order.order_type,
             limit_price=existing_order.limit_price,
             created_at=existing_order.created_at,
-            message=f"Order already submitted (status: {existing_order.status})"
+            message=f"Order already submitted (status: {existing_order.status})",
         )
 
     # Submit order based on DRY_RUN mode
@@ -551,7 +544,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         # DRY_RUN mode - log order but don't submit to broker
         logger.info(
             f"[DRY_RUN] Logging order: {order.symbol} {order.side} {order.qty}",
-            extra={"client_order_id": client_order_id}
+            extra={"client_order_id": client_order_id},
         )
 
         order_detail = db_client.create_order(
@@ -572,7 +565,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             order_type=order.order_type,
             limit_price=order.limit_price,
             created_at=order_detail.created_at,
-            message="Order logged (DRY_RUN mode)"
+            message="Order logged (DRY_RUN mode)",
         )
 
     else:
@@ -580,7 +573,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         if not alpaca_client:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Alpaca client not initialized. Check credentials."
+                detail="Alpaca client not initialized. Check credentials.",
             )
 
         try:
@@ -601,8 +594,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 extra={
                     "client_order_id": client_order_id,
                     "broker_order_id": alpaca_response["id"],
-                    "status": alpaca_response["status"]
-                }
+                    "status": alpaca_response["status"],
+                },
             )
 
             return OrderResponse(
@@ -615,7 +608,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 order_type=order.order_type,
                 limit_price=order.limit_price,
                 created_at=order_detail.created_at,
-                message="Order submitted to broker"
+                message="Order submitted to broker",
             )
 
         except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError):
@@ -632,12 +625,12 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 order_request=order,
                 status="rejected",
                 broker_order_id=None,
-                error_message=str(e)
+                error_message=str(e),
             )
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Order submission failed: {str(e)}"
+                detail=f"Order submission failed: {str(e)}",
             )
 
 
@@ -680,8 +673,7 @@ async def get_order(client_order_id: str) -> OrderDetail:
 
     if not order:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Order not found: {client_order_id}"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Order not found: {client_order_id}"
         )
 
     return order
@@ -730,7 +722,7 @@ async def get_positions() -> PositionsResponse:
         positions=positions,
         total_positions=len(positions),
         total_unrealized_pl=total_unrealized_pl if positions else None,
-        total_realized_pl=total_realized_pl
+        total_realized_pl=total_realized_pl,
     )
 
 
@@ -814,9 +806,7 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
     # Calculate totals
     total_unrealized_pl = sum((p.unrealized_pl for p in realtime_positions), Decimal("0"))
     total_unrealized_pl_pct = (
-        (total_unrealized_pl / total_investment) * Decimal("100")
-        if total_investment > 0
-        else None
+        (total_unrealized_pl / total_investment) * Decimal("100") if total_investment > 0 else None
     )
 
     return RealtimePnLResponse(
@@ -885,26 +875,21 @@ async def order_webhook(request: Request) -> dict[str, str]:
             if not signature:
                 logger.warning("Webhook received without signature")
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Missing webhook signature"
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing webhook signature"
                 )
 
             if not verify_webhook_signature(body, signature, WEBHOOK_SECRET):
                 logger.error("Webhook signature verification failed")
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid webhook signature"
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature"
                 )
 
             logger.debug("Webhook signature verified successfully")
         else:
-            logger.warning(
-                "Webhook signature verification disabled (WEBHOOK_SECRET not set)"
-            )
+            logger.warning("Webhook signature verification disabled (WEBHOOK_SECRET not set)")
 
         logger.info(
-            f"Webhook received: {payload.get('event', 'unknown')}",
-            extra={"payload": payload}
+            f"Webhook received: {payload.get('event', 'unknown')}", extra={"payload": payload}
         )
 
         # Extract order information
@@ -940,7 +925,7 @@ async def order_webhook(request: Request) -> dict[str, str]:
                 symbol=order_data["symbol"],
                 qty=int(filled_qty),
                 price=Decimal(str(filled_avg_price)),
-                side=order_data["side"]
+                side=order_data["side"],
             )
 
             logger.info(
@@ -948,8 +933,8 @@ async def order_webhook(request: Request) -> dict[str, str]:
                 extra={
                     "symbol": position.symbol,
                     "qty": str(position.qty),
-                    "avg_price": str(position.avg_entry_price)
-                }
+                    "avg_price": str(position.avg_entry_price),
+                },
             )
 
         return {"status": "ok", "client_order_id": client_order_id}
@@ -957,14 +942,14 @@ async def order_webhook(request: Request) -> dict[str, str]:
     except Exception as e:
         logger.error(f"Webhook processing error: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Webhook processing failed: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Webhook processing failed: {str(e)}"
         )
 
 
 # ============================================================================
 # Startup / Shutdown
 # ============================================================================
+
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -1001,5 +986,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8002,
         reload=True,
-        log_level=LOG_LEVEL.lower()
+        log_level=LOG_LEVEL.lower(),
     )

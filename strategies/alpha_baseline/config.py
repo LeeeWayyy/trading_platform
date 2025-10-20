@@ -9,7 +9,7 @@ See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -35,7 +35,7 @@ class DataConfig:
         ... )
     """
 
-    symbols: List[str] = field(default_factory=lambda: ["AAPL", "MSFT", "GOOGL"])
+    symbols: list[str] = field(default_factory=lambda: ["AAPL", "MSFT", "GOOGL"])
     data_dir: Path = Path("data/adjusted")
 
     # Data splits (default: 2020-2023 train, 2024 H1 valid, 2024 H2 test)
@@ -161,7 +161,7 @@ class TrainingConfig:
     save_best_only: bool = True
     model_dir: Path = Path("artifacts/models")
     experiment_name: str = "alpha_baseline"
-    run_name: Optional[str] = None  # Auto-generated if None
+    run_name: str | None = None  # Auto-generated if None
 
 
 @dataclass

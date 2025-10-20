@@ -221,10 +221,7 @@ class DuckDBCatalog:
         self._registered_tables[table_name] = ", ".join(paths)
 
     def query(
-        self,
-        sql: str,
-        params: list[Any] | None = None,
-        return_format: str = "polars"
+        self, sql: str, params: list[Any] | None = None, return_format: str = "polars"
     ) -> pl.DataFrame | pd.DataFrame:
         """
         Execute SQL query and return results.
@@ -314,8 +311,7 @@ class DuckDBCatalog:
             return result.df()
         else:
             raise ValueError(
-                f"Invalid return_format: {return_format}. "
-                "Use 'polars' or 'pandas'."
+                f"Invalid return_format: {return_format}. " "Use 'polars' or 'pandas'."
             )
 
     def get_symbols(self, table_name: str = "market_data") -> list[str]:
@@ -338,9 +334,7 @@ class DuckDBCatalog:
             ['AAPL', 'GOOGL', 'MSFT']
         """
         self._validate_table_name(table_name)
-        result = self.query(
-            f"SELECT DISTINCT symbol FROM {table_name} ORDER BY symbol"
-        )
+        result = self.query(f"SELECT DISTINCT symbol FROM {table_name} ORDER BY symbol")
         return result["symbol"].to_list()
 
     def get_date_range(self, table_name: str = "market_data") -> tuple[str, str]:
@@ -366,10 +360,7 @@ class DuckDBCatalog:
         result = self.query(
             f"SELECT MIN(date) AS min_date, MAX(date) AS max_date FROM {table_name}"
         )
-        return (
-            str(result["min_date"][0]),
-            str(result["max_date"][0])
-        )
+        return (str(result["min_date"][0]), str(result["max_date"][0]))
 
     def get_stats(self, table_name: str = "market_data") -> pl.DataFrame:
         """
@@ -404,7 +395,8 @@ class DuckDBCatalog:
             └───────────┴────────────┴────────────┴──────────────┘
         """
         self._validate_table_name(table_name)
-        result = self.query(f"""
+        result = self.query(
+            f"""
             SELECT
                 COUNT(*) AS row_count,
                 COUNT(DISTINCT symbol) AS n_symbols,
@@ -412,7 +404,9 @@ class DuckDBCatalog:
                 MAX(date) AS max_date,
                 COUNT(DISTINCT date) AS n_trading_days
             FROM {table_name}
-        """, return_format="polars")
+        """,
+            return_format="polars",
+        )
         # Explicit cast since we know return_format="polars" always returns pl.DataFrame
         assert isinstance(result, pl.DataFrame)
         return result
@@ -450,10 +444,9 @@ class DuckDBCatalog:
 
 # Helper functions for common analytics patterns
 
+
 def _build_where_clause(
-    symbol: str,
-    start_date: str | None = None,
-    end_date: str | None = None
+    symbol: str, start_date: str | None = None, end_date: str | None = None
 ) -> tuple[str, list[Any]]:
     """
     Build WHERE clause and parameters for common time-series queries.
@@ -497,7 +490,7 @@ def calculate_returns(
     symbol: str,
     start_date: str | None = None,
     end_date: str | None = None,
-    table_name: str = "market_data"
+    table_name: str = "market_data",
 ) -> pl.DataFrame:
     """
     Calculate daily returns for a symbol.
@@ -564,7 +557,7 @@ def calculate_sma(
     window: int = 20,
     start_date: str | None = None,
     end_date: str | None = None,
-    table_name: str = "market_data"
+    table_name: str = "market_data",
 ) -> pl.DataFrame:
     """
     Calculate Simple Moving Average (SMA) for a symbol.

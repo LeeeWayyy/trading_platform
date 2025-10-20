@@ -166,8 +166,7 @@ class RiskChecker:
         max_position_size = self.config.position_limits.max_position_size
         if abs(new_position) > max_position_size:
             reason = (
-                f"Position limit exceeded: {abs(new_position)} shares > "
-                f"{max_position_size} max"
+                f"Position limit exceeded: {abs(new_position)} shares > " f"{max_position_size} max"
             )
             logger.warning(
                 f"Order blocked by position size limit: {symbol} {side} {qty}, "
@@ -196,9 +195,7 @@ class RiskChecker:
         # All checks passed
         return (True, "")
 
-    def _calculate_new_position(
-        self, current_position: int, side: str, qty: int
-    ) -> int:
+    def _calculate_new_position(self, current_position: int, side: str, qty: int) -> int:
         """
         Calculate new position after order execution.
 

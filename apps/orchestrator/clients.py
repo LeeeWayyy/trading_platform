@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Signal Service Client
 # ==============================================================================
 
+
 class SignalServiceClient:
     """
     HTTP client for Signal Service (T3).
@@ -50,7 +51,7 @@ class SignalServiceClient:
             base_url: Base URL of Signal Service (e.g., "http://localhost:8001")
             timeout: Request timeout in seconds (default: 30.0)
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.client = httpx.AsyncClient(timeout=timeout)
 
@@ -76,14 +77,14 @@ class SignalServiceClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
-        before_sleep=before_sleep_log(logger, logging.WARNING)
+        before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     async def fetch_signals(
         self,
         symbols: list[str],
         as_of_date: date | None = None,
         top_n: int | None = None,
-        bottom_n: int | None = None
+        bottom_n: int | None = None,
     ) -> SignalServiceResponse:
         """
         Fetch trading signals from Signal Service.
@@ -112,9 +113,7 @@ class SignalServiceClient:
             2
         """
         # Build request payload
-        payload: dict[str, Any] = {
-            "symbols": symbols
-        }
+        payload: dict[str, Any] = {"symbols": symbols}
 
         if as_of_date:
             payload["as_of_date"] = as_of_date.isoformat()
@@ -131,21 +130,18 @@ class SignalServiceClient:
                 "num_symbols": len(symbols),
                 "as_of_date": payload.get("as_of_date"),
                 "top_n": top_n,
-                "bottom_n": bottom_n
-            }
+                "bottom_n": bottom_n,
+            },
         )
 
         # Make request
-        response = await self.client.post(
-            f"{self.base_url}/api/v1/signals/generate",
-            json=payload
-        )
+        response = await self.client.post(f"{self.base_url}/api/v1/signals/generate", json=payload)
 
         # Check response
         if response.status_code != 200:
             logger.error(
                 f"Signal Service returned error: {response.status_code}",
-                extra={"response": response.text}
+                extra={"response": response.text},
             )
             response.raise_for_status()
 
@@ -157,8 +153,8 @@ class SignalServiceClient:
             f"Fetched {len(signals_response.signals)} signals",
             extra={
                 "num_signals": len(signals_response.signals),
-                "model_version": signals_response.metadata.model_version
-            }
+                "model_version": signals_response.metadata.model_version,
+            },
         )
 
         return signals_response
@@ -167,6 +163,7 @@ class SignalServiceClient:
 # ==============================================================================
 # Execution Gateway Client
 # ==============================================================================
+
 
 class ExecutionGatewayClient:
     """
@@ -195,7 +192,7 @@ class ExecutionGatewayClient:
             base_url: Base URL of Execution Gateway (e.g., "http://localhost:8002")
             timeout: Request timeout in seconds (default: 30.0)
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.client = httpx.AsyncClient(timeout=timeout)
 
@@ -221,7 +218,7 @@ class ExecutionGatewayClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
-        before_sleep=before_sleep_log(logger, logging.WARNING)
+        before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     async def submit_order(self, order: OrderRequest) -> OrderSubmission:
         """
@@ -253,21 +250,20 @@ class ExecutionGatewayClient:
                 "symbol": order.symbol,
                 "side": order.side,
                 "qty": order.qty,
-                "order_type": order.order_type
-            }
+                "order_type": order.order_type,
+            },
         )
 
         # Make request
         response = await self.client.post(
-            f"{self.base_url}/api/v1/orders",
-            json=order.model_dump(mode="json", exclude_none=True)
+            f"{self.base_url}/api/v1/orders", json=order.model_dump(mode="json", exclude_none=True)
         )
 
         # Check response
         if response.status_code not in (200, 201):
             logger.error(
                 f"Execution Gateway returned error: {response.status_code}",
-                extra={"response": response.text}
+                extra={"response": response.text},
             )
             response.raise_for_status()
 
@@ -280,8 +276,8 @@ class ExecutionGatewayClient:
             extra={
                 "client_order_id": submission.client_order_id,
                 "status": submission.status,
-                "broker_order_id": submission.broker_order_id
-            }
+                "broker_order_id": submission.broker_order_id,
+            },
         )
 
         return submission
@@ -299,9 +295,7 @@ class ExecutionGatewayClient:
         Raises:
             httpx.HTTPError: If request fails
         """
-        response = await self.client.get(
-            f"{self.base_url}/api/v1/orders/{client_order_id}"
-        )
+        response = await self.client.get(f"{self.base_url}/api/v1/orders/{client_order_id}")
 
         if response.status_code != 200:
             response.raise_for_status()
@@ -318,9 +312,7 @@ class ExecutionGatewayClient:
         Raises:
             httpx.HTTPError: If request fails
         """
-        response = await self.client.get(
-            f"{self.base_url}/api/v1/positions"
-        )
+        response = await self.client.get(f"{self.base_url}/api/v1/positions")
 
         if response.status_code != 200:
             response.raise_for_status()

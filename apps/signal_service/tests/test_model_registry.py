@@ -19,7 +19,6 @@ Usage:
     pytest apps/signal_service/tests/test_model_registry.py -v -m integration
 """
 
-
 import pytest
 
 from apps.signal_service.model_registry import ModelMetadata, ModelRegistry
@@ -142,9 +141,7 @@ class TestModelLoading:
 class TestDatabaseIntegration:
     """Integration tests requiring database."""
 
-    def test_get_active_model_metadata(
-        self, test_db_url, setup_model_registry_table, mock_model
-    ):
+    def test_get_active_model_metadata(self, test_db_url, setup_model_registry_table, mock_model):
         """Fetch active model metadata from database."""
         # Insert test record
         with setup_model_registry_table.cursor() as cur:
@@ -175,9 +172,7 @@ class TestDatabaseIntegration:
         assert metadata.model_path == str(mock_model)
         assert metadata.performance_metrics["ic"] == 0.05
 
-    def test_get_active_model_no_active_raises_error(
-        self, test_db_url, setup_model_registry_table
-    ):
+    def test_get_active_model_no_active_raises_error(self, test_db_url, setup_model_registry_table):
         """Fetching metadata when no active model raises ValueError."""
         registry = ModelRegistry(test_db_url)
 
@@ -199,7 +194,7 @@ class TestDatabaseIntegration:
                 (strategy_name, version, model_path, status, performance_metrics, config)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                ("test_strategy", "v1.0.0", str(mock_model), "active", '{}', '{}'),
+                ("test_strategy", "v1.0.0", str(mock_model), "active", "{}", "{}"),
             )
             setup_model_registry_table.commit()
 
@@ -213,9 +208,7 @@ class TestDatabaseIntegration:
         assert registry.current_metadata.version == "v1.0.0"
         assert registry.last_check is not None
 
-    def test_reload_if_changed_no_change(
-        self, test_db_url, setup_model_registry_table, mock_model
-    ):
+    def test_reload_if_changed_no_change(self, test_db_url, setup_model_registry_table, mock_model):
         """Reload with no version change returns False."""
         # Insert test record
         with setup_model_registry_table.cursor() as cur:
@@ -225,7 +218,7 @@ class TestDatabaseIntegration:
                 (strategy_name, version, model_path, status, performance_metrics, config)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                ("test_strategy", "v1.0.0", str(mock_model), "active", '{}', '{}'),
+                ("test_strategy", "v1.0.0", str(mock_model), "active", "{}", "{}"),
             )
             setup_model_registry_table.commit()
 
@@ -252,7 +245,7 @@ class TestDatabaseIntegration:
                 (strategy_name, version, model_path, status, performance_metrics, config)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                ("test_strategy", "v1.0.0", str(mock_model), "active", '{}', '{}'),
+                ("test_strategy", "v1.0.0", str(mock_model), "active", "{}", "{}"),
             )
             setup_model_registry_table.commit()
 
@@ -265,6 +258,7 @@ class TestDatabaseIntegration:
 
         # Create new model v2.0.0 (just copy existing for test)
         import shutil
+
         model_v2 = temp_dir / "model_v2.txt"
         shutil.copy(mock_model, model_v2)
 
@@ -277,7 +271,7 @@ class TestDatabaseIntegration:
                 (strategy_name, version, model_path, status, performance_metrics, config)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                ("test_strategy", "v2.0.0", str(model_v2), "inactive", '{}', '{}'),
+                ("test_strategy", "v2.0.0", str(model_v2), "inactive", "{}", "{}"),
             )
             # Activate v2.0.0 (deactivates v1.0.0)
             cur.execute("SELECT activate_model(%s, %s)", ("test_strategy", "v2.0.0"))
@@ -301,7 +295,7 @@ class TestDatabaseIntegration:
                 (strategy_name, version, model_path, status, performance_metrics, config)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                ("test_strategy", "v1.0.0", str(mock_model), "active", '{}', '{}'),
+                ("test_strategy", "v1.0.0", str(mock_model), "active", "{}", "{}"),
             )
             setup_model_registry_table.commit()
 
@@ -319,7 +313,7 @@ class TestDatabaseIntegration:
                 (strategy_name, version, model_path, status, performance_metrics, config)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                ("test_strategy", "v2.0.0", "/nonexistent/model.txt", "inactive", '{}', '{}'),
+                ("test_strategy", "v2.0.0", "/nonexistent/model.txt", "inactive", "{}", "{}"),
             )
             cur.execute("SELECT activate_model(%s, %s)", ("test_strategy", "v2.0.0"))
             setup_model_registry_table.commit()

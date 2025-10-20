@@ -12,23 +12,21 @@ Tests cover:
 - Startup with Redis disabled
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
 
 from apps.signal_service.config import Settings
-from libs.redis_client import RedisClient, FeatureCache, RedisConnectionError
+from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
 
 
 class TestRedisStartup:
     """Test Redis initialization during service startup."""
 
-    @patch('libs.redis_client.feature_cache.FeatureCache')
-    @patch('libs.redis_client.client.RedisClient')
+    @patch("libs.redis_client.feature_cache.FeatureCache")
+    @patch("libs.redis_client.client.RedisClient")
     def test_feature_cache_initialization_with_correct_params(
-        self,
-        mock_redis_client_class,
-        mock_feature_cache_class
+        self, mock_redis_client_class, mock_feature_cache_class
     ):
         """
         Test that FeatureCache is initialized with correct parameter names.
@@ -73,7 +71,7 @@ class TestRedisStartup:
         # Initialize feature cache with CORRECT parameter names - using mock
         feature_cache = mock_feature_cache_class(
             redis_client=redis_client,  # ✅ Correct: redis_client (not redis)
-            ttl=settings.redis_ttl,      # ✅ Correct: ttl (not default_ttl)
+            ttl=settings.redis_ttl,  # ✅ Correct: ttl (not default_ttl)
         )
 
         # Verify FeatureCache was called with correct parameters
@@ -105,11 +103,7 @@ class TestRedisStartup:
         """Test FeatureCache with custom prefix."""
         mock_redis = Mock(spec=RedisClient)
 
-        cache = FeatureCache(
-            redis_client=mock_redis,
-            ttl=1800,
-            prefix="test_features"
-        )
+        cache = FeatureCache(redis_client=mock_redis, ttl=1800, prefix="test_features")
 
         assert cache.redis == mock_redis
         assert cache.ttl == 1800
@@ -141,16 +135,14 @@ class TestRedisStartup:
         # ❌ Both wrong
         with pytest.raises(TypeError, match="unexpected keyword argument"):
             FeatureCache(
-                redis=mock_redis,       # ❌ Wrong!
-                default_ttl=3600,        # ❌ Wrong!
+                redis=mock_redis,  # ❌ Wrong!
+                default_ttl=3600,  # ❌ Wrong!
             )
 
-    @patch('libs.redis_client.feature_cache.FeatureCache')
-    @patch('libs.redis_client.client.RedisClient')
+    @patch("libs.redis_client.feature_cache.FeatureCache")
+    @patch("libs.redis_client.client.RedisClient")
     def test_startup_with_redis_enabled_and_connected(
-        self,
-        mock_redis_client_class,
-        mock_feature_cache_class
+        self, mock_redis_client_class, mock_feature_cache_class
     ):
         """
         Test service startup when Redis is enabled and connection succeeds.
@@ -194,11 +186,8 @@ class TestRedisStartup:
             ttl=3600,
         )
 
-    @patch('libs.redis_client.client.RedisClient')
-    def test_startup_with_redis_enabled_but_connection_fails(
-        self,
-        mock_redis_client_class
-    ):
+    @patch("libs.redis_client.client.RedisClient")
+    def test_startup_with_redis_enabled_but_connection_fails(self, mock_redis_client_class):
         """
         Test service startup when Redis is enabled but connection fails.
 
@@ -237,11 +226,8 @@ class TestRedisStartup:
         assert redis_client is None
         assert feature_cache is None
 
-    @patch('apps.signal_service.main.RedisClient')
-    def test_startup_with_redis_enabled_but_connection_error(
-        self,
-        mock_redis_client_class
-    ):
+    @patch("apps.signal_service.main.RedisClient")
+    def test_startup_with_redis_enabled_but_connection_error(self, mock_redis_client_class):
         """
         Test service startup when Redis connection raises exception.
 

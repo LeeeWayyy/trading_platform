@@ -9,8 +9,9 @@ Data includes:
 - Proper OHLCV relationships
 """
 
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
+
 import numpy as np
 import polars as pl
 
@@ -36,11 +37,7 @@ def generate_trading_days(start_date: str, end_date: str) -> list:
 
 
 def generate_price_series(
-    start_price: float,
-    n_days: int,
-    drift: float = 0.0005,
-    volatility: float = 0.02,
-    seed: int = 42
+    start_price: float, n_days: int, drift: float = 0.0005, volatility: float = 0.02, seed: int = 42
 ) -> np.ndarray:
     """
     Generate realistic price series using geometric Brownian motion.
@@ -142,15 +139,17 @@ def generate_symbol_data(
     ohlcv = generate_ohlcv(close_prices)
 
     # Create DataFrame
-    df = pl.DataFrame({
-        "symbol": [symbol] * n_days,
-        "date": dates,
-        "open": ohlcv["open"],
-        "high": ohlcv["high"],
-        "low": ohlcv["low"],
-        "close": ohlcv["close"],
-        "volume": ohlcv["volume"],
-    })
+    df = pl.DataFrame(
+        {
+            "symbol": [symbol] * n_days,
+            "date": dates,
+            "open": ohlcv["open"],
+            "high": ohlcv["high"],
+            "low": ohlcv["low"],
+            "close": ohlcv["close"],
+            "volume": ohlcv["volume"],
+        }
+    )
 
     return df
 

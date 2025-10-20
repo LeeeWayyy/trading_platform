@@ -84,15 +84,11 @@ def adjust_for_splits(df: pl.DataFrame, ca_df: pl.DataFrame) -> pl.DataFrame:
     # Join corporate actions data
     # Left join: keep all data rows, fill with null where no CA
     df_with_ca = df.join(
-        ca_df.select(["symbol", "date", "split_ratio"]),
-        on=["symbol", "date"],
-        how="left"
+        ca_df.select(["symbol", "date", "split_ratio"]), on=["symbol", "date"], how="left"
     )
 
     # Fill null split ratios with 1.0 (no split = no adjustment)
-    df_with_ca = df_with_ca.with_columns(
-        pl.col("split_ratio").fill_null(1.0)
-    )
+    df_with_ca = df_with_ca.with_columns(pl.col("split_ratio").fill_null(1.0))
 
     # For backwards adjustment, we need cumulative split ratios
     # Sort by symbol and date to ensure correct order
@@ -101,26 +97,30 @@ def adjust_for_splits(df: pl.DataFrame, ca_df: pl.DataFrame) -> pl.DataFrame:
     # Calculate cumulative split ratio (backwards from most recent)
     # We do this by reverse-cumulative-product per symbol
     # Shift by 1 so split date itself gets 1.0 (only BEFORE split is adjusted)
-    df_sorted = df_sorted.with_columns([
-        # Reverse cumulative product within each symbol group
-        pl.col("split_ratio")
-          .reverse()
-          .cum_prod()
-          .shift(1, fill_value=1.0)  # Shift so split date gets 1.0
-          .reverse()
-          .over("symbol")
-          .alias("cumulative_split")
-    ])
+    df_sorted = df_sorted.with_columns(
+        [
+            # Reverse cumulative product within each symbol group
+            pl.col("split_ratio")
+            .reverse()
+            .cum_prod()
+            .shift(1, fill_value=1.0)  # Shift so split date gets 1.0
+            .reverse()
+            .over("symbol")
+            .alias("cumulative_split")
+        ]
+    )
 
     # Adjust prices: divide by cumulative split ratio
     # Adjust volume: multiply by cumulative split ratio
-    df_adjusted = df_sorted.with_columns([
-        (pl.col("open") / pl.col("cumulative_split")).alias("open"),
-        (pl.col("high") / pl.col("cumulative_split")).alias("high"),
-        (pl.col("low") / pl.col("cumulative_split")).alias("low"),
-        (pl.col("close") / pl.col("cumulative_split")).alias("close"),
-        (pl.col("volume") * pl.col("cumulative_split")).alias("volume"),
-    ])
+    df_adjusted = df_sorted.with_columns(
+        [
+            (pl.col("open") / pl.col("cumulative_split")).alias("open"),
+            (pl.col("high") / pl.col("cumulative_split")).alias("high"),
+            (pl.col("low") / pl.col("cumulative_split")).alias("low"),
+            (pl.col("close") / pl.col("cumulative_split")).alias("close"),
+            (pl.col("volume") * pl.col("cumulative_split")).alias("volume"),
+        ]
+    )
 
     # Drop temporary columns
     df_adjusted = df_adjusted.drop(["split_ratio", "cumulative_split"])
@@ -193,15 +193,11 @@ def adjust_for_dividends(df: pl.DataFrame, ca_df: pl.DataFrame) -> pl.DataFrame:
 
     # Join dividend data
     df_with_div = df.join(
-        ca_df.select(["symbol", "date", "dividend"]),
-        on=["symbol", "date"],
-        how="left"
+        ca_df.select(["symbol", "date", "dividend"]), on=["symbol", "date"], how="left"
     )
 
     # Fill null dividends with 0.0 (no dividend = no adjustment)
-    df_with_div = df_with_div.with_columns(
-        pl.col("dividend").fill_null(0.0)
-    )
+    df_with_div = df_with_div.with_columns(pl.col("dividend").fill_null(0.0))
 
     # Sort by symbol and date
     df_sorted = df_with_div.sort(["symbol", "date"])
@@ -209,20 +205,22 @@ def adjust_for_dividends(df: pl.DataFrame, ca_df: pl.DataFrame) -> pl.DataFrame:
     # Calculate cumulative dividend (backwards from most recent)
     # Reverse cumulative sum within each symbol group
     # Shift by 1 so ex-date itself gets 0 (only BEFORE ex-date is adjusted)
-    df_sorted = df_sorted.with_columns([
-        pl.col("dividend")
-          .reverse()
-          .cum_sum()
-          .shift(1, fill_value=0.0)  # Shift so ex-date row gets 0
-          .reverse()
-          .over("symbol")
-          .alias("cumulative_dividend")
-    ])
+    df_sorted = df_sorted.with_columns(
+        [
+            pl.col("dividend")
+            .reverse()
+            .cum_sum()
+            .shift(1, fill_value=0.0)  # Shift so ex-date row gets 0
+            .reverse()
+            .over("symbol")
+            .alias("cumulative_dividend")
+        ]
+    )
 
     # Adjust close: subtract cumulative dividend
-    df_adjusted = df_sorted.with_columns([
-        (pl.col("close") - pl.col("cumulative_dividend")).alias("close")
-    ])
+    df_adjusted = df_sorted.with_columns(
+        [(pl.col("close") - pl.col("cumulative_dividend")).alias("close")]
+    )
 
     # Drop temporary columns
     df_adjusted = df_adjusted.drop(["dividend", "cumulative_dividend"])
@@ -233,7 +231,7 @@ def adjust_for_dividends(df: pl.DataFrame, ca_df: pl.DataFrame) -> pl.DataFrame:
 def adjust_prices(
     df: pl.DataFrame,
     splits_df: pl.DataFrame | None = None,
-    dividends_df: pl.DataFrame | None = None
+    dividends_df: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """
     Convenience function to adjust for both splits and dividends.

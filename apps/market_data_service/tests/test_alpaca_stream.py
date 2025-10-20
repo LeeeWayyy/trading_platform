@@ -138,6 +138,7 @@ class TestAlpacaMarketDataStream:
         assert pub_call_args[0][0] == "price.updated.AAPL"  # Channel
         # Second argument should be a Pydantic model, not a dict
         from libs.market_data.types import PriceUpdateEvent
+
         assert isinstance(pub_call_args[0][1], PriceUpdateEvent)
 
     @pytest.mark.asyncio
@@ -370,7 +371,9 @@ class TestAlpacaMarketDataStream:
         # Create quote with NaN price (triggers InvalidOperation)
         bad_quote = Mock()
         bad_quote.symbol = "AAPL"
-        bad_quote.bid_price = float("nan")  # Invalid: will cause Decimal(str(...)) to raise InvalidOperation
+        bad_quote.bid_price = float(
+            "nan"
+        )  # Invalid: will cause Decimal(str(...)) to raise InvalidOperation
         bad_quote.ask_price = 150.10
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200

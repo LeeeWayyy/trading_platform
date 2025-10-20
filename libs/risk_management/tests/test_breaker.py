@@ -122,7 +122,7 @@ def mock_redis():
         """Mock zrange operation (get members by rank)."""
         zset = redis._sorted_sets.get(key, [])
         sorted_zset = sorted(zset, key=lambda x: x[0])  # Sort by score
-        result = sorted_zset[start:end+1 if end >= 0 else None]
+        result = sorted_zset[start : end + 1 if end >= 0 else None]
         if withscores:
             return result
         return [member for score, member in result]
@@ -137,7 +137,7 @@ def mock_redis():
         if stop < 0:
             # Negative indices count from end
             stop = len(sorted_zset) + stop
-        to_remove = sorted_zset[start:stop+1]
+        to_remove = sorted_zset[start : stop + 1]
         for item in to_remove:
             zset.remove(item)
         return len(to_remove)

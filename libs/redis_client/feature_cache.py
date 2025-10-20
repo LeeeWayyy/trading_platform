@@ -65,12 +65,7 @@ class FeatureCache:
         ...     cache.set("AAPL", "2025-01-17", features)
     """
 
-    def __init__(
-        self,
-        redis_client: RedisClient,
-        ttl: int = 3600,
-        prefix: str = "features"
-    ):
+    def __init__(self, redis_client: RedisClient, ttl: int = 3600, prefix: str = "features"):
         """
         Initialize feature cache.
 

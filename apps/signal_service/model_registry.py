@@ -162,7 +162,10 @@ class ModelRegistry:
         self._current_metadata: ModelMetadata | None = None
         self._last_check: datetime | None = None
 
-        logger.info("ModelRegistry initialized", extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"})
+        logger.info(
+            "ModelRegistry initialized",
+            extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"},
+        )
 
     def get_active_model_metadata(self, strategy: str = "alpha_baseline") -> ModelMetadata:
         """
@@ -233,7 +236,9 @@ class ModelRegistry:
                     return ModelMetadata(**row)
 
         except (OperationalError, DatabaseError) as e:
-            logger.error(f"Database error fetching model metadata: {e}", extra={"strategy": strategy})
+            logger.error(
+                f"Database error fetching model metadata: {e}", extra={"strategy": strategy}
+            )
             raise
 
     def load_model_from_file(self, model_path: str) -> lgb.Booster:
@@ -297,7 +302,7 @@ class ModelRegistry:
                     "path": str(path),
                     "num_trees": model.num_trees(),
                     "num_features": model.num_feature(),
-                }
+                },
             )
 
             return model
@@ -378,7 +383,7 @@ class ModelRegistry:
                         "strategy": strategy,
                         "old_version": old_version,
                         "new_version": new_metadata.version,
-                    }
+                    },
                 )
 
                 # Load new model from file
@@ -403,7 +408,7 @@ class ModelRegistry:
                         "version": new_metadata.version,
                         "model_path": new_metadata.model_path,
                         "performance_metrics": new_metadata.performance_metrics,
-                    }
+                    },
                 )
 
                 return True
@@ -414,19 +419,14 @@ class ModelRegistry:
 
         except Exception as e:
             logger.error(
-                f"Failed to reload model: {e}",
-                extra={"strategy": strategy},
-                exc_info=True
+                f"Failed to reload model: {e}", extra={"strategy": strategy}, exc_info=True
             )
 
             # Graceful degradation: keep current model if one is loaded
             if self._current_model is not None and self._current_metadata is not None:
                 logger.warning(
                     "Keeping current model after failed reload",
-                    extra={
-                        "current_version": self._current_metadata.version,
-                        "error": str(e)
-                    }
+                    extra={"current_version": self._current_metadata.version, "error": str(e)},
                 )
                 return False
 

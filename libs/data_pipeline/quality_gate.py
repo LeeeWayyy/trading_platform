@@ -14,9 +14,7 @@ from libs.common.exceptions import OutlierError
 
 
 def detect_outliers(
-    df: pl.DataFrame,
-    ca_df: pl.DataFrame | None = None,
-    threshold: float = 0.30
+    df: pl.DataFrame, ca_df: pl.DataFrame | None = None, threshold: float = 0.30
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
     Detect outliers based on daily price changes and corporate actions.
@@ -115,21 +113,25 @@ def detect_outliers(
     df_sorted = df.sort(["symbol", "date"])
 
     # Calculate daily returns (percent change from previous close)
-    df_with_returns = df_sorted.with_columns([
-        # Previous close within each symbol group
-        pl.col("close").shift(1).over("symbol").alias("prev_close"),
-    ])
+    df_with_returns = df_sorted.with_columns(
+        [
+            # Previous close within each symbol group
+            pl.col("close")
+            .shift(1)
+            .over("symbol")
+            .alias("prev_close"),
+        ]
+    )
 
     # Calculate percent change
-    df_with_returns = df_with_returns.with_columns([
-        ((pl.col("close") - pl.col("prev_close")) / pl.col("prev_close"))
-        .alias("daily_return")
-    ])
+    df_with_returns = df_with_returns.with_columns(
+        [((pl.col("close") - pl.col("prev_close")) / pl.col("prev_close")).alias("daily_return")]
+    )
 
     # Flag potential outliers (abs return > threshold)
-    df_with_returns = df_with_returns.with_columns([
-        (pl.col("daily_return").abs() > threshold).alias("is_outlier_candidate")
-    ])
+    df_with_returns = df_with_returns.with_columns(
+        [(pl.col("daily_return").abs() > threshold).alias("is_outlier_candidate")]
+    )
 
     # If corporate actions provided, exclude CA dates from outlier flagging
     if ca_df is not None and not ca_df.is_empty():
@@ -138,38 +140,36 @@ def detect_outliers(
 
         # Mark rows that have a corporate action
         df_with_ca = df_with_returns.join(
-            ca_df.select(["symbol", "date"]).with_columns(
-                pl.lit(True).alias("has_ca")
-            ),
+            ca_df.select(["symbol", "date"]).with_columns(pl.lit(True).alias("has_ca")),
             on=["symbol", "date"],
             how="left",
-            coalesce=True  # Suppress deprecation warning
+            coalesce=True,  # Suppress deprecation warning
         )
 
         # Fill null has_ca with False
-        df_with_ca = df_with_ca.with_columns(
-            pl.col("has_ca").fill_null(False)
-        )
+        df_with_ca = df_with_ca.with_columns(pl.col("has_ca").fill_null(False))
 
         # Outlier = candidate AND no corporate action
-        df_with_ca = df_with_ca.with_columns([
-            (pl.col("is_outlier_candidate") & ~pl.col("has_ca")).alias("is_outlier")
-        ])
+        df_with_ca = df_with_ca.with_columns(
+            [(pl.col("is_outlier_candidate") & ~pl.col("has_ca")).alias("is_outlier")]
+        )
     else:
         # No CA data = all candidates are outliers
-        df_with_returns = df_with_returns.with_columns([
-            pl.col("is_outlier_candidate").alias("is_outlier")
-        ])
+        df_with_returns = df_with_returns.with_columns(
+            [pl.col("is_outlier_candidate").alias("is_outlier")]
+        )
         df_with_ca = df_with_returns
 
     # First row per symbol can't be outlier (no previous close)
     # Replace null daily_return with False for is_outlier
-    df_with_ca = df_with_ca.with_columns([
-        pl.when(pl.col("daily_return").is_null())
-        .then(False)
-        .otherwise(pl.col("is_outlier"))
-        .alias("is_outlier")
-    ])
+    df_with_ca = df_with_ca.with_columns(
+        [
+            pl.when(pl.col("daily_return").is_null())
+            .then(False)
+            .otherwise(pl.col("is_outlier"))
+            .alias("is_outlier")
+        ]
+    )
 
     # Split into good vs. quarantine
     good_data = df_with_ca.filter(~pl.col("is_outlier"))
@@ -177,12 +177,14 @@ def detect_outliers(
 
     # Add reason column to quarantine data
     if not quarantine_data.is_empty():
-        quarantine_data = quarantine_data.with_columns([
-            (
-                pl.lit("outlier_daily_return_") +
-                pl.col("daily_return").abs().round(2).cast(pl.Utf8)
-            ).alias("reason")
-        ])
+        quarantine_data = quarantine_data.with_columns(
+            [
+                (
+                    pl.lit("outlier_daily_return_")
+                    + pl.col("daily_return").abs().round(2).cast(pl.Utf8)
+                ).alias("reason")
+            ]
+        )
 
     # Drop temporary columns from both DataFrames
     cols_to_drop = ["prev_close", "daily_return", "is_outlier_candidate", "is_outlier"]
@@ -204,7 +206,7 @@ def check_quality(
     df: pl.DataFrame,
     ca_df: pl.DataFrame | None = None,
     threshold: float = 0.30,
-    raise_on_outliers: bool = False
+    raise_on_outliers: bool = False,
 ) -> pl.DataFrame:
     """
     Convenience function that checks quality and optionally raises on outliers.

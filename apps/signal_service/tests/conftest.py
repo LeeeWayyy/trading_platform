@@ -34,6 +34,7 @@ from sklearn.model_selection import train_test_split  # type: ignore[import-unty
 # Directory and File Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def temp_dir():
     """
@@ -60,6 +61,7 @@ def temp_dir():
 # Model Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_model(temp_dir):
     """
@@ -83,15 +85,9 @@ def mock_model(temp_dir):
     # Generate synthetic regression data
     # 100 samples, 10 features (instead of 158 for speed)
     X, y = make_regression(
-        n_samples=100,
-        n_features=10,
-        n_informative=8,
-        noise=10.0,
-        random_state=42
+        n_samples=100, n_features=10, n_informative=8, noise=10.0, random_state=42
     )
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # Train simple LightGBM model
     train_data = lgb.Dataset(X_train, label=y_train)
@@ -140,6 +136,7 @@ def alpha_baseline_model_path():
 # ============================================================================
 # Database Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def test_db_url():
@@ -230,6 +227,7 @@ def setup_model_registry_table(db_connection):
 # Mock Data Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_t1_data(temp_dir):
     """
@@ -272,15 +270,17 @@ def mock_t1_data(temp_dir):
         prices = base_price * np.exp(np.cumsum(returns))
 
         # Create OHLCV data
-        df = pd.DataFrame({
-            "date": dates,
-            "symbol": symbol,
-            "open": prices * (1 + np.random.randn(len(dates)) * 0.005),
-            "high": prices * (1 + np.abs(np.random.randn(len(dates))) * 0.01),
-            "low": prices * (1 - np.abs(np.random.randn(len(dates))) * 0.01),
-            "close": prices,
-            "volume": np.random.randint(1_000_000, 10_000_000, len(dates)),
-        })
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "symbol": symbol,
+                "open": prices * (1 + np.random.randn(len(dates)) * 0.005),
+                "high": prices * (1 + np.abs(np.random.randn(len(dates))) * 0.01),
+                "low": prices * (1 - np.abs(np.random.randn(len(dates))) * 0.01),
+                "close": prices,
+                "volume": np.random.randint(1_000_000, 10_000_000, len(dates)),
+            }
+        )
 
         # Save to Parquet
         file_path = date_dir / f"{symbol}.parquet"
@@ -292,6 +292,7 @@ def mock_t1_data(temp_dir):
 # ============================================================================
 # Model Registry Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def sample_model_metadata():
@@ -334,6 +335,7 @@ def sample_model_metadata():
 # Feature Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_alpha158_features():
     """
@@ -354,17 +356,14 @@ def mock_alpha158_features():
     # Create MultiIndex
     date = pd.Timestamp("2024-01-15")
     symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
-    index = pd.MultiIndex.from_product(
-        [[date], symbols],
-        names=["datetime", "instrument"]
-    )
+    index = pd.MultiIndex.from_product([[date], symbols], names=["datetime", "instrument"])
 
     # Generate random features (158 columns)
     np.random.seed(42)
     features = pd.DataFrame(
         np.random.randn(5, 158),  # 5 symbols, 158 features
         index=index,
-        columns=[f"feature_{i:03d}" for i in range(158)]
+        columns=[f"feature_{i:03d}" for i in range(158)],
     )
 
     return features
@@ -373,6 +372,7 @@ def mock_alpha158_features():
 # ============================================================================
 # Configuration Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def test_config():
@@ -405,15 +405,14 @@ def test_config():
 
 skip_if_no_database = pytest.mark.skipif(
     True,  # Always skip by default
-    reason="Requires test database setup. Run manually: pytest -m integration"
+    reason="Requires test database setup. Run manually: pytest -m integration",
 )
 
 skip_if_no_model = pytest.mark.skipif(
     not Path("artifacts/models/alpha_baseline.txt").exists(),
-    reason="Requires trained alpha_baseline model from T2"
+    reason="Requires trained alpha_baseline model from T2",
 )
 
 skip_if_no_t1_data = pytest.mark.skipif(
-    not Path("data/adjusted").exists(),
-    reason="Requires T1 adjusted data"
+    not Path("data/adjusted").exists(), reason="Requires T1 adjusted data"
 )

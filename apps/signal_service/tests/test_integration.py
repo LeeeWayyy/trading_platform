@@ -36,6 +36,7 @@ from apps.signal_service.signal_generator import SignalGenerator
 # Fixtures
 # ==============================================================================
 
+
 @pytest.fixture(scope="module")
 def db_url():
     """Database URL for integration tests."""
@@ -63,6 +64,7 @@ def test_date():
 # ==============================================================================
 # Test Model Registry Integration
 # ==============================================================================
+
 
 @pytest.mark.integration
 class TestModelRegistryIntegration:
@@ -138,6 +140,7 @@ class TestModelRegistryIntegration:
 # Test Signal Generator Integration
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestSignalGeneratorIntegration:
     """Integration tests for SignalGenerator with real data."""
@@ -198,15 +201,21 @@ class TestSignalGeneratorIntegration:
 
         assert len(long_positions) == 1, "Should have 1 long position"
         assert len(short_positions) == 1, "Should have 1 short position"
-        assert np.isclose(long_positions["target_weight"].sum(), 1.0), "Long weights should sum to 1.0"
-        assert np.isclose(short_positions["target_weight"].sum(), -1.0), "Short weights should sum to -1.0"
+        assert np.isclose(
+            long_positions["target_weight"].sum(), 1.0
+        ), "Long weights should sum to 1.0"
+        assert np.isclose(
+            short_positions["target_weight"].sum(), -1.0
+        ), "Short weights should sum to -1.0"
 
         print(f"\n  Generated {len(signals)} signals:")
         print(f"  Long positions: {len(long_positions)}")
         print(f"  Short positions: {len(short_positions)}")
         print(f"\n  Signals:\n{signals.to_string()}")
 
-    def test_signal_generator_validates_model_loaded(self, db_url, data_dir, test_symbols, test_date):
+    def test_signal_generator_validates_model_loaded(
+        self, db_url, data_dir, test_symbols, test_date
+    ):
         """Test that signal generator validates model is loaded."""
         registry = ModelRegistry(db_url)
         # Don't load model
@@ -266,6 +275,7 @@ class TestSignalGeneratorIntegration:
 # Test Feature Parity
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestFeatureParity:
     """Validate production features match research features."""
@@ -308,8 +318,9 @@ class TestFeatureParity:
         source = inspect.getsource(SignalGenerator.generate_signals)
 
         # Should use get_alpha158_features from strategies.alpha_baseline
-        assert "get_alpha158_features" in source or "get_mock_alpha158_features" in source, \
-            "SignalGenerator should use feature generation from strategies module"
+        assert (
+            "get_alpha158_features" in source or "get_mock_alpha158_features" in source
+        ), "SignalGenerator should use feature generation from strategies module"
 
         print("\n  Feature parity validated: SignalGenerator uses research feature code")
 
@@ -332,7 +343,9 @@ class TestFeatureParity:
 
         # Check dimensions
         assert features.shape[1] == 158, "Should have 158 features (Alpha158)"
-        assert len(features) == len(test_symbols), f"Should have features for all {len(test_symbols)} symbols"
+        assert len(features) == len(
+            test_symbols
+        ), f"Should have features for all {len(test_symbols)} symbols"
 
         # Test prediction works
         assert registry.current_model is not None, "Model should be loaded"
@@ -347,6 +360,7 @@ class TestFeatureParity:
 # ==============================================================================
 # Test End-to-End Workflow
 # ==============================================================================
+
 
 @pytest.mark.integration
 class TestEndToEndWorkflow:
@@ -476,6 +490,7 @@ class TestEndToEndWorkflow:
 # Test Error Handling
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestErrorHandling:
     """Test error handling in integration scenarios."""
@@ -531,6 +546,7 @@ class TestErrorHandling:
 # ==============================================================================
 # Summary Report
 # ==============================================================================
+
 
 @pytest.fixture(scope="session", autouse=True)
 def print_test_summary(request):

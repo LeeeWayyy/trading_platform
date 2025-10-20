@@ -32,6 +32,7 @@ import pytest
 # Fixtures
 # ==============================================================================
 
+
 @pytest.fixture(scope="module")
 def data_dir():
     """Data directory for feature parity tests."""
@@ -54,6 +55,7 @@ def test_date():
 # Test Code Import Parity
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestCodeImportParity:
     """Validate that production imports feature code from research."""
@@ -67,18 +69,22 @@ class TestCodeImportParity:
         source = inspect.getsource(SignalGenerator.generate_signals)
 
         # Should call feature generation functions
-        assert "get_alpha158_features" in source or "get_mock_alpha158_features" in source, \
-            "SignalGenerator.generate_signals should call feature generation function"
+        assert (
+            "get_alpha158_features" in source or "get_mock_alpha158_features" in source
+        ), "SignalGenerator.generate_signals should call feature generation function"
 
         # Check module-level imports to verify strategies module is imported
         module_source = inspect.getsource(sg_module)
 
         # Should import from strategies.alpha_baseline
-        assert "from strategies.alpha_baseline.features import get_alpha158_features" in module_source, \
-            "SignalGenerator module should import get_alpha158_features from strategies"
+        assert (
+            "from strategies.alpha_baseline.features import get_alpha158_features" in module_source
+        ), "SignalGenerator module should import get_alpha158_features from strategies"
 
-        assert "from strategies.alpha_baseline.mock_features import get_mock_alpha158_features" in module_source, \
-            "SignalGenerator module should import get_mock_alpha158_features from strategies"
+        assert (
+            "from strategies.alpha_baseline.mock_features import get_mock_alpha158_features"
+            in module_source
+        ), "SignalGenerator module should import get_mock_alpha158_features from strategies"
 
         print("\n  ✓ SignalGenerator imports from strategies.alpha_baseline.features")
         print("  ✓ SignalGenerator imports from strategies.alpha_baseline.mock_features")
@@ -92,11 +98,13 @@ class TestCodeImportParity:
 
         # Should NOT contain feature computation logic
         # (Features should be imported from strategies module)
-        assert "rolling" not in source.lower() or "import" in source, \
-            "Signal generator should not contain rolling window logic"
+        assert (
+            "rolling" not in source.lower() or "import" in source
+        ), "Signal generator should not contain rolling window logic"
 
-        assert "pct_change" not in source.lower() or "import" in source, \
-            "Signal generator should not contain price change logic"
+        assert (
+            "pct_change" not in source.lower() or "import" in source
+        ), "Signal generator should not contain price change logic"
 
         print("\n  ✓ No duplicate feature implementations found")
         print("  ✓ DRY principle maintained")
@@ -105,6 +113,7 @@ class TestCodeImportParity:
 # ==============================================================================
 # Test Feature Computation Determinism
 # ==============================================================================
+
 
 @pytest.mark.integration
 class TestFeatureComputationDeterminism:
@@ -163,11 +172,12 @@ class TestFeatureComputationDeterminism:
         # Individual features should match subset of combined features
         for symbol in ["AAPL", "MSFT", "GOOGL"]:
             individual = symbol_features[symbol]
-            from_combined = all_features[all_features.index.get_level_values("instrument") == symbol]
+            from_combined = all_features[
+                all_features.index.get_level_values("instrument") == symbol
+            ]
 
             pd.testing.assert_frame_equal(
-                individual.reset_index(drop=True),
-                from_combined.reset_index(drop=True)
+                individual.reset_index(drop=True), from_combined.reset_index(drop=True)
             )
 
         print("\n  Feature generation consistent:")
@@ -178,6 +188,7 @@ class TestFeatureComputationDeterminism:
 # ==============================================================================
 # Test Feature Dimensions
 # ==============================================================================
+
 
 @pytest.mark.integration
 class TestFeatureDimensions:
@@ -259,6 +270,7 @@ class TestFeatureDimensions:
 # Test Feature-Model Compatibility
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestFeatureModelCompatibility:
     """Validate features are compatible with model."""
@@ -335,6 +347,7 @@ class TestFeatureModelCompatibility:
 # Test Production-Research Parity
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestProductionResearchParity:
     """Validate production signals match research predictions."""
@@ -389,11 +402,12 @@ class TestProductionResearchParity:
         np.testing.assert_array_equal(
             research_ranking,
             production_ranking,
-            err_msg="Research and production prediction rankings differ"
+            err_msg="Research and production prediction rankings differ",
         )
 
         # Also verify that relative ordering is preserved (correlation should be perfect)
         from scipy.stats import spearmanr  # type: ignore[import-untyped]
+
         correlation, _ = spearmanr(research_predictions, production_predictions)
         assert abs(correlation) > 0.99, f"Prediction correlation too low: {correlation}"
 
@@ -409,6 +423,7 @@ class TestProductionResearchParity:
 # ==============================================================================
 # Summary Report
 # ==============================================================================
+
 
 @pytest.fixture(scope="session", autouse=True)
 def print_test_summary(request):

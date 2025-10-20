@@ -27,8 +27,10 @@ logger = logging.getLogger(__name__)
 # Database Models (for psycopg class_row mapping)
 # ==============================================================================
 
+
 class OrchestrationRunDB:
     """Database model for orchestration_runs table."""
+
     id: int
     run_id: UUID
     strategy_id: str
@@ -56,6 +58,7 @@ class OrchestrationRunDB:
 # ==============================================================================
 # Database Client
 # ==============================================================================
+
 
 class OrchestrationDatabaseClient:
     """
@@ -155,8 +158,8 @@ class OrchestrationDatabaseClient:
                         result.completed_at,
                         result.duration_seconds,
                         result.error_message,
-                        json.dumps(signal_metadata) if signal_metadata else None
-                    )
+                        json.dumps(signal_metadata) if signal_metadata else None,
+                    ),
                 )
 
                 row = cur.fetchone()
@@ -171,16 +174,13 @@ class OrchestrationDatabaseClient:
 
                 logger.info(
                     f"Created orchestration run: {result.run_id}",
-                    extra={"run_id": str(result.run_id), "db_id": run_id}
+                    extra={"run_id": str(result.run_id), "db_id": run_id},
                 )
 
                 return run_id
 
     def _create_mappings(
-        self,
-        cur: psycopg.Cursor,
-        run_id: UUID,
-        mappings: list[SignalOrderMapping]
+        self, cur: psycopg.Cursor, run_id: UUID, mappings: list[SignalOrderMapping]
     ) -> None:
         """
         Create signal-order mapping records.
@@ -222,8 +222,8 @@ class OrchestrationDatabaseClient:
                     mapping.order_status,
                     mapping.filled_qty,
                     mapping.filled_avg_price,
-                    mapping.skip_reason
-                )
+                    mapping.skip_reason,
+                ),
             )
 
     def update_run_status(
@@ -232,7 +232,7 @@ class OrchestrationDatabaseClient:
         status: str,
         completed_at: datetime | None = None,
         duration_seconds: Decimal | None = None,
-        error_message: str | None = None
+        error_message: str | None = None,
     ) -> None:
         """
         Update orchestration run status.
@@ -255,7 +255,7 @@ class OrchestrationDatabaseClient:
                         error_message = COALESCE(%s, error_message)
                     WHERE run_id = %s
                     """,
-                    (status, completed_at, duration_seconds, error_message, run_id)
+                    (status, completed_at, duration_seconds, error_message, run_id),
                 )
                 conn.commit()
 
@@ -290,7 +290,7 @@ class OrchestrationDatabaseClient:
                     FROM orchestration_runs
                     WHERE run_id = %s
                     """,
-                    (run_id,)
+                    (run_id,),
                 )
 
                 row = cur.fetchone()
@@ -309,7 +309,7 @@ class OrchestrationDatabaseClient:
                     num_orders_rejected=row.num_orders_rejected,
                     started_at=row.started_at,
                     completed_at=row.completed_at,
-                    duration_seconds=row.duration_seconds
+                    duration_seconds=row.duration_seconds,
                 )
 
     def list_runs(
@@ -317,7 +317,7 @@ class OrchestrationDatabaseClient:
         limit: int = 50,
         offset: int = 0,
         strategy_id: str | None = None,
-        status: str | None = None
+        status: str | None = None,
     ) -> list[OrchestrationRunSummary]:
         """
         List recent orchestration runs.
@@ -380,7 +380,7 @@ class OrchestrationDatabaseClient:
                         num_orders_rejected=row.num_orders_rejected,
                         started_at=row.started_at,
                         completed_at=row.completed_at,
-                        duration_seconds=row.duration_seconds
+                        duration_seconds=row.duration_seconds,
                     )
                     for row in rows
                 ]
@@ -413,7 +413,7 @@ class OrchestrationDatabaseClient:
                     WHERE run_id = %s
                     ORDER BY rank
                     """,
-                    (run_id,)
+                    (run_id,),
                 )
 
                 rows = cur.fetchall()
@@ -431,7 +431,7 @@ class OrchestrationDatabaseClient:
                         order_status=row[8],
                         filled_qty=row[9],
                         filled_avg_price=row[10],
-                        skip_reason=row[11]
+                        skip_reason=row[11],
                     )
                     for row in rows
                 ]

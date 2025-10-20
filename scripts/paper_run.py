@@ -48,15 +48,15 @@ See Also:
     - /docs/IMPLEMENTATION_GUIDES/t6-paper-run.md: Implementation guide
 """
 
-import sys
-import os
-import asyncio
 import argparse
+import asyncio
 import json
-from pathlib import Path
-from datetime import datetime, date, timezone
+import os
+import sys
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
+from pathlib import Path
+from typing import Any
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -66,16 +66,10 @@ import httpx
 from dotenv import load_dotenv
 
 # Local imports (Alpaca client for price fetching)
-from apps.execution_gateway.alpaca_client import (
-    AlpacaExecutor,
-    AlpacaConnectionError
-)
+from apps.execution_gateway.alpaca_client import AlpacaConnectionError, AlpacaExecutor
 
 
-async def fetch_current_prices(
-    symbols: List[str],
-    config: Dict[str, Any]
-) -> Dict[str, Decimal]:
+async def fetch_current_prices(symbols: list[str], config: dict[str, Any]) -> dict[str, Decimal]:
     """
     Fetch current market prices from Alpaca API.
 
@@ -122,9 +116,9 @@ async def fetch_current_prices(
         # Initialize Alpaca client with credentials from config
         # Note: Reuse same credentials as execution gateway
         alpaca_client = AlpacaExecutor(
-            api_key=os.getenv('ALPACA_API_KEY'),
-            secret_key=os.getenv('ALPACA_SECRET_KEY'),
-            base_url=os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+            api_key=os.getenv("ALPACA_API_KEY"),
+            secret_key=os.getenv("ALPACA_SECRET_KEY"),
+            base_url=os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
         )
 
         # Fetch latest quotes for all symbols (batch request)
@@ -135,15 +129,15 @@ async def fetch_current_prices(
         for symbol, quote_data in quotes.items():
             # Prefer last_price (mid-quote calculated in get_latest_quotes)
             # Fallback to ask_price or bid_price if last_price unavailable
-            last_price = quote_data.get('last_price')
-            ask_price = quote_data.get('ask_price')
-            bid_price = quote_data.get('bid_price')
+            last_price = quote_data.get("last_price")
+            ask_price = quote_data.get("ask_price")
+            bid_price = quote_data.get("bid_price")
 
             if last_price is not None:
                 prices[symbol] = last_price
             elif ask_price is not None and bid_price is not None:
                 # Calculate mid-quote manually if last_price is None
-                prices[symbol] = (ask_price + bid_price) / Decimal('2')
+                prices[symbol] = (ask_price + bid_price) / Decimal("2")
             elif ask_price is not None:
                 prices[symbol] = ask_price
             elif bid_price is not None:
@@ -157,7 +151,7 @@ async def fetch_current_prices(
     except AlpacaConnectionError as e:
         # Log warning but don't fail - caller can use fallback prices
         print(f"  ⚠️  Warning: Failed to fetch prices from Alpaca: {e}", file=sys.stderr)
-        print(f"     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
+        print("     Falling back to avg_entry_price for P&L calculation", file=sys.stderr)
         return {}
 
     except Exception as e:
@@ -166,7 +160,7 @@ async def fetch_current_prices(
         return {}
 
 
-async def fetch_positions(execution_gateway_url: str) -> List[Dict[str, Any]]:
+async def fetch_positions(execution_gateway_url: str) -> list[dict[str, Any]]:
     """
     Fetch current positions from T4 Execution Gateway.
 
@@ -234,7 +228,7 @@ async def fetch_positions(execution_gateway_url: str) -> List[Dict[str, Any]]:
             error_detail = "Unknown error"
             try:
                 error_json = e.response.json()
-                error_detail = error_json.get('detail', str(error_json))
+                error_detail = error_json.get("detail", str(error_json))
             except Exception:
                 error_detail = e.response.text[:500]
 
@@ -263,9 +257,8 @@ async def fetch_positions(execution_gateway_url: str) -> List[Dict[str, Any]]:
 
 
 async def calculate_enhanced_pnl(
-    positions: List[Dict[str, Any]],
-    current_prices: Dict[str, Decimal]
-) -> Dict[str, Any]:
+    positions: list[dict[str, Any]], current_prices: dict[str, Decimal]
+) -> dict[str, Any]:
     """
     Calculate enhanced P&L with realized/unrealized breakdown.
 
@@ -336,10 +329,10 @@ async def calculate_enhanced_pnl(
     num_closed = 0
 
     for position in positions:
-        symbol = position['symbol']
-        qty = int(position.get('qty', 0))
-        avg_entry_price = Decimal(str(position.get('avg_entry_price', 0)))
-        position_realized = Decimal(str(position.get('realized_pl', 0)))
+        symbol = position["symbol"]
+        qty = int(position.get("qty", 0))
+        avg_entry_price = Decimal(str(position.get("avg_entry_price", 0)))
+        position_realized = Decimal(str(position.get("realized_pl", 0)))
 
         if qty == 0:
             # Closed position - only realized P&L
@@ -347,12 +340,12 @@ async def calculate_enhanced_pnl(
             realized_pnl += position_realized
 
             per_symbol_pnl[symbol] = {
-                'realized': position_realized,
-                'unrealized': Decimal("0"),
-                'qty': 0,
-                'avg_entry_price': avg_entry_price,
-                'current_price': None,
-                'status': 'closed'
+                "realized": position_realized,
+                "unrealized": Decimal("0"),
+                "qty": 0,
+                "avg_entry_price": avg_entry_price,
+                "current_price": None,
+                "status": "closed",
             }
 
         else:
@@ -368,7 +361,7 @@ async def calculate_enhanced_pnl(
                 print(
                     f"  ⚠️  Warning: No current price for {symbol}, "
                     f"using avg_entry_price ${avg_entry_price:.2f}",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
 
             # Calculate unrealized P&L: (current - entry) * qty
@@ -381,25 +374,25 @@ async def calculate_enhanced_pnl(
             realized_pnl += position_realized
 
             per_symbol_pnl[symbol] = {
-                'realized': position_realized,
-                'unrealized': position_unrealized,
-                'qty': qty,
-                'avg_entry_price': avg_entry_price,
-                'current_price': current_price,
-                'status': 'open'
+                "realized": position_realized,
+                "unrealized": position_unrealized,
+                "qty": qty,
+                "avg_entry_price": avg_entry_price,
+                "current_price": current_price,
+                "status": "open",
             }
 
     # Calculate total P&L
     total_pnl = realized_pnl + unrealized_pnl
 
     return {
-        'realized_pnl': realized_pnl,
-        'unrealized_pnl': unrealized_pnl,
-        'total_pnl': total_pnl,
-        'per_symbol': per_symbol_pnl,
-        'num_open_positions': num_open,
-        'num_closed_positions': num_closed,
-        'total_positions': num_open + num_closed
+        "realized_pnl": realized_pnl,
+        "unrealized_pnl": unrealized_pnl,
+        "total_pnl": total_pnl,
+        "per_symbol": per_symbol_pnl,
+        "num_open_positions": num_open,
+        "num_closed_positions": num_closed,
+        "total_positions": num_open + num_closed,
     }
 
 
@@ -430,7 +423,7 @@ def parse_arguments() -> argparse.Namespace:
         - Use --help to see all available options
     """
     parser = argparse.ArgumentParser(
-        description='Execute end-to-end paper trading workflow',
+        description="Execute end-to-end paper trading workflow",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -454,78 +447,69 @@ Exit codes:
   1: Dependency errors
   2: Orchestration errors
   3: Configuration errors
-        """
+        """,
     )
 
     # Trading parameters
     parser.add_argument(
-        '--symbols',
-        nargs='+',
+        "--symbols",
+        nargs="+",
         default=None,
-        help='Symbols to trade (default: from PAPER_RUN_SYMBOLS env var)'
+        help="Symbols to trade (default: from PAPER_RUN_SYMBOLS env var)",
     )
 
     parser.add_argument(
-        '--capital',
+        "--capital",
         type=float,
         default=None,
-        help='Total capital in dollars (default: from PAPER_RUN_CAPITAL env var)'
+        help="Total capital in dollars (default: from PAPER_RUN_CAPITAL env var)",
     )
 
     parser.add_argument(
-        '--max-position-size',
+        "--max-position-size",
         type=float,
         default=None,
-        help='Max position size per symbol (default: from PAPER_RUN_MAX_POSITION_SIZE env var)'
+        help="Max position size per symbol (default: from PAPER_RUN_MAX_POSITION_SIZE env var)",
     )
 
     parser.add_argument(
-        '--as-of-date',
+        "--as-of-date",
         type=str,
         default=None,
-        help='As-of date for signals (YYYY-MM-DD, default: today)'
+        help="As-of date for signals (YYYY-MM-DD, default: today)",
     )
 
     # Service URLs (override .env)
     parser.add_argument(
-        '--orchestrator-url',
+        "--orchestrator-url",
         type=str,
         default=None,
-        help='Orchestrator service URL (default: from ORCHESTRATOR_URL env var)'
+        help="Orchestrator service URL (default: from ORCHESTRATOR_URL env var)",
     )
 
     parser.add_argument(
-        '--execution-gateway-url',
+        "--execution-gateway-url",
         type=str,
         default=None,
-        help='Execution Gateway URL (default: from EXECUTION_GATEWAY_URL env var)'
+        help="Execution Gateway URL (default: from EXECUTION_GATEWAY_URL env var)",
     )
 
     # Output options
     parser.add_argument(
-        '--output',
-        type=str,
-        default=None,
-        help='Save results to JSON file (optional)'
+        "--output", type=str, default=None, help="Save results to JSON file (optional)"
     )
 
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Check dependencies without executing orchestration'
+        "--dry-run", action="store_true", help="Check dependencies without executing orchestration"
     )
 
     # Verbosity
-    parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Verbose output for debugging'
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output for debugging")
 
     return parser.parse_args()
 
 
-def load_configuration(args: argparse.Namespace) -> Dict[str, Any]:
+def load_configuration(args: argparse.Namespace) -> dict[str, Any]:
     """
     Load configuration from environment variables with CLI override.
 
@@ -571,10 +555,7 @@ def load_configuration(args: argparse.Namespace) -> Dict[str, Any]:
     load_dotenv()
 
     def get_config(
-        cli_value: Optional[Any],
-        env_var: str,
-        default: Optional[Any] = None,
-        required: bool = True
+        cli_value: Any | None, env_var: str, default: Any | None = None, required: bool = True
     ) -> Any:
         """
         Get configuration value with CLI > ENV > DEFAULT priority.
@@ -621,53 +602,50 @@ def load_configuration(args: argparse.Namespace) -> Dict[str, Any]:
 
     # Parse symbols (can be list from CLI or comma-separated string from .env)
     symbols_raw = get_config(
-        args.symbols,
-        'PAPER_RUN_SYMBOLS',
-        'AAPL,MSFT,GOOGL'  # Default MVP symbols
+        args.symbols, "PAPER_RUN_SYMBOLS", "AAPL,MSFT,GOOGL"  # Default MVP symbols
     )
     symbols = (
-        symbols_raw if isinstance(symbols_raw, list)
-        else [s.strip() for s in symbols_raw.split(',')]
+        symbols_raw
+        if isinstance(symbols_raw, list)
+        else [s.strip() for s in symbols_raw.split(",")]
     )
 
     # Build configuration dictionary
     config = {
         # Trading parameters (convert to Decimal for precision)
-        'symbols': symbols,
-        'capital': Decimal(str(get_config(
-            args.capital,
-            'PAPER_RUN_CAPITAL',
-            '100000'  # $100k default
-        ))),
-        'max_position_size': Decimal(str(get_config(
-            args.max_position_size,
-            'PAPER_RUN_MAX_POSITION_SIZE',
-            '20000'  # $20k per symbol default
-        ))),
-        'as_of_date': args.as_of_date,  # None = today
-
+        "symbols": symbols,
+        "capital": Decimal(
+            str(get_config(args.capital, "PAPER_RUN_CAPITAL", "100000"))  # $100k default
+        ),
+        "max_position_size": Decimal(
+            str(
+                get_config(
+                    args.max_position_size,
+                    "PAPER_RUN_MAX_POSITION_SIZE",
+                    "20000",  # $20k per symbol default
+                )
+            )
+        ),
+        "as_of_date": args.as_of_date,  # None = today
         # Service URLs
-        'orchestrator_url': get_config(
-            args.orchestrator_url,
-            'ORCHESTRATOR_URL',
-            'http://localhost:8003'  # T5 default port
+        "orchestrator_url": get_config(
+            args.orchestrator_url, "ORCHESTRATOR_URL", "http://localhost:8003"  # T5 default port
         ),
-        'execution_gateway_url': get_config(
+        "execution_gateway_url": get_config(
             args.execution_gateway_url,
-            'EXECUTION_GATEWAY_URL',
-            'http://localhost:8002'  # T4 default port
+            "EXECUTION_GATEWAY_URL",
+            "http://localhost:8002",  # T4 default port
         ),
-
         # Output options
-        'output_file': args.output,
-        'dry_run': args.dry_run,
-        'verbose': args.verbose,
+        "output_file": args.output,
+        "dry_run": args.dry_run,
+        "verbose": args.verbose,
     }
 
     return config
 
 
-async def check_dependencies(config: Dict[str, Any]) -> None:
+async def check_dependencies(config: dict[str, Any]) -> None:
     """
     Check that all required services are healthy before execution.
 
@@ -758,7 +736,7 @@ async def check_dependencies(config: Dict[str, Any]) -> None:
                 )
 
 
-async def trigger_orchestration(config: Dict[str, Any]) -> Dict[str, Any]:
+async def trigger_orchestration(config: dict[str, Any]) -> dict[str, Any]:
     """
     Trigger orchestration run via Orchestrator Service API.
 
@@ -813,19 +791,19 @@ async def trigger_orchestration(config: Dict[str, Any]) -> Dict[str, Any]:
     # Build request payload
     # Note: Convert Decimal to float for JSON serialization
     payload = {
-        'symbols': config['symbols'],
-        'capital': float(config['capital']),
-        'max_position_size': float(config['max_position_size']),
+        "symbols": config["symbols"],
+        "capital": float(config["capital"]),
+        "max_position_size": float(config["max_position_size"]),
     }
 
     # Optional: as_of_date for historical runs
-    if config['as_of_date']:
-        payload['as_of_date'] = config['as_of_date']
+    if config["as_of_date"]:
+        payload["as_of_date"] = config["as_of_date"]
 
     # Debug output in verbose mode
-    if config['verbose']:
+    if config["verbose"]:
         print(f"\n  Request URL: {url}")
-        print(f"  Payload:")
+        print("  Payload:")
         print(json.dumps(payload, indent=2))
 
     # Call Orchestrator API
@@ -837,8 +815,8 @@ async def trigger_orchestration(config: Dict[str, Any]) -> Dict[str, Any]:
 
             print(f"  Run ID: {result.get('run_id', 'unknown')}")
 
-            if config['verbose']:
-                print(f"\n  Response:")
+            if config["verbose"]:
+                print("\n  Response:")
                 print(json.dumps(result, indent=2, default=str))
 
             return result
@@ -848,7 +826,7 @@ async def trigger_orchestration(config: Dict[str, Any]) -> Dict[str, Any]:
             error_detail = "Unknown error"
             try:
                 error_json = e.response.json()
-                error_detail = error_json.get('detail', str(error_json))
+                error_detail = error_json.get("detail", str(error_json))
             except Exception:
                 error_detail = e.response.text[:500]
 
@@ -879,7 +857,7 @@ async def trigger_orchestration(config: Dict[str, Any]) -> Dict[str, Any]:
             )
 
 
-def calculate_simple_pnl(result: Dict[str, Any]) -> Dict[str, Any]:
+def calculate_simple_pnl(result: dict[str, Any]) -> dict[str, Any]:
     """
     Calculate simple P&L metrics from orchestration result.
 
@@ -942,24 +920,24 @@ def calculate_simple_pnl(result: Dict[str, Any]) -> Dict[str, Any]:
     print("\n[3/5] Calculating P&L...")
 
     # Extract metrics from result
-    num_signals = result.get('num_signals', 0)
-    num_submitted = result.get('num_orders_submitted', 0)
-    num_accepted = result.get('num_orders_accepted', 0)
-    num_rejected = result.get('num_orders_rejected', 0)
-    duration = result.get('duration_seconds', 0)
+    num_signals = result.get("num_signals", 0)
+    num_submitted = result.get("num_orders_submitted", 0)
+    num_accepted = result.get("num_orders_accepted", 0)
+    num_rejected = result.get("num_orders_rejected", 0)
+    duration = result.get("duration_seconds", 0)
 
     # Calculate total notional value
     # Notional = abs(quantity * price) for each accepted order
     total_notional = Decimal("0")
 
-    for mapping in result.get('mappings', []):
+    for mapping in result.get("mappings", []):
         # Skip orders that were not submitted (skip_reason present)
-        if mapping.get('skip_reason') is not None:
+        if mapping.get("skip_reason") is not None:
             continue
 
         # Calculate notional for this order
-        qty = mapping.get('order_qty', 0)
-        price = Decimal(str(mapping.get('order_price', 0)))
+        qty = mapping.get("order_qty", 0)
+        price = Decimal(str(mapping.get("order_price", 0)))
         notional = abs(qty * price)
         total_notional += notional
 
@@ -968,13 +946,13 @@ def calculate_simple_pnl(result: Dict[str, Any]) -> Dict[str, Any]:
 
     # Build metrics dictionary
     pnl_metrics = {
-        'total_notional': total_notional,
-        'num_signals': num_signals,
-        'num_orders_submitted': num_submitted,
-        'num_orders_accepted': num_accepted,
-        'num_orders_rejected': num_rejected,
-        'success_rate': success_rate,
-        'duration_seconds': duration,
+        "total_notional": total_notional,
+        "num_signals": num_signals,
+        "num_orders_submitted": num_submitted,
+        "num_orders_accepted": num_accepted,
+        "num_orders_rejected": num_rejected,
+        "success_rate": success_rate,
+        "duration_seconds": duration,
     }
 
     # Display metrics to console
@@ -990,9 +968,7 @@ def calculate_simple_pnl(result: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def format_console_output(
-    config: Dict[str, Any],
-    result: Dict[str, Any],
-    run_timestamp: datetime
+    config: dict[str, Any], result: dict[str, Any], run_timestamp: datetime
 ) -> None:
     """
     Display formatted results to console.
@@ -1032,11 +1008,11 @@ def format_console_output(
     print(f"Symbols:      {', '.join(config['symbols'])}")
     print(f"Capital:      ${config['capital']:,.2f}")
     print(f"Max Position: ${config['max_position_size']:,.2f}")
-    if config['as_of_date']:
+    if config["as_of_date"]:
         print(f"As-of Date:   {config['as_of_date']}")
 
     # Final status
-    status = result.get('status', 'unknown')
+    status = result.get("status", "unknown")
     status_symbol = "✓" if status == "completed" else "✗"
 
     print("\n" + "=" * 80)
@@ -1045,10 +1021,10 @@ def format_console_output(
 
 
 async def save_results(
-    config: Dict[str, Any],
-    result: Dict[str, Any],
-    pnl_metrics: Dict[str, Any],
-    run_timestamp: datetime
+    config: dict[str, Any],
+    result: dict[str, Any],
+    pnl_metrics: dict[str, Any],
+    run_timestamp: datetime,
 ) -> None:
     """
     Save results to JSON file if --output specified.
@@ -1083,7 +1059,7 @@ async def save_results(
         - Timezone-aware UTC timestamp in ISO 8601 format for easy parsing
         - Uses provided run_timestamp for consistency with console output
     """
-    if not config.get('output_file'):
+    if not config.get("output_file"):
         return
 
     print("\n[4/5] Saving results...")
@@ -1092,69 +1068,73 @@ async def save_results(
     # Note: Convert Decimal to float for JSON serialization
 
     # Check if this is enhanced P&L or simple notional P&L
-    if 'total_pnl' in pnl_metrics:
+    if "total_pnl" in pnl_metrics:
         # Enhanced P&L data
         results_data = {
-            'realized_pnl': float(pnl_metrics['realized_pnl']),
-            'unrealized_pnl': float(pnl_metrics['unrealized_pnl']),
-            'total_pnl': float(pnl_metrics['total_pnl']),
-            'num_open_positions': pnl_metrics['num_open_positions'],
-            'num_closed_positions': pnl_metrics['num_closed_positions'],
-            'total_positions': pnl_metrics['total_positions'],
-            'per_symbol': {
+            "realized_pnl": float(pnl_metrics["realized_pnl"]),
+            "unrealized_pnl": float(pnl_metrics["unrealized_pnl"]),
+            "total_pnl": float(pnl_metrics["total_pnl"]),
+            "num_open_positions": pnl_metrics["num_open_positions"],
+            "num_closed_positions": pnl_metrics["num_closed_positions"],
+            "total_positions": pnl_metrics["total_positions"],
+            "per_symbol": {
                 symbol: {
-                    'realized': float(info['realized']),
-                    'unrealized': float(info['unrealized']),
-                    'qty': info['qty'],
-                    'avg_entry_price': float(info['avg_entry_price']) if info['avg_entry_price'] else None,
-                    'current_price': float(info['current_price']) if info['current_price'] else None,
-                    'status': info['status']
+                    "realized": float(info["realized"]),
+                    "unrealized": float(info["unrealized"]),
+                    "qty": info["qty"],
+                    "avg_entry_price": (
+                        float(info["avg_entry_price"]) if info["avg_entry_price"] else None
+                    ),
+                    "current_price": (
+                        float(info["current_price"]) if info["current_price"] else None
+                    ),
+                    "status": info["status"],
                 }
-                for symbol, info in pnl_metrics['per_symbol'].items()
-            }
+                for symbol, info in pnl_metrics["per_symbol"].items()
+            },
         }
     else:
         # Simple notional P&L data (fallback)
         results_data = {
-            'total_notional': float(pnl_metrics['total_notional']),
-            'num_signals': pnl_metrics['num_signals'],
-            'num_orders_submitted': pnl_metrics['num_orders_submitted'],
-            'num_orders_accepted': pnl_metrics['num_orders_accepted'],
-            'num_orders_rejected': pnl_metrics['num_orders_rejected'],
-            'success_rate': pnl_metrics['success_rate'],
-            'duration_seconds': pnl_metrics['duration_seconds'],
+            "total_notional": float(pnl_metrics["total_notional"]),
+            "num_signals": pnl_metrics["num_signals"],
+            "num_orders_submitted": pnl_metrics["num_orders_submitted"],
+            "num_orders_accepted": pnl_metrics["num_orders_accepted"],
+            "num_orders_rejected": pnl_metrics["num_orders_rejected"],
+            "success_rate": pnl_metrics["success_rate"],
+            "duration_seconds": pnl_metrics["duration_seconds"],
         }
 
     # Create output data with timezone-aware UTC timestamp (ISO 8601 format)
     # Use provided run_timestamp for consistency with console output
     output_data = {
-        'timestamp': run_timestamp.isoformat(),
-        'timezone': 'UTC',
-        'parameters': {
-            'symbols': config['symbols'],
-            'capital': float(config['capital']),
-            'max_position_size': float(config['max_position_size']),
-            'as_of_date': config.get('as_of_date'),
+        "timestamp": run_timestamp.isoformat(),
+        "timezone": "UTC",
+        "parameters": {
+            "symbols": config["symbols"],
+            "capital": float(config["capital"]),
+            "max_position_size": float(config["max_position_size"]),
+            "as_of_date": config.get("as_of_date"),
         },
-        'results': results_data,
-        'run_id': result.get('run_id'),
-        'status': result.get('status'),
-        'orders': [
+        "results": results_data,
+        "run_id": result.get("run_id"),
+        "status": result.get("status"),
+        "orders": [
             {
-                'symbol': m.get('symbol'),
-                'side': m.get('order_side'),
-                'qty': m.get('order_qty'),
-                'skip_reason': m.get('skip_reason'),
+                "symbol": m.get("symbol"),
+                "side": m.get("order_side"),
+                "qty": m.get("order_qty"),
+                "skip_reason": m.get("skip_reason"),
             }
-            for m in result.get('mappings', [])
+            for m in result.get("mappings", [])
         ],
     }
 
     # Write to file
-    output_path = Path(config['output_file'])
+    output_path = Path(config["output_file"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         json.dump(output_data, f, indent=2)
 
     print(f"  ✓ Saved to: {output_path}")
@@ -1200,7 +1180,7 @@ async def main() -> int:
         await check_dependencies(config)
 
         # Dry run exit (just check dependencies, don't execute)
-        if config['dry_run']:
+        if config["dry_run"]:
             print("\n✓ Dry run complete - all dependencies healthy")
             print("\nTo execute orchestration, run without --dry-run flag:")
             print("  python scripts/paper_run.py")
@@ -1208,7 +1188,7 @@ async def main() -> int:
 
         # Generate timestamp BEFORE orchestration to represent run start time
         # This ensures timestamp reflects when trading logic commenced, not when results were generated
-        run_timestamp = datetime.now(timezone.utc)
+        run_timestamp = datetime.now(UTC)
 
         # [2/5] Trigger orchestration
         result = await trigger_orchestration(config)
@@ -1218,23 +1198,23 @@ async def main() -> int:
 
         # Fetch positions from T4
         try:
-            positions = await fetch_positions(config['execution_gateway_url'])
+            positions = await fetch_positions(config["execution_gateway_url"])
             print(f"  Positions Fetched:  {len(positions)} total")
         except RuntimeError as e:
             print(f"  ⚠️  Warning: Could not fetch positions: {e}", file=sys.stderr)
-            print(f"     Falling back to notional P&L only", file=sys.stderr)
+            print("     Falling back to notional P&L only", file=sys.stderr)
             positions = []
 
         # Fetch current prices from Alpaca
         if positions:
             # Extract symbols from open positions
-            open_symbols = [p['symbol'] for p in positions if p.get('qty', 0) != 0]
+            open_symbols = [p["symbol"] for p in positions if p.get("qty", 0) != 0]
             if open_symbols:
                 current_prices = await fetch_current_prices(open_symbols, config)
                 print(f"  Prices Updated:     {len(current_prices)} symbols")
             else:
                 current_prices = {}
-                print(f"  Prices Updated:     0 symbols (no open positions)")
+                print("  Prices Updated:     0 symbols (no open positions)")
 
             # Calculate enhanced P&L
             pnl_data = await calculate_enhanced_pnl(positions, current_prices)
@@ -1247,10 +1227,10 @@ async def main() -> int:
             print(f"  Closed Positions:   {pnl_data['num_closed_positions']}")
 
             # Display per-symbol breakdown
-            if pnl_data['per_symbol']:
-                print(f"\n  Per-Symbol P&L:")
-                for symbol, pnl_info in pnl_data['per_symbol'].items():
-                    if pnl_info['status'] == 'open':
+            if pnl_data["per_symbol"]:
+                print("\n  Per-Symbol P&L:")
+                for symbol, pnl_info in pnl_data["per_symbol"].items():
+                    if pnl_info["status"] == "open":
                         print(
                             f"    {symbol:6} ({pnl_info['qty']:>5} shares): "
                             f"Realized: ${pnl_info['realized']:+,.2f}, "
@@ -1258,12 +1238,11 @@ async def main() -> int:
                         )
                     else:
                         print(
-                            f"    {symbol:6} (closed): "
-                            f"Realized: ${pnl_info['realized']:+,.2f}"
+                            f"    {symbol:6} (closed): " f"Realized: ${pnl_info['realized']:+,.2f}"
                         )
         else:
             # Fallback to simple notional P&L
-            print(f"  ⚠️  Enhanced P&L not available, calculating notional only...")
+            print("  ⚠️  Enhanced P&L not available, calculating notional only...")
             pnl_data = calculate_simple_pnl(result)
 
         # [4/5] Save results (if --output specified)
@@ -1279,14 +1258,14 @@ async def main() -> int:
 
     except ValueError as e:
         # Configuration errors (missing env vars, invalid params)
-        print(f"\n❌ Configuration Error:", file=sys.stderr)
+        print("\n❌ Configuration Error:", file=sys.stderr)
         print(f"{e}", file=sys.stderr)
         print("\nSee --help for usage information", file=sys.stderr)
         return 3
 
     except RuntimeError as e:
         # Runtime errors (service unavailable, orchestration failed)
-        print(f"\n❌ Runtime Error:", file=sys.stderr)
+        print("\n❌ Runtime Error:", file=sys.stderr)
         print(f"{e}", file=sys.stderr)
         return 2
 
@@ -1297,18 +1276,19 @@ async def main() -> int:
 
     except Exception as e:
         # Unexpected errors
-        print(f"\n❌ Unexpected Error:", file=sys.stderr)
+        print("\n❌ Unexpected Error:", file=sys.stderr)
         print(f"{e}", file=sys.stderr)
 
         # Print full traceback in verbose mode
-        if 'config' in locals() and locals()['config'].get('verbose'):
+        if "config" in locals() and locals()["config"].get("verbose"):
             print("\nFull traceback:", file=sys.stderr)
             import traceback
+
             traceback.print_exc()
 
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Run async main and exit with its return code
     sys.exit(asyncio.run(main()))

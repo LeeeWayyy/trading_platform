@@ -369,7 +369,9 @@ class CircuitBreaker:
 
                 except redis.exceptions.WatchError:
                     # The key was modified by another client. Retry the transaction.
-                    logger.warning("WatchError on circuit breaker state, retrying reset transaction")
+                    logger.warning(
+                        "WatchError on circuit breaker state, retrying reset transaction"
+                    )
                     continue
 
     def _transition_to_open(self) -> None:
@@ -419,7 +421,9 @@ class CircuitBreaker:
 
                 except redis.exceptions.WatchError:
                     # The key was modified by another client. Retry the transaction.
-                    logger.warning("WatchError on circuit breaker state, retrying transition to OPEN")
+                    logger.warning(
+                        "WatchError on circuit breaker state, retrying transition to OPEN"
+                    )
                     continue
 
     def get_trip_reason(self) -> str | None:

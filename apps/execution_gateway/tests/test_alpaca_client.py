@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from apps.execution_gateway.alpaca_client import AlpacaExecutor, AlpacaClientError
+from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor
 from apps.execution_gateway.schemas import OrderRequest
 
 
@@ -23,10 +23,12 @@ class TestAlpacaClientTypeGuards:
     @pytest.fixture
     def alpaca_client(self):
         """Create AlpacaExecutor with mocked dependencies."""
+
         # Create mock types for isinstance() checks
         # These must be actual types, not None, to avoid TypeError in isinstance()
         class MockOrder:
             """Mock Order type for isinstance() checks."""
+
             def __init__(self):
                 self.id = None
                 self.client_order_id = None
@@ -41,6 +43,7 @@ class TestAlpacaClientTypeGuards:
 
         class MockTradeAccount:
             """Mock TradeAccount type for isinstance() checks."""
+
             def __init__(self):
                 self.account_number = None
                 self.status = MagicMock()
@@ -53,18 +56,16 @@ class TestAlpacaClientTypeGuards:
                 self.transfers_blocked = None
 
         # Mock all dependencies including the model classes
-        with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True), \
-             patch("apps.execution_gateway.alpaca_client.TradingClient") as mock_trading_client, \
-             patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient") as mock_historical_client, \
-             patch("apps.execution_gateway.alpaca_client.Order", MockOrder), \
-             patch("apps.execution_gateway.alpaca_client.TradeAccount", MockTradeAccount):
+        with (
+            patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True),
+            patch("apps.execution_gateway.alpaca_client.TradingClient"),
+            patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient"),
+            patch("apps.execution_gateway.alpaca_client.Order", MockOrder),
+            patch("apps.execution_gateway.alpaca_client.TradeAccount", MockTradeAccount),
+        ):
 
             # Create client with mocked dependencies
-            client = AlpacaExecutor(
-                api_key="test_key",
-                secret_key="test_secret",
-                paper=True
-            )
+            client = AlpacaExecutor(api_key="test_key", secret_key="test_secret", paper=True)
 
             # Store mock classes on client for test access
             # These are test-only attributes, not part of the production class
@@ -96,18 +97,10 @@ class TestAlpacaClientTypeGuards:
         # Configure client to return our mock order
         alpaca_client.client.submit_order = MagicMock(return_value=mock_order)
 
-        order_request = OrderRequest(
-            symbol="AAPL",
-            side="buy",
-            qty=10,
-            order_type="market"
-        )
+        order_request = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
 
         # Should succeed without raising AlpacaClientError
-        result = alpaca_client.submit_order(
-            order=order_request,
-            client_order_id="test_client_id"
-        )
+        result = alpaca_client.submit_order(order=order_request, client_order_id="test_client_id")
 
         # Verify result is dict with expected fields
         assert result["id"] == "order_123"
@@ -128,23 +121,15 @@ class TestAlpacaClientTypeGuards:
         unexpected_response = {
             "id": "order_123",
             "client_order_id": "test_client_id",
-            "symbol": "AAPL"
+            "symbol": "AAPL",
         }
         alpaca_client.client.submit_order = MagicMock(return_value=unexpected_response)
 
-        order_request = OrderRequest(
-            symbol="AAPL",
-            side="buy",
-            qty=10,
-            order_type="market"
-        )
+        order_request = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
 
         # Should raise AlpacaClientError due to isinstance() check failure
         with pytest.raises(AlpacaClientError) as exc_info:
-            alpaca_client.submit_order(
-                order=order_request,
-                client_order_id="test_client_id"
-            )
+            alpaca_client.submit_order(order=order_request, client_order_id="test_client_id")
 
         # Verify error message mentions unexpected type
         assert "Unexpected response type from Alpaca API" in str(exc_info.value)
@@ -198,10 +183,7 @@ class TestAlpacaClientTypeGuards:
         allowing graceful degradation.
         """
         # Configure mock to return dict instead of TradeAccount object
-        unexpected_response = {
-            "account_number": "ACC123",
-            "status": "ACTIVE"
-        }
+        unexpected_response = {"account_number": "ACC123", "status": "ACTIVE"}
         alpaca_client.client.get_account = MagicMock(return_value=unexpected_response)
 
         # Should return None due to isinstance() check failure
@@ -258,8 +240,8 @@ class TestAlpacaClientTypeGuardsDocumentation:
 
         # Verify lessons learned doc exists
         lessons_learned_path = os.path.join(
-            os.path.dirname(__file__),
-            "../../../docs/LESSONS_LEARNED/mypy-strict-migration.md"
+            os.path.dirname(__file__), "../../../docs/LESSONS_LEARNED/mypy-strict-migration.md"
         )
-        assert os.path.exists(lessons_learned_path), \
-            "mypy-strict-migration.md documentation should exist"
+        assert os.path.exists(
+            lessons_learned_path
+        ), "mypy-strict-migration.md documentation should exist"

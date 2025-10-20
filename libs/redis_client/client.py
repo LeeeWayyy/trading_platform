@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 class RedisConnectionError(Exception):
     """Raised when Redis connection fails."""
+
     pass
 
 
@@ -123,7 +124,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     def get(self, key: str) -> str | None:
         """
@@ -154,7 +155,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     def mget(self, keys: list[str]) -> list[str | None]:
         """
@@ -200,7 +201,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     def set(self, key: str, value: str, ttl: int | None = None) -> None:
         """
@@ -229,7 +230,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     def delete(self, key: str) -> int:
         """
@@ -258,7 +259,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     def publish(self, channel: str, message: str) -> int:
         """

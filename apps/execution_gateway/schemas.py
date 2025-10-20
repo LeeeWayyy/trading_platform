@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 # Order Schemas
 # ============================================================================
 
+
 class OrderRequest(BaseModel):
     """
     Request to submit a new order.
@@ -41,24 +42,21 @@ class OrderRequest(BaseModel):
         ...     limit_price=300.50
         ... )
     """
+
     symbol: str = Field(..., description="Stock symbol (e.g., 'AAPL')")
     side: Literal["buy", "sell"] = Field(..., description="Order side")
     qty: int = Field(..., gt=0, description="Order quantity (must be positive)")
     order_type: Literal["market", "limit", "stop", "stop_limit"] = Field(
-        default="market",
-        description="Order type"
+        default="market", description="Order type"
     )
     limit_price: Decimal | None = Field(
-        default=None,
-        description="Limit price (required for limit orders)"
+        default=None, description="Limit price (required for limit orders)"
     )
     stop_price: Decimal | None = Field(
-        default=None,
-        description="Stop price (required for stop orders)"
+        default=None, description="Stop price (required for stop orders)"
     )
     time_in_force: Literal["day", "gtc", "ioc", "fok"] = Field(
-        default="day",
-        description="Time in force"
+        default="day", description="Time in force"
     )
 
     @field_validator("symbol")
@@ -83,7 +81,7 @@ class OrderRequest(BaseModel):
                     "side": "buy",
                     "qty": 10,
                     "order_type": "market",
-                    "time_in_force": "day"
+                    "time_in_force": "day",
                 },
                 {
                     "symbol": "MSFT",
@@ -91,8 +89,8 @@ class OrderRequest(BaseModel):
                     "qty": 5,
                     "order_type": "limit",
                     "limit_price": "300.50",
-                    "time_in_force": "day"
-                }
+                    "time_in_force": "day",
+                },
             ]
         }
     }
@@ -117,6 +115,7 @@ class OrderResponse(BaseModel):
         created_at: Order creation timestamp
         message: Human-readable status message
     """
+
     client_order_id: str
     status: str
     broker_order_id: str | None = None
@@ -141,7 +140,7 @@ class OrderResponse(BaseModel):
                     "order_type": "market",
                     "limit_price": None,
                     "created_at": "2024-10-17T16:30:00Z",
-                    "message": "Order submitted to broker"
+                    "message": "Order submitted to broker",
                 },
                 {
                     "client_order_id": "z9y8x7w6v5u4t3s2r1q0p9o8",
@@ -153,8 +152,8 @@ class OrderResponse(BaseModel):
                     "order_type": "limit",
                     "limit_price": "300.50",
                     "created_at": "2024-10-17T16:31:00Z",
-                    "message": "Order logged (DRY_RUN mode)"
-                }
+                    "message": "Order logged (DRY_RUN mode)",
+                },
             ]
         }
     }
@@ -166,6 +165,7 @@ class OrderDetail(BaseModel):
 
     Used for GET /api/v1/orders/{client_order_id} endpoint.
     """
+
     client_order_id: str
     strategy_id: str
     symbol: str
@@ -192,6 +192,7 @@ class OrderDetail(BaseModel):
 # Position Schemas
 # ============================================================================
 
+
 class Position(BaseModel):
     """
     Current position for a symbol.
@@ -206,6 +207,7 @@ class Position(BaseModel):
         updated_at: Last update timestamp
         last_trade_at: Last trade timestamp
     """
+
     symbol: str
     qty: Decimal
     avg_entry_price: Decimal
@@ -226,7 +228,7 @@ class Position(BaseModel):
                     "unrealized_pl": "25.00",
                     "realized_pl": "0.00",
                     "updated_at": "2024-10-17T16:30:00Z",
-                    "last_trade_at": "2024-10-17T16:30:00Z"
+                    "last_trade_at": "2024-10-17T16:30:00Z",
                 }
             ]
         }
@@ -235,6 +237,7 @@ class Position(BaseModel):
 
 class PositionsResponse(BaseModel):
     """Response containing list of current positions."""
+
     positions: list[Position]
     total_positions: int
     total_unrealized_pl: Decimal | None = None
@@ -252,12 +255,12 @@ class PositionsResponse(BaseModel):
                             "current_price": "152.75",
                             "unrealized_pl": "25.00",
                             "realized_pl": "0.00",
-                            "updated_at": "2024-10-17T16:30:00Z"
+                            "updated_at": "2024-10-17T16:30:00Z",
                         }
                     ],
                     "total_positions": 1,
                     "total_unrealized_pl": "25.00",
-                    "total_realized_pl": "0.00"
+                    "total_realized_pl": "0.00",
                 }
             ]
         }
@@ -271,6 +274,7 @@ class RealtimePositionPnL(BaseModel):
     Uses latest prices from Redis cache (market data service).
     Falls back to database price if real-time data unavailable.
     """
+
     symbol: str
     qty: Decimal
     avg_entry_price: Decimal
@@ -295,7 +299,7 @@ class RealtimePositionPnL(BaseModel):
                     "price_source": "real-time",
                     "unrealized_pl": "25.00",
                     "unrealized_pl_pct": "1.67",
-                    "last_price_update": "2024-10-19T14:30:15Z"
+                    "last_price_update": "2024-10-19T14:30:15Z",
                 }
             ]
         }
@@ -309,15 +313,14 @@ class RealtimePnLResponse(BaseModel):
     Fetches latest prices from Redis (populated by Market Data Service).
     Falls back to database prices if real-time data unavailable.
     """
+
     positions: list[RealtimePositionPnL]
     total_positions: int
     total_unrealized_pl: Decimal
     total_unrealized_pl_pct: Decimal | None = Field(
         None, description="Total unrealized P&L as percentage of total investment"
     )
-    realtime_prices_available: int = Field(
-        description="Number of positions with real-time prices"
-    )
+    realtime_prices_available: int = Field(description="Number of positions with real-time prices")
     timestamp: datetime = Field(description="Response generation timestamp")
 
     model_config = {
@@ -333,14 +336,14 @@ class RealtimePnLResponse(BaseModel):
                             "price_source": "real-time",
                             "unrealized_pl": "25.00",
                             "unrealized_pl_pct": "1.67",
-                            "last_price_update": "2024-10-19T14:30:15Z"
+                            "last_price_update": "2024-10-19T14:30:15Z",
                         }
                     ],
                     "total_positions": 1,
                     "total_unrealized_pl": "25.00",
                     "total_unrealized_pl_pct": "1.67",
                     "realtime_prices_available": 1,
-                    "timestamp": "2024-10-19T14:30:20Z"
+                    "timestamp": "2024-10-19T14:30:20Z",
                 }
             ]
         }
@@ -351,12 +354,14 @@ class RealtimePnLResponse(BaseModel):
 # Webhook Schemas
 # ============================================================================
 
+
 class OrderEventData(BaseModel):
     """
     Order event data from Alpaca webhook.
 
     See: https://docs.alpaca.markets/docs/webhooks#order-updates
     """
+
     event: Literal[
         "new",
         "fill",
@@ -371,7 +376,7 @@ class OrderEventData(BaseModel):
         "pending_replace",
         "stopped",
         "suspended",
-        "calculated"
+        "calculated",
     ]
     order: dict[str, Any]  # Full order object from Alpaca
     timestamp: datetime
@@ -385,20 +390,21 @@ class WebhookEvent(BaseModel):
 
     Contains the event type and data payload.
     """
+
     event_type: str = Field(..., alias="event")
     data: OrderEventData
 
-    model_config = {
-        "populate_by_name": True
-    }
+    model_config = {"populate_by_name": True}
 
 
 # ============================================================================
 # Health Check Schema
 # ============================================================================
 
+
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: Literal["healthy", "degraded", "unhealthy"]
     service: str = "execution_gateway"
     version: str
@@ -419,7 +425,7 @@ class HealthResponse(BaseModel):
                     "database_connected": True,
                     "alpaca_connected": True,
                     "timestamp": "2024-10-17T16:30:00Z",
-                    "details": {}
+                    "details": {},
                 }
             ]
         }
@@ -430,8 +436,10 @@ class HealthResponse(BaseModel):
 # Error Schema
 # ============================================================================
 
+
 class ErrorResponse(BaseModel):
     """Standard error response."""
+
     error: str
     detail: str | None = None
     timestamp: datetime
@@ -442,7 +450,7 @@ class ErrorResponse(BaseModel):
                 {
                     "error": "Order submission failed",
                     "detail": "Insufficient buying power",
-                    "timestamp": "2024-10-17T16:30:00Z"
+                    "timestamp": "2024-10-17T16:30:00Z",
                 }
             ]
         }

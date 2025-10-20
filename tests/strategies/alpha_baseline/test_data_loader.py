@@ -10,14 +10,14 @@ Tests cover:
 - Column name standardization
 """
 
+import shutil
+import tempfile
 from datetime import date
 from pathlib import Path
-import tempfile
-import shutil
 
-import pytest
-import polars as pl
 import pandas as pd
+import polars as pl
+import pytest
 
 from strategies.alpha_baseline.data_loader import T1DataProvider
 
@@ -67,7 +67,9 @@ class TestT1DataProvider:
     def test_load_single_symbol_success(self) -> None:
         """Load data for single symbol successfully."""
         # Create test data
-        self._create_test_data("AAPL", ["2024-01-01", "2024-01-02", "2024-01-03"], [150.0, 151.0, 152.0])
+        self._create_test_data(
+            "AAPL", ["2024-01-01", "2024-01-02", "2024-01-03"], [150.0, 151.0, 152.0]
+        )
 
         # Load data
         df = self.provider.load_data(
@@ -280,4 +282,4 @@ class TestT1DataProvider:
         assert isinstance(df.index.get_level_values("symbol")[0], str)
         # Date will be pd.Timestamp after Pandas conversion
         first_date = df.index.get_level_values("date")[0]
-        assert hasattr(first_date, 'date')  # Can convert to date
+        assert hasattr(first_date, "date")  # Can convert to date

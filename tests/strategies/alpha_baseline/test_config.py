@@ -10,14 +10,12 @@ Tests cover:
 
 from pathlib import Path
 
-import pytest
-
 from strategies.alpha_baseline.config import (
+    DEFAULT_CONFIG,
     DataConfig,
     ModelConfig,
-    TrainingConfig,
     StrategyConfig,
-    DEFAULT_CONFIG,
+    TrainingConfig,
 )
 
 

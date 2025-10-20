@@ -25,22 +25,22 @@ See: docs/TESTING_SETUP.md for setup instructions
 """
 
 import sys
-from pathlib import Path
 import time
-import requests
+from pathlib import Path
+
 import psycopg2
-from datetime import datetime
+import requests
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Colors
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+NC = "\033[0m"
 
 
 def print_section(title):
@@ -72,9 +72,7 @@ def print_info(message):
 
 def get_db_connection():
     """Get database connection."""
-    return psycopg2.connect(
-        "postgresql://postgres:postgres@localhost:5432/trading_platform"
-    )
+    return psycopg2.connect("postgresql://postgres:postgres@localhost:5432/trading_platform")
 
 
 def main():
@@ -125,8 +123,8 @@ def main():
             print_success("Model info retrieved")
             data = response.json()
 
-            current_version = data.get('version')
-            strategy_name = data.get('strategy_name')
+            current_version = data.get("version")
+            strategy_name = data.get("strategy_name")
 
             print_info(f"Strategy: {strategy_name}")
             print_info(f"Current version: {current_version}")
@@ -153,9 +151,9 @@ def main():
             print_success("Manual reload completed")
             data = response.json()
 
-            reloaded = data.get('reloaded')
-            version = data.get('version')
-            message = data.get('message')
+            reloaded = data.get("reloaded")
+            version = data.get("version")
+            message = data.get("message")
 
             print_info(f"Reloaded: {reloaded}")
             print_info(f"Version: {version}")
@@ -188,13 +186,15 @@ def main():
         cur = conn.cursor()
 
         # Get current active model
-        cur.execute("""
+        cur.execute(
+            """
             SELECT id, strategy_name, version
             FROM model_registry
             WHERE status = 'active'
             ORDER BY activated_at DESC
             LIMIT 1
-        """)
+        """
+        )
 
         row = cur.fetchone()
         if not row:
@@ -206,17 +206,21 @@ def main():
         print_info(f"Current model: {strategy} v{old_version} (ID: {model_id})")
 
         # Deactivate current model
-        cur.execute("""
+        cur.execute(
+            """
             UPDATE model_registry
             SET status = 'inactive',
                 deactivated_at = NOW()
             WHERE id = %s
-        """, (model_id,))
+        """,
+            (model_id,),
+        )
 
         # Create new version (simulate new model deployment)
         new_version = f"v1.0.0-test-{int(time.time())}"
 
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO model_registry (
                 strategy_name,
                 version,
@@ -228,14 +232,16 @@ def main():
             )
             VALUES (%s, %s, %s, %s, %s, %s, NOW())
             RETURNING id
-        """, (
-            strategy,
-            new_version,
-            "artifacts/models/alpha_baseline.txt",  # Same model file
-            "active",
-            '{"ic": 0.082, "sharpe": 1.45}',
-            '{"test": true}',
-        ))
+        """,
+            (
+                strategy,
+                new_version,
+                "artifacts/models/alpha_baseline.txt",  # Same model file
+                "active",
+                '{"ic": 0.082, "sharpe": 1.45}',
+                '{"test": true}',
+            ),
+        )
 
         new_model_id = cur.fetchone()[0]
         conn.commit()
@@ -265,10 +271,10 @@ def main():
             print_success("Manual reload completed")
             data = response.json()
 
-            reloaded = data.get('reloaded')
-            version = data.get('version')
-            previous_version = data.get('previous_version')
-            message = data.get('message')
+            reloaded = data.get("reloaded")
+            version = data.get("version")
+            previous_version = data.get("previous_version")
+            message = data.get("message")
 
             print_info(f"Reloaded: {reloaded}")
             print_info(f"Previous version: {previous_version}")
@@ -293,6 +299,7 @@ def main():
     except Exception as e:
         print_error(f"Manual reload error: {e}")
         import traceback
+
         traceback.print_exc()
         tests_failed += 1
 
@@ -321,8 +328,9 @@ def main():
 
             # Verify metadata shows new version
             metadata = data["metadata"]
-            assert metadata["model_version"] == new_version, \
-                f"Metadata version mismatch: {metadata['model_version']} != {new_version}"
+            assert (
+                metadata["model_version"] == new_version
+            ), f"Metadata version mismatch: {metadata['model_version']} != {new_version}"
 
             print_success(f"Signals generated with new model: {metadata['model_version']}")
             print_info(f"Number of signals: {len(data['signals'])}")
@@ -336,6 +344,7 @@ def main():
     except Exception as e:
         print_error(f"Signal generation error: {e}")
         import traceback
+
         traceback.print_exc()
         tests_failed += 1
 
@@ -364,21 +373,27 @@ def main():
         cur = conn.cursor()
 
         # Deactivate test model
-        cur.execute("""
+        cur.execute(
+            """
             UPDATE model_registry
             SET status = 'inactive',
                 deactivated_at = NOW()
             WHERE version = %s
-        """, (new_version,))
+        """,
+            (new_version,),
+        )
 
         # Reactivate original model
-        cur.execute("""
+        cur.execute(
+            """
             UPDATE model_registry
             SET status = 'active',
                 activated_at = NOW(),
                 deactivated_at = NULL
             WHERE id = %s
-        """, (model_id,))
+        """,
+            (model_id,),
+        )
 
         conn.commit()
 
@@ -440,5 +455,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n{RED}Unexpected error: {e}{NC}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

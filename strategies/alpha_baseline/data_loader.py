@@ -7,12 +7,11 @@ enabling seamless integration without data duplication or conversion pipelines.
 See /docs/CONCEPTS/qlib-data-providers.md for detailed explanation.
 """
 
-from pathlib import Path
 from datetime import date
-from typing import List, Optional
+from pathlib import Path
 
-import polars as pl
 import pandas as pd
+import polars as pl
 
 
 class T1DataProvider:
@@ -70,10 +69,10 @@ class T1DataProvider:
 
     def load_data(
         self,
-        symbols: List[str],
+        symbols: list[str],
         start_date: date,
         end_date: date,
-        fields: Optional[List[str]] = None,
+        fields: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Load adjusted OHLCV data for given symbols and date range.
@@ -203,7 +202,7 @@ class T1DataProvider:
 
         return pandas_df
 
-    def _empty_dataframe(self, fields: List[str]) -> pd.DataFrame:
+    def _empty_dataframe(self, fields: list[str]) -> pd.DataFrame:
         """
         Create empty DataFrame with correct Qlib structure.
 
@@ -225,7 +224,7 @@ class T1DataProvider:
 
         return df
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         """
         Get list of all symbols available in data directory.
 
@@ -258,7 +257,7 @@ class T1DataProvider:
         # Return sorted list
         return sorted(symbols)
 
-    def get_date_range(self, symbol: str) -> tuple[Optional[date], Optional[date]]:
+    def get_date_range(self, symbol: str) -> tuple[date | None, date | None]:
         """
         Get available date range for a symbol.
 

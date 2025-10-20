@@ -9,11 +9,12 @@ Tests cover:
 - JSON serialization
 """
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
 from pydantic import ValidationError
 
-from libs.redis_client.events import SignalEvent, OrderEvent, PositionEvent
+from libs.redis_client.events import OrderEvent, PositionEvent, SignalEvent
 
 
 class TestSignalEvent:
@@ -22,11 +23,11 @@ class TestSignalEvent:
     def test_signal_event_valid(self):
         """Test creating valid SignalEvent."""
         event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL", "MSFT"],
             num_signals=2,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         assert event.event_type == "signals.generated"
@@ -38,11 +39,11 @@ class TestSignalEvent:
     def test_signal_event_json_serialization(self):
         """Test SignalEvent JSON serialization."""
         event = SignalEvent(
-            timestamp=datetime(2025, 1, 17, 9, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 1, 17, 9, 0, 0, tzinfo=UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL"],
             num_signals=1,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         json_str = event.model_dump_json()
@@ -58,7 +59,7 @@ class TestSignalEvent:
                 strategy_id="alpha_baseline",
                 symbols=["AAPL"],
                 num_signals=1,
-                as_of_date="2025-01-17"
+                as_of_date="2025-01-17",
             )
 
     def test_signal_event_naive_timestamp(self):
@@ -69,29 +70,29 @@ class TestSignalEvent:
                 strategy_id="alpha_baseline",
                 symbols=["AAPL"],
                 num_signals=1,
-                as_of_date="2025-01-17"
+                as_of_date="2025-01-17",
             )
 
     def test_signal_event_empty_symbols(self):
         """Test SignalEvent validation error on empty symbols list."""
         with pytest.raises(ValidationError):
             SignalEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 strategy_id="alpha_baseline",
                 symbols=[],  # Empty list not allowed
                 num_signals=0,
-                as_of_date="2025-01-17"
+                as_of_date="2025-01-17",
             )
 
     def test_signal_event_negative_num_signals(self):
         """Test SignalEvent validation error on negative num_signals."""
         with pytest.raises(ValidationError):
             SignalEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 strategy_id="alpha_baseline",
                 symbols=["AAPL"],
                 num_signals=-1,  # Negative not allowed
-                as_of_date="2025-01-17"
+                as_of_date="2025-01-17",
             )
 
 
@@ -101,12 +102,12 @@ class TestOrderEvent:
     def test_order_event_valid(self):
         """Test creating valid OrderEvent."""
         event = OrderEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             run_id="550e8400-e29b-41d4-a716-446655440000",
             strategy_id="alpha_baseline",
             num_orders=3,
             num_accepted=3,
-            num_rejected=0
+            num_rejected=0,
         )
 
         assert event.event_type == "orders.executed"
@@ -118,12 +119,12 @@ class TestOrderEvent:
     def test_order_event_json_serialization(self):
         """Test OrderEvent JSON serialization."""
         event = OrderEvent(
-            timestamp=datetime(2025, 1, 17, 9, 1, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 1, 17, 9, 1, 0, tzinfo=UTC),
             run_id="550e8400-e29b-41d4-a716-446655440000",
             strategy_id="alpha_baseline",
             num_orders=2,
             num_accepted=2,
-            num_rejected=0
+            num_rejected=0,
         )
 
         json_str = event.model_dump_json()
@@ -140,30 +141,30 @@ class TestOrderEvent:
                 strategy_id="alpha_baseline",
                 num_orders=1,
                 num_accepted=1,
-                num_rejected=0
+                num_rejected=0,
             )
 
     def test_order_event_negative_counts(self):
         """Test OrderEvent validation error on negative counts."""
         with pytest.raises(ValidationError):
             OrderEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 run_id="550e8400-e29b-41d4-a716-446655440000",
                 strategy_id="alpha_baseline",
                 num_orders=-1,  # Negative not allowed
                 num_accepted=0,
-                num_rejected=0
+                num_rejected=0,
             )
 
     def test_order_event_partial_rejection(self):
         """Test OrderEvent with partial rejections."""
         event = OrderEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             run_id="550e8400-e29b-41d4-a716-446655440000",
             strategy_id="alpha_baseline",
             num_orders=5,
             num_accepted=3,
-            num_rejected=2
+            num_rejected=2,
         )
 
         assert event.num_orders == 5
@@ -177,13 +178,13 @@ class TestPositionEvent:
     def test_position_event_buy(self):
         """Test creating PositionEvent for buy action."""
         event = PositionEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             symbol="AAPL",
             action="buy",
             qty_change=100,
             new_qty=100,
             price="150.25",
-            strategy_id="alpha_baseline"
+            strategy_id="alpha_baseline",
         )
 
         assert event.event_type == "positions.updated"
@@ -196,13 +197,13 @@ class TestPositionEvent:
     def test_position_event_sell(self):
         """Test creating PositionEvent for sell action."""
         event = PositionEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             symbol="MSFT",
             action="sell",
             qty_change=-50,
             new_qty=50,
             price="300.00",
-            strategy_id="alpha_baseline"
+            strategy_id="alpha_baseline",
         )
 
         assert event.action == "sell"
@@ -212,13 +213,13 @@ class TestPositionEvent:
     def test_position_event_fill(self):
         """Test creating PositionEvent for fill action."""
         event = PositionEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             symbol="GOOGL",
             action="fill",
             qty_change=25,
             new_qty=25,
             price="140.50",
-            strategy_id="alpha_baseline"
+            strategy_id="alpha_baseline",
         )
 
         assert event.action == "fill"
@@ -227,13 +228,13 @@ class TestPositionEvent:
         """Test PositionEvent validation error on invalid action."""
         with pytest.raises(ValidationError, match="action must be one of"):
             PositionEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 symbol="AAPL",
                 action="invalid_action",  # Not in allowed set
                 qty_change=100,
                 new_qty=100,
                 price="150.25",
-                strategy_id="alpha_baseline"
+                strategy_id="alpha_baseline",
             )
 
     def test_position_event_naive_timestamp(self):
@@ -246,19 +247,19 @@ class TestPositionEvent:
                 qty_change=100,
                 new_qty=100,
                 price="150.25",
-                strategy_id="alpha_baseline"
+                strategy_id="alpha_baseline",
             )
 
     def test_position_event_json_serialization(self):
         """Test PositionEvent JSON serialization."""
         event = PositionEvent(
-            timestamp=datetime(2025, 1, 17, 9, 1, 30, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 1, 17, 9, 1, 30, tzinfo=UTC),
             symbol="AAPL",
             action="buy",
             qty_change=100,
             new_qty=100,
             price="150.25",
-            strategy_id="alpha_baseline"
+            strategy_id="alpha_baseline",
         )
 
         json_str = event.model_dump_json()
@@ -275,11 +276,11 @@ class TestEventDefaults:
     def test_signal_event_default_event_type(self):
         """Test SignalEvent has correct default event_type."""
         event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="test",
             symbols=["AAPL"],
             num_signals=1,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         assert event.event_type == "signals.generated"
@@ -287,12 +288,12 @@ class TestEventDefaults:
     def test_order_event_default_event_type(self):
         """Test OrderEvent has correct default event_type."""
         event = OrderEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             run_id="test-id",
             strategy_id="test",
             num_orders=1,
             num_accepted=1,
-            num_rejected=0
+            num_rejected=0,
         )
 
         assert event.event_type == "orders.executed"
@@ -300,13 +301,13 @@ class TestEventDefaults:
     def test_position_event_default_event_type(self):
         """Test PositionEvent has correct default event_type."""
         event = PositionEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             symbol="AAPL",
             action="buy",
             qty_change=100,
             new_qty=100,
             price="150.00",
-            strategy_id="test"
+            strategy_id="test",
         )
 
         assert event.event_type == "positions.updated"

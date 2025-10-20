@@ -8,17 +8,17 @@ For production, use the full Alpha158 features from features.py with proper
 Qlib data format.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, cast
+from typing import cast
 
+import numpy as np
 import pandas as pd
 import polars as pl
-import numpy as np
 
 
 def get_mock_alpha158_features(
-    symbols: List[str],
+    symbols: list[str],
     start_date: str,
     end_date: str,
     data_dir: Path = Path("data/adjusted"),
@@ -66,8 +66,7 @@ def get_mock_alpha158_features(
 
         # Filter to lookback period
         df = df.filter(
-            (pl.col("date") >= pl.lit(lookback_start)) &
-            (pl.col("date") <= pl.lit(end_dt))
+            (pl.col("date") >= pl.lit(lookback_start)) & (pl.col("date") <= pl.lit(end_dt))
         )
 
         # Sort by date
@@ -98,8 +97,7 @@ def get_mock_alpha158_features(
 
         # Filter to requested date range
         features = features[
-            (features.index >= pd.Timestamp(start_dt)) &
-            (features.index <= pd.Timestamp(end_dt))
+            (features.index >= pd.Timestamp(start_dt)) & (features.index <= pd.Timestamp(end_dt))
         ]
 
         # Add symbol level
@@ -261,9 +259,13 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     while feature_idx < 158:
         # Use random combinations of existing features
         if feature_idx % 2 == 0:
-            features[f"feature_{feature_idx}"] = close.pct_change().rolling(5 + feature_idx % 10).mean()
+            features[f"feature_{feature_idx}"] = (
+                close.pct_change().rolling(5 + feature_idx % 10).mean()
+            )
         else:
-            features[f"feature_{feature_idx}"] = volume.pct_change().rolling(5 + feature_idx % 10).std()
+            features[f"feature_{feature_idx}"] = (
+                volume.pct_change().rolling(5 + feature_idx % 10).std()
+            )
         feature_idx += 1
 
     # Forward fill NaN values

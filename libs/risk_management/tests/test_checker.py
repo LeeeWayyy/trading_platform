@@ -117,7 +117,7 @@ def mock_redis():
         """Mock zrange operation (get members by rank)."""
         zset = redis._sorted_sets.get(key, [])
         sorted_zset = sorted(zset, key=lambda x: x[0])  # Sort by score
-        result = sorted_zset[start:end+1 if end >= 0 else None]
+        result = sorted_zset[start : end + 1 if end >= 0 else None]
         if withscores:
             return result
         return [member for score, member in result]
@@ -132,7 +132,7 @@ def mock_redis():
         if stop < 0:
             # Negative indices count from end
             stop = len(sorted_zset) + stop
-        to_remove = sorted_zset[start:stop+1]
+        to_remove = sorted_zset[start : stop + 1]
         for item in to_remove:
             zset.remove(item)
         return len(to_remove)
@@ -222,18 +222,14 @@ class TestRiskCheckerPositionLimits:
 
     def test_order_allowed_within_position_limit(self, checker):
         """Test order allowed when within position limit (1000 shares default)."""
-        is_valid, reason = checker.validate_order(
-            "AAPL", "buy", 500, current_position=0
-        )
+        is_valid, reason = checker.validate_order("AAPL", "buy", 500, current_position=0)
 
         assert is_valid is True
 
     def test_order_blocked_exceeding_position_limit(self, checker):
         """Test order blocked when exceeding position limit."""
         # Default limit = 1000, order would create position of 1100
-        is_valid, reason = checker.validate_order(
-            "AAPL", "buy", 100, current_position=1000
-        )
+        is_valid, reason = checker.validate_order("AAPL", "buy", 100, current_position=1000)
 
         assert is_valid is False
         assert "Position limit exceeded" in reason
@@ -241,18 +237,14 @@ class TestRiskCheckerPositionLimits:
 
     def test_order_allowed_at_exact_limit(self, checker):
         """Test order allowed when exactly at limit."""
-        is_valid, reason = checker.validate_order(
-            "AAPL", "buy", 1000, current_position=0
-        )
+        is_valid, reason = checker.validate_order("AAPL", "buy", 1000, current_position=0)
 
         assert is_valid is True
 
     def test_position_limit_applies_to_short_positions(self, checker):
         """Test position limit applies to short positions (absolute value)."""
         # Short position of -1100 exceeds limit of 1000
-        is_valid, reason = checker.validate_order(
-            "AAPL", "sell", 100, current_position=-1000
-        )
+        is_valid, reason = checker.validate_order("AAPL", "sell", 100, current_position=-1000)
 
         assert is_valid is False
         assert "Position limit exceeded" in reason
@@ -261,9 +253,7 @@ class TestRiskCheckerPositionLimits:
     def test_sell_order_reducing_position_allowed(self, checker):
         """Test sell order reducing position is allowed."""
         # Sell reduces position from 900 to 400 (within limit)
-        is_valid, reason = checker.validate_order(
-            "AAPL", "sell", 500, current_position=900
-        )
+        is_valid, reason = checker.validate_order("AAPL", "sell", 500, current_position=900)
 
         assert is_valid is True
 
@@ -273,9 +263,7 @@ class TestRiskCheckerPositionPercentage:
 
     def test_order_allowed_within_percentage_limit(self, breaker):
         """Test order allowed when within % limit (20% default)."""
-        config = RiskConfig(
-            position_limits=PositionLimits(max_position_pct=Decimal("0.20"))
-        )
+        config = RiskConfig(position_limits=PositionLimits(max_position_pct=Decimal("0.20")))
         checker = RiskChecker(config=config, breaker=breaker)
 
         # $20k position on $100k portfolio = 20% (at limit)
@@ -292,9 +280,7 @@ class TestRiskCheckerPositionPercentage:
 
     def test_order_blocked_exceeding_percentage_limit(self, breaker):
         """Test order blocked when exceeding % limit."""
-        config = RiskConfig(
-            position_limits=PositionLimits(max_position_pct=Decimal("0.20"))
-        )
+        config = RiskConfig(position_limits=PositionLimits(max_position_pct=Decimal("0.20")))
         checker = RiskChecker(config=config, breaker=breaker)
 
         # $30k position on $100k portfolio = 30% (exceeds 20%)
@@ -313,9 +299,7 @@ class TestRiskCheckerPositionPercentage:
     def test_percentage_check_skipped_without_price(self, checker):
         """Test % check skipped if price not provided."""
         # Large order but no price provided (only absolute limit applies)
-        is_valid, reason = checker.validate_order(
-            "AAPL", "buy", 500, current_position=0
-        )
+        is_valid, reason = checker.validate_order("AAPL", "buy", 500, current_position=0)
 
         assert is_valid is True  # Passes absolute limit (500 < 1000)
 
@@ -388,9 +372,7 @@ class TestRiskCheckerPortfolioExposure:
 
     def test_exposure_exceeds_long_limit(self, breaker):
         """Test long exposure exceeds limit."""
-        config = RiskConfig(
-            portfolio_limits=PortfolioLimits(max_long_exposure=Decimal("50000.00"))
-        )
+        config = RiskConfig(portfolio_limits=PortfolioLimits(max_long_exposure=Decimal("50000.00")))
         checker = RiskChecker(config=config, breaker=breaker)
 
         positions = [

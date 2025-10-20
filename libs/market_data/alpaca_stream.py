@@ -102,7 +102,7 @@ class AlpacaMarketDataStream:
 
             try:
                 # Subscribe to quotes via Alpaca SDK
-                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)
+                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)  # type: ignore[arg-type]
 
                 # Update tracking
                 self.subscribed_symbols.update(new_symbols)
@@ -226,11 +226,15 @@ class AlpacaMarketDataStream:
                 # This is a "successful" cycle, so reset the counter
                 self._connected = False
                 if self._reconnect_attempts > 0:
-                    logger.info(f"Resetting reconnect counter to 0 (was {self._reconnect_attempts})")
+                    logger.info(
+                        f"Resetting reconnect counter to 0 (was {self._reconnect_attempts})"
+                    )
                     self._reconnect_attempts = 0
 
                 if self._running:
-                    logger.warning("WebSocket connection closed unexpectedly, will reconnect immediately.")
+                    logger.warning(
+                        "WebSocket connection closed unexpectedly, will reconnect immediately."
+                    )
 
             except Exception as e:
                 self._connected = False
@@ -241,7 +245,7 @@ class AlpacaMarketDataStream:
                     raise ConnectionError(
                         f"Failed to establish WebSocket connection after "
                         f"{self._max_reconnect_attempts} attempts"
-                    )
+                    ) from e
 
                 # Exponential backoff (5s, 10s, 20s, 40s, ..., max 300s)
                 delay = min(retry_delay * (2 ** (self._reconnect_attempts - 1)), 300)
@@ -287,7 +291,7 @@ class AlpacaMarketDataStream:
         Returns:
             List of symbol strings
         """
-        return sorted(list(self.subscribed_symbols))
+        return sorted(self.subscribed_symbols)
 
     def get_connection_stats(self) -> dict[str, int | bool]:
         """

@@ -118,9 +118,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Start subscription sync loop in background
         asyncio.create_task(subscription_manager.start_sync_loop())
 
-        logger.info(
-            f"Market Data Service started successfully on port {settings.port}"
-        )
+        logger.info(f"Market Data Service started successfully on port {settings.port}")
         logger.info(
             f"Auto-subscription enabled: syncing every {settings.subscription_sync_interval}s"
         )
@@ -214,9 +212,7 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
 
         subscribed = stream.get_subscribed_symbols()
 
-        logger.info(
-            f"Subscribed to {len(request.symbols)} symbols: {request.symbols}"
-        )
+        logger.info(f"Subscribed to {len(request.symbols)} symbols: {request.symbols}")
 
         return SubscribeResponse(
             message=f"Successfully subscribed to {len(request.symbols)} symbols",
@@ -310,10 +306,7 @@ async def get_subscription_stats() -> dict[str, Any]:
         Dictionary with subscription manager stats
     """
     if not subscription_manager:
-        return {
-            "auto_subscription_enabled": False,
-            "message": "Auto-subscription not configured"
-        }
+        return {"auto_subscription_enabled": False, "message": "Auto-subscription not configured"}
 
     stats = subscription_manager.get_stats()
     stats["auto_subscription_enabled"] = True

@@ -65,7 +65,7 @@ class DatabaseClient:
         self.db_conn_string = db_conn_string
         logger.info(
             "DatabaseClient initialized",
-            extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"}
+            extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"},
         )
 
     def create_order(
@@ -75,7 +75,7 @@ class DatabaseClient:
         order_request: OrderRequest,
         status: str,
         broker_order_id: str | None = None,
-        error_message: str | None = None
+        error_message: str | None = None,
     ) -> OrderDetail:
         """
         Create new order record in database.
@@ -168,8 +168,8 @@ class DatabaseClient:
                         extra={
                             "client_order_id": client_order_id,
                             "symbol": order_request.symbol,
-                            "status": status
-                        }
+                            "status": status,
+                        },
                     )
 
                     return OrderDetail(**row)
@@ -177,7 +177,7 @@ class DatabaseClient:
         except IntegrityError:
             logger.warning(
                 f"Order already exists: {client_order_id}",
-                extra={"client_order_id": client_order_id}
+                extra={"client_order_id": client_order_id},
             )
             raise
 
@@ -233,7 +233,7 @@ class DatabaseClient:
         broker_order_id: str | None = None,
         filled_qty: Decimal | None = None,
         filled_avg_price: Decimal | None = None,
-        error_message: str | None = None
+        error_message: str | None = None,
     ) -> OrderDetail | None:
         """
         Update order status and fill details.
@@ -309,8 +309,8 @@ class DatabaseClient:
                         extra={
                             "client_order_id": client_order_id,
                             "status": status,
-                            "filled_qty": str(filled_qty) if filled_qty else None
-                        }
+                            "filled_qty": str(filled_qty) if filled_qty else None,
+                        },
                     )
 
                     return OrderDetail(**row)
@@ -319,13 +319,7 @@ class DatabaseClient:
             logger.error(f"Database error updating order: {e}")
             raise
 
-    def update_position_on_fill(
-        self,
-        symbol: str,
-        qty: int,
-        price: Decimal,
-        side: str
-    ) -> Position:
+    def update_position_on_fill(self, symbol: str, qty: int, price: Decimal, side: str) -> Position:
         """
         Update position when order is filled.
 
@@ -382,10 +376,7 @@ class DatabaseClient:
             with psycopg2.connect(self.db_conn_string) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     # Get current position
-                    cur.execute(
-                        "SELECT * FROM positions WHERE symbol = %s",
-                        (symbol,)
-                    )
+                    cur.execute("SELECT * FROM positions WHERE symbol = %s", (symbol,))
                     current = cur.fetchone()
 
                     # Calculate new position
@@ -480,8 +471,8 @@ class DatabaseClient:
                             "symbol": symbol,
                             "old_qty": str(old_qty),
                             "new_qty": str(new_qty),
-                            "avg_price": str(new_avg_price)
-                        }
+                            "avg_price": str(new_avg_price),
+                        },
                     )
 
                     return Position(**row)

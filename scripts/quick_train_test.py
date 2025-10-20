@@ -6,7 +6,8 @@ Uses reduced configuration for speed.
 """
 
 from pathlib import Path
-from strategies.alpha_baseline.config import StrategyConfig, DataConfig, ModelConfig, TrainingConfig
+
+from strategies.alpha_baseline.config import DataConfig, ModelConfig, StrategyConfig, TrainingConfig
 from strategies.alpha_baseline.train import BaselineTrainer
 
 print("=" * 60)
@@ -75,7 +76,7 @@ try:
     print("=" * 60)
 
     # Quick validation check
-    if trainer.metrics['valid_ic'] > -0.5:  # Very lenient threshold for synthetic data
+    if trainer.metrics["valid_ic"] > -0.5:  # Very lenient threshold for synthetic data
         print("\n✓ Model trained successfully")
         print(f"✓ Validation IC: {trainer.metrics['valid_ic']:.4f}")
     else:
@@ -84,5 +85,6 @@ try:
 except Exception as e:
     print(f"\n❌ Training test FAILED: {e}")
     import traceback
+
     traceback.print_exc()
     exit(1)

@@ -20,33 +20,32 @@ Prerequisites:
 See: docs/TESTING_SETUP.md for setup instructions
 """
 
-import sys
-from pathlib import Path
-from datetime import datetime
 import logging
+import sys
+from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import numpy as np
-import pandas as pd
+
 from apps.signal_service.model_registry import ModelRegistry
 from apps.signal_service.signal_generator import SignalGenerator
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # Colors
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+NC = "\033[0m"
 
 
 def print_section(title):
@@ -160,6 +159,7 @@ def main():
     except Exception as e:
         print_error(f"Signal generation failed: {e}")
         import traceback
+
         traceback.print_exc()
         tests_failed += 1
         return 1
@@ -177,9 +177,15 @@ def main():
 
         # Check data types
         assert signals["symbol"].dtype == object, "symbol should be object"
-        assert signals["predicted_return"].dtype in [np.float64, np.float32], "predicted_return should be float"
+        assert signals["predicted_return"].dtype in [
+            np.float64,
+            np.float32,
+        ], "predicted_return should be float"
         assert signals["rank"].dtype in [np.int64, np.int32], "rank should be int"
-        assert signals["target_weight"].dtype in [np.float64, np.float32], "target_weight should be float"
+        assert signals["target_weight"].dtype in [
+            np.float64,
+            np.float32,
+        ], "target_weight should be float"
         print_success("Data types correct")
 
         # Check number of rows
@@ -208,7 +214,9 @@ def main():
         print_info(f"Neutral positions: {neutral_count}")
 
         assert long_count == generator.top_n, f"Expected {generator.top_n} long, got {long_count}"
-        assert short_count == generator.bottom_n, f"Expected {generator.bottom_n} short, got {short_count}"
+        assert (
+            short_count == generator.bottom_n
+        ), f"Expected {generator.bottom_n} short, got {short_count}"
         print_success("Position counts correct")
 
         # Check weight sums
@@ -218,8 +226,12 @@ def main():
         print_info(f"Long weight sum: {long_sum:.6f}")
         print_info(f"Short weight sum: {short_sum:.6f}")
 
-        assert np.isclose(long_sum, 1.0, atol=1e-6), f"Long weights should sum to 1.0, got {long_sum}"
-        assert np.isclose(short_sum, -1.0, atol=1e-6), f"Short weights should sum to -1.0, got {short_sum}"
+        assert np.isclose(
+            long_sum, 1.0, atol=1e-6
+        ), f"Long weights should sum to 1.0, got {long_sum}"
+        assert np.isclose(
+            short_sum, -1.0, atol=1e-6
+        ), f"Short weights should sum to -1.0, got {short_sum}"
         print_success("Weight sums correct")
 
         # Check weight bounds
@@ -279,16 +291,18 @@ def main():
         rank_1_returns = rank_1_signals["predicted_return"].values
         max_return = signals["predicted_return"].max()
 
-        assert all(np.isclose(ret, max_return) for ret in rank_1_returns), \
-            "All rank 1 symbols should have highest predicted return"
+        assert all(
+            np.isclose(ret, max_return) for ret in rank_1_returns
+        ), "All rank 1 symbols should have highest predicted return"
         print_success(f"Rank 1 has highest return(s): {rank_1_returns[0]:.4f}")
 
         # Check that lower ranks have lower or equal returns
         for rank in unique_ranks[1:]:
             rank_returns = signals[signals["rank"] == rank]["predicted_return"].values
             prev_rank_returns = signals[signals["rank"] < rank]["predicted_return"].values
-            assert all(ret <= max(prev_rank_returns) for ret in rank_returns), \
-                f"Rank {rank} should have lower or equal returns than ranks above it"
+            assert all(
+                ret <= max(prev_rank_returns) for ret in rank_returns
+            ), f"Rank {rank} should have lower or equal returns than ranks above it"
 
         print_success("Rank ordering is correct")
         tests_passed += 1
@@ -364,5 +378,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n{RED}Unexpected error: {e}{NC}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

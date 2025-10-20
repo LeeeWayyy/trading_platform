@@ -18,8 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field
 # Signal Service Models (from T3)
 # ==============================================================================
 
+
 class Signal(BaseModel):
     """Trading signal from Signal Service."""
+
     symbol: str
     predicted_return: float
     rank: int
@@ -28,6 +30,7 @@ class Signal(BaseModel):
 
 class SignalMetadata(BaseModel):
     """Metadata from Signal Service response."""
+
     as_of_date: str
     model_version: str
     strategy: str
@@ -39,6 +42,7 @@ class SignalMetadata(BaseModel):
 
 class SignalServiceResponse(BaseModel):
     """Response from Signal Service /api/v1/signals/generate endpoint."""
+
     signals: list[Signal]
     metadata: SignalMetadata
 
@@ -47,8 +51,10 @@ class SignalServiceResponse(BaseModel):
 # Execution Gateway Models (from T4)
 # ==============================================================================
 
+
 class OrderRequest(BaseModel):
     """Order request for Execution Gateway."""
+
     symbol: str
     side: str  # "buy" or "sell"
     qty: int
@@ -60,6 +66,7 @@ class OrderRequest(BaseModel):
 
 class OrderSubmission(BaseModel):
     """Response from Execution Gateway after order submission."""
+
     client_order_id: str
     status: str
     broker_order_id: str | None = None
@@ -76,8 +83,10 @@ class OrderSubmission(BaseModel):
 # Orchestration Models
 # ==============================================================================
 
+
 class OrchestrationRequest(BaseModel):
     """Request to run orchestration."""
+
     symbols: list[str] = Field(..., min_length=1, description="List of symbols to trade")
     as_of_date: str | None = Field(None, description="Date for signal generation (YYYY-MM-DD)")
     capital: Decimal | None = Field(None, description="Override capital amount")
@@ -87,6 +96,7 @@ class OrchestrationRequest(BaseModel):
 
 class SignalOrderMapping(BaseModel):
     """Mapping from signal to order."""
+
     # Signal info
     symbol: str
     predicted_return: float
@@ -110,6 +120,7 @@ class SignalOrderMapping(BaseModel):
 
 class OrchestrationResult(BaseModel):
     """Result of orchestration run."""
+
     model_config = ConfigDict(from_attributes=True)
 
     run_id: UUID
@@ -145,6 +156,7 @@ class OrchestrationResult(BaseModel):
 
 class OrchestrationRunSummary(BaseModel):
     """Summary of orchestration run for listing."""
+
     model_config = ConfigDict(from_attributes=True)
 
     run_id: UUID
@@ -162,6 +174,7 @@ class OrchestrationRunSummary(BaseModel):
 
 class OrchestrationRunsResponse(BaseModel):
     """Response for listing orchestration runs."""
+
     runs: list[OrchestrationRunSummary]
     total: int
     limit: int
@@ -170,6 +183,7 @@ class OrchestrationRunsResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str  # "healthy", "degraded", "unhealthy"
     service: str
     version: str

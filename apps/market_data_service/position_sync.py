@@ -160,8 +160,7 @@ class PositionBasedSubscription:
             # Log summary
             if not new_symbols and not closed_symbols:
                 logger.debug(
-                    f"Subscription sync complete: {len(position_symbols)} symbols, "
-                    f"no changes"
+                    f"Subscription sync complete: {len(position_symbols)} symbols, " f"no changes"
                 )
             else:
                 logger.info(
@@ -190,9 +189,7 @@ class PositionBasedSubscription:
                 response = await client.get(f"{self.gateway_url}/api/v1/positions")
 
                 if response.status_code != 200:
-                    logger.error(
-                        f"Failed to fetch positions: HTTP {response.status_code}"
-                    )
+                    logger.error(f"Failed to fetch positions: HTTP {response.status_code}")
                     return None
 
                 data = response.json()
@@ -211,8 +208,7 @@ class PositionBasedSubscription:
 
         except httpx.ConnectError:
             logger.error(
-                f"Cannot connect to Execution Gateway at {self.gateway_url}. "
-                f"Is it running?"
+                f"Cannot connect to Execution Gateway at {self.gateway_url}. " f"Is it running?"
             )
             return None
 

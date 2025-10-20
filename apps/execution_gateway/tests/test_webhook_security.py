@@ -70,7 +70,7 @@ class TestWebhookSignatureVerification:
 
     def test_empty_payload_fails(self):
         """Empty payload should fail verification."""
-        payload = b''
+        payload = b""
         secret = "my_webhook_secret"
         signature = "a" * 64
 
@@ -246,7 +246,7 @@ class TestRoundTrip:
 
     def test_round_trip_with_complex_payload(self):
         """Test with complex JSON payload."""
-        payload = b'''{
+        payload = b"""{
             "event": "fill",
             "order": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -260,7 +260,7 @@ class TestRoundTrip:
                 "created_at": "2024-10-17T16:30:00Z"
             },
             "timestamp": "2024-10-17T16:30:05Z"
-        }'''
+        }"""
         secret = "webhook_secret"
 
         signature = generate_webhook_signature(payload, secret)

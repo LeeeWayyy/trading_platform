@@ -190,4 +190,6 @@ class EventPublisher:
 
     def __repr__(self) -> str:
         """String representation."""
-        return "EventPublisher(channels=['signals.generated', 'orders.executed', 'positions.updated'])"
+        return (
+            "EventPublisher(channels=['signals.generated', 'orders.executed', 'positions.updated'])"
+        )

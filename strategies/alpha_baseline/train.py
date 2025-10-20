@@ -13,23 +13,27 @@ Integrates with MLflow for experiment tracking (Phase 4).
 See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 """
 
-from pathlib import Path
-from typing import Optional, Tuple, cast
 import warnings
+from pathlib import Path
+from typing import cast
 
-import pandas as pd
-import numpy as np
 import lightgbm as lgb
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score  # type: ignore[import-untyped]
+import numpy as np
+import pandas as pd
+from sklearn.metrics import (  # type: ignore[import-untyped]
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+)
 
-from strategies.alpha_baseline.config import StrategyConfig, DEFAULT_CONFIG
+from strategies.alpha_baseline.config import DEFAULT_CONFIG, StrategyConfig
 from strategies.alpha_baseline.features import compute_features_and_labels
 from strategies.alpha_baseline.mlflow_utils import (
+    get_or_create_run,
     initialize_mlflow,
     log_config,
     log_metrics,
     log_model,
-    get_or_create_run,
 )
 
 
@@ -61,7 +65,7 @@ class BaselineTrainer:
         - /docs/CONCEPTS/alpha158-features.md
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None, use_mlflow: bool = True) -> None:
+    def __init__(self, config: StrategyConfig | None = None, use_mlflow: bool = True) -> None:
         """
         Initialize trainer with configuration.
 
@@ -70,15 +74,15 @@ class BaselineTrainer:
             use_mlflow: Whether to use MLflow tracking (default: True)
         """
         self.config = config or DEFAULT_CONFIG
-        self.model: Optional[lgb.Booster] = None
+        self.model: lgb.Booster | None = None
         self.best_iteration: int = 0
         self.metrics: dict[str, float] = {}
         self.use_mlflow = use_mlflow
-        self.mlflow_run_id: Optional[str] = None
+        self.mlflow_run_id: str | None = None
 
     def load_data(
         self,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Load and prepare data for training.
 
@@ -114,7 +118,7 @@ class BaselineTrainer:
             data_dir=self.config.data.data_dir,
         )
 
-        print(f"\nData loaded successfully:")
+        print("\nData loaded successfully:")
         print(f"  Train: {X_train.shape[0]} samples, {X_train.shape[1]} features")
         print(f"  Valid: {X_valid.shape[0]} samples, {X_valid.shape[1]} features")
         print(f"  Test:  {X_test.shape[0]} samples, {X_test.shape[1]} features")
@@ -123,10 +127,10 @@ class BaselineTrainer:
 
     def train(
         self,
-        X_train: Optional[pd.DataFrame] = None,
-        y_train: Optional[pd.DataFrame] = None,
-        X_valid: Optional[pd.DataFrame] = None,
-        y_valid: Optional[pd.DataFrame] = None,
+        X_train: pd.DataFrame | None = None,
+        y_train: pd.DataFrame | None = None,
+        X_valid: pd.DataFrame | None = None,
+        y_valid: pd.DataFrame | None = None,
     ) -> lgb.Booster:
         """
         Train LightGBM model.
@@ -215,7 +219,7 @@ class BaselineTrainer:
             # Store best iteration
             self.best_iteration = self.model.best_iteration
 
-            print(f"\nTraining complete!")
+            print("\nTraining complete!")
             print(f"Best iteration: {self.best_iteration}")
 
             # Evaluate on train and valid sets
@@ -241,6 +245,7 @@ class BaselineTrainer:
             # End MLflow run
             if self.use_mlflow:
                 import mlflow
+
                 mlflow.end_run()
 
         return self.model
@@ -314,7 +319,7 @@ class BaselineTrainer:
     def predict(
         self,
         X: pd.DataFrame,
-        num_iteration: Optional[int] = None,
+        num_iteration: int | None = None,
     ) -> np.ndarray:
         """
         Make predictions using trained model.
@@ -344,7 +349,7 @@ class BaselineTrainer:
 
         return cast(np.ndarray, self.model.predict(X, num_iteration=num_iteration))
 
-    def save_model(self, path: Optional[Path] = None) -> Path:
+    def save_model(self, path: Path | None = None) -> Path:
         """
         Save trained model to disk.
 
@@ -401,7 +406,7 @@ class BaselineTrainer:
         return self.model
 
 
-def train_baseline_model(config: Optional[StrategyConfig] = None) -> BaselineTrainer:
+def train_baseline_model(config: StrategyConfig | None = None) -> BaselineTrainer:
     """
     Convenience function to train baseline model.
 
