@@ -7,7 +7,7 @@ Queries Execution Gateway every 5 minutes to sync subscriptions.
 
 import asyncio
 import logging
-from typing import Optional, Set
+from typing import Optional, Set, Any
 
 import httpx
 
@@ -65,7 +65,7 @@ class PositionBasedSubscription:
             f"gateway={self.gateway_url}, interval={self.sync_interval}s"
         )
 
-    async def start_sync_loop(self):
+    async def start_sync_loop(self) -> None:
         """
         Start background sync loop.
 
@@ -105,12 +105,12 @@ class PositionBasedSubscription:
 
         logger.info("Subscription sync loop stopped")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop background sync loop."""
         logger.info("Stopping subscription sync loop")
         self._running = False
 
-    async def _sync_subscriptions(self):
+    async def _sync_subscriptions(self) -> None:
         """
         Fetch open positions and sync subscriptions.
 
@@ -220,7 +220,7 @@ class PositionBasedSubscription:
             logger.error(f"Error fetching positions: {e}", exc_info=True)
             return None
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get subscription manager statistics.
 
