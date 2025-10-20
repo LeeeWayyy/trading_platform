@@ -198,7 +198,7 @@ class DuckDBCatalog:
             )
 
         # Convert to list if single path
-        if isinstance(parquet_path, (str, Path)):
+        if isinstance(parquet_path, str | Path):
             paths = [str(parquet_path)]
         else:
             paths = [str(p) for p in parquet_path]

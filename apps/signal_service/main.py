@@ -389,7 +389,7 @@ class SignalRequest(BaseModel):
             try:
                 datetime.fromisoformat(v)
             except ValueError:
-                raise ValueError("as_of_date must be in ISO format (YYYY-MM-DD)")
+                raise ValueError("as_of_date must be in ISO format (YYYY-MM-DD)") from None
         return v
 
     @validator("symbols")
@@ -734,7 +734,7 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD.",
-            )
+            ) from None
     else:
         as_of_date = datetime.now()
 
@@ -772,17 +772,17 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
     except FileNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Data not found: {str(e)}"
-        )
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid request: {str(e)}"
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Signal generation failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Signal generation failed: {str(e)}",
-        )
+        ) from e
 
     # Convert DataFrame to list of dicts
     raw_signals = signals_df.to_dict(orient="records")
@@ -991,7 +991,7 @@ async def reload_model() -> dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Model reload failed: {str(e)}",
-        )
+        ) from e
 
 
 # ==============================================================================
