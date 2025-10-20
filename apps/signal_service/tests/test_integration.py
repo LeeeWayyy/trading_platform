@@ -189,10 +189,10 @@ class TestSignalGeneratorIntegration:
         # 4. Validate signals
         for _, signal in signals.iterrows():
             assert signal["symbol"] in test_symbols
-            assert isinstance(signal["predicted_return"], (int, float, np.number))
-            assert isinstance(signal["rank"], (int, np.integer))
+            assert isinstance(signal["predicted_return"], int | float | np.number)
+            assert isinstance(signal["rank"], int | np.integer)
             assert signal["rank"] >= 1
-            assert isinstance(signal["target_weight"], (int, float, np.number))
+            assert isinstance(signal["target_weight"], int | float | np.number)
             assert -1.0 <= signal["target_weight"] <= 1.0
 
         # 5. Validate weights

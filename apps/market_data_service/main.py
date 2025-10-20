@@ -225,7 +225,7 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Subscription failed: {str(e)}",
-        )
+        ) from e
 
 
 @app.delete("/api/v1/subscribe/{symbol}", response_model=UnsubscribeResponse)
@@ -265,7 +265,7 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unsubscription failed: {str(e)}",
-        )
+        ) from e
 
 
 @app.get("/api/v1/subscriptions", response_model=SubscriptionsResponse)

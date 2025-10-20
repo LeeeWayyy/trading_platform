@@ -265,7 +265,7 @@ class RiskChecker:
         long_exposure = Decimal("0.00")
         short_exposure = Decimal("0.00")
 
-        for symbol, qty, price in positions:
+        for _, qty, price in positions:
             notional = abs(qty) * price
 
             if qty > 0:

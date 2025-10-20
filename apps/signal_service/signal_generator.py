@@ -426,7 +426,7 @@ class SignalGenerator:
                         extra={"date": date_str, "symbols": symbols_to_generate},
                         exc_info=True,
                     )
-                    raise ValueError(f"No features available for {date_str}: {mock_error}")
+                    raise ValueError(f"No features available for {date_str}: {mock_error}") from mock_error
 
         # Combine all features (cached + freshly generated)
         if features_list:
@@ -466,7 +466,7 @@ class SignalGenerator:
             predictions = self.model_registry.current_model.predict(features.values)
         except Exception as e:
             logger.error(f"Model prediction failed: {e}", exc_info=True)
-            raise RuntimeError(f"Model prediction failed: {e}")
+            raise RuntimeError(f"Model prediction failed: {e}") from e
 
         logger.debug(
             f"Generated {len(predictions)} predictions (raw)",

@@ -250,7 +250,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD.",
-            )
+            ) from None
 
     # Determine capital and max position size
     capital = request.capital if request.capital else CAPITAL

@@ -255,7 +255,7 @@ def _batch_fetch_realtime_prices_from_redis(
         )
 
         # Parse results and update dictionary for symbols with valid data
-        for symbol, price_json in zip(symbols, price_values):
+        for symbol, price_json in zip(symbols, price_values, strict=False):
             if not price_json:
                 continue  # Skip symbols not found in cache (already (None, None))
 
@@ -631,7 +631,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Order submission failed: {str(e)}",
-            )
+            ) from e
 
 
 @app.get("/api/v1/orders/{client_order_id}", response_model=OrderDetail, tags=["Orders"])
@@ -943,7 +943,7 @@ async def order_webhook(request: Request) -> dict[str, str]:
         logger.error(f"Webhook processing error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Webhook processing failed: {str(e)}"
-        )
+        ) from e
 
 
 # ============================================================================

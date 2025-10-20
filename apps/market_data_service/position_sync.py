@@ -228,6 +228,6 @@ class PositionBasedSubscription:
             "gateway_url": self.gateway_url,
             "sync_interval": self.sync_interval,
             "last_position_count": len(self._last_position_symbols),
-            "last_position_symbols": sorted(list(self._last_position_symbols)),
+            "last_position_symbols": sorted(self._last_position_symbols),
             "current_subscribed": self.stream.get_subscribed_symbols(),
         }

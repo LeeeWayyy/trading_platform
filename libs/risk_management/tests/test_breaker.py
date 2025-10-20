@@ -171,7 +171,7 @@ class TestCircuitBreakerInitialization:
 
     def test_initialization_creates_default_state(self, mock_redis):
         """Test initialization creates OPEN state in Redis."""
-        breaker = CircuitBreaker(redis_client=mock_redis)
+        CircuitBreaker(redis_client=mock_redis)
 
         # Verify state created in Redis
         state_json = mock_redis.get("circuit_breaker:state")
@@ -198,7 +198,7 @@ class TestCircuitBreakerInitialization:
         mock_redis._state["circuit_breaker:state"] = json.dumps(existing_state)
 
         # Initialize breaker
-        breaker = CircuitBreaker(redis_client=mock_redis)
+        CircuitBreaker(redis_client=mock_redis)
 
         # Verify state unchanged
         state_json = mock_redis.get("circuit_breaker:state")
@@ -280,7 +280,6 @@ class TestCircuitBreakerTrip:
     def test_trip_idempotent_when_already_tripped(self, breaker):
         """Test trip() is idempotent (safe to call when already TRIPPED)."""
         breaker.trip("FIRST_REASON")
-        initial_status = breaker.get_status()
 
         # Trip again (should be no-op)
         breaker.trip("SECOND_REASON")

@@ -127,7 +127,7 @@ class TestFeatureComputationDeterminism:
 
         # Generate features 3 times
         features_list = []
-        for i in range(3):
+        for _ in range(3):
             features = get_mock_alpha158_features(
                 symbols=test_symbols,
                 start_date=date_str,

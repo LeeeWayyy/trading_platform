@@ -395,7 +395,7 @@ class ModelRegistry:
                 try:
                     _ = new_model.predict([[0.0] * new_model.num_feature()])
                 except Exception as e:
-                    raise ValueError(f"Model prediction test failed: {e}")
+                    raise ValueError(f"Model prediction test failed: {e}") from e
 
                 # Update state (only after successful load and validation)
                 self._current_model = new_model
