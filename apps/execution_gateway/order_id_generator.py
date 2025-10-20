@@ -17,9 +17,14 @@ See ADR-0005 for design rationale.
 
 import hashlib
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from apps.execution_gateway.schemas import OrderRequest
+
+# Price precision for ID generation (2 decimal places for USD stocks)
+# This ensures Decimal("150.00") and Decimal("150.0") produce same ID
+# while maintaining backwards compatibility (no scientific notation)
+PRICE_PRECISION = Decimal("0.01")
 
 
 def generate_client_order_id(
@@ -81,9 +86,20 @@ def generate_client_order_id(
     # Use provided date or default to today
     order_date = as_of_date or date.today()
 
-    # Convert prices to strings (using "None" for null values)
-    limit_price_str = str(order.limit_price) if order.limit_price is not None else "None"
-    stop_price_str = str(order.stop_price) if order.stop_price is not None else "None"
+    # Convert prices to strings (quantize to fixed precision for idempotency)
+    # Decimal("150.00") and Decimal("150.0") both become "150.00"
+    # This prevents duplicate orders when JSON parsers use different precision
+    # Uses quantize() instead of normalize() to avoid scientific notation
+    limit_price_str = (
+        str(order.limit_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
+        if order.limit_price is not None
+        else "None"
+    )
+    stop_price_str = (
+        str(order.stop_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
+        if order.stop_price is not None
+        else "None"
+    )
 
     # Build raw string with all order parameters
     raw = (
@@ -177,9 +193,17 @@ def reconstruct_order_params_hash(
         >>> len(id1)
         24
     """
-    # Convert prices to strings
-    limit_price_str = str(limit_price) if limit_price is not None else "None"
-    stop_price_str = str(stop_price) if stop_price is not None else "None"
+    # Convert prices to strings (quantize to fixed precision for idempotency)
+    limit_price_str = (
+        str(limit_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
+        if limit_price is not None
+        else "None"
+    )
+    stop_price_str = (
+        str(stop_price.quantize(PRICE_PRECISION, rounding=ROUND_HALF_UP))
+        if stop_price is not None
+        else "None"
+    )
 
     # Build raw string
     raw = (
