@@ -67,8 +67,9 @@ class TestAlpacaClientTypeGuards:
             )
 
             # Store mock classes on client for test access
-            client._mock_order_class = MockOrder
-            client._mock_account_class = MockTradeAccount
+            # These are test-only attributes, not part of the production class
+            client._mock_order_class = MockOrder  # type: ignore[attr-defined]
+            client._mock_account_class = MockTradeAccount  # type: ignore[attr-defined]
 
             yield client
 

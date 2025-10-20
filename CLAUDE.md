@@ -118,9 +118,6 @@ git push -u origin feature/task-name
 
 # Fix all HIGH/CRITICAL issues, then create PR
 gh pr create
-
-# Request GitHub App reviews (backup validation)
-gh pr comment <PR> --body "@codex @gemini-code-assist"
 ```
 
 **IMPORTANT:** See `/docs/STANDARDS/GIT_WORKFLOW.md` for:

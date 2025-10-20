@@ -404,7 +404,7 @@ class DuckDBCatalog:
             └───────────┴────────────┴────────────┴──────────────┘
         """
         self._validate_table_name(table_name)
-        return self.query(f"""
+        result = self.query(f"""
             SELECT
                 COUNT(*) AS row_count,
                 COUNT(DISTINCT symbol) AS n_symbols,
@@ -412,7 +412,10 @@ class DuckDBCatalog:
                 MAX(date) AS max_date,
                 COUNT(DISTINCT date) AS n_trading_days
             FROM {table_name}
-        """)
+        """, return_format="polars")
+        # Explicit cast since we know return_format="polars" always returns pl.DataFrame
+        assert isinstance(result, pl.DataFrame)
+        return result
 
     def close(self) -> None:
         """
