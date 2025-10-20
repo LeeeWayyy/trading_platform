@@ -283,6 +283,7 @@ class TestFeatureModelCompatibility:
 
         # Test prediction (should not raise error)
         try:
+            assert registry.current_model is not None
             predictions = registry.current_model.predict(features.values)
             success = True
         except Exception as e:
@@ -360,6 +361,7 @@ class TestProductionResearchParity:
         registry = ModelRegistry("postgresql://postgres:postgres@localhost:5432/trading_platform")
         registry.reload_if_changed("alpha_baseline")
 
+        assert registry.current_model is not None
         research_predictions = registry.current_model.predict(research_features.values)
 
         # Production path: Use signal generator
@@ -380,8 +382,8 @@ class TestProductionResearchParity:
 
         # IMPORTANT: SignalGenerator normalizes predictions (see signal_generator.py:224-234)
         # We verify that the RANKING is preserved, not absolute values
-        research_ranking = np.argsort(-research_predictions)  # Descending order
-        production_ranking = np.argsort(-production_predictions)  # Descending order
+        research_ranking = np.argsort(-research_predictions)  # type: ignore[operator]  # Descending order
+        production_ranking = np.argsort(-production_predictions)  # type: ignore[operator]  # Descending order
 
         # Rankings should be identical
         np.testing.assert_array_equal(
@@ -391,7 +393,7 @@ class TestProductionResearchParity:
         )
 
         # Also verify that relative ordering is preserved (correlation should be perfect)
-        from scipy.stats import spearmanr
+        from scipy.stats import spearmanr  # type: ignore[import-untyped]
         correlation, _ = spearmanr(research_predictions, production_predictions)
         assert abs(correlation) > 0.99, f"Prediction correlation too low: {correlation}"
 
