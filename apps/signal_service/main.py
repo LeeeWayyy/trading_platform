@@ -606,6 +606,13 @@ async def health_check() -> HealthResponse:
 
     metadata = model_registry.current_metadata
 
+    # Validate metadata exists (explicit check for production safety)
+    if metadata is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model metadata not available despite is_loaded=True"
+        )
+
     # Check Redis status (T1.2)
     if not settings.redis_enabled:
         redis_status_str = "disabled"
@@ -616,7 +623,6 @@ async def health_check() -> HealthResponse:
     else:
         redis_status_str = "disconnected"
 
-    assert metadata is not None, "metadata should exist when model_loaded=True"
     return HealthResponse(
         status="healthy",
         model_loaded=True,
@@ -718,7 +724,13 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
             detail="Signal generator not initialized"
         )
 
-    assert model_registry is not None, "model_registry should be initialized"
+    # Validate model registry exists (explicit check for production safety)
+    if model_registry is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model registry not initialized"
+        )
+
     if not model_registry.is_loaded:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -850,7 +862,13 @@ async def get_model_info() -> dict[str, Any]:
         )
 
     metadata = model_registry.current_metadata
-    assert metadata is not None, "metadata should exist when model is loaded"
+
+    # Validate metadata exists (explicit check for production safety)
+    if metadata is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model metadata not available despite is_loaded=True"
+        )
 
     return {
         "strategy_name": metadata.strategy_name,
