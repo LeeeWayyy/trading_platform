@@ -8,7 +8,7 @@ import logging
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 import psycopg
@@ -48,8 +48,8 @@ class OrchestrationRunDB:
     completed_at: Optional[datetime]
     duration_seconds: Optional[Decimal]
     error_message: Optional[str]
-    signal_service_response: Optional[dict]
-    execution_gateway_responses: Optional[dict]
+    signal_service_response: Optional[dict[str, Any]]
+    execution_gateway_responses: Optional[dict[str, Any]]
     created_at: datetime
     updated_at: datetime
 
@@ -160,7 +160,9 @@ class OrchestrationDatabaseClient:
                     )
                 )
 
-                run_id = cur.fetchone()[0]
+                row = cur.fetchone()
+                assert row is not None, "INSERT RETURNING should always return a row"
+                run_id: int = row[0]
 
                 # Insert signal-order mappings
                 if result.mappings:
@@ -180,7 +182,7 @@ class OrchestrationDatabaseClient:
         cur: psycopg.Cursor,
         run_id: UUID,
         mappings: List[SignalOrderMapping]
-    ):
+    ) -> None:
         """
         Create signal-order mapping records.
 
@@ -232,7 +234,7 @@ class OrchestrationDatabaseClient:
         completed_at: Optional[datetime] = None,
         duration_seconds: Optional[Decimal] = None,
         error_message: Optional[str] = None
-    ):
+    ) -> None:
         """
         Update orchestration run status.
 
@@ -351,7 +353,7 @@ class OrchestrationDatabaseClient:
                     FROM orchestration_runs
                     WHERE 1=1
                 """
-                params = []
+                params: list[Any] = []
 
                 if strategy_id:
                     query += " AND strategy_id = %s"
