@@ -17,15 +17,14 @@ Test Scenario:
 This is the "realistic scenario" test from ADR-0001.
 """
 
-from datetime import datetime, timezone, date
-from pathlib import Path
-import tempfile
 import shutil
+import tempfile
+from datetime import UTC, date, datetime
+from pathlib import Path
 
-import pytest
 import polars as pl
 
-from libs.data_pipeline.etl import run_etl_pipeline, load_adjusted_data
+from libs.data_pipeline.etl import load_adjusted_data, run_etl_pipeline
 from tests.fixtures.mock_data import create_multi_symbol_data
 
 
@@ -47,7 +46,7 @@ class TestCompleteDataPipeline:
             num_days=20,
             include_split=True,
             include_dividend=True,
-            include_outlier=True
+            include_outlier=True,
         )
 
         raw_data = test_data["raw_data"]
@@ -66,7 +65,7 @@ class TestCompleteDataPipeline:
                 freshness_minutes=999999,  # Disable for mock data
                 outlier_threshold=0.30,
                 output_dir=temp_dir,
-                run_date=date(2024, 1, 15)
+                run_date=date(2024, 1, 15),
             )
 
             # === Validate Results ===
@@ -97,7 +96,7 @@ class TestCompleteDataPipeline:
             # Calculate returns to verify continuity
             returns = []
             for i in range(1, len(aapl_closes)):
-                ret = abs((aapl_closes[i] - aapl_closes[i-1]) / aapl_closes[i-1])
+                ret = abs((aapl_closes[i] - aapl_closes[i - 1]) / aapl_closes[i - 1])
                 returns.append(ret)
 
             # All returns should be small (< 5%) after adjustment
@@ -111,7 +110,7 @@ class TestCompleteDataPipeline:
             msft_closes = msft_data["close"].to_list()
             msft_returns = []
             for i in range(1, len(msft_closes)):
-                ret = abs((msft_closes[i] - msft_closes[i-1]) / msft_closes[i-1])
+                ret = abs((msft_closes[i] - msft_closes[i - 1]) / msft_closes[i - 1])
                 msft_returns.append(ret)
 
             max_msft_return = max(msft_returns) if msft_returns else 0
@@ -130,10 +129,7 @@ class TestCompleteDataPipeline:
             assert (quarantine_dir / "GOOGL.parquet").exists()
 
             # 6. Test loading data back
-            loaded = load_adjusted_data(
-                symbols=["AAPL", "MSFT"],
-                data_dir=temp_dir / "adjusted"
-            )
+            loaded = load_adjusted_data(symbols=["AAPL", "MSFT"], data_dir=temp_dir / "adjusted")
 
             assert len(loaded) > 0
             assert set(loaded["symbol"].unique().to_list()).issubset({"AAPL", "MSFT"})
@@ -162,22 +158,21 @@ class TestCompleteDataPipeline:
     def test_pipeline_with_no_corporate_actions(self):
         """Pipeline should work correctly with no corporate actions."""
         # Create simple data without any CAs
-        raw_data = pl.DataFrame({
-            "symbol": ["AAPL"] * 5,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15", "2024-01-16"],
-            "open": [149.0, 150.5, 151.0, 152.0, 151.5],
-            "high": [151.0, 152.0, 153.0, 154.0, 153.0],
-            "low": [148.0, 149.0, 150.0, 151.0, 150.0],
-            "close": [150.0, 151.0, 152.0, 153.0, 152.0],
-            "volume": [1_000_000, 1_100_000, 1_200_000, 1_300_000, 1_250_000],
-            "timestamp": [datetime.now(timezone.utc)] * 5
-        })
+        raw_data = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 5,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15", "2024-01-16"],
+                "open": [149.0, 150.5, 151.0, 152.0, 151.5],
+                "high": [151.0, 152.0, 153.0, 154.0, 153.0],
+                "low": [148.0, 149.0, 150.0, 151.0, 150.0],
+                "close": [150.0, 151.0, 152.0, 153.0, 152.0],
+                "volume": [1_000_000, 1_100_000, 1_200_000, 1_300_000, 1_250_000],
+                "timestamp": [datetime.now(UTC)] * 5,
+            }
+        )
 
         result = run_etl_pipeline(
-            raw_data=raw_data,
-            splits_df=None,
-            dividends_df=None,
-            output_dir=None
+            raw_data=raw_data, splits_df=None, dividends_df=None, output_dir=None
         )
 
         # All data should pass through unchanged
@@ -191,22 +186,20 @@ class TestCompleteDataPipeline:
     def test_pipeline_handles_all_quarantined(self):
         """Pipeline should handle case where all data is quarantined."""
         # Create data with all outliers (wildly volatile)
-        raw_data = pl.DataFrame({
-            "symbol": ["AAPL"] * 5,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15", "2024-01-16"],
-            "open": [100.0, 200.0, 50.0, 300.0, 25.0],
-            "high": [110.0, 220.0, 60.0, 320.0, 35.0],
-            "low": [95.0, 180.0, 45.0, 280.0, 20.0],
-            "close": [100.0, 200.0, 50.0, 300.0, 25.0],  # Huge swings
-            "volume": [1_000_000, 5_000_000, 2_000_000, 8_000_000, 1_500_000],
-            "timestamp": [datetime.now(timezone.utc)] * 5
-        })
-
-        result = run_etl_pipeline(
-            raw_data=raw_data,
-            outlier_threshold=0.30,
-            output_dir=None
+        raw_data = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 5,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15", "2024-01-16"],
+                "open": [100.0, 200.0, 50.0, 300.0, 25.0],
+                "high": [110.0, 220.0, 60.0, 320.0, 35.0],
+                "low": [95.0, 180.0, 45.0, 280.0, 20.0],
+                "close": [100.0, 200.0, 50.0, 300.0, 25.0],  # Huge swings
+                "volume": [1_000_000, 5_000_000, 2_000_000, 8_000_000, 1_500_000],
+                "timestamp": [datetime.now(UTC)] * 5,
+            }
         )
+
+        result = run_etl_pipeline(raw_data=raw_data, outlier_threshold=0.30, output_dir=None)
 
         # Most or all should be quarantined (except first row which can't be flagged)
         assert len(result["quarantined"]) >= 3
@@ -227,7 +220,7 @@ class TestCompleteDataPipeline:
             num_days=252,
             include_split=False,  # No CAs to measure baseline performance
             include_dividend=False,
-            include_outlier=False
+            include_outlier=False,
         )
 
         raw_data = test_data["raw_data"]
@@ -238,12 +231,12 @@ class TestCompleteDataPipeline:
         result = run_etl_pipeline(
             raw_data=raw_data,
             freshness_minutes=999999,  # Disable for mock data
-            output_dir=None  # Skip disk I/O for pure processing time
+            output_dir=None,  # Skip disk I/O for pure processing time
         )
 
         elapsed = time.time() - start
 
-        print(f"\n=== Performance Test ===")
+        print("\n=== Performance Test ===")
         print(f"Rows processed: {result['stats']['input_rows']}")
         print(f"Time elapsed: {elapsed:.3f} seconds")
         print(f"Throughput: {result['stats']['input_rows'] / elapsed:.0f} rows/second")
@@ -254,16 +247,18 @@ class TestCompleteDataPipeline:
     def test_data_immutability(self):
         """Pipeline should not modify input data (immutability)."""
         # Create test data
-        raw_data = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "open": [149.0, 150.5, 151.0],
-            "high": [151.0, 152.0, 153.0],
-            "low": [148.0, 149.0, 150.0],
-            "close": [150.0, 151.0, 152.0],
-            "volume": [1_000_000, 1_100_000, 1_200_000],
-            "timestamp": [datetime.now(timezone.utc)] * 3
-        })
+        raw_data = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "open": [149.0, 150.5, 151.0],
+                "high": [151.0, 152.0, 153.0],
+                "low": [148.0, 149.0, 150.0],
+                "close": [150.0, 151.0, 152.0],
+                "volume": [1_000_000, 1_100_000, 1_200_000],
+                "timestamp": [datetime.now(UTC)] * 3,
+            }
+        )
 
         # Save original data for comparison
         original_close = raw_data["close"].to_list()

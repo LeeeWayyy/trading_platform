@@ -9,13 +9,14 @@ Tests cover:
 - Error handling
 """
 
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import Mock
+
+import pytest
 from redis.exceptions import RedisError
 
 from libs.redis_client.event_publisher import EventPublisher
-from libs.redis_client.events import SignalEvent, OrderEvent, PositionEvent
+from libs.redis_client.events import OrderEvent, PositionEvent, SignalEvent
 
 
 class TestEventPublisherInitialization:
@@ -51,11 +52,11 @@ class TestEventPublisherPublish:
         mock_redis.publish.return_value = 2  # 2 subscribers
 
         event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL"],
             num_signals=1,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         num_subscribers = publisher.publish("test_channel", event)
@@ -74,11 +75,11 @@ class TestEventPublisherPublish:
         mock_redis.publish.return_value = 0
 
         event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL"],
             num_signals=1,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         num_subscribers = publisher.publish("test_channel", event)
@@ -91,11 +92,11 @@ class TestEventPublisherPublish:
         mock_redis.publish.side_effect = RedisError("Connection lost")
 
         event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL"],
             num_signals=1,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         num_subscribers = publisher.publish("test_channel", event)
@@ -120,11 +121,11 @@ class TestEventPublisherSignalEvents:
         mock_redis.publish.return_value = 1
 
         event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL", "MSFT"],
             num_signals=2,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         num_subscribers = publisher.publish_signal_event(event)
@@ -149,11 +150,11 @@ class TestEventPublisherSignalEvents:
 
         symbols = [f"SYM{i}" for i in range(10)]
         event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="alpha_baseline",
             symbols=symbols,
             num_signals=10,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
 
         num_subscribers = publisher.publish_signal_event(event)
@@ -177,12 +178,12 @@ class TestEventPublisherOrderEvents:
         mock_redis.publish.return_value = 2
 
         event = OrderEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             run_id="550e8400-e29b-41d4-a716-446655440000",
             strategy_id="alpha_baseline",
             num_orders=3,
             num_accepted=3,
-            num_rejected=0
+            num_rejected=0,
         )
 
         num_subscribers = publisher.publish_order_event(event)
@@ -205,12 +206,12 @@ class TestEventPublisherOrderEvents:
         mock_redis.publish.return_value = 1
 
         event = OrderEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             run_id="test-run-id",
             strategy_id="alpha_baseline",
             num_orders=5,
             num_accepted=3,
-            num_rejected=2
+            num_rejected=2,
         )
 
         num_subscribers = publisher.publish_order_event(event)
@@ -239,13 +240,13 @@ class TestEventPublisherPositionEvents:
         mock_redis.publish.return_value = 1
 
         event = PositionEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             symbol="AAPL",
             action="buy",
             qty_change=100,
             new_qty=100,
             price="150.25",
-            strategy_id="alpha_baseline"
+            strategy_id="alpha_baseline",
         )
 
         num_subscribers = publisher.publish_position_event(event)
@@ -269,13 +270,13 @@ class TestEventPublisherPositionEvents:
         mock_redis.publish.return_value = 2
 
         event = PositionEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             symbol="MSFT",
             action="sell",
             qty_change=-50,
             new_qty=50,
             price="300.00",
-            strategy_id="alpha_baseline"
+            strategy_id="alpha_baseline",
         )
 
         num_subscribers = publisher.publish_position_event(event)
@@ -306,34 +307,34 @@ class TestEventPublisherEndToEnd:
 
         # Publish SignalEvent
         signal_event = SignalEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL"],
             num_signals=1,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
         publisher.publish_signal_event(signal_event)
 
         # Publish OrderEvent
         order_event = OrderEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             run_id="test-id",
             strategy_id="alpha_baseline",
             num_orders=1,
             num_accepted=1,
-            num_rejected=0
+            num_rejected=0,
         )
         publisher.publish_order_event(order_event)
 
         # Publish PositionEvent
         position_event = PositionEvent(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             symbol="AAPL",
             action="buy",
             qty_change=100,
             new_qty=100,
             price="150.00",
-            strategy_id="alpha_baseline"
+            strategy_id="alpha_baseline",
         )
         publisher.publish_position_event(position_event)
 
@@ -353,35 +354,35 @@ class TestEventPublisherEndToEnd:
 
         # Step 1: Signals generated
         signal_event = SignalEvent(
-            timestamp=datetime(2025, 1, 17, 9, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 1, 17, 9, 0, 0, tzinfo=UTC),
             strategy_id="alpha_baseline",
             symbols=["AAPL", "MSFT"],
             num_signals=2,
-            as_of_date="2025-01-17"
+            as_of_date="2025-01-17",
         )
         publisher.publish_signal_event(signal_event)
 
         # Step 2: Orders executed
         order_event = OrderEvent(
-            timestamp=datetime(2025, 1, 17, 9, 1, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 1, 17, 9, 1, 0, tzinfo=UTC),
             run_id="run-123",
             strategy_id="alpha_baseline",
             num_orders=2,
             num_accepted=2,
-            num_rejected=0
+            num_rejected=0,
         )
         publisher.publish_order_event(order_event)
 
         # Step 3: Positions updated
         for symbol in ["AAPL", "MSFT"]:
             position_event = PositionEvent(
-                timestamp=datetime(2025, 1, 17, 9, 1, 30, tzinfo=timezone.utc),
+                timestamp=datetime(2025, 1, 17, 9, 1, 30, tzinfo=UTC),
                 symbol=symbol,
                 action="fill",
                 qty_change=100,
                 new_qty=100,
                 price="150.00",
-                strategy_id="alpha_baseline"
+                strategy_id="alpha_baseline",
             )
             publisher.publish_position_event(position_event)
 

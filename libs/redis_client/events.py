@@ -28,8 +28,7 @@ See Also:
 """
 
 from datetime import datetime
-from typing import List, Optional, Dict, Any
-from decimal import Decimal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -62,39 +61,19 @@ class SignalEvent(BaseModel):
         }
     """
 
-    event_type: str = Field(
-        default="signals.generated",
-        description="Event type identifier"
-    )
+    event_type: str = Field(default="signals.generated", description="Event type identifier")
 
-    timestamp: datetime = Field(
-        ...,
-        description="Event timestamp (UTC)"
-    )
+    timestamp: datetime = Field(..., description="Event timestamp (UTC)")
 
-    strategy_id: str = Field(
-        ...,
-        description="Strategy that generated signals"
-    )
+    strategy_id: str = Field(..., description="Strategy that generated signals")
 
-    symbols: List[str] = Field(
-        ...,
-        min_length=1,
-        description="Symbols with generated signals"
-    )
+    symbols: list[str] = Field(..., min_length=1, description="Symbols with generated signals")
 
-    num_signals: int = Field(
-        ...,
-        ge=0,
-        description="Number of signals generated"
-    )
+    num_signals: int = Field(..., ge=0, description="Number of signals generated")
 
-    as_of_date: str = Field(
-        ...,
-        description="Date for which signals were generated (ISO format)"
-    )
+    as_of_date: str = Field(..., description="Date for which signals were generated (ISO format)")
 
-    @field_validator('timestamp')
+    @field_validator("timestamp")
     @classmethod
     def validate_timestamp_utc(cls, v: datetime) -> datetime:
         """Ensure timestamp is timezone-aware."""
@@ -134,45 +113,21 @@ class OrderEvent(BaseModel):
         }
     """
 
-    event_type: str = Field(
-        default="orders.executed",
-        description="Event type identifier"
-    )
+    event_type: str = Field(default="orders.executed", description="Event type identifier")
 
-    timestamp: datetime = Field(
-        ...,
-        description="Event timestamp (UTC)"
-    )
+    timestamp: datetime = Field(..., description="Event timestamp (UTC)")
 
-    run_id: str = Field(
-        ...,
-        description="Orchestration run ID (UUID)"
-    )
+    run_id: str = Field(..., description="Orchestration run ID (UUID)")
 
-    strategy_id: str = Field(
-        ...,
-        description="Strategy that generated orders"
-    )
+    strategy_id: str = Field(..., description="Strategy that generated orders")
 
-    num_orders: int = Field(
-        ...,
-        ge=0,
-        description="Total number of orders submitted"
-    )
+    num_orders: int = Field(..., ge=0, description="Total number of orders submitted")
 
-    num_accepted: int = Field(
-        ...,
-        ge=0,
-        description="Number of orders accepted"
-    )
+    num_accepted: int = Field(..., ge=0, description="Number of orders accepted")
 
-    num_rejected: int = Field(
-        ...,
-        ge=0,
-        description="Number of orders rejected"
-    )
+    num_rejected: int = Field(..., ge=0, description="Number of orders rejected")
 
-    @field_validator('timestamp')
+    @field_validator("timestamp")
     @classmethod
     def validate_timestamp_utc(cls, v: datetime) -> datetime:
         """Ensure timestamp is timezone-aware."""
@@ -214,47 +169,23 @@ class PositionEvent(BaseModel):
         }
     """
 
-    event_type: str = Field(
-        default="positions.updated",
-        description="Event type identifier"
-    )
+    event_type: str = Field(default="positions.updated", description="Event type identifier")
 
-    timestamp: datetime = Field(
-        ...,
-        description="Event timestamp (UTC)"
-    )
+    timestamp: datetime = Field(..., description="Event timestamp (UTC)")
 
-    symbol: str = Field(
-        ...,
-        description="Stock symbol"
-    )
+    symbol: str = Field(..., description="Stock symbol")
 
-    action: str = Field(
-        ...,
-        description="Action that caused update (buy/sell/fill)"
-    )
+    action: str = Field(..., description="Action that caused update (buy/sell/fill)")
 
-    qty_change: int = Field(
-        ...,
-        description="Change in position quantity (signed)"
-    )
+    qty_change: int = Field(..., description="Change in position quantity (signed)")
 
-    new_qty: int = Field(
-        ...,
-        description="New total position quantity (signed)"
-    )
+    new_qty: int = Field(..., description="New total position quantity (signed)")
 
-    price: str = Field(
-        ...,
-        description="Execution price (Decimal as string)"
-    )
+    price: str = Field(..., description="Execution price (Decimal as string)")
 
-    strategy_id: str = Field(
-        ...,
-        description="Strategy that owns the position"
-    )
+    strategy_id: str = Field(..., description="Strategy that owns the position")
 
-    @field_validator('timestamp')
+    @field_validator("timestamp")
     @classmethod
     def validate_timestamp_utc(cls, v: datetime) -> datetime:
         """Ensure timestamp is timezone-aware."""
@@ -262,7 +193,7 @@ class PositionEvent(BaseModel):
             raise ValueError("timestamp must be timezone-aware (use timezone.utc)")
         return v
 
-    @field_validator('action')
+    @field_validator("action")
     @classmethod
     def validate_action(cls, v: str) -> str:
         """Validate action is one of allowed values."""

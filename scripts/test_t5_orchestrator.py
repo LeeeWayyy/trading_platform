@@ -19,18 +19,17 @@ Usage:
     python scripts/test_t5_orchestrator.py
 """
 
-import sys
-import os
 import asyncio
-from pathlib import Path
+import os
+import sys
 from decimal import Decimal
-from datetime import date
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from apps.orchestrator.orchestrator import TradingOrchestrator, calculate_position_size
 from apps.orchestrator.database import OrchestrationDatabaseClient
+from apps.orchestrator.orchestrator import TradingOrchestrator, calculate_position_size
 from apps.orchestrator.schemas import Signal
 
 
@@ -50,11 +49,11 @@ def test_position_sizing():
         target_weight=0.333,
         capital=Decimal("100000"),
         price=Decimal("150.00"),
-        max_position_size=Decimal("50000")
+        max_position_size=Decimal("50000"),
     )
 
-    print(f"Test case 1: 33.3% of $100k at $150/share")
-    print(f"  Expected: 222 shares, $33,300")
+    print("Test case 1: 33.3% of $100k at $150/share")
+    print("  Expected: 222 shares, $33,300")
     print(f"  Actual:   {qty} shares, ${dollar_amount}")
 
     assert qty == 222, f"Expected 222 shares, got {qty}"
@@ -66,11 +65,11 @@ def test_position_sizing():
         target_weight=0.50,
         capital=Decimal("100000"),
         price=Decimal("100.00"),
-        max_position_size=Decimal("20000")
+        max_position_size=Decimal("20000"),
     )
 
-    print(f"\nTest case 2: 50% of $100k capped at $20k max")
-    print(f"  Expected: 200 shares (capped), $20,000")
+    print("\nTest case 2: 50% of $100k capped at $20k max")
+    print("  Expected: 200 shares (capped), $20,000")
     print(f"  Actual:   {qty} shares, ${dollar_amount}")
 
     assert qty == 200, f"Expected 200 shares, got {qty}"
@@ -82,11 +81,11 @@ def test_position_sizing():
         target_weight=0.10,
         capital=Decimal("100000"),
         price=Decimal("151.00"),
-        max_position_size=Decimal("50000")
+        max_position_size=Decimal("50000"),
     )
 
-    print(f"\nTest case 3: Fractional shares (66.225... → 66)")
-    print(f"  Expected: 66 shares, $10,000")
+    print("\nTest case 3: Fractional shares (66.225... → 66)")
+    print("  Expected: 66 shares, $10,000")
     print(f"  Actual:   {qty} shares, ${dollar_amount}")
 
     assert qty == 66, f"Expected 66 shares, got {qty}"
@@ -101,8 +100,7 @@ def test_database_connection():
     print_separator("TEST 2: Database Connection")
 
     DATABASE_URL = os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/trading_platform"
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
     )
 
     print(f"Connecting to: {DATABASE_URL.split('@')[1]}")
@@ -123,25 +121,21 @@ async def test_orchestrator_with_mock_data():
     print_separator("TEST 3: Orchestrator with Mock Data")
 
     # Create orchestrator with price cache (mock data)
-    price_cache = {
-        "AAPL": Decimal("150.00"),
-        "MSFT": Decimal("300.00"),
-        "GOOGL": Decimal("100.00")
-    }
+    price_cache = {"AAPL": Decimal("150.00"), "MSFT": Decimal("300.00"), "GOOGL": Decimal("100.00")}
 
     orchestrator = TradingOrchestrator(
         signal_service_url="http://localhost:8001",  # Won't be called in this test
         execution_gateway_url="http://localhost:8002",  # Won't be called in this test
         capital=Decimal("100000"),
         max_position_size=Decimal("20000"),
-        price_cache=price_cache
+        price_cache=price_cache,
     )
 
     # Create mock signals
     mock_signals = [
         Signal(symbol="AAPL", predicted_return=0.015, rank=1, target_weight=0.333),
         Signal(symbol="MSFT", predicted_return=0.010, rank=2, target_weight=0.333),
-        Signal(symbol="GOOGL", predicted_return=-0.012, rank=3, target_weight=-0.333)
+        Signal(symbol="GOOGL", predicted_return=-0.012, rank=3, target_weight=-0.333),
     ]
 
     print(f"Mock signals created: {len(mock_signals)}")
@@ -151,7 +145,7 @@ async def test_orchestrator_with_mock_data():
     # Test signal-to-order mapping
     mappings = await orchestrator._map_signals_to_orders(mock_signals)
 
-    print(f"\nSignal-to-order mapping results:")
+    print("\nSignal-to-order mapping results:")
     for mapping in mappings:
         if mapping.order_qty:
             print(f"  {mapping.symbol}: {mapping.order_side.upper()} {mapping.order_qty} shares")
@@ -190,12 +184,12 @@ def print_results(results: dict):
     print("║" + "  TEST RESULTS".center(78) + "║")
     print("║" + " " * 78 + "║")
     print("╠" + "=" * 78 + "╣")
-    print(f"║  ✅ Passed:  {results['passed']}" + " " * (68 - len(str(results['passed']))) + "║")
-    print(f"║  ❌ Failed:  {results['failed']}" + " " * (68 - len(str(results['failed']))) + "║")
+    print(f"║  ✅ Passed:  {results['passed']}" + " " * (68 - len(str(results["passed"]))) + "║")
+    print(f"║  ❌ Failed:  {results['failed']}" + " " * (68 - len(str(results["failed"]))) + "║")
     print("║" + " " * 78 + "║")
 
-    total = results['passed'] + results['failed']
-    pass_rate = (results['passed'] / total * 100) if total > 0 else 0
+    total = results["passed"] + results["failed"]
+    pass_rate = (results["passed"] / total * 100) if total > 0 else 0
 
     print(f"║  Pass Rate: {pass_rate:.1f}%".ljust(79) + "║")
     print("║" + " " * 78 + "║")
@@ -212,10 +206,7 @@ async def main():
     print("║" + " " * 78 + "║")
     print("╚" + "=" * 78 + "╝")
 
-    results = {
-        "passed": 0,
-        "failed": 0
-    }
+    results = {"passed": 0, "failed": 0}
 
     # Test 1: Position sizing
     if test_position_sizing():

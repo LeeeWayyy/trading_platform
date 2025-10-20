@@ -10,15 +10,16 @@ This module orchestrates the complete data pipeline:
 See ADR-0001 for pipeline architecture decisions.
 """
 
-from pathlib import Path
 from datetime import date
+from pathlib import Path
+from typing import Any
 
 import polars as pl
 
-from libs.data_pipeline.freshness import check_freshness
-from libs.data_pipeline.corporate_actions import adjust_prices
-from libs.data_pipeline.quality_gate import detect_outliers
 from libs.common.exceptions import DataQualityError
+from libs.data_pipeline.corporate_actions import adjust_prices
+from libs.data_pipeline.freshness import check_freshness
+from libs.data_pipeline.quality_gate import detect_outliers
 
 
 def run_etl_pipeline(
@@ -28,8 +29,8 @@ def run_etl_pipeline(
     freshness_minutes: int = 30,
     outlier_threshold: float = 0.30,
     output_dir: Path | str | None = None,
-    run_date: date | None = None
-) -> dict[str, pl.DataFrame]:
+    run_date: date | None = None,
+) -> dict[str, pl.DataFrame | dict[str, Any]]:
     """
     Execute the complete ETL pipeline on raw market data.
 
@@ -143,11 +144,7 @@ def run_etl_pipeline(
     check_freshness(raw_data, max_age_minutes=freshness_minutes)
 
     # Step 2: Corporate Action Adjustment
-    adjusted = adjust_prices(
-        raw_data,
-        splits_df=splits_df,
-        dividends_df=dividends_df
-    )
+    adjusted = adjust_prices(raw_data, splits_df=splits_df, dividends_df=dividends_df)
 
     # Step 3: Quality Gate (Outlier Detection)
     # Combine splits and dividends for CA awareness
@@ -162,11 +159,7 @@ def run_etl_pipeline(
         if ca_dfs:
             ca_df = pl.concat(ca_dfs).unique()
 
-    good_data, quarantine_data = detect_outliers(
-        adjusted,
-        ca_df=ca_df,
-        threshold=outlier_threshold
-    )
+    good_data, quarantine_data = detect_outliers(adjusted, ca_df=ca_df, threshold=outlier_threshold)
 
     # Get output stats
     adjusted_rows = len(good_data)
@@ -178,7 +171,7 @@ def run_etl_pipeline(
             good_data=good_data,
             quarantine_data=quarantine_data,
             output_dir=output_dir,
-            run_date=run_date
+            run_date=run_date,
         )
 
     # Return results
@@ -190,15 +183,12 @@ def run_etl_pipeline(
             "adjusted_rows": adjusted_rows,
             "quarantined_rows": quarantined_rows,
             "symbols_processed": input_symbols,
-        }
+        },
     }
 
 
 def _save_results(
-    good_data: pl.DataFrame,
-    quarantine_data: pl.DataFrame,
-    output_dir: Path,
-    run_date: date
+    good_data: pl.DataFrame, quarantine_data: pl.DataFrame, output_dir: Path, run_date: date
 ) -> None:
     """
     Save processed data to Parquet files partitioned by date and symbol.
@@ -235,9 +225,7 @@ def _save_results(
             symbol_data = good_data.filter(pl.col("symbol") == symbol)
             output_path = adjusted_dir / f"{symbol}.parquet"
             symbol_data.write_parquet(
-                output_path,
-                compression="snappy",
-                use_pyarrow=False  # Use Polars native writer
+                output_path, compression="snappy", use_pyarrow=False  # Use Polars native writer
             )
 
     # Save quarantined data (one file per symbol)
@@ -245,18 +233,14 @@ def _save_results(
         for symbol in quarantine_data["symbol"].unique().to_list():
             symbol_data = quarantine_data.filter(pl.col("symbol") == symbol)
             output_path = quarantine_dir / f"{symbol}.parquet"
-            symbol_data.write_parquet(
-                output_path,
-                compression="snappy",
-                use_pyarrow=False
-            )
+            symbol_data.write_parquet(output_path, compression="snappy", use_pyarrow=False)
 
 
 def load_adjusted_data(
     symbols: list[str] | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
-    data_dir: Path | str = Path("data/adjusted")
+    data_dir: Path | str = Path("data/adjusted"),
 ) -> pl.DataFrame:
     """
     Load adjusted data from Parquet files with optional filtering.
@@ -306,8 +290,7 @@ def load_adjusted_data(
     # Filter by symbols if provided
     if symbols is not None:
         parquet_files = [
-            f for f in parquet_files
-            if f.stem in symbols  # f.stem is filename without extension
+            f for f in parquet_files if f.stem in symbols  # f.stem is filename without extension
         ]
 
     if not parquet_files:

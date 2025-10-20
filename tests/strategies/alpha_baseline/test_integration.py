@@ -16,15 +16,15 @@ Tests cover:
 - MLflow integration
 """
 
-from pathlib import Path
-import tempfile
 import shutil
+import tempfile
+from pathlib import Path
 
 import pytest
 
-from strategies.alpha_baseline.config import StrategyConfig, DataConfig, ModelConfig, TrainingConfig
-from strategies.alpha_baseline.train import train_baseline_model, BaselineTrainer
 from strategies.alpha_baseline.backtest import evaluate_model
+from strategies.alpha_baseline.config import DataConfig, ModelConfig, StrategyConfig, TrainingConfig
+from strategies.alpha_baseline.train import BaselineTrainer, train_baseline_model
 
 
 @pytest.mark.integration
@@ -206,8 +206,8 @@ class TestDataProviderIntegration:
 
     def test_load_real_data(self) -> None:
         """Load real data from T1 pipeline."""
+
         from strategies.alpha_baseline.data_loader import T1DataProvider
-        from datetime import date
 
         provider = T1DataProvider(data_dir=Path("data/adjusted"))
 

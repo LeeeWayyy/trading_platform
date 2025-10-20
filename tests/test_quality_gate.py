@@ -12,11 +12,11 @@ Tests cover:
 
 from datetime import date
 
-import pytest
 import polars as pl
+import pytest
 
-from libs.data_pipeline.quality_gate import detect_outliers, check_quality
 from libs.common.exceptions import OutlierError
+from libs.data_pipeline.quality_gate import check_quality, detect_outliers
 
 
 class TestDetectOutliers:
@@ -24,11 +24,13 @@ class TestDetectOutliers:
 
     def test_normal_data_no_outliers(self):
         """Normal price movements should pass quality gate."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 4,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15"],
-            "close": [150.0, 151.5, 152.0, 151.0]  # Small changes
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 4,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15"],
+                "close": [150.0, 151.5, 152.0, 151.0],  # Small changes
+            }
+        )
 
         good, quarantine = detect_outliers(df, threshold=0.30)
 
@@ -37,11 +39,13 @@ class TestDetectOutliers:
 
     def test_outlier_without_ca_gets_quarantined(self):
         """Large move without corporate action should be flagged."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "close": [150.0, 225.0, 226.0]  # 50% jump on Jan 11
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "close": [150.0, 225.0, 226.0],  # 50% jump on Jan 11
+            }
+        )
 
         good, quarantine = detect_outliers(df, threshold=0.30)
 
@@ -55,17 +59,16 @@ class TestDetectOutliers:
 
     def test_outlier_with_ca_passes(self):
         """Large move WITH corporate action should pass."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "close": [150.0, 225.0, 226.0]  # 50% jump
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "close": [150.0, 225.0, 226.0],  # 50% jump
+            }
+        )
 
         # Corporate action on Jan 11 explains the large move
-        ca = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-11"]
-        })
+        ca = pl.DataFrame({"symbol": ["AAPL"], "date": ["2024-01-11"]})
 
         good, quarantine = detect_outliers(df, ca_df=ca, threshold=0.30)
 
@@ -75,11 +78,13 @@ class TestDetectOutliers:
 
     def test_first_row_never_outlier(self):
         """First row per symbol cannot be flagged (no prior close)."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL", "AAPL"],
-            "date": ["2024-01-10", "2024-01-11"],
-            "close": [1000.0, 150.0]  # First row is abnormally high
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL"],
+                "date": ["2024-01-10", "2024-01-11"],
+                "close": [1000.0, 150.0],  # First row is abnormally high
+            }
+        )
 
         good, quarantine = detect_outliers(df, threshold=0.30)
 
@@ -91,11 +96,13 @@ class TestDetectOutliers:
 
     def test_multiple_symbols_handled_separately(self):
         """Each symbol's returns should be calculated independently."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL", "AAPL", "MSFT", "MSFT"],
-            "date": ["2024-01-10", "2024-01-11", "2024-01-10", "2024-01-11"],
-            "close": [150.0, 225.0, 100.0, 101.0]  # AAPL outlier, MSFT normal
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL", "MSFT", "MSFT"],
+                "date": ["2024-01-10", "2024-01-11", "2024-01-10", "2024-01-11"],
+                "close": [150.0, 225.0, 100.0, 101.0],  # AAPL outlier, MSFT normal
+            }
+        )
 
         good, quarantine = detect_outliers(df, threshold=0.30)
 
@@ -108,11 +115,13 @@ class TestDetectOutliers:
 
     def test_custom_threshold(self):
         """Should respect custom threshold."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "close": [150.0, 180.0, 181.0]  # 20% jump
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "close": [150.0, 180.0, 181.0],  # 20% jump
+            }
+        )
 
         # 20% is below 30% threshold (passes)
         good, quarantine = detect_outliers(df, threshold=0.30)
@@ -124,11 +133,13 @@ class TestDetectOutliers:
 
     def test_negative_returns_flagged(self):
         """Large negative moves should also be flagged."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "close": [150.0, 75.0, 76.0]  # -50% drop
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "close": [150.0, 75.0, 76.0],  # -50% drop
+            }
+        )
 
         good, quarantine = detect_outliers(df, threshold=0.30)
 
@@ -137,11 +148,13 @@ class TestDetectOutliers:
 
     def test_empty_dataframe(self):
         """Empty DataFrame should return two empty DataFrames."""
-        df = pl.DataFrame({
-            "symbol": pl.Series([], dtype=pl.Utf8),
-            "date": pl.Series([], dtype=pl.Date),
-            "close": pl.Series([], dtype=pl.Float64)
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": pl.Series([], dtype=pl.Utf8),
+                "date": pl.Series([], dtype=pl.Date),
+                "close": pl.Series([], dtype=pl.Float64),
+            }
+        )
 
         good, quarantine = detect_outliers(df)
 
@@ -150,11 +163,13 @@ class TestDetectOutliers:
 
     def test_missing_columns_raises_error(self):
         """Missing required columns should raise ValueError."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "open": [150.0]
-            # Missing date and close
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "open": [150.0],
+                # Missing date and close
+            }
+        )
 
         with pytest.raises(ValueError) as exc_info:
             detect_outliers(df)
@@ -163,11 +178,13 @@ class TestDetectOutliers:
 
     def test_reason_column_format(self):
         """Quarantined data should have properly formatted reason."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "close": [100.0, 145.0, 146.0]  # 45% jump
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "close": [100.0, 145.0, 146.0],  # 45% jump
+            }
+        )
 
         good, quarantine = detect_outliers(df, threshold=0.30)
 
@@ -181,11 +198,13 @@ class TestCheckQuality:
 
     def test_normal_data_returns_all(self):
         """Normal data should return all rows."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "close": [150.0, 151.5, 152.0]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "close": [150.0, 151.5, 152.0],
+            }
+        )
 
         result = check_quality(df)
 
@@ -193,11 +212,13 @@ class TestCheckQuality:
 
     def test_raise_on_outliers_true_raises(self):
         """Should raise OutlierError if outliers found and flag is True."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
-            "close": [150.0, 225.0, 226.0]  # Outlier
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12"],
+                "close": [150.0, 225.0, 226.0],  # Outlier
+            }
+        )
 
         with pytest.raises(OutlierError) as exc_info:
             check_quality(df, raise_on_outliers=True)
@@ -209,11 +230,13 @@ class TestCheckQuality:
 
     def test_raise_on_outliers_false_filters(self):
         """Should filter outliers and return clean data if flag is False."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 4,
-            "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15"],
-            "close": [150.0, 151.0, 225.0, 226.0]  # Outlier on Jan 12
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 4,
+                "date": ["2024-01-10", "2024-01-11", "2024-01-12", "2024-01-15"],
+                "close": [150.0, 151.0, 225.0, 226.0],  # Outlier on Jan 12
+            }
+        )
 
         result = check_quality(df, raise_on_outliers=False)
 

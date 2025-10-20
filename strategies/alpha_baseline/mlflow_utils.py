@@ -8,9 +8,9 @@ management.
 See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 """
 
-from pathlib import Path
-from typing import Optional, Dict, Any
 import warnings
+from pathlib import Path
+from typing import Any
 
 import mlflow
 import mlflow.lightgbm
@@ -105,7 +105,7 @@ def log_config(config: StrategyConfig) -> None:
     mlflow.log_param("save_best_only", config.training.save_best_only)
 
 
-def log_metrics(metrics: Dict[str, float], step: Optional[int] = None) -> None:
+def log_metrics(metrics: dict[str, float], step: int | None = None) -> None:
     """
     Log metrics to MLflow.
 
@@ -133,7 +133,7 @@ def log_metrics(metrics: Dict[str, float], step: Optional[int] = None) -> None:
 def log_model(
     model: Any,
     artifact_path: str = "model",
-    registered_model_name: Optional[str] = None,
+    registered_model_name: str | None = None,
 ) -> None:
     """
     Log LightGBM model to MLflow.
@@ -161,7 +161,7 @@ def log_model(
     )
 
 
-def log_artifact(local_path: Path, artifact_path: Optional[str] = None) -> None:
+def log_artifact(local_path: Path, artifact_path: str | None = None) -> None:
     """
     Log artifact file to MLflow.
 
@@ -183,8 +183,8 @@ def log_artifact(local_path: Path, artifact_path: Optional[str] = None) -> None:
 
 def get_or_create_run(
     experiment_id: str,
-    run_name: Optional[str] = None,
-    tags: Optional[Dict[str, str]] = None,
+    run_name: str | None = None,
+    tags: dict[str, str] | None = None,
 ) -> mlflow.ActiveRun:
     """
     Get existing run or create new one.
@@ -234,7 +234,7 @@ def get_best_run(
     experiment_name: str,
     metric_name: str = "valid_ic",
     ascending: bool = False,
-) -> Optional[mlflow.entities.Run]:
+) -> mlflow.entities.Run | None:
     """
     Get best run from experiment by metric.
 
@@ -303,7 +303,7 @@ def compare_runs(
     experiment_name: str,
     metric_names: list[str] = ["valid_ic", "valid_mae", "train_ic", "train_mae"],
     max_results: int = 10,
-) -> Optional[Any]:
+) -> Any | None:
     """
     Compare recent runs from experiment.
 

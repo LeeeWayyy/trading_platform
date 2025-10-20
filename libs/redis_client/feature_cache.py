@@ -27,7 +27,8 @@ See Also:
 
 import json
 import logging
-from typing import Dict, Optional, Any
+from typing import Any
+
 from redis.exceptions import RedisError
 
 from .client import RedisClient
@@ -64,12 +65,7 @@ class FeatureCache:
         ...     cache.set("AAPL", "2025-01-17", features)
     """
 
-    def __init__(
-        self,
-        redis_client: RedisClient,
-        ttl: int = 3600,
-        prefix: str = "features"
-    ):
+    def __init__(self, redis_client: RedisClient, ttl: int = 3600, prefix: str = "features"):
         """
         Initialize feature cache.
 
@@ -106,7 +102,7 @@ class FeatureCache:
         """
         return f"{self.prefix}:{symbol}:{date}"
 
-    def get(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
+    def get(self, symbol: str, date: str) -> dict[str, Any] | None:
         """
         Retrieve cached features for (symbol, date).
 
@@ -139,7 +135,9 @@ class FeatureCache:
                 return None
 
             # Deserialize JSON
-            features = json.loads(data)
+            features_data = json.loads(data)
+            # Cast from Any to expected dict type
+            features: dict[str, Any] = features_data
             logger.debug(f"Cache HIT: {symbol} on {date} ({len(features)} features)")
             return features
 
@@ -154,7 +152,7 @@ class FeatureCache:
             # Return None on error (graceful degradation)
             return None
 
-    def set(self, symbol: str, date: str, features: Dict[str, Any]) -> bool:
+    def set(self, symbol: str, date: str, features: dict[str, Any]) -> bool:
         """
         Cache features for (symbol, date) with TTL.
 
@@ -232,7 +230,7 @@ class FeatureCache:
             logger.error(f"Redis error invalidating {symbol} on {date}: {e}")
             return False
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics (if Redis INFO command available).
 
@@ -260,6 +258,6 @@ class FeatureCache:
             logger.error(f"Cannot retrieve cache stats: {e}")
             return {}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """String representation."""
         return f"FeatureCache(ttl={self.ttl}s, prefix={self.prefix})"

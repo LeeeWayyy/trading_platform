@@ -7,7 +7,7 @@ Stale data can lead to executing trades based on outdated information.
 See /docs/CONCEPTS/corporate-actions.md and ADR-0001 for context.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import polars as pl
 
@@ -60,8 +60,7 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
     # Validate inputs
     if "timestamp" not in df.columns:
         raise ValueError(
-            "DataFrame must have 'timestamp' column. "
-            "Available columns: " + ", ".join(df.columns)
+            "DataFrame must have 'timestamp' column. " "Available columns: " + ", ".join(df.columns)
         )
 
     if df.is_empty():
@@ -81,10 +80,16 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
         )
 
     # Convert Polars datetime to Python datetime for comparison
-    latest_dt = latest_timestamp
+    # Polars .max() returns the scalar value, but mypy types it as Any
+    # We need type narrowing to satisfy strict type checking
+    if not isinstance(latest_timestamp, datetime):
+        raise ValueError(
+            f"Expected datetime from timestamp.max(), got {type(latest_timestamp).__name__}"
+        )
+    latest_dt: datetime = latest_timestamp
 
     # Get current time in UTC
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Calculate age in seconds
     age_seconds = (now - latest_dt).total_seconds()

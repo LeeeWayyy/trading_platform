@@ -13,14 +13,12 @@ See ADR-0005 for architecture decisions.
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
 
-import psycopg2
-import psycopg2.extras
-from psycopg2 import OperationalError, DatabaseError, IntegrityError
+import psycopg
+from psycopg import DatabaseError, IntegrityError, OperationalError
+from psycopg.rows import dict_row
 
-from apps.execution_gateway.schemas import OrderRequest, OrderDetail, Position
-
+from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +65,7 @@ class DatabaseClient:
         self.db_conn_string = db_conn_string
         logger.info(
             "DatabaseClient initialized",
-            extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"}
+            extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"},
         )
 
     def create_order(
@@ -76,8 +74,8 @@ class DatabaseClient:
         strategy_id: str,
         order_request: OrderRequest,
         status: str,
-        broker_order_id: Optional[str] = None,
-        error_message: Optional[str] = None
+        broker_order_id: str | None = None,
+        error_message: str | None = None,
     ) -> OrderDetail:
         """
         Create new order record in database.
@@ -116,8 +114,8 @@ class DatabaseClient:
             'pending_new'
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     submitted_at = datetime.now() if status != "dry_run" else None
 
                     cur.execute(
@@ -162,21 +160,24 @@ class DatabaseClient:
                     row = cur.fetchone()
                     conn.commit()
 
+                    if row is None:
+                        raise ValueError(f"Failed to create order: {client_order_id}")
+
                     logger.info(
                         f"Order created in database: {client_order_id}",
                         extra={
                             "client_order_id": client_order_id,
                             "symbol": order_request.symbol,
-                            "status": status
-                        }
+                            "status": status,
+                        },
                     )
 
                     return OrderDetail(**row)
 
-        except IntegrityError as e:
+        except IntegrityError:
             logger.warning(
                 f"Order already exists: {client_order_id}",
-                extra={"client_order_id": client_order_id}
+                extra={"client_order_id": client_order_id},
             )
             raise
 
@@ -184,7 +185,7 @@ class DatabaseClient:
             logger.error(f"Database error creating order: {e}")
             raise
 
-    def get_order_by_client_id(self, client_order_id: str) -> Optional[OrderDetail]:
+    def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         """
         Get order by client_order_id.
 
@@ -204,8 +205,8 @@ class DatabaseClient:
             ...     print(f"Order status: {order.status}")
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
                         SELECT * FROM orders
@@ -229,11 +230,11 @@ class DatabaseClient:
         self,
         client_order_id: str,
         status: str,
-        broker_order_id: Optional[str] = None,
-        filled_qty: Optional[Decimal] = None,
-        filled_avg_price: Optional[Decimal] = None,
-        error_message: Optional[str] = None
-    ) -> Optional[OrderDetail]:
+        broker_order_id: str | None = None,
+        filled_qty: Decimal | None = None,
+        filled_avg_price: Decimal | None = None,
+        error_message: str | None = None,
+    ) -> OrderDetail | None:
         """
         Update order status and fill details.
 
@@ -264,8 +265,8 @@ class DatabaseClient:
             ... )
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     # Determine filled_at timestamp
                     filled_at = None
                     if status == "filled" and filled_qty is not None:
@@ -308,8 +309,8 @@ class DatabaseClient:
                         extra={
                             "client_order_id": client_order_id,
                             "status": status,
-                            "filled_qty": str(filled_qty) if filled_qty else None
-                        }
+                            "filled_qty": str(filled_qty) if filled_qty else None,
+                        },
                     )
 
                     return OrderDetail(**row)
@@ -318,13 +319,7 @@ class DatabaseClient:
             logger.error(f"Database error updating order: {e}")
             raise
 
-    def update_position_on_fill(
-        self,
-        symbol: str,
-        qty: int,
-        price: Decimal,
-        side: str
-    ) -> Position:
+    def update_position_on_fill(self, symbol: str, qty: int, price: Decimal, side: str) -> Position:
         """
         Update position when order is filled.
 
@@ -378,13 +373,10 @@ class DatabaseClient:
             - Closing a position (qty=0) keeps the record with realized_pl
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     # Get current position
-                    cur.execute(
-                        "SELECT * FROM positions WHERE symbol = %s",
-                        (symbol,)
-                    )
+                    cur.execute("SELECT * FROM positions WHERE symbol = %s", (symbol,))
                     current = cur.fetchone()
 
                     # Calculate new position
@@ -470,14 +462,17 @@ class DatabaseClient:
                     row = cur.fetchone()
                     conn.commit()
 
+                    if row is None:
+                        raise ValueError(f"Failed to update position for symbol: {symbol}")
+
                     logger.info(
                         f"Position updated: {symbol} qty={old_qty}->{new_qty}",
                         extra={
                             "symbol": symbol,
                             "old_qty": str(old_qty),
                             "new_qty": str(new_qty),
-                            "avg_price": str(new_avg_price)
-                        }
+                            "avg_price": str(new_avg_price),
+                        },
                     )
 
                     return Position(**row)
@@ -486,7 +481,7 @@ class DatabaseClient:
             logger.error(f"Database error updating position: {e}")
             raise
 
-    def get_all_positions(self) -> List[Position]:
+    def get_all_positions(self) -> list[Position]:
         """
         Get all current positions.
 
@@ -503,8 +498,8 @@ class DatabaseClient:
             ...     print(f"{pos.symbol}: {pos.qty} shares @ ${pos.avg_entry_price}")
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
                         SELECT * FROM positions
@@ -534,7 +529,7 @@ class DatabaseClient:
             ...     print("Database is connected")
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
+            with psycopg.connect(self.db_conn_string) as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     return True

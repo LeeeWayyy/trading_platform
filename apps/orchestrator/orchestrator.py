@@ -12,20 +12,17 @@ import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional, Dict, Any, Tuple
 
 import httpx
 
-from apps.orchestrator.clients import SignalServiceClient, ExecutionGatewayClient
+from apps.orchestrator.clients import ExecutionGatewayClient, SignalServiceClient
 from apps.orchestrator.schemas import (
-    SignalServiceResponse,
-    OrderRequest,
-    OrderSubmission,
     OrchestrationResult,
+    OrderRequest,
+    Signal,
     SignalOrderMapping,
-    Signal
+    SignalServiceResponse,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +30,7 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 # Trading Orchestrator
 # ==============================================================================
+
 
 class TradingOrchestrator:
     """
@@ -66,7 +64,7 @@ class TradingOrchestrator:
         execution_gateway_url: str,
         capital: Decimal,
         max_position_size: Decimal,
-        price_cache: Optional[Dict[str, Decimal]] = None
+        price_cache: dict[str, Decimal] | None = None,
     ):
         """
         Initialize Trading Orchestrator.
@@ -84,18 +82,18 @@ class TradingOrchestrator:
         self.max_position_size = max_position_size
         self.price_cache = price_cache or {}
 
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP clients."""
         await self.signal_client.close()
         await self.execution_client.close()
 
     async def run(
         self,
-        symbols: List[str],
+        symbols: list[str],
         strategy_id: str,
-        as_of_date: Optional[date] = None,
-        top_n: Optional[int] = None,
-        bottom_n: Optional[int] = None
+        as_of_date: date | None = None,
+        top_n: int | None = None,
+        bottom_n: int | None = None,
     ) -> OrchestrationResult:
         """
         Execute complete orchestration workflow.
@@ -128,17 +126,14 @@ class TradingOrchestrator:
                 "run_id": str(run_id),
                 "strategy_id": strategy_id,
                 "num_symbols": len(symbols),
-                "capital": float(self.capital)
-            }
+                "capital": float(self.capital),
+            },
         )
 
         try:
             # Phase 1: Fetch signals
             signal_response = await self._fetch_signals(
-                symbols=symbols,
-                as_of_date=as_of_date,
-                top_n=top_n,
-                bottom_n=bottom_n
+                symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
             )
 
             # Phase 2: Map signals to orders
@@ -150,12 +145,12 @@ class TradingOrchestrator:
             # Compute final stats
             num_orders_submitted = sum(1 for m in mappings if m.client_order_id is not None)
             num_orders_accepted = sum(
-                1 for m in mappings
+                1
+                for m in mappings
                 if m.order_status and m.order_status not in ("rejected", "cancelled")
             )
             num_orders_rejected = sum(
-                1 for m in mappings
-                if m.order_status in ("rejected", "cancelled")
+                1 for m in mappings if m.order_status in ("rejected", "cancelled")
             )
 
             completed_at = datetime.now()
@@ -178,8 +173,8 @@ class TradingOrchestrator:
                     "num_orders_submitted": num_orders_submitted,
                     "num_orders_accepted": num_orders_accepted,
                     "num_orders_rejected": num_orders_rejected,
-                    "duration_seconds": duration_seconds
-                }
+                    "duration_seconds": duration_seconds,
+                },
             )
 
             return OrchestrationResult(
@@ -194,7 +189,7 @@ class TradingOrchestrator:
                     "model_version": signal_response.metadata.model_version,
                     "strategy": signal_response.metadata.strategy,
                     "top_n": signal_response.metadata.top_n,
-                    "bottom_n": signal_response.metadata.bottom_n
+                    "bottom_n": signal_response.metadata.bottom_n,
                 },
                 num_orders_submitted=num_orders_submitted,
                 num_orders_accepted=num_orders_accepted,
@@ -202,14 +197,14 @@ class TradingOrchestrator:
                 mappings=mappings,
                 started_at=started_at,
                 completed_at=completed_at,
-                duration_seconds=Decimal(str(duration_seconds))
+                duration_seconds=Decimal(str(duration_seconds)),
             )
 
         except Exception as e:
             logger.error(
                 f"Orchestration run {run_id} failed: {e}",
                 exc_info=True,
-                extra={"run_id": str(run_id)}
+                extra={"run_id": str(run_id)},
             )
 
             completed_at = datetime.now()
@@ -230,15 +225,15 @@ class TradingOrchestrator:
                 started_at=started_at,
                 completed_at=completed_at,
                 duration_seconds=Decimal(str(duration_seconds)),
-                error_message=str(e)
+                error_message=str(e),
             )
 
     async def _fetch_signals(
         self,
-        symbols: List[str],
-        as_of_date: Optional[date] = None,
-        top_n: Optional[int] = None,
-        bottom_n: Optional[int] = None
+        symbols: list[str],
+        as_of_date: date | None = None,
+        top_n: int | None = None,
+        bottom_n: int | None = None,
     ) -> SignalServiceResponse:
         """
         Fetch signals from Signal Service.
@@ -258,10 +253,7 @@ class TradingOrchestrator:
         logger.info(f"Fetching signals for {len(symbols)} symbols")
 
         signal_response = await self.signal_client.fetch_signals(
-            symbols=symbols,
-            as_of_date=as_of_date,
-            top_n=top_n,
-            bottom_n=bottom_n
+            symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
         )
 
         logger.info(
@@ -270,16 +262,13 @@ class TradingOrchestrator:
                 "num_signals": len(signal_response.signals),
                 "model_version": signal_response.metadata.model_version,
                 "num_longs": sum(1 for s in signal_response.signals if s.target_weight > 0),
-                "num_shorts": sum(1 for s in signal_response.signals if s.target_weight < 0)
-            }
+                "num_shorts": sum(1 for s in signal_response.signals if s.target_weight < 0),
+            },
         )
 
         return signal_response
 
-    async def _map_signals_to_orders(
-        self,
-        signals: List[Signal]
-    ) -> List[SignalOrderMapping]:
+    async def _map_signals_to_orders(self, signals: list[Signal]) -> list[SignalOrderMapping]:
         """
         Map trading signals to executable orders with position sizing.
 
@@ -315,7 +304,7 @@ class TradingOrchestrator:
                 symbol=signal.symbol,
                 predicted_return=signal.predicted_return,
                 rank=signal.rank,
-                target_weight=signal.target_weight
+                target_weight=signal.target_weight,
             )
 
             # Skip zero-weight signals
@@ -379,7 +368,7 @@ class TradingOrchestrator:
 
         return mappings
 
-    async def _submit_orders(self, mappings: List[SignalOrderMapping]):
+    async def _submit_orders(self, mappings: list[SignalOrderMapping]) -> None:
         """
         Submit orders to Execution Gateway.
 
@@ -393,13 +382,19 @@ class TradingOrchestrator:
         logger.info(f"Submitting {len(orders_to_submit)} orders")
 
         for mapping in orders_to_submit:
+            # Type narrowing: filter ensures order_qty not None, and order_side should also be set
+            assert mapping.order_side is not None, "order_side must be set when order_qty is set"
+            assert (
+                mapping.order_qty is not None
+            ), "order_qty must be set"  # Already filtered but helps mypy
+
             # Create order request
             order = OrderRequest(
                 symbol=mapping.symbol,
                 side=mapping.order_side,
                 qty=mapping.order_qty,
                 order_type="market",
-                time_in_force="day"
+                time_in_force="day",
             )
 
             try:
@@ -424,16 +419,15 @@ class TradingOrchestrator:
                         "side": mapping.order_side,
                         "qty": mapping.order_qty,
                         "status_code": e.response.status_code,
-                        "response": e.response.text
-                    }
+                        "response": e.response.text,
+                    },
                 )
                 mapping.order_status = "rejected"
                 mapping.skip_reason = f"submission_failed: {e.response.status_code}"
 
             except Exception as e:
                 logger.error(
-                    f"Unexpected error submitting order for {mapping.symbol}: {e}",
-                    exc_info=True
+                    f"Unexpected error submitting order for {mapping.symbol}: {e}", exc_info=True
                 )
                 mapping.order_status = "rejected"
                 mapping.skip_reason = f"unexpected_error: {str(e)}"
@@ -464,9 +458,7 @@ class TradingOrchestrator:
         # TODO: Fetch from Alpaca market data API or use last close price
         default_price = Decimal("100.00")
 
-        logger.warning(
-            f"No price available for {symbol}, using default ${default_price}"
-        )
+        logger.warning(f"No price available for {symbol}, using default ${default_price}")
 
         return default_price
 
@@ -475,12 +467,10 @@ class TradingOrchestrator:
 # Position Sizing Utilities
 # ==============================================================================
 
+
 def calculate_position_size(
-    target_weight: float,
-    capital: Decimal,
-    price: Decimal,
-    max_position_size: Decimal
-) -> Tuple[int, Decimal]:
+    target_weight: float, capital: Decimal, price: Decimal, max_position_size: Decimal
+) -> tuple[int, Decimal]:
     """
     Calculate position size (number of shares) from target weight.
 

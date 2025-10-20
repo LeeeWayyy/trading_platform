@@ -40,18 +40,18 @@ See Also:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
+from libs.redis_client import FeatureCache
 from strategies.alpha_baseline.data_loader import T1DataProvider
 from strategies.alpha_baseline.features import get_alpha158_features
 from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
+
 from .model_registry import ModelRegistry
-from libs.redis_client import FeatureCache
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class SignalGenerator:
         data_dir: Path,
         top_n: int = 3,
         bottom_n: int = 3,
-        feature_cache: Optional[FeatureCache] = None,
+        feature_cache: FeatureCache | None = None,
     ):
         """
         Initialize signal generator.
@@ -165,7 +165,9 @@ class SignalGenerator:
             >>> generator = SignalGenerator(registry, Path("data/adjusted"))
         """
         if top_n < 0 or bottom_n < 0:
-            raise ValueError(f"top_n and bottom_n must be >= 0, got top_n={top_n}, bottom_n={bottom_n}")
+            raise ValueError(
+                f"top_n and bottom_n must be >= 0, got top_n={top_n}, bottom_n={bottom_n}"
+            )
 
         if not data_dir.exists():
             raise FileNotFoundError(f"Data directory not found: {data_dir}")
@@ -183,13 +185,13 @@ class SignalGenerator:
                 "top_n": top_n,
                 "bottom_n": bottom_n,
                 "feature_cache_enabled": feature_cache is not None,
-            }
+            },
         )
 
     def generate_signals(
         self,
-        symbols: List[str],
-        as_of_date: Optional[datetime] = None,
+        symbols: list[str],
+        as_of_date: datetime | None = None,
     ) -> pd.DataFrame:
         """
         Generate target portfolio weights for given symbols.
@@ -285,13 +287,17 @@ class SignalGenerator:
         # Convert to date string for feature generation
         date_str = as_of_date.strftime("%Y-%m-%d")
 
+        # Ensure model metadata is loaded
+        if self.model_registry.current_metadata is None:
+            raise ValueError("Model metadata not loaded")
+
         logger.info(
             f"Generating signals for {len(symbols)} symbols on {date_str}",
             extra={
                 "symbols": symbols,
                 "as_of_date": date_str,
                 "model_version": self.model_registry.current_metadata.version,
-            }
+            },
         )
 
         # ====================================================================
@@ -326,8 +332,7 @@ class SignalGenerator:
                         # Convert dict back to DataFrame with proper MultiIndex
                         features_df = pd.DataFrame([cached_features])
                         features_df.index = pd.MultiIndex.from_tuples(
-                            [(date_str, symbol)],
-                            names=["datetime", "instrument"]
+                            [(date_str, symbol)], names=["datetime", "instrument"]
                         )
                         features_list.append(features_df)
                         cached_symbols.append(symbol)
@@ -349,7 +354,7 @@ class SignalGenerator:
         if symbols_to_generate:
             logger.debug(
                 f"Generating features for {len(symbols_to_generate)} symbols (cache misses)",
-                extra={"symbols": symbols_to_generate, "date": date_str}
+                extra={"symbols": symbols_to_generate, "date": date_str},
             )
             try:
                 fresh_features = get_alpha158_features(
@@ -367,16 +372,14 @@ class SignalGenerator:
                         try:
                             # Extract features for this symbol
                             symbol_features = fresh_features.xs(
-                                symbol,
-                                level="instrument",
-                                drop_level=False
+                                symbol, level="instrument", drop_level=False
                             )
                             if not symbol_features.empty:
                                 # Convert to dict for caching
                                 features_dict = symbol_features.iloc[0].to_dict()
                                 self.feature_cache.set(symbol, date_str, features_dict)
                                 logger.debug(f"Cached features for {symbol} on {date_str}")
-                        except (KeyError, IndexError) as e:
+                        except (KeyError, IndexError):
                             # Symbol not in generated features, skip caching
                             logger.debug(f"Symbol {symbol} not in features, skipping cache")
                         except Exception as e:
@@ -390,7 +393,7 @@ class SignalGenerator:
                 # This allows P3 testing without full Qlib data setup
                 logger.warning(
                     f"Falling back to mock features due to error: {e}",
-                    extra={"date": date_str, "symbols": symbols_to_generate}
+                    extra={"date": date_str, "symbols": symbols_to_generate},
                 )
                 try:
                     mock_features = get_mock_alpha158_features(
@@ -405,25 +408,25 @@ class SignalGenerator:
                         for symbol in symbols_to_generate:
                             try:
                                 symbol_features = mock_features.xs(
-                                    symbol,
-                                    level="instrument",
-                                    drop_level=False
+                                    symbol, level="instrument", drop_level=False
                                 )
                                 if not symbol_features.empty:
                                     features_dict = symbol_features.iloc[0].to_dict()
                                     self.feature_cache.set(symbol, date_str, features_dict)
                                     logger.debug(f"Cached mock features for {symbol} on {date_str}")
                             except Exception as cache_error:
-                                logger.warning(f"Failed to cache mock features for {symbol}: {cache_error}")
+                                logger.warning(
+                                    f"Failed to cache mock features for {symbol}: {cache_error}"
+                                )
 
                     features_list.append(mock_features)
                 except Exception as mock_error:
                     logger.error(
                         f"Failed to generate mock features: {mock_error}",
                         extra={"date": date_str, "symbols": symbols_to_generate},
-                        exc_info=True
+                        exc_info=True,
                     )
-                    raise ValueError(f"No features available for {date_str}: {mock_error}")
+                    raise ValueError(f"No features available for {date_str}: {mock_error}") from mock_error
 
         # Combine all features (cached + freshly generated)
         if features_list:
@@ -445,7 +448,7 @@ class SignalGenerator:
             extra={
                 "num_symbols": len(features.index.get_level_values("instrument").unique()),
                 "num_features": features.shape[1],
-            }
+            },
         )
 
         # ====================================================================
@@ -455,11 +458,15 @@ class SignalGenerator:
         # Returns array of predicted next-day returns
         logger.debug("Generating predictions with model")
 
+        # Ensure model is loaded
+        if self.model_registry.current_model is None:
+            raise ValueError("Model not loaded")
+
         try:
             predictions = self.model_registry.current_model.predict(features.values)
         except Exception as e:
             logger.error(f"Model prediction failed: {e}", exc_info=True)
-            raise RuntimeError(f"Model prediction failed: {e}")
+            raise RuntimeError(f"Model prediction failed: {e}") from e
 
         logger.debug(
             f"Generated {len(predictions)} predictions (raw)",
@@ -468,7 +475,7 @@ class SignalGenerator:
                 "std_prediction": float(np.std(predictions)),
                 "min_prediction": float(np.min(predictions)),
                 "max_prediction": float(np.max(predictions)),
-            }
+            },
         )
 
         # Normalize predictions to reasonable return range
@@ -484,13 +491,13 @@ class SignalGenerator:
                 predictions = predictions - pred_mean
 
         logger.debug(
-            f"Normalized predictions to return scale",
+            "Normalized predictions to return scale",
             extra={
                 "mean_prediction": float(np.mean(predictions)),
                 "std_prediction": float(np.std(predictions)),
                 "min_prediction": float(np.min(predictions)),
                 "max_prediction": float(np.max(predictions)),
-            }
+            },
         )
 
         # ====================================================================
@@ -513,10 +520,11 @@ class SignalGenerator:
         # Rank 1 = highest predicted return (most bullish)
         # Rank N = lowest predicted return (most bearish)
         # Use method='dense' so ties get same rank
-        results["rank"] = results["predicted_return"].rank(
-            ascending=False,  # Highest return = rank 1
-            method="dense"     # Ties get same rank
-        ).astype(int)
+        results["rank"] = (
+            results["predicted_return"]
+            .rank(ascending=False, method="dense")  # Highest return = rank 1  # Ties get same rank
+            .astype(int)
+        )
 
         # ====================================================================
         # Step 7: Compute target portfolio weights
@@ -566,9 +574,13 @@ class SignalGenerator:
                 "num_long": long_count,
                 "num_short": short_count,
                 "num_neutral": neutral_count,
-                "total_long_weight": float(results[results["target_weight"] > 0]["target_weight"].sum()),
-                "total_short_weight": float(results[results["target_weight"] < 0]["target_weight"].sum()),
-            }
+                "total_long_weight": float(
+                    results[results["target_weight"] > 0]["target_weight"].sum()
+                ),
+                "total_short_weight": float(
+                    results[results["target_weight"] < 0]["target_weight"].sum()
+                ),
+            },
         )
 
         return results
@@ -620,7 +632,9 @@ class SignalGenerator:
             return False
 
         if len(short_positions) != self.bottom_n:
-            logger.warning(f"Found {len(short_positions)} short positions, expected {self.bottom_n}")
+            logger.warning(
+                f"Found {len(short_positions)} short positions, expected {self.bottom_n}"
+            )
             return False
 
         # Check weight bounds

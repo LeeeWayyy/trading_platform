@@ -7,7 +7,7 @@ Queries Execution Gateway every 5 minutes to sync subscriptions.
 
 import asyncio
 import logging
-from typing import Optional, Set
+from typing import Any
 
 import httpx
 
@@ -58,14 +58,14 @@ class PositionBasedSubscription:
         self.initial_sync = initial_sync
 
         self._running = False
-        self._last_position_symbols: Set[str] = set()
+        self._last_position_symbols: set[str] = set()
 
         logger.info(
             f"PositionBasedSubscription initialized: "
             f"gateway={self.gateway_url}, interval={self.sync_interval}s"
         )
 
-    async def start_sync_loop(self):
+    async def start_sync_loop(self) -> None:
         """
         Start background sync loop.
 
@@ -105,12 +105,12 @@ class PositionBasedSubscription:
 
         logger.info("Subscription sync loop stopped")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop background sync loop."""
         logger.info("Stopping subscription sync loop")
         self._running = False
 
-    async def _sync_subscriptions(self):
+    async def _sync_subscriptions(self) -> None:
         """
         Fetch open positions and sync subscriptions.
 
@@ -160,8 +160,7 @@ class PositionBasedSubscription:
             # Log summary
             if not new_symbols and not closed_symbols:
                 logger.debug(
-                    f"Subscription sync complete: {len(position_symbols)} symbols, "
-                    f"no changes"
+                    f"Subscription sync complete: {len(position_symbols)} symbols, " f"no changes"
                 )
             else:
                 logger.info(
@@ -175,7 +174,7 @@ class PositionBasedSubscription:
         except Exception as e:
             logger.error(f"Subscription sync failed: {e}", exc_info=True)
 
-    async def _fetch_position_symbols(self) -> Optional[Set[str]]:
+    async def _fetch_position_symbols(self) -> set[str] | None:
         """
         Fetch symbols with open positions from Execution Gateway.
 
@@ -190,9 +189,7 @@ class PositionBasedSubscription:
                 response = await client.get(f"{self.gateway_url}/api/v1/positions")
 
                 if response.status_code != 200:
-                    logger.error(
-                        f"Failed to fetch positions: HTTP {response.status_code}"
-                    )
+                    logger.error(f"Failed to fetch positions: HTTP {response.status_code}")
                     return None
 
                 data = response.json()
@@ -211,8 +208,7 @@ class PositionBasedSubscription:
 
         except httpx.ConnectError:
             logger.error(
-                f"Cannot connect to Execution Gateway at {self.gateway_url}. "
-                f"Is it running?"
+                f"Cannot connect to Execution Gateway at {self.gateway_url}. " f"Is it running?"
             )
             return None
 
@@ -220,7 +216,7 @@ class PositionBasedSubscription:
             logger.error(f"Error fetching positions: {e}", exc_info=True)
             return None
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get subscription manager statistics.
 
@@ -232,6 +228,6 @@ class PositionBasedSubscription:
             "gateway_url": self.gateway_url,
             "sync_interval": self.sync_interval,
             "last_position_count": len(self._last_position_symbols),
-            "last_position_symbols": sorted(list(self._last_position_symbols)),
+            "last_position_symbols": sorted(self._last_position_symbols),
             "current_subscribed": self.stream.get_subscribed_symbols(),
         }

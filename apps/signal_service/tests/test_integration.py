@@ -22,20 +22,20 @@ Prerequisites:
 See: docs/TESTING_SETUP.md for setup instructions
 """
 
-import pytest
 from datetime import datetime
 from pathlib import Path
-import psycopg2
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import pytest
 
-from apps.signal_service.model_registry import ModelRegistry, ModelMetadata
+from apps.signal_service.model_registry import ModelMetadata, ModelRegistry
 from apps.signal_service.signal_generator import SignalGenerator
-
 
 # ==============================================================================
 # Fixtures
 # ==============================================================================
+
 
 @pytest.fixture(scope="module")
 def db_url():
@@ -64,6 +64,7 @@ def test_date():
 # ==============================================================================
 # Test Model Registry Integration
 # ==============================================================================
+
 
 @pytest.mark.integration
 class TestModelRegistryIntegration:
@@ -120,12 +121,14 @@ class TestModelRegistryIntegration:
         first_reload = registry.reload_if_changed("alpha_baseline")
         assert first_reload is True
 
+        assert registry.current_metadata is not None, "Metadata should be loaded after reload"
         first_version = registry.current_metadata.version
 
         # Second load (no change)
         second_reload = registry.reload_if_changed("alpha_baseline")
         assert second_reload is False, "Second reload should return False (no change)"
 
+        assert registry.current_metadata is not None
         second_version = registry.current_metadata.version
         assert first_version == second_version, "Version should not change"
 
@@ -136,6 +139,7 @@ class TestModelRegistryIntegration:
 # ==============================================================================
 # Test Signal Generator Integration
 # ==============================================================================
+
 
 @pytest.mark.integration
 class TestSignalGeneratorIntegration:
@@ -185,10 +189,10 @@ class TestSignalGeneratorIntegration:
         # 4. Validate signals
         for _, signal in signals.iterrows():
             assert signal["symbol"] in test_symbols
-            assert isinstance(signal["predicted_return"], (int, float, np.number))
-            assert isinstance(signal["rank"], (int, np.integer))
+            assert isinstance(signal["predicted_return"], int | float | np.number)
+            assert isinstance(signal["rank"], int | np.integer)
             assert signal["rank"] >= 1
-            assert isinstance(signal["target_weight"], (int, float, np.number))
+            assert isinstance(signal["target_weight"], int | float | np.number)
             assert -1.0 <= signal["target_weight"] <= 1.0
 
         # 5. Validate weights
@@ -197,15 +201,21 @@ class TestSignalGeneratorIntegration:
 
         assert len(long_positions) == 1, "Should have 1 long position"
         assert len(short_positions) == 1, "Should have 1 short position"
-        assert np.isclose(long_positions["target_weight"].sum(), 1.0), "Long weights should sum to 1.0"
-        assert np.isclose(short_positions["target_weight"].sum(), -1.0), "Short weights should sum to -1.0"
+        assert np.isclose(
+            long_positions["target_weight"].sum(), 1.0
+        ), "Long weights should sum to 1.0"
+        assert np.isclose(
+            short_positions["target_weight"].sum(), -1.0
+        ), "Short weights should sum to -1.0"
 
         print(f"\n  Generated {len(signals)} signals:")
         print(f"  Long positions: {len(long_positions)}")
         print(f"  Short positions: {len(short_positions)}")
         print(f"\n  Signals:\n{signals.to_string()}")
 
-    def test_signal_generator_validates_model_loaded(self, db_url, data_dir, test_symbols, test_date):
+    def test_signal_generator_validates_model_loaded(
+        self, db_url, data_dir, test_symbols, test_date
+    ):
         """Test that signal generator validates model is loaded."""
         registry = ModelRegistry(db_url)
         # Don't load model
@@ -265,6 +275,7 @@ class TestSignalGeneratorIntegration:
 # Test Feature Parity
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestFeatureParity:
     """Validate production features match research features."""
@@ -293,21 +304,23 @@ class TestFeatureParity:
         # Should be identical
         pd.testing.assert_frame_equal(features1, features2)
 
-        print(f"\n  Features generated twice, identical: True")
+        print("\n  Features generated twice, identical: True")
         print(f"  Shape: {features1.shape}")
         print(f"  Symbols: {len(features1.index.get_level_values('instrument').unique())}")
 
     def test_signal_generator_uses_same_feature_code(self):
         """Test that signal generator imports features from research code."""
-        from apps.signal_service.signal_generator import SignalGenerator
         import inspect
+
+        from apps.signal_service.signal_generator import SignalGenerator
 
         # Check that SignalGenerator imports get_alpha158_features
         source = inspect.getsource(SignalGenerator.generate_signals)
 
         # Should use get_alpha158_features from strategies.alpha_baseline
-        assert "get_alpha158_features" in source or "get_mock_alpha158_features" in source, \
-            "SignalGenerator should use feature generation from strategies module"
+        assert (
+            "get_alpha158_features" in source or "get_mock_alpha158_features" in source
+        ), "SignalGenerator should use feature generation from strategies module"
 
         print("\n  Feature parity validated: SignalGenerator uses research feature code")
 
@@ -330,20 +343,24 @@ class TestFeatureParity:
 
         # Check dimensions
         assert features.shape[1] == 158, "Should have 158 features (Alpha158)"
-        assert len(features) == len(test_symbols), f"Should have features for all {len(test_symbols)} symbols"
+        assert len(features) == len(
+            test_symbols
+        ), f"Should have features for all {len(test_symbols)} symbols"
 
         # Test prediction works
+        assert registry.current_model is not None, "Model should be loaded"
         predictions = registry.current_model.predict(features.values)
         assert len(predictions) == len(test_symbols), "Should have predictions for all symbols"
 
         print(f"\n  Feature dimensions: {features.shape}")
-        print(f"  Model expects: 158 features")
+        print("  Model expects: 158 features")
         print(f"  Predictions generated: {len(predictions)}")
 
 
 # ==============================================================================
 # Test End-to-End Workflow
 # ==============================================================================
+
 
 @pytest.mark.integration
 class TestEndToEndWorkflow:
@@ -359,6 +376,7 @@ class TestEndToEndWorkflow:
         reloaded = registry.reload_if_changed("alpha_baseline")
         assert reloaded is True
         assert registry.is_loaded
+        assert registry.current_metadata is not None
         print(f"    ✓ Model loaded: {registry.current_metadata.version}")
 
         # Step 2: Initialize signal generator
@@ -369,7 +387,7 @@ class TestEndToEndWorkflow:
             top_n=1,
             bottom_n=1,
         )
-        print(f"    ✓ Generator initialized (top_n=1, bottom_n=1)")
+        print("    ✓ Generator initialized (top_n=1, bottom_n=1)")
 
         # Step 3: Generate signals
         print("  Step 3: Generate signals...")
@@ -384,7 +402,7 @@ class TestEndToEndWorkflow:
         assert isinstance(signals, pd.DataFrame)
         assert len(signals) == len(symbols)
         assert list(signals.columns) == ["symbol", "predicted_return", "rank", "target_weight"]
-        print(f"    ✓ Structure validated")
+        print("    ✓ Structure validated")
 
         # Step 5: Validate signal properties
         print("  Step 5: Validate signal properties...")
@@ -472,6 +490,7 @@ class TestEndToEndWorkflow:
 # Test Error Handling
 # ==============================================================================
 
+
 @pytest.mark.integration
 class TestErrorHandling:
     """Test error handling in integration scenarios."""
@@ -527,6 +546,7 @@ class TestErrorHandling:
 # ==============================================================================
 # Summary Report
 # ==============================================================================
+
 
 @pytest.fixture(scope="session", autouse=True)
 def print_test_summary(request):

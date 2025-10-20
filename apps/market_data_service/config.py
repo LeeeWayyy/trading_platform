@@ -4,9 +4,6 @@ Market Data Service Configuration
 Settings loaded from environment variables.
 """
 
-import os
-from typing import Optional
-
 from pydantic_settings import BaseSettings
 
 
@@ -27,7 +24,7 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
-    redis_password: Optional[str] = None
+    redis_password: str | None = None
 
     # Market Data Configuration
     price_cache_ttl: int = 300  # 5 minutes
@@ -47,4 +44,5 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
-settings = Settings()
+# Note: Pydantic BaseSettings loads required fields from environment variables
+settings = Settings()  # type: ignore[call-arg]

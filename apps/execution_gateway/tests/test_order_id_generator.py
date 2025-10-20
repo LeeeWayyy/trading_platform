@@ -8,17 +8,16 @@ Tests verify:
 - Format validation: 24-character hex string
 """
 
-import pytest
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
-from apps.execution_gateway.schemas import OrderRequest
 from apps.execution_gateway.order_id_generator import (
     generate_client_order_id,
-    validate_client_order_id,
-    reconstruct_order_params_hash,
     parse_order_date_from_timestamp,
+    reconstruct_order_params_hash,
+    validate_client_order_id,
 )
+from apps.execution_gateway.schemas import OrderRequest
 
 
 class TestGenerateClientOrderId:
@@ -26,18 +25,8 @@ class TestGenerateClientOrderId:
 
     def test_idempotency_same_params_same_date(self):
         """Same order parameters on same date should generate same ID."""
-        order1 = OrderRequest(
-            symbol="AAPL",
-            side="buy",
-            qty=10,
-            order_type="market"
-        )
-        order2 = OrderRequest(
-            symbol="AAPL",
-            side="buy",
-            qty=10,
-            order_type="market"
-        )
+        order1 = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
+        order2 = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
 
         strategy_id = "alpha_baseline"
         today = date(2024, 10, 17)
@@ -89,18 +78,10 @@ class TestGenerateClientOrderId:
     def test_uniqueness_different_limit_price(self):
         """Different limit prices should generate different IDs."""
         order1 = OrderRequest(
-            symbol="AAPL",
-            side="buy",
-            qty=10,
-            order_type="limit",
-            limit_price=Decimal("150.00")
+            symbol="AAPL", side="buy", qty=10, order_type="limit", limit_price=Decimal("150.00")
         )
         order2 = OrderRequest(
-            symbol="AAPL",
-            side="buy",
-            qty=10,
-            order_type="limit",
-            limit_price=Decimal("151.00")
+            symbol="AAPL", side="buy", qty=10, order_type="limit", limit_price=Decimal("151.00")
         )
 
         strategy_id = "alpha_baseline"
@@ -122,7 +103,9 @@ class TestGenerateClientOrderId:
         id_today = generate_client_order_id(order, strategy_id, as_of_date=today)
         id_tomorrow = generate_client_order_id(order, strategy_id, as_of_date=tomorrow)
 
-        assert id_today != id_tomorrow, "Same order on different dates should generate different IDs"
+        assert (
+            id_today != id_tomorrow
+        ), "Same order on different dates should generate different IDs"
 
     def test_format_24_chars_hex(self):
         """Generated ID should be 24-character hex string."""
@@ -178,8 +161,8 @@ class TestValidateClientOrderId:
 
     def test_invalid_type(self):
         """Non-string type should fail."""
-        assert validate_client_order_id(123) is False
-        assert validate_client_order_id(None) is False
+        assert validate_client_order_id(123) is False  # type: ignore[arg-type]
+        assert validate_client_order_id(None) is False  # type: ignore[arg-type]
 
 
 class TestReconstructOrderParamsHash:
@@ -188,11 +171,7 @@ class TestReconstructOrderParamsHash:
     def test_reconstruction_matches_generation(self):
         """Reconstructed hash should match generated ID."""
         order = OrderRequest(
-            symbol="AAPL",
-            side="buy",
-            qty=10,
-            order_type="limit",
-            limit_price=Decimal("150.00")
+            symbol="AAPL", side="buy", qty=10, order_type="limit", limit_price=Decimal("150.00")
         )
         strategy_id = "alpha_baseline"
         order_date = date(2024, 10, 17)
@@ -206,7 +185,7 @@ class TestReconstructOrderParamsHash:
             limit_price=order.limit_price,
             stop_price=order.stop_price,
             strategy_id=strategy_id,
-            order_date=order_date
+            order_date=order_date,
         )
 
         assert reconstructed_id == generated_id, "Reconstructed hash should match generated ID"
@@ -220,7 +199,7 @@ class TestReconstructOrderParamsHash:
             limit_price=None,
             stop_price=None,
             strategy_id="alpha_baseline",
-            order_date=date(2024, 10, 17)
+            order_date=date(2024, 10, 17),
         )
 
         assert len(reconstructed_id) == 24

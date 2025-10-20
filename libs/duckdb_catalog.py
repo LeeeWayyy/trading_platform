@@ -45,10 +45,12 @@ See Also:
 - docs/CONCEPTS/parquet-format.md - Parquet format details
 """
 
-import duckdb
-import polars as pl
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Any
+
+import duckdb
+import pandas as pd
+import polars as pl
 
 
 class DuckDBCatalog:
@@ -150,7 +152,7 @@ class DuckDBCatalog:
     def register_table(
         self,
         table_name: str,
-        parquet_path: Union[str, Path, List[Union[str, Path]]],
+        parquet_path: str | Path | list[str | Path],
     ) -> None:
         """
         Register Parquet file(s) as a SQL table for querying.
@@ -196,7 +198,7 @@ class DuckDBCatalog:
             )
 
         # Convert to list if single path
-        if isinstance(parquet_path, (str, Path)):
+        if isinstance(parquet_path, str | Path):
             paths = [str(parquet_path)]
         else:
             paths = [str(p) for p in parquet_path]
@@ -219,11 +221,8 @@ class DuckDBCatalog:
         self._registered_tables[table_name] = ", ".join(paths)
 
     def query(
-        self,
-        sql: str,
-        params: Optional[List] = None,
-        return_format: str = "polars"
-    ) -> Union[pl.DataFrame, "pd.DataFrame"]:
+        self, sql: str, params: list[Any] | None = None, return_format: str = "polars"
+    ) -> pl.DataFrame | pd.DataFrame:
         """
         Execute SQL query and return results.
 
@@ -308,14 +307,14 @@ class DuckDBCatalog:
         if return_format == "polars":
             return result.pl()
         elif return_format == "pandas":
+            # DuckDB result.df() returns pandas DataFrame
             return result.df()
         else:
             raise ValueError(
-                f"Invalid return_format: {return_format}. "
-                "Use 'polars' or 'pandas'."
+                f"Invalid return_format: {return_format}. " "Use 'polars' or 'pandas'."
             )
 
-    def get_symbols(self, table_name: str = "market_data") -> List[str]:
+    def get_symbols(self, table_name: str = "market_data") -> list[str]:
         """
         Get list of unique symbols in the table.
 
@@ -335,9 +334,7 @@ class DuckDBCatalog:
             ['AAPL', 'GOOGL', 'MSFT']
         """
         self._validate_table_name(table_name)
-        result = self.query(
-            f"SELECT DISTINCT symbol FROM {table_name} ORDER BY symbol"
-        )
+        result = self.query(f"SELECT DISTINCT symbol FROM {table_name} ORDER BY symbol")
         return result["symbol"].to_list()
 
     def get_date_range(self, table_name: str = "market_data") -> tuple[str, str]:
@@ -363,10 +360,7 @@ class DuckDBCatalog:
         result = self.query(
             f"SELECT MIN(date) AS min_date, MAX(date) AS max_date FROM {table_name}"
         )
-        return (
-            str(result["min_date"][0]),
-            str(result["max_date"][0])
-        )
+        return (str(result["min_date"][0]), str(result["max_date"][0]))
 
     def get_stats(self, table_name: str = "market_data") -> pl.DataFrame:
         """
@@ -401,7 +395,8 @@ class DuckDBCatalog:
             └───────────┴────────────┴────────────┴──────────────┘
         """
         self._validate_table_name(table_name)
-        return self.query(f"""
+        result = self.query(
+            f"""
             SELECT
                 COUNT(*) AS row_count,
                 COUNT(DISTINCT symbol) AS n_symbols,
@@ -409,7 +404,12 @@ class DuckDBCatalog:
                 MAX(date) AS max_date,
                 COUNT(DISTINCT date) AS n_trading_days
             FROM {table_name}
-        """)
+        """,
+            return_format="polars",
+        )
+        # Explicit cast since we know return_format="polars" always returns pl.DataFrame
+        assert isinstance(result, pl.DataFrame)
+        return result
 
     def close(self) -> None:
         """
@@ -425,11 +425,11 @@ class DuckDBCatalog:
         """
         self.conn.close()
 
-    def __enter__(self):
+    def __enter__(self) -> "DuckDBCatalog":
         """Context manager entry - returns self."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit - closes connection."""
         self.close()
 
@@ -444,11 +444,10 @@ class DuckDBCatalog:
 
 # Helper functions for common analytics patterns
 
+
 def _build_where_clause(
-    symbol: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None
-) -> tuple[str, List]:
+    symbol: str, start_date: str | None = None, end_date: str | None = None
+) -> tuple[str, list[Any]]:
     """
     Build WHERE clause and parameters for common time-series queries.
 
@@ -489,9 +488,9 @@ def _build_where_clause(
 def calculate_returns(
     catalog: DuckDBCatalog,
     symbol: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    table_name: str = "market_data"
+    start_date: str | None = None,
+    end_date: str | None = None,
+    table_name: str = "market_data",
 ) -> pl.DataFrame:
     """
     Calculate daily returns for a symbol.
@@ -556,9 +555,9 @@ def calculate_sma(
     catalog: DuckDBCatalog,
     symbol: str,
     window: int = 20,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    table_name: str = "market_data"
+    start_date: str | None = None,
+    end_date: str | None = None,
+    table_name: str = "market_data",
 ) -> pl.DataFrame:
     """
     Calculate Simple Moving Average (SMA) for a symbol.

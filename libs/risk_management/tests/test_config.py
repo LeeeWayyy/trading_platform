@@ -1,13 +1,14 @@
 """Tests for risk configuration models."""
 
-import pytest
 from decimal import Decimal
+
+import pytest
 from pydantic import ValidationError
 
 from libs.risk_management.config import (
-    PositionLimits,
-    PortfolioLimits,
     LossLimits,
+    PortfolioLimits,
+    PositionLimits,
     RiskConfig,
 )
 
@@ -23,9 +24,7 @@ class TestPositionLimits:
 
     def test_custom_values(self):
         """Test custom position limits."""
-        limits = PositionLimits(
-            max_position_size=500, max_position_pct=Decimal("0.15")
-        )
+        limits = PositionLimits(max_position_size=500, max_position_pct=Decimal("0.15"))
         assert limits.max_position_size == 500
         assert limits.max_position_pct == Decimal("0.15")
 
@@ -114,9 +113,7 @@ class TestLossLimits:
 
     def test_custom_values(self):
         """Test custom loss limits."""
-        limits = LossLimits(
-            daily_loss_limit=Decimal("2000.00"), max_drawdown_pct=Decimal("0.05")
-        )
+        limits = LossLimits(daily_loss_limit=Decimal("2000.00"), max_drawdown_pct=Decimal("0.05"))
         assert limits.daily_loss_limit == Decimal("2000.00")
         assert limits.max_drawdown_pct == Decimal("0.05")
 
@@ -176,9 +173,7 @@ class TestRiskConfig:
     def test_custom_all_limits(self):
         """Test custom config with all limits specified."""
         config = RiskConfig(
-            position_limits=PositionLimits(
-                max_position_size=200, max_position_pct=Decimal("0.10")
-            ),
+            position_limits=PositionLimits(max_position_size=200, max_position_pct=Decimal("0.10")),
             portfolio_limits=PortfolioLimits(
                 max_total_notional=Decimal("50000.00"),
                 max_long_exposure=Decimal("40000.00"),

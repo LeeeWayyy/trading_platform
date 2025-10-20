@@ -13,19 +13,13 @@ from apps.signal_service.main import _format_database_url_for_logging
 def test_format_database_url_with_credentials():
     """Credentials should be stripped from logged database URLs."""
     url = "postgresql://user:secret@db.example.com:5432/trading"
-    assert (
-        _format_database_url_for_logging(url)
-        == "db.example.com:5432/trading"
-    )
+    assert _format_database_url_for_logging(url) == "db.example.com:5432/trading"
 
 
 def test_format_database_url_without_credentials():
     """URLs without credentials should remain readable without crashing."""
     url = "postgresql://db.example.com:5432/trading"
-    assert (
-        _format_database_url_for_logging(url)
-        == "db.example.com:5432/trading"
-    )
+    assert _format_database_url_for_logging(url) == "db.example.com:5432/trading"
 
 
 def test_format_database_url_sqlite():

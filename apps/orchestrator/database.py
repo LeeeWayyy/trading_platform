@@ -4,11 +4,11 @@ Database client for Orchestrator Service.
 Handles persistence of orchestration runs and signal-order mappings.
 """
 
-import logging
 import json
+import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import Any
 from uuid import UUID
 
 import psycopg
@@ -17,9 +17,8 @@ from psycopg.rows import class_row
 from apps.orchestrator.schemas import (
     OrchestrationResult,
     OrchestrationRunSummary,
-    SignalOrderMapping
+    SignalOrderMapping,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -28,28 +27,30 @@ logger = logging.getLogger(__name__)
 # Database Models (for psycopg class_row mapping)
 # ==============================================================================
 
+
 class OrchestrationRunDB:
     """Database model for orchestration_runs table."""
+
     id: int
     run_id: UUID
     strategy_id: str
     as_of_date: str
     status: str
-    symbols: List[str]
+    symbols: list[str]
     capital: Decimal
-    max_position_size: Optional[Decimal]
+    max_position_size: Decimal | None
     num_signals: int
-    model_version: Optional[str]
+    model_version: str | None
     num_orders_submitted: int
     num_orders_accepted: int
     num_orders_rejected: int
     num_orders_filled: int
     started_at: datetime
-    completed_at: Optional[datetime]
-    duration_seconds: Optional[Decimal]
-    error_message: Optional[str]
-    signal_service_response: Optional[dict]
-    execution_gateway_responses: Optional[dict]
+    completed_at: datetime | None
+    duration_seconds: Decimal | None
+    error_message: str | None
+    signal_service_response: dict[str, Any] | None
+    execution_gateway_responses: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 
@@ -57,6 +58,7 @@ class OrchestrationRunDB:
 # ==============================================================================
 # Database Client
 # ==============================================================================
+
 
 class OrchestrationDatabaseClient:
     """
@@ -156,11 +158,13 @@ class OrchestrationDatabaseClient:
                         result.completed_at,
                         result.duration_seconds,
                         result.error_message,
-                        json.dumps(signal_metadata) if signal_metadata else None
-                    )
+                        json.dumps(signal_metadata) if signal_metadata else None,
+                    ),
                 )
 
-                run_id = cur.fetchone()[0]
+                row = cur.fetchone()
+                assert row is not None, "INSERT RETURNING should always return a row"
+                run_id: int = row[0]
 
                 # Insert signal-order mappings
                 if result.mappings:
@@ -170,17 +174,14 @@ class OrchestrationDatabaseClient:
 
                 logger.info(
                     f"Created orchestration run: {result.run_id}",
-                    extra={"run_id": str(result.run_id), "db_id": run_id}
+                    extra={"run_id": str(result.run_id), "db_id": run_id},
                 )
 
                 return run_id
 
     def _create_mappings(
-        self,
-        cur: psycopg.Cursor,
-        run_id: UUID,
-        mappings: List[SignalOrderMapping]
-    ):
+        self, cur: psycopg.Cursor, run_id: UUID, mappings: list[SignalOrderMapping]
+    ) -> None:
         """
         Create signal-order mapping records.
 
@@ -221,18 +222,18 @@ class OrchestrationDatabaseClient:
                     mapping.order_status,
                     mapping.filled_qty,
                     mapping.filled_avg_price,
-                    mapping.skip_reason
-                )
+                    mapping.skip_reason,
+                ),
             )
 
     def update_run_status(
         self,
         run_id: UUID,
         status: str,
-        completed_at: Optional[datetime] = None,
-        duration_seconds: Optional[Decimal] = None,
-        error_message: Optional[str] = None
-    ):
+        completed_at: datetime | None = None,
+        duration_seconds: Decimal | None = None,
+        error_message: str | None = None,
+    ) -> None:
         """
         Update orchestration run status.
 
@@ -254,11 +255,11 @@ class OrchestrationDatabaseClient:
                         error_message = COALESCE(%s, error_message)
                     WHERE run_id = %s
                     """,
-                    (status, completed_at, duration_seconds, error_message, run_id)
+                    (status, completed_at, duration_seconds, error_message, run_id),
                 )
                 conn.commit()
 
-    def get_run(self, run_id: UUID) -> Optional[OrchestrationRunSummary]:
+    def get_run(self, run_id: UUID) -> OrchestrationRunSummary | None:
         """
         Get orchestration run by UUID.
 
@@ -289,7 +290,7 @@ class OrchestrationDatabaseClient:
                     FROM orchestration_runs
                     WHERE run_id = %s
                     """,
-                    (run_id,)
+                    (run_id,),
                 )
 
                 row = cur.fetchone()
@@ -308,16 +309,16 @@ class OrchestrationDatabaseClient:
                     num_orders_rejected=row.num_orders_rejected,
                     started_at=row.started_at,
                     completed_at=row.completed_at,
-                    duration_seconds=row.duration_seconds
+                    duration_seconds=row.duration_seconds,
                 )
 
     def list_runs(
         self,
         limit: int = 50,
         offset: int = 0,
-        strategy_id: Optional[str] = None,
-        status: Optional[str] = None
-    ) -> List[OrchestrationRunSummary]:
+        strategy_id: str | None = None,
+        status: str | None = None,
+    ) -> list[OrchestrationRunSummary]:
         """
         List recent orchestration runs.
 
@@ -351,7 +352,7 @@ class OrchestrationDatabaseClient:
                     FROM orchestration_runs
                     WHERE 1=1
                 """
-                params = []
+                params: list[Any] = []
 
                 if strategy_id:
                     query += " AND strategy_id = %s"
@@ -379,12 +380,12 @@ class OrchestrationDatabaseClient:
                         num_orders_rejected=row.num_orders_rejected,
                         started_at=row.started_at,
                         completed_at=row.completed_at,
-                        duration_seconds=row.duration_seconds
+                        duration_seconds=row.duration_seconds,
                     )
                     for row in rows
                 ]
 
-    def get_mappings(self, run_id: UUID) -> List[SignalOrderMapping]:
+    def get_mappings(self, run_id: UUID) -> list[SignalOrderMapping]:
         """
         Get signal-order mappings for a run.
 
@@ -412,7 +413,7 @@ class OrchestrationDatabaseClient:
                     WHERE run_id = %s
                     ORDER BY rank
                     """,
-                    (run_id,)
+                    (run_id,),
                 )
 
                 rows = cur.fetchall()
@@ -430,7 +431,7 @@ class OrchestrationDatabaseClient:
                         order_status=row[8],
                         filled_qty=row[9],
                         filled_avg_price=row[10],
-                        skip_reason=row[11]
+                        skip_reason=row[11],
                     )
                     for row in rows
                 ]

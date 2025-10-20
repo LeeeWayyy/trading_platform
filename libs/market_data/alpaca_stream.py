@@ -5,19 +5,15 @@ WebSocket client for real-time market data from Alpaca.
 """
 
 import asyncio
-import json
 import logging
-from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional, Set
 
 from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
 from pydantic import ValidationError
-
 from redis.exceptions import RedisError
 
-from libs.market_data.exceptions import ConnectionError, QuoteHandlingError, SubscriptionError
+from libs.market_data.exceptions import ConnectionError, SubscriptionError
 from libs.market_data.types import PriceData, PriceUpdateEvent, QuoteData
 from libs.redis_client import EventPublisher, RedisClient, RedisKeys
 
@@ -71,7 +67,7 @@ class AlpacaMarketDataStream:
         self.stream = StockDataStream(api_key, secret_key)
 
         # Track subscribed symbols
-        self.subscribed_symbols: Set[str] = set()
+        self.subscribed_symbols: set[str] = set()
         self._subscription_lock = asyncio.Lock()  # Prevent concurrent subscription/unsubscription
 
         # Connection state
@@ -162,10 +158,10 @@ class AlpacaMarketDataStream:
                 symbol=quote.symbol,
                 bid_price=Decimal(str(quote.bid_price)),
                 ask_price=Decimal(str(quote.ask_price)),
-                bid_size=quote.bid_size,
-                ask_size=quote.ask_size,
+                bid_size=int(quote.bid_size),
+                ask_size=int(quote.ask_size),
                 timestamp=quote.timestamp,
-                exchange=quote.exchange,
+                exchange=quote.ask_exchange if hasattr(quote, "ask_exchange") else "UNKNOWN",
             )
 
             # Create price data for caching
@@ -224,17 +220,21 @@ class AlpacaMarketDataStream:
 
                 # Await the async WebSocket coroutine (NOT synchronous - do not use executor)
                 # This will block until disconnect or error
-                await self.stream.run()
+                await self.stream.run()  # type: ignore[func-returns-value]
 
                 # If we reach here, connection was established and then closed gracefully
                 # This is a "successful" cycle, so reset the counter
                 self._connected = False
                 if self._reconnect_attempts > 0:
-                    logger.info(f"Resetting reconnect counter to 0 (was {self._reconnect_attempts})")
+                    logger.info(
+                        f"Resetting reconnect counter to 0 (was {self._reconnect_attempts})"
+                    )
                     self._reconnect_attempts = 0
 
                 if self._running:
-                    logger.warning("WebSocket connection closed unexpectedly, will reconnect immediately.")
+                    logger.warning(
+                        "WebSocket connection closed unexpectedly, will reconnect immediately."
+                    )
 
             except Exception as e:
                 self._connected = False
@@ -245,7 +245,7 @@ class AlpacaMarketDataStream:
                     raise ConnectionError(
                         f"Failed to establish WebSocket connection after "
                         f"{self._max_reconnect_attempts} attempts"
-                    )
+                    ) from e
 
                 # Exponential backoff (5s, 10s, 20s, 40s, ..., max 300s)
                 delay = min(retry_delay * (2 ** (self._reconnect_attempts - 1)), 300)
@@ -291,9 +291,9 @@ class AlpacaMarketDataStream:
         Returns:
             List of symbol strings
         """
-        return sorted(list(self.subscribed_symbols))
+        return sorted(self.subscribed_symbols)
 
-    def get_connection_stats(self) -> dict:
+    def get_connection_stats(self) -> dict[str, int | bool]:
         """
         Get connection statistics.
 

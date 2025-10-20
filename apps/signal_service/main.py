@@ -31,23 +31,24 @@ See Also:
     - /docs/API.md for complete API documentation
 """
 
-import logging
 import asyncio
+import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import List, Optional
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator
 import uvicorn
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, validator
+
+from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
 
 from .config import Settings
 from .model_registry import ModelRegistry
 from .signal_generator import SignalGenerator
-from libs.redis_client import RedisClient, FeatureCache, RedisConnectionError
 
 
 def _format_database_url_for_logging(database_url: str) -> str:
@@ -55,15 +56,15 @@ def _format_database_url_for_logging(database_url: str) -> str:
     if not database_url:
         return "unknown"
 
-    sanitized = database_url.split('://', 1)[-1]
-    if '@' in sanitized:
-        sanitized = sanitized.split('@', 1)[1]
+    sanitized = database_url.split("://", 1)[-1]
+    if "@" in sanitized:
+        sanitized = sanitized.split("@", 1)[1]
     return sanitized
+
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -71,17 +72,18 @@ logger = logging.getLogger(__name__)
 settings = Settings()
 
 # Global state (initialized in lifespan)
-model_registry: Optional[ModelRegistry] = None
-signal_generator: Optional[SignalGenerator] = None
-redis_client: Optional[RedisClient] = None
-feature_cache: Optional[FeatureCache] = None
+model_registry: ModelRegistry | None = None
+signal_generator: SignalGenerator | None = None
+redis_client: RedisClient | None = None
+feature_cache: FeatureCache | None = None
 
 
 # ==============================================================================
 # Background Tasks
 # ==============================================================================
 
-async def model_reload_task():
+
+async def model_reload_task() -> None:
     """
     Background task to poll model registry and reload on version changes.
 
@@ -113,8 +115,7 @@ async def model_reload_task():
         - /api/v1/model/reload for manual reload endpoint
     """
     logger.info(
-        f"Starting model reload task "
-        f"(interval: {settings.model_reload_interval_seconds}s)"
+        f"Starting model reload task " f"(interval: {settings.model_reload_interval_seconds}s)"
     )
 
     while True:
@@ -124,11 +125,11 @@ async def model_reload_task():
 
             # Check for model updates
             logger.debug("Checking for model updates...")
-            reloaded = model_registry.reload_if_changed(
-                strategy=settings.default_strategy
-            )
+            assert model_registry is not None, "model_registry should be initialized"
+            reloaded = model_registry.reload_if_changed(strategy=settings.default_strategy)
 
             if reloaded:
+                assert model_registry.current_metadata is not None
                 logger.info(
                     f"Model auto-reloaded: "
                     f"{model_registry.current_metadata.strategy_name} "
@@ -147,8 +148,9 @@ async def model_reload_task():
 # Application Lifespan
 # ==============================================================================
 
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Manage application startup and shutdown.
 
@@ -200,6 +202,7 @@ async def lifespan(app: FastAPI):
                 "Check database has active model registered."
             )
 
+        assert model_registry is not None and model_registry.current_metadata is not None
         logger.info(f"Model loaded: {model_registry.current_metadata.version}")
 
         # Step 3: Initialize Redis client (optional, T1.2)
@@ -252,6 +255,7 @@ async def lifespan(app: FastAPI):
 
         logger.info("=" * 60)
         logger.info("Signal Service Ready!")
+        assert model_registry is not None and model_registry.current_metadata is not None
         logger.info(f"  - Model: {model_registry.current_metadata.strategy_name}")
         logger.info(f"  - Version: {model_registry.current_metadata.version}")
         logger.info(f"  - Top N (long): {settings.top_n}")
@@ -261,7 +265,7 @@ async def lifespan(app: FastAPI):
         if settings.redis_enabled and feature_cache:
             logger.info(f"  - Feature cache: ACTIVE (TTL: {settings.redis_ttl}s)")
         else:
-            logger.info(f"  - Feature cache: DISABLED")
+            logger.info("  - Feature cache: DISABLED")
         logger.info(f"  - Listening on: {settings.host}:{settings.port}")
         logger.info("=" * 60)
 
@@ -278,7 +282,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         logger.info("Stopping background model reload task...")
-        if 'reload_task' in locals():
+        if "reload_task" in locals():
             reload_task.cancel()
             try:
                 await reload_task
@@ -320,6 +324,7 @@ app.add_middleware(
 # Request/Response Models
 # ==============================================================================
 
+
 class SignalRequest(BaseModel):
     """
     Request body for signal generation.
@@ -353,45 +358,42 @@ class SignalRequest(BaseModel):
         - top_n, bottom_n: Must be >= 0
     """
 
-    symbols: List[str] = Field(
+    symbols: list[str] = Field(
         ...,
-        min_items=1,
+        min_length=1,
         description="List of stock symbols to generate signals for",
-        example=["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+        examples=[["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]],
     )
 
-    as_of_date: Optional[str] = Field(
-        None,
+    as_of_date: str | None = Field(
+        default=None,
         description="Date for signal generation (ISO format: YYYY-MM-DD). Defaults to today.",
-        example="2024-12-31"
+        examples=["2024-12-31"],
     )
 
-    top_n: Optional[int] = Field(
-        None,
-        ge=0,
-        description="Number of long positions (overrides default)",
-        example=3
+    top_n: int | None = Field(
+        default=None, ge=0, description="Number of long positions (overrides default)", examples=[3]
     )
 
-    bottom_n: Optional[int] = Field(
-        None,
+    bottom_n: int | None = Field(
+        default=None,
         ge=0,
         description="Number of short positions (overrides default)",
-        example=3
+        examples=[3],
     )
 
-    @validator('as_of_date')
-    def validate_date(cls, v):
+    @validator("as_of_date")
+    def validate_date(cls, v: str | None) -> str | None:
         """Validate date format."""
         if v is not None:
             try:
                 datetime.fromisoformat(v)
             except ValueError:
-                raise ValueError("as_of_date must be in ISO format (YYYY-MM-DD)")
+                raise ValueError("as_of_date must be in ISO format (YYYY-MM-DD)") from None
         return v
 
-    @validator('symbols')
-    def validate_symbols(cls, v):
+    @validator("symbols")
+    def validate_symbols(cls, v: list[str]) -> list[str]:
         """Validate symbols are uppercase."""
         return [s.upper() for s in v]
 
@@ -430,15 +432,9 @@ class SignalResponse(BaseModel):
         }
     """
 
-    signals: List[dict] = Field(
-        ...,
-        description="List of trading signals"
-    )
+    signals: list[dict[str, Any]] = Field(..., description="List of trading signals")
 
-    metadata: dict = Field(
-        ...,
-        description="Request and model metadata"
-    )
+    metadata: dict[str, Any] = Field(..., description="Request and model metadata")
 
 
 class HealthResponse(BaseModel):
@@ -470,8 +466,10 @@ class HealthResponse(BaseModel):
 
     status: str = Field(..., description="Service health status")
     model_loaded: bool = Field(..., description="Whether model is loaded")
-    model_info: Optional[dict] = Field(None, description="Model metadata")
-    redis_status: str = Field(..., description="Redis connection status (connected/disconnected/disabled)")
+    model_info: dict[str, Any] | None = Field(None, description="Model metadata")
+    redis_status: str = Field(
+        ..., description="Redis connection status (connected/disconnected/disabled)"
+    )
     feature_cache_enabled: bool = Field(..., description="Whether feature caching is active")
     timestamp: str = Field(..., description="Current timestamp")
 
@@ -480,8 +478,9 @@ class HealthResponse(BaseModel):
 # Error Handlers
 # ==============================================================================
 
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Global exception handler for unexpected errors.
 
@@ -502,10 +501,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "path": "/api/v1/signals/generate"
         }
     """
-    logger.error(
-        f"Unhandled exception on {request.method} {request.url.path}",
-        exc_info=exc
-    )
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}", exc_info=exc)
 
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -513,7 +509,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": "Internal server error",
             "detail": str(exc),
             "path": str(request.url.path),
-        }
+        },
     )
 
 
@@ -521,8 +517,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 # API Endpoints
 # ==============================================================================
 
+
 @app.get("/", tags=["Root"])
-async def root():
+async def root() -> dict[str, Any]:
     """
     Root endpoint with service information.
 
@@ -549,7 +546,7 @@ async def root():
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check():
+async def health_check() -> HealthResponse:
     """
     Health check endpoint.
 
@@ -595,11 +592,17 @@ async def health_check():
     """
     if model_registry is None or not model_registry.is_loaded:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Model not loaded"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
         )
 
     metadata = model_registry.current_metadata
+
+    # Validate metadata exists (explicit check for production safety)
+    if metadata is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model metadata not available despite is_loaded=True",
+        )
 
     # Check Redis status (T1.2)
     if not settings.redis_enabled:
@@ -631,7 +634,7 @@ async def health_check():
     tags=["Signals"],
     status_code=status.HTTP_200_OK,
 )
-async def generate_signals(request: SignalRequest):
+async def generate_signals(request: SignalRequest) -> SignalResponse:
     """
     Generate trading signals for given symbols.
 
@@ -709,13 +712,18 @@ async def generate_signals(request: SignalRequest):
     if signal_generator is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Signal generator not initialized"
+            detail="Signal generator not initialized",
+        )
+
+    # Validate model registry exists (explicit check for production safety)
+    if model_registry is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model registry not initialized"
         )
 
     if not model_registry.is_loaded:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Model not loaded"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
         )
 
     # Parse date
@@ -725,8 +733,8 @@ async def generate_signals(request: SignalRequest):
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD."
-            )
+                detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD.",
+            ) from None
     else:
         as_of_date = datetime.now()
 
@@ -738,7 +746,7 @@ async def generate_signals(request: SignalRequest):
     if top_n + bottom_n > len(request.symbols):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot select {top_n} long + {bottom_n} short from {len(request.symbols)} symbols"
+            detail=f"Cannot select {top_n} long + {bottom_n} short from {len(request.symbols)} symbols",
         )
 
     # Generate signals
@@ -763,41 +771,59 @@ async def generate_signals(request: SignalRequest):
 
     except FileNotFoundError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Data not found: {str(e)}"
-        )
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Data not found: {str(e)}"
+        ) from e
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid request: {str(e)}"
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid request: {str(e)}"
+        ) from e
     except Exception as e:
         logger.error(f"Signal generation failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Signal generation failed: {str(e)}"
-        )
+            detail=f"Signal generation failed: {str(e)}",
+        ) from e
 
     # Convert DataFrame to list of dicts
-    signals = signals_df.to_dict(orient="records")
+    raw_signals = signals_df.to_dict(orient="records")
+
+    # Validate all dict keys are strings (pandas returns dict[Hashable, Any])
+    # This ensures type safety even if DataFrame has non-string column names
+    signals: list[dict[str, Any]] = []
+    for signal in raw_signals:
+        if not all(isinstance(k, str) for k in signal.keys()):
+            logger.error(f"Non-string keys found in signal dict: {list(signal.keys())}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal error: signal data contains non-string keys",
+            )
+        signals.append({str(k): v for k, v in signal.items()})  # Explicit str conversion for type safety
 
     # Build response
     return SignalResponse(
         signals=signals,
         metadata={
             "as_of_date": as_of_date.date().isoformat(),
-            "model_version": model_registry.current_metadata.version,
-            "strategy": model_registry.current_metadata.strategy_name,
+            "model_version": (
+                model_registry.current_metadata.version
+                if model_registry.current_metadata
+                else "unknown"
+            ),
+            "strategy": (
+                model_registry.current_metadata.strategy_name
+                if model_registry.current_metadata
+                else "unknown"
+            ),
             "num_signals": len(signals),
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "top_n": top_n,
             "bottom_n": bottom_n,
-        }
+        },
     )
 
 
 @app.get("/api/v1/model/info", tags=["Model"])
-async def get_model_info():
+async def get_model_info() -> dict[str, Any]:
     """
     Get information about the currently loaded model.
 
@@ -838,11 +864,17 @@ async def get_model_info():
     """
     if model_registry is None or not model_registry.is_loaded:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Model not loaded"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
         )
 
     metadata = model_registry.current_metadata
+
+    # Validate metadata exists (explicit check for production safety)
+    if metadata is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model metadata not available despite is_loaded=True",
+        )
 
     return {
         "strategy_name": metadata.strategy_name,
@@ -857,7 +889,7 @@ async def get_model_info():
 
 
 @app.post("/api/v1/model/reload", tags=["Model"])
-async def reload_model():
+async def reload_model() -> dict[str, Any]:
     """
     Manually trigger model reload from database registry.
 
@@ -916,28 +948,25 @@ async def reload_model():
     """
     if model_registry is None:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Model registry not initialized"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model registry not initialized"
         )
 
     try:
         # Store previous version for comparison
         previous_version = (
             model_registry.current_metadata.version
-            if model_registry.is_loaded
+            if (model_registry.is_loaded and model_registry.current_metadata)
             else None
         )
 
         # Trigger reload check
         logger.info("Manual model reload requested")
-        reloaded = model_registry.reload_if_changed(
-            strategy=settings.default_strategy
-        )
+        reloaded = model_registry.reload_if_changed(strategy=settings.default_strategy)
 
         # Get current version
         current_version = (
             model_registry.current_metadata.version
-            if model_registry.is_loaded
+            if (model_registry.is_loaded and model_registry.current_metadata)
             else "none"
         )
 
@@ -961,8 +990,8 @@ async def reload_model():
         logger.error(f"Manual model reload failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Model reload failed: {str(e)}"
-        )
+            detail=f"Model reload failed: {str(e)}",
+        ) from e
 
 
 # ==============================================================================

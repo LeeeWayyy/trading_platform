@@ -37,44 +37,40 @@ See ADR-0005 for architecture decisions.
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-
-from apps.execution_gateway import __version__
-from apps.execution_gateway.schemas import (
-    OrderRequest,
-    OrderResponse,
-    OrderDetail,
-    PositionsResponse,
-    Position,
-    RealtimePnLResponse,
-    RealtimePositionPnL,
-    WebhookEvent,
-    HealthResponse,
-    ErrorResponse,
-)
-from apps.execution_gateway.order_id_generator import generate_client_order_id
-from apps.execution_gateway.alpaca_client import (
-    AlpacaExecutor,
-    AlpacaClientError,
-    AlpacaConnectionError,
-    AlpacaValidationError,
-    AlpacaRejectionError,
-)
-from apps.execution_gateway.database import DatabaseClient
-from apps.execution_gateway.webhook_security import (
-    verify_webhook_signature,
-    extract_signature_from_header,
-)
 from redis.exceptions import RedisError
 
+from apps.execution_gateway import __version__
+from apps.execution_gateway.alpaca_client import (
+    AlpacaConnectionError,
+    AlpacaExecutor,
+    AlpacaRejectionError,
+    AlpacaValidationError,
+)
+from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.order_id_generator import generate_client_order_id
+from apps.execution_gateway.schemas import (
+    ErrorResponse,
+    HealthResponse,
+    OrderDetail,
+    OrderRequest,
+    OrderResponse,
+    Position,
+    PositionsResponse,
+    RealtimePnLResponse,
+    RealtimePositionPnL,
+)
+from apps.execution_gateway.webhook_security import (
+    extract_signature_from_header,
+    verify_webhook_signature,
+)
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
-
 
 # ============================================================================
 # Configuration
@@ -82,17 +78,16 @@ from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Environment variables
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "")
 ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+)
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
@@ -113,7 +108,7 @@ logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RU
 db_client = DatabaseClient(DATABASE_URL)
 
 # Redis client (for real-time price lookups from Market Data Service)
-redis_client: Optional[RedisClient] = None
+redis_client: RedisClient | None = None
 try:
     redis_client = RedisClient(
         host=REDIS_HOST,
@@ -126,10 +121,12 @@ except (RedisError, RedisConnectionError) as e:
     # Catch both redis-py errors (RedisError) and our custom RedisConnectionError
     # Service should start even if Redis is misconfigured or unavailable
     # RedisConnectionError is raised by RedisClient when initial ping() fails
-    logger.warning(f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices.")
+    logger.warning(
+        f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices."
+    )
 
 # Alpaca client (only if not in dry run mode and credentials provided)
-alpaca_client: Optional[AlpacaExecutor] = None
+alpaca_client: AlpacaExecutor | None = None
 if not DRY_RUN:
     if not ALPACA_API_KEY_ID or not ALPACA_API_SECRET_KEY:
         logger.warning(
@@ -142,7 +139,7 @@ if not DRY_RUN:
                 api_key=ALPACA_API_KEY_ID,
                 secret_key=ALPACA_API_SECRET_KEY,
                 base_url=ALPACA_BASE_URL,
-                paper=True
+                paper=True,
             )
             logger.info("Alpaca client initialized successfully")
         except Exception as e:
@@ -165,55 +162,48 @@ app = FastAPI(
 # Exception Handlers
 # ============================================================================
 
+
 @app.exception_handler(ValidationError)
-async def validation_exception_handler(request: Request, exc: ValidationError):
+async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     """Handle Pydantic validation errors."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Validation error",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Validation error", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
 @app.exception_handler(AlpacaValidationError)
-async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError):
+async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError) -> JSONResponse:
     """Handle Alpaca validation errors."""
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content=ErrorResponse(
-            error="Order validation failed",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Order validation failed", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
 @app.exception_handler(AlpacaRejectionError)
-async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError):
+async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError) -> JSONResponse:
     """Handle Alpaca order rejection errors."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Order rejected by broker",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Order rejected by broker", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
 @app.exception_handler(AlpacaConnectionError)
-async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError):
+async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError) -> JSONResponse:
     """Handle Alpaca connection errors."""
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content=ErrorResponse(
-            error="Broker connection error",
-            detail=str(exc),
-            timestamp=datetime.now()
-        ).model_dump(mode="json")
+            error="Broker connection error", detail=str(exc), timestamp=datetime.now()
+        ).model_dump(mode="json"),
     )
 
 
@@ -223,8 +213,8 @@ async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError
 
 
 def _batch_fetch_realtime_prices_from_redis(
-    symbols: list[str], redis_client: Optional[RedisClient]
-) -> dict[str, tuple[Optional[Decimal], Optional[datetime]]]:
+    symbols: list[str], redis_client: RedisClient | None
+) -> dict[str, tuple[Decimal | None, datetime | None]]:
     """
     Batch fetch real-time prices from Redis for multiple symbols.
 
@@ -250,7 +240,7 @@ def _batch_fetch_realtime_prices_from_redis(
         - Handles parsing errors gracefully per symbol
     """
     if not redis_client or not symbols:
-        return {symbol: (None, None) for symbol in symbols}
+        return dict.fromkeys(symbols, (None, None))
 
     try:
         # Build Redis keys for batch fetch
@@ -260,12 +250,12 @@ def _batch_fetch_realtime_prices_from_redis(
         price_values = redis_client.mget(price_keys)
 
         # Initialize results with default (None, None) for all symbols (DRY principle)
-        result: dict[str, tuple[Optional[Decimal], Optional[datetime]]] = {
-            symbol: (None, None) for symbol in symbols
-        }
+        result: dict[str, tuple[Decimal | None, datetime | None]] = dict.fromkeys(
+            symbols, (None, None)
+        )
 
         # Parse results and update dictionary for symbols with valid data
-        for symbol, price_json in zip(symbols, price_values):
+        for symbol, price_json in zip(symbols, price_values, strict=False):
             if not price_json:
                 continue  # Skip symbols not found in cache (already (None, None))
 
@@ -284,13 +274,14 @@ def _batch_fetch_realtime_prices_from_redis(
     except RedisError as e:
         # Catch all Redis errors (connection, timeout, etc.) for graceful degradation
         logger.warning(f"Failed to batch fetch prices for {len(symbols)} symbols: {e}")
-        return {symbol: (None, None) for symbol in symbols}
-
-
+        return dict.fromkeys(symbols, (None, None))
 
 
 def _calculate_position_pnl(
-    pos: Position, current_price: Decimal, price_source: str, last_price_update: Optional[datetime]
+    pos: Position,
+    current_price: Decimal,
+    price_source: Literal["real-time", "database", "fallback"],
+    last_price_update: datetime | None,
 ) -> RealtimePositionPnL:
     """
     Calculate unrealized P&L for a single position.
@@ -329,7 +320,7 @@ def _calculate_position_pnl(
 
 def _resolve_and_calculate_pnl(
     pos: Position,
-    realtime_price_data: tuple[Optional[Decimal], Optional[datetime]],
+    realtime_price_data: tuple[Decimal | None, datetime | None],
 ) -> tuple[RealtimePositionPnL, bool]:
     """
     Resolve price from multiple sources and calculate P&L for a position.
@@ -357,6 +348,10 @@ def _resolve_and_calculate_pnl(
     realtime_price, last_price_update = realtime_price_data
 
     # Three-tier price fallback
+    current_price: Decimal
+    price_source: Literal["real-time", "database", "fallback"]
+    is_realtime: bool
+
     if realtime_price is not None:
         current_price, price_source, is_realtime = realtime_price, "real-time", True
     elif pos.current_price is not None:
@@ -367,9 +362,7 @@ def _resolve_and_calculate_pnl(
         last_price_update = None
 
     # Calculate P&L with resolved price
-    position_pnl = _calculate_position_pnl(
-        pos, current_price, price_source, last_price_update
-    )
+    position_pnl = _calculate_position_pnl(pos, current_price, price_source, last_price_update)
 
     return position_pnl, is_realtime
 
@@ -378,8 +371,9 @@ def _resolve_and_calculate_pnl(
 # Endpoints
 # ============================================================================
 
+
 @app.get("/", tags=["Health"])
-async def root():
+async def root() -> dict[str, Any]:
     """Root endpoint."""
     return {
         "service": "execution_gateway",
@@ -390,7 +384,7 @@ async def root():
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check():
+async def health_check() -> HealthResponse:
     """
     Health check endpoint.
 
@@ -426,6 +420,7 @@ async def health_check():
         alpaca_connected = alpaca_client.check_connection()
 
     # Determine overall status
+    overall_status: Literal["healthy", "degraded", "unhealthy"]
     if db_connected and (DRY_RUN or alpaca_connected):
         overall_status = "healthy"
     elif db_connected:
@@ -444,12 +439,12 @@ async def health_check():
         details={
             "strategy_id": STRATEGY_ID,
             "alpaca_base_url": ALPACA_BASE_URL if not DRY_RUN else None,
-        }
+        },
     )
 
 
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
-async def submit_order(order: OrderRequest):
+async def submit_order(order: OrderRequest) -> OrderResponse:
     """
     Submit order with idempotent retry semantics.
 
@@ -519,8 +514,8 @@ async def submit_order(order: OrderRequest):
             "symbol": order.symbol,
             "side": order.side,
             "qty": order.qty,
-            "order_type": order.order_type
-        }
+            "order_type": order.order_type,
+        },
     )
 
     # Check if order already exists (idempotency)
@@ -528,7 +523,7 @@ async def submit_order(order: OrderRequest):
     if existing_order:
         logger.info(
             f"Order already exists (idempotent): {client_order_id}",
-            extra={"client_order_id": client_order_id, "status": existing_order.status}
+            extra={"client_order_id": client_order_id, "status": existing_order.status},
         )
 
         return OrderResponse(
@@ -541,7 +536,7 @@ async def submit_order(order: OrderRequest):
             order_type=existing_order.order_type,
             limit_price=existing_order.limit_price,
             created_at=existing_order.created_at,
-            message=f"Order already submitted (status: {existing_order.status})"
+            message=f"Order already submitted (status: {existing_order.status})",
         )
 
     # Submit order based on DRY_RUN mode
@@ -549,7 +544,7 @@ async def submit_order(order: OrderRequest):
         # DRY_RUN mode - log order but don't submit to broker
         logger.info(
             f"[DRY_RUN] Logging order: {order.symbol} {order.side} {order.qty}",
-            extra={"client_order_id": client_order_id}
+            extra={"client_order_id": client_order_id},
         )
 
         order_detail = db_client.create_order(
@@ -570,7 +565,7 @@ async def submit_order(order: OrderRequest):
             order_type=order.order_type,
             limit_price=order.limit_price,
             created_at=order_detail.created_at,
-            message="Order logged (DRY_RUN mode)"
+            message="Order logged (DRY_RUN mode)",
         )
 
     else:
@@ -578,7 +573,7 @@ async def submit_order(order: OrderRequest):
         if not alpaca_client:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Alpaca client not initialized. Check credentials."
+                detail="Alpaca client not initialized. Check credentials.",
             )
 
         try:
@@ -599,8 +594,8 @@ async def submit_order(order: OrderRequest):
                 extra={
                     "client_order_id": client_order_id,
                     "broker_order_id": alpaca_response["id"],
-                    "status": alpaca_response["status"]
-                }
+                    "status": alpaca_response["status"],
+                },
             )
 
             return OrderResponse(
@@ -613,7 +608,7 @@ async def submit_order(order: OrderRequest):
                 order_type=order.order_type,
                 limit_price=order.limit_price,
                 created_at=order_detail.created_at,
-                message="Order submitted to broker"
+                message="Order submitted to broker",
             )
 
         except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError):
@@ -630,17 +625,17 @@ async def submit_order(order: OrderRequest):
                 order_request=order,
                 status="rejected",
                 broker_order_id=None,
-                error_message=str(e)
+                error_message=str(e),
             )
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Order submission failed: {str(e)}"
-            )
+                detail=f"Order submission failed: {str(e)}",
+            ) from e
 
 
 @app.get("/api/v1/orders/{client_order_id}", response_model=OrderDetail, tags=["Orders"])
-async def get_order(client_order_id: str):
+async def get_order(client_order_id: str) -> OrderDetail:
     """
     Get order details by client_order_id.
 
@@ -678,15 +673,14 @@ async def get_order(client_order_id: str):
 
     if not order:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Order not found: {client_order_id}"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Order not found: {client_order_id}"
         )
 
     return order
 
 
 @app.get("/api/v1/positions", response_model=PositionsResponse, tags=["Positions"])
-async def get_positions():
+async def get_positions() -> PositionsResponse:
     """
     Get all current positions.
 
@@ -720,20 +714,20 @@ async def get_positions():
 
     # Calculate totals
     total_unrealized_pl = sum(
-        (pos.unrealized_pl or Decimal("0")) for pos in positions
+        ((pos.unrealized_pl or Decimal("0")) for pos in positions), Decimal("0")
     )
-    total_realized_pl = sum(pos.realized_pl for pos in positions)
+    total_realized_pl = sum((pos.realized_pl for pos in positions), Decimal("0"))
 
     return PositionsResponse(
         positions=positions,
         total_positions=len(positions),
         total_unrealized_pl=total_unrealized_pl if positions else None,
-        total_realized_pl=total_realized_pl
+        total_realized_pl=total_realized_pl,
     )
 
 
 @app.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
-async def get_realtime_pnl():
+async def get_realtime_pnl() -> RealtimePnLResponse:
     """
     Get real-time P&L with latest market prices.
 
@@ -782,7 +776,7 @@ async def get_realtime_pnl():
             total_unrealized_pl=Decimal("0"),
             total_unrealized_pl_pct=None,
             realtime_prices_available=0,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     # Batch fetch real-time prices for all symbols (solves N+1 query problem)
@@ -810,11 +804,9 @@ async def get_realtime_pnl():
         total_investment += pos.avg_entry_price * abs(pos.qty)
 
     # Calculate totals
-    total_unrealized_pl = sum(p.unrealized_pl for p in realtime_positions)
+    total_unrealized_pl = sum((p.unrealized_pl for p in realtime_positions), Decimal("0"))
     total_unrealized_pl_pct = (
-        (total_unrealized_pl / total_investment) * Decimal("100")
-        if total_investment > 0
-        else None
+        (total_unrealized_pl / total_investment) * Decimal("100") if total_investment > 0 else None
     )
 
     return RealtimePnLResponse(
@@ -823,12 +815,12 @@ async def get_realtime_pnl():
         total_unrealized_pl=total_unrealized_pl,
         total_unrealized_pl_pct=total_unrealized_pl_pct,
         realtime_prices_available=realtime_count,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
 @app.post("/api/v1/webhooks/orders", tags=["Webhooks"])
-async def order_webhook(request: Request):
+async def order_webhook(request: Request) -> dict[str, str]:
     """
     Webhook endpoint for Alpaca order status updates.
 
@@ -883,26 +875,21 @@ async def order_webhook(request: Request):
             if not signature:
                 logger.warning("Webhook received without signature")
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Missing webhook signature"
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing webhook signature"
                 )
 
             if not verify_webhook_signature(body, signature, WEBHOOK_SECRET):
                 logger.error("Webhook signature verification failed")
                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid webhook signature"
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature"
                 )
 
             logger.debug("Webhook signature verified successfully")
         else:
-            logger.warning(
-                "Webhook signature verification disabled (WEBHOOK_SECRET not set)"
-            )
+            logger.warning("Webhook signature verification disabled (WEBHOOK_SECRET not set)")
 
         logger.info(
-            f"Webhook received: {payload.get('event', 'unknown')}",
-            extra={"payload": payload}
+            f"Webhook received: {payload.get('event', 'unknown')}", extra={"payload": payload}
         )
 
         # Extract order information
@@ -938,7 +925,7 @@ async def order_webhook(request: Request):
                 symbol=order_data["symbol"],
                 qty=int(filled_qty),
                 price=Decimal(str(filled_avg_price)),
-                side=order_data["side"]
+                side=order_data["side"],
             )
 
             logger.info(
@@ -946,8 +933,8 @@ async def order_webhook(request: Request):
                 extra={
                     "symbol": position.symbol,
                     "qty": str(position.qty),
-                    "avg_price": str(position.avg_entry_price)
-                }
+                    "avg_price": str(position.avg_entry_price),
+                },
             )
 
         return {"status": "ok", "client_order_id": client_order_id}
@@ -955,17 +942,17 @@ async def order_webhook(request: Request):
     except Exception as e:
         logger.error(f"Webhook processing error: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Webhook processing failed: {str(e)}"
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Webhook processing failed: {str(e)}"
+        ) from e
 
 
 # ============================================================================
 # Startup / Shutdown
 # ============================================================================
 
+
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Application startup."""
     logger.info("Execution Gateway started")
     logger.info(f"DRY_RUN mode: {DRY_RUN}")
@@ -986,7 +973,7 @@ async def startup_event():
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """Application shutdown."""
     logger.info("Execution Gateway shutting down")
 
@@ -999,5 +986,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8002,
         reload=True,
-        log_level=LOG_LEVEL.lower()
+        log_level=LOG_LEVEL.lower(),
     )

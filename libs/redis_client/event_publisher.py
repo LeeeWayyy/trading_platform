@@ -28,12 +28,12 @@ See Also:
 """
 
 import logging
-from typing import Optional
-from redis.exceptions import RedisError
+
 from pydantic import BaseModel
+from redis.exceptions import RedisError
 
 from .client import RedisClient
-from .events import SignalEvent, OrderEvent, PositionEvent
+from .events import OrderEvent, PositionEvent, SignalEvent
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class EventPublisher:
         self.redis = redis_client
         logger.info("Event publisher initialized")
 
-    def publish(self, channel: str, event: BaseModel) -> Optional[int]:
+    def publish(self, channel: str, event: BaseModel) -> int | None:
         """
         Publish Pydantic event to Redis channel.
 
@@ -101,22 +101,22 @@ class EventPublisher:
             num_subscribers = self.redis.publish(channel, message)
 
             logger.info(
-                f"Published {event.event_type} to '{channel}' "
+                f"Published {event.event_type} to '{channel}' "  # type: ignore[attr-defined]
                 f"({num_subscribers} subscribers)"
             )
 
             return num_subscribers
 
         except (TypeError, ValueError) as e:
-            logger.error(f"Failed to serialize event {event.event_type}: {e}")
+            logger.error(f"Failed to serialize event {event.event_type}: {e}")  # type: ignore[attr-defined]
             raise ValueError(f"Cannot serialize event: {e}") from e
 
         except RedisError as e:
-            logger.error(f"Failed to publish {event.event_type} to '{channel}': {e}")
+            logger.error(f"Failed to publish {event.event_type} to '{channel}': {e}")  # type: ignore[attr-defined]
             # Return None on error (graceful degradation)
             return None
 
-    def publish_signal_event(self, event: SignalEvent) -> Optional[int]:
+    def publish_signal_event(self, event: SignalEvent) -> int | None:
         """
         Publish signal generation event.
 
@@ -139,7 +139,7 @@ class EventPublisher:
         """
         return self.publish(self.CHANNEL_SIGNALS, event)
 
-    def publish_order_event(self, event: OrderEvent) -> Optional[int]:
+    def publish_order_event(self, event: OrderEvent) -> int | None:
         """
         Publish order execution event.
 
@@ -163,7 +163,7 @@ class EventPublisher:
         """
         return self.publish(self.CHANNEL_ORDERS, event)
 
-    def publish_position_event(self, event: PositionEvent) -> Optional[int]:
+    def publish_position_event(self, event: PositionEvent) -> int | None:
         """
         Publish position update event.
 
@@ -188,6 +188,8 @@ class EventPublisher:
         """
         return self.publish(self.CHANNEL_POSITIONS, event)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """String representation."""
-        return "EventPublisher(channels=['signals.generated', 'orders.executed', 'positions.updated'])"
+        return (
+            "EventPublisher(channels=['signals.generated', 'orders.executed', 'positions.updated'])"
+        )

@@ -6,15 +6,16 @@ Real-time market data streaming service with WebSocket management.
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 
 from apps.market_data_service.config import settings
 from apps.market_data_service.position_sync import PositionBasedSubscription
-from libs.market_data import AlpacaMarketDataStream, ConnectionError, SubscriptionError
+from libs.market_data import AlpacaMarketDataStream, SubscriptionError
 from libs.redis_client import EventPublisher, RedisClient
 
 # Configure logging
@@ -25,10 +26,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global WebSocket stream instance
-stream: Optional[AlpacaMarketDataStream] = None
+stream: AlpacaMarketDataStream | None = None
 
 # Global position-based subscription manager
-subscription_manager: Optional[PositionBasedSubscription] = None
+subscription_manager: PositionBasedSubscription | None = None
 
 
 # Request/Response Models
@@ -72,7 +73,7 @@ class HealthResponse(BaseModel):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Lifespan context manager for WebSocket lifecycle.
 
@@ -117,9 +118,7 @@ async def lifespan(app: FastAPI):
         # Start subscription sync loop in background
         asyncio.create_task(subscription_manager.start_sync_loop())
 
-        logger.info(
-            f"Market Data Service started successfully on port {settings.port}"
-        )
+        logger.info(f"Market Data Service started successfully on port {settings.port}")
         logger.info(
             f"Auto-subscription enabled: syncing every {settings.subscription_sync_interval}s"
         )
@@ -157,7 +156,7 @@ app = FastAPI(
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check() -> HealthResponse:
     """
     Health check endpoint with WebSocket status.
 
@@ -175,7 +174,7 @@ async def health_check():
     return HealthResponse(
         status="healthy" if stats["is_connected"] else "degraded",
         service=settings.service_name,
-        websocket_connected=stats["is_connected"],
+        websocket_connected=bool(stats["is_connected"]),
         subscribed_symbols=stats["subscribed_symbols"],
         reconnect_attempts=stats["reconnect_attempts"],
         max_reconnect_attempts=stats["max_reconnect_attempts"],
@@ -183,7 +182,7 @@ async def health_check():
 
 
 @app.post("/api/v1/subscribe", response_model=SubscribeResponse, status_code=201)
-async def subscribe_symbols(request: SubscribeRequest):
+async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
     """
     Subscribe to real-time quotes for symbols.
 
@@ -213,9 +212,7 @@ async def subscribe_symbols(request: SubscribeRequest):
 
         subscribed = stream.get_subscribed_symbols()
 
-        logger.info(
-            f"Subscribed to {len(request.symbols)} symbols: {request.symbols}"
-        )
+        logger.info(f"Subscribed to {len(request.symbols)} symbols: {request.symbols}")
 
         return SubscribeResponse(
             message=f"Successfully subscribed to {len(request.symbols)} symbols",
@@ -228,11 +225,11 @@ async def subscribe_symbols(request: SubscribeRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Subscription failed: {str(e)}",
-        )
+        ) from e
 
 
 @app.delete("/api/v1/subscribe/{symbol}", response_model=UnsubscribeResponse)
-async def unsubscribe_symbol(symbol: str):
+async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
     """
     Unsubscribe from a symbol.
 
@@ -268,11 +265,11 @@ async def unsubscribe_symbol(symbol: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unsubscription failed: {str(e)}",
-        )
+        ) from e
 
 
 @app.get("/api/v1/subscriptions", response_model=SubscriptionsResponse)
-async def get_subscriptions():
+async def get_subscriptions() -> SubscriptionsResponse:
     """
     Get list of currently subscribed symbols.
 
@@ -294,7 +291,7 @@ async def get_subscriptions():
 
 
 @app.get("/api/v1/subscriptions/stats", tags=["Subscriptions"])
-async def get_subscription_stats():
+async def get_subscription_stats() -> dict[str, Any]:
     """
     Get subscription manager statistics.
 
@@ -309,10 +306,7 @@ async def get_subscription_stats():
         Dictionary with subscription manager stats
     """
     if not subscription_manager:
-        return {
-            "auto_subscription_enabled": False,
-            "message": "Auto-subscription not configured"
-        }
+        return {"auto_subscription_enabled": False, "message": "Auto-subscription not configured"}
 
     stats = subscription_manager.get_stats()
     stats["auto_subscription_enabled"] = True

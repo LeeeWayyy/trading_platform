@@ -11,9 +11,10 @@ Tests cover:
 - Context manager usage
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
-from redis.exceptions import ConnectionError, TimeoutError, RedisError
+from redis.exceptions import ConnectionError, RedisError, TimeoutError
 from tenacity import RetryError
 
 from libs.redis_client.client import RedisClient, RedisConnectionError
@@ -22,8 +23,8 @@ from libs.redis_client.client import RedisClient, RedisConnectionError
 class TestRedisClientInitialization:
     """Tests for RedisClient initialization."""
 
-    @patch('libs.redis_client.client.redis.Redis')
-    @patch('libs.redis_client.client.ConnectionPool')
+    @patch("libs.redis_client.client.redis.Redis")
+    @patch("libs.redis_client.client.ConnectionPool")
     def test_initialization_success(self, mock_pool_class, mock_redis_class):
         """Test successful Redis client initialization."""
         # Setup mocks
@@ -35,12 +36,7 @@ class TestRedisClientInitialization:
         mock_redis_class.return_value = mock_redis
 
         # Initialize client
-        client = RedisClient(
-            host="localhost",
-            port=6379,
-            db=0,
-            max_connections=10
-        )
+        client = RedisClient(host="localhost", port=6379, db=0, max_connections=10)
 
         # Verify connection pool created
         mock_pool_class.assert_called_once_with(
@@ -51,14 +47,14 @@ class TestRedisClientInitialization:
             decode_responses=True,
             max_connections=10,
             socket_connect_timeout=5,
-            socket_timeout=5
+            socket_timeout=5,
         )
 
         # Verify ping was called to test connection
         mock_redis.ping.assert_called_once()
 
-    @patch('libs.redis_client.client.redis.Redis')
-    @patch('libs.redis_client.client.ConnectionPool')
+    @patch("libs.redis_client.client.redis.Redis")
+    @patch("libs.redis_client.client.ConnectionPool")
     def test_initialization_failure(self, mock_pool_class, mock_redis_class):
         """Test Redis client initialization failure."""
         # Setup mocks to raise ConnectionError
@@ -80,8 +76,10 @@ class TestRedisClientOperations:
     @pytest.fixture
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
-        with patch('libs.redis_client.client.redis.Redis') as mock_redis_class, \
-             patch('libs.redis_client.client.ConnectionPool'):
+        with (
+            patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
+            patch("libs.redis_client.client.ConnectionPool"),
+        ):
 
             mock_redis = Mock()
             mock_redis.ping.return_value = True
@@ -116,10 +114,7 @@ class TestRedisClientOperations:
         client, mock_redis = mock_redis_client
 
         # First call raises ConnectionError, second succeeds
-        mock_redis.get.side_effect = [
-            ConnectionError("Connection lost"),
-            "test_value"
-        ]
+        mock_redis.get.side_effect = [ConnectionError("Connection lost"), "test_value"]
 
         result = client.get("test_key")
 
@@ -168,8 +163,10 @@ class TestRedisClientPubSub:
     @pytest.fixture
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
-        with patch('libs.redis_client.client.redis.Redis') as mock_redis_class, \
-             patch('libs.redis_client.client.ConnectionPool'):
+        with (
+            patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
+            patch("libs.redis_client.client.ConnectionPool"),
+        ):
 
             mock_redis = Mock()
             mock_redis.ping.return_value = True
@@ -217,8 +214,10 @@ class TestRedisClientHealthCheck:
     @pytest.fixture
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
-        with patch('libs.redis_client.client.redis.Redis') as mock_redis_class, \
-             patch('libs.redis_client.client.ConnectionPool'):
+        with (
+            patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
+            patch("libs.redis_client.client.ConnectionPool"),
+        ):
 
             mock_redis = Mock()
             mock_redis.ping.return_value = True
@@ -251,10 +250,7 @@ class TestRedisClientHealthCheck:
     def test_get_info_success(self, mock_redis_client):
         """Test getting Redis server info."""
         client, mock_redis = mock_redis_client
-        mock_info = {
-            "used_memory_human": "1.5M",
-            "connected_clients": 5
-        }
+        mock_info = {"used_memory_human": "1.5M", "connected_clients": 5}
         mock_redis.info.return_value = mock_info
 
         result = client.get_info()
@@ -266,8 +262,8 @@ class TestRedisClientHealthCheck:
 class TestRedisClientContextManager:
     """Tests for context manager usage."""
 
-    @patch('libs.redis_client.client.redis.Redis')
-    @patch('libs.redis_client.client.ConnectionPool')
+    @patch("libs.redis_client.client.redis.Redis")
+    @patch("libs.redis_client.client.ConnectionPool")
     def test_context_manager(self, mock_pool_class, mock_redis_class):
         """Test using RedisClient as context manager."""
         mock_pool = Mock()
@@ -291,8 +287,10 @@ class TestRedisClientErrorHandling:
     @pytest.fixture
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
-        with patch('libs.redis_client.client.redis.Redis') as mock_redis_class, \
-             patch('libs.redis_client.client.ConnectionPool'):
+        with (
+            patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
+            patch("libs.redis_client.client.ConnectionPool"),
+        ):
 
             mock_redis = Mock()
             mock_redis.ping.return_value = True

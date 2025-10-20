@@ -15,25 +15,26 @@ Only run with valid Alpaca paper trading credentials.
 import os
 import sys
 import time
-from decimal import Decimal
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Load environment variables from .env
 try:
     from dotenv import load_dotenv
-    env_path = Path(__file__).parent.parent / '.env'
+
+    env_path = Path(__file__).parent.parent / ".env"
     load_dotenv(dotenv_path=env_path)
 except ImportError:
     print("⚠️  python-dotenv not installed. Using system environment variables only.")
     pass
 
-from apps.execution_gateway.alpaca_client import AlpacaExecutor, AlpacaClientError
-from apps.execution_gateway.schemas import OrderRequest
+from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor
 from apps.execution_gateway.order_id_generator import generate_client_order_id
+from apps.execution_gateway.schemas import OrderRequest
 
 
 def print_separator(title: str):
@@ -62,16 +63,13 @@ def test_1_connection():
         print("   Please update .env with real Alpaca paper trading credentials")
         return None
 
-    print(f"📡 Connecting to Alpaca...")
+    print("📡 Connecting to Alpaca...")
     print(f"   Base URL: {base_url}")
     print(f"   API Key: {api_key[:8]}...")
 
     try:
         executor = AlpacaExecutor(
-            api_key=api_key,
-            secret_key=secret_key,
-            base_url=base_url,
-            paper=True
+            api_key=api_key, secret_key=secret_key, base_url=base_url, paper=True
         )
 
         # Check connection
@@ -97,7 +95,7 @@ def test_1_connection():
         print(f"   Pattern Day Trader: {account['pattern_day_trader']}")
         print(f"   Trading Blocked: {account['trading_blocked']}")
 
-        if account['trading_blocked']:
+        if account["trading_blocked"]:
             print("\n⚠️  WARNING: Trading is blocked on this account")
             return None
 
@@ -114,19 +112,13 @@ def test_2_submit_market_order(executor: AlpacaExecutor):
     print_separator("TEST 2: Market Order Submission")
 
     # Create a small market order (1 share of AAPL)
-    order = OrderRequest(
-        symbol="AAPL",
-        side="buy",
-        qty=1,
-        order_type="market",
-        time_in_force="day"
-    )
+    order = OrderRequest(symbol="AAPL", side="buy", qty=1, order_type="market", time_in_force="day")
 
     # Generate deterministic client_order_id
     strategy_id = os.getenv("STRATEGY_ID", "alpha_baseline")
     client_order_id = generate_client_order_id(order, strategy_id, date.today())
 
-    print(f"📤 Submitting market order:")
+    print("📤 Submitting market order:")
     print(f"   Symbol: {order.symbol}")
     print(f"   Side: {order.side}")
     print(f"   Qty: {order.qty}")
@@ -148,10 +140,10 @@ def test_2_submit_market_order(executor: AlpacaExecutor):
         # Query order status
         updated_order = executor.get_order_by_client_id(client_order_id)
         if updated_order:
-            print(f"\n📊 Updated Order Status:")
+            print("\n📊 Updated Order Status:")
             print(f"   Status: {updated_order['status']}")
             print(f"   Filled Qty: {updated_order['filled_qty']}")
-            if updated_order['filled_avg_price']:
+            if updated_order["filled_avg_price"]:
                 print(f"   Filled Avg Price: ${updated_order['filled_avg_price']:.2f}")
 
         return response
@@ -175,13 +167,13 @@ def test_3_submit_limit_order(executor: AlpacaExecutor):
         qty=1,
         order_type="limit",
         limit_price=Decimal("100.00"),  # Well below market price
-        time_in_force="day"
+        time_in_force="day",
     )
 
     strategy_id = os.getenv("STRATEGY_ID", "alpha_baseline")
     client_order_id = generate_client_order_id(order, strategy_id, date.today())
 
-    print(f"📤 Submitting limit order:")
+    print("📤 Submitting limit order:")
     print(f"   Symbol: {order.symbol}")
     print(f"   Side: {order.side}")
     print(f"   Qty: {order.qty}")
@@ -227,7 +219,7 @@ def test_4_query_order(executor: AlpacaExecutor, client_order_id: str):
         print(f"   Qty: {order['qty']}")
         print(f"   Status: {order['status']}")
         print(f"   Filled Qty: {order['filled_qty']}")
-        if order['filled_avg_price']:
+        if order["filled_avg_price"]:
             print(f"   Filled Avg Price: ${order['filled_avg_price']:.2f}")
 
         return order
@@ -274,13 +266,13 @@ def test_6_idempotency(executor: AlpacaExecutor):
         qty=1,
         order_type="limit",
         limit_price=Decimal("200.00"),  # Below market
-        time_in_force="day"
+        time_in_force="day",
     )
 
     strategy_id = os.getenv("STRATEGY_ID", "alpha_baseline")
     client_order_id = generate_client_order_id(order, strategy_id, date.today())
 
-    print(f"📤 Submitting first order...")
+    print("📤 Submitting first order...")
     print(f"   Client Order ID: {client_order_id}")
 
     try:
@@ -296,7 +288,7 @@ def test_6_idempotency(executor: AlpacaExecutor):
             response2 = executor.submit_order(order, client_order_id)
             print(f"⚠️  Second submission returned: {response2['id']}")
 
-            if response2['id'] == response1['id']:
+            if response2["id"] == response1["id"]:
                 print("✅ PASSED: Alpaca returned same order (idempotent)")
             else:
                 print("❌ FAILED: Different order ID returned (not idempotent)")
@@ -309,7 +301,7 @@ def test_6_idempotency(executor: AlpacaExecutor):
                 print(f"⚠️  Order rejected for different reason: {e}")
 
         # Cancel the order
-        executor.cancel_order(response1['id'])
+        executor.cancel_order(response1["id"])
         print(f"\n🧹 Cleaned up test order: {response1['id']}")
 
         return True
@@ -337,11 +329,7 @@ def main():
         print("   This test requires actual Alpaca API calls.")
         return 1
 
-    results = {
-        "passed": 0,
-        "failed": 0,
-        "skipped": 0
-    }
+    results = {"passed": 0, "failed": 0, "skipped": 0}
 
     # Test 1: Connection
     executor = test_1_connection()
@@ -357,7 +345,7 @@ def main():
     market_order = test_2_submit_market_order(executor)
     if market_order:
         results["passed"] += 1
-        market_client_id = market_order['client_order_id']
+        market_client_id = market_order["client_order_id"]
     else:
         results["failed"] += 1
         market_client_id = None
@@ -366,7 +354,7 @@ def main():
     limit_order = test_3_submit_limit_order(executor)
     if limit_order:
         results["passed"] += 1
-        limit_broker_id = limit_order['id']
+        limit_broker_id = limit_order["id"]
     else:
         results["failed"] += 1
         limit_broker_id = None
@@ -416,13 +404,13 @@ def print_results(results: dict):
     print("║" + "  TEST RESULTS".center(78) + "║")
     print("║" + " " * 78 + "║")
     print("╠" + "=" * 78 + "╣")
-    print(f"║  ✅ Passed:  {results['passed']}" + " " * (68 - len(str(results['passed']))) + "║")
-    print(f"║  ❌ Failed:  {results['failed']}" + " " * (68 - len(str(results['failed']))) + "║")
-    print(f"║  ⏭️  Skipped: {results['skipped']}" + " " * (68 - len(str(results['skipped']))) + "║")
+    print(f"║  ✅ Passed:  {results['passed']}" + " " * (68 - len(str(results["passed"]))) + "║")
+    print(f"║  ❌ Failed:  {results['failed']}" + " " * (68 - len(str(results["failed"]))) + "║")
+    print(f"║  ⏭️  Skipped: {results['skipped']}" + " " * (68 - len(str(results["skipped"]))) + "║")
     print("║" + " " * 78 + "║")
 
-    total = results['passed'] + results['failed']
-    pass_rate = (results['passed'] / total * 100) if total > 0 else 0
+    total = results["passed"] + results["failed"]
+    pass_rate = (results["passed"] / total * 100) if total > 0 else 0
 
     print(f"║  Pass Rate: {pass_rate:.1f}%" + " " * (66 - len(f"{pass_rate:.1f}%")) + "║")
     print("║" + " " * 78 + "║")

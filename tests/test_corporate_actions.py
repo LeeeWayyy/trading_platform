@@ -11,13 +11,13 @@ Tests cover:
 
 from datetime import date
 
-import pytest
 import polars as pl
+import pytest
 
 from libs.data_pipeline.corporate_actions import (
-    adjust_for_splits,
     adjust_for_dividends,
-    adjust_prices
+    adjust_for_splits,
+    adjust_prices,
 )
 
 
@@ -27,21 +27,19 @@ class TestAdjustForSplits:
     def test_simple_split_adjustment(self):
         """4-for-1 split should divide prices by 4, multiply volume by 4."""
         # Raw data with split on 2024-01-15
-        df = pl.DataFrame({
-            "symbol": ["AAPL", "AAPL", "AAPL"],
-            "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
-            "open": [400.0, 100.0, 105.0],
-            "high": [420.0, 110.0, 115.0],
-            "low": [390.0, 95.0, 100.0],
-            "close": [500.0, 125.0, 130.0],
-            "volume": [1_000_000, 4_000_000, 3_800_000]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
+                "open": [400.0, 100.0, 105.0],
+                "high": [420.0, 110.0, 115.0],
+                "low": [390.0, 95.0, 100.0],
+                "close": [500.0, 125.0, 130.0],
+                "volume": [1_000_000, 4_000_000, 3_800_000],
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-15"],
-            "split_ratio": [4.0]
-        })
+        ca = pl.DataFrame({"symbol": ["AAPL"], "date": ["2024-01-15"], "split_ratio": [4.0]})
 
         adjusted = adjust_for_splits(df, ca)
 
@@ -59,21 +57,25 @@ class TestAdjustForSplits:
 
     def test_no_split_returns_unchanged(self):
         """Data with no splits should return unchanged."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
-            "open": [100.0, 101.0, 102.0],
-            "high": [105.0, 106.0, 107.0],
-            "low": [95.0, 96.0, 97.0],
-            "close": [100.0, 101.0, 102.0],
-            "volume": [1_000_000, 1_100_000, 1_200_000]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
+                "open": [100.0, 101.0, 102.0],
+                "high": [105.0, 106.0, 107.0],
+                "low": [95.0, 96.0, 97.0],
+                "close": [100.0, 101.0, 102.0],
+                "volume": [1_000_000, 1_100_000, 1_200_000],
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": pl.Series([], dtype=pl.Utf8),
-            "date": pl.Series([], dtype=pl.Date),
-            "split_ratio": pl.Series([], dtype=pl.Float64)
-        })
+        ca = pl.DataFrame(
+            {
+                "symbol": pl.Series([], dtype=pl.Utf8),
+                "date": pl.Series([], dtype=pl.Date),
+                "split_ratio": pl.Series([], dtype=pl.Float64),
+            }
+        )
 
         adjusted = adjust_for_splits(df, ca)
 
@@ -83,21 +85,25 @@ class TestAdjustForSplits:
     def test_multiple_splits_cumulative(self):
         """Multiple splits should apply cumulatively."""
         # Two 2:1 splits = 4:1 total
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 4,
-            "date": ["2024-01-01", "2024-01-10", "2024-01-20", "2024-01-30"],
-            "open": [800.0, 400.0, 200.0, 210.0],
-            "high": [820.0, 420.0, 220.0, 230.0],
-            "low": [780.0, 380.0, 180.0, 190.0],
-            "close": [800.0, 400.0, 200.0, 210.0],
-            "volume": [1_000_000, 2_000_000, 4_000_000, 4_200_000]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 4,
+                "date": ["2024-01-01", "2024-01-10", "2024-01-20", "2024-01-30"],
+                "open": [800.0, 400.0, 200.0, 210.0],
+                "high": [820.0, 420.0, 220.0, 230.0],
+                "low": [780.0, 380.0, 180.0, 190.0],
+                "close": [800.0, 400.0, 200.0, 210.0],
+                "volume": [1_000_000, 2_000_000, 4_000_000, 4_200_000],
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": ["AAPL", "AAPL"],
-            "date": ["2024-01-10", "2024-01-20"],
-            "split_ratio": [2.0, 2.0]
-        })
+        ca = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL"],
+                "date": ["2024-01-10", "2024-01-20"],
+                "split_ratio": [2.0, 2.0],
+            }
+        )
 
         adjusted = adjust_for_splits(df, ca)
 
@@ -111,17 +117,15 @@ class TestAdjustForSplits:
 
     def test_missing_columns_raises_error(self):
         """Missing required columns should raise ValueError."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-10"]
-            # Missing OHLCV columns
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": ["2024-01-10"],
+                # Missing OHLCV columns
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-10"],
-            "split_ratio": [4.0]
-        })
+        ca = pl.DataFrame({"symbol": ["AAPL"], "date": ["2024-01-10"], "split_ratio": [4.0]})
 
         with pytest.raises(ValueError) as exc_info:
             adjust_for_splits(df, ca)
@@ -131,21 +135,21 @@ class TestAdjustForSplits:
     def test_reverse_split(self):
         """Reverse split (ratio < 1.0) should increase prices, decrease volume."""
         # 1:4 reverse split (ratio = 0.25)
-        df = pl.DataFrame({
-            "symbol": ["AAPL", "AAPL"],
-            "date": ["2024-01-10", "2024-01-20"],
-            "open": [1.0, 4.0],
-            "high": [1.5, 4.5],
-            "low": [0.9, 3.9],
-            "close": [1.0, 4.0],
-            "volume": [4_000_000, 1_000_000]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL"],
+                "date": ["2024-01-10", "2024-01-20"],
+                "open": [1.0, 4.0],
+                "high": [1.5, 4.5],
+                "low": [0.9, 3.9],
+                "close": [1.0, 4.0],
+                "volume": [4_000_000, 1_000_000],
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-20"],
-            "split_ratio": [0.25]  # 1:4 reverse
-        })
+        ca = pl.DataFrame(
+            {"symbol": ["AAPL"], "date": ["2024-01-20"], "split_ratio": [0.25]}  # 1:4 reverse
+        )
 
         adjusted = adjust_for_splits(df, ca)
 
@@ -159,17 +163,15 @@ class TestAdjustForDividends:
 
     def test_simple_dividend_adjustment(self):
         """$2 dividend should subtract $2 from pre-dividend closes."""
-        df = pl.DataFrame({
-            "symbol": ["MSFT", "MSFT", "MSFT"],
-            "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
-            "close": [150.0, 148.0, 149.0]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["MSFT", "MSFT", "MSFT"],
+                "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
+                "close": [150.0, 148.0, 149.0],
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": ["MSFT"],
-            "date": ["2024-01-15"],
-            "dividend": [2.0]
-        })
+        ca = pl.DataFrame({"symbol": ["MSFT"], "date": ["2024-01-15"], "dividend": [2.0]})
 
         adjusted = adjust_for_dividends(df, ca)
 
@@ -186,17 +188,21 @@ class TestAdjustForDividends:
 
     def test_multiple_dividends_cumulative(self):
         """Multiple dividends should subtract cumulatively."""
-        df = pl.DataFrame({
-            "symbol": ["MSFT"] * 4,
-            "date": ["2024-01-01", "2024-01-10", "2024-01-20", "2024-01-30"],
-            "close": [150.0, 148.0, 146.0, 147.0]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["MSFT"] * 4,
+                "date": ["2024-01-01", "2024-01-10", "2024-01-20", "2024-01-30"],
+                "close": [150.0, 148.0, 146.0, 147.0],
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": ["MSFT", "MSFT"],
-            "date": ["2024-01-10", "2024-01-20"],
-            "dividend": [2.0, 2.0]  # Two $2 dividends
-        })
+        ca = pl.DataFrame(
+            {
+                "symbol": ["MSFT", "MSFT"],
+                "date": ["2024-01-10", "2024-01-20"],
+                "dividend": [2.0, 2.0],  # Two $2 dividends
+            }
+        )
 
         adjusted = adjust_for_dividends(df, ca)
 
@@ -214,17 +220,21 @@ class TestAdjustForDividends:
 
     def test_no_dividend_returns_unchanged(self):
         """Data with no dividends should return unchanged."""
-        df = pl.DataFrame({
-            "symbol": ["MSFT"] * 3,
-            "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
-            "close": [150.0, 148.0, 149.0]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["MSFT"] * 3,
+                "date": ["2024-01-10", "2024-01-15", "2024-01-20"],
+                "close": [150.0, 148.0, 149.0],
+            }
+        )
 
-        ca = pl.DataFrame({
-            "symbol": pl.Series([], dtype=pl.Utf8),
-            "date": pl.Series([], dtype=pl.Date),
-            "dividend": pl.Series([], dtype=pl.Float64)
-        })
+        ca = pl.DataFrame(
+            {
+                "symbol": pl.Series([], dtype=pl.Utf8),
+                "date": pl.Series([], dtype=pl.Date),
+                "dividend": pl.Series([], dtype=pl.Float64),
+            }
+        )
 
         adjusted = adjust_for_dividends(df, ca)
 
@@ -236,27 +246,21 @@ class TestAdjustPrices:
 
     def test_both_splits_and_dividends(self):
         """Should apply both splits and dividends correctly."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-01", "2024-01-10", "2024-01-20"],
-            "open": [400.0, 100.0, 105.0],
-            "high": [420.0, 110.0, 115.0],
-            "low": [390.0, 95.0, 100.0],
-            "close": [500.0, 125.0, 130.0],
-            "volume": [1_000_000, 4_000_000, 3_800_000]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-01", "2024-01-10", "2024-01-20"],
+                "open": [400.0, 100.0, 105.0],
+                "high": [420.0, 110.0, 115.0],
+                "low": [390.0, 95.0, 100.0],
+                "close": [500.0, 125.0, 130.0],
+                "volume": [1_000_000, 4_000_000, 3_800_000],
+            }
+        )
 
-        splits = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-10"],
-            "split_ratio": [4.0]
-        })
+        splits = pl.DataFrame({"symbol": ["AAPL"], "date": ["2024-01-10"], "split_ratio": [4.0]})
 
-        dividends = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-20"],
-            "dividend": [2.0]
-        })
+        dividends = pl.DataFrame({"symbol": ["AAPL"], "date": ["2024-01-20"], "dividend": [2.0]})
 
         adjusted = adjust_prices(df, splits_df=splits, dividends_df=dividends)
 
@@ -268,15 +272,17 @@ class TestAdjustPrices:
 
     def test_none_dataframes_returns_unchanged(self):
         """Should return original data if no CAs provided."""
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-01", "2024-01-10", "2024-01-20"],
-            "open": [100.0, 101.0, 102.0],
-            "high": [105.0, 106.0, 107.0],
-            "low": [95.0, 96.0, 97.0],
-            "close": [100.0, 101.0, 102.0],
-            "volume": [1_000_000, 1_100_000, 1_200_000]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-01", "2024-01-10", "2024-01-20"],
+                "open": [100.0, 101.0, 102.0],
+                "high": [105.0, 106.0, 107.0],
+                "low": [95.0, 96.0, 97.0],
+                "close": [100.0, 101.0, 102.0],
+                "volume": [1_000_000, 1_100_000, 1_200_000],
+            }
+        )
 
         adjusted = adjust_prices(df, splits_df=None, dividends_df=None)
 
@@ -292,21 +298,19 @@ class TestAdjustPrices:
         to raw unadjusted data.
         """
         # Test that adjusted data has correct values when applied to raw data
-        df = pl.DataFrame({
-            "symbol": ["AAPL"] * 3,
-            "date": ["2024-01-01", "2024-01-10", "2024-01-20"],
-            "open": [400.0, 100.0, 105.0],
-            "high": [420.0, 110.0, 115.0],
-            "low": [390.0, 95.0, 100.0],
-            "close": [500.0, 125.0, 130.0],
-            "volume": [1_000_000, 4_000_000, 3_800_000]
-        })
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 3,
+                "date": ["2024-01-01", "2024-01-10", "2024-01-20"],
+                "open": [400.0, 100.0, 105.0],
+                "high": [420.0, 110.0, 115.0],
+                "low": [390.0, 95.0, 100.0],
+                "close": [500.0, 125.0, 130.0],
+                "volume": [1_000_000, 4_000_000, 3_800_000],
+            }
+        )
 
-        splits = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": ["2024-01-10"],
-            "split_ratio": [4.0]
-        })
+        splits = pl.DataFrame({"symbol": ["AAPL"], "date": ["2024-01-10"], "split_ratio": [4.0]})
 
         adjusted = adjust_prices(df, splits_df=splits)
 

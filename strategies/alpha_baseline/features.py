@@ -13,16 +13,12 @@ Feature parity pattern ensures train-serve consistency.
 See /docs/CONCEPTS/alpha158-features.md for detailed explanation.
 """
 
-from datetime import date
-from typing import List, Optional
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import qlib
 from qlib.contrib.data.handler import Alpha158
-from qlib.data.dataset import DatasetH
-
-from strategies.alpha_baseline.data_loader import T1DataProvider
 
 
 def initialize_qlib_with_t1_data(data_dir: Path = Path("data/adjusted")) -> None:
@@ -51,11 +47,11 @@ def initialize_qlib_with_t1_data(data_dir: Path = Path("data/adjusted")) -> None
 
 
 def get_alpha158_features(
-    symbols: List[str],
+    symbols: list[str],
     start_date: str,
     end_date: str,
-    fit_start_date: Optional[str] = None,
-    fit_end_date: Optional[str] = None,
+    fit_start_date: str | None = None,
+    fit_end_date: str | None = None,
     data_dir: Path = Path("data/adjusted"),
 ) -> pd.DataFrame:
     """
@@ -118,13 +114,13 @@ def get_alpha158_features(
     )
 
     # Fetch features
+    # Qlib handler.fetch() returns Any, cast to pd.DataFrame for type safety
     features = handler.fetch(col_set="feature")
-
-    return features
+    return cast(pd.DataFrame, features)
 
 
 def get_labels(
-    symbols: List[str],
+    symbols: list[str],
     start_date: str,
     end_date: str,
     data_dir: Path = Path("data/adjusted"),
@@ -173,13 +169,13 @@ def get_labels(
     )
 
     # Fetch labels
+    # Qlib handler.fetch() returns Any, cast to pd.DataFrame for type safety
     labels = handler.fetch(col_set="label")
-
-    return labels
+    return cast(pd.DataFrame, labels)
 
 
 def compute_features_and_labels(
-    symbols: List[str],
+    symbols: list[str],
     train_start: str,
     train_end: str,
     valid_start: str,

@@ -8,16 +8,16 @@ Tests cover:
 - Health endpoint Redis status
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime
-from pathlib import Path
-import pandas as pd
-import numpy as np
+from unittest.mock import Mock, patch
 
-from apps.signal_service.signal_generator import SignalGenerator
+import numpy as np
+import pandas as pd
+import pytest
+
 from apps.signal_service.model_registry import ModelRegistry
-from libs.redis_client import FeatureCache, RedisClient
+from apps.signal_service.signal_generator import SignalGenerator
+from libs.redis_client import FeatureCache
 
 
 @pytest.fixture
@@ -35,10 +35,12 @@ def mock_model_registry():
 
     # Mock model - returns predictions matching input length
     model = Mock()
+
     def predict_side_effect(features):
         # Return predictions matching the number of samples
-        n_samples = features.shape[0] if hasattr(features, 'shape') else len(features)
+        n_samples = features.shape[0] if hasattr(features, "shape") else len(features)
         return np.random.randn(n_samples) * 0.02  # Random predictions ~2% std
+
     model.predict = Mock(side_effect=predict_side_effect)
     registry.current_model = model
 
@@ -65,7 +67,7 @@ def test_data_dir(tmp_path):
 class TestSignalGeneratorCaching:
     """Tests for SignalGenerator feature caching."""
 
-    @patch('apps.signal_service.signal_generator.get_mock_alpha158_features')
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
     def test_initialization_without_cache(self, mock_features, mock_model_registry, test_data_dir):
         """Test SignalGenerator initializes without feature cache."""
         generator = SignalGenerator(
@@ -80,8 +82,10 @@ class TestSignalGeneratorCaching:
         assert generator.top_n == 2
         assert generator.bottom_n == 2
 
-    @patch('apps.signal_service.signal_generator.get_mock_alpha158_features')
-    def test_initialization_with_cache(self, mock_features, mock_model_registry, test_data_dir, mock_feature_cache):
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
+    def test_initialization_with_cache(
+        self, mock_features, mock_model_registry, test_data_dir, mock_feature_cache
+    ):
         """Test SignalGenerator initializes with feature cache."""
         generator = SignalGenerator(
             model_registry=mock_model_registry,
@@ -95,26 +99,25 @@ class TestSignalGeneratorCaching:
         assert generator.top_n == 2
         assert generator.bottom_n == 2
 
-    @patch('apps.signal_service.signal_generator.get_mock_alpha158_features')
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
     def test_cache_miss_generates_and_caches_features(
-        self,
-        mock_get_features,
-        mock_model_registry,
-        test_data_dir,
-        mock_feature_cache
+        self, mock_get_features, mock_model_registry, test_data_dir, mock_feature_cache
     ):
         """Test cache miss generates features and caches them."""
         # Setup mock feature generation
         mock_features = pd.DataFrame(
             np.random.randn(5, 158),
-            index=pd.MultiIndex.from_tuples([
-                ("2024-01-15", "AAPL"),
-                ("2024-01-15", "MSFT"),
-                ("2024-01-15", "GOOGL"),
-                ("2024-01-15", "AMZN"),
-                ("2024-01-15", "TSLA"),
-            ], names=["datetime", "instrument"]),
-            columns=[f"feature_{i}" for i in range(158)]
+            index=pd.MultiIndex.from_tuples(
+                [
+                    ("2024-01-15", "AAPL"),
+                    ("2024-01-15", "MSFT"),
+                    ("2024-01-15", "GOOGL"),
+                    ("2024-01-15", "AMZN"),
+                    ("2024-01-15", "TSLA"),
+                ],
+                names=["datetime", "instrument"],
+            ),
+            columns=[f"feature_{i}" for i in range(158)],
         )
         mock_get_features.return_value = mock_features
 
@@ -131,8 +134,7 @@ class TestSignalGeneratorCaching:
         )
 
         signals = generator.generate_signals(
-            symbols=["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
-            as_of_date=datetime(2024, 1, 15)
+            symbols=["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"], as_of_date=datetime(2024, 1, 15)
         )
 
         # Verify features were generated
@@ -147,13 +149,9 @@ class TestSignalGeneratorCaching:
         assert "predicted_return" in signals.columns
         assert "target_weight" in signals.columns
 
-    @patch('apps.signal_service.signal_generator.get_mock_alpha158_features')
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
     def test_cache_hit_skips_feature_generation(
-        self,
-        mock_get_features,
-        mock_model_registry,
-        test_data_dir,
-        mock_feature_cache
+        self, mock_get_features, mock_model_registry, test_data_dir, mock_feature_cache
     ):
         """Test cache hit uses cached features without generation."""
         # Setup cached features
@@ -170,10 +168,7 @@ class TestSignalGeneratorCaching:
             feature_cache=mock_feature_cache,
         )
 
-        signals = generator.generate_signals(
-            symbols=["AAPL"],
-            as_of_date=datetime(2024, 1, 15)
-        )
+        signals = generator.generate_signals(symbols=["AAPL"], as_of_date=datetime(2024, 1, 15))
 
         # Verify features were NOT generated (cache hit)
         assert not mock_get_features.called
@@ -185,15 +180,12 @@ class TestSignalGeneratorCaching:
         assert len(signals) == 1
         assert signals.iloc[0]["symbol"] == "AAPL"
 
-    @patch('apps.signal_service.signal_generator.get_mock_alpha158_features')
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
     def test_mixed_cache_hits_and_misses(
-        self,
-        mock_get_features,
-        mock_model_registry,
-        test_data_dir,
-        mock_feature_cache
+        self, mock_get_features, mock_model_registry, test_data_dir, mock_feature_cache
     ):
         """Test mixed cache hits and misses."""
+
         # Setup: AAPL and MSFT cached, GOOGL not cached
         def get_side_effect(symbol, date):
             if symbol in ["AAPL", "MSFT"]:
@@ -205,10 +197,13 @@ class TestSignalGeneratorCaching:
         # Mock feature generation for cache misses
         mock_features = pd.DataFrame(
             np.random.randn(1, 158),
-            index=pd.MultiIndex.from_tuples([
-                ("2024-01-15", "GOOGL"),
-            ], names=["datetime", "instrument"]),
-            columns=[f"feature_{i}" for i in range(158)]
+            index=pd.MultiIndex.from_tuples(
+                [
+                    ("2024-01-15", "GOOGL"),
+                ],
+                names=["datetime", "instrument"],
+            ),
+            columns=[f"feature_{i}" for i in range(158)],
         )
         mock_get_features.return_value = mock_features
 
@@ -222,8 +217,7 @@ class TestSignalGeneratorCaching:
         )
 
         signals = generator.generate_signals(
-            symbols=["AAPL", "MSFT", "GOOGL"],
-            as_of_date=datetime(2024, 1, 15)
+            symbols=["AAPL", "MSFT", "GOOGL"], as_of_date=datetime(2024, 1, 15)
         )
 
         # Verify cache checked for all symbols
@@ -239,23 +233,23 @@ class TestSignalGeneratorCaching:
         # Verify signals returned for all symbols
         assert len(signals) == 3
 
-    @patch('apps.signal_service.signal_generator.get_mock_alpha158_features')
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
     def test_no_cache_generates_all_features(
-        self,
-        mock_get_features,
-        mock_model_registry,
-        test_data_dir
+        self, mock_get_features, mock_model_registry, test_data_dir
     ):
         """Test without cache, all features are generated."""
         # Mock feature generation
         mock_features = pd.DataFrame(
             np.random.randn(3, 158),
-            index=pd.MultiIndex.from_tuples([
-                ("2024-01-15", "AAPL"),
-                ("2024-01-15", "MSFT"),
-                ("2024-01-15", "GOOGL"),
-            ], names=["datetime", "instrument"]),
-            columns=[f"feature_{i}" for i in range(158)]
+            index=pd.MultiIndex.from_tuples(
+                [
+                    ("2024-01-15", "AAPL"),
+                    ("2024-01-15", "MSFT"),
+                    ("2024-01-15", "GOOGL"),
+                ],
+                names=["datetime", "instrument"],
+            ),
+            columns=[f"feature_{i}" for i in range(158)],
         )
         mock_get_features.return_value = mock_features
 
@@ -269,8 +263,7 @@ class TestSignalGeneratorCaching:
         )
 
         signals = generator.generate_signals(
-            symbols=["AAPL", "MSFT", "GOOGL"],
-            as_of_date=datetime(2024, 1, 15)
+            symbols=["AAPL", "MSFT", "GOOGL"], as_of_date=datetime(2024, 1, 15)
         )
 
         # Verify features generated for all symbols
@@ -295,7 +288,7 @@ class TestHealthEndpointRedisStatus:
             model_info={"strategy": "alpha_baseline", "version": "v1.0.0"},
             redis_status="disabled",
             feature_cache_enabled=False,
-            timestamp="2024-01-15T10:30:00Z"
+            timestamp="2024-01-15T10:30:00Z",
         )
 
         assert response.status == "healthy"
@@ -312,7 +305,7 @@ class TestHealthEndpointRedisStatus:
             model_info={"strategy": "alpha_baseline", "version": "v1.0.0"},
             redis_status="connected",
             feature_cache_enabled=True,
-            timestamp="2024-01-15T10:30:00Z"
+            timestamp="2024-01-15T10:30:00Z",
         )
 
         assert response.status == "healthy"
@@ -329,7 +322,7 @@ class TestHealthEndpointRedisStatus:
             model_info={"strategy": "alpha_baseline", "version": "v1.0.0"},
             redis_status="disconnected",
             feature_cache_enabled=False,
-            timestamp="2024-01-15T10:30:00Z"
+            timestamp="2024-01-15T10:30:00Z",
         )
 
         assert response.status == "healthy"
@@ -340,26 +333,26 @@ class TestHealthEndpointRedisStatus:
 class TestGracefulDegradation:
     """Tests for graceful degradation when Redis fails."""
 
-    @patch('apps.signal_service.signal_generator.get_mock_alpha158_features')
+    @patch("apps.signal_service.signal_generator.get_mock_alpha158_features")
     def test_cache_error_falls_back_to_generation(
-        self,
-        mock_get_features,
-        mock_model_registry,
-        test_data_dir,
-        mock_feature_cache
+        self, mock_get_features, mock_model_registry, test_data_dir, mock_feature_cache
     ):
         """Test cache error falls back to feature generation."""
         # Setup: cache.get raises exception
         from redis.exceptions import RedisError
+
         mock_feature_cache.get.side_effect = RedisError("Connection lost")
 
         # Mock feature generation
         mock_features = pd.DataFrame(
             np.random.randn(1, 158),
-            index=pd.MultiIndex.from_tuples([
-                ("2024-01-15", "AAPL"),
-            ], names=["datetime", "instrument"]),
-            columns=[f"feature_{i}" for i in range(158)]
+            index=pd.MultiIndex.from_tuples(
+                [
+                    ("2024-01-15", "AAPL"),
+                ],
+                names=["datetime", "instrument"],
+            ),
+            columns=[f"feature_{i}" for i in range(158)],
         )
         mock_get_features.return_value = mock_features
 
@@ -373,10 +366,7 @@ class TestGracefulDegradation:
         )
 
         # Should not raise exception (graceful degradation)
-        signals = generator.generate_signals(
-            symbols=["AAPL"],
-            as_of_date=datetime(2024, 1, 15)
-        )
+        signals = generator.generate_signals(symbols=["AAPL"], as_of_date=datetime(2024, 1, 15))
 
         # Verify features were generated (fallback)
         assert mock_get_features.called

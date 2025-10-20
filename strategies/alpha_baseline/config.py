@@ -9,7 +9,7 @@ See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any
 
 
 @dataclass
@@ -35,7 +35,7 @@ class DataConfig:
         ... )
     """
 
-    symbols: List[str] = field(default_factory=lambda: ["AAPL", "MSFT", "GOOGL"])
+    symbols: list[str] = field(default_factory=lambda: ["AAPL", "MSFT", "GOOGL"])
     data_dir: Path = Path("data/adjusted")
 
     # Data splits (default: 2020-2023 train, 2024 H1 valid, 2024 H2 test)
@@ -106,7 +106,7 @@ class ModelConfig:
     seed: int = 42  # Random seed for reproducibility
     num_threads: int = 4  # Number of threads
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert config to dictionary for LightGBM.
 
@@ -161,7 +161,7 @@ class TrainingConfig:
     save_best_only: bool = True
     model_dir: Path = Path("artifacts/models")
     experiment_name: str = "alpha_baseline"
-    run_name: Optional[str] = None  # Auto-generated if None
+    run_name: str | None = None  # Auto-generated if None
 
 
 @dataclass
@@ -191,7 +191,7 @@ class StrategyConfig:
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
     @classmethod
-    def from_dict(cls, config_dict: dict) -> "StrategyConfig":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "StrategyConfig":
         """
         Create StrategyConfig from dictionary.
 

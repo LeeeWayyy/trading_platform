@@ -8,12 +8,11 @@ Tests verify:
 - Format validation
 """
 
-import pytest
 from apps.execution_gateway.webhook_security import (
-    verify_webhook_signature,
-    generate_webhook_signature,
     extract_signature_from_header,
+    generate_webhook_signature,
     validate_signature_format,
+    verify_webhook_signature,
 )
 
 
@@ -71,7 +70,7 @@ class TestWebhookSignatureVerification:
 
     def test_empty_payload_fails(self):
         """Empty payload should fail verification."""
-        payload = b''
+        payload = b""
         secret = "my_webhook_secret"
         signature = "a" * 64
 
@@ -226,9 +225,9 @@ class TestValidateSignatureFormat:
 
     def test_non_string_type(self):
         """Non-string type should fail."""
-        assert validate_signature_format(123) is False
-        assert validate_signature_format(None) is False
-        assert validate_signature_format([]) is False
+        assert validate_signature_format(123) is False  # type: ignore[arg-type]
+        assert validate_signature_format(None) is False  # type: ignore[arg-type]
+        assert validate_signature_format([]) is False  # type: ignore[arg-type]
 
 
 class TestRoundTrip:
@@ -247,7 +246,7 @@ class TestRoundTrip:
 
     def test_round_trip_with_complex_payload(self):
         """Test with complex JSON payload."""
-        payload = b'''{
+        payload = b"""{
             "event": "fill",
             "order": {
                 "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -261,7 +260,7 @@ class TestRoundTrip:
                 "created_at": "2024-10-17T16:30:00Z"
             },
             "timestamp": "2024-10-17T16:30:05Z"
-        }'''
+        }"""
         secret = "webhook_secret"
 
         signature = generate_webhook_signature(payload, secret)
@@ -270,7 +269,7 @@ class TestRoundTrip:
 
     def test_round_trip_with_unicode(self):
         """Test with unicode characters in payload."""
-        payload = '{"symbol":"AAPL","note":"Test™"}'.encode('utf-8')
+        payload = '{"symbol":"AAPL","note":"Test™"}'.encode()
         secret = "webhook_secret"
 
         signature = generate_webhook_signature(payload, secret)

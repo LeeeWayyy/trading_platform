@@ -22,30 +22,30 @@ Prerequisites:
 See: docs/TESTING_SETUP.md for setup instructions
 """
 
+import logging
 import sys
 from pathlib import Path
-import logging
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import numpy as np
+
 from apps.signal_service.model_registry import ModelRegistry
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # Colors for terminal output
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+NC = "\033[0m"  # No Color
 
 
 def print_section(title):
@@ -162,7 +162,7 @@ def main():
             dummy_features = np.random.randn(5, num_features)
             predictions = model.predict(dummy_features)
 
-            print_success(f"Prediction successful")
+            print_success("Prediction successful")
             print_info(f"Input shape: {dummy_features.shape}")
             print_info(f"Output shape: {predictions.shape}")
             print_info(f"Sample predictions: {predictions[:3]}")
@@ -280,5 +280,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n{RED}Unexpected error: {e}{NC}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

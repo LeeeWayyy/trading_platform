@@ -99,13 +99,18 @@ git add <files>
 #    - Re-request review: "I've fixed the issues, please verify"
 #    - Repeat until approved
 
-# 5. Commit only when approved
+# 5. Verify all tests pass locally (REQUIRED before commit)
+make test    # Run pytest suite
+make lint    # Run mypy --strict and ruff
+# Only proceed if ALL tests pass (avoid CI back-and-forth)
+
+# 6. Commit only when zen-mcp approved AND tests pass
 git commit -m "Progressive commit message"
 
-# 6. Push regularly
+# 7. Push regularly
 git push -u origin feature/task-name
 
-# 7. Repeat every 30-60 min
+# 8. Repeat every 30-60 min
 ```
 
 **Before Creating PR (MANDATORY Deep Review):**
@@ -118,9 +123,6 @@ git push -u origin feature/task-name
 
 # Fix all HIGH/CRITICAL issues, then create PR
 gh pr create
-
-# Request GitHub App reviews (backup validation)
-gh pr comment <PR> --body "@codex @gemini-code-assist"
 ```
 
 **IMPORTANT:** See `/docs/STANDARDS/GIT_WORKFLOW.md` for:
@@ -457,6 +459,7 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 ## Anti-Patterns to Avoid
 
 - **No committing without zen-mcp review** — MANDATORY quality gate before every commit
+- **No committing without passing tests** — Run `make test && make lint` before every commit (avoid CI back-and-forth)
 - **No duplicate feature logic** — Share code between research/production
 - **No in-memory state** — Use DB for positions/orders/breakers
 - **No silent failures** — Always log and raise with context

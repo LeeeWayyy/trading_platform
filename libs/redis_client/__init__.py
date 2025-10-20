@@ -28,9 +28,9 @@ See Also:
 """
 
 from .client import RedisClient, RedisConnectionError
-from .feature_cache import FeatureCache
-from .events import SignalEvent, OrderEvent, PositionEvent
 from .event_publisher import EventPublisher
+from .events import OrderEvent, PositionEvent, SignalEvent
+from .feature_cache import FeatureCache
 from .keys import RedisKeys
 
 __all__ = [

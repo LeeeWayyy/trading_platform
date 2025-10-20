@@ -9,13 +9,13 @@ Tests cover:
 - Report generation
 """
 
-from pathlib import Path
-import tempfile
 import shutil
+import tempfile
+from pathlib import Path
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
 from strategies.alpha_baseline.backtest import PortfolioBacktest, evaluate_model
 
@@ -33,9 +33,7 @@ class TestPortfolioBacktest:
         symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
 
         # Create MultiIndex
-        index = pd.MultiIndex.from_product(
-            [dates, symbols], names=["date", "symbol"]
-        )
+        index = pd.MultiIndex.from_product([dates, symbols], names=["date", "symbol"])
 
         # Generate predictions and actual returns
         self.predictions = pd.Series(
@@ -258,8 +256,8 @@ class TestEvaluateModel:
     @pytest.mark.skip(reason="Requires trained model - integration test for Phase 6")
     def test_evaluate_model(self) -> None:
         """Evaluate trained model on test set."""
-        from strategies.alpha_baseline.train import BaselineTrainer
         from strategies.alpha_baseline.config import StrategyConfig
+        from strategies.alpha_baseline.train import BaselineTrainer
 
         # Train model
         config = StrategyConfig()

@@ -20,22 +20,19 @@ See Also:
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, cast
+
 import redis
 from redis.connection import ConnectionPool
-from redis.exceptions import ConnectionError, TimeoutError, RedisError
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type
-)
+from redis.exceptions import ConnectionError, RedisError, TimeoutError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
 
 class RedisConnectionError(Exception):
     """Raised when Redis connection fails."""
+
     pass
 
 
@@ -69,7 +66,7 @@ class RedisClient:
         host: str = "localhost",
         port: int = 6379,
         db: int = 0,
-        password: Optional[str] = None,
+        password: str | None = None,
         decode_responses: bool = True,
         max_connections: int = 10,
         socket_connect_timeout: int = 5,
@@ -127,9 +124,9 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         """
         Get value from Redis with retry logic.
 
@@ -148,7 +145,9 @@ class RedisClient:
             ...     features = json.loads(value)
         """
         try:
-            return self._client.get(key)
+            # Redis library returns Awaitable[Any] | Any, cast to expected type
+            result = self._client.get(key)
+            return cast(str | None, result)
         except RedisError as e:
             logger.error(f"Redis GET failed for key '{key}': {e}")
             raise
@@ -156,9 +155,9 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
-    def mget(self, keys: list[str]) -> list[Optional[str]]:
+    def mget(self, keys: list[str]) -> list[str | None]:
         """
         Get multiple values from Redis in a single round-trip.
 
@@ -193,7 +192,8 @@ class RedisClient:
             return []
 
         try:
-            return self._client.mget(keys)
+            result = self._client.mget(keys)
+            return cast(list[str | None], result)
         except RedisError as e:
             logger.error(f"Redis MGET failed for {len(keys)} keys: {e}")
             raise
@@ -201,9 +201,9 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
-    def set(self, key: str, value: str, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: str, ttl: int | None = None) -> None:
         """
         Set value in Redis with optional TTL and retry logic.
 
@@ -230,7 +230,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     def delete(self, key: str) -> int:
         """
@@ -250,7 +250,8 @@ class RedisClient:
             >>> assert deleted == 1
         """
         try:
-            return self._client.delete(key)
+            result = self._client.delete(key)
+            return cast(int, result)
         except RedisError as e:
             logger.error(f"Redis DELETE failed for key '{key}': {e}")
             raise
@@ -258,7 +259,7 @@ class RedisClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     def publish(self, channel: str, message: str) -> int:
         """
@@ -278,12 +279,13 @@ class RedisClient:
             >>> client.publish("signals.generated", '{"symbol": "AAPL"}')
         """
         try:
-            return self._client.publish(channel, message)
+            result = self._client.publish(channel, message)
+            return cast(int, result)
         except RedisError as e:
             logger.error(f"Redis PUBLISH failed for channel '{channel}': {e}")
             raise
 
-    def pubsub(self):
+    def pubsub(self) -> Any:
         """
         Create a pub/sub object for subscribing to channels.
 
@@ -297,7 +299,7 @@ class RedisClient:
             ...     if message['type'] == 'message':
             ...         print(message['data'])
         """
-        return self._client.pubsub()
+        return self._client.pubsub()  # type: ignore[no-untyped-call]
 
     def health_check(self) -> bool:
         """
@@ -319,7 +321,7 @@ class RedisClient:
             logger.warning(f"Redis health check failed: {e}")
             return False
 
-    def get_info(self) -> Dict[str, Any]:
+    def get_info(self) -> dict[str, Any]:
         """
         Get Redis server information.
 
@@ -334,12 +336,13 @@ class RedisClient:
             >>> print(f"Used memory: {info.get('used_memory_human')}")
         """
         try:
-            return self._client.info()
+            result = self._client.info()
+            return cast(dict[str, Any], result)
         except RedisError as e:
             logger.error(f"Redis INFO failed: {e}")
             raise
 
-    def close(self):
+    def close(self) -> None:
         """
         Close connection pool and release resources.
 
@@ -351,14 +354,14 @@ class RedisClient:
         logger.info("Closing Redis connection pool")
         self.pool.disconnect()
 
-    def __enter__(self):
+    def __enter__(self) -> "RedisClient":
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         self.close()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """String representation."""
         return f"RedisClient(host={self.host}, port={self.port}, db={self.db})"

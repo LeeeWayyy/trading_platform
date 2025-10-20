@@ -13,19 +13,18 @@ For now, they serve as documentation of expected behavior.
 Full integration tests will be added in Phase 6.
 """
 
-from datetime import date
-from pathlib import Path
-import tempfile
 import shutil
+import tempfile
+from pathlib import Path
 
-import pytest
 import pandas as pd
+import pytest
 
 from strategies.alpha_baseline.features import (
-    initialize_qlib_with_t1_data,
+    compute_features_and_labels,
     get_alpha158_features,
     get_labels,
-    compute_features_and_labels,
+    initialize_qlib_with_t1_data,
 )
 
 
@@ -162,10 +161,10 @@ class TestAlpha158Features:
         """Module imports work correctly."""
         # This test always passes - just verifies imports
         from strategies.alpha_baseline.features import (
-            initialize_qlib_with_t1_data,
+            compute_features_and_labels,
             get_alpha158_features,
             get_labels,
-            compute_features_and_labels,
+            initialize_qlib_with_t1_data,
         )
 
         assert callable(initialize_qlib_with_t1_data)

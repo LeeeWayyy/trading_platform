@@ -23,16 +23,15 @@ Usage:
 """
 
 import sys
-import time
+
 import requests
-from datetime import datetime
 
 # Colors
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+NC = "\033[0m"
 
 
 def print_section(title):
@@ -104,18 +103,9 @@ def main():
     print_section("Test 2: Submit Market Order (DRY_RUN)")
 
     try:
-        payload = {
-            "symbol": "AAPL",
-            "side": "buy",
-            "qty": 10,
-            "order_type": "market"
-        }
+        payload = {"symbol": "AAPL", "side": "buy", "qty": 10, "order_type": "market"}
 
-        response = requests.post(
-            f"{base_url}/api/v1/orders",
-            json=payload,
-            timeout=10
-        )
+        response = requests.post(f"{base_url}/api/v1/orders", json=payload, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -125,9 +115,9 @@ def main():
             print_info(f"Symbol: {data['symbol']} {data['side']} {data['qty']}")
 
             # Save client_order_id for later tests
-            client_order_id = data['client_order_id']
+            client_order_id = data["client_order_id"]
 
-            if data['status'] == 'dry_run':
+            if data["status"] == "dry_run":
                 print_success("DRY_RUN mode confirmed")
                 tests_passed += 1
             else:
@@ -151,17 +141,13 @@ def main():
 
     try:
         # Submit exact same order
-        response = requests.post(
-            f"{base_url}/api/v1/orders",
-            json=payload,
-            timeout=10
-        )
+        response = requests.post(f"{base_url}/api/v1/orders", json=payload, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
             print_success("Idempotent request handled correctly")
 
-            if data['client_order_id'] == client_order_id:
+            if data["client_order_id"] == client_order_id:
                 print_success(f"Same client_order_id returned: {client_order_id}")
                 tests_passed += 1
             else:
@@ -181,10 +167,7 @@ def main():
     print_section("Test 4: Query Order Status")
 
     try:
-        response = requests.get(
-            f"{base_url}/api/v1/orders/{client_order_id}",
-            timeout=5
-        )
+        response = requests.get(f"{base_url}/api/v1/orders/{client_order_id}", timeout=5)
 
         if response.status_code == 200:
             data = response.json()
@@ -214,14 +197,10 @@ def main():
             "side": "sell",
             "qty": 5,
             "order_type": "limit",
-            "limit_price": "300.50"
+            "limit_price": "300.50",
         }
 
-        response = requests.post(
-            f"{base_url}/api/v1/orders",
-            json=payload2,
-            timeout=10
-        )
+        response = requests.post(f"{base_url}/api/v1/orders", json=payload2, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -245,18 +224,15 @@ def main():
     print_section("Test 6: Get Positions")
 
     try:
-        response = requests.get(
-            f"{base_url}/api/v1/positions",
-            timeout=5
-        )
+        response = requests.get(f"{base_url}/api/v1/positions", timeout=5)
 
         if response.status_code == 200:
             data = response.json()
             print_success("Positions retrieved successfully")
             print_info(f"Total positions: {data['total_positions']}")
 
-            if data['positions']:
-                for pos in data['positions']:
+            if data["positions"]:
+                for pos in data["positions"]:
                     print_info(
                         f"  {pos['symbol']}: {pos['qty']} shares @ ${pos['avg_entry_price']}"
                     )
@@ -316,5 +292,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n{RED}Unexpected error: {e}{NC}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

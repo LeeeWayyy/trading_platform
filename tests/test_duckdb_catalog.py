@@ -15,12 +15,11 @@ Test data structure:
 - Creates temporary Parquet files for testing
 """
 
-import pytest
-import polars as pl
-import duckdb
-from pathlib import Path
 from datetime import date, timedelta
-import shutil
+
+import duckdb
+import polars as pl
+import pytest
 
 from libs.duckdb_catalog import (
     DuckDBCatalog,
@@ -62,15 +61,17 @@ def temp_data_dir(tmp_path):
 
         for symbol in symbols:
             # Create mock data for this symbol on this date
-            df = pl.DataFrame({
-                "symbol": [symbol],
-                "date": [current_date],
-                "open": [100.0 + day_offset],
-                "high": [105.0 + day_offset],
-                "low": [95.0 + day_offset],
-                "close": [100.0 + day_offset + (hash(symbol) % 10)],
-                "volume": [1000000 + day_offset * 10000],
-            })
+            df = pl.DataFrame(
+                {
+                    "symbol": [symbol],
+                    "date": [current_date],
+                    "open": [100.0 + day_offset],
+                    "high": [105.0 + day_offset],
+                    "low": [95.0 + day_offset],
+                    "close": [100.0 + day_offset + (hash(symbol) % 10)],
+                    "volume": [1000000 + day_offset * 10000],
+                }
+            )
 
             # Write to Parquet
             file_path = date_dir / f"{symbol}.parquet"
@@ -241,10 +242,12 @@ def test_filtered_query(temp_data_dir):
     catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
 
     # Filter to AAPL only
-    result = catalog.query("""
+    result = catalog.query(
+        """
         SELECT * FROM market_data
         WHERE symbol = 'AAPL'
-    """)
+    """
+    )
 
     assert len(result) == 30  # 30 days
     assert all(result["symbol"] == "AAPL")
@@ -257,7 +260,8 @@ def test_aggregation_query(temp_data_dir):
     catalog = DuckDBCatalog()
     catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
 
-    result = catalog.query("""
+    result = catalog.query(
+        """
         SELECT
             symbol,
             COUNT(*) AS n_days,
@@ -265,7 +269,8 @@ def test_aggregation_query(temp_data_dir):
         FROM market_data
         GROUP BY symbol
         ORDER BY symbol
-    """)
+    """
+    )
 
     assert len(result) == 3  # 3 symbols
     assert result["symbol"].to_list() == ["AAPL", "GOOGL", "MSFT"]
@@ -279,7 +284,8 @@ def test_window_function_query(temp_data_dir):
     catalog = DuckDBCatalog()
     catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
 
-    result = catalog.query("""
+    result = catalog.query(
+        """
         SELECT
             symbol,
             date,
@@ -292,7 +298,8 @@ def test_window_function_query(temp_data_dir):
         FROM market_data
         WHERE symbol = 'AAPL'
         ORDER BY date
-    """)
+    """
+    )
 
     assert len(result) == 30
     # First 4 rows should have partial averages
@@ -311,6 +318,7 @@ def test_query_return_pandas(temp_data_dir):
 
     # Check it's a Pandas DataFrame
     import pandas as pd
+
     assert isinstance(result, pd.DataFrame)
     assert len(result) == 5
 
@@ -412,11 +420,7 @@ def test_calculate_returns_with_dates(temp_data_dir):
     catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
 
     # Calculate returns for 5 days
-    result = calculate_returns(
-        catalog, "AAPL",
-        start_date="2024-01-01",
-        end_date="2024-01-05"
-    )
+    result = calculate_returns(catalog, "AAPL", start_date="2024-01-01", end_date="2024-01-05")
 
     assert len(result) == 5
 
@@ -499,10 +503,12 @@ def test_performance_filtered_query(temp_data_dir):
 
     # Measure filtered query time
     start = time.time()
-    result = catalog.query("""
+    result = catalog.query(
+        """
         SELECT * FROM market_data
         WHERE symbol = 'AAPL' AND date >= '2024-01-15'
-    """)
+    """
+    )
     elapsed = time.time() - start
 
     # Should return filtered rows
@@ -524,7 +530,8 @@ def test_performance_aggregation(temp_data_dir):
 
     # Measure aggregation time
     start = time.time()
-    result = catalog.query("""
+    result = catalog.query(
+        """
         SELECT
             symbol,
             COUNT(*) AS n_days,
@@ -533,7 +540,8 @@ def test_performance_aggregation(temp_data_dir):
             MIN(close) AS min_close
         FROM market_data
         GROUP BY symbol
-    """)
+    """
+    )
     elapsed = time.time() - start
 
     # Should return 3 rows (one per symbol)
@@ -556,10 +564,12 @@ def test_empty_query_result(temp_data_dir):
     catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
 
     # Query with impossible condition
-    result = catalog.query("""
+    result = catalog.query(
+        """
         SELECT * FROM market_data
         WHERE symbol = 'NONEXISTENT'
-    """)
+    """
+    )
 
     assert len(result) == 0
     assert isinstance(result, pl.DataFrame)
@@ -591,7 +601,9 @@ def test_read_only_parameter_validation():
     Security issue identified by: Gemini Code Assist
     Fix: Proactive error handling in __init__
     """
-    with pytest.raises(ValueError, match="In-memory DuckDB databases cannot be opened in read-only mode"):
+    with pytest.raises(
+        ValueError, match="In-memory DuckDB databases cannot be opened in read-only mode"
+    ):
         DuckDBCatalog(read_only=True)
 
 
@@ -715,17 +727,13 @@ def test_parameterized_query_support(temp_data_dir):
     catalog.register_table("market_data", str(temp_data_dir / "*" / "*.parquet"))
 
     # Test parameterized query with single parameter
-    result = catalog.query(
-        "SELECT * FROM market_data WHERE symbol = ?",
-        params=["AAPL"]
-    )
+    result = catalog.query("SELECT * FROM market_data WHERE symbol = ?", params=["AAPL"])
     assert len(result) == 30
     assert all(result["symbol"] == "AAPL")
 
     # Test parameterized query with multiple parameters
     result = catalog.query(
-        "SELECT * FROM market_data WHERE symbol = ? AND date >= ?",
-        params=["AAPL", "2024-01-15"]
+        "SELECT * FROM market_data WHERE symbol = ? AND date >= ?", params=["AAPL", "2024-01-15"]
     )
     assert len(result) > 0
     assert all(result["symbol"] == "AAPL")

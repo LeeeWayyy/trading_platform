@@ -18,7 +18,7 @@ See Also:
 """
 
 from pathlib import Path
-from typing import List
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
         - "alpha_v2" (future improved strategy)
     """
 
-    tradable_symbols: List[str] = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+    tradable_symbols: list[str] = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
     """
     List of tradable symbols for signal generation.
 

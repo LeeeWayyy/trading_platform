@@ -5,7 +5,6 @@ Tests the calculate_position_size utility function that converts
 target weights to executable order quantities.
 """
 
-import pytest
 from decimal import Decimal
 
 from apps.orchestrator.orchestrator import calculate_position_size
@@ -21,7 +20,7 @@ class TestPositionSizing:
             target_weight=0.333,
             capital=Decimal("100000"),
             price=Decimal("150.00"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 222
@@ -34,7 +33,7 @@ class TestPositionSizing:
             target_weight=-0.333,
             capital=Decimal("100000"),
             price=Decimal("150.00"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 222
@@ -48,7 +47,7 @@ class TestPositionSizing:
             target_weight=0.50,
             capital=Decimal("100000"),
             price=Decimal("100.00"),
-            max_position_size=Decimal("20000")
+            max_position_size=Decimal("20000"),
         )
 
         assert qty == 200
@@ -61,7 +60,7 @@ class TestPositionSizing:
             target_weight=0.10,
             capital=Decimal("100000"),
             price=Decimal("151.00"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 66
@@ -74,7 +73,7 @@ class TestPositionSizing:
             target_weight=0.0005,
             capital=Decimal("100000"),
             price=Decimal("100.00"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 0
@@ -86,7 +85,7 @@ class TestPositionSizing:
             target_weight=0.0,
             capital=Decimal("100000"),
             price=Decimal("150.00"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 0
@@ -100,7 +99,7 @@ class TestPositionSizing:
             target_weight=1.0,
             capital=Decimal("100000"),
             price=Decimal("100.00"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 500
@@ -113,7 +112,7 @@ class TestPositionSizing:
             target_weight=0.10,
             capital=Decimal("100000"),
             price=Decimal("500000.00"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 0
@@ -126,7 +125,7 @@ class TestPositionSizing:
             target_weight=0.10,
             capital=Decimal("100000"),
             price=Decimal("0.50"),
-            max_position_size=Decimal("50000")
+            max_position_size=Decimal("50000"),
         )
 
         assert qty == 20000
@@ -138,7 +137,7 @@ class TestPositionSizing:
             target_weight=0.123456,
             capital=Decimal("100000.00"),
             price=Decimal("123.45"),
-            max_position_size=Decimal("50000.00")
+            max_position_size=Decimal("50000.00"),
         )
 
         # 12.3456% of $100k = $12,345.60

@@ -11,59 +11,65 @@ See ADR-0005 for design rationale.
 """
 
 import logging
-from typing import Optional, Dict, Any
 from decimal import Decimal
+from typing import Any
 
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    RetryError
 )
 
 try:
-    from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import (
-        MarketOrderRequest,
-        LimitOrderRequest,
-        StopOrderRequest,
-        StopLimitOrderRequest
-    )
-    from alpaca.trading.enums import OrderSide, TimeInForce, OrderType
+    from alpaca.common.exceptions import APIError as AlpacaAPIError
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockLatestQuoteRequest
-    from alpaca.common.exceptions import APIError as AlpacaAPIError
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    from alpaca.trading.models import Order, TradeAccount
+    from alpaca.trading.requests import (
+        LimitOrderRequest,
+        MarketOrderRequest,
+        StopLimitOrderRequest,
+        StopOrderRequest,
+    )
+
     ALPACA_AVAILABLE = True
 except ImportError:
     ALPACA_AVAILABLE = False
-    TradingClient = None
-    StockHistoricalDataClient = None
-    AlpacaAPIError = Exception
+    TradingClient = None  # type: ignore[assignment,misc]
+    StockHistoricalDataClient = None  # type: ignore[assignment,misc]
+    AlpacaAPIError = Exception  # type: ignore[assignment,misc]
+    Order = None  # type: ignore[assignment,misc]
+    TradeAccount = None  # type: ignore[assignment,misc]
 
 from apps.execution_gateway.schemas import OrderRequest
-
 
 logger = logging.getLogger(__name__)
 
 
 class AlpacaClientError(Exception):
     """Base exception for Alpaca client errors."""
+
     pass
 
 
 class AlpacaConnectionError(AlpacaClientError):
     """Connection error to Alpaca API (retryable)."""
+
     pass
 
 
 class AlpacaValidationError(AlpacaClientError):
     """Validation error from Alpaca API (non-retryable)."""
+
     pass
 
 
 class AlpacaRejectionError(AlpacaClientError):
     """Order rejected by Alpaca (non-retryable)."""
+
     pass
 
 
@@ -101,7 +107,7 @@ class AlpacaExecutor:
         api_key: str,
         secret_key: str,
         base_url: str = "https://paper-api.alpaca.markets",
-        paper: bool = True
+        paper: bool = True,
     ):
         """
         Initialize Alpaca client.
@@ -116,9 +122,7 @@ class AlpacaExecutor:
             ImportError: If alpaca-py package is not installed
         """
         if not ALPACA_AVAILABLE:
-            raise ImportError(
-                "alpaca-py package is required. Install with: pip install alpaca-py"
-            )
+            raise ImportError("alpaca-py package is required. Install with: pip install alpaca-py")
 
         self.api_key = api_key
         self.secret_key = secret_key
@@ -126,17 +130,10 @@ class AlpacaExecutor:
         self.paper = paper
 
         # Initialize Alpaca trading client
-        self.client = TradingClient(
-            api_key=api_key,
-            secret_key=secret_key,
-            paper=paper
-        )
+        self.client = TradingClient(api_key=api_key, secret_key=secret_key, paper=paper)
 
         # Initialize Alpaca data client for market data
-        self.data_client = StockHistoricalDataClient(
-            api_key=api_key,
-            secret_key=secret_key
-        )
+        self.data_client = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
 
         logger.info(f"Initialized Alpaca client (paper={paper}, base_url={base_url})")
 
@@ -144,13 +141,9 @@ class AlpacaExecutor:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(AlpacaConnectionError),
-        reraise=True
+        reraise=True,
     )
-    def submit_order(
-        self,
-        order: OrderRequest,
-        client_order_id: str
-    ) -> Dict[str, Any]:
+    def submit_order(self, order: OrderRequest, client_order_id: str) -> dict[str, Any]:
         """
         Submit order to Alpaca with retry logic.
 
@@ -195,17 +188,26 @@ class AlpacaExecutor:
             )
             alpaca_order = self.client.submit_order(alpaca_request)
 
+            # Runtime type check for production safety (alpaca-py returns Order | dict[str, Any])
+            if not isinstance(alpaca_order, Order):
+                raise AlpacaClientError(
+                    f"Unexpected response type from Alpaca API: {type(alpaca_order).__name__}. "
+                    f"Expected Order object."
+                )
+
             # Convert to dict for consistent return type
             order_dict = {
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
                 "side": alpaca_order.side.value,
-                "qty": float(alpaca_order.qty),
+                "qty": float(alpaca_order.qty or 0),  # Handle None case (alpaca-py types qty as str|float|None)
                 "order_type": alpaca_order.order_type.value,
                 "status": alpaca_order.status.value,
                 "created_at": alpaca_order.created_at,
-                "limit_price": float(alpaca_order.limit_price) if alpaca_order.limit_price else None,
+                "limit_price": (
+                    float(alpaca_order.limit_price) if alpaca_order.limit_price else None
+                ),
                 "stop_price": float(alpaca_order.stop_price) if alpaca_order.stop_price else None,
             }
 
@@ -218,12 +220,10 @@ class AlpacaExecutor:
 
         except AlpacaAPIError as e:
             # Classify error and decide whether to retry
-            status_code = getattr(e, 'status_code', None)
+            status_code = getattr(e, "status_code", None)
             error_message = str(e)
 
-            logger.error(
-                f"Alpaca API error: status={status_code}, message={error_message}"
-            )
+            logger.error(f"Alpaca API error: status={status_code}, message={error_message}")
 
             if status_code == 400:
                 # Bad request - validation error (do not retry)
@@ -235,9 +235,7 @@ class AlpacaExecutor:
 
             else:
                 # Transient error - will retry
-                raise AlpacaConnectionError(
-                    f"Alpaca API connection error: {error_message}"
-                ) from e
+                raise AlpacaConnectionError(f"Alpaca API connection error: {error_message}") from e
 
         except Exception as e:
             # Unexpected error
@@ -245,10 +243,8 @@ class AlpacaExecutor:
             raise AlpacaClientError(f"Unexpected error: {e}") from e
 
     def _build_alpaca_request(
-        self,
-        order: OrderRequest,
-        client_order_id: str
-    ):
+        self, order: OrderRequest, client_order_id: str
+    ) -> MarketOrderRequest | LimitOrderRequest | StopOrderRequest | StopLimitOrderRequest:
         """
         Build Alpaca order request object based on order type.
 
@@ -281,7 +277,7 @@ class AlpacaExecutor:
                 qty=order.qty,
                 side=side,
                 time_in_force=time_in_force,
-                client_order_id=client_order_id
+                client_order_id=client_order_id,
             )
 
         elif order.order_type == "limit":
@@ -294,7 +290,7 @@ class AlpacaExecutor:
                 side=side,
                 time_in_force=time_in_force,
                 limit_price=float(order.limit_price),
-                client_order_id=client_order_id
+                client_order_id=client_order_id,
             )
 
         elif order.order_type == "stop":
@@ -307,7 +303,7 @@ class AlpacaExecutor:
                 side=side,
                 time_in_force=time_in_force,
                 stop_price=float(order.stop_price),
-                client_order_id=client_order_id
+                client_order_id=client_order_id,
             )
 
         elif order.order_type == "stop_limit":
@@ -323,13 +319,13 @@ class AlpacaExecutor:
                 time_in_force=time_in_force,
                 limit_price=float(order.limit_price),
                 stop_price=float(order.stop_price),
-                client_order_id=client_order_id
+                client_order_id=client_order_id,
             )
 
         else:
             raise ValueError(f"Unsupported order type: {order.order_type}")
 
-    def get_order_by_client_id(self, client_order_id: str) -> Optional[Dict[str, Any]]:
+    def get_order_by_client_id(self, client_order_id: str) -> dict[str, Any] | None:
         """
         Get order by client_order_id.
 
@@ -354,22 +350,31 @@ class AlpacaExecutor:
             if alpaca_order is None:
                 return None
 
+            # Runtime type check for production safety (alpaca-py returns Order | dict[str, Any])
+            if not isinstance(alpaca_order, Order):
+                raise AlpacaClientError(
+                    f"Unexpected response type from Alpaca API: {type(alpaca_order).__name__}. "
+                    f"Expected Order object."
+                )
+
             return {
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
                 "side": alpaca_order.side.value,
-                "qty": float(alpaca_order.qty),
+                "qty": float(alpaca_order.qty),  # type: ignore[arg-type]  # alpaca-py types qty as str|float|None
                 "order_type": alpaca_order.order_type.value,
                 "status": alpaca_order.status.value,
                 "filled_qty": float(alpaca_order.filled_qty or 0),
-                "filled_avg_price": float(alpaca_order.filled_avg_price) if alpaca_order.filled_avg_price else None,
+                "filled_avg_price": (
+                    float(alpaca_order.filled_avg_price) if alpaca_order.filled_avg_price else None
+                ),
                 "created_at": alpaca_order.created_at,
                 "updated_at": alpaca_order.updated_at,
             }
 
         except AlpacaAPIError as e:
-            if getattr(e, 'status_code', None) == 404:
+            if getattr(e, "status_code", None) == 404:
                 return None
             raise AlpacaConnectionError(f"Error fetching order: {e}") from e
 
@@ -393,7 +398,7 @@ class AlpacaExecutor:
             return True
 
         except AlpacaAPIError as e:
-            status_code = getattr(e, 'status_code', None)
+            status_code = getattr(e, "status_code", None)
 
             if status_code == 422:
                 raise AlpacaRejectionError(f"Order cannot be cancelled: {e}") from e
@@ -421,7 +426,7 @@ class AlpacaExecutor:
             logger.error(f"Alpaca connection check failed: {e}")
             return False
 
-    def get_account_info(self) -> Optional[Dict[str, Any]]:
+    def get_account_info(self) -> dict[str, Any] | None:
         """
         Get account information from Alpaca.
 
@@ -437,13 +442,21 @@ class AlpacaExecutor:
         try:
             account = self.client.get_account()
 
+            # Runtime type check for production safety (alpaca-py returns TradeAccount | dict[str, Any])
+            if not isinstance(account, TradeAccount):
+                logger.error(
+                    f"Unexpected response type from Alpaca API: {type(account).__name__}. "
+                    f"Expected TradeAccount object."
+                )
+                return None
+
             return {
                 "account_number": account.account_number,
                 "status": account.status.value,
                 "currency": account.currency,
-                "buying_power": float(account.buying_power),
-                "cash": float(account.cash),
-                "portfolio_value": float(account.portfolio_value),
+                "buying_power": float(account.buying_power),  # type: ignore[arg-type]
+                "cash": float(account.cash),  # type: ignore[arg-type]
+                "portfolio_value": float(account.portfolio_value),  # type: ignore[arg-type]
                 "pattern_day_trader": account.pattern_day_trader,
                 "trading_blocked": account.trading_blocked,
                 "transfers_blocked": account.transfers_blocked,
@@ -457,9 +470,9 @@ class AlpacaExecutor:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(AlpacaConnectionError),
-        reraise=True
+        reraise=True,
     )
-    def get_latest_quotes(self, symbols: list) -> Dict[str, Dict[str, Any]]:
+    def get_latest_quotes(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         """
         Fetch latest market quotes for multiple symbols.
 
@@ -516,11 +529,11 @@ class AlpacaExecutor:
                     quote = quotes_data[symbol]
 
                     # Use last trade price if available, otherwise mid-quote
-                    if hasattr(quote, 'ap') and hasattr(quote, 'bp'):
+                    if hasattr(quote, "ap") and hasattr(quote, "bp"):
                         ask_price = Decimal(str(quote.ap))
                         bid_price = Decimal(str(quote.bp))
                         # Mid-quote as fallback
-                        last_price = (ask_price + bid_price) / Decimal('2')
+                        last_price = (ask_price + bid_price) / Decimal("2")
                     else:
                         # Fallback if bid/ask not available
                         ask_price = None
@@ -528,10 +541,10 @@ class AlpacaExecutor:
                         last_price = None
 
                     result[symbol] = {
-                        'ask_price': ask_price,
-                        'bid_price': bid_price,
-                        'last_price': last_price,
-                        'timestamp': quote.timestamp if hasattr(quote, 'timestamp') else None
+                        "ask_price": ask_price,
+                        "bid_price": bid_price,
+                        "last_price": last_price,
+                        "timestamp": quote.timestamp if hasattr(quote, "timestamp") else None,
                     }
 
                     logger.debug(
@@ -547,12 +560,8 @@ class AlpacaExecutor:
         except AlpacaAPIError as e:
             error_message = str(e)
             logger.error(f"Alpaca API error fetching quotes: {error_message}")
-            raise AlpacaConnectionError(
-                f"Failed to fetch quotes: {error_message}"
-            ) from e
+            raise AlpacaConnectionError(f"Failed to fetch quotes: {error_message}") from e
 
         except Exception as e:
             logger.error(f"Unexpected error fetching quotes: {e}")
-            raise AlpacaConnectionError(
-                f"Unexpected error fetching quotes: {e}"
-            ) from e
+            raise AlpacaConnectionError(f"Unexpected error fetching quotes: {e}") from e

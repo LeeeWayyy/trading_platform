@@ -7,8 +7,9 @@ Tests what we can test without full Qlib data format:
 3. Backtesting with predictions
 """
 
-from pathlib import Path
 from datetime import date
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -72,7 +73,7 @@ print("\n" + "=" * 70)
 print("TEST 2: Configuration Management")
 print("=" * 70)
 
-from strategies.alpha_baseline.config import StrategyConfig, DataConfig, ModelConfig
+from strategies.alpha_baseline.config import DataConfig, ModelConfig, StrategyConfig
 
 config = StrategyConfig(
     data=DataConfig(
@@ -114,19 +115,15 @@ print("\nCreating mock predictions from test data...")
 
 # Use close prices to create returns
 test_df_reset = test_df.reset_index()
-returns = test_df_reset.groupby('symbol')['close'].pct_change()
+returns = test_df_reset.groupby("symbol")["close"].pct_change()
 returns = returns.fillna(0)  # Fill first day with 0
 
 # Create index matching original
 predictions = pd.Series(
-    returns.values + np.random.randn(len(returns)) * 0.001,  # Add small noise
-    index=test_df.index
+    returns.values + np.random.randn(len(returns)) * 0.001, index=test_df.index  # Add small noise
 )
 
-actual_returns = pd.Series(
-    returns.values,
-    index=test_df.index
-)
+actual_returns = pd.Series(returns.values, index=test_df.index)
 
 print(f"✓ Predictions shape: {predictions.shape}")
 print(f"✓ Actual returns shape: {actual_returns.shape}")
@@ -142,16 +139,26 @@ backtest = PortfolioBacktest(
 
 metrics = backtest.run()
 
-print(f"\n✓ Portfolio returns computed: {len(backtest.portfolio_returns) if backtest.portfolio_returns is not None else 0} days")
+print(
+    f"\n✓ Portfolio returns computed: {len(backtest.portfolio_returns) if backtest.portfolio_returns is not None else 0} days"
+)
 
 if len(metrics) > 0:
-    print(f"✓ Cumulative returns computed")
+    print("✓ Cumulative returns computed")
     print(f"✓ Metrics computed: {len(metrics)} metrics")
 
     print("\nBacktest metrics:")
     for name, value in metrics.items():
         if isinstance(value, (int, float)):
-            if name in ['total_return', 'annualized_return', 'volatility', 'max_drawdown', 'win_rate', 'avg_win', 'avg_loss']:
+            if name in [
+                "total_return",
+                "annualized_return",
+                "volatility",
+                "max_drawdown",
+                "win_rate",
+                "avg_win",
+                "avg_loss",
+            ]:
                 print(f"  {name}: {value*100:.2f}%")
             else:
                 print(f"  {name}: {value:.4f}")
@@ -159,10 +166,10 @@ if len(metrics) > 0:
             print(f"  {name}: {value}")
 
     # Verify key metrics exist
-    assert 'sharpe_ratio' in metrics
-    assert 'max_drawdown' in metrics
-    assert 'win_rate' in metrics
-    assert metrics['n_days'] > 0
+    assert "sharpe_ratio" in metrics
+    assert "max_drawdown" in metrics
+    assert "win_rate" in metrics
+    assert metrics["n_days"] > 0
 else:
     print("\n⚠ Warning: Backtest returned no metrics (not enough data for strategy)")
     print("  This is expected with limited symbol count and MultiIndex data")
@@ -188,6 +195,7 @@ from sklearn.metrics import mean_absolute_error
 
 print("\nCreating mock features for training...")
 
+
 # Create simple features from OHLCV
 def create_mock_features(df):
     """Create simple features from OHLCV data."""
@@ -195,41 +203,47 @@ def create_mock_features(df):
 
     features_list = []
 
-    for symbol in df_reset['symbol'].unique():
-        symbol_df = df_reset[df_reset['symbol'] == symbol].copy()
+    for symbol in df_reset["symbol"].unique():
+        symbol_df = df_reset[df_reset["symbol"] == symbol].copy()
 
         # Simple features
-        symbol_df['return_1d'] = symbol_df['close'].pct_change(1)
-        symbol_df['return_5d'] = symbol_df['close'].pct_change(5)
-        symbol_df['return_10d'] = symbol_df['close'].pct_change(10)
-        symbol_df['volatility_5d'] = symbol_df['return_1d'].rolling(5).std()
-        symbol_df['volatility_10d'] = symbol_df['return_1d'].rolling(10).std()
-        symbol_df['volume_change'] = symbol_df['volume'].pct_change(1)
+        symbol_df["return_1d"] = symbol_df["close"].pct_change(1)
+        symbol_df["return_5d"] = symbol_df["close"].pct_change(5)
+        symbol_df["return_10d"] = symbol_df["close"].pct_change(10)
+        symbol_df["volatility_5d"] = symbol_df["return_1d"].rolling(5).std()
+        symbol_df["volatility_10d"] = symbol_df["return_1d"].rolling(10).std()
+        symbol_df["volume_change"] = symbol_df["volume"].pct_change(1)
 
         # Price ratios
-        symbol_df['high_low_ratio'] = symbol_df['high'] / symbol_df['low']
-        symbol_df['close_open_ratio'] = symbol_df['close'] / symbol_df['open']
+        symbol_df["high_low_ratio"] = symbol_df["high"] / symbol_df["low"]
+        symbol_df["close_open_ratio"] = symbol_df["close"] / symbol_df["open"]
 
         features_list.append(symbol_df)
 
     combined = pd.concat(features_list, ignore_index=True)
-    combined = combined.set_index(['date', 'symbol'])
+    combined = combined.set_index(["date", "symbol"])
 
     # Select feature columns only
     feature_cols = [
-        'return_1d', 'return_5d', 'return_10d',
-        'volatility_5d', 'volatility_10d', 'volume_change',
-        'high_low_ratio', 'close_open_ratio'
+        "return_1d",
+        "return_5d",
+        "return_10d",
+        "volatility_5d",
+        "volatility_10d",
+        "volume_change",
+        "high_low_ratio",
+        "close_open_ratio",
     ]
 
     return combined[feature_cols].fillna(0)
+
 
 X_train = create_mock_features(train_df)
 X_valid = create_mock_features(valid_df)
 
 # Create labels (next-day returns)
-y_train = train_df.groupby('symbol')['close'].pct_change(1).shift(-1).fillna(0)
-y_valid = valid_df.groupby('symbol')['close'].pct_change(1).shift(-1).fillna(0)
+y_train = train_df.groupby("symbol")["close"].pct_change(1).shift(-1).fillna(0)
+y_valid = valid_df.groupby("symbol")["close"].pct_change(1).shift(-1).fillna(0)
 
 print(f"✓ X_train shape: {X_train.shape}")
 print(f"✓ X_valid shape: {X_valid.shape}")
@@ -243,12 +257,12 @@ train_data = lgb.Dataset(X_train, label=y_train)
 valid_data = lgb.Dataset(X_valid, label=y_valid, reference=train_data)
 
 params = {
-    'objective': 'regression',
-    'metric': 'mae',
-    'num_boost_round': 10,
-    'learning_rate': 0.05,
-    'max_depth': 4,
-    'verbose': -1,
+    "objective": "regression",
+    "metric": "mae",
+    "num_boost_round": 10,
+    "learning_rate": 0.05,
+    "max_depth": 4,
+    "verbose": -1,
 }
 
 model = lgb.train(
@@ -256,7 +270,7 @@ model = lgb.train(
     train_data,
     num_boost_round=10,
     valid_sets=[train_data, valid_data],
-    valid_names=['train', 'valid'],
+    valid_names=["train", "valid"],
 )
 
 print(f"✓ Model trained: {model.num_trees()} trees")

@@ -27,20 +27,19 @@ See: docs/TESTING_SETUP.md for setup instructions
 
 import sys
 from pathlib import Path
-import time
+
 import requests
-from datetime import datetime
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Colors
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+NC = "\033[0m"
 
 
 def print_section(title):
@@ -131,8 +130,10 @@ def main():
             print_info(f"Status: {data['status']}")
             print_info(f"Model loaded: {data['model_loaded']}")
 
-            if data.get('model_info'):
-                print_info(f"Model: {data['model_info'].get('strategy')} {data['model_info'].get('version')}")
+            if data.get("model_info"):
+                print_info(
+                    f"Model: {data['model_info'].get('strategy')} {data['model_info'].get('version')}"
+                )
 
             tests_passed += 1
         else:
@@ -160,9 +161,9 @@ def main():
             print_info(f"Version: {data.get('version')}")
             print_info(f"Status: {data.get('status')}")
 
-            if data.get('performance_metrics'):
+            if data.get("performance_metrics"):
                 print_info("Performance metrics:")
-                for key, value in list(data['performance_metrics'].items())[:3]:
+                for key, value in list(data["performance_metrics"].items())[:3]:
                     print_info(f"  - {key}: {value}")
 
             tests_passed += 1
@@ -210,12 +211,14 @@ def main():
             print_info(f"As of date: {metadata.get('as_of_date')}")
 
             # Display first few signals
-            print(f"\nFirst 3 signals:")
+            print("\nFirst 3 signals:")
             for signal in signals[:3]:
-                print(f"  {signal['symbol']}: "
-                      f"return={signal['predicted_return']:.4f}, "
-                      f"rank={signal['rank']}, "
-                      f"weight={signal['target_weight']:.4f}")
+                print(
+                    f"  {signal['symbol']}: "
+                    f"return={signal['predicted_return']:.4f}, "
+                    f"rank={signal['rank']}, "
+                    f"weight={signal['target_weight']:.4f}"
+                )
 
             tests_passed += 1
         else:
@@ -226,6 +229,7 @@ def main():
     except Exception as e:
         print_error(f"Signal generation error: {e}")
         import traceback
+
         traceback.print_exc()
         tests_failed += 1
 
@@ -414,5 +418,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n{RED}Unexpected error: {e}{NC}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

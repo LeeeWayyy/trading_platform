@@ -1,11 +1,12 @@
 """Tests for circuit breaker state machine."""
 
 import json
-import pytest
 import time
-from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from unittest.mock import MagicMock
 
+import pytest
 import redis.exceptions
 
 from libs.risk_management.breaker import (
@@ -19,20 +20,19 @@ from libs.risk_management.exceptions import CircuitBreakerError
 class MockPipeline:
     """Mock Redis pipeline for WATCH/MULTI/EXEC transactions."""
 
-    def __init__(self, state, sorted_sets):
+    def __init__(self, state: dict[Any, Any], sorted_sets: dict[Any, Any]) -> None:
         self.state = state
         self.sorted_sets = sorted_sets
-        self.watched_keys = {}
-        self.commands = []
+        self.watched_keys: dict[Any, Any] = {}
+        self.commands: list[Any] = []
         self.is_transaction = False
 
-    def __enter__(self):
+    def __enter__(self) -> "MockPipeline":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.watched_keys.clear()
         self.commands.clear()
-        return False
 
     def watch(self, *keys):
         """Watch keys for changes."""
@@ -77,7 +77,7 @@ class MockPipeline:
                 raise redis.exceptions.WatchError("Watched key modified")
 
         # Execute all queued commands
-        results = []
+        results: list[Any] = []
         for cmd in self.commands:
             if cmd[0] == "set":
                 _, key, value = cmd
@@ -122,7 +122,7 @@ def mock_redis():
         """Mock zrange operation (get members by rank)."""
         zset = redis._sorted_sets.get(key, [])
         sorted_zset = sorted(zset, key=lambda x: x[0])  # Sort by score
-        result = sorted_zset[start:end+1 if end >= 0 else None]
+        result = sorted_zset[start : end + 1 if end >= 0 else None]
         if withscores:
             return result
         return [member for score, member in result]
@@ -137,12 +137,12 @@ def mock_redis():
         if stop < 0:
             # Negative indices count from end
             stop = len(sorted_zset) + stop
-        to_remove = sorted_zset[start:stop+1]
+        to_remove = sorted_zset[start : stop + 1]
         for item in to_remove:
             zset.remove(item)
         return len(to_remove)
 
-    def mock_pipeline():
+    def mock_pipeline() -> MockPipeline:
         """Create a mock pipeline."""
         return MockPipeline(redis._state, redis._sorted_sets)
 
@@ -171,7 +171,7 @@ class TestCircuitBreakerInitialization:
 
     def test_initialization_creates_default_state(self, mock_redis):
         """Test initialization creates OPEN state in Redis."""
-        breaker = CircuitBreaker(redis_client=mock_redis)
+        CircuitBreaker(redis_client=mock_redis)
 
         # Verify state created in Redis
         state_json = mock_redis.get("circuit_breaker:state")
@@ -198,7 +198,7 @@ class TestCircuitBreakerInitialization:
         mock_redis._state["circuit_breaker:state"] = json.dumps(existing_state)
 
         # Initialize breaker
-        breaker = CircuitBreaker(redis_client=mock_redis)
+        CircuitBreaker(redis_client=mock_redis)
 
         # Verify state unchanged
         state_json = mock_redis.get("circuit_breaker:state")
@@ -280,7 +280,6 @@ class TestCircuitBreakerTrip:
     def test_trip_idempotent_when_already_tripped(self, breaker):
         """Test trip() is idempotent (safe to call when already TRIPPED)."""
         breaker.trip("FIRST_REASON")
-        initial_status = breaker.get_status()
 
         # Trip again (should be no-op)
         breaker.trip("SECOND_REASON")
@@ -366,7 +365,7 @@ class TestCircuitBreakerQuietPeriod:
         # Manually expire quiet period by modifying reset_at timestamp
         state_json = mock_redis.get("circuit_breaker:state")
         state = json.loads(state_json)
-        old_reset_time = datetime.now(timezone.utc) - timedelta(seconds=301)  # 1 second past duration
+        old_reset_time = datetime.now(UTC) - timedelta(seconds=301)  # 1 second past duration
         state["reset_at"] = old_reset_time.isoformat()
         mock_redis.set("circuit_breaker:state", json.dumps(state))
 
@@ -391,7 +390,7 @@ class TestCircuitBreakerQuietPeriod:
         # Force transition to OPEN
         state_json = mock_redis.get("circuit_breaker:state")
         state = json.loads(state_json)
-        old_reset_time = datetime.now(timezone.utc) - timedelta(seconds=301)
+        old_reset_time = datetime.now(UTC) - timedelta(seconds=301)
         state["reset_at"] = old_reset_time.isoformat()
         mock_redis.set("circuit_breaker:state", json.dumps(state))
 

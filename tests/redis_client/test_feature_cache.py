@@ -11,9 +11,10 @@ Tests cover:
 - Statistics
 """
 
-import pytest
 import json
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
+
+import pytest
 from redis.exceptions import RedisError
 
 from libs.redis_client.feature_cache import FeatureCache
@@ -125,7 +126,7 @@ class TestFeatureCacheGet:
             "feature_1": 0.123456,
             "feature_2": -0.987654,
             "feature_3": 0.0,
-            "metadata": {"count": 100}
+            "metadata": {"count": 100},
         }
         mock_redis.get.return_value = json.dumps(features_dict)
 
@@ -153,9 +154,7 @@ class TestFeatureCacheSet:
 
         assert result is True
         mock_redis.set.assert_called_once_with(
-            "features:AAPL:2025-01-17",
-            json.dumps(features),
-            ttl=3600
+            "features:AAPL:2025-01-17", json.dumps(features), ttl=3600
         )
 
     def test_set_with_custom_ttl(self, mock_cache):
@@ -266,7 +265,7 @@ class TestFeatureCacheStatistics:
             "keyspace_hits": 1000,
             "keyspace_misses": 200,
             "used_memory_human": "1.5M",
-            "connected_clients": 5
+            "connected_clients": 5,
         }
         mock_redis.get_info.return_value = mock_info
 

@@ -2,7 +2,7 @@
 Tests for market data type definitions.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -22,7 +22,7 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             exchange="NASDAQ",
         )
 
@@ -39,7 +39,8 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
+            exchange="NASDAQ",
         )
 
         assert quote.mid_price == Decimal("150.05")
@@ -52,7 +53,8 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
+            exchange="NASDAQ",
         )
 
         assert quote.spread == Decimal("0.10")
@@ -65,7 +67,8 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
+            exchange="NASDAQ",
         )
 
         # 0.10 / 150.05 * 10000 = 6.665... bps
@@ -80,7 +83,8 @@ class TestQuoteData:
                 ask_price=Decimal("150.00"),  # Ask < Bid (invalid)
                 bid_size=100,
                 ask_size=200,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
+                exchange="NASDAQ",
             )
 
         errors = exc_info.value.errors()
@@ -95,7 +99,8 @@ class TestQuoteData:
                 ask_price=Decimal("150.10"),
                 bid_size=100,
                 ask_size=200,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
+                exchange="NASDAQ",
             )
 
     def test_negative_size_validation(self):
@@ -107,7 +112,8 @@ class TestQuoteData:
                 ask_price=Decimal("150.10"),
                 bid_size=-100,  # Negative (invalid)
                 ask_size=200,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
+                exchange="NASDAQ",
             )
 
 
@@ -116,7 +122,7 @@ class TestPriceData:
 
     def test_from_quote(self):
         """Test creating PriceData from QuoteData."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         quote = QuoteData(
             symbol="AAPL",
             bid_price=Decimal("150.00"),
@@ -162,7 +168,7 @@ class TestPriceUpdateEvent:
 
     def test_from_quote(self):
         """Test creating PriceUpdateEvent from QuoteData."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         quote = QuoteData(
             symbol="AAPL",
             bid_price=Decimal("150.00"),
@@ -170,6 +176,7 @@ class TestPriceUpdateEvent:
             bid_size=100,
             ask_size=200,
             timestamp=timestamp,
+            exchange="NASDAQ",
         )
 
         event = PriceUpdateEvent.from_quote(quote)

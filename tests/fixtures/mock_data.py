@@ -7,7 +7,8 @@ characteristics (splits, dividends, outliers) for validating pipeline behavior.
 All data is synthetic and designed to test specific edge cases.
 """
 
-from datetime import datetime, date, timezone, timedelta
+from datetime import UTC, date, datetime, timedelta
+
 import polars as pl
 
 
@@ -16,7 +17,7 @@ def create_normal_ohlcv(
     start_date: date = date(2024, 1, 1),
     num_days: int = 10,
     base_price: float = 150.0,
-    volatility: float = 0.02
+    volatility: float = 0.02,
 ) -> pl.DataFrame:
     """
     Create normal OHLCV data with small daily variations.
@@ -66,19 +67,21 @@ def create_normal_ohlcv(
 
         # Timestamp: market close at 4:00 PM ET
         timestamp = datetime.combine(d, datetime.min.time()).replace(
-            hour=20, minute=0, tzinfo=timezone.utc  # 4 PM ET = 8 PM UTC (winter)
+            hour=20, minute=0, tzinfo=UTC  # 4 PM ET = 8 PM UTC (winter)
         )
 
-        data.append({
-            "symbol": symbol,
-            "date": d,
-            "open": round(open_price, 2),
-            "high": round(high, 2),
-            "low": round(low, 2),
-            "close": round(close, 2),
-            "volume": volume,
-            "timestamp": timestamp
-        })
+        data.append(
+            {
+                "symbol": symbol,
+                "date": d,
+                "open": round(open_price, 2),
+                "high": round(high, 2),
+                "low": round(low, 2),
+                "close": round(close, 2),
+                "volume": volume,
+                "timestamp": timestamp,
+            }
+        )
 
     return pl.DataFrame(data)
 
@@ -89,7 +92,7 @@ def create_data_with_split(
     split_ratio: float = 4.0,
     days_before: int = 10,
     days_after: int = 10,
-    pre_split_price: float = 500.0
+    pre_split_price: float = 500.0,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
     Create OHLCV data with a stock split.
@@ -123,7 +126,7 @@ def create_data_with_split(
         start_date=pre_split_start,
         num_days=days_before,
         base_price=pre_split_price,
-        volatility=0.01
+        volatility=0.01,
     )
 
     # Post-split data (lower prices, higher volume)
@@ -133,7 +136,7 @@ def create_data_with_split(
         start_date=split_date,
         num_days=days_after,
         base_price=post_split_price,
-        volatility=0.01
+        volatility=0.01,
     )
 
     # Adjust post-split volume (multiply by split ratio)
@@ -145,11 +148,9 @@ def create_data_with_split(
     raw_data = pl.concat([pre_split_df, post_split_df]).sort("date")
 
     # Create splits DataFrame
-    splits_df = pl.DataFrame({
-        "symbol": [symbol],
-        "date": [split_date],
-        "split_ratio": [split_ratio]
-    })
+    splits_df = pl.DataFrame(
+        {"symbol": [symbol], "date": [split_date], "split_ratio": [split_ratio]}
+    )
 
     return (raw_data, splits_df)
 
@@ -160,7 +161,7 @@ def create_data_with_dividend(
     dividend_amount: float = 2.0,
     days_before: int = 10,
     days_after: int = 10,
-    base_price: float = 150.0
+    base_price: float = 150.0,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
     Create OHLCV data with a dividend payment.
@@ -194,7 +195,7 @@ def create_data_with_dividend(
         start_date=pre_div_start,
         num_days=days_before,
         base_price=base_price,
-        volatility=0.01
+        volatility=0.01,
     )
 
     # Post-dividend data (price drops by dividend amount)
@@ -204,18 +205,16 @@ def create_data_with_dividend(
         start_date=ex_date,
         num_days=days_after,
         base_price=post_div_price,
-        volatility=0.01
+        volatility=0.01,
     )
 
     # Combine
     raw_data = pl.concat([pre_div_df, post_div_df]).sort("date")
 
     # Create dividends DataFrame
-    dividends_df = pl.DataFrame({
-        "symbol": [symbol],
-        "date": [ex_date],
-        "dividend": [dividend_amount]
-    })
+    dividends_df = pl.DataFrame(
+        {"symbol": [symbol], "date": [ex_date], "dividend": [dividend_amount]}
+    )
 
     return (raw_data, dividends_df)
 
@@ -226,7 +225,7 @@ def create_data_with_outlier(
     outlier_return: float = 0.50,
     days_before: int = 5,
     days_after: int = 5,
-    base_price: float = 100.0
+    base_price: float = 100.0,
 ) -> pl.DataFrame:
     """
     Create OHLCV data with an artificial outlier (data error).
@@ -257,25 +256,29 @@ def create_data_with_outlier(
         start_date=pre_outlier_start,
         num_days=days_before,
         base_price=base_price,
-        volatility=0.02
+        volatility=0.02,
     )
 
     # Outlier day (huge spike)
     last_close = pre_df.filter(pl.col("date") == pre_df["date"].max())["close"][0]
     outlier_close = last_close * (1 + outlier_return)
 
-    outlier_row = pl.DataFrame({
-        "symbol": [symbol],
-        "date": [outlier_date],
-        "open": [last_close * 1.01],
-        "high": [outlier_close * 1.01],
-        "low": [last_close * 0.99],
-        "close": [outlier_close],
-        "volume": [5_000_000],  # Unusually high volume
-        "timestamp": [datetime.combine(outlier_date, datetime.min.time()).replace(
-            hour=20, minute=0, tzinfo=timezone.utc
-        )]
-    })
+    outlier_row = pl.DataFrame(
+        {
+            "symbol": [symbol],
+            "date": [outlier_date],
+            "open": [last_close * 1.01],
+            "high": [outlier_close * 1.01],
+            "low": [last_close * 0.99],
+            "close": [outlier_close],
+            "volume": [5_000_000],  # Unusually high volume
+            "timestamp": [
+                datetime.combine(outlier_date, datetime.min.time()).replace(
+                    hour=20, minute=0, tzinfo=UTC
+                )
+            ],
+        }
+    )
 
     # After outlier (return to normal)
     post_df = create_normal_ohlcv(
@@ -283,17 +286,13 @@ def create_data_with_outlier(
         start_date=outlier_date + timedelta(days=1),
         num_days=days_after,
         base_price=base_price,  # Revert to normal (proves it was an error)
-        volatility=0.02
+        volatility=0.02,
     )
 
     return pl.concat([pre_df, outlier_row, post_df]).sort("date")
 
 
-def create_stale_data(
-    symbol: str = "AAPL",
-    hours_old: int = 2,
-    num_days: int = 5
-) -> pl.DataFrame:
+def create_stale_data(symbol: str = "AAPL", hours_old: int = 2, num_days: int = 5) -> pl.DataFrame:
     """
     Create OHLCV data with stale timestamps.
 
@@ -316,12 +315,10 @@ def create_stale_data(
     df = create_normal_ohlcv(symbol=symbol, num_days=num_days)
 
     # Make all timestamps old
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     old_time = now - timedelta(hours=hours_old)
 
-    df = df.with_columns(
-        pl.lit(old_time).alias("timestamp")
-    )
+    df = df.with_columns(pl.lit(old_time).alias("timestamp"))
 
     return df
 
@@ -331,7 +328,7 @@ def create_multi_symbol_data(
     num_days: int = 10,
     include_split: bool = True,
     include_dividend: bool = True,
-    include_outlier: bool = True
+    include_outlier: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """
     Create comprehensive test dataset with multiple symbols and corporate actions.
@@ -374,7 +371,7 @@ def create_multi_symbol_data(
                 symbol=symbol,
                 split_date=mid_date,
                 days_before=num_days // 2,
-                days_after=num_days // 2
+                days_after=num_days // 2,
             )
             all_data.append(raw)
             splits_data.append(splits)
@@ -382,10 +379,7 @@ def create_multi_symbol_data(
         elif i == 1 and include_dividend:
             # Second symbol gets a dividend
             raw, divs = create_data_with_dividend(
-                symbol=symbol,
-                ex_date=mid_date,
-                days_before=num_days // 2,
-                days_after=num_days // 2
+                symbol=symbol, ex_date=mid_date, days_before=num_days // 2, days_after=num_days // 2
             )
             all_data.append(raw)
             dividends_data.append(divs)
@@ -396,17 +390,13 @@ def create_multi_symbol_data(
                 symbol=symbol,
                 outlier_date=mid_date,
                 days_before=num_days // 2,
-                days_after=num_days // 2
+                days_after=num_days // 2,
             )
             all_data.append(raw)
 
         else:
             # Normal data
-            raw = create_normal_ohlcv(
-                symbol=symbol,
-                num_days=num_days,
-                start_date=date(2024, 1, 1)
-            )
+            raw = create_normal_ohlcv(symbol=symbol, num_days=num_days, start_date=date(2024, 1, 1))
             all_data.append(raw)
 
     # Combine all data

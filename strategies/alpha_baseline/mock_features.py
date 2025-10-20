@@ -8,17 +8,17 @@ For production, use the full Alpha158 features from features.py with proper
 Qlib data format.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List
+from typing import cast
 
+import numpy as np
 import pandas as pd
 import polars as pl
-import numpy as np
 
 
 def get_mock_alpha158_features(
-    symbols: List[str],
+    symbols: list[str],
     start_date: str,
     end_date: str,
     data_dir: Path = Path("data/adjusted"),
@@ -66,8 +66,7 @@ def get_mock_alpha158_features(
 
         # Filter to lookback period
         df = df.filter(
-            (pl.col("date") >= pl.lit(lookback_start)) &
-            (pl.col("date") <= pl.lit(end_dt))
+            (pl.col("date") >= pl.lit(lookback_start)) & (pl.col("date") <= pl.lit(end_dt))
         )
 
         # Sort by date
@@ -82,13 +81,13 @@ def get_mock_alpha158_features(
     combined = pl.concat(all_data)
 
     # Convert to Pandas for easier manipulation
-    df = combined.to_pandas()
+    pandas_df: pd.DataFrame = combined.to_pandas()
 
     # Compute simple features for each symbol
     feature_dfs = []
 
     for symbol in symbols:
-        symbol_df = df[df["symbol"] == symbol].copy()
+        symbol_df = pandas_df[pandas_df["symbol"] == symbol].copy()
 
         if len(symbol_df) == 0:
             continue
@@ -98,8 +97,7 @@ def get_mock_alpha158_features(
 
         # Filter to requested date range
         features = features[
-            (features.index >= pd.Timestamp(start_dt)) &
-            (features.index <= pd.Timestamp(end_dt))
+            (features.index >= pd.Timestamp(start_dt)) & (features.index <= pd.Timestamp(end_dt))
         ]
 
         # Add symbol level
@@ -196,8 +194,8 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     for period in [5, 10, 14, 20, 30]:
         # RSI-like
         delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+        gain = (delta.where(delta > 0, 0)).rolling(period).mean()  # type: ignore[operator]
+        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()  # type: ignore[operator]
         rs = gain / (loss + 1e-10)
         features[f"feature_{feature_idx}"] = 100 - (100 / (1 + rs))
         feature_idx += 1
@@ -261,13 +259,17 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     while feature_idx < 158:
         # Use random combinations of existing features
         if feature_idx % 2 == 0:
-            features[f"feature_{feature_idx}"] = close.pct_change().rolling(5 + feature_idx % 10).mean()
+            features[f"feature_{feature_idx}"] = (
+                close.pct_change().rolling(5 + feature_idx % 10).mean()
+            )
         else:
-            features[f"feature_{feature_idx}"] = volume.pct_change().rolling(5 + feature_idx % 10).std()
+            features[f"feature_{feature_idx}"] = (
+                volume.pct_change().rolling(5 + feature_idx % 10).std()
+            )
         feature_idx += 1
 
     # Forward fill NaN values
-    features = features.fillna(method="ffill")
+    features = features.fillna(method="ffill")  # type: ignore[call-overload]
 
     # Backward fill remaining NaN (at start)
     features = features.fillna(method="bfill")
@@ -278,4 +280,4 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     # Replace inf with 0
     features = features.replace([np.inf, -np.inf], 0)
 
-    return features
+    return cast(pd.DataFrame, features)
