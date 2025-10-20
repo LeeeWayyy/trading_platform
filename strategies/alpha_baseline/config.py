@@ -9,7 +9,7 @@ See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 @dataclass
@@ -106,7 +106,7 @@ class ModelConfig:
     seed: int = 42  # Random seed for reproducibility
     num_threads: int = 4  # Number of threads
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert config to dictionary for LightGBM.
 
@@ -191,7 +191,7 @@ class StrategyConfig:
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
     @classmethod
-    def from_dict(cls, config_dict: dict) -> "StrategyConfig":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "StrategyConfig":
         """
         Create StrategyConfig from dictionary.
 
