@@ -25,7 +25,7 @@ from pathlib import Path
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import psycopg2
+import psycopg
 import pytest
 from sklearn.datasets import make_regression  # type: ignore[import-untyped]
 from sklearn.model_selection import train_test_split  # type: ignore[import-untyped]
@@ -150,7 +150,7 @@ def test_db_url():
 
     Example:
         def test_database(test_db_url):
-            conn = psycopg2.connect(test_db_url)
+            conn = psycopg.connect(test_db_url)
             assert conn is not None
     """
     return "postgresql://postgres:postgres@localhost:5432/trading_platform_test"
@@ -167,7 +167,7 @@ def db_connection(test_db_url):
         test_db_url: Test database URL fixture
 
     Yields:
-        psycopg2.connection: Database connection
+        psycopg.connection: Database connection
 
     Example:
         def test_query(db_connection):
@@ -176,7 +176,7 @@ def db_connection(test_db_url):
                 result = cur.fetchone()
                 assert result[0] == 1
     """
-    conn = psycopg2.connect(test_db_url)
+    conn = psycopg.connect(test_db_url)
     yield conn
     conn.close()
 
@@ -192,7 +192,7 @@ def setup_model_registry_table(db_connection):
         db_connection: Database connection fixture
 
     Yields:
-        psycopg2.connection: Database connection with table created
+        psycopg.connection: Database connection with table created
 
     Example:
         def test_model_registry(setup_model_registry_table):

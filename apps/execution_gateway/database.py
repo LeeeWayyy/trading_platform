@@ -14,9 +14,9 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 
-import psycopg2
-import psycopg2.extras
-from psycopg2 import DatabaseError, IntegrityError, OperationalError
+import psycopg
+from psycopg import DatabaseError, IntegrityError, OperationalError
+from psycopg.rows import dict_row
 
 from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
 
@@ -114,8 +114,8 @@ class DatabaseClient:
             'pending_new'
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     submitted_at = datetime.now() if status != "dry_run" else None
 
                     cur.execute(
@@ -205,8 +205,8 @@ class DatabaseClient:
             ...     print(f"Order status: {order.status}")
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
                         SELECT * FROM orders
@@ -265,8 +265,8 @@ class DatabaseClient:
             ... )
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     # Determine filled_at timestamp
                     filled_at = None
                     if status == "filled" and filled_qty is not None:
@@ -373,8 +373,8 @@ class DatabaseClient:
             - Closing a position (qty=0) keeps the record with realized_pl
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     # Get current position
                     cur.execute("SELECT * FROM positions WHERE symbol = %s", (symbol,))
                     current = cur.fetchone()
@@ -498,8 +498,8 @@ class DatabaseClient:
             ...     print(f"{pos.symbol}: {pos.qty} shares @ ${pos.avg_entry_price}")
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(
                         """
                         SELECT * FROM positions
@@ -529,7 +529,7 @@ class DatabaseClient:
             ...     print("Database is connected")
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
+            with psycopg.connect(self.db_conn_string) as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     return True

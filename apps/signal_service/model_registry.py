@@ -38,9 +38,9 @@ from pathlib import Path
 from typing import Any
 
 import lightgbm as lgb
-import psycopg2
-import psycopg2.extras
-from psycopg2 import DatabaseError, OperationalError
+import psycopg
+from psycopg import DatabaseError, OperationalError
+from psycopg.rows import dict_row
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +196,7 @@ class ModelRegistry:
             {'ic': 0.082, 'sharpe': 1.45, 'max_drawdown': -0.12}
 
         Notes:
-            - Opens new database connection for each call (connection pooling handled by psycopg2)
+            - Opens new database connection for each call (connection pooling handled by psycopg)
             - Returns most recently activated model if multiple active (shouldn't happen)
             - Reads from model_registry table (see migrations/001_create_model_registry.sql)
 
@@ -205,8 +205,8 @@ class ModelRegistry:
             - /docs/CONCEPTS/model-registry.md for registry concept
         """
         try:
-            with psycopg2.connect(self.db_conn_string) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
                     # Query for active model
                     # ORDER BY activated_at DESC ensures we get most recent if multiple active
                     cur.execute(
