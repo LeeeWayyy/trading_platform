@@ -294,7 +294,7 @@ class TestSyncLoop:
     @pytest.mark.asyncio
     async def test_sync_loop_skips_initial_sync_when_disabled(self, position_sync):
         """Should skip initial sync when initial_sync=False."""
-        position_sync._sync_subscriptions = AsyncMock()  # type: ignore[method-assign]
+        position_sync._sync_subscriptions = AsyncMock()
 
         # Start loop and immediately stop it
         loop_task = asyncio.create_task(position_sync.start_sync_loop())
@@ -308,7 +308,7 @@ class TestSyncLoop:
     @pytest.mark.asyncio
     async def test_sync_loop_periodic_syncing(self, position_sync):
         """Should run periodic syncs at configured interval."""
-        position_sync._sync_subscriptions = AsyncMock()  # type: ignore[method-assign]
+        position_sync._sync_subscriptions = AsyncMock()
 
         # Start loop with 0.2s interval
         position_sync.sync_interval = 0.2
@@ -324,7 +324,7 @@ class TestSyncLoop:
     @pytest.mark.asyncio
     async def test_sync_loop_handles_cancelled_error(self, position_sync):
         """Should handle CancelledError gracefully."""
-        position_sync._sync_subscriptions = AsyncMock()  # type: ignore[method-assign]
+        position_sync._sync_subscriptions = AsyncMock()
 
         loop_task = asyncio.create_task(position_sync.start_sync_loop())
         await asyncio.sleep(0.1)
@@ -343,7 +343,7 @@ class TestSyncLoop:
     async def test_sync_loop_continues_on_sync_error(self, position_sync):
         """Should continue loop even when sync raises exception."""
         # First call raises, second call succeeds
-        position_sync._sync_subscriptions = AsyncMock(  # type: ignore[method-assign]
+        position_sync._sync_subscriptions = AsyncMock(
             side_effect=[ValueError("Sync error"), None]
         )
         position_sync.sync_interval = 0.1

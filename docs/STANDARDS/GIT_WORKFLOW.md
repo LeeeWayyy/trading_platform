@@ -4,6 +4,9 @@
 
 This document explains how to work with Git and automate pull request creation when using Claude Code or other AI assistants.
 
+## RULE NO.1
+- ❌ NEVER WORK ON master branch DIRECTLY, ALWAYS create branch for your work
+
 ## Prerequisites
 
 ### 1. Install GitHub CLI
@@ -418,26 +421,6 @@ After successfully implementing and testing any feature:
    - Testing completed
    - Checklist from /docs/STANDARDS/TESTING.md
 ```
-
-**Option 3: Use a Slash Command**
-
-Create `.claude/commands/implement-and-pr.md`:
-```markdown
-You are implementing a ticket and creating a PR afterwards.
-
-Workflow:
-1. Ask user which ticket to implement
-2. Read ticket from /docs/TASKS/
-3. Follow implementation process from CLAUDE.md
-4. After validation phase passes:
-   a. Create feature branch if not exists
-   b. Commit all changes
-   c. Push to remote
-   d. Create PR with gh pr create
-5. Return PR URL to user
-```
-
-Then use: `/implement-and-pr`
 
 ## PR Creation Template
 
