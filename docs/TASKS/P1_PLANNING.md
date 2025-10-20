@@ -678,6 +678,102 @@ pip install types-duckdb  # if available
 
 ---
 
+### Test Coverage Issues (Found in PR #19)
+
+**Status:** 📋 Backlog - Critical for production readiness
+
+**Context:** Mypy --strict migration (PR #19) revealed that overall test coverage is only **17%** (5353 statements, 4453 missed). This is a pre-existing project-wide issue that needs systematic addressing.
+
+**Coverage Breakdown:**
+
+**Modules with 0% Coverage (NOT TESTED - 889 statements):**
+1. **apps/execution_gateway/main.py** - 226 statements, 0% coverage
+   - FastAPI endpoints for order submission, positions, P&L
+   - Priority: **High** (core business logic)
+
+2. **apps/execution_gateway/database.py** - 132 statements, 0% coverage
+   - Database client for orders and positions
+   - Priority: **High** (data integrity critical)
+
+3. **apps/orchestrator/main.py** - 91 statements, 0% coverage
+   - Orchestrator FastAPI endpoints
+   - Priority: **Medium** (integration layer)
+
+4. **apps/orchestrator/orchestrator.py** - 114 statements, 0% coverage
+   - Core orchestration business logic
+   - Priority: **High** (workflow coordination)
+
+5. **apps/market_data_service/main.py** - 108 statements, 0% coverage
+   - Market data streaming service
+   - Priority: **Medium**
+
+6. **libs/risk_management/breaker.py** - 152 statements, 0% coverage
+   - Circuit breaker implementation
+   - Priority: **Critical** (safety mechanism)
+
+7. **libs/risk_management/checker.py** - 66 statements, 0% coverage
+   - Risk validation logic
+   - Priority: **Critical** (safety mechanism)
+
+**Modules with Low Coverage (<50%):**
+- apps/signal_service/main.py - 25% (228 statements, 162 missed)
+- apps/signal_service/model_registry.py - 35% (93 statements, 57 missed)
+- apps/execution_gateway/alpaca_client.py - 18% (153 statements, 119 missed)
+
+**Modules with Good Coverage (>80%):**
+- ✅ libs/duckdb_catalog.py - 100%
+- ✅ libs/redis_client/* - 82-100%
+- ✅ libs/data_pipeline/* - 91-100%
+
+**Recommended Action Plan:**
+
+**Phase 1: Critical Safety & Business Logic (Target: 60% overall)**
+- **Week 1:** Add integration tests for FastAPI endpoints (425 statements)
+  - Execution gateway endpoints (order submission, positions, P&L)
+  - Orchestrator endpoints (run orchestration)
+  - Market data service endpoints
+
+- **Week 2:** Add unit tests for risk management (218 statements)
+  - Circuit breaker logic (trip conditions, recovery)
+  - Risk checker validation
+
+- **Week 3:** Add unit tests for database client (132 statements)
+  - Order CRUD operations
+  - Position updates
+  - Transaction handling
+
+**Phase 2: Core Services (Target: 75% overall)**
+- **Week 4:** Improve signal service coverage (25% → 80%)
+  - Model registry tests
+  - Signal generation tests
+  - FastAPI endpoint tests
+
+- **Week 5:** Improve alpaca client coverage (18% → 80%)
+  - Order submission tests
+  - Position fetching tests
+  - Error handling tests
+
+**Phase 3: Orchestration Layer (Target: 80% overall)**
+- **Week 6:** Add orchestrator business logic tests
+  - Workflow coordination
+  - Service integration
+  - Error recovery
+
+**Estimated Effort:** 6 weeks (30 working days)
+
+**Success Metrics:**
+- [ ] Overall coverage ≥ 80% (from current 17%)
+- [ ] All critical modules (risk, database) ≥ 90%
+- [ ] All business logic ≥ 85%
+- [ ] All FastAPI endpoints have integration tests
+- [ ] CI enforces 80% minimum coverage
+
+**Timeline:** Schedule after Phase 1A completion, before production deployment
+
+**Reference:** PR #19 CI logs
+
+---
+
 ## Related Documents
 
 - [P0 Tasks](./P0_TASKS.md) - Completed MVP tasks (100%)

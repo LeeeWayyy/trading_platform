@@ -291,10 +291,10 @@ class TestBatchFetchRealtimePrices:
         """Test batch fetching prices from Redis with valid data."""
         from apps.execution_gateway.main import _batch_fetch_realtime_prices_from_redis
 
-        # Mock Redis MGET response (note: JSON has "mid" field, not "price")
+        # Mock Redis MGET response (strings, not bytes, due to decode_responses=True)
         mock_redis.mget.return_value = [
-            b'{"mid": "152.50", "timestamp": "2024-10-19T12:00:00+00:00"}',
-            b'{"mid": "295.00", "timestamp": "2024-10-19T12:00:00+00:00"}',
+            '{"mid": "152.50", "timestamp": "2024-10-19T12:00:00+00:00"}',
+            '{"mid": "295.00", "timestamp": "2024-10-19T12:00:00+00:00"}',
         ]
 
         result = _batch_fetch_realtime_prices_from_redis(["AAPL", "MSFT"], mock_redis)

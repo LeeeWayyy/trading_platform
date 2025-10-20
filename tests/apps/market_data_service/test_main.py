@@ -9,7 +9,6 @@ Tests cover:
 - Get subscription stats endpoint
 """
 
-import os
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -20,14 +19,14 @@ from libs.market_data import SubscriptionError
 
 
 @pytest.fixture
-def test_client():
+def test_client(monkeypatch):
     """Create FastAPI test client with mocked lifespan to avoid external dependencies."""
-    # Set required environment variables before importing
-    os.environ.setdefault("ALPACA_API_KEY", "test_key")
-    os.environ.setdefault("ALPACA_SECRET_KEY", "test_secret")
-    os.environ.setdefault("REDIS_HOST", "localhost")
-    os.environ.setdefault("REDIS_PORT", "6379")
-    os.environ.setdefault("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+    # Set required environment variables before importing (using monkeypatch to avoid test pollution)
+    monkeypatch.setenv("ALPACA_API_KEY", "test_key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "test_secret")
+    monkeypatch.setenv("REDIS_HOST", "localhost")
+    monkeypatch.setenv("REDIS_PORT", "6379")
+    monkeypatch.setenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
 
     # Create a mock lifespan that doesn't connect to external services
     @asynccontextmanager

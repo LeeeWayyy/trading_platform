@@ -405,6 +405,9 @@ class TestGetRunEndpoint:
         assert data["status"] == "completed"
         assert len(data["mappings"]) == 1
         assert data["mappings"][0]["symbol"] == "AAPL"
+        # Verify symbols and capital fields (currently hardcoded in endpoint due to schema limitation)
+        assert data["symbols"] == []  # Not stored in OrchestrationRunSummary
+        assert data["capital"] == "0"  # Not stored in OrchestrationRunSummary
 
     def test_get_run_not_found(self, test_client, mock_db):
         """Test getting non-existent run returns 404."""
