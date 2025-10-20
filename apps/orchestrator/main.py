@@ -33,7 +33,7 @@ import logging
 import os
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, status
@@ -112,7 +112,7 @@ app = FastAPI(
 # ============================================================================
 
 @app.get("/", tags=["Root"])
-async def root():
+async def root() -> dict[str, Any]:
     """Root endpoint."""
     return {
         "service": "orchestrator",
@@ -124,7 +124,7 @@ async def root():
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check():
+async def health_check() -> HealthResponse:
     """
     Health check endpoint.
 
@@ -197,7 +197,7 @@ async def health_check():
     tags=["Orchestration"],
     status_code=status.HTTP_200_OK
 )
-async def run_orchestration(request: OrchestrationRequest):
+async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResult:
     """
     Trigger orchestration workflow.
 
@@ -304,7 +304,7 @@ async def list_runs(
     offset: int = Query(0, ge=0, description="Number of runs to skip"),
     strategy_id: Optional[str] = Query(None, description="Filter by strategy ID"),
     status: Optional[str] = Query(None, description="Filter by status")
-):
+) -> OrchestrationRunsResponse:
     """
     List orchestration runs.
 
@@ -350,7 +350,7 @@ async def list_runs(
     response_model=OrchestrationResult,
     tags=["Orchestration"]
 )
-async def get_run(run_id: UUID):
+async def get_run(run_id: UUID) -> OrchestrationResult:
     """
     Get orchestration run details.
 
@@ -410,7 +410,7 @@ async def get_run(run_id: UUID):
 # ============================================================================
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Application startup."""
     logger.info("Orchestrator Service started")
     logger.info(f"Signal Service URL: {SIGNAL_SERVICE_URL}")
@@ -425,7 +425,7 @@ async def startup_event():
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """Application shutdown."""
     logger.info("Orchestrator Service shutting down")
 
