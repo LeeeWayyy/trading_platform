@@ -21,6 +21,7 @@ See: docs/IMPLEMENTATION_GUIDES/t3-signal-service.md for context
 """
 
 import inspect
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -280,8 +281,9 @@ class TestFeatureModelCompatibility:
         from apps.signal_service.model_registry import ModelRegistry
         from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
 
-        # Load model
-        registry = ModelRegistry("postgresql://postgres:postgres@localhost:5432/trading_platform")
+        # Load model (use DATABASE_URL from env if set, for CI compatibility)
+        db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+        registry = ModelRegistry(db_url)
         registry.reload_if_changed("alpha_baseline")
 
         # Generate features
@@ -371,7 +373,9 @@ class TestProductionResearchParity:
             data_dir=data_dir,
         )
 
-        registry = ModelRegistry("postgresql://postgres:postgres@localhost:5432/trading_platform")
+        # Load model (use DATABASE_URL from env if set, for CI compatibility)
+        db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+        registry = ModelRegistry(db_url)
         registry.reload_if_changed("alpha_baseline")
 
         assert registry.current_model is not None
