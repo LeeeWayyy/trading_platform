@@ -106,7 +106,7 @@ class AlpacaMarketDataStream:
 
             try:
                 # Subscribe to quotes via Alpaca SDK
-                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)
+                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)  # type: ignore[arg-type]
 
                 # Update tracking
                 self.subscribed_symbols.update(new_symbols)
@@ -162,10 +162,10 @@ class AlpacaMarketDataStream:
                 symbol=quote.symbol,
                 bid_price=Decimal(str(quote.bid_price)),
                 ask_price=Decimal(str(quote.ask_price)),
-                bid_size=quote.bid_size,
-                ask_size=quote.ask_size,
+                bid_size=int(quote.bid_size),
+                ask_size=int(quote.ask_size),
                 timestamp=quote.timestamp,
-                exchange=quote.exchange,
+                exchange=quote.ask_exchange if hasattr(quote, "ask_exchange") else "UNKNOWN",
             )
 
             # Create price data for caching
@@ -224,7 +224,7 @@ class AlpacaMarketDataStream:
 
                 # Await the async WebSocket coroutine (NOT synchronous - do not use executor)
                 # This will block until disconnect or error
-                await self.stream.run()
+                await self.stream.run()  # type: ignore[func-returns-value]
 
                 # If we reach here, connection was established and then closed gracefully
                 # This is a "successful" cycle, so reset the counter
@@ -293,7 +293,7 @@ class AlpacaMarketDataStream:
         """
         return sorted(list(self.subscribed_symbols))
 
-    def get_connection_stats(self) -> dict:
+    def get_connection_stats(self) -> dict[str, int | bool]:
         """
         Get connection statistics.
 
