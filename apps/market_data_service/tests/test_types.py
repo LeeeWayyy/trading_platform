@@ -40,6 +40,7 @@ class TestQuoteData:
             bid_size=100,
             ask_size=200,
             timestamp=datetime.now(timezone.utc),
+            exchange="NASDAQ",
         )
 
         assert quote.mid_price == Decimal("150.05")
@@ -53,6 +54,7 @@ class TestQuoteData:
             bid_size=100,
             ask_size=200,
             timestamp=datetime.now(timezone.utc),
+            exchange="NASDAQ",
         )
 
         assert quote.spread == Decimal("0.10")
@@ -66,6 +68,7 @@ class TestQuoteData:
             bid_size=100,
             ask_size=200,
             timestamp=datetime.now(timezone.utc),
+            exchange="NASDAQ",
         )
 
         # 0.10 / 150.05 * 10000 = 6.665... bps
@@ -81,6 +84,7 @@ class TestQuoteData:
                 bid_size=100,
                 ask_size=200,
                 timestamp=datetime.now(timezone.utc),
+                exchange="NASDAQ",
             )
 
         errors = exc_info.value.errors()
@@ -96,6 +100,7 @@ class TestQuoteData:
                 bid_size=100,
                 ask_size=200,
                 timestamp=datetime.now(timezone.utc),
+                exchange="NASDAQ",
             )
 
     def test_negative_size_validation(self):
@@ -108,6 +113,7 @@ class TestQuoteData:
                 bid_size=-100,  # Negative (invalid)
                 ask_size=200,
                 timestamp=datetime.now(timezone.utc),
+                exchange="NASDAQ",
             )
 
 
@@ -170,6 +176,7 @@ class TestPriceUpdateEvent:
             bid_size=100,
             ask_size=200,
             timestamp=timestamp,
+            exchange="NASDAQ",
         )
 
         event = PriceUpdateEvent.from_quote(quote)
