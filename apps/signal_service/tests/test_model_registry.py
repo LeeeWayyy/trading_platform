@@ -210,6 +210,7 @@ class TestDatabaseIntegration:
 
         assert reloaded is True
         assert registry.is_loaded is True
+        assert registry.current_metadata is not None
         assert registry.current_metadata.version == "v1.0.0"
         assert registry.last_check is not None
 
@@ -237,6 +238,7 @@ class TestDatabaseIntegration:
         # Second call - no change
         reloaded2 = registry.reload_if_changed("test_strategy")
         assert reloaded2 is False
+        assert registry.current_metadata is not None
         assert registry.current_metadata.version == "v1.0.0"
 
     def test_reload_if_changed_version_changed(
@@ -259,6 +261,7 @@ class TestDatabaseIntegration:
         registry = ModelRegistry(test_db_url)
         reloaded1 = registry.reload_if_changed("test_strategy")
         assert reloaded1 is True
+        assert registry.current_metadata is not None
         assert registry.current_metadata.version == "v1.0.0"
 
         # Create new model v2.0.0 (just copy existing for test)
@@ -284,6 +287,7 @@ class TestDatabaseIntegration:
         # Reload - should detect version change
         reloaded2 = registry.reload_if_changed("test_strategy")
         assert reloaded2 is True
+        assert registry.current_metadata is not None
         assert registry.current_metadata.version == "v2.0.0"
 
     def test_reload_graceful_degradation_on_error(
@@ -305,6 +309,7 @@ class TestDatabaseIntegration:
         # Load v1.0.0
         registry = ModelRegistry(test_db_url)
         registry.reload_if_changed("test_strategy")
+        assert registry.current_metadata is not None
         assert registry.current_metadata.version == "v1.0.0"
 
         # Insert v2.0.0 with invalid path
@@ -323,6 +328,7 @@ class TestDatabaseIntegration:
         # Reload - should fail but keep v1.0.0
         reloaded = registry.reload_if_changed("test_strategy")
         assert reloaded is False  # Failed to reload
+        assert registry.current_metadata is not None
         assert registry.current_metadata.version == "v1.0.0"  # Kept old version
         assert registry.is_loaded is True  # Still loaded
 
