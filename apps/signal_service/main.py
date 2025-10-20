@@ -434,12 +434,12 @@ class SignalResponse(BaseModel):
         }
     """
 
-    signals: List[dict] = Field(
+    signals: List[dict[str, Any]] = Field(
         ...,
         description="List of trading signals"
     )
 
-    metadata: dict = Field(
+    metadata: dict[str, Any] = Field(
         ...,
         description="Request and model metadata"
     )
@@ -474,7 +474,7 @@ class HealthResponse(BaseModel):
 
     status: str = Field(..., description="Service health status")
     model_loaded: bool = Field(..., description="Whether model is loaded")
-    model_info: Optional[dict] = Field(None, description="Model metadata")
+    model_info: Optional[dict[str, Any]] = Field(None, description="Model metadata")
     redis_status: str = Field(..., description="Redis connection status (connected/disconnected/disabled)")
     feature_cache_enabled: bool = Field(..., description="Whether feature caching is active")
     timestamp: str = Field(..., description="Current timestamp")
@@ -615,6 +615,7 @@ async def health_check() -> HealthResponse:
     else:
         redis_status_str = "disconnected"
 
+    assert metadata is not None, "metadata should exist when model_loaded=True"
     return HealthResponse(
         status="healthy",
         model_loaded=True,
@@ -635,7 +636,7 @@ async def health_check() -> HealthResponse:
     tags=["Signals"],
     status_code=status.HTTP_200_OK,
 )
-async def generate_signals(request: SignalRequest) -> dict[str, Any]:
+async def generate_signals(request: SignalRequest) -> SignalResponse:
     """
     Generate trading signals for given symbols.
 
@@ -716,6 +717,7 @@ async def generate_signals(request: SignalRequest) -> dict[str, Any]:
             detail="Signal generator not initialized"
         )
 
+    assert model_registry is not None, "model_registry should be initialized"
     if not model_registry.is_loaded:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -787,11 +789,11 @@ async def generate_signals(request: SignalRequest) -> dict[str, Any]:
 
     # Build response
     return SignalResponse(
-        signals=signals,
+        signals=signals,  # type: ignore[arg-type]
         metadata={
             "as_of_date": as_of_date.date().isoformat(),
-            "model_version": model_registry.current_metadata.version,
-            "strategy": model_registry.current_metadata.strategy_name,
+            "model_version": model_registry.current_metadata.version if model_registry.current_metadata else "unknown",
+            "strategy": model_registry.current_metadata.strategy_name if model_registry.current_metadata else "unknown",
             "num_signals": len(signals),
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "top_n": top_n,
@@ -847,6 +849,7 @@ async def get_model_info() -> dict[str, Any]:
         )
 
     metadata = model_registry.current_metadata
+    assert metadata is not None, "metadata should exist when model is loaded"
 
     return {
         "strategy_name": metadata.strategy_name,
@@ -928,7 +931,7 @@ async def reload_model() -> dict[str, Any]:
         # Store previous version for comparison
         previous_version = (
             model_registry.current_metadata.version
-            if model_registry.is_loaded
+            if (model_registry.is_loaded and model_registry.current_metadata)
             else None
         )
 
@@ -941,7 +944,7 @@ async def reload_model() -> dict[str, Any]:
         # Get current version
         current_version = (
             model_registry.current_metadata.version
-            if model_registry.is_loaded
+            if (model_registry.is_loaded and model_registry.current_metadata)
             else "none"
         )
 
