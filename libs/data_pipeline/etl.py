@@ -12,6 +12,7 @@ See ADR-0001 for pipeline architecture decisions.
 
 from pathlib import Path
 from datetime import date
+from typing import Any
 
 import polars as pl
 
@@ -29,7 +30,7 @@ def run_etl_pipeline(
     outlier_threshold: float = 0.30,
     output_dir: Path | str | None = None,
     run_date: date | None = None
-) -> dict[str, pl.DataFrame]:
+) -> dict[str, pl.DataFrame | dict[str, Any]]:
     """
     Execute the complete ETL pipeline on raw market data.
 

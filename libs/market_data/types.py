@@ -28,7 +28,7 @@ class QuoteData(BaseModel):
 
     @field_validator("ask_price")
     @classmethod
-    def ask_must_be_gte_bid(cls, v: Decimal, info: Any) -> Decimal:  # type: ignore[misc]
+    def ask_must_be_gte_bid(cls, v: Decimal, info: Any) -> Decimal:
         """Validate that ask >= bid (no crossed market)."""
         if "bid_price" in info.data and v < info.data["bid_price"]:
             raise ValueError(f"Ask price {v} < bid price {info.data['bid_price']} (crossed market)")
