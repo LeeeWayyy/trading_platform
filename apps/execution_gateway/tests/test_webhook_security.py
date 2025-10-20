@@ -226,9 +226,9 @@ class TestValidateSignatureFormat:
 
     def test_non_string_type(self):
         """Non-string type should fail."""
-        assert validate_signature_format(123) is False
-        assert validate_signature_format(None) is False
-        assert validate_signature_format([]) is False
+        assert validate_signature_format(123) is False  # type: ignore[arg-type]
+        assert validate_signature_format(None) is False  # type: ignore[arg-type]
+        assert validate_signature_format([]) is False  # type: ignore[arg-type]
 
 
 class TestRoundTrip:

@@ -79,7 +79,7 @@ class TestRealtimePnLEndpoint:
         # Setup Redis mock with real-time prices using mget (batch fetch)
         def redis_mget(keys):
             # Return prices for all keys in order
-            result = []
+            result: list[str | None] = []
             for key in keys:
                 if key == "price:AAPL":
                     result.append(json.dumps({
@@ -226,7 +226,7 @@ class TestRealtimePnLEndpoint:
 
         # Setup Redis mock - only AAPL has real-time price (using mget for batch fetch)
         def redis_mget(keys):
-            result = []
+            result: list[str | None] = []
             for key in keys:
                 if key == "price:AAPL":
                     result.append(json.dumps({
@@ -356,7 +356,7 @@ class TestRealtimePnLEndpoint:
 
         # Setup Redis with prices that give 10% gain for both (using mget for batch fetch)
         def redis_mget(keys):
-            result = []
+            result: list[str | None] = []
             for key in keys:
                 if key == "price:TEST1":
                     result.append(json.dumps({
@@ -438,7 +438,7 @@ class TestRealtimePnLEndpoint:
 
         # Setup Redis with price that's lower (profit for short) - using mget for batch fetch
         def redis_mget(keys):
-            result = []
+            result: list[str | None] = []
             for key in keys:
                 if key == "price:SHORT":
                     result.append(json.dumps({
