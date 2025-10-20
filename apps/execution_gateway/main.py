@@ -43,6 +43,7 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 
@@ -156,6 +157,73 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+# ============================================================================
+# Prometheus Metrics
+# ============================================================================
+
+# Business Metrics
+orders_total = Counter(
+    "execution_gateway_orders_total",
+    "Total number of orders submitted",
+    ["symbol", "side", "status"],  # status: success, failed, rejected
+)
+
+order_placement_duration = Histogram(
+    "execution_gateway_order_placement_duration_seconds",
+    "Time taken to place an order",
+    ["symbol", "side"],
+)
+
+positions_current = Gauge(
+    "execution_gateway_positions_current",
+    "Current open positions by symbol",
+    ["symbol"],
+)
+
+pnl_dollars = Gauge(
+    "execution_gateway_pnl_dollars",
+    "P&L in dollars",
+    ["type"],  # type: realized, unrealized, total
+)
+
+# Service Health Metrics
+database_connection_status = Gauge(
+    "execution_gateway_database_connection_status",
+    "Database connection status (1=up, 0=down)",
+)
+
+redis_connection_status = Gauge(
+    "execution_gateway_redis_connection_status",
+    "Redis connection status (1=up, 0=down)",
+)
+
+alpaca_connection_status = Gauge(
+    "execution_gateway_alpaca_connection_status",
+    "Alpaca connection status (1=up, 0=down)",
+)
+
+webhook_received_total = Counter(
+    "execution_gateway_webhook_received_total",
+    "Total webhooks received",
+    ["event_type"],
+)
+
+dry_run_mode = Gauge(
+    "execution_gateway_dry_run_mode",
+    "DRY_RUN mode status (1=enabled, 0=disabled)",
+)
+
+# Set initial metric values
+dry_run_mode.set(1 if DRY_RUN else 0)
+database_connection_status.set(1)  # Will be updated by health check
+redis_connection_status.set(1 if redis_client else 0)
+alpaca_connection_status.set(1 if alpaca_client else 0)
+
+# Mount Prometheus metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 
 # ============================================================================
