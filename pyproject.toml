@@ -114,6 +114,9 @@ python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --cov=libs --cov=apps --cov=strategies --cov-report=term-missing --cov-report=html"
 
+[tool.coverage.run]
+relative_files = true
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

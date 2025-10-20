@@ -13,7 +13,7 @@ Tests cover:
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from redis.exceptions import WatchError

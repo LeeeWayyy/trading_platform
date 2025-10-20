@@ -152,8 +152,12 @@ def test_db_url():
         def test_database(test_db_url):
             conn = psycopg.connect(test_db_url)
             assert conn is not None
+
+    Notes:
+        Reads from DATABASE_URL environment variable (set by CI) or falls back to default.
     """
-    return "postgresql://postgres:postgres@localhost:5432/trading_platform_test"
+    import os
+    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform_test")
 
 
 @pytest.fixture
@@ -386,9 +390,13 @@ def test_config():
         def test_with_config(test_config):
             assert test_config["top_n"] == 2
             assert test_config["bottom_n"] == 2
+
+    Notes:
+        Reads database_url from DATABASE_URL environment variable (set by CI) or falls back to default.
     """
+    import os
     return {
-        "database_url": "postgresql://postgres:postgres@localhost:5432/trading_platform_test",
+        "database_url": os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform_test"),
         "data_dir": "data/adjusted",
         "default_strategy": "alpha_baseline",
         "tradable_symbols": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],

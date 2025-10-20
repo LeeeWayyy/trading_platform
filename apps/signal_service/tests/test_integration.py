@@ -39,8 +39,12 @@ from apps.signal_service.signal_generator import SignalGenerator
 
 @pytest.fixture(scope="module")
 def db_url():
-    """Database URL for integration tests."""
-    return "postgresql://postgres:postgres@localhost:5432/trading_platform"
+    """Database URL for integration tests.
+
+    Reads from DATABASE_URL environment variable (set by CI) or falls back to default.
+    """
+    import os
+    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
 
 
 @pytest.fixture(scope="module")

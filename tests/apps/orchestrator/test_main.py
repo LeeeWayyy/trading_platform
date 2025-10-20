@@ -12,10 +12,10 @@ Tests cover:
 - Get run details endpoint (found/not found)
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, Mock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -81,8 +81,9 @@ class TestHealthCheckEndpoint:
         mock_orchestrator.signal_client.health_check.return_value = True
         mock_orchestrator.execution_client.health_check.return_value = True
 
-        with patch("apps.orchestrator.main.db_client", mock_db), patch(
-            "apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator),
         ):
             response = test_client.get("/health")
 
@@ -101,8 +102,9 @@ class TestHealthCheckEndpoint:
         mock_orchestrator.signal_client.health_check.return_value = False
         mock_orchestrator.execution_client.health_check.return_value = False
 
-        with patch("apps.orchestrator.main.db_client", mock_db), patch(
-            "apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator),
         ):
             response = test_client.get("/health")
 
@@ -120,8 +122,9 @@ class TestHealthCheckEndpoint:
         mock_orchestrator.signal_client.health_check.return_value = True
         mock_orchestrator.execution_client.health_check.return_value = True
 
-        with patch("apps.orchestrator.main.db_client", mock_db), patch(
-            "apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator),
         ):
             response = test_client.get("/health")
 
@@ -149,14 +152,15 @@ class TestRunOrchestrationEndpoint:
             num_orders_accepted=2,
             num_orders_rejected=0,
             mappings=[],
-            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
-            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
             duration_seconds=Decimal("1.5"),
         )
         mock_orchestrator.run.return_value = run_result
 
-        with patch("apps.orchestrator.main.db_client", mock_db), patch(
-            "apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
@@ -200,15 +204,18 @@ class TestRunOrchestrationEndpoint:
             num_orders_accepted=1,
             num_orders_rejected=0,
             mappings=[],
-            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
-            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
             duration_seconds=Decimal("1.0"),
         )
         mock_orchestrator.run.return_value = run_result
 
-        with patch("apps.orchestrator.main.db_client", mock_db), patch(
-            "apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator
-        ) as mock_orch_class:
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch(
+                "apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator
+            ) as mock_orch_class,
+        ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
                 json={
@@ -240,14 +247,15 @@ class TestRunOrchestrationEndpoint:
             num_orders_accepted=1,
             num_orders_rejected=0,
             mappings=[],
-            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
-            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
             duration_seconds=Decimal("1.0"),
         )
         mock_orchestrator.run.return_value = run_result
 
-        with patch("apps.orchestrator.main.db_client", mock_db), patch(
-            "apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator
+        with (
+            patch("apps.orchestrator.main.db_client", mock_db),
+            patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
@@ -278,8 +286,8 @@ class TestListRunsEndpoint:
                 num_orders_submitted=2,
                 num_orders_accepted=2,
                 num_orders_rejected=0,
-                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
-                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
                 duration_seconds=Decimal("1.5"),
             ),
             OrchestrationRunSummary(
@@ -291,8 +299,8 @@ class TestListRunsEndpoint:
                 num_orders_submitted=0,
                 num_orders_accepted=0,
                 num_orders_rejected=1,
-                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
-                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
                 duration_seconds=Decimal("0.5"),
             ),
         ]
@@ -320,8 +328,8 @@ class TestListRunsEndpoint:
                 num_orders_submitted=2,
                 num_orders_accepted=2,
                 num_orders_rejected=0,
-                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
-                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+                started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
                 duration_seconds=Decimal("1.5"),
             ),
         ]
@@ -376,8 +384,8 @@ class TestGetRunEndpoint:
             num_orders_submitted=2,
             num_orders_accepted=2,
             num_orders_rejected=0,
-            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
-            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=timezone.utc),
+            started_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2024, 10, 19, 12, 0, 0, tzinfo=UTC),
             duration_seconds=Decimal("1.5"),
         )
         mappings = [

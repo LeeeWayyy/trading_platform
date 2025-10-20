@@ -184,7 +184,7 @@ class TestT1DataProvider:
         # Convert Timestamp to date for comparison
         dates = [d.date() for d in reset_df["date"]]
         symbols = reset_df["symbol"].tolist()
-        index_values = list(zip(dates, symbols))
+        index_values = list(zip(dates, symbols, strict=False))
 
         expected = [
             (date(2024, 1, 1), "AAPL"),

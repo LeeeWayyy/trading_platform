@@ -257,37 +257,27 @@ class TestCalculateNewPosition:
 
     def test_buy_increases_long_position(self, checker):
         """Test buy order increases long position."""
-        new_position = checker._calculate_new_position(
-            current_position=100, side="buy", qty=50
-        )
+        new_position = checker._calculate_new_position(current_position=100, side="buy", qty=50)
         assert new_position == 150
 
     def test_sell_decreases_long_position(self, checker):
         """Test sell order decreases long position."""
-        new_position = checker._calculate_new_position(
-            current_position=100, side="sell", qty=50
-        )
+        new_position = checker._calculate_new_position(current_position=100, side="sell", qty=50)
         assert new_position == 50
 
     def test_sell_creates_short_position(self, checker):
         """Test sell order creates short position."""
-        new_position = checker._calculate_new_position(
-            current_position=100, side="sell", qty=150
-        )
+        new_position = checker._calculate_new_position(current_position=100, side="sell", qty=150)
         assert new_position == -50
 
     def test_buy_reduces_short_position(self, checker):
         """Test buy order reduces short position."""
-        new_position = checker._calculate_new_position(
-            current_position=-100, side="buy", qty=50
-        )
+        new_position = checker._calculate_new_position(current_position=-100, side="buy", qty=50)
         assert new_position == -50
 
     def test_buy_flips_to_long_position(self, checker):
         """Test buy order flips short to long."""
-        new_position = checker._calculate_new_position(
-            current_position=-50, side="buy", qty=100
-        )
+        new_position = checker._calculate_new_position(current_position=-50, side="buy", qty=100)
         assert new_position == 50
 
     def test_invalid_side_raises_error(self, checker):

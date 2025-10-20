@@ -269,9 +269,7 @@ class TestGetSubscriptionStatsEndpoint:
             "subscribed_symbols": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
         }
 
-        with patch(
-            "apps.market_data_service.main.subscription_manager", mock_subscription_manager
-        ):
+        with patch("apps.market_data_service.main.subscription_manager", mock_subscription_manager):
             response = test_client.get("/api/v1/subscriptions/stats")
 
         assert response.status_code == 200
