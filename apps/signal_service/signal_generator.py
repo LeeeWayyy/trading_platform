@@ -285,6 +285,10 @@ class SignalGenerator:
         # Convert to date string for feature generation
         date_str = as_of_date.strftime("%Y-%m-%d")
 
+        # Ensure model metadata is loaded
+        if self.model_registry.current_metadata is None:
+            raise ValueError("Model metadata not loaded")
+
         logger.info(
             f"Generating signals for {len(symbols)} symbols on {date_str}",
             extra={
@@ -454,6 +458,10 @@ class SignalGenerator:
         # Model expects numpy array with shape (n_samples, 158)
         # Returns array of predicted next-day returns
         logger.debug("Generating predictions with model")
+
+        # Ensure model is loaded
+        if self.model_registry.current_model is None:
+            raise ValueError("Model not loaded")
 
         try:
             predictions = self.model_registry.current_model.predict(features.values)

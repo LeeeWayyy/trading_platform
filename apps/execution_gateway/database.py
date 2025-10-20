@@ -162,6 +162,9 @@ class DatabaseClient:
                     row = cur.fetchone()
                     conn.commit()
 
+                    if row is None:
+                        raise ValueError(f"Failed to create order: {client_order_id}")
+
                     logger.info(
                         f"Order created in database: {client_order_id}",
                         extra={
@@ -469,6 +472,9 @@ class DatabaseClient:
 
                     row = cur.fetchone()
                     conn.commit()
+
+                    if row is None:
+                        raise ValueError(f"Failed to update position for symbol: {symbol}")
 
                     logger.info(
                         f"Position updated: {symbol} qty={old_qty}->{new_qty}",
