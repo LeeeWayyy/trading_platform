@@ -69,7 +69,7 @@ class TestRedisStartup:
         assert redis_client.health_check() is True
 
         # Initialize feature cache with CORRECT parameter names - using mock
-        feature_cache = mock_feature_cache_class(
+        _feature_cache = mock_feature_cache_class(
             redis_client=redis_client,  # ✅ Correct: redis_client (not redis)
             ttl=settings.redis_ttl,  # ✅ Correct: ttl (not default_ttl)
         )
@@ -244,7 +244,7 @@ class TestRedisStartup:
         settings = Settings(redis_enabled=True)
 
         try:
-            redis_client = RedisClient(
+            redis_client = mock_redis_client_class(
                 host=settings.redis_host,
                 port=settings.redis_port,
                 db=settings.redis_db,

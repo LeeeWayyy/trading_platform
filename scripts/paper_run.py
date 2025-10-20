@@ -53,7 +53,11 @@ import asyncio
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import (  # noqa: F401 - timezone required by test_datetime_import_includes_timezone
+    UTC,
+    datetime,
+    timezone,
+)
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
