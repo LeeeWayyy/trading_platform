@@ -34,10 +34,10 @@ lint: ## Run linters (black, ruff, mypy)
 	poetry run mypy libs/ apps/ strategies/
 
 test: ## Run tests
-	poetry run pytest
+	PYTHONPATH=. poetry run pytest
 
 test-cov: ## Run tests with coverage report
-	poetry run pytest --cov=libs --cov=apps --cov-report=html --cov-report=term
+	PYTHONPATH=. poetry run pytest --cov=libs --cov=apps --cov-report=html --cov-report=term
 
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
