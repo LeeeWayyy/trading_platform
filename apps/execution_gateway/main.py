@@ -39,7 +39,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -166,7 +166,7 @@ app = FastAPI(
 # ============================================================================
 
 @app.exception_handler(ValidationError)
-async def validation_exception_handler(request: Request, exc: ValidationError):
+async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     """Handle Pydantic validation errors."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -179,7 +179,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
 
 
 @app.exception_handler(AlpacaValidationError)
-async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError):
+async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError) -> JSONResponse:
     """Handle Alpaca validation errors."""
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
@@ -192,7 +192,7 @@ async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError
 
 
 @app.exception_handler(AlpacaRejectionError)
-async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError):
+async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError) -> JSONResponse:
     """Handle Alpaca order rejection errors."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -205,7 +205,7 @@ async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError):
 
 
 @app.exception_handler(AlpacaConnectionError)
-async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError):
+async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError) -> JSONResponse:
     """Handle Alpaca connection errors."""
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -290,7 +290,10 @@ def _batch_fetch_realtime_prices_from_redis(
 
 
 def _calculate_position_pnl(
-    pos: Position, current_price: Decimal, price_source: str, last_price_update: Optional[datetime]
+    pos: Position,
+    current_price: Decimal,
+    price_source: Literal["real-time", "database", "fallback"],
+    last_price_update: Optional[datetime],
 ) -> RealtimePositionPnL:
     """
     Calculate unrealized P&L for a single position.
@@ -357,6 +360,10 @@ def _resolve_and_calculate_pnl(
     realtime_price, last_price_update = realtime_price_data
 
     # Three-tier price fallback
+    current_price: Decimal
+    price_source: Literal["real-time", "database", "fallback"]
+    is_realtime: bool
+
     if realtime_price is not None:
         current_price, price_source, is_realtime = realtime_price, "real-time", True
     elif pos.current_price is not None:
@@ -379,7 +386,7 @@ def _resolve_and_calculate_pnl(
 # ============================================================================
 
 @app.get("/", tags=["Health"])
-async def root():
+async def root() -> dict[str, Any]:
     """Root endpoint."""
     return {
         "service": "execution_gateway",
@@ -390,7 +397,7 @@ async def root():
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check():
+async def health_check() -> HealthResponse:
     """
     Health check endpoint.
 
@@ -426,6 +433,7 @@ async def health_check():
         alpaca_connected = alpaca_client.check_connection()
 
     # Determine overall status
+    overall_status: Literal["healthy", "degraded", "unhealthy"]
     if db_connected and (DRY_RUN or alpaca_connected):
         overall_status = "healthy"
     elif db_connected:
@@ -449,7 +457,7 @@ async def health_check():
 
 
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
-async def submit_order(order: OrderRequest):
+async def submit_order(order: OrderRequest) -> OrderResponse:
     """
     Submit order with idempotent retry semantics.
 
@@ -640,7 +648,7 @@ async def submit_order(order: OrderRequest):
 
 
 @app.get("/api/v1/orders/{client_order_id}", response_model=OrderDetail, tags=["Orders"])
-async def get_order(client_order_id: str):
+async def get_order(client_order_id: str) -> OrderDetail:
     """
     Get order details by client_order_id.
 
@@ -686,7 +694,7 @@ async def get_order(client_order_id: str):
 
 
 @app.get("/api/v1/positions", response_model=PositionsResponse, tags=["Positions"])
-async def get_positions():
+async def get_positions() -> PositionsResponse:
     """
     Get all current positions.
 
@@ -720,9 +728,9 @@ async def get_positions():
 
     # Calculate totals
     total_unrealized_pl = sum(
-        (pos.unrealized_pl or Decimal("0")) for pos in positions
+        ((pos.unrealized_pl or Decimal("0")) for pos in positions), Decimal("0")
     )
-    total_realized_pl = sum(pos.realized_pl for pos in positions)
+    total_realized_pl = sum((pos.realized_pl for pos in positions), Decimal("0"))
 
     return PositionsResponse(
         positions=positions,
@@ -733,7 +741,7 @@ async def get_positions():
 
 
 @app.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
-async def get_realtime_pnl():
+async def get_realtime_pnl() -> RealtimePnLResponse:
     """
     Get real-time P&L with latest market prices.
 
@@ -810,7 +818,7 @@ async def get_realtime_pnl():
         total_investment += pos.avg_entry_price * abs(pos.qty)
 
     # Calculate totals
-    total_unrealized_pl = sum(p.unrealized_pl for p in realtime_positions)
+    total_unrealized_pl = sum((p.unrealized_pl for p in realtime_positions), Decimal("0"))
     total_unrealized_pl_pct = (
         (total_unrealized_pl / total_investment) * Decimal("100")
         if total_investment > 0
@@ -828,7 +836,7 @@ async def get_realtime_pnl():
 
 
 @app.post("/api/v1/webhooks/orders", tags=["Webhooks"])
-async def order_webhook(request: Request):
+async def order_webhook(request: Request) -> dict[str, str]:
     """
     Webhook endpoint for Alpaca order status updates.
 
@@ -965,7 +973,7 @@ async def order_webhook(request: Request):
 # ============================================================================
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Application startup."""
     logger.info("Execution Gateway started")
     logger.info(f"DRY_RUN mode: {DRY_RUN}")
@@ -986,7 +994,7 @@ async def startup_event():
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """Application shutdown."""
     logger.info("Execution Gateway shutting down")
 
