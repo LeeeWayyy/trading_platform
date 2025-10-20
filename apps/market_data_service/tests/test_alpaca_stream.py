@@ -41,7 +41,7 @@ def mock_alpaca_quote():
     quote.bid_size = 100
     quote.ask_size = 200
     quote.timestamp = datetime.now(UTC)
-    quote.exchange = "NASDAQ"
+    quote.ask_exchange = "NASDAQ"  # Fixed: Alpaca SDK uses ask_exchange, not exchange
     return quote
 
 
@@ -152,7 +152,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
         bad_quote.timestamp = datetime.now(UTC)
-        bad_quote.exchange = "NASDAQ"
+        bad_quote.ask_exchange = "NASDAQ"  # Fixed: Alpaca SDK uses ask_exchange
 
         # Should NOT raise exception - stream should continue processing
         await stream._handle_quote(bad_quote)
@@ -185,7 +185,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
         bad_quote.timestamp = datetime.now(UTC)
-        bad_quote.exchange = "NASDAQ"
+        bad_quote.ask_exchange = "NASDAQ"  # Fixed: Alpaca SDK uses ask_exchange
 
         # Process bad quote - should NOT crash
         await stream._handle_quote(bad_quote)
@@ -378,7 +378,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
         bad_quote.timestamp = datetime.now(UTC)
-        bad_quote.exchange = "NASDAQ"
+        bad_quote.ask_exchange = "NASDAQ"  # Fixed: Alpaca SDK uses ask_exchange
 
         # Process quote - should NOT raise exception
         await stream._handle_quote(bad_quote)
@@ -410,7 +410,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
         bad_quote.timestamp = datetime.now(UTC)
-        bad_quote.exchange = "NASDAQ"
+        bad_quote.ask_exchange = "NASDAQ"  # Fixed: Alpaca SDK uses ask_exchange
 
         # Process quote - should NOT raise exception even when accessing symbol fails
         await stream._handle_quote(bad_quote)
