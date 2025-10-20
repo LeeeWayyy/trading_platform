@@ -120,12 +120,14 @@ class TestModelRegistryIntegration:
         first_reload = registry.reload_if_changed("alpha_baseline")
         assert first_reload is True
 
+        assert registry.current_metadata is not None, "Metadata should be loaded after reload"
         first_version = registry.current_metadata.version
 
         # Second load (no change)
         second_reload = registry.reload_if_changed("alpha_baseline")
         assert second_reload is False, "Second reload should return False (no change)"
 
+        assert registry.current_metadata is not None
         second_version = registry.current_metadata.version
         assert first_version == second_version, "Version should not change"
 
@@ -333,6 +335,7 @@ class TestFeatureParity:
         assert len(features) == len(test_symbols), f"Should have features for all {len(test_symbols)} symbols"
 
         # Test prediction works
+        assert registry.current_model is not None, "Model should be loaded"
         predictions = registry.current_model.predict(features.values)
         assert len(predictions) == len(test_symbols), "Should have predictions for all symbols"
 
@@ -359,6 +362,7 @@ class TestEndToEndWorkflow:
         reloaded = registry.reload_if_changed("alpha_baseline")
         assert reloaded is True
         assert registry.is_loaded
+        assert registry.current_metadata is not None
         print(f"    ✓ Model loaded: {registry.current_metadata.version}")
 
         # Step 2: Initialize signal generator
