@@ -4,11 +4,11 @@ Database client for Orchestrator Service.
 Handles persistence of orchestration runs and signal-order mappings.
 """
 
-import logging
 import json
+import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
 
 import psycopg
@@ -17,9 +17,8 @@ from psycopg.rows import class_row
 from apps.orchestrator.schemas import (
     OrchestrationResult,
     OrchestrationRunSummary,
-    SignalOrderMapping
+    SignalOrderMapping,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +34,21 @@ class OrchestrationRunDB:
     strategy_id: str
     as_of_date: str
     status: str
-    symbols: List[str]
+    symbols: list[str]
     capital: Decimal
-    max_position_size: Optional[Decimal]
+    max_position_size: Decimal | None
     num_signals: int
-    model_version: Optional[str]
+    model_version: str | None
     num_orders_submitted: int
     num_orders_accepted: int
     num_orders_rejected: int
     num_orders_filled: int
     started_at: datetime
-    completed_at: Optional[datetime]
-    duration_seconds: Optional[Decimal]
-    error_message: Optional[str]
-    signal_service_response: Optional[dict[str, Any]]
-    execution_gateway_responses: Optional[dict[str, Any]]
+    completed_at: datetime | None
+    duration_seconds: Decimal | None
+    error_message: str | None
+    signal_service_response: dict[str, Any] | None
+    execution_gateway_responses: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 
@@ -181,7 +180,7 @@ class OrchestrationDatabaseClient:
         self,
         cur: psycopg.Cursor,
         run_id: UUID,
-        mappings: List[SignalOrderMapping]
+        mappings: list[SignalOrderMapping]
     ) -> None:
         """
         Create signal-order mapping records.
@@ -231,9 +230,9 @@ class OrchestrationDatabaseClient:
         self,
         run_id: UUID,
         status: str,
-        completed_at: Optional[datetime] = None,
-        duration_seconds: Optional[Decimal] = None,
-        error_message: Optional[str] = None
+        completed_at: datetime | None = None,
+        duration_seconds: Decimal | None = None,
+        error_message: str | None = None
     ) -> None:
         """
         Update orchestration run status.
@@ -260,7 +259,7 @@ class OrchestrationDatabaseClient:
                 )
                 conn.commit()
 
-    def get_run(self, run_id: UUID) -> Optional[OrchestrationRunSummary]:
+    def get_run(self, run_id: UUID) -> OrchestrationRunSummary | None:
         """
         Get orchestration run by UUID.
 
@@ -317,9 +316,9 @@ class OrchestrationDatabaseClient:
         self,
         limit: int = 50,
         offset: int = 0,
-        strategy_id: Optional[str] = None,
-        status: Optional[str] = None
-    ) -> List[OrchestrationRunSummary]:
+        strategy_id: str | None = None,
+        status: str | None = None
+    ) -> list[OrchestrationRunSummary]:
         """
         List recent orchestration runs.
 
@@ -386,7 +385,7 @@ class OrchestrationDatabaseClient:
                     for row in rows
                 ]
 
-    def get_mappings(self, run_id: UUID) -> List[SignalOrderMapping]:
+    def get_mappings(self, run_id: UUID) -> list[SignalOrderMapping]:
         """
         Get signal-order mappings for a run.
 

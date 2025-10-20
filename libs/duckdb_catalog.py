@@ -45,10 +45,11 @@ See Also:
 - docs/CONCEPTS/parquet-format.md - Parquet format details
 """
 
+from pathlib import Path
+from typing import Any
+
 import duckdb
 import polars as pl
-from pathlib import Path
-from typing import Any, List, Optional, Union
 
 
 class DuckDBCatalog:
@@ -150,7 +151,7 @@ class DuckDBCatalog:
     def register_table(
         self,
         table_name: str,
-        parquet_path: Union[str, Path, List[Union[str, Path]]],
+        parquet_path: str | Path | list[str | Path],
     ) -> None:
         """
         Register Parquet file(s) as a SQL table for querying.
@@ -221,7 +222,7 @@ class DuckDBCatalog:
     def query(
         self,
         sql: str,
-        params: Optional[List[Any]] = None,
+        params: list[Any] | None = None,
         return_format: str = "polars"
     ) -> pl.DataFrame:
         """
@@ -318,7 +319,7 @@ class DuckDBCatalog:
                 "Use 'polars' or 'pandas'."
             )
 
-    def get_symbols(self, table_name: str = "market_data") -> List[str]:
+    def get_symbols(self, table_name: str = "market_data") -> list[str]:
         """
         Get list of unique symbols in the table.
 
@@ -449,9 +450,9 @@ class DuckDBCatalog:
 
 def _build_where_clause(
     symbol: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None
-) -> tuple[str, List[Any]]:
+    start_date: str | None = None,
+    end_date: str | None = None
+) -> tuple[str, list[Any]]:
     """
     Build WHERE clause and parameters for common time-series queries.
 
@@ -492,8 +493,8 @@ def _build_where_clause(
 def calculate_returns(
     catalog: DuckDBCatalog,
     symbol: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     table_name: str = "market_data"
 ) -> pl.DataFrame:
     """
@@ -559,8 +560,8 @@ def calculate_sma(
     catalog: DuckDBCatalog,
     symbol: str,
     window: int = 20,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     table_name: str = "market_data"
 ) -> pl.DataFrame:
     """

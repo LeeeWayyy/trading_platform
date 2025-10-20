@@ -2,7 +2,7 @@
 Tests for market data type definitions.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -22,7 +22,7 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             exchange="NASDAQ",
         )
 
@@ -39,7 +39,7 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             exchange="NASDAQ",
         )
 
@@ -53,7 +53,7 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             exchange="NASDAQ",
         )
 
@@ -67,7 +67,7 @@ class TestQuoteData:
             ask_price=Decimal("150.10"),
             bid_size=100,
             ask_size=200,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             exchange="NASDAQ",
         )
 
@@ -83,7 +83,7 @@ class TestQuoteData:
                 ask_price=Decimal("150.00"),  # Ask < Bid (invalid)
                 bid_size=100,
                 ask_size=200,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 exchange="NASDAQ",
             )
 
@@ -99,7 +99,7 @@ class TestQuoteData:
                 ask_price=Decimal("150.10"),
                 bid_size=100,
                 ask_size=200,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 exchange="NASDAQ",
             )
 
@@ -112,7 +112,7 @@ class TestQuoteData:
                 ask_price=Decimal("150.10"),
                 bid_size=-100,  # Negative (invalid)
                 ask_size=200,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 exchange="NASDAQ",
             )
 
@@ -122,7 +122,7 @@ class TestPriceData:
 
     def test_from_quote(self):
         """Test creating PriceData from QuoteData."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         quote = QuoteData(
             symbol="AAPL",
             bid_price=Decimal("150.00"),
@@ -168,7 +168,7 @@ class TestPriceUpdateEvent:
 
     def test_from_quote(self):
         """Test creating PriceUpdateEvent from QuoteData."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         quote = QuoteData(
             symbol="AAPL",
             bid_price=Decimal("150.00"),

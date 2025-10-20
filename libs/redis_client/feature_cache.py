@@ -27,7 +27,8 @@ See Also:
 
 import json
 import logging
-from typing import Dict, Optional, Any
+from typing import Any
+
 from redis.exceptions import RedisError
 
 from .client import RedisClient
@@ -106,7 +107,7 @@ class FeatureCache:
         """
         return f"{self.prefix}:{symbol}:{date}"
 
-    def get(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
+    def get(self, symbol: str, date: str) -> dict[str, Any] | None:
         """
         Retrieve cached features for (symbol, date).
 
@@ -156,7 +157,7 @@ class FeatureCache:
             # Return None on error (graceful degradation)
             return None
 
-    def set(self, symbol: str, date: str, features: Dict[str, Any]) -> bool:
+    def set(self, symbol: str, date: str, features: dict[str, Any]) -> bool:
         """
         Cache features for (symbol, date) with TTL.
 
@@ -234,7 +235,7 @@ class FeatureCache:
             logger.error(f"Redis error invalidating {symbol} on {date}: {e}")
             return False
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics (if Redis INFO command available).
 

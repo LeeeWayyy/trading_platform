@@ -20,16 +20,12 @@ See Also:
 """
 
 import logging
-from typing import Any, Dict, Optional, cast
+from typing import Any, cast
+
 import redis
 from redis.connection import ConnectionPool
-from redis.exceptions import ConnectionError, TimeoutError, RedisError
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type
-)
+from redis.exceptions import ConnectionError, RedisError, TimeoutError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +65,7 @@ class RedisClient:
         host: str = "localhost",
         port: int = 6379,
         db: int = 0,
-        password: Optional[str] = None,
+        password: str | None = None,
         decode_responses: bool = True,
         max_connections: int = 10,
         socket_connect_timeout: int = 5,
@@ -129,7 +125,7 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         """
         Get value from Redis with retry logic.
 
@@ -150,7 +146,7 @@ class RedisClient:
         try:
             # Redis library returns Awaitable[Any] | Any, cast to expected type
             result = self._client.get(key)
-            return cast(Optional[str], result)
+            return cast(str | None, result)
         except RedisError as e:
             logger.error(f"Redis GET failed for key '{key}': {e}")
             raise
@@ -160,7 +156,7 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
-    def mget(self, keys: list[str]) -> list[Optional[str]]:
+    def mget(self, keys: list[str]) -> list[str | None]:
         """
         Get multiple values from Redis in a single round-trip.
 
@@ -196,7 +192,7 @@ class RedisClient:
 
         try:
             result = self._client.mget(keys)
-            return cast(list[Optional[str]], result)
+            return cast(list[str | None], result)
         except RedisError as e:
             logger.error(f"Redis MGET failed for {len(keys)} keys: {e}")
             raise
@@ -206,7 +202,7 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
-    def set(self, key: str, value: str, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: str, ttl: int | None = None) -> None:
         """
         Set value in Redis with optional TTL and retry logic.
 
@@ -324,7 +320,7 @@ class RedisClient:
             logger.warning(f"Redis health check failed: {e}")
             return False
 
-    def get_info(self) -> Dict[str, Any]:
+    def get_info(self) -> dict[str, Any]:
         """
         Get Redis server information.
 
@@ -340,7 +336,7 @@ class RedisClient:
         """
         try:
             result = self._client.info()
-            return cast(Dict[str, Any], result)
+            return cast(dict[str, Any], result)
         except RedisError as e:
             logger.error(f"Redis INFO failed: {e}")
             raise

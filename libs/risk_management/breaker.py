@@ -34,14 +34,14 @@ See Also:
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import redis.exceptions
 
 from libs.redis_client import RedisClient
-from libs.risk_management.exceptions import CircuitBreakerError, CircuitBreakerTripped
+from libs.risk_management.exceptions import CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ class CircuitBreaker:
         if state_data["state"] == CircuitBreakerState.QUIET_PERIOD.value:
             if state_data.get("reset_at"):
                 reset_at = datetime.fromisoformat(state_data["reset_at"])
-                elapsed = datetime.now(timezone.utc) - reset_at
+                elapsed = datetime.now(UTC) - reset_at
                 if elapsed > timedelta(seconds=self.QUIET_PERIOD_DURATION):
                     # Auto-transition to OPEN
                     logger.info(
@@ -196,7 +196,7 @@ class CircuitBreaker:
     def trip(
         self,
         reason: str,
-        details: Optional[dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         """
         Trip the circuit breaker atomically.
@@ -252,7 +252,7 @@ class CircuitBreaker:
                     pipe.multi()
 
                     # Update state
-                    now = datetime.now(timezone.utc).isoformat()
+                    now = datetime.now(UTC).isoformat()
                     state_data.update(
                         {
                             "state": CircuitBreakerState.TRIPPED.value,
@@ -346,7 +346,7 @@ class CircuitBreaker:
                     pipe.multi()
 
                     # Transition to QUIET_PERIOD
-                    now = datetime.now(timezone.utc).isoformat()
+                    now = datetime.now(UTC).isoformat()
                     state_data.update(
                         {
                             "state": CircuitBreakerState.QUIET_PERIOD.value,
@@ -422,7 +422,7 @@ class CircuitBreaker:
                     logger.warning("WatchError on circuit breaker state, retrying transition to OPEN")
                     continue
 
-    def get_trip_reason(self) -> Optional[str]:
+    def get_trip_reason(self) -> str | None:
         """
         Get reason for current trip (if TRIPPED).
 
@@ -441,7 +441,7 @@ class CircuitBreaker:
         state_data = json.loads(state_json)
         return state_data.get("trip_reason")  # type: ignore[no-any-return]
 
-    def get_trip_details(self) -> Optional[dict[str, Any]]:
+    def get_trip_details(self) -> dict[str, Any] | None:
         """
         Get details for current trip (if TRIPPED).
 
@@ -474,7 +474,7 @@ class CircuitBreaker:
             - Score allows chronological ordering and range queries
         """
         # Use current timestamp (microseconds since epoch) as score for chronological ordering
-        timestamp = datetime.now(timezone.utc).timestamp()
+        timestamp = datetime.now(UTC).timestamp()
 
         # Serialize entry to JSON
         history_json = json.dumps(entry)

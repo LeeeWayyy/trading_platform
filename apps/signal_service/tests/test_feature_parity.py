@@ -20,13 +20,13 @@ Prerequisites:
 See: docs/IMPLEMENTATION_GUIDES/t3-signal-service.md for context
 """
 
-import pytest
+import inspect
 from datetime import datetime
 from pathlib import Path
-import pandas as pd
-import numpy as np
-import inspect
 
+import numpy as np
+import pandas as pd
+import pytest
 
 # ==============================================================================
 # Fixtures
@@ -60,8 +60,8 @@ class TestCodeImportParity:
 
     def test_signal_generator_imports_research_features(self):
         """Test that SignalGenerator imports features from strategies module."""
-        from apps.signal_service.signal_generator import SignalGenerator
         import apps.signal_service.signal_generator as sg_module
+        from apps.signal_service.signal_generator import SignalGenerator
 
         # Get source code of generate_signals method
         source = inspect.getsource(SignalGenerator.generate_signals)
@@ -131,9 +131,9 @@ class TestFeatureComputationDeterminism:
         pd.testing.assert_frame_equal(features_list[0], features_list[1])
         pd.testing.assert_frame_equal(features_list[1], features_list[2])
 
-        print(f"\n  Generated features 3 times:")
+        print("\n  Generated features 3 times:")
         print(f"    Shape: {features_list[0].shape}")
-        print(f"    All identical: ✓")
+        print("    All identical: ✓")
 
     def test_features_consistent_across_symbols(self, data_dir, test_date):
         """Test that feature generation is consistent for different symbol sets."""
@@ -170,9 +170,9 @@ class TestFeatureComputationDeterminism:
                 from_combined.reset_index(drop=True)
             )
 
-        print(f"\n  Feature generation consistent:")
-        print(f"    Individual symbols: ✓")
-        print(f"    Combined symbols: ✓")
+        print("\n  Feature generation consistent:")
+        print("    Individual symbols: ✓")
+        print("    Combined symbols: ✓")
 
 
 # ==============================================================================
@@ -199,10 +199,10 @@ class TestFeatureDimensions:
         # Should have exactly 158 features
         assert features.shape[1] == 158, f"Expected 158 features, got {features.shape[1]}"
 
-        print(f"\n  Feature dimensions:")
+        print("\n  Feature dimensions:")
         print(f"    Rows (symbols): {features.shape[0]}")
         print(f"    Columns (features): {features.shape[1]}")
-        print(f"    ✓ Matches Alpha158 specification")
+        print("    ✓ Matches Alpha158 specification")
 
     def test_feature_names_are_consistent(self, data_dir, test_symbols, test_date):
         """Test that feature names are consistent across calls."""
@@ -228,10 +228,10 @@ class TestFeatureDimensions:
         # Column names should be identical
         assert list(features1.columns) == list(features2.columns)
 
-        print(f"\n  Feature names:")
+        print("\n  Feature names:")
         print(f"    First 5: {list(features1.columns[:5])}")
         print(f"    Last 5: {list(features1.columns[-5:])}")
-        print(f"    ✓ Consistent across calls")
+        print("    ✓ Consistent across calls")
 
     def test_features_have_no_nulls(self, data_dir, test_symbols, test_date):
         """Test that features have no null values."""
@@ -250,9 +250,9 @@ class TestFeatureDimensions:
         null_count = features.isnull().sum().sum()
         assert null_count == 0, f"Found {null_count} null values in features"
 
-        print(f"\n  Feature quality:")
+        print("\n  Feature quality:")
         print(f"    Null values: {null_count}")
-        print(f"    ✓ All features populated")
+        print("    ✓ All features populated")
 
 
 # ==============================================================================
@@ -265,8 +265,8 @@ class TestFeatureModelCompatibility:
 
     def test_features_match_model_input_dimensions(self, data_dir, test_symbols, test_date):
         """Test that features match model's expected input dimensions."""
-        from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
         from apps.signal_service.model_registry import ModelRegistry
+        from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
 
         # Load model
         registry = ModelRegistry("postgresql://postgres:postgres@localhost:5432/trading_platform")
@@ -293,10 +293,10 @@ class TestFeatureModelCompatibility:
         assert success, f"Model prediction failed: {error if not success else ''}"
         assert len(predictions) == len(test_symbols), "Should have one prediction per symbol"
 
-        print(f"\n  Feature-model compatibility:")
+        print("\n  Feature-model compatibility:")
         print(f"    Feature shape: {features.shape}")
         print(f"    Predictions: {len(predictions)}")
-        print(f"    ✓ Features compatible with model")
+        print("    ✓ Features compatible with model")
 
     def test_feature_values_in_reasonable_range(self, data_dir, test_symbols, test_date):
         """Test that feature values are in reasonable range (not NaN/Inf)."""
@@ -323,12 +323,12 @@ class TestFeatureModelCompatibility:
         min_val = features.values.min()
         max_val = features.values.max()
 
-        print(f"\n  Feature value ranges:")
+        print("\n  Feature value ranges:")
         print(f"    Min: {min_val:.4f}")
         print(f"    Max: {max_val:.4f}")
         print(f"    Inf count: {inf_count}")
         print(f"    NaN count: {nan_count}")
-        print(f"    ✓ All values in reasonable range")
+        print("    ✓ All values in reasonable range")
 
 
 # ==============================================================================
@@ -397,13 +397,13 @@ class TestProductionResearchParity:
         correlation, _ = spearmanr(research_predictions, production_predictions)
         assert abs(correlation) > 0.99, f"Prediction correlation too low: {correlation}"
 
-        print(f"\n  Production-research parity:")
+        print("\n  Production-research parity:")
         print(f"    Research predictions (raw): {research_predictions}")
         print(f"    Production predictions (normalized): {production_predictions}")
         print(f"    Research ranking: {research_ranking}")
         print(f"    Production ranking: {production_ranking}")
         print(f"    Spearman correlation: {correlation:.6f}")
-        print(f"    ✓ Rankings match perfectly")
+        print("    ✓ Rankings match perfectly")
 
 
 # ==============================================================================

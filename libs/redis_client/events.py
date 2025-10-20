@@ -28,8 +28,7 @@ See Also:
 """
 
 from datetime import datetime
-from typing import List, Optional, Dict, Any
-from decimal import Decimal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -77,7 +76,7 @@ class SignalEvent(BaseModel):
         description="Strategy that generated signals"
     )
 
-    symbols: List[str] = Field(
+    symbols: list[str] = Field(
         ...,
         min_length=1,
         description="Symbols with generated signals"

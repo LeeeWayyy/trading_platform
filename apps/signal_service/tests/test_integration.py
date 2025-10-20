@@ -22,16 +22,15 @@ Prerequisites:
 See: docs/TESTING_SETUP.md for setup instructions
 """
 
-import pytest
 from datetime import datetime
 from pathlib import Path
-import psycopg2
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import pytest
 
-from apps.signal_service.model_registry import ModelRegistry, ModelMetadata
+from apps.signal_service.model_registry import ModelMetadata, ModelRegistry
 from apps.signal_service.signal_generator import SignalGenerator
-
 
 # ==============================================================================
 # Fixtures
@@ -295,14 +294,15 @@ class TestFeatureParity:
         # Should be identical
         pd.testing.assert_frame_equal(features1, features2)
 
-        print(f"\n  Features generated twice, identical: True")
+        print("\n  Features generated twice, identical: True")
         print(f"  Shape: {features1.shape}")
         print(f"  Symbols: {len(features1.index.get_level_values('instrument').unique())}")
 
     def test_signal_generator_uses_same_feature_code(self):
         """Test that signal generator imports features from research code."""
-        from apps.signal_service.signal_generator import SignalGenerator
         import inspect
+
+        from apps.signal_service.signal_generator import SignalGenerator
 
         # Check that SignalGenerator imports get_alpha158_features
         source = inspect.getsource(SignalGenerator.generate_signals)
@@ -340,7 +340,7 @@ class TestFeatureParity:
         assert len(predictions) == len(test_symbols), "Should have predictions for all symbols"
 
         print(f"\n  Feature dimensions: {features.shape}")
-        print(f"  Model expects: 158 features")
+        print("  Model expects: 158 features")
         print(f"  Predictions generated: {len(predictions)}")
 
 
@@ -373,7 +373,7 @@ class TestEndToEndWorkflow:
             top_n=1,
             bottom_n=1,
         )
-        print(f"    ✓ Generator initialized (top_n=1, bottom_n=1)")
+        print("    ✓ Generator initialized (top_n=1, bottom_n=1)")
 
         # Step 3: Generate signals
         print("  Step 3: Generate signals...")
@@ -388,7 +388,7 @@ class TestEndToEndWorkflow:
         assert isinstance(signals, pd.DataFrame)
         assert len(signals) == len(symbols)
         assert list(signals.columns) == ["symbol", "predicted_return", "rank", "target_weight"]
-        print(f"    ✓ Structure validated")
+        print("    ✓ Structure validated")
 
         # Step 5: Validate signal properties
         print("  Step 5: Validate signal properties...")

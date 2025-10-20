@@ -10,16 +10,16 @@ This module orchestrates the complete data pipeline:
 See ADR-0001 for pipeline architecture decisions.
 """
 
-from pathlib import Path
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import polars as pl
 
-from libs.data_pipeline.freshness import check_freshness
-from libs.data_pipeline.corporate_actions import adjust_prices
-from libs.data_pipeline.quality_gate import detect_outliers
 from libs.common.exceptions import DataQualityError
+from libs.data_pipeline.corporate_actions import adjust_prices
+from libs.data_pipeline.freshness import check_freshness
+from libs.data_pipeline.quality_gate import detect_outliers
 
 
 def run_etl_pipeline(

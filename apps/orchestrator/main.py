@@ -33,22 +33,20 @@ import logging
 import os
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, status
-from fastapi.responses import JSONResponse
 
 from apps.orchestrator import __version__
-from apps.orchestrator.orchestrator import TradingOrchestrator
 from apps.orchestrator.database import OrchestrationDatabaseClient
+from apps.orchestrator.orchestrator import TradingOrchestrator
 from apps.orchestrator.schemas import (
+    HealthResponse,
     OrchestrationRequest,
     OrchestrationResult,
     OrchestrationRunsResponse,
-    HealthResponse
 )
-
 
 # ============================================================================
 # Configuration
@@ -302,8 +300,8 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
 async def list_runs(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of runs to return"),
     offset: int = Query(0, ge=0, description="Number of runs to skip"),
-    strategy_id: Optional[str] = Query(None, description="Filter by strategy ID"),
-    status: Optional[str] = Query(None, description="Filter by status")
+    strategy_id: str | None = Query(None, description="Filter by strategy ID"),
+    status: str | None = Query(None, description="Filter by status")
 ) -> OrchestrationRunsResponse:
     """
     List orchestration runs.

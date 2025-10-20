@@ -28,12 +28,12 @@ See Also:
 """
 
 import logging
-from typing import Optional
-from redis.exceptions import RedisError
+
 from pydantic import BaseModel
+from redis.exceptions import RedisError
 
 from .client import RedisClient
-from .events import SignalEvent, OrderEvent, PositionEvent
+from .events import OrderEvent, PositionEvent, SignalEvent
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class EventPublisher:
         self.redis = redis_client
         logger.info("Event publisher initialized")
 
-    def publish(self, channel: str, event: BaseModel) -> Optional[int]:
+    def publish(self, channel: str, event: BaseModel) -> int | None:
         """
         Publish Pydantic event to Redis channel.
 
@@ -116,7 +116,7 @@ class EventPublisher:
             # Return None on error (graceful degradation)
             return None
 
-    def publish_signal_event(self, event: SignalEvent) -> Optional[int]:
+    def publish_signal_event(self, event: SignalEvent) -> int | None:
         """
         Publish signal generation event.
 
@@ -139,7 +139,7 @@ class EventPublisher:
         """
         return self.publish(self.CHANNEL_SIGNALS, event)
 
-    def publish_order_event(self, event: OrderEvent) -> Optional[int]:
+    def publish_order_event(self, event: OrderEvent) -> int | None:
         """
         Publish order execution event.
 
@@ -163,7 +163,7 @@ class EventPublisher:
         """
         return self.publish(self.CHANNEL_ORDERS, event)
 
-    def publish_position_event(self, event: PositionEvent) -> Optional[int]:
+    def publish_position_event(self, event: PositionEvent) -> int | None:
         """
         Publish position update event.
 

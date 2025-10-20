@@ -9,11 +9,9 @@ See: https://docs.alpaca.markets/docs/webhooks#webhook-signature-verification
 See: ADR-0005 for security requirements
 """
 
-import hmac
 import hashlib
+import hmac
 import logging
-from typing import Optional
-
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +117,7 @@ def generate_webhook_signature(payload: bytes, secret: str) -> str:
     ).hexdigest()
 
 
-def extract_signature_from_header(header_value: Optional[str]) -> Optional[str]:
+def extract_signature_from_header(header_value: str | None) -> str | None:
     """
     Extract signature from X-Alpaca-Signature header.
 

@@ -1,12 +1,12 @@
 """Tests for circuit breaker state machine."""
 
 import json
-import pytest
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
+import pytest
 import redis.exceptions
 
 from libs.risk_management.breaker import (
@@ -366,7 +366,7 @@ class TestCircuitBreakerQuietPeriod:
         # Manually expire quiet period by modifying reset_at timestamp
         state_json = mock_redis.get("circuit_breaker:state")
         state = json.loads(state_json)
-        old_reset_time = datetime.now(timezone.utc) - timedelta(seconds=301)  # 1 second past duration
+        old_reset_time = datetime.now(UTC) - timedelta(seconds=301)  # 1 second past duration
         state["reset_at"] = old_reset_time.isoformat()
         mock_redis.set("circuit_breaker:state", json.dumps(state))
 
@@ -391,7 +391,7 @@ class TestCircuitBreakerQuietPeriod:
         # Force transition to OPEN
         state_json = mock_redis.get("circuit_breaker:state")
         state = json.loads(state_json)
-        old_reset_time = datetime.now(timezone.utc) - timedelta(seconds=301)
+        old_reset_time = datetime.now(UTC) - timedelta(seconds=301)
         state["reset_at"] = old_reset_time.isoformat()
         mock_redis.set("circuit_breaker:state", json.dumps(state))
 

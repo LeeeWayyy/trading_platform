@@ -35,12 +35,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 import lightgbm as lgb
 import psycopg2
 import psycopg2.extras
-from psycopg2 import OperationalError, DatabaseError
+from psycopg2 import DatabaseError, OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -83,14 +83,14 @@ class ModelMetadata:
     id: int
     strategy_name: str
     version: str
-    mlflow_run_id: Optional[str]
-    mlflow_experiment_id: Optional[str]
+    mlflow_run_id: str | None
+    mlflow_experiment_id: str | None
     model_path: str
     status: str
-    performance_metrics: Dict[str, Any]
-    config: Dict[str, Any]
+    performance_metrics: dict[str, Any]
+    config: dict[str, Any]
     created_at: datetime
-    activated_at: Optional[datetime]
+    activated_at: datetime | None
 
 
 class ModelRegistry:
@@ -158,9 +158,9 @@ class ModelRegistry:
             raise ValueError("db_conn_string cannot be empty")
 
         self.db_conn_string = db_conn_string
-        self._current_model: Optional[lgb.Booster] = None
-        self._current_metadata: Optional[ModelMetadata] = None
-        self._last_check: Optional[datetime] = None
+        self._current_model: lgb.Booster | None = None
+        self._current_metadata: ModelMetadata | None = None
+        self._last_check: datetime | None = None
 
         logger.info("ModelRegistry initialized", extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"})
 
@@ -292,7 +292,7 @@ class ModelRegistry:
             model = lgb.Booster(model_file=str(path))
 
             logger.info(
-                f"Model loaded successfully",
+                "Model loaded successfully",
                 extra={
                     "path": str(path),
                     "num_trees": model.num_trees(),
@@ -422,7 +422,7 @@ class ModelRegistry:
             # Graceful degradation: keep current model if one is loaded
             if self._current_model is not None and self._current_metadata is not None:
                 logger.warning(
-                    f"Keeping current model after failed reload",
+                    "Keeping current model after failed reload",
                     extra={
                         "current_version": self._current_metadata.version,
                         "error": str(e)
@@ -434,7 +434,7 @@ class ModelRegistry:
             raise
 
     @property
-    def current_model(self) -> Optional[lgb.Booster]:
+    def current_model(self) -> lgb.Booster | None:
         """
         Get currently loaded model.
 
@@ -457,7 +457,7 @@ class ModelRegistry:
         return self._current_model
 
     @property
-    def current_metadata(self) -> Optional[ModelMetadata]:
+    def current_metadata(self) -> ModelMetadata | None:
         """
         Get metadata for currently loaded model.
 
@@ -495,7 +495,7 @@ class ModelRegistry:
         return self._current_model is not None
 
     @property
-    def last_check(self) -> Optional[datetime]:
+    def last_check(self) -> datetime | None:
         """
         Get timestamp of last reload check.
 

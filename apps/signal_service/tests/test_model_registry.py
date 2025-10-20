@@ -19,11 +19,10 @@ Usage:
     pytest apps/signal_service/tests/test_model_registry.py -v -m integration
 """
 
-import pytest
-from datetime import datetime
-from pathlib import Path
 
-from apps.signal_service.model_registry import ModelRegistry, ModelMetadata
+import pytest
+
+from apps.signal_service.model_registry import ModelMetadata, ModelRegistry
 
 
 class TestModelMetadata:

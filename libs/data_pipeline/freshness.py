@@ -7,7 +7,7 @@ Stale data can lead to executing trades based on outdated information.
 See /docs/CONCEPTS/corporate-actions.md and ADR-0001 for context.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import polars as pl
 
@@ -90,7 +90,7 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
     latest_dt: datetime = latest_timestamp
 
     # Get current time in UTC
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Calculate age in seconds
     age_seconds = (now - latest_dt).total_seconds()

@@ -6,15 +6,13 @@ Integration tests with real Alpaca API are separate.
 """
 
 import asyncio
-from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from redis.exceptions import RedisError
 
 from libs.market_data.alpaca_stream import AlpacaMarketDataStream
-from libs.market_data.exceptions import QuoteHandlingError
 
 
 @pytest.fixture
@@ -42,7 +40,7 @@ def mock_alpaca_quote():
     quote.ask_price = 150.10
     quote.bid_size = 100
     quote.ask_size = 200
-    quote.timestamp = datetime.now(timezone.utc)
+    quote.timestamp = datetime.now(UTC)
     quote.exchange = "NASDAQ"
     return quote
 
@@ -152,7 +150,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.ask_price = 150.00  # Invalid: ask < bid
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
-        bad_quote.timestamp = datetime.now(timezone.utc)
+        bad_quote.timestamp = datetime.now(UTC)
         bad_quote.exchange = "NASDAQ"
 
         # Should NOT raise exception - stream should continue processing
@@ -185,7 +183,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.ask_price = 150.00  # Invalid: ask < bid
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
-        bad_quote.timestamp = datetime.now(timezone.utc)
+        bad_quote.timestamp = datetime.now(UTC)
         bad_quote.exchange = "NASDAQ"
 
         # Process bad quote - should NOT crash
@@ -280,7 +278,7 @@ class TestAlpacaMarketDataStream:
         # Wait for task to complete
         try:
             await asyncio.wait_for(task, timeout=1.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             task.cancel()
 
         # Verify reconnect counter was reset to 0 after successful connection
@@ -376,7 +374,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.ask_price = 150.10
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
-        bad_quote.timestamp = datetime.now(timezone.utc)
+        bad_quote.timestamp = datetime.now(UTC)
         bad_quote.exchange = "NASDAQ"
 
         # Process quote - should NOT raise exception
@@ -408,7 +406,7 @@ class TestAlpacaMarketDataStream:
         bad_quote.ask_price = 150.10
         bad_quote.bid_size = 100
         bad_quote.ask_size = 200
-        bad_quote.timestamp = datetime.now(timezone.utc)
+        bad_quote.timestamp = datetime.now(UTC)
         bad_quote.exchange = "NASDAQ"
 
         # Process quote - should NOT raise exception even when accessing symbol fails

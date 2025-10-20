@@ -18,7 +18,6 @@ See ADR-0005 for design rationale.
 import hashlib
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
 
 from apps.execution_gateway.schemas import OrderRequest
 
@@ -26,7 +25,7 @@ from apps.execution_gateway.schemas import OrderRequest
 def generate_client_order_id(
     order: OrderRequest,
     strategy_id: str,
-    as_of_date: Optional[date] = None
+    as_of_date: date | None = None
 ) -> str:
     """
     Generate deterministic client_order_id for an order.
@@ -142,8 +141,8 @@ def reconstruct_order_params_hash(
     symbol: str,
     side: str,
     qty: int,
-    limit_price: Optional[Decimal],
-    stop_price: Optional[Decimal],
+    limit_price: Decimal | None,
+    stop_price: Decimal | None,
     strategy_id: str,
     order_date: date
 ) -> str:

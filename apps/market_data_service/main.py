@@ -8,14 +8,14 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 
 from apps.market_data_service.config import settings
 from apps.market_data_service.position_sync import PositionBasedSubscription
-from libs.market_data import AlpacaMarketDataStream, ConnectionError, SubscriptionError
+from libs.market_data import AlpacaMarketDataStream, SubscriptionError
 from libs.redis_client import EventPublisher, RedisClient
 
 # Configure logging
@@ -26,10 +26,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global WebSocket stream instance
-stream: Optional[AlpacaMarketDataStream] = None
+stream: AlpacaMarketDataStream | None = None
 
 # Global position-based subscription manager
-subscription_manager: Optional[PositionBasedSubscription] = None
+subscription_manager: PositionBasedSubscription | None = None
 
 
 # Request/Response Models

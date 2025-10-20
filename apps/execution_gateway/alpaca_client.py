@@ -11,29 +11,28 @@ See ADR-0005 for design rationale.
 """
 
 import logging
-from typing import Optional, Dict, Any, Union
 from decimal import Decimal
+from typing import Any
 
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    RetryError
 )
 
 try:
-    from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import (
-        MarketOrderRequest,
-        LimitOrderRequest,
-        StopOrderRequest,
-        StopLimitOrderRequest
-    )
-    from alpaca.trading.enums import OrderSide, TimeInForce, OrderType
+    from alpaca.common.exceptions import APIError as AlpacaAPIError
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockLatestQuoteRequest
-    from alpaca.common.exceptions import APIError as AlpacaAPIError
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    from alpaca.trading.requests import (
+        LimitOrderRequest,
+        MarketOrderRequest,
+        StopLimitOrderRequest,
+        StopOrderRequest,
+    )
     ALPACA_AVAILABLE = True
 except ImportError:
     ALPACA_AVAILABLE = False
@@ -42,7 +41,6 @@ except ImportError:
     AlpacaAPIError = Exception  # type: ignore[assignment,misc]
 
 from apps.execution_gateway.schemas import OrderRequest
-
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +148,7 @@ class AlpacaExecutor:
         self,
         order: OrderRequest,
         client_order_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Submit order to Alpaca with retry logic.
 
@@ -248,7 +246,7 @@ class AlpacaExecutor:
         self,
         order: OrderRequest,
         client_order_id: str
-    ) -> Union[MarketOrderRequest, LimitOrderRequest, StopOrderRequest, StopLimitOrderRequest]:
+    ) -> MarketOrderRequest | LimitOrderRequest | StopOrderRequest | StopLimitOrderRequest:
         """
         Build Alpaca order request object based on order type.
 
@@ -329,7 +327,7 @@ class AlpacaExecutor:
         else:
             raise ValueError(f"Unsupported order type: {order.order_type}")
 
-    def get_order_by_client_id(self, client_order_id: str) -> Optional[Dict[str, Any]]:
+    def get_order_by_client_id(self, client_order_id: str) -> dict[str, Any] | None:
         """
         Get order by client_order_id.
 
@@ -421,7 +419,7 @@ class AlpacaExecutor:
             logger.error(f"Alpaca connection check failed: {e}")
             return False
 
-    def get_account_info(self) -> Optional[Dict[str, Any]]:
+    def get_account_info(self) -> dict[str, Any] | None:
         """
         Get account information from Alpaca.
 
@@ -459,7 +457,7 @@ class AlpacaExecutor:
         retry=retry_if_exception_type(AlpacaConnectionError),
         reraise=True
     )
-    def get_latest_quotes(self, symbols: list[str]) -> Dict[str, Dict[str, Any]]:
+    def get_latest_quotes(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         """
         Fetch latest market quotes for multiple symbols.
 

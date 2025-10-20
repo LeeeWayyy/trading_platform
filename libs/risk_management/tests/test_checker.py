@@ -1,19 +1,19 @@
 """Tests for pre-trade risk checker."""
 
-import pytest
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 import redis.exceptions
 
+from libs.risk_management.breaker import CircuitBreaker
 from libs.risk_management.checker import RiskChecker
 from libs.risk_management.config import (
-    RiskConfig,
-    PositionLimits,
     PortfolioLimits,
+    PositionLimits,
+    RiskConfig,
 )
-from libs.risk_management.breaker import CircuitBreaker, CircuitBreakerState
 
 
 class MockPipeline:
@@ -64,7 +64,6 @@ class MockPipeline:
 
     def execute(self):
         """Execute queued commands atomically."""
-        import redis.exceptions
         # Check if any watched keys were modified
         for key, original_value in self.watched_keys.items():
             if self.state.get(key) != original_value:

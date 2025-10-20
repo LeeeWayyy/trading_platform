@@ -1,10 +1,10 @@
 """Common utilities and exceptions."""
 
 from libs.common.exceptions import (
-    TradingPlatformError,
     DataQualityError,
-    StalenessError,
     OutlierError,
+    StalenessError,
+    TradingPlatformError,
 )
 
 __all__ = [

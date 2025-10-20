@@ -17,20 +17,18 @@ See Also:
     - pytest fixtures documentation: https://docs.pytest.org/en/stable/fixture.html
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timedelta
-import json
 
-import psycopg2
 import lightgbm as lgb
-import pandas as pd
 import numpy as np
+import pandas as pd
+import psycopg2
+import pytest
 from sklearn.datasets import make_regression  # type: ignore[import-untyped]
 from sklearn.model_selection import train_test_split  # type: ignore[import-untyped]
-
 
 # ============================================================================
 # Directory and File Fixtures

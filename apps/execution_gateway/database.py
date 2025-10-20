@@ -13,14 +13,12 @@ See ADR-0005 for architecture decisions.
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
 
 import psycopg2
 import psycopg2.extras
-from psycopg2 import OperationalError, DatabaseError, IntegrityError
+from psycopg2 import DatabaseError, IntegrityError, OperationalError
 
-from apps.execution_gateway.schemas import OrderRequest, OrderDetail, Position
-
+from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +74,8 @@ class DatabaseClient:
         strategy_id: str,
         order_request: OrderRequest,
         status: str,
-        broker_order_id: Optional[str] = None,
-        error_message: Optional[str] = None
+        broker_order_id: str | None = None,
+        error_message: str | None = None
     ) -> OrderDetail:
         """
         Create new order record in database.
@@ -176,7 +174,7 @@ class DatabaseClient:
 
                     return OrderDetail(**row)
 
-        except IntegrityError as e:
+        except IntegrityError:
             logger.warning(
                 f"Order already exists: {client_order_id}",
                 extra={"client_order_id": client_order_id}
@@ -187,7 +185,7 @@ class DatabaseClient:
             logger.error(f"Database error creating order: {e}")
             raise
 
-    def get_order_by_client_id(self, client_order_id: str) -> Optional[OrderDetail]:
+    def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         """
         Get order by client_order_id.
 
@@ -232,11 +230,11 @@ class DatabaseClient:
         self,
         client_order_id: str,
         status: str,
-        broker_order_id: Optional[str] = None,
-        filled_qty: Optional[Decimal] = None,
-        filled_avg_price: Optional[Decimal] = None,
-        error_message: Optional[str] = None
-    ) -> Optional[OrderDetail]:
+        broker_order_id: str | None = None,
+        filled_qty: Decimal | None = None,
+        filled_avg_price: Decimal | None = None,
+        error_message: str | None = None
+    ) -> OrderDetail | None:
         """
         Update order status and fill details.
 
@@ -492,7 +490,7 @@ class DatabaseClient:
             logger.error(f"Database error updating position: {e}")
             raise
 
-    def get_all_positions(self) -> List[Position]:
+    def get_all_positions(self) -> list[Position]:
         """
         Get all current positions.
 

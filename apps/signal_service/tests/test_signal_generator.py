@@ -16,14 +16,15 @@ Usage:
     pytest apps/signal_service/tests/test_signal_generator.py -v -k "not integration"
 """
 
-import pytest
 from datetime import datetime
 from pathlib import Path
-import pandas as pd
-import numpy as np
 
-from apps.signal_service.signal_generator import SignalGenerator
+import numpy as np
+import pandas as pd
+import pytest
+
 from apps.signal_service.model_registry import ModelRegistry
+from apps.signal_service.signal_generator import SignalGenerator
 
 
 class TestSignalGeneratorInitialization:

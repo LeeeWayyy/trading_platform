@@ -8,17 +8,16 @@ Tests verify:
 - Format validation: 24-character hex string
 """
 
-import pytest
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
-from apps.execution_gateway.schemas import OrderRequest
 from apps.execution_gateway.order_id_generator import (
     generate_client_order_id,
-    validate_client_order_id,
-    reconstruct_order_params_hash,
     parse_order_date_from_timestamp,
+    reconstruct_order_params_hash,
+    validate_client_order_id,
 )
+from apps.execution_gateway.schemas import OrderRequest
 
 
 class TestGenerateClientOrderId:

@@ -8,12 +8,11 @@ Tests verify:
 - Format validation
 """
 
-import pytest
 from apps.execution_gateway.webhook_security import (
-    verify_webhook_signature,
-    generate_webhook_signature,
     extract_signature_from_header,
+    generate_webhook_signature,
     validate_signature_format,
+    verify_webhook_signature,
 )
 
 
@@ -270,7 +269,7 @@ class TestRoundTrip:
 
     def test_round_trip_with_unicode(self):
         """Test with unicode characters in payload."""
-        payload = '{"symbol":"AAPL","note":"Test™"}'.encode('utf-8')
+        payload = '{"symbol":"AAPL","note":"Test™"}'.encode()
         secret = "webhook_secret"
 
         signature = generate_webhook_signature(payload, secret)

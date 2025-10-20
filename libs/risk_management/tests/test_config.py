@@ -1,13 +1,14 @@
 """Tests for risk configuration models."""
 
-import pytest
 from decimal import Decimal
+
+import pytest
 from pydantic import ValidationError
 
 from libs.risk_management.config import (
-    PositionLimits,
-    PortfolioLimits,
     LossLimits,
+    PortfolioLimits,
+    PositionLimits,
     RiskConfig,
 )
 

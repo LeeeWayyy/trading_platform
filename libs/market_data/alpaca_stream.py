@@ -5,19 +5,15 @@ WebSocket client for real-time market data from Alpaca.
 """
 
 import asyncio
-import json
 import logging
-from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional, Set
 
 from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
 from pydantic import ValidationError
-
 from redis.exceptions import RedisError
 
-from libs.market_data.exceptions import ConnectionError, QuoteHandlingError, SubscriptionError
+from libs.market_data.exceptions import ConnectionError, SubscriptionError
 from libs.market_data.types import PriceData, PriceUpdateEvent, QuoteData
 from libs.redis_client import EventPublisher, RedisClient, RedisKeys
 
@@ -71,7 +67,7 @@ class AlpacaMarketDataStream:
         self.stream = StockDataStream(api_key, secret_key)
 
         # Track subscribed symbols
-        self.subscribed_symbols: Set[str] = set()
+        self.subscribed_symbols: set[str] = set()
         self._subscription_lock = asyncio.Lock()  # Prevent concurrent subscription/unsubscription
 
         # Connection state

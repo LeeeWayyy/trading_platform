@@ -7,9 +7,9 @@ and validation at the API boundary.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, Literal, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator
+from typing import Any, Literal
 
+from pydantic import BaseModel, Field, field_validator
 
 # ============================================================================
 # Order Schemas
@@ -48,11 +48,11 @@ class OrderRequest(BaseModel):
         default="market",
         description="Order type"
     )
-    limit_price: Optional[Decimal] = Field(
+    limit_price: Decimal | None = Field(
         default=None,
         description="Limit price (required for limit orders)"
     )
-    stop_price: Optional[Decimal] = Field(
+    stop_price: Decimal | None = Field(
         default=None,
         description="Stop price (required for stop orders)"
     )
@@ -69,7 +69,7 @@ class OrderRequest(BaseModel):
 
     @field_validator("limit_price", "stop_price")
     @classmethod
-    def price_positive(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+    def price_positive(cls, v: Decimal | None) -> Decimal | None:
         """Ensure prices are positive if provided."""
         if v is not None and v <= 0:
             raise ValueError("Price must be positive")
@@ -119,12 +119,12 @@ class OrderResponse(BaseModel):
     """
     client_order_id: str
     status: str
-    broker_order_id: Optional[str] = None
+    broker_order_id: str | None = None
     symbol: str
     side: str
     qty: int
     order_type: str
-    limit_price: Optional[Decimal] = None
+    limit_price: Decimal | None = None
     created_at: datetime
     message: str
 
@@ -172,20 +172,20 @@ class OrderDetail(BaseModel):
     side: str
     qty: int
     order_type: str
-    limit_price: Optional[Decimal] = None
-    stop_price: Optional[Decimal] = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
     time_in_force: str
     status: str
-    broker_order_id: Optional[str] = None
-    error_message: Optional[str] = None
+    broker_order_id: str | None = None
+    error_message: str | None = None
     retry_count: int
     created_at: datetime
     updated_at: datetime
-    submitted_at: Optional[datetime] = None
-    filled_at: Optional[datetime] = None
+    submitted_at: datetime | None = None
+    filled_at: datetime | None = None
     filled_qty: Decimal
-    filled_avg_price: Optional[Decimal] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    filled_avg_price: Decimal | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 # ============================================================================
@@ -209,11 +209,11 @@ class Position(BaseModel):
     symbol: str
     qty: Decimal
     avg_entry_price: Decimal
-    current_price: Optional[Decimal] = None
-    unrealized_pl: Optional[Decimal] = None
+    current_price: Decimal | None = None
+    unrealized_pl: Decimal | None = None
     realized_pl: Decimal
     updated_at: datetime
-    last_trade_at: Optional[datetime] = None
+    last_trade_at: datetime | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -235,9 +235,9 @@ class Position(BaseModel):
 
 class PositionsResponse(BaseModel):
     """Response containing list of current positions."""
-    positions: List[Position]
+    positions: list[Position]
     total_positions: int
-    total_unrealized_pl: Optional[Decimal] = None
+    total_unrealized_pl: Decimal | None = None
     total_realized_pl: Decimal
 
     model_config = {
@@ -280,7 +280,7 @@ class RealtimePositionPnL(BaseModel):
     )
     unrealized_pl: Decimal
     unrealized_pl_pct: Decimal = Field(description="Unrealized P&L as percentage")
-    last_price_update: Optional[datetime] = Field(
+    last_price_update: datetime | None = Field(
         None, description="Timestamp of last price update from market data"
     )
 
@@ -309,10 +309,10 @@ class RealtimePnLResponse(BaseModel):
     Fetches latest prices from Redis (populated by Market Data Service).
     Falls back to database prices if real-time data unavailable.
     """
-    positions: List[RealtimePositionPnL]
+    positions: list[RealtimePositionPnL]
     total_positions: int
     total_unrealized_pl: Decimal
-    total_unrealized_pl_pct: Optional[Decimal] = Field(
+    total_unrealized_pl_pct: Decimal | None = Field(
         None, description="Total unrealized P&L as percentage of total investment"
     )
     realtime_prices_available: int = Field(
@@ -373,10 +373,10 @@ class OrderEventData(BaseModel):
         "suspended",
         "calculated"
     ]
-    order: Dict[str, Any]  # Full order object from Alpaca
+    order: dict[str, Any]  # Full order object from Alpaca
     timestamp: datetime
-    execution_id: Optional[str] = None
-    position_qty: Optional[str] = None
+    execution_id: str | None = None
+    position_qty: str | None = None
 
 
 class WebhookEvent(BaseModel):
@@ -406,7 +406,7 @@ class HealthResponse(BaseModel):
     database_connected: bool
     alpaca_connected: bool
     timestamp: datetime
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
     model_config = {
         "json_schema_extra": {
@@ -433,7 +433,7 @@ class HealthResponse(BaseModel):
 class ErrorResponse(BaseModel):
     """Standard error response."""
     error: str
-    detail: Optional[str] = None
+    detail: str | None = None
     timestamp: datetime
 
     model_config = {

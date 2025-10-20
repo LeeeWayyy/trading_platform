@@ -5,7 +5,6 @@ Tests the calculate_position_size utility function that converts
 target weights to executable order quantities.
 """
 
-import pytest
 from decimal import Decimal
 
 from apps.orchestrator.orchestrator import calculate_position_size

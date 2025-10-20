@@ -6,7 +6,7 @@ Pydantic models for type-safe market data handling.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -24,7 +24,7 @@ class QuoteData(BaseModel):
     bid_size: int = Field(..., description="Bid size in shares", ge=0)
     ask_size: int = Field(..., description="Ask size in shares", ge=0)
     timestamp: datetime = Field(..., description="Quote timestamp (UTC)")
-    exchange: Optional[str] = Field(None, description="Exchange code (e.g., 'NASDAQ')")
+    exchange: str | None = Field(None, description="Exchange code (e.g., 'NASDAQ')")
 
     @field_validator("ask_price")
     @classmethod
@@ -66,7 +66,7 @@ class PriceData(BaseModel):
     bid_size: int = Field(default=0, description="Bid size", ge=0)
     ask_size: int = Field(default=0, description="Ask size", ge=0)
     timestamp: str = Field(..., description="ISO format timestamp")
-    exchange: Optional[str] = Field(None, description="Exchange code")
+    exchange: str | None = Field(None, description="Exchange code")
 
     @classmethod
     def from_quote(cls, quote: QuoteData) -> "PriceData":

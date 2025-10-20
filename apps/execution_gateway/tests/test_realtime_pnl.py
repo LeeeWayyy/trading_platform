@@ -6,16 +6,15 @@ and fallback scenarios.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from redis.exceptions import RedisError
 
-from apps.execution_gateway.main import app, _resolve_and_calculate_pnl
+from apps.execution_gateway.main import _resolve_and_calculate_pnl, app
 from apps.execution_gateway.schemas import Position
 
 
@@ -36,7 +35,7 @@ def mock_positions():
             current_price=Decimal("148.00"),  # Database price
             unrealized_pl=Decimal("-20.00"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         ),
         Position(
             symbol="MSFT",
@@ -45,7 +44,7 @@ def mock_positions():
             current_price=Decimal("295.00"),  # Database price
             unrealized_pl=Decimal("-25.00"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         ),
     ]
 
@@ -191,7 +190,7 @@ class TestRealtimePnLEndpoint:
             current_price=None,  # No database price
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
 
         # Setup database mock
@@ -339,7 +338,7 @@ class TestRealtimePnLEndpoint:
                 current_price=None,
                 unrealized_pl=Decimal("0"),
                 realized_pl=Decimal("0"),
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             ),
             Position(
                 symbol="TEST2",
@@ -348,7 +347,7 @@ class TestRealtimePnLEndpoint:
                 current_price=None,
                 unrealized_pl=Decimal("0"),
                 realized_pl=Decimal("0"),
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             ),
         ]
 
@@ -416,7 +415,7 @@ class TestRealtimePnLEndpoint:
         # Verify timestamp exists and is recent
         assert "timestamp" in data
         timestamp = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         assert (now - timestamp).total_seconds() < 5  # Within 5 seconds
 
     @patch("apps.execution_gateway.main.db_client")
@@ -431,7 +430,7 @@ class TestRealtimePnLEndpoint:
             current_price=None,
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
 
         mock_db.get_all_positions.return_value = [position]
@@ -492,7 +491,7 @@ class TestRealtimePnLEndpoint:
             current_price=Decimal("0"),  # Zero price should be valid
             unrealized_pl=Decimal("-1000.00"),  # Calculated from zero price
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
 
         mock_db.get_all_positions.return_value = [position]
@@ -536,22 +535,22 @@ class TestResolveAndCalculatePnL:
             current_price=Decimal("148.00"),  # Database price (should be ignored)
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
-        
+
         # Real-time price data from Redis
-        realtime_price_data = (Decimal("152.50"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=timezone.utc))
-        
+        realtime_price_data = (Decimal("152.50"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=UTC))
+
         position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
-        
+
         # Should use real-time price (not database price)
         assert position_pnl.price_source == "real-time"
         assert position_pnl.current_price == Decimal("152.50")
         assert is_realtime is True
-        
+
         # Should have correct P&L: (152.50 - 150.00) * 10 = 25.00
         assert position_pnl.unrealized_pl == Decimal("25.00")
-        assert position_pnl.last_price_update == datetime(2024, 10, 19, 14, 30, 0, tzinfo=timezone.utc)
+        assert position_pnl.last_price_update == datetime(2024, 10, 19, 14, 30, 0, tzinfo=UTC)
 
     def test_resolve_with_database_fallback(self):
         """Test price resolution when real-time unavailable, falls back to database."""
@@ -562,19 +561,19 @@ class TestResolveAndCalculatePnL:
             current_price=Decimal("295.00"),  # Database price (should be used)
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
-        
+
         # No real-time price available
         realtime_price_data = (None, None)
-        
+
         position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
-        
+
         # Should use database price
         assert position_pnl.price_source == "database"
         assert position_pnl.current_price == Decimal("295.00")
         assert is_realtime is False
-        
+
         # Should have correct P&L: (295.00 - 300.00) * 5 = -25.00
         assert position_pnl.unrealized_pl == Decimal("-25.00")
         assert position_pnl.last_price_update is None  # Database source has no timestamp
@@ -588,19 +587,19 @@ class TestResolveAndCalculatePnL:
             current_price=None,  # No database price
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
-        
+
         # No real-time price available
         realtime_price_data = (None, None)
-        
+
         position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
-        
+
         # Should use entry price as fallback
         assert position_pnl.price_source == "fallback"
         assert position_pnl.current_price == Decimal("140.00")
         assert is_realtime is False
-        
+
         # Should have zero P&L (using entry price)
         assert position_pnl.unrealized_pl == Decimal("0.00")
         assert position_pnl.last_price_update is None
@@ -614,22 +613,22 @@ class TestResolveAndCalculatePnL:
             current_price=None,
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
-        
+
         # Price went down (profitable for short)
-        realtime_price_data = (Decimal("140.00"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=timezone.utc))
-        
+        realtime_price_data = (Decimal("140.00"), datetime(2024, 10, 19, 14, 30, 0, tzinfo=UTC))
+
         position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
-        
+
         # Should use real-time price
         assert position_pnl.price_source == "real-time"
         assert position_pnl.current_price == Decimal("140.00")
         assert is_realtime is True
-        
+
         # Should have positive P&L for profitable short: (140 - 150) * (-10) = 100
         assert position_pnl.unrealized_pl == Decimal("100.00")
-        
+
         # P&L percentage should be positive: (100 / (150 * 10)) * 100 = 6.67%
         assert abs(position_pnl.unrealized_pl_pct - Decimal("6.67")) < Decimal("0.01")
 
@@ -642,19 +641,19 @@ class TestResolveAndCalculatePnL:
             current_price=Decimal("0"),  # Zero is a valid price (edge case)
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
-        
+
         # No real-time price
         realtime_price_data = (None, None)
-        
+
         position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
-        
+
         # Should use database price (Decimal('0') is valid, not fallback)
         assert position_pnl.price_source == "database"
         assert position_pnl.current_price == Decimal("0.00")
         assert is_realtime is False
-        
+
         # Should have correct loss: (0 - 10) * 100 = -1000
         assert position_pnl.unrealized_pl == Decimal("-1000.00")
 
@@ -667,17 +666,17 @@ class TestResolveAndCalculatePnL:
             current_price=None,
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
-        
+
         # 10% gain
-        realtime_price_data = (Decimal("110.00"), datetime.now(timezone.utc))
-        
+        realtime_price_data = (Decimal("110.00"), datetime.now(UTC))
+
         position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
-        
+
         # P&L: (110 - 100) * 100 = 1000
         assert position_pnl.unrealized_pl == Decimal("1000.00")
-        
+
         # P&L %: (1000 / (100 * 100)) * 100 = 10%
         assert position_pnl.unrealized_pl_pct == Decimal("10.00")
 
@@ -690,14 +689,14 @@ class TestResolveAndCalculatePnL:
             current_price=Decimal("55.00"),
             unrealized_pl=Decimal("0"),
             realized_pl=Decimal("0"),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
-        
+
         # Explicitly (None, None) from .get() fallback
         realtime_price_data = (None, None)
-        
+
         position_pnl, is_realtime = _resolve_and_calculate_pnl(position, realtime_price_data)
-        
+
         # Should fall back to database price
         assert position_pnl.price_source == "database"
         assert position_pnl.current_price == Decimal("55.00")

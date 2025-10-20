@@ -5,24 +5,19 @@ Provides typed interfaces with automatic retries and error handling.
 """
 
 import logging
-from typing import Any, List, Optional
 from datetime import date
+from typing import Any
 
 import httpx
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log
 )
 
-from apps.orchestrator.schemas import (
-    SignalServiceResponse,
-    OrderRequest,
-    OrderSubmission
-)
-
+from apps.orchestrator.schemas import OrderRequest, OrderSubmission, SignalServiceResponse
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +80,10 @@ class SignalServiceClient:
     )
     async def fetch_signals(
         self,
-        symbols: List[str],
-        as_of_date: Optional[date] = None,
-        top_n: Optional[int] = None,
-        bottom_n: Optional[int] = None
+        symbols: list[str],
+        as_of_date: date | None = None,
+        top_n: int | None = None,
+        bottom_n: int | None = None
     ) -> SignalServiceResponse:
         """
         Fetch trading signals from Signal Service.

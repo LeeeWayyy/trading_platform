@@ -40,18 +40,18 @@ See Also:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
+from libs.redis_client import FeatureCache
 from strategies.alpha_baseline.data_loader import T1DataProvider
 from strategies.alpha_baseline.features import get_alpha158_features
 from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
+
 from .model_registry import ModelRegistry
-from libs.redis_client import FeatureCache
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class SignalGenerator:
         data_dir: Path,
         top_n: int = 3,
         bottom_n: int = 3,
-        feature_cache: Optional[FeatureCache] = None,
+        feature_cache: FeatureCache | None = None,
     ):
         """
         Initialize signal generator.
@@ -188,8 +188,8 @@ class SignalGenerator:
 
     def generate_signals(
         self,
-        symbols: List[str],
-        as_of_date: Optional[datetime] = None,
+        symbols: list[str],
+        as_of_date: datetime | None = None,
     ) -> pd.DataFrame:
         """
         Generate target portfolio weights for given symbols.
@@ -380,7 +380,7 @@ class SignalGenerator:
                                 features_dict = symbol_features.iloc[0].to_dict()
                                 self.feature_cache.set(symbol, date_str, features_dict)
                                 logger.debug(f"Cached features for {symbol} on {date_str}")
-                        except (KeyError, IndexError) as e:
+                        except (KeyError, IndexError):
                             # Symbol not in generated features, skip caching
                             logger.debug(f"Symbol {symbol} not in features, skipping cache")
                         except Exception as e:
@@ -492,7 +492,7 @@ class SignalGenerator:
                 predictions = predictions - pred_mean
 
         logger.debug(
-            f"Normalized predictions to return scale",
+            "Normalized predictions to return scale",
             extra={
                 "mean_prediction": float(np.mean(predictions)),
                 "std_prediction": float(np.std(predictions)),

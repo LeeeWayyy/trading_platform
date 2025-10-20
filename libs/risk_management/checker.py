@@ -30,7 +30,6 @@ See Also:
 
 import logging
 from decimal import Decimal
-from typing import Optional
 
 from libs.risk_management.breaker import CircuitBreaker
 from libs.risk_management.config import RiskConfig
@@ -90,8 +89,8 @@ class RiskChecker:
         side: str,  # "buy" | "sell"
         qty: int,
         current_position: int = 0,
-        current_price: Optional[Decimal] = None,
-        portfolio_value: Optional[Decimal] = None,
+        current_price: Decimal | None = None,
+        portfolio_value: Decimal | None = None,
     ) -> tuple[bool, str]:
         """
         Validate order against all risk limits.

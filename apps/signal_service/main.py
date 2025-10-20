@@ -31,23 +31,24 @@ See Also:
     - /docs/API.md for complete API documentation
 """
 
-import logging
 import asyncio
+import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import Any, AsyncIterator, List, Optional
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator
 import uvicorn
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, validator
+
+from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
 
 from .config import Settings
 from .model_registry import ModelRegistry
 from .signal_generator import SignalGenerator
-from libs.redis_client import RedisClient, FeatureCache, RedisConnectionError
 
 
 def _format_database_url_for_logging(database_url: str) -> str:
@@ -71,10 +72,10 @@ logger = logging.getLogger(__name__)
 settings = Settings()
 
 # Global state (initialized in lifespan)
-model_registry: Optional[ModelRegistry] = None
-signal_generator: Optional[SignalGenerator] = None
-redis_client: Optional[RedisClient] = None
-feature_cache: Optional[FeatureCache] = None
+model_registry: ModelRegistry | None = None
+signal_generator: SignalGenerator | None = None
+redis_client: RedisClient | None = None
+feature_cache: FeatureCache | None = None
 
 
 # ==============================================================================
@@ -265,7 +266,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.redis_enabled and feature_cache:
             logger.info(f"  - Feature cache: ACTIVE (TTL: {settings.redis_ttl}s)")
         else:
-            logger.info(f"  - Feature cache: DISABLED")
+            logger.info("  - Feature cache: DISABLED")
         logger.info(f"  - Listening on: {settings.host}:{settings.port}")
         logger.info("=" * 60)
 
@@ -357,27 +358,27 @@ class SignalRequest(BaseModel):
         - top_n, bottom_n: Must be >= 0
     """
 
-    symbols: List[str] = Field(
+    symbols: list[str] = Field(
         ...,
         min_length=1,
         description="List of stock symbols to generate signals for",
         examples=[["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]]
     )
 
-    as_of_date: Optional[str] = Field(
+    as_of_date: str | None = Field(
         default=None,
         description="Date for signal generation (ISO format: YYYY-MM-DD). Defaults to today.",
         examples=["2024-12-31"]
     )
 
-    top_n: Optional[int] = Field(
+    top_n: int | None = Field(
         default=None,
         ge=0,
         description="Number of long positions (overrides default)",
         examples=[3]
     )
 
-    bottom_n: Optional[int] = Field(
+    bottom_n: int | None = Field(
         default=None,
         ge=0,
         description="Number of short positions (overrides default)",
@@ -385,7 +386,7 @@ class SignalRequest(BaseModel):
     )
 
     @validator('as_of_date')
-    def validate_date(cls, v: Optional[str]) -> Optional[str]:
+    def validate_date(cls, v: str | None) -> str | None:
         """Validate date format."""
         if v is not None:
             try:
@@ -395,7 +396,7 @@ class SignalRequest(BaseModel):
         return v
 
     @validator('symbols')
-    def validate_symbols(cls, v: List[str]) -> List[str]:
+    def validate_symbols(cls, v: list[str]) -> list[str]:
         """Validate symbols are uppercase."""
         return [s.upper() for s in v]
 
@@ -434,7 +435,7 @@ class SignalResponse(BaseModel):
         }
     """
 
-    signals: List[dict[str, Any]] = Field(
+    signals: list[dict[str, Any]] = Field(
         ...,
         description="List of trading signals"
     )
@@ -474,7 +475,7 @@ class HealthResponse(BaseModel):
 
     status: str = Field(..., description="Service health status")
     model_loaded: bool = Field(..., description="Whether model is loaded")
-    model_info: Optional[dict[str, Any]] = Field(None, description="Model metadata")
+    model_info: dict[str, Any] | None = Field(None, description="Model metadata")
     redis_status: str = Field(..., description="Redis connection status (connected/disconnected/disabled)")
     feature_cache_enabled: bool = Field(..., description="Whether feature caching is active")
     timestamp: str = Field(..., description="Current timestamp")

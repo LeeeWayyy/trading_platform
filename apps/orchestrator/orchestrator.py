@@ -12,20 +12,17 @@ import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional, Dict, Any, Tuple
 
 import httpx
 
-from apps.orchestrator.clients import SignalServiceClient, ExecutionGatewayClient
+from apps.orchestrator.clients import ExecutionGatewayClient, SignalServiceClient
 from apps.orchestrator.schemas import (
-    SignalServiceResponse,
-    OrderRequest,
-    OrderSubmission,
     OrchestrationResult,
+    OrderRequest,
+    Signal,
     SignalOrderMapping,
-    Signal
+    SignalServiceResponse,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +63,7 @@ class TradingOrchestrator:
         execution_gateway_url: str,
         capital: Decimal,
         max_position_size: Decimal,
-        price_cache: Optional[Dict[str, Decimal]] = None
+        price_cache: dict[str, Decimal] | None = None
     ):
         """
         Initialize Trading Orchestrator.
@@ -91,11 +88,11 @@ class TradingOrchestrator:
 
     async def run(
         self,
-        symbols: List[str],
+        symbols: list[str],
         strategy_id: str,
-        as_of_date: Optional[date] = None,
-        top_n: Optional[int] = None,
-        bottom_n: Optional[int] = None
+        as_of_date: date | None = None,
+        top_n: int | None = None,
+        bottom_n: int | None = None
     ) -> OrchestrationResult:
         """
         Execute complete orchestration workflow.
@@ -235,10 +232,10 @@ class TradingOrchestrator:
 
     async def _fetch_signals(
         self,
-        symbols: List[str],
-        as_of_date: Optional[date] = None,
-        top_n: Optional[int] = None,
-        bottom_n: Optional[int] = None
+        symbols: list[str],
+        as_of_date: date | None = None,
+        top_n: int | None = None,
+        bottom_n: int | None = None
     ) -> SignalServiceResponse:
         """
         Fetch signals from Signal Service.
@@ -278,8 +275,8 @@ class TradingOrchestrator:
 
     async def _map_signals_to_orders(
         self,
-        signals: List[Signal]
-    ) -> List[SignalOrderMapping]:
+        signals: list[Signal]
+    ) -> list[SignalOrderMapping]:
         """
         Map trading signals to executable orders with position sizing.
 
@@ -379,7 +376,7 @@ class TradingOrchestrator:
 
         return mappings
 
-    async def _submit_orders(self, mappings: List[SignalOrderMapping]) -> None:
+    async def _submit_orders(self, mappings: list[SignalOrderMapping]) -> None:
         """
         Submit orders to Execution Gateway.
 
@@ -484,7 +481,7 @@ def calculate_position_size(
     capital: Decimal,
     price: Decimal,
     max_position_size: Decimal
-) -> Tuple[int, Decimal]:
+) -> tuple[int, Decimal]:
     """
     Calculate position size (number of shares) from target weight.
 

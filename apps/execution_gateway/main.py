@@ -37,44 +37,40 @@ See ADR-0005 for architecture decisions.
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-
-from apps.execution_gateway import __version__
-from apps.execution_gateway.schemas import (
-    OrderRequest,
-    OrderResponse,
-    OrderDetail,
-    PositionsResponse,
-    Position,
-    RealtimePnLResponse,
-    RealtimePositionPnL,
-    WebhookEvent,
-    HealthResponse,
-    ErrorResponse,
-)
-from apps.execution_gateway.order_id_generator import generate_client_order_id
-from apps.execution_gateway.alpaca_client import (
-    AlpacaExecutor,
-    AlpacaClientError,
-    AlpacaConnectionError,
-    AlpacaValidationError,
-    AlpacaRejectionError,
-)
-from apps.execution_gateway.database import DatabaseClient
-from apps.execution_gateway.webhook_security import (
-    verify_webhook_signature,
-    extract_signature_from_header,
-)
 from redis.exceptions import RedisError
 
+from apps.execution_gateway import __version__
+from apps.execution_gateway.alpaca_client import (
+    AlpacaConnectionError,
+    AlpacaExecutor,
+    AlpacaRejectionError,
+    AlpacaValidationError,
+)
+from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.order_id_generator import generate_client_order_id
+from apps.execution_gateway.schemas import (
+    ErrorResponse,
+    HealthResponse,
+    OrderDetail,
+    OrderRequest,
+    OrderResponse,
+    Position,
+    PositionsResponse,
+    RealtimePnLResponse,
+    RealtimePositionPnL,
+)
+from apps.execution_gateway.webhook_security import (
+    extract_signature_from_header,
+    verify_webhook_signature,
+)
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
-
 
 # ============================================================================
 # Configuration
@@ -113,7 +109,7 @@ logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RU
 db_client = DatabaseClient(DATABASE_URL)
 
 # Redis client (for real-time price lookups from Market Data Service)
-redis_client: Optional[RedisClient] = None
+redis_client: RedisClient | None = None
 try:
     redis_client = RedisClient(
         host=REDIS_HOST,
@@ -129,7 +125,7 @@ except (RedisError, RedisConnectionError) as e:
     logger.warning(f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices.")
 
 # Alpaca client (only if not in dry run mode and credentials provided)
-alpaca_client: Optional[AlpacaExecutor] = None
+alpaca_client: AlpacaExecutor | None = None
 if not DRY_RUN:
     if not ALPACA_API_KEY_ID or not ALPACA_API_SECRET_KEY:
         logger.warning(
@@ -223,8 +219,8 @@ async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError
 
 
 def _batch_fetch_realtime_prices_from_redis(
-    symbols: list[str], redis_client: Optional[RedisClient]
-) -> dict[str, tuple[Optional[Decimal], Optional[datetime]]]:
+    symbols: list[str], redis_client: RedisClient | None
+) -> dict[str, tuple[Decimal | None, datetime | None]]:
     """
     Batch fetch real-time prices from Redis for multiple symbols.
 
@@ -250,7 +246,7 @@ def _batch_fetch_realtime_prices_from_redis(
         - Handles parsing errors gracefully per symbol
     """
     if not redis_client or not symbols:
-        return {symbol: (None, None) for symbol in symbols}
+        return dict.fromkeys(symbols, (None, None))
 
     try:
         # Build Redis keys for batch fetch
@@ -260,9 +256,7 @@ def _batch_fetch_realtime_prices_from_redis(
         price_values = redis_client.mget(price_keys)
 
         # Initialize results with default (None, None) for all symbols (DRY principle)
-        result: dict[str, tuple[Optional[Decimal], Optional[datetime]]] = {
-            symbol: (None, None) for symbol in symbols
-        }
+        result: dict[str, tuple[Decimal | None, datetime | None]] = dict.fromkeys(symbols, (None, None))
 
         # Parse results and update dictionary for symbols with valid data
         for symbol, price_json in zip(symbols, price_values):
@@ -284,7 +278,7 @@ def _batch_fetch_realtime_prices_from_redis(
     except RedisError as e:
         # Catch all Redis errors (connection, timeout, etc.) for graceful degradation
         logger.warning(f"Failed to batch fetch prices for {len(symbols)} symbols: {e}")
-        return {symbol: (None, None) for symbol in symbols}
+        return dict.fromkeys(symbols, (None, None))
 
 
 
@@ -293,7 +287,7 @@ def _calculate_position_pnl(
     pos: Position,
     current_price: Decimal,
     price_source: Literal["real-time", "database", "fallback"],
-    last_price_update: Optional[datetime],
+    last_price_update: datetime | None,
 ) -> RealtimePositionPnL:
     """
     Calculate unrealized P&L for a single position.
@@ -332,7 +326,7 @@ def _calculate_position_pnl(
 
 def _resolve_and_calculate_pnl(
     pos: Position,
-    realtime_price_data: tuple[Optional[Decimal], Optional[datetime]],
+    realtime_price_data: tuple[Decimal | None, datetime | None],
 ) -> tuple[RealtimePositionPnL, bool]:
     """
     Resolve price from multiple sources and calculate P&L for a position.
@@ -790,7 +784,7 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
             total_unrealized_pl=Decimal("0"),
             total_unrealized_pl_pct=None,
             realtime_prices_available=0,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     # Batch fetch real-time prices for all symbols (solves N+1 query problem)
@@ -831,7 +825,7 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
         total_unrealized_pl=total_unrealized_pl,
         total_unrealized_pl_pct=total_unrealized_pl_pct,
         realtime_prices_available=realtime_count,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 

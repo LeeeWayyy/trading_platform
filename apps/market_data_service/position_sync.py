@@ -7,7 +7,7 @@ Queries Execution Gateway every 5 minutes to sync subscriptions.
 
 import asyncio
 import logging
-from typing import Optional, Set, Any
+from typing import Any
 
 import httpx
 
@@ -58,7 +58,7 @@ class PositionBasedSubscription:
         self.initial_sync = initial_sync
 
         self._running = False
-        self._last_position_symbols: Set[str] = set()
+        self._last_position_symbols: set[str] = set()
 
         logger.info(
             f"PositionBasedSubscription initialized: "
@@ -175,7 +175,7 @@ class PositionBasedSubscription:
         except Exception as e:
             logger.error(f"Subscription sync failed: {e}", exc_info=True)
 
-    async def _fetch_position_symbols(self) -> Optional[Set[str]]:
+    async def _fetch_position_symbols(self) -> set[str] | None:
         """
         Fetch symbols with open positions from Execution Gateway.
 
