@@ -86,8 +86,8 @@ class TradingOrchestrator:
 
     async def close(self) -> None:
         """Close HTTP clients."""
-        await self.signal_client.close()  # type: ignore[no-untyped-call]
-        await self.execution_client.close()  # type: ignore[no-untyped-call]
+        await self.signal_client.close()
+        await self.execution_client.close()
 
     async def run(
         self,
