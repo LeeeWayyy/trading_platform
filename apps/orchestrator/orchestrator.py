@@ -84,10 +84,10 @@ class TradingOrchestrator:
         self.max_position_size = max_position_size
         self.price_cache = price_cache or {}
 
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP clients."""
-        await self.signal_client.close()
-        await self.execution_client.close()
+        await self.signal_client.close()  # type: ignore[no-untyped-call]
+        await self.execution_client.close()  # type: ignore[no-untyped-call]
 
     async def run(
         self,
@@ -379,7 +379,7 @@ class TradingOrchestrator:
 
         return mappings
 
-    async def _submit_orders(self, mappings: List[SignalOrderMapping]):
+    async def _submit_orders(self, mappings: List[SignalOrderMapping]) -> None:
         """
         Submit orders to Execution Gateway.
 
@@ -393,6 +393,10 @@ class TradingOrchestrator:
         logger.info(f"Submitting {len(orders_to_submit)} orders")
 
         for mapping in orders_to_submit:
+            # Type narrowing: filter ensures order_qty not None, and order_side should also be set
+            assert mapping.order_side is not None, "order_side must be set when order_qty is set"
+            assert mapping.order_qty is not None, "order_qty must be set"  # Already filtered but helps mypy
+
             # Create order request
             order = OrderRequest(
                 symbol=mapping.symbol,
