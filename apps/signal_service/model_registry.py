@@ -420,7 +420,7 @@ class ModelRegistry:
             )
 
             # Graceful degradation: keep current model if one is loaded
-            if self._current_model is not None:
+            if self._current_model is not None and self._current_metadata is not None:
                 logger.warning(
                     f"Keeping current model after failed reload",
                     extra={

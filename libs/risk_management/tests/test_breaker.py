@@ -4,6 +4,7 @@ import json
 import pytest
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import redis.exceptions
@@ -19,20 +20,19 @@ from libs.risk_management.exceptions import CircuitBreakerError
 class MockPipeline:
     """Mock Redis pipeline for WATCH/MULTI/EXEC transactions."""
 
-    def __init__(self, state, sorted_sets):
+    def __init__(self, state: dict[Any, Any], sorted_sets: dict[Any, Any]) -> None:
         self.state = state
         self.sorted_sets = sorted_sets
-        self.watched_keys = {}
-        self.commands = []
+        self.watched_keys: dict[Any, Any] = {}
+        self.commands: list[Any] = []
         self.is_transaction = False
 
-    def __enter__(self):
+    def __enter__(self) -> "MockPipeline":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.watched_keys.clear()
         self.commands.clear()
-        return False
 
     def watch(self, *keys):
         """Watch keys for changes."""
@@ -77,7 +77,7 @@ class MockPipeline:
                 raise redis.exceptions.WatchError("Watched key modified")
 
         # Execute all queued commands
-        results = []
+        results: list[Any] = []
         for cmd in self.commands:
             if cmd[0] == "set":
                 _, key, value = cmd
@@ -142,7 +142,7 @@ def mock_redis():
             zset.remove(item)
         return len(to_remove)
 
-    def mock_pipeline():
+    def mock_pipeline() -> MockPipeline:
         """Create a mock pipeline."""
         return MockPipeline(redis._state, redis._sorted_sets)
 
