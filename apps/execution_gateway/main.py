@@ -185,7 +185,7 @@ positions_current = Gauge(
 pnl_dollars = Gauge(
     "execution_gateway_pnl_dollars",
     "P&L in dollars",
-    ["type"],  # type: realized, unrealized, total
+    ["type"],  # Label values: realized, unrealized, total
 )
 
 # Service Health Metrics
@@ -487,6 +487,10 @@ async def health_check() -> HealthResponse:
     if not DRY_RUN and alpaca_client:
         alpaca_connected = alpaca_client.check_connection()
 
+    # Update health metrics
+    database_connection_status.set(1 if db_connected else 0)
+    alpaca_connection_status.set(1 if (not DRY_RUN and alpaca_connected) else 0)
+
     # Determine overall status
     overall_status: Literal["healthy", "degraded", "unhealthy"]
     if db_connected and (DRY_RUN or alpaca_connected):
@@ -572,6 +576,11 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         ...     }
         ... )
     """
+    import time
+
+    # Start timing for metrics
+    start_time = time.time()
+
     # Generate deterministic client_order_id
     client_order_id = generate_client_order_id(order, STRATEGY_ID)
 
@@ -593,6 +602,10 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             f"Order already exists (idempotent): {client_order_id}",
             extra={"client_order_id": client_order_id, "status": existing_order.status},
         )
+
+        # Track metrics for idempotent request (don't double-count)
+        duration = time.time() - start_time
+        order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
 
         return OrderResponse(
             client_order_id=client_order_id,
@@ -622,6 +635,11 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             status="dry_run",
             broker_order_id=None,
         )
+
+        # Track metrics for dry run order
+        duration = time.time() - start_time
+        orders_total.labels(symbol=order.symbol, side=order.side, status="success").inc()
+        order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
 
         return OrderResponse(
             client_order_id=client_order_id,
@@ -666,6 +684,11 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 },
             )
 
+            # Track metrics for successful order submission
+            duration = time.time() - start_time
+            orders_total.labels(symbol=order.symbol, side=order.side, status="success").inc()
+            order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
+
             return OrderResponse(
                 client_order_id=client_order_id,
                 status=alpaca_response["status"],
@@ -679,7 +702,11 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 message="Order submitted to broker",
             )
 
-        except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError):
+        except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError) as e:
+            # Track metrics for rejected orders
+            duration = time.time() - start_time
+            orders_total.labels(symbol=order.symbol, side=order.side, status="rejected").inc()
+            order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
             # These will be handled by exception handlers
             raise
 
@@ -695,6 +722,11 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 broker_order_id=None,
                 error_message=str(e),
             )
+
+            # Track metrics for failed orders
+            duration = time.time() - start_time
+            orders_total.labels(symbol=order.symbol, side=order.side, status="failed").inc()
+            order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -779,6 +811,10 @@ async def get_positions() -> PositionsResponse:
         }
     """
     positions = db_client.get_all_positions()
+
+    # Update position metrics for each symbol
+    for pos in positions:
+        positions_current.labels(symbol=pos.symbol).set(float(pos.qty))
 
     # Calculate totals
     total_unrealized_pl = sum(
@@ -877,6 +913,13 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
         (total_unrealized_pl / total_investment) * Decimal("100") if total_investment > 0 else None
     )
 
+    # Update P&L metrics
+    # Note: Using total unrealized from realtime calculation, not database values
+    total_realized_pl = sum((pos.realized_pl for pos in db_positions), Decimal("0"))
+    pnl_dollars.labels(type="unrealized").set(float(total_unrealized_pl))
+    pnl_dollars.labels(type="realized").set(float(total_realized_pl))
+    pnl_dollars.labels(type="total").set(float(total_unrealized_pl + total_realized_pl))
+
     return RealtimePnLResponse(
         positions=realtime_positions,
         total_positions=len(realtime_positions),
@@ -962,6 +1005,9 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
         # Extract order information
         event_type = payload.get("event")
+
+        # Track webhook metrics
+        webhook_received_total.labels(event_type=event_type or "unknown").inc()
         order_data = payload.get("order", {})
 
         client_order_id = order_data.get("client_order_id")
