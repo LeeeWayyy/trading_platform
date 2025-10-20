@@ -5,7 +5,7 @@ Provides typed interfaces with automatic retries and error handling.
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import date
 
 import httpx
@@ -59,7 +59,7 @@ class SignalServiceClient:
         self.timeout = timeout
         self.client = httpx.AsyncClient(timeout=timeout)
 
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP client."""
         await self.client.aclose()
 
@@ -117,7 +117,7 @@ class SignalServiceClient:
             2
         """
         # Build request payload
-        payload = {
+        payload: dict[str, Any] = {
             "symbols": symbols
         }
 
@@ -204,7 +204,7 @@ class ExecutionGatewayClient:
         self.timeout = timeout
         self.client = httpx.AsyncClient(timeout=timeout)
 
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP client."""
         await self.client.aclose()
 
@@ -291,7 +291,7 @@ class ExecutionGatewayClient:
 
         return submission
 
-    async def get_order(self, client_order_id: str) -> dict:
+    async def get_order(self, client_order_id: str) -> dict[str, Any]:
         """
         Get order details by client_order_id.
 
@@ -311,9 +311,9 @@ class ExecutionGatewayClient:
         if response.status_code != 200:
             response.raise_for_status()
 
-        return response.json()
+        return response.json()  # type: ignore[no-any-return]
 
-    async def get_positions(self) -> dict:
+    async def get_positions(self) -> dict[str, Any]:
         """
         Get all current positions.
 
@@ -330,4 +330,4 @@ class ExecutionGatewayClient:
         if response.status_code != 200:
             response.raise_for_status()
 
-        return response.json()
+        return response.json()  # type: ignore[no-any-return]
