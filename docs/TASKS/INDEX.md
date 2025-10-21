@@ -81,6 +81,93 @@
 
 ---
 
+## Planning Documents & Task Files
+
+### Phase Planning Documents (Living References)
+
+These documents provide comprehensive phase-level planning, progress tracking, and task breakdowns:
+
+| Phase | Planning Document | Description | Tasks |
+|-------|-------------------|-------------|-------|
+| **P0** | _Not yet created_ | MVP Core planning | 0 tasks |
+| **P1** | [P1_PLANNING.md](./P1_PLANNING.md) | Hardening & Automation | 11 tasks (T0-T10) |
+| **P2** | _Not yet created_ | Advanced Features | 0 tasks |
+
+### Existing Task Files by Phase
+
+#### P0: MVP Core
+_No task files created yet. Use `./scripts/tasks.py create-phase P0` to get started._
+
+#### P1: Hardening & Automation
+
+**Completed Tasks (7):**
+- [P1T1_DONE.md](./P1T1_DONE.md) - Redis Integration (T1 in planning: "Redis Integration ⭐ HIGH PRIORITY")
+- [P1T2_DONE.md](./P1T2_DONE.md) - DuckDB Analytics (T2 in planning: "DuckDB Analytics Layer 🔶 MEDIUM PRIORITY")
+- [P1T3_DONE.md](./P1T3_DONE.md) - Timezone & Timestamps (T3 in planning: "Timezone-Aware Timestamps 🔶 MEDIUM PRIORITY")
+- [P1T4_DONE.md](./P1T4_DONE.md) - Operational Status Dashboard (T4 in planning: "Operational Status Command 🔷 LOW PRIORITY")
+- [P1T5-F1_DONE.md](./P1T5-F1_DONE.md) - Real-time Market Data - Phase 1 (T5-F1 in planning: "Real-Time Market Data Streaming")
+- [P1T5-F3_DONE.md](./P1T5-F3_DONE.md) - Real-time Market Data - Phase 3 (T5-F3 in planning: "Real-Time Market Data Streaming")
+- [P1T7_DONE.md](./P1T7_DONE.md) - Risk Management System (T7 in planning: "Risk Management System")
+
+**Remaining Tasks (4 tasks not started):**
+- T0: Enhanced P&L Calculation ⭐ HIGH PRIORITY
+- T6: Advanced Trading Strategies
+- T8: Monitoring and Alerting
+- T9: Centralized Logging
+- T10: CI/CD Pipeline
+
+**To generate remaining task files:**
+```bash
+./scripts/tasks.py generate-tasks-from-phase P1
+```
+
+#### P2: Advanced Features
+_No task files created yet. Use `./scripts/tasks.py create-phase P2` to get started._
+
+### Naming Convention Examples
+
+**Regular Tasks:**
+```
+P1T1_TASK.md       → Planning phase (not started)
+P1T1_PROGRESS.md   → Active development
+P1T1_DONE.md       → Completed
+```
+
+**Tasks with Features (Sub-components):**
+```
+P1T5_TASK.md           → Parent task planning
+P1T5-F1_PROGRESS.md    → Feature 1 in development
+P1T5-F2_PROGRESS.md    → Feature 2 in development
+P1T5-F1_DONE.md        → Feature 1 completed
+```
+
+**Phase Planning:**
+```
+P1_PLANNING.md     → Phase-level planning (living document)
+```
+
+### Quick Commands
+
+```bash
+# List all P1 tasks
+./scripts/tasks.py list --phase P1
+
+# Create new phase planning
+./scripts/tasks.py create-phase P2
+
+# Generate tasks from planning
+./scripts/tasks.py generate-tasks-from-phase P1 --dry-run
+./scripts/tasks.py generate-tasks-from-phase P1
+
+# Start a task
+./scripts/tasks.py start P1T0
+
+# Complete a task
+./scripts/tasks.py complete P1T0
+```
+
+---
+
 ## P0: MVP Core Tasks
 
 | ID | Title | Owner | State | Depends On | Blocks | Effort |
