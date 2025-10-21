@@ -34,15 +34,18 @@ Usage:
 See ADR-0005 for architecture decisions.
 """
 
+import asyncio
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 
@@ -156,6 +159,110 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+# ============================================================================
+# Prometheus Metrics
+# ============================================================================
+
+# Business Metrics
+orders_total = Counter(
+    "execution_gateway_orders_total",
+    "Total number of orders submitted",
+    ["symbol", "side", "status"],  # status: success, failed, rejected
+)
+
+order_placement_duration = Histogram(
+    "execution_gateway_order_placement_duration_seconds",
+    "Time taken to place an order",
+    ["symbol", "side"],
+)
+
+positions_current = Gauge(
+    "execution_gateway_positions_current",
+    "Current open positions by symbol",
+    ["symbol"],
+)
+
+pnl_dollars = Gauge(
+    "execution_gateway_pnl_dollars",
+    "P&L in dollars",
+    ["type"],  # Label values: realized, unrealized, total
+)
+
+# Service Health Metrics
+database_connection_status = Gauge(
+    "execution_gateway_database_connection_status",
+    "Database connection status (1=up, 0=down)",
+)
+
+redis_connection_status = Gauge(
+    "execution_gateway_redis_connection_status",
+    "Redis connection status (1=up, 0=down)",
+)
+
+alpaca_connection_status = Gauge(
+    "execution_gateway_alpaca_connection_status",
+    "Alpaca connection status (1=up, 0=down)",
+)
+
+alpaca_api_requests_total = Counter(
+    "execution_gateway_alpaca_api_requests_total",
+    "Total Alpaca API requests",
+    ["operation", "status"],  # operation: submit_order, check_connection; status: success, error
+)
+
+webhook_received_total = Counter(
+    "execution_gateway_webhook_received_total",
+    "Total webhooks received",
+    ["event_type"],
+)
+
+dry_run_mode = Gauge(
+    "execution_gateway_dry_run_mode",
+    "DRY_RUN mode status (1=enabled, 0=disabled)",
+)
+
+# Set initial metric values
+dry_run_mode.set(1 if DRY_RUN else 0)
+database_connection_status.set(0)  # Will be updated by health check
+redis_connection_status.set(0)  # Will be updated by health check
+alpaca_connection_status.set(0)  # Will be updated by health check
+
+# Mount Prometheus metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
+# Track symbols we've set position metrics for (to reset when positions close)
+_tracked_position_symbols: set[str] = set()
+_position_metrics_lock = asyncio.Lock()
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def _record_order_metrics(
+    order: "OrderRequest",
+    start_time: float,
+    status: Literal["success", "rejected", "failed"],
+) -> None:
+    """
+    Record Prometheus metrics for order placement.
+
+    Args:
+        order: The order request that was submitted
+        start_time: Time when order processing started (from time.time())
+        status: Order outcome (success, rejected, or failed)
+
+    Notes:
+        This helper reduces code duplication across different order placement paths.
+        Increments orders_total counter and records order_placement_duration histogram.
+    """
+    duration = time.time() - start_time
+    orders_total.labels(symbol=order.symbol, side=order.side, status=status).inc()
+    order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
 
 
 # ============================================================================
@@ -414,10 +521,30 @@ async def health_check() -> HealthResponse:
     # Check database connection
     db_connected = db_client.check_connection()
 
+    # Check Redis connection
+    redis_connected = False
+    if redis_client:
+        redis_connected = redis_client.health_check()
+
     # Check Alpaca connection (if not DRY_RUN)
     alpaca_connected = True
     if not DRY_RUN and alpaca_client:
-        alpaca_connected = alpaca_client.check_connection()
+        alpaca_api_status = "success"
+        try:
+            alpaca_connected = alpaca_client.check_connection()
+        except Exception:
+            alpaca_api_status = "error"
+            alpaca_connected = False
+        finally:
+            # Always track Alpaca API request metric
+            alpaca_api_requests_total.labels(
+                operation="check_connection", status=alpaca_api_status
+            ).inc()
+
+    # Update health metrics
+    database_connection_status.set(1 if db_connected else 0)
+    redis_connection_status.set(1 if redis_connected else 0)
+    alpaca_connection_status.set(1 if (not DRY_RUN and alpaca_connected) else 0)
 
     # Determine overall status
     overall_status: Literal["healthy", "degraded", "unhealthy"]
@@ -504,6 +631,9 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         ...     }
         ... )
     """
+    # Start timing for metrics
+    start_time = time.time()
+
     # Generate deterministic client_order_id
     client_order_id = generate_client_order_id(order, STRATEGY_ID)
 
@@ -525,6 +655,10 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             f"Order already exists (idempotent): {client_order_id}",
             extra={"client_order_id": client_order_id, "status": existing_order.status},
         )
+
+        # Track metrics for idempotent request (don't double-count)
+        duration = time.time() - start_time
+        order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
 
         return OrderResponse(
             client_order_id=client_order_id,
@@ -555,6 +689,9 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             broker_order_id=None,
         )
 
+        # Track metrics for dry run order
+        _record_order_metrics(order, start_time, "success")
+
         return OrderResponse(
             client_order_id=client_order_id,
             status="dry_run",
@@ -578,7 +715,17 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
         try:
             # Submit to Alpaca with retry logic
-            alpaca_response = alpaca_client.submit_order(order, client_order_id)
+            alpaca_api_status = "success"
+            try:
+                alpaca_response = alpaca_client.submit_order(order, client_order_id)
+            except Exception:
+                alpaca_api_status = "error"
+                raise
+            finally:
+                # Always track Alpaca API request metric
+                alpaca_api_requests_total.labels(
+                    operation="submit_order", status=alpaca_api_status
+                ).inc()
 
             # Save order to database
             order_detail = db_client.create_order(
@@ -598,6 +745,9 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 },
             )
 
+            # Track metrics for successful order submission
+            _record_order_metrics(order, start_time, "success")
+
             return OrderResponse(
                 client_order_id=client_order_id,
                 status=alpaca_response["status"],
@@ -612,6 +762,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             )
 
         except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError):
+            # Track metrics for rejected orders
+            _record_order_metrics(order, start_time, "rejected")
             # These will be handled by exception handlers
             raise
 
@@ -627,6 +779,9 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 broker_order_id=None,
                 error_message=str(e),
             )
+
+            # Track metrics for failed orders
+            _record_order_metrics(order, start_time, "failed")
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -712,6 +867,23 @@ async def get_positions() -> PositionsResponse:
     """
     positions = db_client.get_all_positions()
 
+    # Protect access to the shared `_tracked_position_symbols` set and fix memory leak
+    async with _position_metrics_lock:
+        current_symbols = {pos.symbol for pos in positions}
+
+        # Reset metrics for symbols that are no longer in our portfolio
+        symbols_to_remove = _tracked_position_symbols - current_symbols
+        for symbol in symbols_to_remove:
+            positions_current.labels(symbol=symbol).set(0)
+
+        # Update position metrics for each current symbol
+        for pos in positions:
+            positions_current.labels(symbol=pos.symbol).set(float(pos.qty))
+
+        # Update the set of tracked symbols to match the current portfolio
+        _tracked_position_symbols.clear()
+        _tracked_position_symbols.update(current_symbols)
+
     # Calculate totals
     total_unrealized_pl = sum(
         ((pos.unrealized_pl or Decimal("0")) for pos in positions), Decimal("0")
@@ -770,6 +942,10 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
     db_positions = db_client.get_all_positions()
 
     if not db_positions:
+        # Reset P&L gauges to 0 when no positions (prevent stale values)
+        pnl_dollars.labels(type="unrealized").set(0)
+        pnl_dollars.labels(type="realized").set(0)
+        pnl_dollars.labels(type="total").set(0)
         return RealtimePnLResponse(
             positions=[],
             total_positions=0,
@@ -808,6 +984,13 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
     total_unrealized_pl_pct = (
         (total_unrealized_pl / total_investment) * Decimal("100") if total_investment > 0 else None
     )
+
+    # Update P&L metrics
+    # Note: Using total unrealized from realtime calculation, not database values
+    total_realized_pl = sum((pos.realized_pl for pos in db_positions), Decimal("0"))
+    pnl_dollars.labels(type="unrealized").set(float(total_unrealized_pl))
+    pnl_dollars.labels(type="realized").set(float(total_realized_pl))
+    pnl_dollars.labels(type="total").set(float(total_unrealized_pl + total_realized_pl))
 
     return RealtimePnLResponse(
         positions=realtime_positions,
@@ -894,6 +1077,9 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
         # Extract order information
         event_type = payload.get("event")
+
+        # Track webhook metrics
+        webhook_received_total.labels(event_type=event_type or "unknown").inc()
         order_data = payload.get("order", {})
 
         client_order_id = order_data.get("client_order_id")

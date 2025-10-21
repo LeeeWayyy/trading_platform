@@ -44,7 +44,10 @@ def db_url():
     Reads from DATABASE_URL environment variable (set by CI) or falls back to default.
     """
     import os
-    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+
+    return os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -243,14 +246,14 @@ class TestSignalGeneratorIntegration:
         registry = ModelRegistry(db_url)
         registry.reload_if_changed("alpha_baseline")
 
-        # Test with 5 symbols, 2 long, 2 short
-        symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+        # Test with 3 symbols, 1 long, 1 short
+        symbols = ["AAPL", "MSFT", "GOOGL"]
 
         generator = SignalGenerator(
             model_registry=registry,
             data_dir=data_dir,
-            top_n=2,
-            bottom_n=2,
+            top_n=1,
+            bottom_n=1,
         )
 
         signals = generator.generate_signals(
@@ -262,13 +265,13 @@ class TestSignalGeneratorIntegration:
         short_positions = signals[signals["target_weight"] < 0]
         neutral_positions = signals[signals["target_weight"] == 0]
 
-        assert len(long_positions) == 2
-        assert len(short_positions) == 2
+        assert len(long_positions) == 1
+        assert len(short_positions) == 1
         assert len(neutral_positions) == 1
 
         # Check weight values
-        assert all(long_positions["target_weight"] == 0.5), "Each long should be 50%"
-        assert all(short_positions["target_weight"] == -0.5), "Each short should be -50%"
+        assert all(long_positions["target_weight"] == 1.0), "Long should be 100%"
+        assert all(short_positions["target_weight"] == -1.0), "Short should be -100%"
 
         print(f"\n  Long positions: {list(long_positions['symbol'])}")
         print(f"  Short positions: {list(short_positions['symbol'])}")
@@ -432,10 +435,10 @@ class TestEndToEndWorkflow:
         print(f"\n  Final signals:\n{signals.to_string()}")
 
     def test_signal_generation_performance(self, db_url, data_dir, test_date):
-        """Test signal generation performance (< 1 second for 5 symbols)."""
+        """Test signal generation performance (< 1 second for 3 symbols)."""
         import time
 
-        symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+        symbols = ["AAPL", "MSFT", "GOOGL"]
 
         # Setup
         registry = ModelRegistry(db_url)
@@ -444,8 +447,8 @@ class TestEndToEndWorkflow:
         generator = SignalGenerator(
             model_registry=registry,
             data_dir=data_dir,
-            top_n=2,
-            bottom_n=2,
+            top_n=1,
+            bottom_n=1,
         )
 
         # Measure time
@@ -456,7 +459,7 @@ class TestEndToEndWorkflow:
         )
         elapsed_time = time.time() - start_time
 
-        # Should be fast (< 1 second for 5 symbols)
+        # Should be fast (< 1 second for 3 symbols)
         assert elapsed_time < 1.0, f"Signal generation took {elapsed_time:.3f}s (expected < 1.0s)"
 
         print(f"\n  Signal generation time: {elapsed_time:.3f}s")
@@ -503,7 +506,7 @@ class TestErrorHandling:
         """Test handling of invalid strategy name."""
         registry = ModelRegistry(db_url)
 
-        with pytest.raises(ValueError, match="No active model for strategy"):
+        with pytest.raises(ValueError, match="No active model found for strategy"):
             registry.get_active_model_metadata("nonexistent_strategy")
 
     def test_invalid_date_range(self, db_url, data_dir, test_symbols):

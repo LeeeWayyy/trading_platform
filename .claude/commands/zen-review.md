@@ -65,7 +65,7 @@ git diff origin/main...HEAD --name-only --diff-filter=ACM
 Use zen clink with codex codereviewer role:
 
 ```
-"Use zen clink with codex codereviewer to review my staged changes for:
+"Use zen clink with codex codereviewer (model: gpt-5-codex) to review my staged changes for:
 
 **Trading Safety (CRITICAL):**
  - Circuit breaker checks: Are circuit breaker states checked before critical operations?

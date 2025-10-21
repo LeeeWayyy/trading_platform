@@ -157,7 +157,10 @@ def test_db_url():
         Reads from DATABASE_URL environment variable (set by CI) or falls back to default.
     """
     import os
-    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform_test")
+
+    return os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform_test"
+    )
 
 
 @pytest.fixture
@@ -395,8 +398,11 @@ def test_config():
         Reads database_url from DATABASE_URL environment variable (set by CI) or falls back to default.
     """
     import os
+
     return {
-        "database_url": os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform_test"),
+        "database_url": os.getenv(
+            "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform_test"
+        ),
         "data_dir": "data/adjusted",
         "default_strategy": "alpha_baseline",
         "tradable_symbols": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],

@@ -58,16 +58,25 @@ def get_mock_alpha158_features(
         if not parquet_files:
             raise FileNotFoundError(f"No data found for symbol: {symbol}")
 
-        # Use latest file
-        latest_file = sorted(parquet_files)[-1]
+        # Try each file until we find one with data in the target date range
+        df = None
+        for parquet_file in sorted(parquet_files, reverse=True):
+            candidate_df = pl.read_parquet(parquet_file)
 
-        # Load data
-        df = pl.read_parquet(latest_file)
+            # Filter to lookback period
+            filtered_df = candidate_df.filter(
+                (pl.col("date") >= pl.lit(lookback_start)) & (pl.col("date") <= pl.lit(end_dt))
+            )
 
-        # Filter to lookback period
-        df = df.filter(
-            (pl.col("date") >= pl.lit(lookback_start)) & (pl.col("date") <= pl.lit(end_dt))
-        )
+            # If this file has data in our date range, use it
+            if len(filtered_df) > 0:
+                df = filtered_df
+                break
+
+        if df is None or len(df) == 0:
+            raise FileNotFoundError(
+                f"No data found for symbol {symbol} in date range {lookback_start} to {end_dt}"
+            )
 
         # Sort by date
         df = df.sort("date")
@@ -269,10 +278,10 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
         feature_idx += 1
 
     # Forward fill NaN values
-    features = features.fillna(method="ffill")  # type: ignore[call-overload]
+    features = features.ffill()
 
     # Backward fill remaining NaN (at start)
-    features = features.fillna(method="bfill")
+    features = features.bfill()
 
     # Fill any remaining NaN with 0
     features = features.fillna(0)
