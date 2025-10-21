@@ -279,7 +279,55 @@ make lint
 - Go back to step 3 (zen-mcp review of fixes)
 - Don't commit until green!
 
-### 7. Write Commit Message
+### 7. Update Documentation (If Task State Changed)
+
+**Check if documentation needs updating:**
+
+#### Task Lifecycle Changes
+If you just completed a task component or entire task:
+
+```bash
+# Did you complete a task component?
+./scripts/tasks.py complete P1T5-F1  # Mark feature as done
+
+# Did you complete an entire task?
+./scripts/tasks.py complete P1T5     # Mark task as done
+```
+
+#### Update Planning Documents (MANDATORY)
+
+**A. Update Phase Planning (Px_PLANNING.md):**
+```markdown
+**Completed:**
+- ✅ P1T5 - Real-Time Market Data (Oct 20, PR#25)
+
+**Status:** 8/11 tasks complete (73%)
+
+**Last Updated:** October 20, 2024
+```
+
+**B. Update Task Index (docs/TASKS/INDEX.md):**
+
+Move completed task from "Remaining" to "Completed" section:
+```markdown
+**Completed Tasks (8):**
+- [P1T5_DONE.md](./P1T5_DONE.md) - Real-Time Market Data
+
+**Remaining Tasks (3 tasks not started):**
+- T6: Advanced Trading Strategies
+```
+
+Update quick status table:
+```markdown
+| Phase | Tasks | TASK | PROGRESS | DONE |
+| P1    | 11    | 3    | 0        | 8    |
+```
+
+**When to skip:** If this is a mid-task commit (component not fully complete), skip this step.
+
+**See Also:** [Phase Management Workflow](./12-phase-management.md) for detailed documentation update process.
+
+### 8. Write Commit Message
 
 **Format:**
 ```bash
@@ -314,11 +362,11 @@ git commit -m "WIP"                      # No description
 
 **What this does:** Creates clear history for debugging and understanding changes later
 
-### 8. Commit the Changes
+### 9. Commit the Changes
 
 ```bash
 git commit
-# (Your editor opens with the message from step 7)
+# (Your editor opens with the message from step 9)
 # Save and close
 ```
 
@@ -335,7 +383,7 @@ Zen-review: Approved"
 
 **Expected:** Commit created successfully
 
-### 9. Push Regularly (Optional but Recommended)
+### 10. Push Regularly (Optional but Recommended)
 
 ```bash
 # First time pushing this branch

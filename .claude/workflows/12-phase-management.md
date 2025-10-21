@@ -132,16 +132,62 @@ When task is finished, transition to DONE:
 - Updates front matter: `state: DONE`, `completed: YYYY-MM-DD`, `duration: X days`
 - Prompts to document completion details
 
-### 8. Update Phase Planning Progress
+### 8. Update Documentation After Task Completion
+
+**MANDATORY:** After completing each task, update these documents:
+
+#### A. Update Phase Planning Document (Px_PLANNING.md)
 
 Edit `P2_PLANNING.md` to update:
 - Progress summary (X/Y tasks complete, Z%)
 - Track-based progress tables
-- Completed task list
-- Next task to work on
-- Last updated date
+- Mark task as completed in "Completed" section
+- Update "Next" task pointer
+- Update "Last Updated" date
 
-**Automation coming soon:** `./scripts/tasks.py update-phase-progress P2`
+```markdown
+**Completed:**
+- ✅ P2T0 - Core Feature Implementation (Oct 20, PR#25)
+- ✅ P2T1 - Data Layer Integration (Oct 21, PR#26)
+
+**Next:** P2T2 - API Endpoints (3-5 days)
+
+**Last Updated:** October 21, 2024
+```
+
+#### B. Update Task Index (docs/TASKS/INDEX.md)
+
+Update the relevant phase section:
+
+1. **Move task from "Remaining" to "Completed":**
+   ```markdown
+   **Completed Tasks (8):**
+   - [P2T0_DONE.md](./P2T0_DONE.md) - Core Feature Implementation
+
+   **Remaining Tasks (4 tasks not started):**
+   - T1: Data Layer Integration
+   ```
+
+2. **Update quick status table at top:**
+   ```markdown
+   | Phase | Tasks | TASK | PROGRESS | DONE |
+   | P2    | 12    | 8    | 1        | 3    |
+   ```
+
+3. **Update phase overview progress:**
+   ```markdown
+   ### P2: Advanced Features (91-120 days)
+   **Status:** 3/12 tasks complete (25%)
+   ```
+
+#### C. Update Project Status (Optional but Recommended)
+
+If significant milestone reached, update `docs/GETTING_STARTED/PROJECT_STATUS.md`:
+- Current phase progress
+- Recent accomplishments
+- Blockers or risks
+
+**Automation coming soon:** `./scripts/tasks.py sync-status` will auto-generate these updates
 
 ### 9. Monitor Phase Status
 
