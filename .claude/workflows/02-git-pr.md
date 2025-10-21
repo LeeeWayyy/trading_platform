@@ -251,45 +251,352 @@ See `.github/workflows/pr-auto-review-request.yml`
 - Check CI status
 - Be ready to respond to questions
 
-### 9. Address Review Feedback
+### 9. Address Review Feedback Systematically
 
-**When reviewers find issues:**
+**⚠️ CRITICAL:** When reviewers (Codex, Gemini, or CI) find issues, follow this MANDATORY 5-phase process to avoid repeated CI failures and incomplete fixes.
+
+#### Core Principle: Never Hide or Ignore Issues
+
+**CRITICAL RULE:** Do NOT use ignore patterns, comments, or workarounds to hide actual issues.
+
+**Required Actions:**
+- ✅ **Fix the issue** - Address root cause immediately
+- ✅ **Add to TODO list** - If fix requires separate work, create explicit task
+- ❌ **NEVER ignore** - Don't add ignore patterns for actual broken links, tests, or checks
+
+**Only Valid Ignore Patterns:**
+- External HTTP URLs that 404 (third-party sites)
+- Localhost URLs (development only)
+- Staging/test environments
+
+---
+
+#### Phase 1: Collect ALL Issues (DO NOT START FIXING YET)
+
+**⏱️ Expected Time:** 5-10 minutes
+
+**1A. Gather Issues from ALL Sources:**
 
 ```bash
-# Fix the issues locally
-# Stage and commit fixes
-git add <files>
+# Check all review comments (Codex)
+gh pr view <PR_NUMBER> --json comments --jq '.comments[] | select(.author.login=="codex") | .body'
 
-# Run zen review of fixes (quick review OK for small fixes)
-"Review my staged changes with zen-mcp"
+# Check all review comments (Gemini)
+gh pr view <PR_NUMBER> --json comments --jq '.comments[] | select(.author.login=="gemini-code-assist") | .body'
 
-# Commit after approval
-git commit -m "Address review feedback: improve error messages"
+# Check CI failures
+gh pr checks <PR_NUMBER>
 
-# Push fixes
-git push
-
-# Request re-review
-gh pr comment <PR_NUMBER> --body "Fixed the issues.
-
-@codex @gemini-code-assist please review the latest commit to verify the fixes.
-
-Changes made:
-- Improved error message clarity
-- Added missing edge case handling
-- Fixed type hint
-
-Please check out the latest commit to avoid cached review results."
+# Get detailed CI logs if needed
+gh run view <RUN_ID> --log-failed
 ```
 
-**IMPORTANT:** Explicitly mention checking latest commit to avoid cache issues!
+**1B. Create Comprehensive Issue List:**
 
-**Iterate until approved:**
-1. Reviewers comment with issues
-2. You fix issues
-3. Push fixes
-4. Request re-review
-5. Repeat until "no issues" or "approved"
+Create a todo list with ALL issues found:
+
+```markdown
+## PR Review Feedback - Comprehensive List
+
+### Issues from Codex Review:
+- [ ] HIGH: Missing null check in position calculation (line 42)
+- [ ] MEDIUM: Add logging for limit violations (line 67)
+- [ ] LOW: Variable `pos` should be `current_position`
+
+### Issues from Gemini Review:
+- [ ] MEDIUM: Improve error message clarity (line 89)
+- [ ] LOW: Consider caching position lookups
+
+### Issues from CI:
+- [ ] CRITICAL: 11 broken links to IMPLEMENTATION_GUIDES
+- [ ] CRITICAL: Test failure - emoji assertion mismatch
+- [ ] ERROR: 3 template placeholder links to non-existent files
+```
+
+**1C. Verify You Found EVERYTHING:**
+
+```bash
+# Run link check locally to catch ALL link issues
+npm install -g markdown-link-check
+find docs -name "*.md" -exec markdown-link-check {} \; > link-check-results.txt
+
+# Count remaining Status: 400 errors (broken file links)
+grep "Status: 400" link-check-results.txt | wc -l
+# Must be 0 before proceeding!
+
+# Run tests locally
+make test
+
+# Run linting locally
+make lint
+```
+
+**DO NOT PROCEED** until you have a complete list of ALL issues from ALL sources.
+
+**1D. Special Case: Large Issue Lists (>20 issues):**
+
+If you have more than 20 issues total, break into batches by severity:
+
+```markdown
+## Batch 1: CRITICAL + HIGH (5 issues)
+- [ ] CRITICAL: Broken links
+- [ ] HIGH: Null check missing
+
+## Batch 2: MEDIUM (10 issues)
+- [ ] MEDIUM: Logging
+
+## Batch 3: LOW (8 issues)
+- [ ] LOW: Variable naming
+```
+
+Work through batches sequentially: Fix Batch 1 → Test → Zen review → Commit. Repeat for each batch.
+
+---
+
+#### Phase 2: Fix ALL Issues (No Partial Fixes)
+
+**⏱️ Expected Time:** 10-60 minutes (depends on issue count and complexity)
+
+**2A. Work Through Entire List Systematically:**
+
+Fix ALL issues in the todo list:
+- All HIGH/CRITICAL issues (mandatory)
+- All MEDIUM issues (fix or document deferral)
+- LOW issues if time permits (5-10 min total)
+
+**2B. Test Each Fix Locally:**
+
+```bash
+# After fixing each category, test locally
+make test
+make lint
+
+# For link fixes, verify ZERO Status: 400 errors
+find docs -name "*.md" -exec markdown-link-check {} \; | grep "Status: 400"
+# Should return nothing!
+
+# For code fixes, verify specific tests pass
+pytest path/to/affected/tests -v
+```
+
+**2C. DO NOT COMMIT Yet!**
+
+Common mistake: Committing after each fix → multiple commits → repeated CI failures
+
+✅ **Correct approach:** Fix ALL issues, verify ALL tests pass, THEN commit once.
+
+---
+
+#### Phase 3: Verify Locally Before Committing
+
+**⏱️ Expected Time:** 5-15 minutes
+
+**3A. Run Complete Local Validation:**
+
+```bash
+# 1. All tests must pass
+make test
+# Expected: 100% pass rate
+
+# 2. All linting must pass
+make lint
+# Expected: No errors
+
+# 3. Link checks must pass (if docs changed)
+find docs -name "*.md" -exec markdown-link-check {} \; | grep "Status: 400" | wc -l
+# Expected: 0
+
+# 4. Manual spot-check of fixes
+git diff --staged
+```
+
+**3B. Only Proceed When:**
+- ✅ ALL issues from Phase 1 are fixed
+- ✅ ALL local tests pass
+- ✅ ALL local lint checks pass
+- ✅ ALL link checks pass (if applicable)
+- ✅ No new errors introduced
+
+**DO NOT COMMIT** until ALL checks pass locally!
+
+---
+
+#### Phase 4: Mandatory Zen-MCP Review of Fixes
+
+**⏱️ Expected Time:** 5-10 minutes (including zen response)
+
+**4A. Stage ALL Fixes:**
+
+```bash
+# Stage all files with fixes
+git add -A
+
+# Verify what's staged
+git status
+git diff --cached --stat
+```
+
+**4B. Request Zen-MCP Review with Detailed Context:**
+
+Use this structured template:
+
+```
+"Reviewing PR feedback fixes for PR #XX. Requesting verification before commit.
+
+## Context
+- **PR:** #XX - [Brief PR title]
+- **Review Sources:** Codex, Gemini, CI
+- **Total Issues:** [N] issues found ([X] CRITICAL, [Y] HIGH, [Z] MEDIUM, [W] LOW)
+
+## Issues Identified and Fixes Applied
+
+### Issue 1: [Severity] - [Brief description]
+- **Source:** [Codex/Gemini/CI]
+- **Problem:** [What was wrong]
+- **Fix Applied:** [Specific code change or action taken]
+- **Location:** [File:line or files affected]
+
+[Repeat for all issues]
+
+## Verification Requested
+
+Please verify:
+1. All issues are truly fixed (not hidden/ignored)
+2. Fixes are correct and safe
+3. No new issues introduced by these changes
+4. [Specific technical verification for critical fixes]
+
+## Local Validation Completed
+
+- ✅ All tests pass: [X/X passed]
+- ✅ Linting passes: No errors
+- ✅ [Type-specific checks]: [e.g., Zero Status: 400 link errors]
+- ✅ Manual spot-check: Reviewed all changes
+
+Ready for zen-mcp verification before commit."
+```
+
+**4C. Wait for Zen-MCP Approval:**
+
+Zen-mcp will verify:
+- Issues are truly fixed (not hidden/ignored)
+- Fixes are correct and safe
+- No new issues introduced
+- Nothing was missed
+
+**DO NOT COMMIT** until zen-mcp approves!
+
+**4D. If Zen-MCP Finds NEW Issues:**
+
+If zen-mcp identifies additional problems:
+1. Add new issues to todo list
+2. Loop back to Phase 2 (fix new issues)
+3. Re-run Phase 3 (local validation)
+4. Return to Phase 4 with updated fixes
+5. Iterate until zen-mcp approves: "All fixes verified ✅"
+
+**Important:** Zen-mcp catching additional issues is GOOD - it prevents bugs from reaching production.
+
+---
+
+#### Phase 5: Commit Once When Everything Approved
+
+**⏱️ Expected Time:** 5-10 minutes
+
+**5A. Write Comprehensive Commit Message:**
+
+```bash
+git commit -m "Address all PR review feedback from Codex, Gemini, and CI
+
+Fix issues found by Codex:
+- Add null check for position calculation (HIGH)
+- Add logging for limit violations (MEDIUM)
+- Rename 'pos' to 'current_position' for clarity (LOW)
+
+Fix issues found by Gemini:
+- Improve error message clarity in validation (MEDIUM)
+
+Fix issues found by CI:
+- Map 11 IMPLEMENTATION_GUIDES references to TASKS files (CRITICAL)
+- Fix emoji test assertion to use plain text (CRITICAL)
+
+All tests pass locally (7/7 passed).
+Zero broken file links remain (Status: 400).
+make lint passes with no errors.
+
+Zen-mcp review: ALL fixes verified, no new issues introduced
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+**5B. Commit and Push:**
+
+```bash
+# Commit all fixes together
+git commit
+# (Message from 5A)
+
+# Push to update PR
+git push
+```
+
+**5C. Notify Reviewers:**
+
+```bash
+gh pr comment <PR_NUMBER> --body "All review feedback addressed in latest commit.
+
+**Fixed:**
+- Codex: 3 issues (1 HIGH, 1 MEDIUM, 1 LOW)
+- Gemini: 2 issues (1 MEDIUM, 1 LOW)
+- CI: 3 critical failures
+
+**Verification:**
+- All tests pass locally (7/7)
+- All link checks pass (0 broken file links)
+- Linting passes
+- Zen-mcp reviewed and approved all fixes
+
+@codex @gemini-code-assist Please review latest commit to verify all issues are resolved. Thank you for the thorough reviews!"
+```
+
+---
+
+#### Anti-Patterns to AVOID
+
+❌ **Anti-Pattern 1: Committing Before Finding All Issues**
+- Bad: Fix one issue → commit → CI fails → fix another → commit → CI fails again
+- Good: Collect ALL issues → fix ALL → test ALL → commit ONCE
+
+❌ **Anti-Pattern 2: Hiding Issues with Ignore Patterns**
+- Bad: Add ignore patterns for broken links/tests instead of fixing them
+- Good: Fix or remove broken links, update tests
+
+❌ **Anti-Pattern 3: Not Testing Locally**
+- Bad: Fix → commit → push → wait for CI → CI fails
+- Good: Fix → test locally → verify passes → commit → push → CI passes
+
+❌ **Anti-Pattern 4: Skipping Zen Review**
+- Bad: Fix → commit → push introduces new bug
+- Good: Fix → zen review finds issue → fix properly → zen approves → commit
+
+---
+
+#### Summary: The 5-Phase Process
+
+1. **COLLECT** - Gather issues from ALL sources (Codex, Gemini, CI)
+2. **FIX** - Fix ALL issues (no partial fixes)
+3. **VERIFY** - Test everything locally
+4. **ZEN REVIEW** - Mandatory review with detailed context
+5. **COMMIT ONCE** - Single commit with all fixes
+
+**Validation Checklist:**
+- [ ] Collected issues from ALL sources
+- [ ] Fixed ALL HIGH/CRITICAL issues
+- [ ] All local tests pass
+- [ ] Zen-mcp reviewed and approved
+- [ ] Ready to commit ALL fixes in ONE commit
 
 ### 10. Handle Conflicting Reviewer Feedback (If Needed)
 
