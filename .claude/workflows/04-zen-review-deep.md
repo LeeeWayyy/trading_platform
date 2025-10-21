@@ -683,7 +683,7 @@ $ gh pr create
 - [/docs/STANDARDS/TESTING.md](../../docs/STANDARDS/TESTING.md) - Test coverage standards
 
 **Implementation Details:**
-- [/docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md](../../docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md) - Zen-MCP deep review details
+- [/docs/CONCEPTS/workflow-optimization-zen-mcp.md](../../docs/CONCEPTS/workflow-optimization-zen-mcp.md) - Zen-MCP deep review details
 - [.claude/commands/zen-review.md](../commands/zen-review.md) - Zen review command reference
 
 **Deep Review Coverage:**

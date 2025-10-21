@@ -493,7 +493,7 @@ Zen-review: Approved with deferral (abc123)"
 - [/docs/STANDARDS/CODING_STANDARDS.md](../../docs/STANDARDS/CODING_STANDARDS.md) - Code safety standards
 
 **Implementation Details:**
-- [/docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md](../../docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md) - Zen-MCP integration guide
+- [/docs/CONCEPTS/workflow-optimization-zen-mcp.md](../../docs/CONCEPTS/workflow-optimization-zen-mcp.md) - Zen-MCP integration guide
 - [.claude/commands/zen-review.md](../.claude/commands/zen-review.md) - Zen review command reference
 
 **Focus Areas (What Zen Checks):**

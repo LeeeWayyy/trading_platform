@@ -193,7 +193,7 @@ All workflows must:
 - [docs/STANDARDS/ADR_GUIDE.md](../../docs/STANDARDS/ADR_GUIDE.md)
 
 **Implementation Guides:**
-- [docs/IMPLEMENTATION_GUIDES/](../../docs/IMPLEMENTATION_GUIDES/) - Detailed feature implementation guides
+- [docs/TASKS/](../../docs/TASKS/) - Task implementation files with detailed guides
 
 **Architecture Decisions:**
 - [docs/ADRs/](../../docs/ADRs/) - All architectural decision records

@@ -663,7 +663,7 @@ Zen-review: Critical issue found and fixed"
 - [/docs/STANDARDS/TESTING.md](../../docs/STANDARDS/TESTING.md) - Testing requirements
 
 **Implementation Guides:**
-- [/docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md](../../docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md) - Zen-MCP integration details
+- [/docs/CONCEPTS/workflow-optimization-zen-mcp.md](../../docs/CONCEPTS/workflow-optimization-zen-mcp.md) - Zen-MCP integration details
 
 ---
 
