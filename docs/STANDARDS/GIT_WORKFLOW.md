@@ -100,7 +100,7 @@ Will perform post-commit review and create follow-up PR if issues found"
 **See:**
 - Quick review: [`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md)
 - Deep review: [`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md)
-- Implementation: `/docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md`
+- Implementation: `/docs/CONCEPTS/workflow-optimization-zen-mcp.md`
 
 ### Rule #4: Mandatory Testing Before Commit
 

@@ -12,7 +12,7 @@ This index provides a structured guide to all documentation, organized by purpos
 
 1. **[STANDARDS/](./STANDARDS/)** - Normative guidance (MUST follow)
 2. **[TASKS/](./TASKS/)** - Current work items
-3. **[IMPLEMENTATION_GUIDES/](./TASKS/)** - How-to references
+3. **[Task Implementation Guides](./TASKS/)** - How-to references
 4. **[ADRs/](./ADRs/)** - Architecture decisions
 5. **[CONCEPTS/](./CONCEPTS/)** - Domain knowledge
 
@@ -114,16 +114,16 @@ Step-by-step implementation instructions for each major task:
 
 | Guide | Task | Lines | Test Coverage |
 |-------|------|-------|---------------|
-| [p0t1-data-etl.md](./TASKS/P0T1_DONE.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
-| [p1.1t2-redis-integration.md](./TASKS/P1T1_DONE.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
-| [p0t2-baseline-strategy.md](./TASKS/P0T2_DONE.md) | Baseline ML strategy | 700+ | Unit tests |
-| [p0t3-signal-service.md](./TASKS/P0T3_DONE.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
-| [p0t3-p4-fastapi-application.md](./TASKS/P0T3-F4_DONE.md) | FastAPI implementation | 600+ | Phase 4 tests |
-| [p0t3-p5-hot-reload.md](./TASKS/P0T3-F5_DONE.md) | Hot reload mechanism | 500+ | Phase 5 tests |
-| [p0t3-p6-integration-tests.md](./TASKS/P0T3-F6_DONE.md) | Integration testing | 400+ | Phase 6 tests |
-| [p0t4-execution-gateway.md](./TASKS/P0T4_DONE.md) | Execution gateway | 827+ | 56 tests, 100% |
-| [p0t5-orchestrator.md](./TASKS/P0T5_DONE.md) | Orchestrator service | 754+ | 13 tests, 100% |
-| [p0t6-paper-run.md](./TASKS/P0T6_DONE.md) | Paper run automation | 1,059+ | 26 tests, 100% |
+| [P0T1: Data ETL Pipeline](./TASKS/P0T1_DONE.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
+| [P1T1: Redis Integration](./TASKS/P1T1_DONE.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
+| [P0T2: Baseline Qlib Strategy](./TASKS/P0T2_DONE.md) | Baseline ML strategy | 700+ | Unit tests |
+| [P0T3: Signal Service](./TASKS/P0T3_DONE.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
+| [P0T3-F4: FastAPI Application](./TASKS/P0T3-F4_DONE.md) | FastAPI implementation | 600+ | Phase 4 tests |
+| [P0T3-F5: Model Hot Reload](./TASKS/P0T3-F5_DONE.md) | Hot reload mechanism | 500+ | Phase 5 tests |
+| [P0T3-F6: Integration Tests](./TASKS/P0T3-F6_DONE.md) | Integration testing | 400+ | Phase 6 tests |
+| [P0T4: Execution Gateway](./TASKS/P0T4_DONE.md) | Execution gateway | 827+ | 56 tests, 100% |
+| [P0T5: Trade Orchestrator](./TASKS/P0T5_DONE.md) | Orchestrator service | 754+ | 13 tests, 100% |
+| [P0T6: Paper Trading Runner](./TASKS/P0T6_DONE.md) | Paper run automation | 1,059+ | 26 tests, 100% |
 
 **Priority:** 🟡 **HIGH** - Read the relevant guide when implementing or modifying a task
 

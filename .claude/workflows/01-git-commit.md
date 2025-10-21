@@ -397,7 +397,7 @@ git push
 
 **Frequency:** Every 2-3 commits or end of day
 
-### 10. Return to Development
+### 11. Return to Development
 
 Continue coding for another 30-60 minutes, then repeat this workflow!
 

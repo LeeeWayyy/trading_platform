@@ -17,6 +17,12 @@
     },
     {
       "pattern": "^https://paper-api.alpaca.markets"
+    },
+    {
+      "pattern": "IMPLEMENTATION_GUIDES"
+    },
+    {
+      "pattern": "P0_TICKETS.md"
     }
   ],
   "replacementPatterns": [

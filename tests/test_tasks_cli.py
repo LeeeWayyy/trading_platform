@@ -69,7 +69,7 @@ def test_phase_template_exists():
     # Verify template has expected structure
     content = template_path.read_text()
     assert "# P0 Planning:" in content
-    assert "## Progress Summary" in content
+    assert "## 📊 Progress Summary" in content
     assert "## Tasks Breakdown" in content
     assert "## Success Metrics" in content
 

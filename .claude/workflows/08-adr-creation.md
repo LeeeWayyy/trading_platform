@@ -233,16 +233,16 @@ Use Redis for circuit breaker state storage.
 ## Implementation Notes
 
 ### Setup
-\`\`\`bash
+```bash
 # Add to docker-compose.yml
 redis:
   image: redis:7-alpine
   ports:
     - "6379:6379"
-\`\`\`
+```
 
 ### Code
-\`\`\`python
+```python
 import redis
 
 r = redis.Redis(host='localhost', port=6379)
@@ -255,7 +255,7 @@ def is_tripped() -> bool:
 # Trip breaker
 def trip():
     r.setex("cb:state", 3600, "TRIPPED")  # 1 hour TTL
-\`\`\`
+```
 
 ### Testing
 - Unit tests with fakeredis

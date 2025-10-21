@@ -58,7 +58,7 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - `/docs/TASKS/*.md` — Ticket backlog with acceptance criteria
 - `/docs/ADRs/*.md` — All architectural decisions
 - `/docs/CONCEPTS/*.md` — Trading concepts explained for beginners
-- `/docs/IMPLEMENTATION_GUIDES/*.md` — Step-by-step implementation details
+- `/docs/TASKS/*.md` — Step-by-step implementation details
 
 ---
 
