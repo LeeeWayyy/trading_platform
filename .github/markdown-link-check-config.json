@@ -23,6 +23,30 @@
     },
     {
       "pattern": "P0_TICKETS.md"
+    },
+    {
+      "pattern": "XX-related-workflow"
+    },
+    {
+      "pattern": "YY-another"
+    },
+    {
+      "pattern": "ZZ-parent"
+    },
+    {
+      "pattern": "RELEVANT_STANDARD"
+    },
+    {
+      "pattern": "ANOTHER_STANDARD"
+    },
+    {
+      "pattern": "XXXX-decision"
+    },
+    {
+      "pattern": "relevant-concept"
+    },
+    {
+      "pattern": "zen-review.md"
     }
   ],
   "replacementPatterns": [
