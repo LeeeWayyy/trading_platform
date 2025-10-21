@@ -31,8 +31,6 @@
 
 **Next:** T0 - Enhanced P&L Calculation (3-5 days) OR T6 - Advanced Strategies (7-10 days, optional)
 
-**See [P1_PROGRESS.md](../GETTING_STARTED/P1_PROGRESS.md) for detailed tracking**
-
 ---
 
 ## Executive Summary
@@ -791,14 +789,17 @@ pip install types-duckdb  # if available
 ## Related Documents
 
 - [P0 Tasks](./P0_TASKS.md) - Completed MVP tasks (100%)
-- [P1 Progress Tracker](../GETTING_STARTED/P1_PROGRESS.md) - Detailed P1 progress tracking
-- [Next Task](../NEXT_TASK.md) - Current task single source of truth
 - [T6 Retrospective](../LESSONS_LEARNED/t6-paper-run-retrospective.md) - P0 lessons learned
 - [Trading Platform Realization Plan](../trading_platform_realization_plan.md) - Original plan
-- [File Rename Map](../FILE_RENAME_MAP.md) - Documentation reorganization reference
+- [Task Index](./INDEX.md) - All task files and status
+
+**Archived References:**
+- [P1 Progress Tracker](../ARCHIVE/P1_PROGRESS_20241021.md) - Archived Oct 21 (merged into this file)
+- [Next Task](../ARCHIVE/NEXT_TASK_20241021.md) - Replaced by CLI: `./scripts/tasks.py next`
+- [File Rename Map](../ARCHIVE/FILE_RENAME_MAP_20241018.md) - Documentation reorganization reference
 
 ---
 
-**Last Updated:** October 20, 2024
-**Status:** In Progress (62% complete, 8/13 tasks)
+**Last Updated:** October 21, 2024
+**Status:** In Progress (73% complete, 8/11 tasks)
 **Next Review:** After Phase 1C completion

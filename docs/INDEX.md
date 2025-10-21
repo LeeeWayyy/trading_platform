@@ -138,10 +138,18 @@ Current and future work items:
 | Document | Purpose | Status |
 |----------|---------|--------|
 | [P0_TASKS.md](./TASKS/P0_TASKS.md) | MVP core tasks (P0T1-P0T6) | ✅ 100% Complete |
-| [P1_PLANNING.md](./TASKS/P1_PLANNING.md) | P1 roadmap and priorities | 🔄 15% Complete (2/13 tasks) |
-| [P1_PROGRESS.md](./GETTING_STARTED/P1_PROGRESS.md) | Detailed P1 progress tracker | 🔄 In Progress |
-| [NEXT_TASK.md](./NEXT_TASK.md) | Current task (single source of truth) | 🎯 P1.1T3 - DuckDB Analytics |
+| [P1_PLANNING.md](./TASKS/P1_PLANNING.md) | P1 roadmap and priorities | 🔄 73% Complete (8/11 tasks) |
+| [TASKS/INDEX.md](./TASKS/INDEX.md) | Task index and status | 🔄 In Progress |
 | [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) | Original master plan | 📚 Reference |
+
+**Checking Current/Next Task:**
+```bash
+# Show current task in progress
+./scripts/tasks.py list --state PROGRESS
+
+# Show next pending task
+./scripts/tasks.py list --state TASK --limit 1
+```
 
 **Priority:** 🔴 **CRITICAL** - Check before starting any new task to understand scope and priorities
 
@@ -177,7 +185,25 @@ Operational procedures and troubleshooting:
 
 ---
 
-### 9. AI Assistant Guidance
+### 9. Archived Documentation
+
+**Location:** `docs/ARCHIVE/`
+
+Deprecated documents retained for historical reference:
+
+| Document | Archived Date | Reason | Replacement |
+|----------|---------------|--------|-------------|
+| [NEXT_TASK_20241021.md](./ARCHIVE/NEXT_TASK_20241021.md) | Oct 21, 2024 | Redundant with task files | CLI: `./scripts/tasks.py next` |
+| [P1_PROGRESS_20241021.md](./ARCHIVE/P1_PROGRESS_20241021.md) | Oct 21, 2024 | Merged into P1_PLANNING | [P1_PLANNING.md](./TASKS/P1_PLANNING.md) |
+| [FILE_RENAME_MAP_20241018.md](./ARCHIVE/FILE_RENAME_MAP_20241018.md) | Oct 18, 2024 | Historical reference | N/A (migration complete) |
+
+**See:** [ARCHIVE/README.md](./ARCHIVE/README.md) for migration guide and rationale
+
+**Priority:** 🟢 **LOW** - Reference only if needed for historical context
+
+---
+
+### 10. AI Assistant Guidance
 
 **Location:** `docs/`
 

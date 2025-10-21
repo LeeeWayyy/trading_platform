@@ -5,6 +5,10 @@ Task Lifecycle Management CLI
 Manages task lifecycle (TASK → PROGRESS → DONE) for the trading platform project.
 
 Usage:
+    # View next task
+    ./scripts/tasks.py next
+    ./scripts/tasks.py next --phase P1
+
     # Phase management
     ./scripts/tasks.py create-phase P2 --source docs/PLANNING/trading_platform_realization_plan.md
     ./scripts/tasks.py generate-tasks-from-phase P2
@@ -768,6 +772,54 @@ def sync_status() -> None:
     print("\n💡 Note: Auto-generation of INDEX.md and PROJECT_STATUS.md coming soon!")
 
 
+def next_task(phase: Optional[str] = None) -> None:
+    """
+    Show the next task to work on.
+
+    Priority:
+    1. First PROGRESS task (current work in progress)
+    2. If none, first TASK file (next pending task)
+
+    Args:
+        phase: Optional phase filter (P0, P1, P2)
+    """
+    # Check for tasks in PROGRESS state
+    progress_tasks = list_tasks(state="PROGRESS", phase=phase)
+
+    if progress_tasks:
+        task = progress_tasks[0]
+        print("🔄 Current work in progress:\n")
+        print(f"ID:       {task.id}")
+        print(f"Title:    {task.title}")
+        print(f"Phase:    {task.phase}")
+        print(f"Owner:    {task.owner}")
+        print(f"State:    {task.state}")
+        print(f"Started:  {task.started}")
+        print(f"File:     {task.file_path}")
+        print(f"\n📝 To complete: ./scripts/tasks.py complete {task.id}")
+        return
+
+    # No PROGRESS tasks, check for TASK files
+    pending_tasks = list_tasks(state="TASK", phase=phase)
+
+    if pending_tasks:
+        task = pending_tasks[0]
+        print("📋 Next pending task:\n")
+        print(f"ID:       {task.id}")
+        print(f"Title:    {task.title}")
+        print(f"Phase:    {task.phase}")
+        print(f"Owner:    {task.owner}")
+        print(f"Priority: {task.priority}")
+        print(f"File:     {task.file_path}")
+        print(f"\n📝 To start: ./scripts/tasks.py start {task.id}")
+        return
+
+    # No tasks found
+    phase_str = f" in phase {phase}" if phase else ""
+    print(f"✅ No pending tasks{phase_str}!")
+    print(f"\n💡 All tasks are complete or no tasks exist.")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -775,6 +827,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Show next task to work on
+  ./scripts/tasks.py next
+  ./scripts/tasks.py next --phase P1
+
   # Create new task
   ./scripts/tasks.py create P0T5 --title "Data ETL" --owner "@alice" --phase P0
 
@@ -797,6 +853,10 @@ Examples:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+
+    # Next command
+    next_parser = subparsers.add_parser("next", help="Show next task to work on")
+    next_parser.add_argument("--phase", choices=["P0", "P1", "P2"], help="Filter by phase")
 
     # Create command
     create_parser = subparsers.add_parser("create", help="Create new task from template")
@@ -843,7 +903,10 @@ Examples:
     args = parser.parse_args()
 
     try:
-        if args.command == "create":
+        if args.command == "next":
+            next_task(phase=args.phase)
+
+        elif args.command == "create":
             create_task(args.task_id, args.title, args.owner, args.phase, args.effort)
 
         elif args.command == "start":

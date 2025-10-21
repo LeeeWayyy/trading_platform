@@ -34,8 +34,10 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 ## 🎯 Implementation Workflow
 
 ### 1. Read the Task
-- Check **[TASKS/P0_TICKETS.md](./TASKS/P0_TICKETS.md)** or **[TASKS/P1_PLANNING.md](./TASKS/P1_PLANNING.md)**
-- Read relevant **[IMPLEMENTATION_GUIDES/](./IMPLEMENTATION_GUIDES/)** document
+- Find current task: `./scripts/tasks.py list --state PROGRESS`
+- Or check next task: `./scripts/tasks.py list --state TASK --limit 1`
+- Read the task file: **[TASKS/PxTy_TASK.md](./TASKS/)** or **[TASKS/PxTy_PROGRESS.md](./TASKS/)**
+- Read relevant **[IMPLEMENTATION_GUIDES/](./IMPLEMENTATION_GUIDES/)** if available
 
 ### 2. Review Architecture Decisions
 - Check **[ADRs/](./ADRs/)** for relevant decisions
