@@ -166,9 +166,6 @@ class TestMetricsDataCapture:
 
     def test_alpaca_api_requests_total_tracked_in_health_check(self, client):
         """Test that alpaca_api_requests_total increments when health check calls Alpaca API."""
-        # Get initial metrics
-        initial_metrics = client.get("/metrics").text
-
         # Call health check (triggers Alpaca API check_connection if not DRY_RUN)
         health_response = client.get("/health")
         assert health_response.status_code == 200

@@ -272,9 +272,6 @@ class TestPrometheusMetrics:
         """Test that health check endpoint updates service availability gauges."""
         import re
 
-        # Get initial metrics
-        initial_metrics = client.get("/metrics").text
-
         # Call health check to update gauges
         health_response = client.get("/health")
         assert health_response.status_code == 200
