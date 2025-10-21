@@ -1,4 +1,36 @@
-# T1.2: Redis Integration - Implementation Guide
+---
+id: P1T2
+title: "Redis Integration"
+phase: P1
+task: T2
+priority: P1
+owner: "@development-team"
+state: DONE
+created: 2025-10-20
+started: 2025-10-20
+completed: 2025-10-20
+duration: "Completed prior to task lifecycle system"
+dependencies: []
+related_adrs: []
+related_docs: []
+---
+
+
+# P1T2: Redis Integration ✅
+
+**Phase:** P1 (Hardening & Automation, 46-90 days)
+**Status:** DONE (Completed prior to task lifecycle system)
+**Priority:** P1
+**Owner:** @development-team
+
+---
+
+## Original Implementation Guide
+
+**Note:** This content was migrated from `docs/IMPLEMENTATION_GUIDES/p1.1t2-redis-integration.md`
+and represents work completed before the task lifecycle management system was implemented.
+
+---
 
 **Task**: T1.2 Redis Integration (P1 Phase 1A)
 **Status**: In Progress (Phase 1 Complete - Client Library)
@@ -972,3 +1004,26 @@ pip install fakeredis
 **Last Updated**: 2025-01-18
 **Status**: Phase 1 Complete (Client Library), Phase 2-4 Pending
 **Next Review**: After Signal Service integration
+
+---
+
+## Migration Notes
+
+**Migrated:** 2025-10-20
+**Original File:** `docs/IMPLEMENTATION_GUIDES/p1.1t2-redis-integration.md`
+**Migration:** Automated migration to task lifecycle system
+
+**Historical Context:**
+This task was completed before the PxTy_TASK → _PROGRESS → _DONE lifecycle
+system was introduced. The content above represents the implementation guide
+that was created during development.
+
+For new tasks, use the structured DONE template with:
+- Summary of what was built
+- Code references
+- Test coverage details
+- Zen-MCP review history
+- Lessons learned
+- Metrics
+
+See `docs/TASKS/00-TEMPLATE_DONE.md` for the current standard format.
