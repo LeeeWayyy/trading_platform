@@ -43,10 +43,85 @@
       "pattern": "XXXX-decision"
     },
     {
+      "pattern": "XXX-title"
+    },
+    {
+      "pattern": "YYY-title"
+    },
+    {
+      "pattern": "ZZZ-title"
+    },
+    {
       "pattern": "relevant-concept"
     },
     {
+      "pattern": "concept-name"
+    },
+    {
+      "pattern": "P[0-9]T-?[0-9]+"
+    },
+    {
+      "pattern": "service\\.openapi\\.yaml"
+    },
+    {
+      "pattern": "schema\\.sql"
+    },
+    {
+      "pattern": "^link$"
+    },
+    {
       "pattern": "zen-review.md"
+    },
+    {
+      "pattern": "^https://docs.alpaca.markets/docs/webhooks"
+    },
+    {
+      "pattern": "^https://alpaca.markets/docs/market-data/streaming/"
+    },
+    {
+      "pattern": "^https://www.nasdaq.com/market-activity/corporate-actions"
+    },
+    {
+      "pattern": "^https://www.finra.org/rules-guidance/key-topics/corporate-actions"
+    },
+    {
+      "pattern": "^https://eng.uber.com/michelangelo-machine-learning-platform/"
+    },
+    {
+      "pattern": "^https://www.pola.rs/posts/pandas_to_polars/"
+    },
+    {
+      "pattern": "^https://redis.io/docs/manual/pubsub/"
+    },
+    {
+      "pattern": "^https://pola-rs.github.io/polars/"
+    },
+    {
+      "pattern": "^https://alpaca.markets/docs/trading/webhooks/"
+    },
+    {
+      "pattern": "^https://cheatsheetseries.owasp.org/"
+    },
+    {
+      "pattern": "^https://codahale.com/"
+    },
+    {
+      "pattern": "^https://redis.io/docs/management/optimization/"
+    },
+    {
+      "pattern": "^https://www.uber.com/blog/michelangelo"
+    },
+    {
+      "pattern": "^https://www.federalreserve.gov/"
+    },
+    {
+      "pattern": "^https://www.sec.gov/"
+    },
+    {
+      "pattern": "^https://towardsdatascience.com/"
+    },
+    {
+      "pattern": "^https://openai.com/pricing"
     }
   ],
   "replacementPatterns": [
