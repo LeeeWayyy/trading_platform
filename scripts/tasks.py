@@ -5,10 +5,17 @@ Task Lifecycle Management CLI
 Manages task lifecycle (TASK → PROGRESS → DONE) for the trading platform project.
 
 Usage:
+    # Phase management
+    ./scripts/tasks.py create-phase P2 --source docs/PLANNING/trading_platform_realization_plan.md
+    ./scripts/tasks.py generate-tasks-from-phase P2
+
+    # Task management
     ./scripts/tasks.py create P0T5 --title "New Task" --owner "@alice"
     ./scripts/tasks.py start P0T0
     ./scripts/tasks.py complete P0T0
     ./scripts/tasks.py list --state PROGRESS
+
+    # Utilities
     ./scripts/tasks.py sync-status
     ./scripts/tasks.py lint
 """
@@ -32,6 +39,10 @@ TEMPLATE_TASK = TEMPLATES_DIR / "00-TEMPLATE_TASK.md"
 TEMPLATE_PROGRESS = TEMPLATES_DIR / "00-TEMPLATE_PROGRESS.md"
 TEMPLATE_DONE = TEMPLATES_DIR / "00-TEMPLATE_DONE.md"
 TEMPLATE_FEATURE = TEMPLATES_DIR / "00-TEMPLATE_FEATURE.md"
+TEMPLATE_PHASE_PLANNING = TEMPLATES_DIR / "00-TEMPLATE_PHASE_PLANNING.md"
+
+# Planning directory
+PLANNING_DIR = PROJECT_ROOT / "docs" / "PLANNING"
 
 TaskState = Literal["TASK", "PROGRESS", "DONE"]
 
@@ -286,6 +297,77 @@ def create_task(task_id: str, title: str, owner: str, phase: str, effort: str = 
     print(f"   2. When ready to start: ./scripts/tasks.py start {task_id}")
 
 
+def create_feature(
+    feature_id: str, title: str, owner: str, parent_task: str, phase: str
+) -> None:
+    """
+    Create a new feature from template.
+
+    Args:
+        feature_id: Feature ID (e.g., "P0T1-F1")
+        title: Feature title
+        owner: Feature owner (e.g., "@alice")
+        parent_task: Parent task ID (e.g., "P0T1")
+        phase: Phase (P0, P1, P2)
+
+    Raises:
+        ValueError: If feature already exists or invalid ID format
+    """
+    # Validate feature ID format
+    match = re.match(r"^P(\d+)T(\d+)-F(\d+)$", feature_id)
+    if not match:
+        raise ValueError(
+            f"Invalid feature ID format: {feature_id}. Expected format: PxTy-Fz (e.g., P0T1-F1)"
+        )
+
+    # Check if feature already exists
+    if get_task_file(feature_id):
+        raise ValueError(f"Feature {feature_id} already exists!")
+
+    # Read template
+    if not TEMPLATE_FEATURE.exists():
+        raise FileNotFoundError(f"Template not found: {TEMPLATE_FEATURE}")
+
+    with open(TEMPLATE_FEATURE, "r", encoding="utf-8") as f:
+        template_content = f.read()
+
+    # Replace placeholders
+    today = date.today().isoformat()
+    phase_desc = {
+        "P0": "P0 (MVP Core, 0-45 days)",
+        "P1": "P1 (Hardening & Automation, 46-90 days)",
+        "P2": "P2 (Advanced Features, 91-120 days)",
+    }.get(phase, phase)
+
+    feature_num = match.group(3)
+
+    replacements = {
+        "P0T0-F0": feature_id,
+        "Feature Title Here": title,
+        "P0": phase,
+        "P0T0": parent_task,
+        "F0": f"F{feature_num}",
+        "@development-team": owner,
+        "YYYY-MM-DD": today,
+        "**Phase:** P0 (MVP Core, 0-45 days)": f"**Phase:** {phase_desc}",
+    }
+
+    new_content = template_content
+    for old, new in replacements.items():
+        new_content = new_content.replace(old, new)
+
+    # Write new feature file
+    new_file = TASKS_DIR / f"{feature_id}_PROGRESS.md"
+    with open(new_file, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+    print(f"✅ Created feature: {new_file}")
+    print(f"\n📝 Next steps:")
+    print(f"   1. Edit {new_file} to fill in details")
+    print(f"   2. Track implementation using 4-step pattern")
+    print(f"   3. When complete: ./scripts/tasks.py complete {feature_id}")
+
+
 def start_task(task_id: str) -> None:
     """
     Transition task from TASK → PROGRESS.
@@ -375,6 +457,206 @@ def complete_task(task_id: str) -> None:
     print(f"   2. Update docs/TASKS/INDEX.md")
     print(f"   3. Update docs/GETTING_STARTED/PROJECT_STATUS.md")
     print(f"   Or run: ./scripts/tasks.py sync-status")
+
+
+def create_phase(
+    phase: str, source: Optional[str] = None, interactive: bool = True
+) -> None:
+    """
+    Create a phase planning document (Px_PLANNING.md).
+
+    Args:
+        phase: Phase ID (P0, P1, P2)
+        source: Optional path to master plan (e.g., docs/PLANNING/trading_platform_realization_plan.md)
+        interactive: If True, prompt user for manual extraction
+
+    Raises:
+        ValueError: If phase planning already exists or invalid phase format
+    """
+    # Validate phase ID
+    if not re.match(r"^P[0-2]$", phase):
+        raise ValueError(f"Invalid phase ID: {phase}. Expected P0, P1, or P2.")
+
+    # Check if phase planning already exists
+    phase_file = TASKS_DIR / f"{phase}_PLANNING.md"
+    if phase_file.exists():
+        raise ValueError(f"Phase planning already exists: {phase_file}")
+
+    # Phase descriptions
+    phase_info = {
+        "P0": ("MVP Core", "0-45 days", "Core functionality and end-to-end pipeline"),
+        "P1": ("Hardening & Automation", "46-90 days", "Production readiness and advanced features"),
+        "P2": ("Advanced Features", "91-120 days", "Optimization and scaling"),
+    }
+
+    phase_name, timeline, description = phase_info[phase]
+
+    if source:
+        # Try to extract from source
+        source_path = Path(source)
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source file not found: {source}")
+
+        print(f"📖 Reading master plan from {source}...")
+        with open(source_path, "r", encoding="utf-8") as f:
+            master_content = f.read()
+
+        print(f"\n⚠️  Automatic extraction not yet implemented.")
+        print(f"   Please manually extract {phase} content from {source}")
+        print(f"   and paste into {phase_file}")
+
+    # Read template
+    if not TEMPLATE_PHASE_PLANNING.exists():
+        raise FileNotFoundError(f"Template not found: {TEMPLATE_PHASE_PLANNING}")
+
+    with open(TEMPLATE_PHASE_PLANNING, "r", encoding="utf-8") as f:
+        template_content = f.read()
+
+    # Replace placeholders
+    today = date.today().isoformat()
+    replacements = {
+        "P0": phase,
+        "MVP Core": phase_name,
+        "0-45 days": timeline,
+        "YYYY-MM-DD": today,
+    }
+
+    new_content = template_content
+    for old, new in replacements.items():
+        new_content = new_content.replace(old, new)
+
+    # Write phase planning file
+    with open(phase_file, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+    print(f"✅ Created phase planning: {phase_file}")
+    print(f"\n📝 Next steps:")
+    print(f"   1. Edit {phase_file} to fill in phase details")
+    print(f"   2. Add task breakdown (T0, T1, T2, ...)")
+    print(f"   3. When ready: ./scripts/tasks.py generate-tasks-from-phase {phase}")
+
+
+def generate_tasks_from_phase(phase: str, dry_run: bool = False) -> None:
+    """
+    Generate individual task files (PxTy_TASK.md) from phase planning document.
+
+    Args:
+        phase: Phase ID (P0, P1, P2)
+        dry_run: If True, show what would be created without creating files
+
+    Raises:
+        ValueError: If phase planning doesn't exist
+    """
+    # Find phase planning file
+    phase_file = TASKS_DIR / f"{phase}_PLANNING.md"
+    if not phase_file.exists():
+        raise ValueError(f"Phase planning not found: {phase_file}")
+
+    print(f"📖 Reading phase planning from {phase_file}...")
+
+    with open(phase_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Parse tasks from phase planning
+    # Look for task headers like "#### T1.1:" or "#### T0:" or "### T1:"
+    task_pattern = r"^#{3,4}\s+(T\d+(?:\.\d+)?)[:\s]+(.+)$"
+    tasks_to_create = []
+
+    for line in content.split("\n"):
+        match = re.match(task_pattern, line)
+        if match:
+            task_num_raw = match.group(1)  # e.g., "T1.1" or "T0" or "T2.3"
+            task_title = match.group(2).strip()
+
+            # Parse task number with optional feature sub-number
+            # T1.1 → Task 1, Feature 1 → P1T1-F1
+            # T1 → Task 1 → P1T1
+            # T2.3 → Task 2, Feature 3 → P1T2-F3
+            task_match = re.match(r"T(\d+)(?:\.(\d+))?", task_num_raw)
+            if task_match:
+                task_num = task_match.group(1)
+                feature_num = task_match.group(2)  # May be None
+
+                if feature_num:
+                    # T1.1 → P1T1-F1 (feature format)
+                    task_id = f"{phase}T{task_num}-F{feature_num}"
+                else:
+                    # T1 → P1T1 (regular task format)
+                    task_id = f"{phase}T{task_num}"
+
+                # Check if task already exists
+                if not get_task_file(task_id):
+                    tasks_to_create.append((task_id, task_title))
+
+    if not tasks_to_create:
+        print(f"⚠️  No new tasks found to create in {phase_file}")
+        print(f"   All tasks may already exist, or no task headers found.")
+        return
+
+    print(f"\n📋 Found {len(tasks_to_create)} task(s) to create:")
+    for task_id, title in tasks_to_create:
+        status = "✅ Would create" if dry_run else "✅ Creating"
+        print(f"   {status}: {task_id} - {title}")
+
+    if dry_run:
+        print(f"\n💡 Run without --dry-run to create these tasks")
+        return
+
+    # Create tasks
+    created_count = 0
+    for task_id, title in tasks_to_create:
+        try:
+            # Check if this is a feature (contains "-F")
+            is_feature = "-F" in task_id
+
+            if is_feature:
+                # For features, use create_feature function
+                # Extract: P1T1-F1 → phase=P1, parent_task=P1T1, feature_num=F1
+                feature_match = re.match(r"^(P\d+)(T\d+)-(F\d+)$", task_id)
+                if not feature_match:
+                    print(f"⚠️  Skipping invalid feature ID: {task_id}")
+                    continue
+
+                task_phase = feature_match.group(1)
+                parent_task = feature_match.group(1) + feature_match.group(2)
+                feature_id = task_id
+
+                # Create feature file
+                create_feature(
+                    feature_id=feature_id,
+                    title=title,
+                    owner="@development-team",
+                    parent_task=parent_task,
+                    phase=task_phase,
+                )
+            else:
+                # Regular task creation
+                phase_match = re.match(r"^(P\d+)", task_id)
+                if not phase_match:
+                    print(f"⚠️  Skipping invalid task ID: {task_id}")
+                    continue
+
+                task_phase = phase_match.group(1)
+
+                # Create task using existing create_task function
+                create_task(
+                    task_id=task_id,
+                    title=title,
+                    owner="@development-team",
+                    phase=task_phase,
+                    effort="X days",
+                )
+            created_count += 1
+        except ValueError as e:
+            print(f"⚠️  Failed to create {task_id}: {e}")
+
+    print(f"\n✅ Created {created_count}/{len(tasks_to_create)} task(s)")
+    print(f"\n📝 Next steps:")
+    print(f"   1. Edit each task file to add details")
+    if tasks_to_create:
+        print(f"   2. Start first task: ./scripts/tasks.py start {tasks_to_create[0][0]}")
+    else:
+        print(f"   2. All tasks already exist, check task status with: ./scripts/tasks.py list --phase {phase}")
 
 
 def lint_tasks() -> int:
@@ -543,6 +825,21 @@ Examples:
     # Lint command
     subparsers.add_parser("lint", help="Lint task files for completeness")
 
+    # Create-phase command
+    create_phase_parser = subparsers.add_parser("create-phase", help="Create phase planning document")
+    create_phase_parser.add_argument("phase", choices=["P0", "P1", "P2"], help="Phase ID")
+    create_phase_parser.add_argument(
+        "--source",
+        help="Path to master plan (e.g., docs/PLANNING/trading_platform_realization_plan.md)",
+    )
+
+    # Generate-tasks-from-phase command
+    gen_tasks_parser = subparsers.add_parser(
+        "generate-tasks-from-phase", help="Generate task files from phase planning"
+    )
+    gen_tasks_parser.add_argument("phase", choices=["P0", "P1", "P2"], help="Phase ID")
+    gen_tasks_parser.add_argument("--dry-run", action="store_true", help="Show what would be created")
+
     args = parser.parse_args()
 
     try:
@@ -575,6 +872,12 @@ Examples:
         elif args.command == "lint":
             errors = lint_tasks()
             sys.exit(1 if errors > 0 else 0)
+
+        elif args.command == "create-phase":
+            create_phase(args.phase, source=args.source)
+
+        elif args.command == "generate-tasks-from-phase":
+            generate_tasks_from_phase(args.phase, dry_run=args.dry_run)
 
         else:
             parser.print_help()
