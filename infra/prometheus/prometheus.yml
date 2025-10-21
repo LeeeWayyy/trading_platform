@@ -1,0 +1,90 @@
+# Prometheus Configuration for Trading Platform
+#
+# Scrapes metrics from all microservices:
+# - Execution Gateway (8002/metrics)
+# - Signal Service (8001/metrics)
+# - Orchestrator (8003/metrics)
+# - Market Data Service (8004/metrics)
+#
+# Alert rules defined in alerts.yml
+
+global:
+  scrape_interval: 15s        # Scrape targets every 15 seconds
+  evaluation_interval: 15s    # Evaluate rules every 15 seconds
+  scrape_timeout: 10s         # Timeout if scrape takes longer than 10s
+
+  # External labels for all time series and alerts
+  external_labels:
+    cluster: 'trading-platform'
+    environment: 'development'
+
+# Load alert rules
+rule_files:
+  - 'alerts.yml'
+
+# Alertmanager configuration (optional, for production)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - 'localhost:9093'
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Execution Gateway - Order execution and position management
+  - job_name: 'execution-gateway'
+    scrape_interval: 10s      # More frequent for trading critical service
+    static_configs:
+      - targets: ['localhost:8002']
+        labels:
+          service: 'execution-gateway'
+          tier: 'critical'
+          component: 'trading'
+    metrics_path: '/metrics'
+
+  # Signal Service - ML model predictions and signal generation
+  - job_name: 'signal-service'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:8001']
+        labels:
+          service: 'signal-service'
+          tier: 'important'
+          component: 'ml'
+    metrics_path: '/metrics'
+
+  # Orchestrator - Workflow coordination
+  - job_name: 'orchestrator'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:8003']
+        labels:
+          service: 'orchestrator'
+          tier: 'important'
+          component: 'coordination'
+    metrics_path: '/metrics'
+
+  # Market Data Service - Real-time market data streaming
+  - job_name: 'market-data-service'
+    scrape_interval: 10s      # Frequent for real-time data
+    static_configs:
+      - targets: ['localhost:8004']
+        labels:
+          service: 'market-data-service'
+          tier: 'critical'
+          component: 'data'
+    metrics_path: '/metrics'
+
+# Storage configuration
+# For production, configure remote write to long-term storage
+# storage:
+#   tsdb:
+#     retention.time: 30d
+#     retention.size: 10GB

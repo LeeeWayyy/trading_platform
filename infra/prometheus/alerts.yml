@@ -1,0 +1,315 @@
+# Prometheus Alert Rules for Trading Platform
+#
+# Alerts organized by category:
+# - Service Health
+# - Trading Operations
+# - Data Quality
+# - Performance
+
+groups:
+  # ============================================================================
+  # Service Health Alerts
+  # ============================================================================
+  - name: service_health
+    interval: 30s
+    rules:
+      # Service down alerts
+      - alert: ExecutionGatewayDown
+        expr: up{job="execution-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: trading
+        annotations:
+          summary: "Execution Gateway is down"
+          description: "Execution Gateway has been down for more than 1 minute. Trading is disabled."
+
+      - alert: SignalServiceDown
+        expr: up{job="signal-service"} == 0
+        for: 2m
+        labels:
+          severity: high
+          component: ml
+        annotations:
+          summary: "Signal Service is down"
+          description: "Signal Service has been down for more than 2 minutes. No new signals can be generated."
+
+      - alert: OrchestratorDown
+        expr: up{job="orchestrator"} == 0
+        for: 1m
+        labels:
+          severity: high
+          component: coordination
+        annotations:
+          summary: "Orchestrator is down"
+          description: "Orchestrator has been down for more than 1 minute. Workflow coordination is disrupted."
+
+      - alert: MarketDataServiceDown
+        expr: up{job="market-data-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: data
+        annotations:
+          summary: "Market Data Service is down"
+          description: "Market Data Service has been down for more than 1 minute. No market data updates."
+
+      # Database connection alerts
+      - alert: ExecutionGatewayDatabaseDisconnected
+        expr: execution_gateway_database_connection_status == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Execution Gateway database disconnected"
+          description: "Execution Gateway lost database connection. Order persistence is at risk."
+
+      - alert: SignalServiceDatabaseDisconnected
+        expr: signal_service_database_connection_status == 0
+        for: 1m
+        labels:
+          severity: high
+          component: database
+        annotations:
+          summary: "Signal Service database disconnected"
+          description: "Signal Service lost database connection. Model reloading may fail."
+
+      - alert: OrchestratorDatabaseDisconnected
+        expr: orchestrator_database_connection_status == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Orchestrator database disconnected"
+          description: "Orchestrator lost database connection. Run tracking is disrupted."
+
+      # Redis connection alerts
+      - alert: SignalServiceRedisDisconnected
+        expr: signal_service_redis_connection_status == 0
+        for: 1m
+        labels:
+          severity: medium
+          component: cache
+        annotations:
+          summary: "Signal Service Redis disconnected"
+          description: "Signal Service lost Redis connection. Feature caching is disabled."
+
+      - alert: MarketDataRedisDisconnected
+        expr: market_data_redis_connection_status == 0
+        for: 1m
+        labels:
+          severity: high
+          component: cache
+        annotations:
+          summary: "Market Data Service Redis disconnected"
+          description: "Market Data Service lost Redis connection. Price caching and event publishing disabled."
+
+      # WebSocket connection alerts
+      - alert: MarketDataWebSocketDisconnected
+        expr: market_data_websocket_connection_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: streaming
+        annotations:
+          summary: "Market Data WebSocket disconnected"
+          description: "Market Data Service WebSocket has been disconnected for more than 2 minutes. No real-time quotes."
+
+      # Model status alerts
+      - alert: SignalServiceModelNotLoaded
+        expr: signal_service_model_loaded_status == 0
+        for: 5m
+        labels:
+          severity: high
+          component: ml
+        annotations:
+          summary: "Signal Service model not loaded"
+          description: "Signal Service has no model loaded for more than 5 minutes. Cannot generate signals."
+
+  # ============================================================================
+  # Trading Operations Alerts
+  # ============================================================================
+  - name: trading_operations
+    interval: 30s
+    rules:
+      # High order rejection rate
+      - alert: HighOrderRejectionRate
+        expr: |
+          (
+            sum(rate(execution_gateway_orders_total{status="rejected"}[5m]))
+            /
+            sum(rate(execution_gateway_orders_total[5m]))
+          ) > 0.1
+        for: 2m
+        labels:
+          severity: high
+          component: trading
+        annotations:
+          summary: "High order rejection rate"
+          description: "More than 10% of orders are being rejected in the last 5 minutes."
+
+      # No orders submitted for extended period
+      - alert: NoOrdersSubmitted
+        expr: |
+          rate(execution_gateway_orders_total[15m]) == 0
+        for: 30m
+        labels:
+          severity: medium
+          component: trading
+        annotations:
+          summary: "No orders submitted"
+          description: "No orders have been submitted in the last 30 minutes. System may be idle or blocked."
+
+      # Circuit breaker tripped
+      - alert: CircuitBreakerTripped
+        expr: execution_gateway_circuit_breaker_status == 1
+        for: 1m
+        labels:
+          severity: critical
+          component: safety
+        annotations:
+          summary: "Circuit breaker is tripped"
+          description: "Trading circuit breaker is active. New positions are blocked."
+
+      # High orchestration failure rate
+      - alert: HighOrchestrationFailureRate
+        expr: |
+          (
+            sum(rate(orchestrator_runs_total{status="error"}[10m]))
+            /
+            sum(rate(orchestrator_runs_total[10m]))
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: high
+          component: coordination
+        annotations:
+          summary: "High orchestration failure rate"
+          description: "More than 20% of orchestration runs are failing."
+
+      # No signals generated
+      - alert: NoSignalsGenerated
+        expr: |
+          rate(signal_service_signals_generated_total[15m]) == 0
+        for: 20m
+        labels:
+          severity: medium
+          component: ml
+        annotations:
+          summary: "No signals generated"
+          description: "No signals have been generated in the last 20 minutes."
+
+  # ============================================================================
+  # Data Quality Alerts
+  # ============================================================================
+  - name: data_quality
+    interval: 60s
+    rules:
+      # No market data updates
+      - alert: NoMarketDataUpdates
+        expr: |
+          rate(market_data_websocket_messages_received_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: high
+          component: data
+        annotations:
+          summary: "No market data updates"
+          description: "No WebSocket messages received in the last 10 minutes during market hours."
+
+      # High WebSocket reconnection rate
+      - alert: HighWebSocketReconnectionRate
+        expr: |
+          rate(market_data_reconnect_attempts_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: medium
+          component: streaming
+        annotations:
+          summary: "High WebSocket reconnection rate"
+          description: "Market Data Service is reconnecting frequently (>0.1/sec). Connection unstable."
+
+      # Alpaca API errors
+      - alert: HighAlpacaAPIErrorRate
+        expr: |
+          (
+            sum(rate(execution_gateway_alpaca_api_requests_total{status="error"}[5m]))
+            /
+            sum(rate(execution_gateway_alpaca_api_requests_total[5m]))
+          ) > 0.05
+        for: 3m
+        labels:
+          severity: high
+          component: api
+        annotations:
+          summary: "High Alpaca API error rate"
+          description: "More than 5% of Alpaca API requests are failing."
+
+  # ============================================================================
+  # Performance Alerts
+  # ============================================================================
+  - name: performance
+    interval: 60s
+    rules:
+      # Slow order placement
+      - alert: SlowOrderPlacement
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(execution_gateway_order_placement_duration_seconds_bucket[5m]))
+            by (le)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: medium
+          component: performance
+        annotations:
+          summary: "Slow order placement"
+          description: "95th percentile order placement latency is above 2 seconds."
+
+      # Slow signal generation
+      - alert: SlowSignalGeneration
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(signal_service_signal_generation_duration_seconds_bucket[5m]))
+            by (le)
+          ) > 10.0
+        for: 5m
+        labels:
+          severity: medium
+          component: performance
+        annotations:
+          summary: "Slow signal generation"
+          description: "95th percentile signal generation latency is above 10 seconds."
+
+      # Slow orchestration
+      - alert: SlowOrchestration
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(orchestrator_orchestration_duration_seconds_bucket[5m]))
+            by (le)
+          ) > 60.0
+        for: 5m
+        labels:
+          severity: low
+          component: performance
+        annotations:
+          summary: "Slow orchestration"
+          description: "95th percentile orchestration duration is above 60 seconds."
+
+      # High model reload failure rate
+      - alert: HighModelReloadFailureRate
+        expr: |
+          (
+            sum(rate(signal_service_model_reload_total{status="error"}[10m]))
+            /
+            sum(rate(signal_service_model_reload_total[10m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: high
+          component: ml
+        annotations:
+          summary: "High model reload failure rate"
+          description: "More than 50% of model reload attempts are failing."
