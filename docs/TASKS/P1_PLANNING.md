@@ -794,9 +794,9 @@ pip install types-duckdb  # if available
 - [Task Index](./INDEX.md) - All task files and status
 
 **Archived References:**
-- [P1 Progress Tracker](../ARCHIVE/P1_PROGRESS_20241021.md) - Archived Oct 21 (merged into this file)
-- [Next Task](../ARCHIVE/NEXT_TASK_20241021.md) - Replaced by CLI: `./scripts/tasks.py next`
-- [File Rename Map](../ARCHIVE/FILE_RENAME_MAP_20241018.md) - Documentation reorganization reference
+- P1 Progress Tracker - Archived Oct 21 (merged into this file)
+- Next Task - Replaced by CLI: `./scripts/tasks.py next`
+- File Rename Map - Documentation reorganization reference (archived)
 
 ---
 

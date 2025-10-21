@@ -19,60 +19,6 @@
       "pattern": "^https://paper-api.alpaca.markets"
     },
     {
-      "pattern": "IMPLEMENTATION_GUIDES"
-    },
-    {
-      "pattern": "P0_TICKETS.md"
-    },
-    {
-      "pattern": "XX-related-workflow"
-    },
-    {
-      "pattern": "YY-another"
-    },
-    {
-      "pattern": "ZZ-parent"
-    },
-    {
-      "pattern": "RELEVANT_STANDARD"
-    },
-    {
-      "pattern": "ANOTHER_STANDARD"
-    },
-    {
-      "pattern": "XXXX-decision"
-    },
-    {
-      "pattern": "XXX-title"
-    },
-    {
-      "pattern": "YYY-title"
-    },
-    {
-      "pattern": "ZZZ-title"
-    },
-    {
-      "pattern": "relevant-concept"
-    },
-    {
-      "pattern": "concept-name"
-    },
-    {
-      "pattern": "P[0-9]T-?[0-9]+"
-    },
-    {
-      "pattern": "service\\.openapi\\.yaml"
-    },
-    {
-      "pattern": "schema\\.sql"
-    },
-    {
-      "pattern": "^link$"
-    },
-    {
-      "pattern": "zen-review.md"
-    },
-    {
       "pattern": "^https://docs.alpaca.markets/docs/webhooks"
     },
     {
@@ -125,9 +71,6 @@
     },
     {
       "pattern": "^https://ai.google.dev/pricing"
-    },
-    {
-      "pattern": "\\.ipynb$"
     }
   ],
   "replacementPatterns": [

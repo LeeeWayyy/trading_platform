@@ -27,7 +27,7 @@ features: []
 
 ## Naming Convention
 
-**This task:** `P0T0_TASK.md` → `P0T0_PROGRESS.md` → `P0T0_DONE.md`
+**This task:** `P0T1_DONE.md` → `P0T0_PROGRESS.md` → `P0T0_DONE.md`
 
 **If this task has multiple features/sub-components:**
 - Feature 0: `P0T0-F0_PROGRESS.md` (separate tracking for complex features)
@@ -151,14 +151,14 @@ Break this task into components, each following the 4-step pattern:
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Title](../ADRs/XXX-title.md)
+- [ADR-XXX: Title](../ADRs/0001-data-pipeline-architecture.md)
 
 **Documentation:**
-- [Related concept](../CONCEPTS/concept-name.md)
+- [Related concept](../CONCEPTS/corporate-actions.md)
 
 **Tasks:**
-- Depends on: [P0T-1](./P0T-1_STATE.md)
-- Blocks: [P0T1](./P0T1_STATE.md)
+- Depends on: [P0T1](./P0T1_DONE.md)
+- Blocks: [P0T2](./P0T2_DONE.md)
 
 ---
 
@@ -174,7 +174,7 @@ Break this task into components, each following the 4-step pattern:
 
 ```bash
 # 1. Rename file
-git mv docs/TASKS/P0T0_TASK.md docs/TASKS/P0T0_PROGRESS.md
+git mv docs/TASKS/P0T1_DONE.md docs/TASKS/P0T0_PROGRESS.md
 
 # 2. Update front matter in P0T0_PROGRESS.md:
 #    state: PROGRESS

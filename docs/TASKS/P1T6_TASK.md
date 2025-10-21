@@ -201,14 +201,14 @@ Implement additional ML strategies beyond Alpha158 baseline for diversification 
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Title](../ADRs/XXX-title.md)
+- None (TBD during implementation)
 
 **Documentation:**
-- [Related concept](../CONCEPTS/concept-name.md)
+- TBD
 
 **Tasks:**
-- Depends on: [P1T-1](./P1T-1_STATE.md)
-- Blocks: [P1T1](./P1T1_STATE.md)
+- Depends on: None
+- Blocks: None
 
 ---
 

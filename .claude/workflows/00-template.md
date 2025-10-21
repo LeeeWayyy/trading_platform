@@ -122,23 +122,23 @@ special-case --handling
 
 ## Related Workflows
 
-- [Related Workflow 1](./XX-related-workflow.md) - When to use this next
-- [Related Workflow 2](./YY-another-workflow.md) - Alternative approach
-- [Parent Workflow](./ZZ-parent.md) - Where this fits in larger process
+- [Git Commit Workflow](./01-git-commit.md) - Progressive commits with zen-mcp review
+- [Testing Workflow](./05-testing.md) - Test creation and execution
+- [PR Creation Workflow](./02-git-pr.md) - Creating pull requests
 
 ---
 
 ## References
 
 **Standards & Policies:**
-- [/docs/STANDARDS/RELEVANT_STANDARD.md](/docs/STANDARDS/RELEVANT_STANDARD.md)
-- [/docs/STANDARDS/ANOTHER_STANDARD.md](/docs/STANDARDS/ANOTHER_STANDARD.md)
+- [/docs/STANDARDS/GIT_WORKFLOW.md](/docs/STANDARDS/GIT_WORKFLOW.md)
+- [/docs/STANDARDS/CODING_STANDARDS.md](/docs/STANDARDS/CODING_STANDARDS.md)
 
 **Architecture Decisions:**
-- [ADR-XXXX: Relevant Decision](/docs/ADRs/XXXX-decision-name.md)
+- [ADR-0001: Data Pipeline Architecture](/docs/ADRs/0001-data-pipeline-architecture.md)
 
 **Additional Resources:**
-- [/docs/CONCEPTS/relevant-concept.md](/docs/CONCEPTS/relevant-concept.md)
+- [/docs/CONCEPTS/corporate-actions.md](/docs/CONCEPTS/corporate-actions.md)
 - External link if helpful
 
 ---

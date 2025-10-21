@@ -101,7 +101,7 @@ features: []
 
 **Decision:** [What was chosen and why]
 **Consequences:** [Impact on code, architecture, etc.]
-**ADR Created:** [ADR-XXX](../ADRs/XXX-title.md) (if architectural)
+**ADR Created:** [ADR-XXX](../ADRs/0001-data-pipeline-architecture.md) (if architectural)
 
 ---
 
@@ -153,11 +153,11 @@ features: []
 
 **API Changes:**
 - Endpoint: `POST /api/endpoint`
-- Spec: `docs/API/service.openapi.yaml:lines`
+- Spec: `docs/API/execution_gateway.openapi.yaml:lines`
 
 **Database Changes:**
 - Migration: `db/migrations/XXX_description.sql`
-- Schema: `docs/DB/schema.sql:lines`
+- Schema: `docs/DB/minimal_p0_schema.sql:lines`
 
 ---
 
@@ -165,7 +165,7 @@ features: []
 
 **Created:**
 - [ ] ADR-XXX: [Title] (if architectural change)
-- [ ] `/docs/CONCEPTS/concept-name.md` (if trading-specific)
+- [ ] `/docs/CONCEPTS/corporate-actions.md` (if trading-specific)
 
 **Updated:**
 - [ ] `/docs/API/*.openapi.yaml` (if API changed)
@@ -177,14 +177,14 @@ features: []
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Title](../ADRs/XXX-title.md)
+- [ADR-XXX: Title](../ADRs/0001-data-pipeline-architecture.md)
 
 **Tasks:**
-- Depends on: [P0T-1_DONE](./P0T-1_DONE.md)
-- Blocks: [P0T1_TASK](./P0T1_TASK.md)
+- Depends on: [P0T1_DONE](./P0T1_DONE.md)
+- Blocks: [P0T1_DONE](./P0T1_DONE.md)
 
 **PRs:**
-- [PR #123](link) - Description
+- [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/1) - Description
 
 **Commits:**
 - `abc1234` - Component 1 implementation

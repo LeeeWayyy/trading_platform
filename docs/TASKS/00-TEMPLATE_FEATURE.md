@@ -15,7 +15,7 @@ estimated_effort: "X hours"
 
 # P0T0-F0: Feature Title
 
-**Parent Task:** [P0T0](./P0T0_PROGRESS.md)
+**Parent Task:** [P0T1](./P0T1_DONE.md)
 **Phase:** P0 (MVP Core)
 **Status:** PROGRESS (In Development)
 **Owner:** @development-team
@@ -133,7 +133,7 @@ def important_function():
 ## Integration with Parent Task
 
 **Depends on features:**
-- [P0T0-F-1_DONE](./P0T0-F-1_DONE.md) - [Why]
+- [P0T3-F4](./P0T3-F4_DONE.md) - Example dependency
 
 **Blocks features:**
 - P0T0-F1 - [Why]

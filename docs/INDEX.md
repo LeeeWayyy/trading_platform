@@ -185,24 +185,6 @@ Operational procedures and troubleshooting:
 
 ---
 
-### 9. Archived Documentation
-
-**Location:** `docs/ARCHIVE/`
-
-Deprecated documents retained for historical reference:
-
-| Document | Archived Date | Reason | Replacement |
-|----------|---------------|--------|-------------|
-| [NEXT_TASK_20241021.md](./ARCHIVE/NEXT_TASK_20241021.md) | Oct 21, 2024 | Redundant with task files | CLI: `./scripts/tasks.py next` |
-| [P1_PROGRESS_20241021.md](./ARCHIVE/P1_PROGRESS_20241021.md) | Oct 21, 2024 | Merged into P1_PLANNING | [P1_PLANNING.md](./TASKS/P1_PLANNING.md) |
-| [FILE_RENAME_MAP_20241018.md](./ARCHIVE/FILE_RENAME_MAP_20241018.md) | Oct 18, 2024 | Historical reference | N/A (migration complete) |
-
-**See:** [ARCHIVE/README.md](./ARCHIVE/README.md) for migration guide and rationale
-
-**Priority:** 🟢 **LOW** - Reference only if needed for historical context
-
----
-
 ### 10. AI Assistant Guidance
 
 **Location:** `docs/`

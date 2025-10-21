@@ -84,13 +84,13 @@ features: []
 - **Fixtures:** `tests/fixtures/data.py`
 
 ### API Contracts
-- **OpenAPI Spec:** `docs/API/service.openapi.yaml:lines`
+- **OpenAPI Spec:** `docs/API/execution_gateway.openapi.yaml:lines`
 - **Endpoints:**
   - `POST /api/endpoint` - Description
   - `GET /api/resource/{id}` - Description
 
 ### Database
-- **Schema:** `docs/DB/schema.sql:lines`
+- **Schema:** `docs/DB/minimal_p0_schema.sql:lines`
 - **Migration:** `db/migrations/XXX_description.sql`
 - **Tables modified:** `table_name`, `another_table`
 
@@ -144,7 +144,7 @@ features: []
 ### Decision 1: [Title]
 **Rationale:** [Why this approach was chosen]
 **Impact:** [What changed as a result]
-**ADR:** [ADR-XXX](../ADRs/XXX-title.md) (if architectural)
+**ADR:** [ADR-XXX](../ADRs/0001-data-pipeline-architecture.md) (if architectural)
 
 ### Decision 2: [Title]
 **Rationale:** [Why this approach was chosen]
@@ -195,13 +195,13 @@ features: []
 ## Documentation Created/Updated
 
 **Created:**
-- ✅ ADR-XXX: [Title] (`docs/ADRs/XXX-title.md`)
-- ✅ Concept: [Trading concept] (`docs/CONCEPTS/concept-name.md`)
+- ✅ ADR-XXX: [Title] (`docs/ADRs/0001-data-pipeline-architecture.md`)
+- ✅ Concept: [Trading concept] (`docs/CONCEPTS/corporate-actions.md`)
 - ✅ Implementation guide merged into this DONE file
 
 **Updated:**
-- ✅ `docs/API/service.openapi.yaml` - Added new endpoints
-- ✅ `docs/DB/schema.sql` - Updated table definitions
+- ✅ `docs/API/execution_gateway.openapi.yaml` - Added new endpoints
+- ✅ `docs/DB/minimal_p0_schema.sql` - Updated table definitions
 - ✅ `docs/GETTING_STARTED/REPO_MAP.md` - New service structure
 - ✅ `docs/GETTING_STARTED/PROJECT_STATUS.md` - Marked P0T0 as complete
 
@@ -210,17 +210,17 @@ features: []
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Decision Title](../ADRs/XXX-title.md)
-- [ADR-YYY: Another Decision](../ADRs/YYY-title.md)
+- [ADR-XXX: Decision Title](../ADRs/0001-data-pipeline-architecture.md)
+- [ADR-YYY: Another Decision](../ADRs/0002-exception-hierarchy.md)
 
 **Tasks:**
-- Depends on: [P0T-1_DONE](./P0T-1_DONE.md) ✅
-- Blocks: [P0T1_TASK](./P0T1_TASK.md) (now unblocked)
-- Related: [P0T2_PROGRESS](./P0T2_PROGRESS.md)
+- Depends on: [P0T1_DONE](./P0T1_DONE.md) ✅
+- Blocks: [P0T1_DONE](./P0T1_DONE.md) (now unblocked)
+- Related: [P0T2_DONE](./P0T2_DONE.md)
 
 **PRs:**
-- [PR #123](link) - Main implementation PR
-- [PR #124](link) - Follow-up fixes
+- [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/1) - Main implementation PR
+- [PR #124](https://github.com/LeeeWayyy/trading_platform/pull/1) - Follow-up fixes
 
 **Commits:**
 - `abc1234` - Component 1: [Brief description]
@@ -254,7 +254,7 @@ features: []
 ## Follow-Up Tasks
 
 **Immediate Next Steps:**
-- [ ] [P0T1](./P0T1_TASK.md) - Now unblocked
+- [ ] [P0T1](./P0T1_DONE.md) - Now unblocked
 
 **Future Enhancements:**
 - [ ] [Improvement idea 1] - Deferred to P2
@@ -328,9 +328,9 @@ curl -X POST http://localhost:8000/api/endpoint \
 ## References
 
 **Documentation:**
-- [Trading Concept](../CONCEPTS/concept-name.md)
-- [API Reference](../API/service.openapi.yaml)
-- [Database Schema](../DB/schema.sql)
+- [Trading Concept](../CONCEPTS/corporate-actions.md)
+- [API Reference](../API/execution_gateway.openapi.yaml)
+- [Database Schema](../DB/minimal_p0_schema.sql)
 
 **External:**
 - [Alpaca API Docs](https://alpaca.markets/docs/)
