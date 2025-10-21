@@ -52,6 +52,12 @@
 | [10-ci-triage.md](./10-ci-triage.md) | Handling CI/CD pipeline failures | When CI checks fail |
 | [11-environment-bootstrap.md](./11-environment-bootstrap.md) | Setting up development environment | Onboarding and fresh setup |
 
+### Project Management (12-19)
+
+| Workflow | Purpose | When to Use |
+|----------|---------|-------------|
+| [12-phase-management.md](./12-phase-management.md) | Manage project phases and generate tasks | Starting new phase or breaking down work |
+
 ---
 
 ## 🎯 Workflow Categories
@@ -76,6 +82,7 @@
 **Occasionally:**
 - 09-deployment-rollback.md (releases)
 - 11-environment-bootstrap.md (onboarding)
+- 12-phase-management.md (phase kickoff)
 
 ### By User Role
 
@@ -91,6 +98,7 @@
 **Architecture/Lead Developers:**
 - 08-adr-creation.md
 - 09-deployment-rollback.md
+- 12-phase-management.md
 
 **DevOps/Infrastructure:**
 - 10-ci-triage.md
@@ -215,13 +223,14 @@ All workflows must:
 
 ## 📊 Workflow Metrics
 
-**Total Workflows:** 11 (complete coverage)
+**Total Workflows:** 12 (complete coverage)
 **Core Development:** 01-08 (Git, Review, Testing, Debugging, Docs, Architecture)
 **Operations:** 09-11 (Deployment, CI, Bootstrap)
+**Project Management:** 12 (Phase Management)
 **Average Length:** Target ≤10 steps per workflow
 **Review Frequency:** Quarterly or after major process changes
 
-**Last Repository-Wide Review:** 2025-10-21
+**Last Repository-Wide Review:** 2025-10-20
 
 ---
 
@@ -247,6 +256,7 @@ All workflows must:
 - Testing/Debugging (05-06): @qa-team
 - Docs/ADR (07-08): @tech-writers + architecture-team
 - Operations (09-11): @devops-team
+- Project Management (12): @architecture-team
 
 ---
 
