@@ -122,6 +122,12 @@
     },
     {
       "pattern": "^https://openai.com/pricing"
+    },
+    {
+      "pattern": "^https://ai.google.dev/pricing"
+    },
+    {
+      "pattern": "\\.ipynb$"
     }
   ],
   "replacementPatterns": [
