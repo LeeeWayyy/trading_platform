@@ -37,6 +37,7 @@ See ADR-0005 for architecture decisions.
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -224,6 +225,36 @@ alpaca_connection_status.set(1 if alpaca_client else 0)
 # Mount Prometheus metrics endpoint
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
+
+# Track symbols we've set position metrics for (to reset when positions close)
+_tracked_position_symbols: set[str] = set()
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def _record_order_metrics(
+    order: "OrderRequest",
+    start_time: float,
+    status: Literal["success", "rejected", "failed"],
+) -> None:
+    """
+    Record Prometheus metrics for order placement.
+
+    Args:
+        order: The order request that was submitted
+        start_time: Time when order processing started (from time.time())
+        status: Order outcome (success, rejected, or failed)
+
+    Notes:
+        This helper reduces code duplication across different order placement paths.
+        Increments orders_total counter and records order_placement_duration histogram.
+    """
+    duration = time.time() - start_time
+    orders_total.labels(symbol=order.symbol, side=order.side, status=status).inc()
+    order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
 
 
 # ============================================================================
@@ -576,8 +607,6 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         ...     }
         ... )
     """
-    import time
-
     # Start timing for metrics
     start_time = time.time()
 
@@ -637,9 +666,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         )
 
         # Track metrics for dry run order
-        duration = time.time() - start_time
-        orders_total.labels(symbol=order.symbol, side=order.side, status="success").inc()
-        order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
+        _record_order_metrics(order, start_time, "success")
 
         return OrderResponse(
             client_order_id=client_order_id,
@@ -685,9 +712,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             )
 
             # Track metrics for successful order submission
-            duration = time.time() - start_time
-            orders_total.labels(symbol=order.symbol, side=order.side, status="success").inc()
-            order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
+            _record_order_metrics(order, start_time, "success")
 
             return OrderResponse(
                 client_order_id=client_order_id,
@@ -702,11 +727,9 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 message="Order submitted to broker",
             )
 
-        except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError) as e:
+        except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError):
             # Track metrics for rejected orders
-            duration = time.time() - start_time
-            orders_total.labels(symbol=order.symbol, side=order.side, status="rejected").inc()
-            order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
+            _record_order_metrics(order, start_time, "rejected")
             # These will be handled by exception handlers
             raise
 
@@ -724,9 +747,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             )
 
             # Track metrics for failed orders
-            duration = time.time() - start_time
-            orders_total.labels(symbol=order.symbol, side=order.side, status="failed").inc()
-            order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
+            _record_order_metrics(order, start_time, "failed")
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -812,9 +833,17 @@ async def get_positions() -> PositionsResponse:
     """
     positions = db_client.get_all_positions()
 
-    # Update position metrics for each symbol
+    # Get current symbols with open positions
+    current_symbols = {pos.symbol for pos in positions}
+
+    # Reset metrics for symbols that no longer have positions (closed positions)
+    for symbol in _tracked_position_symbols - current_symbols:
+        positions_current.labels(symbol=symbol).set(0)
+
+    # Update position metrics for each current symbol
     for pos in positions:
         positions_current.labels(symbol=pos.symbol).set(float(pos.qty))
+        _tracked_position_symbols.add(pos.symbol)
 
     # Calculate totals
     total_unrealized_pl = sum(
