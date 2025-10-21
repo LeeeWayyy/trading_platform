@@ -2,34 +2,34 @@
 
 **Phase:** P1 (Advanced Features)
 **Timeline:** Days 46-90 (~11-18 days estimated for MVP simplifications + new features)
-**Status:** ✅ In Progress (8/13 tasks complete, 62%)
-**Current Task:** P1.2T2 - Advanced Strategies OR P1.3T1 - Monitoring & Alerting
+**Status:** ✅ In Progress (8/11 tasks complete, 73%)
+**Current Task:** T0 - Enhanced P&L Calculation OR T6 - Advanced Strategies
 **Previous Phase:** P0 MVP (100% Complete - 6/6 tasks delivered)
-**Last Updated:** October 20, 2024
+**Last Updated:** October 21, 2024
 
 ---
 
 ## 📊 Progress Summary
 
-**Overall:** 62% (8/13 tasks complete)
+**Overall:** 73% (8/11 tasks complete)
 
 | Track | Progress | Status |
 |-------|----------|--------|
-| **Track 1: Infrastructure** | 100% (5/5) | ✅ Complete |
+| **Track 1: Infrastructure** | 80% (4/5) | 🔄 In Progress |
 | **Track 2: New Features** | 67% (2/3) | 🔄 In Progress |
-| **Track 3: Production** | 20% (1/5) | 🔄 In Progress |
+| **Track 3: Production** | 50% (2/4) | 🔄 In Progress |
 
 **Completed:**
-- ✅ P1.1T1 - Enhanced P&L Calculation (Oct 17, PR#9)
-- ✅ P1.1T2 - Redis Integration (Oct 18, PR#10)
-- ✅ P1.1T3 - DuckDB Analytics Layer (Oct 18, PR#12)
-- ✅ P1.1T4 - Timezone Timestamps (Oct 18, PR#13)
-- ✅ P1.1T5 - Operational Status (Oct 18, PR#14)
-- ✅ P1.2T1 - Real-Time Market Data (Oct 19, PR#15)
-- ✅ P1.2T3 - Risk Management System (Oct 19, PR#16)
-- ✅ P1.3T0 - Test Coverage (80%+ target) (Oct 20, PR#20-21)
+- ✅ T1 (P1T1) - Redis Integration (Oct 18, PR#10)
+- ✅ T2 (P1T2) - DuckDB Analytics Layer (Oct 18, PR#12)
+- ✅ T3 (P1T3) - Timezone Timestamps (Oct 18, PR#13)
+- ✅ T4 (P1T4) - Operational Status (Oct 18, PR#14)
+- ✅ T5 (P1T5) - Real-Time Market Data (Oct 19, PR#15)
+- ✅ T7 (P1T7) - Risk Management System (Oct 19, PR#16)
+- ✅ T8 (P1T8) - Monitoring & Alerting (Oct 21, PR#25)
+- ✅ Test Coverage Enhancement (80%+ target) (Oct 20, PR#20-21)
 
-**Next:** P1.3T1 - Monitoring & Alerting (5-7 days) OR P1.2T2 - Advanced Strategies (7-10 days, optional)
+**Next:** T0 - Enhanced P&L Calculation (3-5 days) OR T6 - Advanced Strategies (7-10 days, optional)
 
 **See [P1_PROGRESS.md](../GETTING_STARTED/P1_PROGRESS.md) for detailed tracking**
 
@@ -446,39 +446,47 @@ $ make status
 
 ## P1 Roadmap & Priorities
 
-### Phase 1A: MVP Simplifications (8-13 days)
+### Phase 1A: Infrastructure Enhancements (Mostly Complete)
 
 **Goal:** Complete deferred P0 features
 
-**Priority Order:**
-1. **T1.1: Enhanced P&L** (3-5 days) - Critical for performance tracking
-2. **T1.2: Redis Integration** (3-5 days) - Enables real-time features
-3. **T1.4: Timezone Awareness** (1 day) - Production logging requirement
-4. **T1.3: DuckDB Analytics** (1-2 days) - Nice-to-have for analysis
-5. **T1.5: Operational Status** (1 day) - Convenience feature
+**Status:** 80% complete (4/5 tasks done)
 
-### Phase 1B: Real-Time & Risk (10-14 days)
+**Completed:**
+1. ✅ **T1: Redis Integration** (3-5 days) - Enables real-time features
+2. ✅ **T2: DuckDB Analytics** (1-2 days) - SQL interface for analysis
+3. ✅ **T3: Timezone Awareness** (1 day) - Production logging requirement
+4. ✅ **T4: Operational Status** (1 day) - Convenience feature
+
+**Remaining:**
+1. **T0: Enhanced P&L** (3-5 days) - Critical for performance tracking
+
+### Phase 1B: New Advanced Features (Mostly Complete)
 
 **Goal:** Add real-time capabilities and risk management
 
-**Priority Order:**
-1. **T2.1: Real-Time Data** (5-7 days) - Foundation for live trading
-2. **T2.3: Risk Management** (5-7 days) - Critical for safety
+**Status:** 67% complete (2/3 tasks done)
 
-### Phase 1C: Production Hardening (11-17 days)
+**Completed:**
+1. ✅ **T5: Real-Time Data** (5-7 days) - Foundation for live trading
+2. ✅ **T7: Risk Management** (5-7 days) - Critical for safety
+
+**Remaining:**
+1. **T6: Advanced Strategies** (7-10 days) - Optional, can be P2
+
+### Phase 1C: Production Hardening (In Progress)
 
 **Goal:** Production-grade monitoring and deployment
 
-**Priority Order:**
-1. **T3.1: Monitoring & Alerting** (5-7 days) - Operational visibility
-2. **T3.2: Centralized Logging** (3-5 days) - Debugging capability
-3. **T3.3: CI/CD Pipeline** (3-5 days) - Automation
+**Status:** 50% complete (2/4 tasks done)
 
-### Phase 1D: Advanced Strategies (7-10 days) [Optional]
+**Completed:**
+1. ✅ **T8: Monitoring & Alerting** (5-7 days) - Operational visibility
+2. ✅ **Test Coverage Enhancement** (80%+ target achieved)
 
-**Goal:** Expand strategy library
-
-**Priority:** Lower (can be P2)
+**Remaining:**
+1. **T9: Centralized Logging** (3-5 days) - Debugging capability
+2. **T10: CI/CD Pipeline** (3-5 days) - Automation
 
 ---
 

@@ -100,7 +100,7 @@ _No task files created yet. Use `./scripts/tasks.py create-phase P0` to get star
 
 #### P1: Hardening & Automation
 
-**Completed Tasks (7):**
+**Completed Tasks (8):**
 - [P1T1_DONE.md](./P1T1_DONE.md) - Redis Integration (T1 in planning: "Redis Integration ⭐ HIGH PRIORITY")
 - [P1T2_DONE.md](./P1T2_DONE.md) - DuckDB Analytics (T2 in planning: "DuckDB Analytics Layer 🔶 MEDIUM PRIORITY")
 - [P1T3_DONE.md](./P1T3_DONE.md) - Timezone & Timestamps (T3 in planning: "Timezone-Aware Timestamps 🔶 MEDIUM PRIORITY")
@@ -108,11 +108,11 @@ _No task files created yet. Use `./scripts/tasks.py create-phase P0` to get star
 - [P1T5-F1_DONE.md](./P1T5-F1_DONE.md) - Real-time Market Data - Phase 1 (T5-F1 in planning: "Real-Time Market Data Streaming")
 - [P1T5-F3_DONE.md](./P1T5-F3_DONE.md) - Real-time Market Data - Phase 3 (T5-F3 in planning: "Real-Time Market Data Streaming")
 - [P1T7_DONE.md](./P1T7_DONE.md) - Risk Management System (T7 in planning: "Risk Management System")
+- [P1T8_DONE.md](./P1T8_DONE.md) - Monitoring and Alerting (T8 in planning: "Monitoring and Alerting")
 
-**Remaining Tasks (4 tasks not started):**
+**Remaining Tasks (3 tasks not started):**
 - T0: Enhanced P&L Calculation ⭐ HIGH PRIORITY
 - T6: Advanced Trading Strategies
-- T8: Monitoring and Alerting
 - T9: Centralized Logging
 - T10: CI/CD Pipeline
 
