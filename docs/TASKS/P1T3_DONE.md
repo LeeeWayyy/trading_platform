@@ -1,8 +1,8 @@
 ---
-id: P1T3
-title: "DuckDB Analytics"
+id: P1T4
+title: "Timezone & Timestamps"
 phase: P1
-task: T3
+task: T4
 priority: P1
 owner: "@development-team"
 state: DONE
@@ -16,7 +16,7 @@ related_docs: []
 ---
 
 
-# P1T3: DuckDB Analytics ✅
+# P1T4: Timezone & Timestamps ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)
@@ -27,648 +27,529 @@ related_docs: []
 
 ## Original Implementation Guide
 
-**Note:** This content was migrated from `docs/IMPLEMENTATION_GUIDES/p1.1t3-duckdb-analytics.md`
+**Note:** This content was migrated from `docs/IMPLEMENTATION_GUIDES/p1.1t4-timezone-timestamps.md`
 and represents work completed before the task lifecycle management system was implemented.
 
 ---
 
-## Implementation Guide
-
-**Task:** Implement DuckDB Analytics Layer for querying Parquet files
-**Phase:** P1.1 - Infrastructure Improvements
-**Priority:** P1 (Post-MVP Enhancement)
-**Estimated Effort:** 1-2 days
+**Task:** Add UTC timestamps for production-grade logging
 **Status:** ✅ Complete
+**Completed:** October 18, 2024
+**Effort:** 1 day
+**PR:** [Link to PR]
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Implementation](#implementation)
-4. [Testing](#testing)
-5. [Usage Examples](#usage-examples)
-6. [Performance](#performance)
-7. [Lessons Learned](#lessons-learned)
+2. [Problem Statement](#problem-statement)
+3. [Solution Architecture](#solution-architecture)
+4. [Implementation Details](#implementation-details)
+5. [Testing Strategy](#testing-strategy)
+6. [Verification](#verification)
+7. [Key Learnings](#key-learnings)
+8. [Related Documentation](#related-documentation)
 
 ---
 
 ## Overview
 
-### Problem Statement
+This task added timezone-aware UTC timestamps to all timestamp outputs in `paper_run.py`, replacing naive datetime objects (without timezone information) with timezone-aware datetime objects in UTC timezone.
 
-The data pipeline (P0T1) stores market data in Parquet files organized by date and symbol. While Polars provides excellent performance for structured data processing, performing ad-hoc analytics and exploration requires loading entire datasets into memory.
+**Why This Matters:**
+- **Production Requirement:** Production systems require timezone-aware logs for debugging distributed systems
+- **Compliance:** Audit logs must include explicit timezone information
+- **Data Integrity:** Prevents ambiguity when correlating events across systems in different timezones
+- **ISO 8601 Standard:** Follows international standard for date/time representation
 
-**Challenges:**
-- Loading 10GB of data to analyze single symbol
-- Complex window functions difficult to express in Polars
-- No SQL interface for data analysts
-- Performance degradation with large datasets
-
-### Solution
-
-Implement a DuckDB-based analytics layer that:
-- Provides SQL interface for querying Parquet files
-- Leverages predicate pushdown to read only relevant data
-- Supports complex analytics (window functions, CTEs, aggregations)
-- Integrates seamlessly with Polars and Pandas
-- Achieves 10-30x speedup over naive Pandas approach
-
-### Business Value
-
-- **Faster experimentation:** Data scientists can run analytics in seconds vs minutes
-- **Lower memory usage:** Only relevant data loaded into memory
-- **Better productivity:** SQL is more concise than Pandas for complex queries
-- **Educational:** Learn SQL analytics patterns for trading
+**What Changed:**
+- Console output now shows timestamps in ISO 8601 format with timezone offset
+- JSON exports include timezone-aware timestamps and explicit `timezone` field
+- All timestamps use UTC (Coordinated Universal Time) for consistency
 
 ---
 
-## Architecture
+## Problem Statement
 
-### High-Level Design
+### Before (P0 MVP Implementation)
+
+```python
+# Naive datetime (no timezone information)
+timestamp = datetime.now()
+# Output: 2025-01-17 09:00:00
+
+# Issues:
+# 1. No timezone information - ambiguous when parsed later
+# 2. Uses local system time - inconsistent across environments
+# 3. Not ISO 8601 compliant with timezone offset
+# 4. Difficult to correlate events in distributed systems
+```
+
+**Example Console Output (Before):**
+```
+========================================================================
+  PAPER TRADING RUN - 2025-01-17 09:00:00
+========================================================================
+```
+
+**Example JSON Output (Before):**
+```json
+{
+  "timestamp": "2025-01-17T09:00:00",
+  "parameters": { ... }
+}
+```
+
+**Problems:**
+1. Is "09:00:00" in UTC, EST, PST, or local system time? Ambiguous!
+2. Different servers could record same event with different timestamps
+3. Cannot correlate events across geographically distributed systems
+4. Breaks when daylight saving time changes
+
+---
+
+## Solution Architecture
+
+### Design Decisions
+
+1. **Use UTC for All Timestamps**
+   - Eliminates timezone conversion complexity
+   - Universal standard for distributed systems
+   - No daylight saving time issues
+   - Easy conversion to local time when needed
+
+2. **ISO 8601 Format with Timezone Offset**
+   - Standard: `2025-01-17T14:30:00+00:00`
+   - Includes timezone offset (`+00:00` for UTC)
+   - Parseable by all standard datetime libraries
+   - Human-readable and machine-readable
+
+3. **Explicit Timezone Field in JSON**
+   - Adds `"timezone": "UTC"` field to JSON exports
+   - Makes timezone explicit for consumers
+   - Enables validation and verification
+
+### Implementation Strategy
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      User/Analyst                           │
-└─────────────┬───────────────────────────────────────────────┘
-              │
-              │ Python API or SQL
-              │
-┌─────────────▼───────────────────────────────────────────────┐
-│                   DuckDB Catalog                            │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  register_table()                                     │  │
-│  │  query()                                              │  │
-│  │  get_symbols(), get_date_range(), get_stats()        │  │
-│  │  calculate_returns(), calculate_sma()                │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────┬───────────────────────────────────────────────┘
-              │
-              │ SQL Queries
-              │
-┌─────────────▼───────────────────────────────────────────────┐
-│                    DuckDB Engine                            │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  Query Optimizer                                      │  │
-│  │  - Predicate pushdown                                 │  │
-│  │  - Column pruning                                     │  │
-│  │  - Parallel execution                                 │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────┬───────────────────────────────────────────────┘
-              │
-              │ Parquet Reader
-              │
-┌─────────────▼───────────────────────────────────────────────┐
-│                  Parquet Files                              │
-│  data/adjusted/                                             │
-│    2024-01-01/                                              │
-│      AAPL.parquet                                           │
-│      MSFT.parquet                                           │
-│    2024-01-02/                                              │
-│      AAPL.parquet                                           │
-│      MSFT.parquet                                           │
+│              paper_run.py Timestamp Flow                     │
 └─────────────────────────────────────────────────────────────┘
-```
 
-### Key Components
+1. Import timezone from datetime module
+   └─> from datetime import timezone
 
-**1. DuckDB Catalog (`libs/duckdb_catalog.py`)**
-- Main interface for analytics
-- Manages DuckDB connections
-- Registers Parquet files as SQL tables
-- Provides helper functions for common patterns
+2. Generate timestamp ONCE in main()
+   └─> run_timestamp = datetime.now(timezone.utc)
+       Generated BEFORE orchestration to represent run start time
 
-**2. DuckDB Engine (external dependency)**
-- In-process analytical database
-- Columnar storage optimized for analytics
-- Supports full SQL syntax (window functions, CTEs, etc.)
-- Predicate pushdown to Parquet readers
+3. Console Output (format_console_output)
+   └─> Receives run_timestamp as parameter
+       Outputs: "2025-01-17T14:30:00+00:00"
 
-**3. Parquet Files (from P0T1)**
-- Adjusted market data (corporate actions applied)
-- Partitioned by date and symbol
-- Columnar format optimized for analytics
+4. JSON Export (save_results)
+   ├─> Receives same run_timestamp as parameter
+   ├─> timestamp: run_timestamp.isoformat()
+   └─> timezone: "UTC"
 
-### Data Flow
-
-**Query Execution Flow:**
-
-```
-1. User writes SQL query
-   ↓
-2. DuckDBCatalog.query() called
-   ↓
-3. DuckDB optimizes query plan
-   - Identify required columns
-   - Identify required row groups
-   - Push filters to Parquet reader
-   ↓
-4. Parquet reader loads only relevant data
-   - Read only needed columns (columnar)
-   - Skip row groups that don't match filters
-   - Decompress only relevant chunks
-   ↓
-5. DuckDB executes query
-   - Aggregations
-   - Window functions
-   - Joins
-   ↓
-6. Return results as Polars or Pandas DataFrame
+5. Verification (tests)
+   └─> 12 test cases validating timezone correctness
 ```
 
 ---
 
-## Implementation
+## Implementation Details
 
-### File Structure
+### Changes Made
 
-```
-libs/
-  duckdb_catalog.py           # DuckDB catalog implementation
+#### 1. Import timezone from datetime Module
 
-tests/
-  test_duckdb_catalog.py      # Comprehensive test suite
-
-notebooks/
-  duckdb_analytics_examples.ipynb  # Jupyter notebook examples
-
-docs/
-  CONCEPTS/
-    duckdb-basics.md          # DuckDB fundamentals
-    sql-analytics-patterns.md # Common SQL patterns
-    parquet-format.md         # Parquet deep dive
-  IMPLEMENTATION_GUIDES/
-    p1.1t3-duckdb-analytics.md  # This file
-```
-
-### Core Module: `libs/duckdb_catalog.py`
-
-**DuckDBCatalog Class:**
+**File:** `scripts/paper_run.py:57`
 
 ```python
-class DuckDBCatalog:
-    """SQL analytics interface for querying Parquet files."""
+# Before
+from datetime import datetime, date
+from decimal import Decimal
 
-    def __init__(self, read_only: bool = False):
-        """Initialize with in-memory DuckDB connection."""
-
-    def register_table(
-        self,
-        table_name: str,
-        parquet_path: Union[str, Path, List[Union[str, Path]]],
-    ) -> None:
-        """Register Parquet files as SQL table."""
-
-    def query(self, sql: str, return_format: str = "polars"):
-        """Execute SQL and return results."""
-
-    def get_symbols(self) -> List[str]:
-        """Get unique symbols in dataset."""
-
-    def get_date_range(self) -> tuple[str, str]:
-        """Get min and max dates."""
-
-    def get_stats(self) -> pl.DataFrame:
-        """Get summary statistics."""
+# After
+from datetime import datetime, date, timezone  # Added timezone
+from decimal import Decimal
 ```
 
-**Helper Functions:**
+#### 2. Console Output Timestamp
+
+**File:** `scripts/paper_run.py:1024-1027`
 
 ```python
-def calculate_returns(
-    catalog: DuckDBCatalog,
-    symbol: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-) -> pl.DataFrame:
-    """Calculate daily returns using SQL LAG function."""
+# Before
+print("\n" + "=" * 80)
+print(f"  PAPER TRADING RUN - {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
+print("=" * 80 + "\n")
 
-def calculate_sma(
-    catalog: DuckDBCatalog,
-    symbol: str,
-    window: int = 20,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-) -> pl.DataFrame:
-    """Calculate Simple Moving Average using SQL window function."""
+# After
+# Header with timezone-aware UTC timestamp (ISO 8601 format)
+print("\n" + "=" * 80)
+print(f"  PAPER TRADING RUN - {datetime.now(timezone.utc).isoformat()}")
+print("=" * 80 + "\n")
 ```
 
-### Key Design Decisions
+**Changes:**
+- `datetime.now()` → `datetime.now(timezone.utc)` (explicitly use UTC)
+- `.strftime('%Y-%m-%d %H:%M:%S %Z')` → `.isoformat()` (ISO 8601 format)
+- Output changes from `2025-01-17 09:00:00` to `2025-01-17T09:00:00+00:00`
 
-**1. In-Memory vs File-Based Connection**
-- **Choice:** In-memory (`:memory:`)
-- **Rationale:** Simpler for analytics, no persistence needed
-- **Trade-off:** Cannot use read-only mode with in-memory DB
+#### 3. JSON Export Timestamp
 
-**2. Polars vs Pandas Return Format**
-- **Choice:** Polars default, Pandas optional
-- **Rationale:** Polars is our primary DataFrame library
-- **Trade-off:** Requires pyarrow for integration
+**File:** `scripts/paper_run.py:1122-1124`
 
-**3. Table Registration Strategy**
-- **Choice:** CREATE VIEW (lazy)
-- **Rationale:** Files not loaded until queried
-- **Trade-off:** Re-reads files on each query (acceptable for analytics)
+```python
+# Before
+output_data = {
+    'timestamp': datetime.now().isoformat(),
+    'parameters': { ... },
+    ...
+}
 
-**4. Helper Functions vs Pure SQL**
-- **Choice:** Provide both
-- **Rationale:** Helper functions for common patterns, SQL for flexibility
-- **Trade-off:** More code to maintain
+# After
+# Create output data with timezone-aware UTC timestamp (ISO 8601 format)
+output_data = {
+    'timestamp': datetime.now(timezone.utc).isoformat(),
+    'timezone': 'UTC',  # Explicit timezone field
+    'parameters': { ... },
+    ...
+}
+```
+
+**Changes:**
+- `datetime.now()` → `datetime.now(timezone.utc)` (explicitly use UTC)
+- Added `'timezone': 'UTC'` field for explicit timezone documentation
+
+#### 4. Updated Documentation Strings
+
+**File:** `scripts/paper_run.py:1011-1014` (format_console_output docstring)
+
+```python
+# Before
+Example output:
+    ========================================================================
+      PAPER TRADING RUN - 2025-01-17 09:00:00 EST
+    ========================================================================
+
+# After
+Example output:
+    ========================================================================
+      PAPER TRADING RUN - 2025-01-17T09:00:00+00:00
+    ========================================================================
+```
+
+**File:** `scripts/paper_run.py:1073-1077` (save_results docstring)
+
+```python
+# Before
+Notes:
+    - Does nothing if output_file not specified
+    - Creates parent directories automatically
+    - Converts Decimal to float for JSON serialization
+    - ISO format timestamp for easy parsing
+
+# After
+Notes:
+    - Does nothing if output_file not specified
+    - Creates parent directories automatically
+    - Converts Decimal to float for JSON serialization
+    - Timezone-aware UTC timestamp in ISO 8601 format for easy parsing
+```
 
 ---
 
-## Testing
+## Testing Strategy
 
-### Test Suite: `tests/test_duckdb_catalog.py`
+Created comprehensive test suite: `tests/test_paper_run_timezone.py`
 
-**Test Coverage:**
-- 28 tests total
-- 95% code coverage
-- 100% pass rate
+### Test Coverage (12 Tests, 100% Pass Rate)
 
-**Test Categories:**
+#### 1. Console Output Tests (3 tests)
 
-**1. Basic Functionality (3 tests)**
-- Catalog creation
-- Context manager
-- String representation
+```python
+class TestConsoleOutputTimezone:
+    def test_console_output_timestamp_format():
+        """Verifies ISO 8601 format in console output."""
 
-**2. Table Registration (6 tests)**
-- Single file registration
-- Glob pattern registration
-- Multiple paths
-- Table replacement
-- Invalid table names
+    def test_console_output_timestamp_includes_timezone():
+        """Verifies +00:00 timezone offset is present."""
 
-**3. Query Execution (7 tests)**
-- Simple SELECT
-- Filtered queries (predicate pushdown)
-- Aggregations (GROUP BY)
-- Window functions
-- Return format (Polars/Pandas)
-- Error handling
+    def test_console_output_uses_utc_timezone():
+        """Verifies datetime.now(timezone.utc) is called."""
+```
 
-**4. Helper Methods (3 tests)**
-- `get_symbols()`
-- `get_date_range()`
-- `get_stats()`
+#### 2. JSON Export Tests (5 tests)
 
-**5. Analytics Functions (4 tests)**
-- `calculate_returns()`
-- `calculate_returns()` with dates
-- `calculate_sma()`
-- `calculate_sma()` with custom window
+```python
+class TestJSONExportTimezone:
+    async def test_json_export_timestamp_format():
+        """Verifies ISO 8601 format with timezone in JSON."""
 
-**6. Performance Benchmarks (3 tests)**
-- Large query (< 100ms for 90 rows)
-- Filtered query (< 50ms)
-- Aggregation (< 100ms)
+    async def test_json_export_includes_timezone_field():
+        """Verifies 'timezone': 'UTC' field is present."""
 
-**7. Edge Cases (2 tests)**
-- Empty query results
-- Multiple independent catalogs
+    async def test_json_timestamp_is_utc_not_local():
+        """Verifies UTC is used, not local time."""
 
-### Running Tests
+    async def test_json_timestamp_ends_with_utc_offset():
+        """Verifies timestamp ends with +00:00."""
+
+    async def test_json_timestamp_parseable_with_timezone():
+        """Verifies timestamp can be parsed back to timezone-aware datetime."""
+```
+
+#### 3. Consistency Tests (1 test)
+
+```python
+class TestTimezoneConsistency:
+    async def test_console_and_json_use_same_timezone():
+        """Verifies both console and JSON use UTC consistently."""
+```
+
+#### 4. Regression Tests (2 tests)
+
+```python
+class TestTimezoneRegression:
+    def test_datetime_import_includes_timezone():
+        """Prevents accidental removal of timezone import."""
+
+    async def test_no_naive_datetime_in_json():
+        """Ensures naive datetimes are never used."""
+```
+
+#### 5. Enhanced P&L Tests (1 test)
+
+```python
+class TestEnhancedPnLTimezone:
+    async def test_json_with_enhanced_pnl_includes_timezone():
+        """Verifies timezone fields work with enhanced P&L metrics."""
+```
+
+### Test Results
 
 ```bash
-# Run DuckDB tests
-PYTHONPATH=. python3 -m pytest tests/test_duckdb_catalog.py -v
+$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_paper_run_timezone.py -v
 
-# With coverage
-PYTHONPATH=. python3 -m pytest tests/test_duckdb_catalog.py --cov=libs/duckdb_catalog --cov-report=html
+collected 12 items
 
-# Performance benchmarks only
-PYTHONPATH=. python3 -m pytest tests/test_duckdb_catalog.py -k performance -v
+tests/test_paper_run_timezone.py::TestConsoleOutputTimezone::test_console_output_timestamp_format PASSED
+tests/test_paper_run_timezone.py::TestConsoleOutputTimezone::test_console_output_timestamp_includes_timezone PASSED
+tests/test_paper_run_timezone.py::TestConsoleOutputTimezone::test_console_output_uses_utc_timezone PASSED
+tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_export_timestamp_format PASSED
+tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_export_includes_timezone_field PASSED
+tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_timestamp_is_utc_not_local PASSED
+tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_timestamp_ends_with_utc_offset PASSED
+tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_timestamp_parseable_with_timezone PASSED
+tests/test_paper_run_timezone.py::TestTimezoneConsistency::test_console_and_json_use_same_timezone PASSED
+tests/test_paper_run_timezone.py::TestTimezoneRegression::test_datetime_import_includes_timezone PASSED
+tests/test_paper_run_timezone.py::TestTimezoneRegression::test_no_naive_datetime_in_json PASSED
+tests/test_paper_run_timezone.py::TestEnhancedPnLTimezone::test_json_with_enhanced_pnl_includes_timezone PASSED
+
+12 passed in 0.85s
 ```
 
 ---
 
-## Usage Examples
+## Verification
 
-### Example 1: Basic Querying
+### Manual Testing
 
-```python
-from libs.duckdb_catalog import DuckDBCatalog
+#### Console Output Verification
 
-# Create catalog
-catalog = DuckDBCatalog()
+```bash
+$ python scripts/paper_run.py --dry-run
 
-# Register Parquet files
-catalog.register_table("market_data", "data/adjusted/*/*.parquet")
+================================================================================
+  PAPER TRADING RUN - 2025-01-17T14:30:00+00:00
+================================================================================
 
-# Simple query
-result = catalog.query("""
-    SELECT symbol, date, close, volume
-    FROM market_data
-    WHERE symbol = 'AAPL'
-    ORDER BY date DESC
-    LIMIT 10
-""")
+Symbols:      AAPL, MSFT, GOOGL
+Capital:      $100,000.00
+Max Position: $20,000.00
 
-print(result)
+✓ Dry run complete - all dependencies healthy
 ```
 
-### Example 2: Window Functions for SMA
+**Verified:**
+- ✅ Timestamp is in ISO 8601 format
+- ✅ Includes `+00:00` timezone offset
+- ✅ Uses `T` separator between date and time
 
-```python
-# Calculate 20-day and 50-day SMAs
-sma_data = catalog.query("""
-    SELECT
-        symbol,
-        date,
-        close,
-        AVG(close) OVER (
-            PARTITION BY symbol
-            ORDER BY date
-            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
-        ) AS sma_20,
-        AVG(close) OVER (
-            PARTITION BY symbol
-            ORDER BY date
-            ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
-        ) AS sma_50
-    FROM market_data
-    WHERE symbol = 'AAPL'
-    ORDER BY date
-""")
+#### JSON Export Verification
+
+```bash
+$ python scripts/paper_run.py --output /tmp/test_run.json
+$ cat /tmp/test_run.json | jq '{timestamp, timezone}'
 ```
 
-### Example 3: Returns Calculation
-
-```python
-from libs.duckdb_catalog import calculate_returns
-
-# Using helper function
-returns = calculate_returns(catalog, "AAPL", "2024-01-01", "2024-12-31")
-
-# Or write SQL directly
-returns = catalog.query("""
-    SELECT
-        symbol,
-        date,
-        close,
-        (close - LAG(close) OVER (PARTITION BY symbol ORDER BY date)) /
-         LAG(close) OVER (PARTITION BY symbol ORDER BY date) AS daily_return
-    FROM market_data
-    WHERE symbol = 'AAPL'
-    ORDER BY date
-""")
+**Output:**
+```json
+{
+  "timestamp": "2025-01-17T14:30:00+00:00",
+  "timezone": "UTC"
+}
 ```
 
-### Example 4: Complex Analytics - Golden Cross Detection
+**Verified:**
+- ✅ Timestamp field is timezone-aware
+- ✅ Explicit timezone field is present
+- ✅ Both use UTC consistently
+
+#### Parsing Verification
 
 ```python
-# Find golden cross events (20-day SMA crosses above 50-day SMA)
-golden_crosses = catalog.query("""
-    WITH smas AS (
-        SELECT
-            symbol,
-            date,
-            close,
-            AVG(close) OVER (
-                PARTITION BY symbol
-                ORDER BY date
-                ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
-            ) AS sma_20,
-            AVG(close) OVER (
-                PARTITION BY symbol
-                ORDER BY date
-                ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
-            ) AS sma_50
-        FROM market_data
-    ),
-    crosses AS (
-        SELECT
-            symbol,
-            date,
-            close,
-            sma_20,
-            sma_50,
-            LAG(sma_20) OVER (PARTITION BY symbol ORDER BY date) AS prev_sma_20,
-            LAG(sma_50) OVER (PARTITION BY symbol ORDER BY date) AS prev_sma_50
-        FROM smas
-    )
-    SELECT
-        symbol,
-        date,
-        close,
-        sma_20,
-        sma_50
-    FROM crosses
-    WHERE prev_sma_20 < prev_sma_50  -- Was below
-      AND sma_20 > sma_50            -- Now above
-    ORDER BY symbol, date
-""")
-```
+from datetime import datetime
+import json
 
-### Example 5: Multi-Symbol Comparison
+# Load JSON export
+with open('/tmp/test_run.json') as f:
+    data = json.load(f)
 
-```python
-# Compare cumulative returns across all symbols
-cumulative_returns = catalog.query("""
-    SELECT
-        symbol,
-        date,
-        close,
-        (close / FIRST_VALUE(close) OVER (
-            PARTITION BY symbol
-            ORDER BY date
-        ) - 1) * 100 AS cumulative_return_pct
-    FROM market_data
-    ORDER BY symbol, date
-""")
+# Parse timestamp
+timestamp = datetime.fromisoformat(data['timestamp'])
+
+# Verify
+print(f"Timestamp: {timestamp}")
+print(f"Timezone: {timestamp.tzinfo}")
+print(f"Is UTC? {timestamp.tzinfo == timezone.utc}")
+
+# Output:
+# Timestamp: 2025-01-17 14:30:00+00:00
+# Timezone: UTC
+# Is UTC? True
 ```
 
 ---
 
-## Performance
+## Key Learnings
 
-### Performance Characteristics
+### 1. Always Use Timezone-Aware Datetimes in Production
 
-**Query Performance (MacBook Pro M1, 16GB RAM):**
+**Lesson:** Naive datetimes (without timezone) cause ambiguity and bugs in distributed systems.
 
-| Operation | Dataset Size | DuckDB Time | Pandas Time | Speedup |
-|-----------|--------------|-------------|-------------|---------|
-| Full scan | 90 rows | < 10ms | ~50ms | 5x |
-| Filter on symbol | 90 rows | < 10ms | ~100ms | 10x |
-| Aggregation (GROUP BY) | 90 rows | < 10ms | ~150ms | 15x |
-| Window function (SMA) | 90 rows | < 20ms | ~200ms | 10x |
-| Complex query (golden cross) | 90 rows | < 30ms | ~500ms | 16x |
-
-**With Larger Datasets (1M rows):**
-
-| Operation | DuckDB Time | Pandas Time | Speedup |
-|-----------|-------------|-------------|---------|
-| Filter on symbol | ~100ms | ~3s | 30x |
-| Aggregation | ~200ms | ~5s | 25x |
-| Window function | ~500ms | ~15s | 30x |
-
-### Performance Optimization Tips
-
-**1. Use Predicate Pushdown**
-
+**Best Practice:**
 ```python
-# ✅ GOOD - Filter pushed to Parquet reader
-result = catalog.query("""
-    SELECT * FROM market_data
-    WHERE symbol = 'AAPL' AND date >= '2024-01-01'
-""")
+# ❌ BAD - Naive datetime (no timezone)
+datetime.now()  # Which timezone? System locale? Ambiguous!
 
-# ❌ BAD - Loads everything then filters
-result = catalog.query("SELECT * FROM market_data")
-result = result.filter(pl.col('symbol') == 'AAPL')
+# ✅ GOOD - Timezone-aware datetime in UTC
+datetime.now(timezone.utc)  # Explicitly UTC, no ambiguity
 ```
 
-**2. Select Only Needed Columns**
+### 2. ISO 8601 Format is the Standard
 
+**Lesson:** ISO 8601 format (`2025-01-17T14:30:00+00:00`) is:
+- Universally parseable
+- Human-readable
+- Sortable alphabetically
+- Includes timezone offset
+
+**Best Practice:**
 ```python
-# ✅ GOOD - Only reads close and volume columns
-result = catalog.query("""
-    SELECT symbol, date, close, volume
-    FROM market_data
-""")
+# ✅ Use .isoformat() for ISO 8601 format
+timestamp = datetime.now(timezone.utc).isoformat()
+# Output: "2025-01-17T14:30:00+00:00"
 
-# ❌ BAD - Reads all columns
-result = catalog.query("SELECT * FROM market_data")
+# ❌ AVOID custom strftime formats (error-prone, not standard)
+timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')
+# Output: "2025-01-17 14:30:00 " (no timezone offset!)
 ```
 
-**3. Use Temporary Tables for Repeated Queries**
+### 3. Explicit is Better Than Implicit
 
-```python
-# ✅ GOOD - Load data once, query multiple times
-catalog.conn.execute("""
-    CREATE TEMP TABLE filtered AS
-    SELECT * FROM read_parquet('data/adjusted/*/*.parquet')
-    WHERE date >= '2024-01-01'
-""")
+**Lesson:** Adding explicit `timezone` field to JSON makes intent clear.
 
-for symbol in ['AAPL', 'MSFT', 'GOOGL']:
-    result = catalog.query(f"SELECT * FROM filtered WHERE symbol = '{symbol}'")
-
-# ❌ BAD - Reads from disk every time
-for symbol in ['AAPL', 'MSFT', 'GOOGL']:
-    result = catalog.query(f"""
-        SELECT * FROM market_data WHERE symbol = '{symbol}'
-    """)
+**Best Practice:**
+```json
+{
+  "timestamp": "2025-01-17T14:30:00+00:00",
+  "timezone": "UTC"
+}
 ```
 
----
+**Note:** The `timezone` field makes the timezone explicit - no guessing required.
 
-## Lessons Learned
+### 4. Comprehensive Testing Prevents Regression
 
-### What Went Well
+**Lesson:** 12 tests cover all edge cases:
+- Format verification
+- Timezone verification
+- Consistency verification
+- Regression prevention
 
-**1. Test-Driven Development**
-- Created comprehensive test suite before implementation
-- 28 tests with 95% coverage
-- Caught edge cases early (e.g., read_only mode incompatibility)
+**Best Practice:**
+- Test that `datetime.now()` is called with `timezone.utc` argument
+- Test that timezone import is present (prevents accidental removal)
+- Test that timestamps are parseable back to timezone-aware datetimes
 
-**2. Educational Documentation**
-- Created 3 concept docs totaling 2,450+ lines
-- User specifically requested learning materials
-- Jupyter notebook provides hands-on examples
+### 5. UTC is the Universal Standard
 
-**3. Performance Validation**
-- All performance targets met
-- 10-30x speedup over Pandas confirmed
-- Benchmarks included in test suite
+**Lesson:** Always use UTC for internal timestamps, convert to local time only for display.
 
-**4. Progressive Committing**
-- Committed concept docs first (f438337)
-- Committed implementation second (6a49ba3)
-- Followed git workflow standards
-
-### Challenges Encountered
-
-**1. DuckDB Read-Only Mode Limitation**
-- **Problem:** In-memory databases cannot be read-only
-- **Error:** `Catalog Error: Cannot launch in-memory database in read-only mode!`
-- **Solution:** Changed default `read_only=False` and updated docstrings
-- **Lesson:** Test early with actual library behavior, not assumptions
-
-**2. PyArrow Dependency**
-- **Problem:** Polars-DuckDB integration requires pyarrow
-- **Error:** `ModuleNotFoundError: No module named 'pyarrow'`
-- **Solution:** Installed pyarrow separately
-- **Lesson:** Document all transitive dependencies in requirements.txt
-
-### Improvements for Next Time
-
-**1. Add pyarrow to requirements.txt**
-- Current: Relies on manual installation
-- Better: Add `pyarrow>=10.0.0` to requirements.txt
-- Impact: Easier setup for new developers
-
-**2. Add SQL Injection Protection Example**
-- Current: Documented in concept doc
-- Better: Add example in implementation guide
-- Impact: Better security awareness
-
-**3. Create VSCode Snippet for Common Queries**
-- Current: Users must type SQL from scratch
-- Better: Add `.vscode/duckdb-snippets.json` with common patterns
-- Impact: Faster query development
-
-### Performance Notes
-
-**Memory Usage:**
-- DuckDB catalog: ~50MB (connection overhead)
-- Query execution: ~100-200MB (temporary data)
-- Much lower than Pandas (which loads entire dataset)
-
-**Query Optimization:**
-- DuckDB automatically optimizes query plans
-- Predicate pushdown enabled by default
-- Parallel execution on multi-core CPUs
-- No manual tuning required for most queries
+**Rationale:**
+- No daylight saving time issues
+- Universal reference point
+- Easy conversion to any timezone
+- Standard in distributed systems
 
 ---
 
 ## Related Documentation
 
-**Concept Documentation:**
-- [duckdb-basics.md](../CONCEPTS/duckdb-basics.md) - DuckDB fundamentals (650+ lines)
-- [sql-analytics-patterns.md](../CONCEPTS/sql-analytics-patterns.md) - SQL patterns (950+ lines)
-- [parquet-format.md](../CONCEPTS/parquet-format.md) - Parquet deep dive (850+ lines)
+### Implementation Guides
+- [P1.1T1 - Enhanced P&L Calculation](./p1.1t1-enhanced-pnl.md) - Uses timestamps for P&L snapshots
+- [T6 - Paper Run Automation](./t6-paper-run.md) - Original paper_run.py implementation
 
-**Implementation:**
-- [libs/duckdb_catalog.py](../../libs/duckdb_catalog.py) - Catalog implementation (500+ lines)
-- [tests/test_duckdb_catalog.py](../../tests/test_duckdb_catalog.py) - Test suite (600+ lines)
-- [notebooks/duckdb_analytics_examples.ipynb](../../notebooks/duckdb_analytics_examples.ipynb) - Jupyter examples
+### Concepts
+- Python `datetime` module documentation: https://docs.python.org/3/library/datetime.html
+- ISO 8601 standard: https://en.wikipedia.org/wiki/ISO_8601
+- UTC vs Local Time: https://en.wikipedia.org/wiki/Coordinated_Universal_Time
 
-**External Resources:**
-- [DuckDB Documentation](https://duckdb.org/docs/)
-- [DuckDB Python API](https://duckdb.org/docs/api/python/overview)
-- [Parquet Format Spec](https://parquet.apache.org/docs/)
+### Code Files
+- `scripts/paper_run.py` - Paper trading automation script
+- `tests/test_paper_run_timezone.py` - Timezone correctness tests
 
 ---
 
 ## Acceptance Criteria
 
-- [x] Create `libs/duckdb_catalog.py` with DuckDB interface
-- [x] Support querying Parquet files with glob patterns
-- [x] Provide helper functions for common analytics (returns, SMA)
-- [x] Create comprehensive test suite (28 tests, 95% coverage)
-- [x] Validate performance (< 100ms for simple queries)
-- [x] Create Jupyter notebook with examples
-- [x] Create educational concept docs (DuckDB, SQL, Parquet)
-- [x] Create implementation guide (this file)
-- [x] All tests pass (100% pass rate)
+All acceptance criteria from P1_PLANNING.md were met:
+
+- [x] All timestamps use UTC timezone
+- [x] Console output shows timezone (ISO 8601 format with offset)
+- [x] JSON exports include timezone information
+- [x] Tests verify timezone correctness (12 tests, 100% pass)
+- [x] Documentation updated with timezone examples
 
 ---
 
-**Last Updated:** 2025-10-18
-**Implemented By:** Claude Code
-**Related Tasks:** P0T1 (Data Pipeline), P1.1T2 (Redis Integration)
-**Status:** ✅ Complete
+## Summary Statistics
+
+**Files Modified:** 1
+**Files Created:** 1 test file
+**Lines Changed:** ~10 lines in paper_run.py
+**Tests Added:** 12 tests
+**Test Pass Rate:** 100%
+**Time to Implement:** 1 day
+**Breaking Changes:** None (backward compatible - JSON consumers see new field)
+
+---
+
+**Task Status:** ✅ Complete
+**Next Task:** P1.1T5 - Operational Status Command
+**Related PR:** [Link to PR when created]
 
 ---
 
 ## Migration Notes
 
 **Migrated:** 2025-10-20
-**Original File:** `docs/IMPLEMENTATION_GUIDES/p1.1t3-duckdb-analytics.md`
+**Original File:** `docs/IMPLEMENTATION_GUIDES/p1.1t4-timezone-timestamps.md`
 **Migration:** Automated migration to task lifecycle system
 
 **Historical Context:**

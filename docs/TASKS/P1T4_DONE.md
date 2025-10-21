@@ -1,8 +1,8 @@
 ---
-id: P1T4
-title: "Timezone & Timestamps"
+id: P1T5
+title: "Operational Status Dashboard"
 phase: P1
-task: T4
+task: T5
 priority: P1
 owner: "@development-team"
 state: DONE
@@ -16,7 +16,7 @@ related_docs: []
 ---
 
 
-# P1T4: Timezone & Timestamps ✅
+# P1T5: Operational Status Dashboard ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)
@@ -27,15 +27,15 @@ related_docs: []
 
 ## Original Implementation Guide
 
-**Note:** This content was migrated from `docs/IMPLEMENTATION_GUIDES/p1.1t4-timezone-timestamps.md`
+**Note:** This content was migrated from `docs/IMPLEMENTATION_GUIDES/p1.1t5-operational-status.md`
 and represents work completed before the task lifecycle management system was implemented.
 
 ---
 
-**Task:** Add UTC timestamps for production-grade logging
+**Task:** Create `make status` wrapper for operational overview
 **Status:** ✅ Complete
 **Completed:** October 18, 2024
-**Effort:** 1 day
+**Effort:** < 1 day
 **PR:** [Link to PR]
 
 ---
@@ -46,27 +46,28 @@ and represents work completed before the task lifecycle management system was im
 2. [Problem Statement](#problem-statement)
 3. [Solution Architecture](#solution-architecture)
 4. [Implementation Details](#implementation-details)
-5. [Testing Strategy](#testing-strategy)
-6. [Verification](#verification)
-7. [Key Learnings](#key-learnings)
-8. [Related Documentation](#related-documentation)
+5. [Usage Examples](#usage-examples)
+6. [Key Learnings](#key-learnings)
+7. [Related Documentation](#related-documentation)
 
 ---
 
 ## Overview
 
-This task added timezone-aware UTC timestamps to all timestamp outputs in `paper_run.py`, replacing naive datetime objects (without timezone information) with timezone-aware datetime objects in UTC timezone.
+This task implemented the `make status` command that provides a unified operational overview of the trading platform by querying health endpoints and aggregating data from all services.
 
 **Why This Matters:**
-- **Production Requirement:** Production systems require timezone-aware logs for debugging distributed systems
-- **Compliance:** Audit logs must include explicit timezone information
-- **Data Integrity:** Prevents ambiguity when correlating events across systems in different timezones
-- **ISO 8601 Standard:** Follows international standard for date/time representation
+- **Operational Visibility:** Quick view of platform health without manual API queries
+- **Troubleshooting:** Immediately see which services are down
+- **Monitoring:** At-a-glance view of positions, P&L, and recent activity
+- **Developer Experience:** Single command replaces multiple curl commands
 
 **What Changed:**
-- Console output now shows timestamps in ISO 8601 format with timezone offset
-- JSON exports include timezone-aware timestamps and explicit `timezone` field
-- All timestamps use UTC (Coordinated Universal Time) for consistency
+- Created `scripts/operational_status.sh` bash script (237 lines)
+- Updated `Makefile` to call the script
+- Queries all service health endpoints
+- Displays positions, recent runs, and P&L summary
+- Color-coded output with emojis for readability
 
 ---
 
@@ -74,38 +75,24 @@ This task added timezone-aware UTC timestamps to all timestamp outputs in `paper
 
 ### Before (P0 MVP Implementation)
 
-```python
-# Naive datetime (no timezone information)
-timestamp = datetime.now()
-# Output: 2025-01-17 09:00:00
+```bash
+# Had to manually query each service
+$ curl http://localhost:8001/health  # Signal Service
+$ curl http://localhost:8002/health  # Execution Gateway
+$ curl http://localhost:8003/health  # Orchestrator
+$ curl http://localhost:8002/api/v1/positions  # Positions
+$ curl http://localhost:8003/api/v1/orchestration/runs  # Recent runs
 
-# Issues:
-# 1. No timezone information - ambiguous when parsed later
-# 2. Uses local system time - inconsistent across environments
-# 3. Not ISO 8601 compliant with timezone offset
-# 4. Difficult to correlate events in distributed systems
-```
-
-**Example Console Output (Before):**
-```
-========================================================================
-  PAPER TRADING RUN - 2025-01-17 09:00:00
-========================================================================
-```
-
-**Example JSON Output (Before):**
-```json
-{
-  "timestamp": "2025-01-17T09:00:00",
-  "parameters": { ... }
-}
+# Makefile had placeholder
+$ make status
+Status command not yet implemented (T5+)
 ```
 
 **Problems:**
-1. Is "09:00:00" in UTC, EST, PST, or local system time? Ambiguous!
-2. Different servers could record same event with different timestamps
-3. Cannot correlate events across geographically distributed systems
-4. Breaks when daylight saving time changes
+1. No unified view of platform status
+2. Manual querying is tedious and error-prone
+3. Hard to quickly assess system health
+4. JSON responses not human-readable
 
 ---
 
@@ -113,406 +100,279 @@ timestamp = datetime.now()
 
 ### Design Decisions
 
-1. **Use UTC for All Timestamps**
-   - Eliminates timezone conversion complexity
-   - Universal standard for distributed systems
-   - No daylight saving time issues
-   - Easy conversion to local time when needed
+1. **Bash Script for Simplicity**
+   - No additional dependencies beyond jq and curl
+   - Easy to modify and extend
+   - Works on macOS and Linux
+   - Can be called from Makefile or directly
 
-2. **ISO 8601 Format with Timezone Offset**
-   - Standard: `2025-01-17T14:30:00+00:00`
-   - Includes timezone offset (`+00:00` for UTC)
-   - Parseable by all standard datetime libraries
-   - Human-readable and machine-readable
+2. **Query Multiple Services**
+   - Health checks: All three services (T3, T4, T5)
+   - Positions: Execution Gateway `/api/v1/positions`
+   - Recent runs: Orchestrator `/api/v1/orchestration/runs`
+   - P&L summary: Execution Gateway `/api/v1/positions/pnl`
 
-3. **Explicit Timezone Field in JSON**
-   - Adds `"timezone": "UTC"` field to JSON exports
-   - Makes timezone explicit for consumers
-   - Enables validation and verification
+3. **Human-Readable Output**
+   - ANSI colors for visual hierarchy
+   - Emojis for quick scanning
+   - Formatted tables for structured data
+   - Color-coded P&L (green for profit, red for loss)
 
-### Implementation Strategy
+4. **Graceful Degradation**
+   - Continue showing data even if some services are down
+   - Display warnings for unreachable services
+   - Non-zero exit code if any service unhealthy
+
+### Script Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              paper_run.py Timestamp Flow                     │
+│              operational_status.sh Flow                      │
 └─────────────────────────────────────────────────────────────┘
 
-1. Import timezone from datetime module
-   └─> from datetime import timezone
+1. Check Dependencies
+   └─> Verify jq and curl are installed
 
-2. Generate timestamp ONCE in main()
-   └─> run_timestamp = datetime.now(timezone.utc)
-       Generated BEFORE orchestration to represent run start time
+2. Service Health Checks
+   ├─> Query Signal Service /health
+   ├─> Query Execution Gateway /health
+   └─> Query Orchestrator /health
 
-3. Console Output (format_console_output)
-   └─> Receives run_timestamp as parameter
-       Outputs: "2025-01-17T14:30:00+00:00"
+3. Positions (from T4)
+   └─> GET /api/v1/positions
+       Parse and display each position
 
-4. JSON Export (save_results)
-   ├─> Receives same run_timestamp as parameter
-   ├─> timestamp: run_timestamp.isoformat()
-   └─> timezone: "UTC"
+4. Recent Runs (from T5)
+   └─> GET /api/v1/orchestration/runs?limit=5
+       Parse and display latest runs
 
-5. Verification (tests)
-   └─> 12 test cases validating timezone correctness
+5. P&L Summary (from T4)
+   └─> GET /api/v1/positions/pnl
+       Color-code based on profit/loss
+
+6. Exit Code
+   └─> 0 if all healthy, 1 if any degraded
 ```
 
 ---
 
 ## Implementation Details
 
-### Changes Made
+### File Created
 
-#### 1. Import timezone from datetime Module
+**`scripts/operational_status.sh`** (237 lines)
 
-**File:** `scripts/paper_run.py:57`
+Key functions:
 
-```python
-# Before
-from datetime import datetime, date
-from decimal import Decimal
+```bash
+# Check if jq and curl are installed
+check_dependencies
 
-# After
-from datetime import datetime, date, timezone  # Added timezone
-from decimal import Decimal
+# Query service health endpoint with timeout
+check_service_health <service_name> <url> [timeout]
+
+# Get and format positions from Execution Gateway
+get_positions
+
+# Get and format recent runs from Orchestrator
+get_recent_runs
+
+# Get and format P&L with color coding
+get_pnl_summary
 ```
 
-#### 2. Console Output Timestamp
+### Color Scheme
 
-**File:** `scripts/paper_run.py:1024-1027`
+```bash
+# Service status
+GREEN   = Healthy (✓)
+RED     = Unreachable (✗)
+YELLOW  = Degraded (⚠️)
 
-```python
-# Before
-print("\n" + "=" * 80)
-print(f"  PAPER TRADING RUN - {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
-print("=" * 80 + "\n")
+# P&L values
+GREEN   = Positive value
+RED     = Negative value
 
-# After
-# Header with timezone-aware UTC timestamp (ISO 8601 format)
-print("\n" + "=" * 80)
-print(f"  PAPER TRADING RUN - {datetime.now(timezone.utc).isoformat()}")
-print("=" * 80 + "\n")
+# Emojis
+🔧 = Services section
+📊 = Positions section
+📋 = Recent runs section
+💰 = P&L section
 ```
 
-**Changes:**
-- `datetime.now()` → `datetime.now(timezone.utc)` (explicitly use UTC)
-- `.strftime('%Y-%m-%d %H:%M:%S %Z')` → `.isoformat()` (ISO 8601 format)
-- Output changes from `2025-01-17 09:00:00` to `2025-01-17T09:00:00+00:00`
+### Environment Variables
 
-#### 3. JSON Export Timestamp
+The script supports custom service URLs:
 
-**File:** `scripts/paper_run.py:1122-1124`
+```bash
+# Override default URLs
+export SIGNAL_SERVICE_URL="http://custom:8001"
+export EXECUTION_GATEWAY_URL="http://custom:8002"
+export ORCHESTRATOR_URL="http://custom:8003"
 
-```python
-# Before
-output_data = {
-    'timestamp': datetime.now().isoformat(),
-    'parameters': { ... },
-    ...
-}
-
-# After
-# Create output data with timezone-aware UTC timestamp (ISO 8601 format)
-output_data = {
-    'timestamp': datetime.now(timezone.utc).isoformat(),
-    'timezone': 'UTC',  # Explicit timezone field
-    'parameters': { ... },
-    ...
-}
+./scripts/operational_status.sh
 ```
 
-**Changes:**
-- `datetime.now()` → `datetime.now(timezone.utc)` (explicitly use UTC)
-- Added `'timezone': 'UTC'` field for explicit timezone documentation
+### Exit Codes
 
-#### 4. Updated Documentation Strings
-
-**File:** `scripts/paper_run.py:1011-1014` (format_console_output docstring)
-
-```python
-# Before
-Example output:
-    ========================================================================
-      PAPER TRADING RUN - 2025-01-17 09:00:00 EST
-    ========================================================================
-
-# After
-Example output:
-    ========================================================================
-      PAPER TRADING RUN - 2025-01-17T09:00:00+00:00
-    ========================================================================
-```
-
-**File:** `scripts/paper_run.py:1073-1077` (save_results docstring)
-
-```python
-# Before
-Notes:
-    - Does nothing if output_file not specified
-    - Creates parent directories automatically
-    - Converts Decimal to float for JSON serialization
-    - ISO format timestamp for easy parsing
-
-# After
-Notes:
-    - Does nothing if output_file not specified
-    - Creates parent directories automatically
-    - Converts Decimal to float for JSON serialization
-    - Timezone-aware UTC timestamp in ISO 8601 format for easy parsing
+```bash
+0 - All services healthy
+1 - One or more services unhealthy or unreachable
+2 - Missing dependencies (jq or curl)
 ```
 
 ---
 
-## Testing Strategy
+## Usage Examples
 
-Created comprehensive test suite: `tests/test_paper_run_timezone.py`
-
-### Test Coverage (12 Tests, 100% Pass Rate)
-
-#### 1. Console Output Tests (3 tests)
-
-```python
-class TestConsoleOutputTimezone:
-    def test_console_output_timestamp_format():
-        """Verifies ISO 8601 format in console output."""
-
-    def test_console_output_timestamp_includes_timezone():
-        """Verifies +00:00 timezone offset is present."""
-
-    def test_console_output_uses_utc_timezone():
-        """Verifies datetime.now(timezone.utc) is called."""
-```
-
-#### 2. JSON Export Tests (5 tests)
-
-```python
-class TestJSONExportTimezone:
-    async def test_json_export_timestamp_format():
-        """Verifies ISO 8601 format with timezone in JSON."""
-
-    async def test_json_export_includes_timezone_field():
-        """Verifies 'timezone': 'UTC' field is present."""
-
-    async def test_json_timestamp_is_utc_not_local():
-        """Verifies UTC is used, not local time."""
-
-    async def test_json_timestamp_ends_with_utc_offset():
-        """Verifies timestamp ends with +00:00."""
-
-    async def test_json_timestamp_parseable_with_timezone():
-        """Verifies timestamp can be parsed back to timezone-aware datetime."""
-```
-
-#### 3. Consistency Tests (1 test)
-
-```python
-class TestTimezoneConsistency:
-    async def test_console_and_json_use_same_timezone():
-        """Verifies both console and JSON use UTC consistently."""
-```
-
-#### 4. Regression Tests (2 tests)
-
-```python
-class TestTimezoneRegression:
-    def test_datetime_import_includes_timezone():
-        """Prevents accidental removal of timezone import."""
-
-    async def test_no_naive_datetime_in_json():
-        """Ensures naive datetimes are never used."""
-```
-
-#### 5. Enhanced P&L Tests (1 test)
-
-```python
-class TestEnhancedPnLTimezone:
-    async def test_json_with_enhanced_pnl_includes_timezone():
-        """Verifies timezone fields work with enhanced P&L metrics."""
-```
-
-### Test Results
+### Basic Usage
 
 ```bash
-$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_paper_run_timezone.py -v
+$ make status
 
-collected 12 items
+========================================================================
+  TRADING PLATFORM STATUS
+========================================================================
 
-tests/test_paper_run_timezone.py::TestConsoleOutputTimezone::test_console_output_timestamp_format PASSED
-tests/test_paper_run_timezone.py::TestConsoleOutputTimezone::test_console_output_timestamp_includes_timezone PASSED
-tests/test_paper_run_timezone.py::TestConsoleOutputTimezone::test_console_output_uses_utc_timezone PASSED
-tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_export_timestamp_format PASSED
-tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_export_includes_timezone_field PASSED
-tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_timestamp_is_utc_not_local PASSED
-tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_timestamp_ends_with_utc_offset PASSED
-tests/test_paper_run_timezone.py::TestJSONExportTimezone::test_json_timestamp_parseable_with_timezone PASSED
-tests/test_paper_run_timezone.py::TestTimezoneConsistency::test_console_and_json_use_same_timezone PASSED
-tests/test_paper_run_timezone.py::TestTimezoneRegression::test_datetime_import_includes_timezone PASSED
-tests/test_paper_run_timezone.py::TestTimezoneRegression::test_no_naive_datetime_in_json PASSED
-tests/test_paper_run_timezone.py::TestEnhancedPnLTimezone::test_json_with_enhanced_pnl_includes_timezone PASSED
+🔧 Services:
+✓ Signal Service (T3): healthy
+✓ Execution Gateway (T4): healthy
+✓ Orchestrator (T5): healthy
 
-12 passed in 0.85s
+📊 Positions (T4):
+  AAPL: 100 shares @ $150.00 avg
+  MSFT: -50 shares @ $300.00 avg
+
+📋 Recent Runs (T5):
+  2025-01-17 09:00: SUCCESS
+  2025-01-16 09:00: SUCCESS
+
+💰 Latest P&L:
+  Realized:    +$1,234.56
+  Unrealized:  +$150.00
+  Total:       +$1,384.56
+
+========================================================================
 ```
 
----
-
-## Verification
-
-### Manual Testing
-
-#### Console Output Verification
+### When Services Are Down
 
 ```bash
-$ python scripts/paper_run.py --dry-run
+$ make status
 
-================================================================================
-  PAPER TRADING RUN - 2025-01-17T14:30:00+00:00
-================================================================================
+========================================================================
+  TRADING PLATFORM STATUS
+========================================================================
 
-Symbols:      AAPL, MSFT, GOOGL
-Capital:      $100,000.00
-Max Position: $20,000.00
+🔧 Services:
+✗ Signal Service (T3): unreachable (is service running?)
+✓ Execution Gateway (T4): healthy
+✗ Orchestrator (T5): unreachable (is service running?)
 
-✓ Dry run complete - all dependencies healthy
+📊 Positions (T4):
+  No open positions
+
+📋 Recent Runs (T5):
+⚠️ Unable to fetch recent runs (HTTP 000)
+
+💰 Latest P&L:
+  Realized:    $0.00
+  Unrealized:  $0.00
+  Total:       $0.00
+
+========================================================================
 ```
 
-**Verified:**
-- ✅ Timestamp is in ISO 8601 format
-- ✅ Includes `+00:00` timezone offset
-- ✅ Uses `T` separator between date and time
-
-#### JSON Export Verification
+### Direct Script Execution
 
 ```bash
-$ python scripts/paper_run.py --output /tmp/test_run.json
-$ cat /tmp/test_run.json | jq '{timestamp, timezone}'
+$ ./scripts/operational_status.sh
+# Same output as make status
+
+$ echo $?
+1  # Exit code 1 because some services were down
 ```
 
-**Output:**
-```json
-{
-  "timestamp": "2025-01-17T14:30:00+00:00",
-  "timezone": "UTC"
-}
-```
+### Custom Service URLs
 
-**Verified:**
-- ✅ Timestamp field is timezone-aware
-- ✅ Explicit timezone field is present
-- ✅ Both use UTC consistently
-
-#### Parsing Verification
-
-```python
-from datetime import datetime
-import json
-
-# Load JSON export
-with open('/tmp/test_run.json') as f:
-    data = json.load(f)
-
-# Parse timestamp
-timestamp = datetime.fromisoformat(data['timestamp'])
-
-# Verify
-print(f"Timestamp: {timestamp}")
-print(f"Timezone: {timestamp.tzinfo}")
-print(f"Is UTC? {timestamp.tzinfo == timezone.utc}")
-
-# Output:
-# Timestamp: 2025-01-17 14:30:00+00:00
-# Timezone: UTC
-# Is UTC? True
+```bash
+$ EXECUTION_GATEWAY_URL=http://prod-server:8002 ./scripts/operational_status.sh
+# Queries production server instead of localhost
 ```
 
 ---
 
 ## Key Learnings
 
-### 1. Always Use Timezone-Aware Datetimes in Production
+### 1. Bash for Operational Scripts
 
-**Lesson:** Naive datetimes (without timezone) cause ambiguity and bugs in distributed systems.
-
-**Best Practice:**
-```python
-# ❌ BAD - Naive datetime (no timezone)
-datetime.now()  # Which timezone? System locale? Ambiguous!
-
-# ✅ GOOD - Timezone-aware datetime in UTC
-datetime.now(timezone.utc)  # Explicitly UTC, no ambiguity
-```
-
-### 2. ISO 8601 Format is the Standard
-
-**Lesson:** ISO 8601 format (`2025-01-17T14:30:00+00:00`) is:
-- Universally parseable
-- Human-readable
-- Sortable alphabetically
-- Includes timezone offset
-
-**Best Practice:**
-```python
-# ✅ Use .isoformat() for ISO 8601 format
-timestamp = datetime.now(timezone.utc).isoformat()
-# Output: "2025-01-17T14:30:00+00:00"
-
-# ❌ AVOID custom strftime formats (error-prone, not standard)
-timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')
-# Output: "2025-01-17 14:30:00 " (no timezone offset!)
-```
-
-### 3. Explicit is Better Than Implicit
-
-**Lesson:** Adding explicit `timezone` field to JSON makes intent clear.
-
-**Best Practice:**
-```json
-{
-  "timestamp": "2025-01-17T14:30:00+00:00",
-  "timezone": "UTC"
-}
-```
-
-**Note:** The `timezone` field makes the timezone explicit - no guessing required.
-
-### 4. Comprehensive Testing Prevents Regression
-
-**Lesson:** 12 tests cover all edge cases:
-- Format verification
-- Timezone verification
-- Consistency verification
-- Regression prevention
-
-**Best Practice:**
-- Test that `datetime.now()` is called with `timezone.utc` argument
-- Test that timezone import is present (prevents accidental removal)
-- Test that timestamps are parseable back to timezone-aware datetimes
-
-### 5. UTC is the Universal Standard
-
-**Lesson:** Always use UTC for internal timestamps, convert to local time only for display.
+**Lesson:** Bash is perfect for operational scripts that query APIs and format output.
 
 **Rationale:**
-- No daylight saving time issues
-- Universal reference point
-- Easy conversion to any timezone
-- Standard in distributed systems
+- No compilation required
+- Available on all Unix-like systems
+- Easy to modify for quick fixes
+- Standard tools (curl, jq) are widely available
+
+### 2. Graceful Degradation is Critical
+
+**Lesson:** The script continues working even when some services are down.
+
+**Implementation:**
+```bash
+# Each function handles errors independently
+check_service_health "Service A" "$URL" || all_healthy=1
+# Script continues even if this fails
+
+get_positions || true  # Don't exit if positions unavailable
+```
+
+### 3. Human-Readable Output Matters
+
+**Lesson:** Colors and emojis make output much easier to scan quickly.
+
+**Best Practice:**
+- Use ANSI colors for status (green=good, red=bad, yellow=warning)
+- Use emojis as visual anchors for each section
+- Format numbers with $ for currency
+- Color-code P&L based on profit/loss
+
+### 4. Timeouts Prevent Hanging
+
+**Lesson:** Always set timeouts for HTTP requests in operational scripts.
+
+**Implementation:**
+```bash
+curl -s --max-time 3 "$url/health"
+# Times out after 3 seconds instead of hanging indefinitely
+```
+
+### 5. Exit Codes Enable Automation
+
+**Lesson:** Exit codes allow scripts to be chained or used in monitoring.
+
+**Usage:**
+```bash
+# In monitoring script
+if ! ./scripts/operational_status.sh &> /dev/null; then
+    echo "Platform unhealthy!" | mail -s "Alert" ops@example.com
+fi
+```
 
 ---
 
 ## Related Documentation
 
 ### Implementation Guides
-- [P1.1T1 - Enhanced P&L Calculation](./p1.1t1-enhanced-pnl.md) - Uses timestamps for P&L snapshots
-- [T6 - Paper Run Automation](./t6-paper-run.md) - Original paper_run.py implementation
+- [P0 Paper Run](./t6-paper-run.md) - Main paper trading script that uses these APIs
+- [P1.1T1 Enhanced P&L](./p1.1t1-enhanced-pnl.md) - P&L calculation that this script displays
 
 ### Concepts
-- Python `datetime` module documentation: https://docs.python.org/3/library/datetime.html
-- ISO 8601 standard: https://en.wikipedia.org/wiki/ISO_8601
-- UTC vs Local Time: https://en.wikipedia.org/wiki/Coordinated_Universal_Time
+- None required (operational tooling)
 
 ### Code Files
-- `scripts/paper_run.py` - Paper trading automation script
-- `tests/test_paper_run_timezone.py` - Timezone correctness tests
+- `scripts/operational_status.sh` - Operational status script
+- `Makefile` - Updated with status target
 
 ---
 
@@ -520,28 +380,27 @@ timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')
 
 All acceptance criteria from P1_PLANNING.md were met:
 
-- [x] All timestamps use UTC timezone
-- [x] Console output shows timezone (ISO 8601 format with offset)
-- [x] JSON exports include timezone information
-- [x] Tests verify timezone correctness (12 tests, 100% pass)
-- [x] Documentation updated with timezone examples
+- [x] `make status` shows complete overview
+- [x] Formatted output with colors
+- [x] Health checks for all services
+- [x] Error handling for service downtime
+- [x] Documentation updated
 
 ---
 
 ## Summary Statistics
 
-**Files Modified:** 1
-**Files Created:** 1 test file
-**Lines Changed:** ~10 lines in paper_run.py
-**Tests Added:** 12 tests
-**Test Pass Rate:** 100%
-**Time to Implement:** 1 day
-**Breaking Changes:** None (backward compatible - JSON consumers see new field)
+**Files Created:** 1 script file
+**Files Modified:** 1 (Makefile)
+**Lines of Code:** 237 lines (bash)
+**Time to Implement:** < 1 day
+**Dependencies:** jq, curl (standard tools)
+**Breaking Changes:** None
 
 ---
 
 **Task Status:** ✅ Complete
-**Next Task:** P1.1T5 - Operational Status Command
+**Next Task:** Track 2 - Real-Time Data or Risk Management
 **Related PR:** [Link to PR when created]
 
 ---
@@ -549,7 +408,7 @@ All acceptance criteria from P1_PLANNING.md were met:
 ## Migration Notes
 
 **Migrated:** 2025-10-20
-**Original File:** `docs/IMPLEMENTATION_GUIDES/p1.1t4-timezone-timestamps.md`
+**Original File:** `docs/IMPLEMENTATION_GUIDES/p1.1t5-operational-status.md`
 **Migration:** Automated migration to task lifecycle system
 
 **Historical Context:**
