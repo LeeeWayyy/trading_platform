@@ -1,12 +1,12 @@
 #!/bin/bash
-# Helper script for zen-mcp code reviews
+# Helper script for clink-based zen-mcp code reviews
 # Usage: ./scripts/zen_review.sh [quick|deep]
 
 set -e
 
 MODE="${1:-quick}"
 
-echo "🔍 Zen MCP Review (Mode: $MODE)"
+echo "🔍 Clink-Based Zen-MCP Review (Mode: $MODE)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -88,23 +88,22 @@ if [ "$MODE" = "quick" ]; then
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "   Use slash command: /zen-review quick"
-  echo "   Or say: \"Review my staged changes with zen-mcp\""
+  echo "   \"Review my staged changes using clink + codex codereviewer\""
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "ℹ️  Full review criteria in: .claude/commands/zen-review.md"
+  echo "ℹ️  Full quick review workflow: .claude/workflows/03-zen-review-quick.md"
 elif [ "$MODE" = "deep" ]; then
-  echo "📝 Tell Claude Code:"
+  echo "📝 Tell Claude Code (Two-Phase Workflow):"
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "   Use slash command: /zen-review deep"
-  echo "   Or say: \"Deep review all branch changes with zen-mcp\""
+  echo "   Phase 1: \"Review all branch changes using clink + gemini planner. Compare master..HEAD.\""
+  echo "   Phase 2: \"Now use clink + codex planner with continuation_id to synthesize recommendations\""
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "ℹ️  Full comprehensive review criteria in: .claude/commands/zen-review.md"
+  echo "ℹ️  Full deep review workflow: .claude/workflows/04-zen-review-deep.md"
 else
   echo "❌ Invalid mode: $MODE"
   echo "   Usage: ./scripts/zen_review.sh [quick|deep]"
@@ -112,5 +111,5 @@ else
 fi
 
 echo ""
-echo "⚠️  MANDATORY: Do NOT commit until zen-mcp approves"
+echo "⚠️  MANDATORY: Do NOT commit until clink review approves"
 echo ""

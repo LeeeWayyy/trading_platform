@@ -52,7 +52,7 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 - Document per **[STANDARDS/DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md)**
 - Implement in specified module only (see **[GETTING_STARTED/REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md)**)
 
-### 5. Request Zen-MCP Review ⚠️ **MANDATORY**
+### 5. Request Quick Review ⚠️ **MANDATORY**
 
 **BEFORE each commit (every 30-60 min):**
 
@@ -60,10 +60,9 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 
 2. **Request review:**
    ```
-   Use slash command: /zen-review quick
-   Or tell Claude: "Review my staged changes with zen-mcp"
+   Tell Claude: "Review my staged changes using clink + codex codereviewer"
 
-   (See .claude/commands/zen-review.md for full review criteria)
+   (See ../.claude/workflows/03-zen-review-quick.md for full workflow)
    ```
 
 3. **Fix ALL issues found:**
@@ -71,13 +70,13 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
    - MEDIUM: Must fix or document deferral
    - LOW: Fix if time permits
 
-4. **Re-request review to verify:** "I've fixed the issues, please verify"
+4. **Re-request review to verify:** "I've fixed the issues, please verify (continuation_id: xyz)"
 
 5. **Commit only when approved:** `git commit -m "Message"`
 
 **Progressive commits:** Review → Fix → Commit (repeat every 30-60 min)
 
-**See:** **[IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md](./CONCEPTS/workflow-optimization-zen-mcp.md)**
+**See:** **[CONCEPTS/zen-mcp-clink-optimization-proposal.md](./CONCEPTS/zen-mcp-clink-optimization-proposal.md)**
 
 ### 6. Verify
 - Run `make test` and `make lint` (expect success = green)
@@ -87,12 +86,12 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 
 **Before creating ANY pull request:**
 
-1. **Request comprehensive zen-mcp review:**
+1. **Request comprehensive review (two-phase):**
    ```
-   Use slash command: /zen-review deep
-   Or tell Claude: "Deep review all branch changes with zen-mcp"
+   Phase 1: "Review all branch changes using clink + gemini planner. Compare master..HEAD."
+   Phase 2: "Now use clink + codex planner with continuation_id to synthesize recommendations"
 
-   (See .claude/commands/zen-review.md for full comprehensive review criteria)
+   (See ../.claude/workflows/04-zen-review-deep.md for full workflow)
    ```
 
 2. **Fix all HIGH/CRITICAL issues** (blocking)
@@ -104,7 +103,7 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 - Update ADRs if architecture changed
 
 ### 9. Create PR
-- **Include zen-mcp review confirmation** (MANDATORY)
+- **Include review confirmation with continuation_id** (MANDATORY)
 - Follow checklist from **[STANDARDS/TESTING.md](./STANDARDS/TESTING.md)**
 - Request GitHub App reviews (@codex @gemini-code-assist)
 - Reference ticket number
