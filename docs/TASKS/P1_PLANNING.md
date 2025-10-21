@@ -2,7 +2,7 @@
 
 **Phase:** P1 (Advanced Features)
 **Timeline:** Days 46-90 (~11-18 days estimated for MVP simplifications + new features)
-**Status:** ✅ In Progress (8/11 tasks complete, 73%)
+**Status:** ✅ In Progress (8/12 tasks complete, 67%)
 **Current Task:** T0 - Enhanced P&L Calculation OR T6 - Advanced Strategies
 **Previous Phase:** P0 MVP (100% Complete - 6/6 tasks delivered)
 **Last Updated:** October 21, 2024
@@ -11,7 +11,7 @@
 
 ## 📊 Progress Summary
 
-**Overall:** 73% (8/11 tasks complete)
+**Overall:** 67% (8/12 tasks complete)
 
 | Track | Progress | Status |
 |-------|----------|--------|
