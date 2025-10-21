@@ -5,6 +5,10 @@
 # - Trading Operations
 # - Data Quality
 # - Performance
+#
+# NOTE: Alert thresholds are initial estimates based on expected system behavior.
+# TODO: Tune thresholds after 1 week of paper trading to match actual baseline metrics.
+# See docs/LESSONS_LEARNED/p1.3t1-monitoring-alerting.md for tuning methodology.
 
 groups:
   # ============================================================================
@@ -135,6 +139,7 @@ groups:
     interval: 30s
     rules:
       # High order rejection rate
+      # TODO: Threshold (>10%) is initial estimate. Tune after observing baseline rejection rate.
       - alert: HighOrderRejectionRate
         expr: |
           (
@@ -174,6 +179,7 @@ groups:
           description: "Trading circuit breaker is active. New positions are blocked."
 
       # High orchestration failure rate
+      # TODO: Threshold (>20%) is initial estimate. Tune based on production failure patterns.
       - alert: HighOrchestrationFailureRate
         expr: |
           (
@@ -254,6 +260,7 @@ groups:
     interval: 60s
     rules:
       # Slow order placement
+      # TODO: Threshold (P95 > 2s) is initial estimate. Tune to 2x baseline after measuring production latency.
       - alert: SlowOrderPlacement
         expr: |
           histogram_quantile(0.95,
@@ -269,6 +276,7 @@ groups:
           description: "95th percentile order placement latency is above 2 seconds."
 
       # Slow signal generation
+      # TODO: Threshold (P95 > 10s) is initial estimate. Tune to 2x baseline after measuring production latency.
       - alert: SlowSignalGeneration
         expr: |
           histogram_quantile(0.95,
@@ -284,6 +292,7 @@ groups:
           description: "95th percentile signal generation latency is above 10 seconds."
 
       # Slow orchestration
+      # TODO: Threshold (P95 > 60s) is initial estimate. Tune to 2x baseline after measuring production latency.
       - alert: SlowOrchestration
         expr: |
           histogram_quantile(0.95,
@@ -299,6 +308,7 @@ groups:
           description: "95th percentile orchestration duration is above 60 seconds."
 
       # High model reload failure rate
+      # TODO: Threshold (>50%) is initial estimate. Tune based on production reload patterns.
       - alert: HighModelReloadFailureRate
         expr: |
           (
