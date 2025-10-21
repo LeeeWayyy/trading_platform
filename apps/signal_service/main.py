@@ -142,7 +142,11 @@ async def model_reload_task() -> None:
                 model_version_info.info({
                     "version": model_registry.current_metadata.version,
                     "strategy": model_registry.current_metadata.strategy_name,
-                    "activated_at": model_registry.current_metadata.activated_at.isoformat(),
+                    "activated_at": (
+                        model_registry.current_metadata.activated_at.isoformat()
+                        if model_registry.current_metadata.activated_at
+                        else ""
+                    ),
                 })
                 model_loaded_status.set(1)
                 model_reload_total.labels(status="success").inc()
@@ -220,7 +224,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         model_version_info.info({
             "version": model_registry.current_metadata.version,
             "strategy": model_registry.current_metadata.strategy_name,
-            "activated_at": model_registry.current_metadata.activated_at.isoformat(),
+            "activated_at": (
+                model_registry.current_metadata.activated_at.isoformat()
+                if model_registry.current_metadata.activated_at
+                else ""
+            ),
         })
         model_loaded_status.set(1)
 
@@ -1097,7 +1105,11 @@ async def reload_model() -> dict[str, Any]:
             model_version_info.info({
                 "version": model_registry.current_metadata.version,
                 "strategy": model_registry.current_metadata.strategy_name,
-                "activated_at": model_registry.current_metadata.activated_at.isoformat(),
+                "activated_at": (
+                    model_registry.current_metadata.activated_at.isoformat()
+                    if model_registry.current_metadata.activated_at
+                    else ""
+                ),
             })
             model_loaded_status.set(1)
             model_reload_total.labels(status="success").inc()
