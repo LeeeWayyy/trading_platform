@@ -1,5 +1,5 @@
 ---
-id: P1T1-F1
+id: P1T5-F1
 title: "Real-time Market Data - Phase 1"
 phase: P1
 task: T1
@@ -18,7 +18,7 @@ parent_task: P1T1
 ---
 
 
-# P1T1-F1: Real-time Market Data - Phase 1 ✅
+# P1T5-F1: Real-time Market Data - Phase 1 ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)

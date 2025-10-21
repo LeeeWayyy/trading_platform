@@ -1,5 +1,5 @@
 ---
-id: P1T4
+id: P1T3
 title: "Timezone & Timestamps"
 phase: P1
 task: T4
@@ -16,7 +16,7 @@ related_docs: []
 ---
 
 
-# P1T4: Timezone & Timestamps ✅
+# P1T3: Timezone & Timestamps ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)

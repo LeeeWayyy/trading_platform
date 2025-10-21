@@ -1,5 +1,5 @@
 ---
-id: P1T2
+id: P1T1
 title: "Redis Integration"
 phase: P1
 task: T2
@@ -16,7 +16,7 @@ related_docs: []
 ---
 
 
-# P1T2: Redis Integration ✅
+# P1T1: Redis Integration ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)

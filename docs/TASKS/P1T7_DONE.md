@@ -1,5 +1,5 @@
 ---
-id: P1T6
+id: P1T7
 title: "Risk Management System"
 phase: P1
 task: T6
@@ -16,7 +16,7 @@ related_docs: []
 ---
 
 
-# P1T6: Risk Management System ✅
+# P1T7: Risk Management System ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)

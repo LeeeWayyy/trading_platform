@@ -1,5 +1,5 @@
 ---
-id: P1T3
+id: P1T2
 title: "DuckDB Analytics"
 phase: P1
 task: T3
@@ -16,7 +16,7 @@ related_docs: []
 ---
 
 
-# P1T3: DuckDB Analytics ✅
+# P1T2: DuckDB Analytics ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)

@@ -1,5 +1,5 @@
 ---
-id: P1T5
+id: P1T4
 title: "Operational Status Dashboard"
 phase: P1
 task: T5
@@ -16,7 +16,7 @@ related_docs: []
 ---
 
 
-# P1T5: Operational Status Dashboard ✅
+# P1T4: Operational Status Dashboard ✅
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
 **Status:** DONE (Completed prior to task lifecycle system)

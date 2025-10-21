@@ -85,7 +85,7 @@ During P0, four features from the original plan were consciously simplified or d
 
 ### Track 1: Infrastructure Enhancements (from P0 Simplifications)
 
-#### T1.1: Enhanced P&L Calculation ⭐ HIGH PRIORITY
+#### T0: Enhanced P&L Calculation ⭐ HIGH PRIORITY
 
 **Goal:** Replace notional P&L with realized/unrealized breakdown
 
@@ -133,7 +133,7 @@ During P0, four features from the original plan were consciously simplified or d
 
 ---
 
-#### T1.2: Redis Integration ⭐ HIGH PRIORITY
+#### T1: Redis Integration ⭐ HIGH PRIORITY
 
 **Goal:** Add Redis for online feature store and event-driven orchestration
 
@@ -192,7 +192,7 @@ for message in pubsub.listen():
 
 ---
 
-#### T1.3: DuckDB Analytics Layer 🔶 MEDIUM PRIORITY
+#### T2: DuckDB Analytics Layer 🔶 MEDIUM PRIORITY
 
 **Goal:** Add SQL interface for ad-hoc analytics on historical data
 
@@ -248,7 +248,7 @@ WHERE a.date >= '2024-01-01';
 
 ---
 
-#### T1.4: Timezone-Aware Timestamps 🔶 MEDIUM PRIORITY
+#### T3: Timezone-Aware Timestamps 🔶 MEDIUM PRIORITY
 
 **Goal:** Add UTC timestamps for production-grade logging
 
@@ -292,7 +292,7 @@ print(f"Run started: {timestamp.isoformat()}")
 
 ---
 
-#### T1.5: Operational Status Command 🔷 LOW PRIORITY
+#### T4: Operational Status Command 🔷 LOW PRIORITY
 
 **Goal:** Create `make status` wrapper for operational overview
 
@@ -350,7 +350,7 @@ $ make status
 
 ### Track 2: New Advanced Features 🆕
 
-#### T2.1: Real-Time Market Data Streaming
+#### T5: Real-Time Market Data Streaming
 
 **Goal:** Add WebSocket connection for real-time price updates
 
@@ -367,7 +367,7 @@ $ make status
 
 ---
 
-#### T2.2: Advanced Trading Strategies
+#### T6: Advanced Trading Strategies
 
 **Goal:** Implement additional ML strategies beyond Alpha158 baseline
 
@@ -382,7 +382,7 @@ $ make status
 
 ---
 
-#### T2.3: Risk Management System
+#### T7: Risk Management System
 
 **Goal:** Add risk limits and circuit breakers
 
@@ -399,7 +399,7 @@ $ make status
 
 ### Track 3: Production Hardening 🔧
 
-#### T3.1: Monitoring and Alerting
+#### T8: Monitoring and Alerting
 
 **Goal:** Add Prometheus metrics and Grafana dashboards
 
@@ -414,7 +414,7 @@ $ make status
 
 ---
 
-#### T3.2: Centralized Logging
+#### T9: Centralized Logging
 
 **Goal:** Structured logging with ELK or Loki
 
@@ -429,7 +429,7 @@ $ make status
 
 ---
 
-#### T3.3: CI/CD Pipeline
+#### T10: CI/CD Pipeline
 
 **Goal:** Automated testing and deployment
 
