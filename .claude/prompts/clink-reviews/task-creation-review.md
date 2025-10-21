@@ -1,12 +1,12 @@
 # Task Creation Review (Pre-Work)
 
-**Tool:** clink + gemini planner
+**Tool:** clink + gemini planner → codex planner
 **Duration:** 2-3 minutes
 **When:** Before starting work on task (Tier 3 review)
 
 ---
 
-## Review Prompt
+## Review Prompt (Phase 1: Gemini Planner)
 
 Please review this task document to ensure it's well-scoped and ready for implementation.
 
@@ -78,6 +78,36 @@ Please review this task document to ensure it's well-scoped and ready for implem
 - **HIGH:** Major gaps (missing acceptance criteria, unclear scope)
 - **MEDIUM:** Improvements needed (missing edge cases, weak time estimates)
 - **LOW:** Minor enhancements (documentation polish, additional context)
+
+**Save continuation_id for Phase 2!**
+
+---
+
+## Phase 2 Prompt (Codex Planner - Reuse continuation_id)
+
+Given the task validation findings above, please synthesize:
+
+1. **Readiness Assessment:**
+   - Is task ready to implement (APPROVED)?
+   - What MUST be fixed before starting (CRITICAL/HIGH)?
+   - What should be clarified (MEDIUM)?
+
+2. **Scope Refinement:**
+   - Are boundaries clear enough?
+   - Is component breakdown logical?
+   - Are time estimates reasonable?
+
+3. **Risk Mitigation:**
+   - What could go wrong during implementation?
+   - Are dependencies manageable?
+   - Are there hidden complexities?
+
+4. **Next Steps:**
+   - Ordered action items for developer
+   - Estimated effort to address findings
+   - When to re-request validation
+
+**Output format: Actionable recommendations with clear verdict (APPROVED/NEEDS REVISION/BLOCKED)**
 
 ---
 

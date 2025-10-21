@@ -1,12 +1,12 @@
 # Deep Architecture Review (Pre-PR)
 
-**Tool:** clink + gemini codereviewer → codex planner (multi-phase)
+**Tool:** clink + gemini planner → codex planner (multi-phase)
 **Duration:** 3-5 minutes
 **When:** Before creating PR (Tier 2 review)
 
 ---
 
-## Review Prompt (Phase 1: Gemini Codereviewer)
+## Review Prompt (Phase 1: Gemini Planner)
 
 Please perform a comprehensive architecture review of all changes in this branch for the trading platform.
 

@@ -1,9 +1,10 @@
-# Deep Zen-MCP Review Workflow
+# Deep Review Workflow (Clink + Gemini → Codex)
 
 **Purpose:** Comprehensive review of all branch changes before creating pull request (MANDATORY quality gate)
+**Tool:** clink + gemini planner → codex planner (Tier 2 review, multi-phase)
 **Prerequisites:** Feature complete, all progressive commits done, local tests passing
 **Expected Outcome:** Branch validated for architecture, testing, edge cases; ready for PR creation
-**Owner:** @development-team + zen-mcp maintainers
+**Owner:** @development-team
 **Last Reviewed:** 2025-10-21
 
 ---
@@ -94,29 +95,40 @@ make lint
 - Don't request deep review until green
 - Deep review assumes tests pass
 
-### 5. Request Deep Zen Review
+### 5. Request Deep Review (Two-Phase: Gemini → Codex)
 
-**Option A: Use slash command (recommended)**
+**Phase 1: Architecture Analysis (Gemini Planner)**
 ```
-/zen-review deep
-```
-
-**Option B: Tell Claude directly**
-```
-"Deep review all branch changes with zen-mcp"
+"Please review all branch changes using clink + gemini planner.
+Analyze architecture, scalability, trading safety, and code quality.
+Compare master..HEAD for this feature branch."
 ```
 
-**Option C: Specify comparison explicitly**
+**Alternative (use review prompt):**
 ```
-"Deep review changes from master to current branch with zen-mcp"
+"Use the deep-architecture-review prompt from .claude/prompts/clink-reviews/
+to review all branch changes from master to HEAD"
 ```
 
-**What happens:**
-- Claude Code triggers zen-mcp (Codex) with comprehensive mode
-- Zen analyzes ALL changes since branching from master
-- Includes code, tests, docs, configs
-- Review takes ~3-5 minutes
-- Results returned with detailed findings
+**What happens in Phase 1:**
+- Claude uses clink with gemini CLI planner role (gemini-2.5-pro, 1M context)
+- Gemini analyzes ALL changes since branching from master
+- Comprehensive review: architecture, safety, scalability, maintainability
+- Review takes ~2-3 minutes
+- Returns detailed findings WITH continuation_id
+
+**Phase 2: Recommendations Synthesis (Codex)**
+```
+"Now use clink + codex planner with the same continuation_id
+to synthesize recommendations and create an action plan"
+```
+
+**What happens in Phase 2:**
+- Claude uses clink with codex CLI (preserves continuation_id context)
+- Codex synthesizes gemini's findings into actionable plan
+- Prioritizes fixes, suggests testing strategy, identifies documentation needs
+- Takes ~1-2 minutes
+- Total review time: ~3-5 minutes across both phases
 
 ### 6. Review Comprehensive Findings
 
@@ -521,50 +533,92 @@ $ make test && make lint
 ===================== 58 passed in 2.82s ======================
 ✅ All checks passed
 
-$ "Deep review all branch changes with zen-mcp"
+$ "Review all branch changes using clink + gemini planner. Compare master..HEAD."
 
-# (3 minutes later)
+Claude: [Uses clink with gemini CLI planner - Phase 1]
 
-Zen: "🔍 Deep Review Complete
+# (2-3 minutes later)
 
-✅ APPROVED - Excellent implementation
-
-Summary:
+Gemini: "**Architecture Assessment**
 - 4 commits, 287 lines changed
-- 0 HIGH, 0 MEDIUM, 2 LOW issues
-- Test coverage: 97% (target: 80%) ✅
-- Documentation: Complete ✅
-- Architecture: Clean, follows patterns ✅
+- Clean microservice boundaries ✓
+- Trading safety requirements met ✓
+- Comprehensive test coverage (97%)
 
-LOW suggestions:
-1. Consider extracting validation logic to separate class (future refactor)
-2. Add performance benchmark for limit checks (nice-to-have)
+**Findings**
+- LOW – Validation logic could be extracted to separate class
+- LOW – Performance benchmarks would be helpful
 
-Ready for PR creation!
-Continuation ID: deep-abc123"
+**Positives**
+- Circuit breaker integration correct
+- Idempotency preserved
+- Position limit logic sound
 
-$ # Proceed to create PR with zen summary
+<SUMMARY>Excellent implementation, ready for PR.</SUMMARY>
+
+continuation_id: deep-abc123"
+
+$ "Now use clink + codex planner with continuation_id: deep-abc123 to synthesize recommendations"
+
+Claude: [Uses clink with codex CLI - Phase 2, preserves context]
+
+# (1-2 minutes later)
+
+Codex: "**Priority Recommendations**
+All CRITICAL/HIGH: ✅ None
+Medium: ✅ None
+Low: 2 suggestions (defer to follow-up)
+
+**Next Steps**
+1. Create PR (ready to merge)
+2. Create follow-up tasks for LOW suggestions
+3. Include deep review summary in PR description
+
+continuation_id: deep-abc123"
+
+$ # Proceed to create PR
 $ gh pr create
-# (Include zen review summary)
+# (Include review summary and continuation_id)
 ```
 
 ### Example 2: Issues Found and Fixed
 
 ```bash
-$ "Deep review all branch changes with zen-mcp"
+$ "Review all branch changes using clink + gemini planner. Compare master..HEAD."
 
-# (4 minutes later)
+Claude: [Uses clink with gemini CLI planner - Phase 1]
 
-Zen: "🔍 Deep Review Complete
+# (2-3 minutes later)
 
-⚠️ 3 MEDIUM issues to address before PR
+Gemini: "**Critical Findings**
+(none)
 
-1. MEDIUM: Missing test for edge case (position at exactly limit)
-2. MEDIUM: Incomplete error handling in concurrent scenario
-3. MEDIUM: Concept doc has TODO sections
+**High Priority**
+(none)
 
-Estimated fix time: 30-45 minutes
-Continuation ID: deep-abc123"
+**Medium Priority**
+- Missing test for edge case (position at exactly limit)
+- Incomplete error handling in concurrent scenario
+- Concept doc has TODO sections
+
+<SUMMARY>Needs fixes before PR - 3 MEDIUM issues.</SUMMARY>
+
+continuation_id: deep-xyz789"
+
+$ "Now use clink + codex planner with continuation_id: deep-xyz789 to synthesize recommendations"
+
+Claude: [Uses clink with codex CLI - Phase 2]
+
+Codex: "**Priority Recommendations**
+Fix before PR:
+1. Add edge case test (15 min)
+2. Add error handling for concurrent scenario (20 min)
+3. Complete concept doc TODOs (10 min)
+
+Estimated fix time: 45 minutes
+Then re-request verification.
+
+continuation_id: deep-xyz789"
 
 # Fix all 3 issues (35 minutes)
 # Add edge case test
@@ -578,18 +632,21 @@ $ git commit -m "Address deep review findings
 - Handle concurrent position updates with locks
 - Complete risk management concept doc
 
-Zen deep review: 3 MEDIUM issues fixed"
+Codex deep review: 3 MEDIUM issues fixed"
 
-$ "I've fixed all 3 issues, please verify"
+$ "I've fixed all 3 issues, please verify (continuation_id: deep-xyz789)"
 
-Zen: "✅ Verification complete (continuation: deep-abc123)
+Claude: [Uses clink with codex, preserves context]
+
+Codex: "✅ Verification complete
 
 1. Edge case test: ✅ Added, covers scenario
 2. Concurrent handling: ✅ Fixed with proper locking
 3. Documentation: ✅ All TODOs completed
 
-All issues resolved. Ready for PR!
-Continuation ID: deep-abc123"
+<SUMMARY>All issues resolved. Ready for PR!</SUMMARY>
+
+continuation_id: deep-xyz789"
 
 $ gh pr create
 # (Include zen review + fix summary)
@@ -598,51 +655,74 @@ $ gh pr create
 ### Example 3: Deferring Some Issues
 
 ```bash
-$ "Deep review all branch changes with zen-mcp"
+$ "Review all branch changes using clink + gemini planner. Compare master..HEAD."
 
-Zen: "⚠️ 1 HIGH, 3 MEDIUM issues
+Claude: [Uses clink with gemini CLI planner - Phase 1]
 
-HIGH:
-1. Circuit breaker check missing in rollback path
+# (2-3 minutes later)
 
-MEDIUM:
-2. Performance: N+1 query in position loading
-3. Missing logging in error scenarios
-4. Concept doc could be more detailed
+Gemini: "**Critical Findings**
+(none)
 
-Fix HIGH immediately. MEDIUM require discussion.
-Continuation ID: deep-abc123"
+**High Priority**
+- Circuit breaker check missing in rollback path
+
+**Medium Priority**
+- Performance: N+1 query in position loading
+- Missing logging in error scenarios
+- Concept doc could be more detailed
+
+<SUMMARY>Fix HIGH before PR. MEDIUM require discussion.</SUMMARY>
+
+continuation_id: deep-pqr456"
+
+$ "Now use clink + codex planner with continuation_id: deep-pqr456 to synthesize recommendations"
+
+Claude: [Uses clink with codex CLI - Phase 2]
+
+# (1-2 minutes later)
+
+Codex: "**Priority Recommendations**
+MUST FIX: Circuit breaker in rollback (20 min)
+Consider: Logging (quick, 10 min)
+Defer: Performance optimization (needs analysis)
+Defer: Concept doc enhancement (nice-to-have)
+
+**Next Steps**
+1. Fix circuit breaker immediately
+2. Add logging if time permits
+3. Create follow-up tasks for deferred items
+
+continuation_id: deep-pqr456"
 
 # Fix HIGH immediately
 $ git add apps/execution_gateway/rollback.py
 $ git commit -m "Add circuit breaker check to rollback path"
 
-$ "User: Zen found 3 MEDIUM issues. The HIGH is fixed.
-Can I defer the performance and logging issues to follow-up tickets?
-They're improvements but not blockers."
-
-User: "Fix the logging (quick), defer performance (needs analysis)"
-
-# Fix logging (10 minutes)
+# Also fix logging (quick)
 $ git add apps/execution_gateway/
-$ git commit -m "Add error logging per zen review"
+$ git commit -m "Add error logging per codex review"
 
-$ "Zen: I fixed the HIGH (circuit breaker) and MEDIUM (logging).
-Deferring performance optimization to ticket P1.5T3.
-User approved deferral. Please verify fixes."
+$ "I fixed HIGH (circuit breaker) and one MEDIUM (logging).
+Deferring performance optimization to ticket P1.5T3 (needs analysis).
+Concept doc is sufficient for now.
+Please verify fixes (continuation_id: deep-pqr456)"
 
-Zen: "✅ Verification complete
+Claude: [Uses clink with codex, preserves context]
 
-1. Circuit breaker: ✅ Fixed correctly
+Codex: "✅ Verification complete
+
+1. Circuit breaker: ✅ Fixed correctly in rollback path
 2. Logging: ✅ Added with proper context
-3. Performance: Deferred (user approved)
-4. Concept doc: Enhanced based on feedback
+3. Performance: Deferred with ticket created ✅
+4. Concept doc: Current version acceptable ✅
 
-Ready for PR with deferred issue documented.
-Continuation ID: deep-abc123"
+<SUMMARY>Ready for PR with deferred items documented.</SUMMARY>
+
+continuation_id: deep-pqr456"
 
 $ gh pr create
-# (Include zen summary + document deferred performance issue)
+# (Include review summary + document deferred performance optimization)
 ```
 
 ---
@@ -683,8 +763,9 @@ $ gh pr create
 - [/docs/STANDARDS/TESTING.md](../../docs/STANDARDS/TESTING.md) - Test coverage standards
 
 **Implementation Details:**
-- [/docs/CONCEPTS/workflow-optimization-zen-mcp.md](../../docs/CONCEPTS/workflow-optimization-zen-mcp.md) - Zen-MCP deep review details
-- [.claude/commands/zen-review.md](../commands/zen-review.md) - Zen review command reference
+- [/CLAUDE.md](../../CLAUDE.md#🤖-zen-mcp--clink-integration) - Clink + zen-mcp integration overview
+- [/docs/CONCEPTS/zen-mcp-clink-optimization-proposal.md](../../docs/CONCEPTS/zen-mcp-clink-optimization-proposal.md) - Clink-based workflow design
+- [.claude/prompts/clink-reviews/deep-architecture-review.md](../prompts/clink-reviews/deep-architecture-review.md) - Deep review prompt template
 
 **Deep Review Coverage:**
 - Architecture patterns and design quality
