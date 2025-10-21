@@ -31,12 +31,14 @@ See ADR-0006 for architecture decisions.
 
 import logging
 import os
+import time
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, status
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 
 from apps.orchestrator import __version__
 from apps.orchestrator.database import OrchestrationDatabaseClient
@@ -103,6 +105,65 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+# ============================================================================
+# Prometheus Metrics
+# ============================================================================
+
+# Business metrics
+orchestration_runs_total = Counter(
+    "orchestrator_runs_total",
+    "Total number of orchestration runs",
+    ["status"],  # success, error
+)
+
+orchestration_duration = Histogram(
+    "orchestrator_orchestration_duration_seconds",
+    "Time taken to complete orchestration workflow",
+    buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0],
+)
+
+signals_received_total = Counter(
+    "orchestrator_signals_received_total",
+    "Total number of signals received from Signal Service",
+)
+
+orders_submitted_total = Counter(
+    "orchestrator_orders_submitted_total",
+    "Total number of orders submitted to Execution Gateway",
+    ["status"],  # success, error
+)
+
+positions_adjusted_total = Counter(
+    "orchestrator_positions_adjusted_total",
+    "Total number of position adjustments made",
+)
+
+# Health metrics
+database_connection_status = Gauge(
+    "orchestrator_database_connection_status",
+    "Database connection status (1=connected, 0=disconnected)",
+)
+
+signal_service_available = Gauge(
+    "orchestrator_signal_service_available",
+    "Signal Service availability (1=available, 0=unavailable)",
+)
+
+execution_gateway_available = Gauge(
+    "orchestrator_execution_gateway_available",
+    "Execution Gateway availability (1=available, 0=unavailable)",
+)
+
+# Set initial values
+database_connection_status.set(1)  # Will be updated by health check
+signal_service_available.set(0)  # Will be updated by health check
+execution_gateway_available.set(0)  # Will be updated by health check
+
+# Mount Prometheus metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 
 # ============================================================================
@@ -232,67 +293,91 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
         >>> print(result["num_orders_submitted"])
         2
     """
-    logger.info(
-        f"Orchestration run requested: {len(request.symbols)} symbols",
-        extra={
-            "num_symbols": len(request.symbols),
-            "as_of_date": request.as_of_date,
-            "capital": float(request.capital) if request.capital else float(CAPITAL),
-        },
-    )
-
-    # Parse as_of_date
-    as_of_date_parsed = None
-    if request.as_of_date:
-        try:
-            as_of_date_parsed = date.fromisoformat(request.as_of_date)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD.",
-            ) from None
-
-    # Determine capital and max position size
-    capital = request.capital if request.capital else CAPITAL
-    max_position_size = (
-        request.max_position_size if request.max_position_size else MAX_POSITION_SIZE
-    )
-
-    # Create orchestrator
-    orchestrator = TradingOrchestrator(
-        signal_service_url=SIGNAL_SERVICE_URL,
-        execution_gateway_url=EXECUTION_GATEWAY_URL,
-        capital=capital,
-        max_position_size=max_position_size,
-    )
+    # Start timing for metrics
+    run_started = time.time()
+    run_status = "success"
 
     try:
-        # Run orchestration
-        result = await orchestrator.run(
-            symbols=request.symbols, strategy_id=STRATEGY_ID, as_of_date=as_of_date_parsed
-        )
-
-        # Persist to database
-        db_client.create_run(result)
-
         logger.info(
-            f"Orchestration run completed: {result.run_id}",
+            f"Orchestration run requested: {len(request.symbols)} symbols",
             extra={
-                "run_id": str(result.run_id),
-                "status": result.status,
-                "num_signals": result.num_signals,
-                "num_orders_submitted": result.num_orders_submitted,
-                "num_orders_accepted": result.num_orders_accepted,
-                "duration_seconds": (
-                    float(result.duration_seconds) if result.duration_seconds else None
-                ),
+                "num_symbols": len(request.symbols),
+                "as_of_date": request.as_of_date,
+                "capital": float(request.capital) if request.capital else float(CAPITAL),
             },
         )
 
-        return result
+        # Parse as_of_date
+        as_of_date_parsed = None
+        if request.as_of_date:
+            try:
+                as_of_date_parsed = date.fromisoformat(request.as_of_date)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD.",
+                ) from None
 
+        # Determine capital and max position size
+        capital = request.capital if request.capital else CAPITAL
+        max_position_size = (
+            request.max_position_size if request.max_position_size else MAX_POSITION_SIZE
+        )
+
+        # Create orchestrator
+        orchestrator = TradingOrchestrator(
+            signal_service_url=SIGNAL_SERVICE_URL,
+            execution_gateway_url=EXECUTION_GATEWAY_URL,
+            capital=capital,
+            max_position_size=max_position_size,
+        )
+
+        try:
+            # Run orchestration
+            result = await orchestrator.run(
+                symbols=request.symbols, strategy_id=STRATEGY_ID, as_of_date=as_of_date_parsed
+            )
+
+            # Track metrics
+            signals_received_total.inc(result.num_signals)
+            orders_submitted_total.labels(status="success").inc(result.num_orders_submitted)
+            if result.num_orders_submitted > 0:
+                positions_adjusted_total.inc(result.num_orders_submitted)
+
+            # Persist to database
+            db_client.create_run(result)
+
+            logger.info(
+                f"Orchestration run completed: {result.run_id}",
+                extra={
+                    "run_id": str(result.run_id),
+                    "status": result.status,
+                    "num_signals": result.num_signals,
+                    "num_orders_submitted": result.num_orders_submitted,
+                    "num_orders_accepted": result.num_orders_accepted,
+                    "duration_seconds": (
+                        float(result.duration_seconds) if result.duration_seconds else None
+                    ),
+                },
+            )
+
+            return result
+
+        finally:
+            await orchestrator.close()
+
+    except HTTPException:
+        run_status = "error"
+        raise
+    except Exception:
+        run_status = "error"
+        logger.exception("Unhandled failure in run_orchestration")
+        raise
     finally:
-        await orchestrator.close()
+        # Always record metrics
+        elapsed = time.time() - run_started
+        orchestration_runs_total.labels(status=run_status).inc()
+        orchestration_duration.observe(elapsed)
 
 
 @app.get(
