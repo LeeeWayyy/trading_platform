@@ -24,13 +24,15 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 3. Review [`.claude/workflows/README.md`](./.claude/workflows/README.md) for development workflow guides
 
 **Ready to code?**
-1. Implement feature (30-60 min)
-2. Run tests: `make test && make lint`
-3. Review: [`.claude/workflows/03-zen-review-quick.md`](./.claude/workflows/03-zen-review-quick.md)
-4. Commit: [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md)
-5. Repeat until feature complete
-6. Deep review: [`.claude/workflows/04-zen-review-deep.md`](./.claude/workflows/04-zen-review-deep.md)
-7. Create PR: [`.claude/workflows/02-git-pr.md`](./.claude/workflows/02-git-pr.md)
+1. **Break feature into logical components** — Use 4-step pattern (see below)
+2. **For EACH component:**
+   - Implement logic
+   - Create test cases (TDD)
+   - Request zen-mcp review: [`.claude/workflows/03-zen-review-quick.md`](./.claude/workflows/03-zen-review-quick.md)
+   - Commit: [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md)
+3. Repeat until feature complete
+4. Deep review: [`.claude/workflows/04-zen-review-deep.md`](./.claude/workflows/04-zen-review-deep.md)
+5. Create PR: [`.claude/workflows/02-git-pr.md`](./.claude/workflows/02-git-pr.md)
 
 ---
 
@@ -181,26 +183,47 @@ Boot-time and periodic reconciliation:
 
 **See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for complete workflow guides.**
 
+### ⚠️ MANDATORY: 4-Step Pattern for Each Logical Component
+
+**CRITICAL:** To prevent skipping testing or review steps, EVERY logical component implementation MUST follow this pattern:
+
+1. **Implement** the logic component
+2. **Create test cases** for comprehensive coverage (TDD)
+3. **Request zen-mcp review** of the implementation and tests
+4. **Commit** changes after review approval
+
+**Example:** When implementing "position limit validation", create these 4 todo tasks:
+```markdown
+- [ ] Implement position limit validation logic
+- [ ] Create test cases for position limit validation
+- [ ] Request zen-mcp review for position limit validation
+- [ ] Commit position limit validation
+```
+
+**Never skip or combine steps!** See [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md) for detailed guidance and examples.
+
 ### Quick Reference
 
 1. **Pre-Implementation**
    - Read ticket in `/docs/TASKS/`
    - Create ADR if architectural change (see `.claude/workflows/08-adr-creation.md`)
    - Document trading concepts in `/docs/CONCEPTS/` if needed
+   - **Break feature into logical components** for 4-step pattern
 
 2. **Write Tests First** (TDD)
    - Follow `/docs/STANDARDS/TESTING.md`
    - See `.claude/workflows/05-testing.md`
 
 3. **Implement Code**
+   - **Use 4-step pattern for EACH logical component** (see above)
    - Follow `/docs/STANDARDS/CODING_STANDARDS.md`
    - Add comprehensive docstrings (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
    - See `.claude/workflows/07-documentation.md`
 
-4. **Progressive Commits (every 30-60 min)**
+4. **Progressive Commits (every 30-60 min per component)**
    - **MANDATORY zen-mcp review before each commit**
    - See `.claude/workflows/03-zen-review-quick.md` (quick safety check)
-   - See `.claude/workflows/01-git-commit.md` (commit workflow)
+   - See `.claude/workflows/01-git-commit.md` (commit workflow with 4-step pattern)
 
 5. **Before PR**
    - **MANDATORY deep zen-mcp review of all branch changes**
@@ -286,8 +309,10 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 
 ## ⚠️ Anti-Patterns to Avoid
 
+- **No skipping the 4-step pattern** — MANDATORY: Implement → Test → Review → Commit (`.claude/workflows/01-git-commit.md`)
 - **No committing without zen-mcp review** — MANDATORY quality gate (`.claude/workflows/03-zen-review-quick.md`)
 - **No committing without passing tests** — Run `make test && make lint` before every commit
+- **No combining logical components in one commit** — Use 4-step pattern for each component separately
 - **No PRs without deep zen-mcp review** — MANDATORY comprehensive review (`.claude/workflows/04-zen-review-deep.md`)
 - **No duplicate feature logic** — Share code between research/production
 - **No in-memory state** — Use DB for positions/orders/breakers
@@ -321,13 +346,16 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 1. Check existing docs (`/docs/GETTING_STARTED/REPO_MAP.md`, API specs, DB schemas)
 2. Create ADR for architectural changes (`.claude/workflows/08-adr-creation.md`)
 3. Document trading concepts in `/docs/CONCEPTS/` (`.claude/workflows/07-documentation.md`)
-4. Write tests first — TDD enforced (`.claude/workflows/05-testing.md`)
+4. **Break feature into logical components** — Use 4-step pattern per component:
+   - Implement logic
+   - Create test cases (TDD)
+   - Request zen-mcp review
+   - Commit after approval
 5. Add comprehensive docstrings (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
-6. Run `make test && make lint`
-7. Request zen-mcp review (`.claude/workflows/03-zen-review-quick.md`)
-8. Commit (`.claude/workflows/01-git-commit.md`)
-9. Update affected docs
-10. Before PR: deep review (`.claude/workflows/04-zen-review-deep.md`)
+6. Run `make test && make lint` before every commit
+7. **Never skip the 4-step pattern** (see `.claude/workflows/01-git-commit.md`)
+8. Update affected docs
+9. Before PR: deep review (`.claude/workflows/04-zen-review-deep.md`)
 
 **See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for detailed workflows.**
 

@@ -25,6 +25,147 @@
 
 ---
 
+## ⚠️ MANDATORY: 4-Step Todo Pattern for Each Logical Component
+
+**CRITICAL:** To ensure quality and prevent skipped steps, EVERY logical component implementation MUST be broken into these 4 todo tasks:
+
+### The 4-Step Pattern
+
+For each logical component you implement, create these 4 tasks in order:
+
+1. **"Implement [component name]"** - Write the implementation code
+2. **"Create test cases for [component name]"** - Write comprehensive tests (TDD)
+3. **"Request zen-mcp review for [component name]"** - MANDATORY quality gate
+4. **"Commit [component name]"** - Commit after review approval
+
+**Example:**
+
+If implementing "position limit validation", create these 4 todos:
+```markdown
+- [ ] Implement position limit validation logic
+- [ ] Create test cases for position limit validation
+- [ ] Request zen-mcp review for position limit validation
+- [ ] Commit position limit validation
+```
+
+**Why this pattern is mandatory:**
+
+❌ **WITHOUT this pattern:**
+```markdown
+# BAD - Skips testing and review
+- [ ] Implement position limit validation
+- [ ] Commit changes
+```
+Result: Direct commit without tests or review → bugs slip through
+
+✅ **WITH this pattern:**
+```markdown
+# GOOD - Forces TDD + review
+- [ ] Implement position limit validation logic
+- [ ] Create test cases for position limit validation (RED → GREEN)
+- [ ] Request zen-mcp review for position limit validation
+- [ ] Commit position limit validation
+```
+Result: Tested, reviewed, safe code
+
+### How to Use This Pattern
+
+**1. At start of feature, break down into logical components:**
+```markdown
+## Feature: Idempotent Order Submission
+
+Component 1: Deterministic ID generation
+- [ ] Implement deterministic ID generation logic
+- [ ] Create test cases for deterministic ID generation
+- [ ] Request zen-mcp review for deterministic ID generation
+- [ ] Commit deterministic ID generation
+
+Component 2: Duplicate detection
+- [ ] Implement duplicate detection logic
+- [ ] Create test cases for duplicate detection
+- [ ] Request zen-mcp review for duplicate detection
+- [ ] Commit duplicate detection
+
+Component 3: Error handling for duplicates
+- [ ] Implement error handling for duplicates
+- [ ] Create test cases for error handling
+- [ ] Request zen-mcp review for error handling
+- [ ] Commit error handling
+```
+
+**2. Work through each 4-step cycle:**
+- Mark "Implement..." as `in_progress` → code the logic
+- Mark "Create test cases..." as `in_progress` → write tests, run until GREEN
+- Mark "Request zen-mcp review..." as `in_progress` → request review, fix issues
+- Mark "Commit..." as `in_progress` → commit only after approval
+
+**3. Never skip steps or combine them:**
+- ❌ Don't implement + commit without testing
+- ❌ Don't test + commit without zen review
+- ❌ Don't combine multiple components in one commit
+- ✅ Always complete all 4 steps for each component
+
+### Benefits of This Pattern
+
+**Quality:**
+- Enforces TDD (test first, then implement)
+- Guarantees zen-mcp review before commit
+- Prevents "forgot to test" situations
+- Catches issues while context is fresh
+
+**Clarity:**
+- Clear what step you're on
+- Easy to resume after interruptions
+- Obvious if a step was skipped
+- Good audit trail
+
+**Safety:**
+- Every commit is tested
+- Every commit is reviewed
+- Trading safety enforced at component level
+- No "commit now, test later" anti-pattern
+
+### Anti-Patterns to Avoid
+
+❌ **Single todo for component:**
+```markdown
+- [ ] Add position limit validation
+```
+Problem: Skips testing and review steps
+
+❌ **Skipping test creation:**
+```markdown
+- [ ] Implement logic
+- [ ] Request zen review
+- [ ] Commit
+```
+Problem: No test coverage
+
+❌ **Combining components:**
+```markdown
+- [ ] Implement all validation logic
+- [ ] Create all tests
+- [ ] Review and commit everything
+```
+Problem: Massive commit, hard to review, hard to debug
+
+✅ **CORRECT - 4 steps per component:**
+```markdown
+Component: Position validation
+- [ ] Implement position validation logic
+- [ ] Create test cases for position validation
+- [ ] Request zen-mcp review for position validation
+- [ ] Commit position validation
+
+Component: Risk checks
+- [ ] Implement risk checks logic
+- [ ] Create test cases for risk checks
+- [ ] Request zen-mcp review for risk checks
+- [ ] Commit risk checks
+```
+
+---
+
 ## Step-by-Step Process
 
 ### 1. Verify You're on a Feature Branch
