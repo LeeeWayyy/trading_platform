@@ -1,0 +1,50 @@
+name: Check Markdown Links
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    paths:
+      - '**.md'
+      - '.claude/workflows/**.md'
+      - 'docs/**.md'
+      - 'CLAUDE.md'
+      - '.github/workflows/markdown-link-check.yml'
+  pull_request:
+    paths:
+      - '**.md'
+      - '.claude/workflows/**.md'
+      - 'docs/**.md'
+      - 'CLAUDE.md'
+      - '.github/workflows/markdown-link-check.yml'
+  schedule:
+    # Run weekly on Mondays at 9am UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check links in all markdown files
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-verbose-mode: 'yes'
+          config-file: '.github/markdown-link-check-config.json'
+          folder-path: '.'
+          file-extension: '.md'
+
+      - name: Report results
+        if: failure()
+        run: |
+          echo "::error::Markdown link check failed! Please fix broken links."
+          echo "::error::Common issues:"
+          echo "::error::- Workflow files moved or renamed in .claude/workflows/"
+          echo "::error::- Documentation files moved or renamed in docs/"
+          echo "::error::- Broken cross-references between CLAUDE.md and workflow guides"
+          echo "::error::- External URLs changed or removed"
