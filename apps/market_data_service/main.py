@@ -268,14 +268,12 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
 
     try:
         if not stream:
-            request_status = "error"
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Market data stream not initialized",
             )
 
         if not request.symbols:
-            request_status = "error"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No symbols provided",
@@ -298,7 +296,6 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
             )
 
         except SubscriptionError as e:
-            request_status = "error"
             logger.error(f"Subscription failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -336,7 +333,6 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
 
     try:
         if not stream:
-            request_status = "error"
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Market data stream not initialized",
@@ -358,7 +354,6 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
             )
 
         except SubscriptionError as e:
-            request_status = "error"
             logger.error(f"Unsubscription failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

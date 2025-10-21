@@ -101,11 +101,13 @@ class TestMetricsDataCapture:
         assert match, "Redis connection status metric not found"
         metric_value = float(match.group(1))
 
-        # In test environment without Redis running, should be 0.0
-        # (Redis connection fails during startup and client is set to None)
-        assert (
-            metric_value == 0.0
-        ), f"Expected redis_connection_status=0.0 (no Redis in test env), got {metric_value}"
+        # Redis may or may not be running depending on test environment
+        # Local tests: Redis not running (0.0)
+        # CI tests: Redis running in docker-compose (1.0)
+        assert metric_value in (
+            0.0,
+            1.0,
+        ), f"Expected redis_connection_status to be 0.0 or 1.0, got {metric_value}"
 
     def test_metrics_format_is_prometheus_compliant(self, client):
         """Test that metrics endpoint returns valid Prometheus format."""

@@ -345,9 +345,10 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
 
             # Track metrics
             signals_received_total.inc(result.num_signals)
-            orders_submitted_total.labels(status="success").inc(result.num_orders_submitted)
-            if result.num_orders_submitted > 0:
-                positions_adjusted_total.inc(result.num_orders_submitted)
+            orders_submitted_total.labels(status="success").inc(result.num_orders_accepted)
+            if result.num_orders_rejected > 0:
+                orders_submitted_total.labels(status="error").inc(result.num_orders_rejected)
+            positions_adjusted_total.inc(result.num_orders_accepted)
 
             # Persist to database
             db_client.create_run(result)

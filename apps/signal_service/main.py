@@ -871,17 +871,14 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
                     as_of_date=as_of_date,
                 )
         except FileNotFoundError as exc:
-            request_status = "error"
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"Data not found: {str(exc)}"
             ) from exc
         except ValueError as exc:
-            request_status = "error"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid request: {str(exc)}"
             ) from exc
         except Exception as exc:
-            request_status = "error"
             logger.error(f"Signal generation failed: {exc}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -899,7 +896,6 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
         signals: list[dict[str, Any]] = []
         for signal in raw_signals:
             if not all(isinstance(k, str) for k in signal.keys()):
-                request_status = "error"
                 logger.error(f"Non-string keys found in signal dict: {list(signal.keys())}")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
