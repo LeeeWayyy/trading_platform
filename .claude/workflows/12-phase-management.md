@@ -256,16 +256,6 @@ else:
     print(f"All tasks exist, check status: ./scripts/tasks.py list --phase {phase}")
 ```
 
-### Issue: Feature Created as PROGRESS Instead of TASK
-
-**Symptom:** Feature files created as `PxTy-Fz_PROGRESS.md` instead of `_TASK.md`
-
-**Cause:** Features are meant to be started immediately (part of parent task already in progress)
-
-**Solution:** This is intentional design. Features represent sub-components of an active task:
-- Parent task: `P1T1_TASK.md` → `P1T1_PROGRESS.md` (user starts manually)
-- Child features: `P1T1-F1_PROGRESS.md`, `P1T1-F2_PROGRESS.md` (created in progress state)
-
 ---
 
 ## Examples

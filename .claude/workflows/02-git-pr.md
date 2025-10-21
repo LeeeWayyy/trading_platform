@@ -152,8 +152,8 @@ Implements position limit validation to prevent order placement beyond risk limi
 
 ## Related Work
 - **Ticket:** P0T5 - Position Limit Validation
-- **ADR:** [ADR-0011: Risk Management System](../docs/ADRs/0011-risk-management-system.md)
-- **Implementation Guide:** [P1.2T3 Risk Management](../docs/IMPLEMENTATION_GUIDES/p1.2t3-risk-management.md)
+- **ADR:** [ADR-0011: Risk Management System](../../docs/ADRs/0011-risk-management-system.md)
+- **Implementation Guide:** [P1T7 Risk Management](../../docs/TASKS/P1T7_DONE.md)
 
 ## Changes Made
 - [x] Implement `check_position_limits()` function
