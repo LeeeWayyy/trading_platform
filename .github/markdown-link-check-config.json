@@ -1,0 +1,95 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^http://localhost"
+    },
+    {
+      "pattern": "^https://localhost"
+    },
+    {
+      "pattern": "^http://127.0.0.1"
+    },
+    {
+      "pattern": "^https://staging.example.com"
+    },
+    {
+      "pattern": "^https://api.example.com"
+    },
+    {
+      "pattern": "^https://paper-api.alpaca.markets"
+    },
+    {
+      "pattern": "^https://docs.alpaca.markets/docs/webhooks"
+    },
+    {
+      "pattern": "^https://alpaca.markets/docs/market-data/streaming/"
+    },
+    {
+      "pattern": "^https://www.nasdaq.com/market-activity/corporate-actions"
+    },
+    {
+      "pattern": "^https://www.finra.org/rules-guidance/key-topics/corporate-actions"
+    },
+    {
+      "pattern": "^https://eng.uber.com/michelangelo-machine-learning-platform/"
+    },
+    {
+      "pattern": "^https://www.pola.rs/posts/pandas_to_polars/"
+    },
+    {
+      "pattern": "^https://redis.io/docs/manual/pubsub/"
+    },
+    {
+      "pattern": "^https://pola-rs.github.io/polars/"
+    },
+    {
+      "pattern": "^https://alpaca.markets/docs/trading/webhooks/"
+    },
+    {
+      "pattern": "^https://cheatsheetseries.owasp.org/"
+    },
+    {
+      "pattern": "^https://codahale.com/"
+    },
+    {
+      "pattern": "^https://redis.io/docs/management/optimization/"
+    },
+    {
+      "pattern": "^https://www.uber.com/blog/michelangelo"
+    },
+    {
+      "pattern": "^https://www.federalreserve.gov/"
+    },
+    {
+      "pattern": "^https://www.sec.gov/"
+    },
+    {
+      "pattern": "^https://towardsdatascience.com/"
+    },
+    {
+      "pattern": "^https://openai.com/pricing"
+    },
+    {
+      "pattern": "^https://ai.google.dev/pricing"
+    }
+  ],
+  "replacementPatterns": [
+    {
+      "pattern": "^/",
+      "replacement": "{{BASEURL}}/"
+    }
+  ],
+  "httpHeaders": [
+    {
+      "urls": ["https://github.com"],
+      "headers": {
+        "Accept": "application/vnd.github.v3+json"
+      }
+    }
+  ],
+  "timeout": "20s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackRetryDelay": "30s",
+  "aliveStatusCodes": [200, 206, 301, 302, 307, 308]
+}

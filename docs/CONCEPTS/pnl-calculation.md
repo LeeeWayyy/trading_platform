@@ -616,12 +616,12 @@ async def fetch_current_prices(
 
 ## Related Concepts
 
-- [Position Sizing](./position-sizing.md) - How to determine order quantities
 - [Corporate Actions](./corporate-actions.md) - Stock splits affect P&L calculation
-- [Slippage](./slippage.md) - Execution costs reduce P&L
+- Position Sizing (TODO: concept doc needed) - How to determine order quantities
+- Slippage (TODO: concept doc needed) - Execution costs reduce P&L
 
 ## Related ADRs
 
 - [ADR-0008](../ADRs/0008-enhanced-pnl-calculation.md): Enhanced P&L Calculation (T1.1) - Architecture for realized/unrealized P&L
 - [ADR-0007](../ADRs/0007-paper-run-automation.md): Paper Run Automation - Uses notional P&L for MVP
-- [ADR-0005](../ADRs/0005-execution-gateway-design.md): Execution Gateway - Stores position data for P&L calculation
+- [ADR-0005](../ADRs/0005-execution-gateway-architecture.md): Execution Gateway - Stores position data for P&L calculation

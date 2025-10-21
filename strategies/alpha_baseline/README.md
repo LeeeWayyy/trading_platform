@@ -355,7 +355,7 @@ See `tests/strategies/alpha_baseline/README.md` for details.
 
 ### Implementation Guides (How-To)
 
-- **t2-baseline-strategy-qlib.md** - Complete T2 implementation guide
+- **[/docs/TASKS/P0T2_DONE.md](../../docs/TASKS/P0T2_DONE.md)** - Complete T2 implementation guide
 
 ### Architecture Decision Records (Why)
 

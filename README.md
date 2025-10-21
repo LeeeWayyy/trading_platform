@@ -91,9 +91,8 @@ trading_platform/
 ├── docs/                          # Documentation
 │   ├── ADRs/                     # Architecture decisions
 │   ├── CONCEPTS/                 # Trading concepts explained
-│   ├── IMPLEMENTATION_GUIDES/    # Step-by-step guides
 │   ├── LESSONS_LEARNED/          # Retrospectives
-│   └── TASKS/                    # Ticket backlog
+│   └── TASKS/                    # Task tracking and implementation guides
 ├── tests/                         # Test suite
 ├── data/                          # Parquet data files
 └── artifacts/                     # Models, backtests
@@ -116,14 +115,11 @@ trading_platform/
 - [docs/STANDARDS/TESTING.md](./docs/STANDARDS/TESTING.md) - Testing strategy and requirements
 
 ### Implementation Guides
-- **[docs/IMPLEMENTATION_GUIDES/t1-data-etl.md](./docs/IMPLEMENTATION_GUIDES/t1-data-etl.md)** - T1: Data ETL implementation
-- **[docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md](./docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md)** - T2: Baseline strategy
-- **[docs/IMPLEMENTATION_GUIDES/t3-signal-service.md](./docs/IMPLEMENTATION_GUIDES/t3-signal-service.md)** - T3: Signal service (main guide)
-- [docs/IMPLEMENTATION_GUIDES/t3-p4-fastapi-application.md](./docs/IMPLEMENTATION_GUIDES/t3-p4-fastapi-application.md) - T3 Phase 4: FastAPI
-- [docs/IMPLEMENTATION_GUIDES/t3-p5-hot-reload.md](./docs/IMPLEMENTATION_GUIDES/t3-p5-hot-reload.md) - T3 Phase 5: Hot Reload
-- [docs/IMPLEMENTATION_GUIDES/t3-p6-integration-tests.md](./docs/IMPLEMENTATION_GUIDES/t3-p6-integration-tests.md) - T3 Phase 6: Integration Tests
-- **[docs/IMPLEMENTATION_GUIDES/t4-execution-gateway.md](./docs/IMPLEMENTATION_GUIDES/t4-execution-gateway.md)** - T4: Execution gateway
-- **[docs/IMPLEMENTATION_GUIDES/t5-orchestrator.md](./docs/IMPLEMENTATION_GUIDES/t5-orchestrator.md)** - T5: Orchestrator service
+- **[docs/TASKS/P0T1_DONE.md](./docs/TASKS/P0T1_DONE.md)** - T1: Data ETL implementation
+- **[docs/TASKS/P0T2_DONE.md](./docs/TASKS/P0T2_DONE.md)** - T2: Baseline strategy
+- **[docs/TASKS/P0T3_DONE.md](./docs/TASKS/P0T3_DONE.md)** - T3: Signal service (complete guide with all phases)
+- **[docs/TASKS/P0T4_DONE.md](./docs/TASKS/P0T4_DONE.md)** - T4: Execution gateway
+- **[docs/TASKS/P0T5_DONE.md](./docs/TASKS/P0T5_DONE.md)** - T5: Orchestrator service
 
 ### Architecture Decisions
 - [docs/ADRs/0001-data-pipeline-architecture.md](./docs/ADRs/0001-data-pipeline-architecture.md) - T1: Data pipeline decisions
@@ -166,7 +162,7 @@ trading_platform/
 - `libs/data_pipeline/quality_gate.py` - Outlier detection
 
 **Tests:** 53 tests, 100% passing
-**Documentation:** [docs/IMPLEMENTATION_GUIDES/t1-data-etl.md](./docs/IMPLEMENTATION_GUIDES/t1-data-etl.md)
+**Documentation:** [docs/TASKS/P0T1_DONE.md](./docs/TASKS/P0T1_DONE.md)
 
 ---
 
@@ -186,7 +182,7 @@ trading_platform/
 - `strategies/alpha_baseline/mock_features.py` - Mock features for testing
 
 **Tests:** Unit tests for all components
-**Documentation:** [docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md](./docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md)
+**Documentation:** [docs/TASKS/P0T2_DONE.md](./docs/TASKS/P0T2_DONE.md)
 
 ---
 
@@ -230,10 +226,7 @@ trading_platform/
 - Zero downtime during updates ✅
 
 **Documentation:**
-- [docs/IMPLEMENTATION_GUIDES/t3-signal-service.md](./docs/IMPLEMENTATION_GUIDES/t3-signal-service.md) - Main guide (1,940 lines)
-- [docs/IMPLEMENTATION_GUIDES/t3-p4-fastapi-application.md](./docs/IMPLEMENTATION_GUIDES/t3-p4-fastapi-application.md) - FastAPI details
-- [docs/IMPLEMENTATION_GUIDES/t3-p5-hot-reload.md](./docs/IMPLEMENTATION_GUIDES/t3-p5-hot-reload.md) - Hot reload mechanism
-- [docs/IMPLEMENTATION_GUIDES/t3-p6-integration-tests.md](./docs/IMPLEMENTATION_GUIDES/t3-p6-integration-tests.md) - Test suite
+- [docs/TASKS/P0T3_DONE.md](./docs/TASKS/P0T3_DONE.md) - Complete implementation guide (includes FastAPI, hot reload, and testing)
 - [docs/ADRs/0004-signal-service-architecture.md](./docs/ADRs/0004-signal-service-architecture.md) - Architecture decisions
 
 **Deployment Scripts:**
@@ -292,7 +285,7 @@ trading_platform/
 - Health check: < 10ms ✅
 
 **Documentation:**
-- [docs/IMPLEMENTATION_GUIDES/t4-execution-gateway.md](./docs/IMPLEMENTATION_GUIDES/t4-execution-gateway.md) - Complete implementation guide (827 lines)
+- [docs/TASKS/P0T4_DONE.md](./docs/TASKS/P0T4_DONE.md) - Complete implementation guide
 - [docs/ADRs/0005-execution-gateway-architecture.md](./docs/ADRs/0005-execution-gateway-architecture.md) - Architecture decisions (690 lines)
 
 **Deployment Scripts:**
@@ -352,7 +345,7 @@ trading_platform/
 - Partial failure support (some orders succeed, some fail) ✅
 
 **Documentation:**
-- [docs/IMPLEMENTATION_GUIDES/t5-orchestrator.md](./docs/IMPLEMENTATION_GUIDES/t5-orchestrator.md) - Complete implementation guide (754 lines)
+- [docs/TASKS/P0T5_DONE.md](./docs/TASKS/P0T5_DONE.md) - Complete implementation guide
 - [docs/ADRs/0006-orchestrator-service.md](./docs/ADRs/0006-orchestrator-service.md) - Architecture decisions (900+ lines)
 
 **Deployment Scripts:**
@@ -408,7 +401,7 @@ python scripts/paper_run.py --verbose
 **Key files:**
 - `scripts/paper_run.py` (872 lines) - Main CLI automation script
 - `scripts/test_paper_run.py` (605 lines) - Comprehensive test suite
-- `docs/IMPLEMENTATION_GUIDES/t6-paper-run.md` (1059 lines) - Implementation guide
+- `docs/TASKS/P0T6_DONE.md` - Implementation guide
 - `docs/CONCEPTS/pnl-calculation.md` (407 lines) - P&L explanation
 - `docs/ADRs/0007-paper-run-automation.md` (451 lines) - Architecture decisions
 
@@ -428,7 +421,7 @@ python scripts/paper_run.py --verbose
 - P&L calculation: < 1ms ✅
 
 **Documentation:**
-- [docs/IMPLEMENTATION_GUIDES/t6-paper-run.md](./docs/IMPLEMENTATION_GUIDES/t6-paper-run.md) - Complete implementation guide
+- [docs/TASKS/P0T6_DONE.md](./docs/TASKS/P0T6_DONE.md) - Complete implementation guide
 - [docs/ADRs/0007-paper-run-automation.md](./docs/ADRs/0007-paper-run-automation.md) - Architecture decisions (CLI script vs microservice)
 - [docs/CONCEPTS/pnl-calculation.md](./docs/CONCEPTS/pnl-calculation.md) - P&L types and calculation methods
 
@@ -612,7 +605,7 @@ All 6 tasks (T1-T6) successfully delivered:
 - Risk management system
 - Performance analytics dashboard
 
-**See:** [docs/TASKS/P0_TICKETS.md](./docs/TASKS/P0_TICKETS.md) for roadmap
+**See:** [docs/TASKS/P0_TASKS.md](./docs/TASKS/P0_TASKS.md) for roadmap
 
 ---
 

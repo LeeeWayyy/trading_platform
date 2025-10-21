@@ -172,6 +172,6 @@ Integration tests require:
 
 ## Questions or Issues?
 
-- Review `/docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md`
+- Review [/docs/TASKS/P0T2_DONE.md](../../../docs/TASKS/P0T2_DONE.md) for implementation guide
 - Check `/docs/CONCEPTS/` for conceptual explanations
 - File issues in GitHub issue tracker

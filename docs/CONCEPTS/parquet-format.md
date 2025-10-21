@@ -560,7 +560,7 @@ for f in Path("data/adjusted").rglob("*.parquet"):
 
 - [duckdb-basics.md](./duckdb-basics.md) - Querying Parquet with DuckDB
 - [sql-analytics-patterns.md](./sql-analytics-patterns.md) - SQL queries on Parquet
-- `/docs/IMPLEMENTATION_GUIDES/p0t1-data-etl.md` - How we create Parquet files
+- `/docs/TASKS/P0T1_DONE.md` - How we create Parquet files
 
 ---
 
