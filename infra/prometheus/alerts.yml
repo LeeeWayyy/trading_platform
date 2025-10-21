@@ -301,7 +301,7 @@ groups:
           ) > 60.0
         for: 5m
         labels:
-          severity: low
+          severity: medium
           component: performance
         annotations:
           summary: "Slow orchestration"

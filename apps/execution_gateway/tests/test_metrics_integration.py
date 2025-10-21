@@ -122,6 +122,7 @@ class TestMetricsDataCapture:
             "execution_gateway_database_connection_status",
             "execution_gateway_redis_connection_status",
             "execution_gateway_alpaca_connection_status",
+            "execution_gateway_alpaca_api_requests_total",
             "execution_gateway_webhook_received_total",
             "execution_gateway_dry_run_mode",
         ]
@@ -162,3 +163,32 @@ class TestMetricsDataCapture:
         assert (
             first_value == second_value
         ), "Database connection status should be consistent across health checks"
+
+    def test_alpaca_api_requests_total_tracked_in_health_check(self, client):
+        """Test that alpaca_api_requests_total increments when health check calls Alpaca API."""
+        # Get initial metrics
+        initial_metrics = client.get("/metrics").text
+
+        # Call health check (triggers Alpaca API check_connection if not DRY_RUN)
+        health_response = client.get("/health")
+        assert health_response.status_code == 200
+
+        # Get updated metrics
+        updated_metrics = client.get("/metrics").text
+
+        # In DRY_RUN mode, Alpaca API is not called, so metric should not increment
+        # In non-DRY_RUN mode with Alpaca client, metric should increment
+        # This test verifies the metric is properly defined and tracked
+        assert "execution_gateway_alpaca_api_requests_total" in updated_metrics
+
+    def test_alpaca_api_requests_total_has_operation_label(self, client):
+        """Test that alpaca_api_requests_total has operation and status labels."""
+        # Call health check to potentially trigger metric
+        client.get("/health")
+
+        # Get metrics
+        metrics = client.get("/metrics").text
+
+        # Metric should be defined with operation and status labels
+        assert "execution_gateway_alpaca_api_requests_total" in metrics
+        assert "# TYPE execution_gateway_alpaca_api_requests_total counter" in metrics

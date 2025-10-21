@@ -137,6 +137,15 @@ async def model_reload_task() -> None:
                     f"{model_registry.current_metadata.strategy_name} "
                     f"v{model_registry.current_metadata.version}"
                 )
+
+                # Update model metrics after successful reload
+                model_version_info.info({
+                    "version": model_registry.current_metadata.version,
+                    "strategy": model_registry.current_metadata.strategy_name,
+                    "activated_at": model_registry.current_metadata.activated_at.isoformat(),
+                })
+                model_loaded_status.set(1)
+                model_reload_total.labels(status="success").inc()
             else:
                 logger.debug("No model updates found")
 
@@ -206,6 +215,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         assert model_registry is not None and model_registry.current_metadata is not None
         logger.info(f"Model loaded: {model_registry.current_metadata.version}")
+
+        # Update model metrics
+        model_version_info.info({
+            "version": model_registry.current_metadata.version,
+            "strategy": model_registry.current_metadata.strategy_name,
+            "activated_at": model_registry.current_metadata.activated_at.isoformat(),
+        })
+        model_loaded_status.set(1)
 
         # Step 3: Initialize Redis client (optional, T1.2)
         if settings.redis_enabled:
@@ -1074,6 +1091,16 @@ async def reload_model() -> dict[str, Any]:
             response["previous_version"] = previous_version
             response["message"] = "Model reloaded successfully"
             logger.info(f"Manual reload successful: {previous_version} -> {current_version}")
+
+            # Update model metrics after successful manual reload
+            assert model_registry.current_metadata is not None
+            model_version_info.info({
+                "version": model_registry.current_metadata.version,
+                "strategy": model_registry.current_metadata.strategy_name,
+                "activated_at": model_registry.current_metadata.activated_at.isoformat(),
+            })
+            model_loaded_status.set(1)
+            model_reload_total.labels(status="success").inc()
         else:
             response["message"] = "Model already up to date"
             logger.info("Manual reload: no changes detected")

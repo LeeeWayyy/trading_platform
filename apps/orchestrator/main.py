@@ -225,6 +225,11 @@ async def health_check() -> HealthResponse:
     finally:
         await orchestrator.close()
 
+    # Update health metrics
+    database_connection_status.set(1 if db_connected else 0)
+    signal_service_available.set(1 if signal_healthy else 0)
+    execution_gateway_available.set(1 if execution_healthy else 0)
+
     # Determine overall status
     if db_connected and signal_healthy and execution_healthy:
         overall_status = "healthy"

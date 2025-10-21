@@ -126,8 +126,8 @@ class TestPrometheusMetrics:
         response = client.get("/metrics")
         assert response.status_code == 200
 
-        # Should be set to 1 initially (assuming DB is up in tests)
-        assert "execution_gateway_database_connection_status 1.0" in response.text
+        # Should be set to 0 initially (will be updated by health check)
+        assert "execution_gateway_database_connection_status 0.0" in response.text
 
     def test_all_required_metrics_present(self, client):
         """Test that all required metrics are present in output."""
@@ -142,6 +142,7 @@ class TestPrometheusMetrics:
             "execution_gateway_database_connection_status",
             "execution_gateway_redis_connection_status",
             "execution_gateway_alpaca_connection_status",
+            "execution_gateway_alpaca_api_requests_total",
             "execution_gateway_webhook_received_total",
             "execution_gateway_dry_run_mode",
         ]

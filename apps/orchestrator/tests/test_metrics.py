@@ -101,28 +101,43 @@ class TestPrometheusMetrics:
         assert "Execution Gateway availability" in response.text
 
     def test_database_connection_status_initial_value(self, client):
-        """Test that database_connection_status has initial value."""
+        """Test that database_connection_status has initial value (updated by health check)."""
+        # Call health check to set initial values
+        health_response = client.get("/health")
+        assert health_response.status_code == 200
+
         response = client.get("/metrics")
         assert response.status_code == 200
 
-        # Should be set to 1 initially (assuming DB is up in tests)
-        assert "orchestrator_database_connection_status 1.0" in response.text
+        # Should be updated by health check
+        assert ("orchestrator_database_connection_status 1.0" in response.text or
+                "orchestrator_database_connection_status 0.0" in response.text)
 
     def test_signal_service_available_initial_value(self, client):
-        """Test that signal_service_available has initial value."""
+        """Test that signal_service_available has initial value (updated by health check)."""
+        # Call health check to set initial values
+        health_response = client.get("/health")
+        assert health_response.status_code == 200
+
         response = client.get("/metrics")
         assert response.status_code == 200
 
-        # Should be set to 0 initially (will be updated by health check)
-        assert "orchestrator_signal_service_available 0.0" in response.text
+        # Should be updated by health check (0 or 1 depending on service availability)
+        assert ("orchestrator_signal_service_available 1.0" in response.text or
+                "orchestrator_signal_service_available 0.0" in response.text)
 
     def test_execution_gateway_available_initial_value(self, client):
-        """Test that execution_gateway_available has initial value."""
+        """Test that execution_gateway_available has initial value (updated by health check)."""
+        # Call health check to set initial values
+        health_response = client.get("/health")
+        assert health_response.status_code == 200
+
         response = client.get("/metrics")
         assert response.status_code == 200
 
-        # Should be set to 0 initially (will be updated by health check)
-        assert "orchestrator_execution_gateway_available 0.0" in response.text
+        # Should be updated by health check (0 or 1 depending on service availability)
+        assert ("orchestrator_execution_gateway_available 1.0" in response.text or
+                "orchestrator_execution_gateway_available 0.0" in response.text)
 
     def test_all_required_metrics_present(self, client):
         """Test that all required metrics are present in output."""
@@ -252,3 +267,42 @@ class TestPrometheusMetrics:
         assert response.status_code == 200
         # Metrics endpoint should respond in < 100ms
         assert duration < 0.1, f"Metrics endpoint too slow: {duration:.3f}s"
+
+    def test_health_check_updates_service_availability_gauges(self, client):
+        """Test that health check endpoint updates service availability gauges."""
+        import re
+
+        # Get initial metrics
+        initial_metrics = client.get("/metrics").text
+
+        # Call health check to update gauges
+        health_response = client.get("/health")
+        assert health_response.status_code == 200
+        health_data = health_response.json()
+
+        # Get updated metrics
+        updated_metrics = client.get("/metrics").text
+
+        # Verify database_connection_status reflects health check result
+        db_pattern = r"orchestrator_database_connection_status (\d+\.?\d*)"
+        db_match = re.search(db_pattern, updated_metrics)
+        assert db_match, "Database connection status metric not found"
+        db_value = float(db_match.group(1))
+        expected_db_value = 1.0 if health_data["database_connected"] else 0.0
+        assert db_value == expected_db_value, f"Expected db status={expected_db_value}, got {db_value}"
+
+        # Verify signal_service_available reflects health check result
+        signal_pattern = r"orchestrator_signal_service_available (\d+\.?\d*)"
+        signal_match = re.search(signal_pattern, updated_metrics)
+        assert signal_match, "Signal service availability metric not found"
+        signal_value = float(signal_match.group(1))
+        expected_signal_value = 1.0 if health_data["signal_service_healthy"] else 0.0
+        assert signal_value == expected_signal_value, f"Expected signal service={expected_signal_value}, got {signal_value}"
+
+        # Verify execution_gateway_available reflects health check result
+        exec_pattern = r"orchestrator_execution_gateway_available (\d+\.?\d*)"
+        exec_match = re.search(exec_pattern, updated_metrics)
+        assert exec_match, "Execution gateway availability metric not found"
+        exec_value = float(exec_match.group(1))
+        expected_exec_value = 1.0 if health_data["execution_gateway_healthy"] else 0.0
+        assert exec_value == expected_exec_value, f"Expected execution gateway={expected_exec_value}, got {exec_value}"

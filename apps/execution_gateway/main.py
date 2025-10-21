@@ -34,6 +34,7 @@ Usage:
 See ADR-0005 for architecture decisions.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -205,6 +206,12 @@ alpaca_connection_status = Gauge(
     "Alpaca connection status (1=up, 0=down)",
 )
 
+alpaca_api_requests_total = Counter(
+    "execution_gateway_alpaca_api_requests_total",
+    "Total Alpaca API requests",
+    ["operation", "status"],  # operation: submit_order, check_connection; status: success, error
+)
+
 webhook_received_total = Counter(
     "execution_gateway_webhook_received_total",
     "Total webhooks received",
@@ -218,9 +225,9 @@ dry_run_mode = Gauge(
 
 # Set initial metric values
 dry_run_mode.set(1 if DRY_RUN else 0)
-database_connection_status.set(1)  # Will be updated by health check
-redis_connection_status.set(1 if redis_client else 0)
-alpaca_connection_status.set(1 if alpaca_client else 0)
+database_connection_status.set(0)  # Will be updated by health check
+redis_connection_status.set(0)  # Will be updated by health check
+alpaca_connection_status.set(0)  # Will be updated by health check
 
 # Mount Prometheus metrics endpoint
 metrics_app = make_asgi_app()
@@ -228,6 +235,7 @@ app.mount("/metrics", metrics_app)
 
 # Track symbols we've set position metrics for (to reset when positions close)
 _tracked_position_symbols: set[str] = set()
+_position_metrics_lock = asyncio.Lock()
 
 
 # ============================================================================
@@ -513,13 +521,29 @@ async def health_check() -> HealthResponse:
     # Check database connection
     db_connected = db_client.check_connection()
 
+    # Check Redis connection
+    redis_connected = False
+    if redis_client:
+        redis_connected = redis_client.health_check()
+
     # Check Alpaca connection (if not DRY_RUN)
     alpaca_connected = True
     if not DRY_RUN and alpaca_client:
-        alpaca_connected = alpaca_client.check_connection()
+        alpaca_api_status = "success"
+        try:
+            alpaca_connected = alpaca_client.check_connection()
+        except Exception:
+            alpaca_api_status = "error"
+            alpaca_connected = False
+        finally:
+            # Always track Alpaca API request metric
+            alpaca_api_requests_total.labels(
+                operation="check_connection", status=alpaca_api_status
+            ).inc()
 
     # Update health metrics
     database_connection_status.set(1 if db_connected else 0)
+    redis_connection_status.set(1 if redis_connected else 0)
     alpaca_connection_status.set(1 if (not DRY_RUN and alpaca_connected) else 0)
 
     # Determine overall status
@@ -691,7 +715,17 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
         try:
             # Submit to Alpaca with retry logic
-            alpaca_response = alpaca_client.submit_order(order, client_order_id)
+            alpaca_api_status = "success"
+            try:
+                alpaca_response = alpaca_client.submit_order(order, client_order_id)
+            except Exception:
+                alpaca_api_status = "error"
+                raise
+            finally:
+                # Always track Alpaca API request metric
+                alpaca_api_requests_total.labels(
+                    operation="submit_order", status=alpaca_api_status
+                ).inc()
 
             # Save order to database
             order_detail = db_client.create_order(
@@ -833,17 +867,22 @@ async def get_positions() -> PositionsResponse:
     """
     positions = db_client.get_all_positions()
 
-    # Get current symbols with open positions
-    current_symbols = {pos.symbol for pos in positions}
+    # Protect access to the shared `_tracked_position_symbols` set and fix memory leak
+    async with _position_metrics_lock:
+        current_symbols = {pos.symbol for pos in positions}
 
-    # Reset metrics for symbols that no longer have positions (closed positions)
-    for symbol in _tracked_position_symbols - current_symbols:
-        positions_current.labels(symbol=symbol).set(0)
+        # Reset metrics for symbols that are no longer in our portfolio
+        symbols_to_remove = _tracked_position_symbols - current_symbols
+        for symbol in symbols_to_remove:
+            positions_current.labels(symbol=symbol).set(0)
 
-    # Update position metrics for each current symbol
-    for pos in positions:
-        positions_current.labels(symbol=pos.symbol).set(float(pos.qty))
-        _tracked_position_symbols.add(pos.symbol)
+        # Update position metrics for each current symbol
+        for pos in positions:
+            positions_current.labels(symbol=pos.symbol).set(float(pos.qty))
+
+        # Update the set of tracked symbols to match the current portfolio
+        _tracked_position_symbols.clear()
+        _tracked_position_symbols.update(current_symbols)
 
     # Calculate totals
     total_unrealized_pl = sum(
