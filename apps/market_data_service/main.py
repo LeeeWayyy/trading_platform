@@ -6,11 +6,13 @@ Real-time market data streaming service with WebSocket management.
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
 
 from apps.market_data_service.config import settings
@@ -95,6 +97,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # EventPublisher takes a RedisClient instance, not individual connection params
         event_publisher = EventPublisher(redis_client=redis_client)
 
+        # Update Redis connection metric
+        redis_connection_status.set(1)
+
         # Initialize WebSocket stream
         stream = AlpacaMarketDataStream(
             api_key=settings.alpaca_api_key,
@@ -155,6 +160,65 @@ app = FastAPI(
 )
 
 
+# ============================================================================
+# Prometheus Metrics
+# ============================================================================
+
+# Business metrics
+subscription_requests_total = Counter(
+    "market_data_subscription_requests_total",
+    "Total number of subscription requests",
+    ["operation", "status"],  # operation: subscribe/unsubscribe, status: success/error
+)
+
+subscription_duration = Histogram(
+    "market_data_subscription_duration_seconds",
+    "Time taken to process subscription requests",
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+)
+
+subscribed_symbols_current = Gauge(
+    "market_data_subscribed_symbols_current",
+    "Current number of subscribed symbols",
+)
+
+websocket_messages_received_total = Counter(
+    "market_data_websocket_messages_received_total",
+    "Total number of WebSocket messages received",
+    ["message_type"],  # quote, trade, bar, etc.
+)
+
+position_syncs_total = Counter(
+    "market_data_position_syncs_total",
+    "Total number of position-based subscription syncs",
+    ["status"],  # success, error
+)
+
+# Health metrics
+websocket_connection_status = Gauge(
+    "market_data_websocket_connection_status",
+    "WebSocket connection status (1=connected, 0=disconnected)",
+)
+
+redis_connection_status = Gauge(
+    "market_data_redis_connection_status",
+    "Redis connection status (1=connected, 0=disconnected)",
+)
+
+reconnect_attempts_total = Counter(
+    "market_data_reconnect_attempts_total",
+    "Total number of WebSocket reconnection attempts",
+)
+
+# Set initial values
+websocket_connection_status.set(0)  # Will be updated by lifespan/health check
+redis_connection_status.set(0)  # Will be updated by lifespan/health check
+
+# Mount Prometheus metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """
@@ -170,6 +234,10 @@ async def health_check() -> HealthResponse:
         )
 
     stats = stream.get_connection_stats()
+
+    # Update health metrics
+    websocket_connection_status.set(1 if stats["is_connected"] else 0)
+    subscribed_symbols_current.set(stats["subscribed_symbols"])
 
     return HealthResponse(
         status="healthy" if stats["is_connected"] else "degraded",
@@ -195,37 +263,58 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
     Raises:
         HTTPException: If subscription fails
     """
-    if not stream:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Market data stream not initialized",
-        )
-
-    if not request.symbols:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No symbols provided",
-        )
+    request_started = time.time()
+    request_status = "success"
 
     try:
-        await stream.subscribe_symbols(request.symbols)
+        if not stream:
+            request_status = "error"
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Market data stream not initialized",
+            )
 
-        subscribed = stream.get_subscribed_symbols()
+        if not request.symbols:
+            request_status = "error"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No symbols provided",
+            )
 
-        logger.info(f"Subscribed to {len(request.symbols)} symbols: {request.symbols}")
+        try:
+            await stream.subscribe_symbols(request.symbols)
 
-        return SubscribeResponse(
-            message=f"Successfully subscribed to {len(request.symbols)} symbols",
-            subscribed_symbols=request.symbols,
-            total_subscriptions=len(subscribed),
-        )
+            subscribed = stream.get_subscribed_symbols()
 
-    except SubscriptionError as e:
-        logger.error(f"Subscription failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Subscription failed: {str(e)}",
-        ) from e
+            # Update metrics after successful subscription
+            subscribed_symbols_current.set(len(subscribed))
+
+            logger.info(f"Subscribed to {len(request.symbols)} symbols: {request.symbols}")
+
+            return SubscribeResponse(
+                message=f"Successfully subscribed to {len(request.symbols)} symbols",
+                subscribed_symbols=request.symbols,
+                total_subscriptions=len(subscribed),
+            )
+
+        except SubscriptionError as e:
+            request_status = "error"
+            logger.error(f"Subscription failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Subscription failed: {str(e)}",
+            ) from e
+
+    except HTTPException:
+        request_status = "error"
+        raise
+    except Exception:
+        request_status = "error"
+        raise
+    finally:
+        elapsed = time.time() - request_started
+        subscription_requests_total.labels(operation="subscribe", status=request_status).inc()
+        subscription_duration.observe(elapsed)
 
 
 @app.delete("/api/v1/subscribe/{symbol}", response_model=UnsubscribeResponse)
@@ -242,30 +331,50 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
     Raises:
         HTTPException: If unsubscription fails
     """
-    if not stream:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Market data stream not initialized",
-        )
+    request_started = time.time()
+    request_status = "success"
 
     try:
-        await stream.unsubscribe_symbols([symbol])
+        if not stream:
+            request_status = "error"
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Market data stream not initialized",
+            )
 
-        remaining = stream.get_subscribed_symbols()
+        try:
+            await stream.unsubscribe_symbols([symbol])
 
-        logger.info(f"Unsubscribed from {symbol}")
+            remaining = stream.get_subscribed_symbols()
 
-        return UnsubscribeResponse(
-            message=f"Successfully unsubscribed from {symbol}",
-            remaining_subscriptions=len(remaining),
-        )
+            # Update metrics after successful unsubscription
+            subscribed_symbols_current.set(len(remaining))
 
-    except SubscriptionError as e:
-        logger.error(f"Unsubscription failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unsubscription failed: {str(e)}",
-        ) from e
+            logger.info(f"Unsubscribed from {symbol}")
+
+            return UnsubscribeResponse(
+                message=f"Successfully unsubscribed from {symbol}",
+                remaining_subscriptions=len(remaining),
+            )
+
+        except SubscriptionError as e:
+            request_status = "error"
+            logger.error(f"Unsubscription failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Unsubscription failed: {str(e)}",
+            ) from e
+
+    except HTTPException:
+        request_status = "error"
+        raise
+    except Exception:
+        request_status = "error"
+        raise
+    finally:
+        elapsed = time.time() - request_started
+        subscription_requests_total.labels(operation="unsubscribe", status=request_status).inc()
+        subscription_duration.observe(elapsed)
 
 
 @app.get("/api/v1/subscriptions", response_model=SubscriptionsResponse)
