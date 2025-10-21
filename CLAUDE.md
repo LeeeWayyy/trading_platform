@@ -55,10 +55,9 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 **🔧 Implementation References:**
 - `/docs/API/*.openapi.yaml` — API contracts (strict, require ADR to change)
 - `/docs/DB/*.sql` — Database schemas (strict)
-- `/docs/TASKS/*.md` — Ticket backlog with acceptance criteria
+- `/docs/TASKS/*.md` — Task tracking and implementation guides
 - `/docs/ADRs/*.md` — All architectural decisions
 - `/docs/CONCEPTS/*.md` — Trading concepts explained for beginners
-- `/docs/TASKS/*.md` — Step-by-step implementation details
 
 ---
 
@@ -69,7 +68,7 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - `infra/` — Infrastructure configs (docker-compose, prometheus, grafana)
 - `db/` — Database migrations (Alembic)
 - `libs/` — Shared libraries (feature_store, common)
-- `docs/` — Documentation (STANDARDS, GETTING_STARTED, API, ADRs, CONCEPTS, IMPLEMENTATION_GUIDES)
+- `docs/` — Documentation (STANDARDS, GETTING_STARTED, API, ADRs, CONCEPTS, TASKS)
 - `.claude/` — Claude Code configuration (commands, workflows)
 - `tests/` — Test suite
 - `data/` — Parquet files, DuckDB catalogs
