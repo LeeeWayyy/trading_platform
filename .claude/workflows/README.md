@@ -44,15 +44,13 @@
 | [07-documentation.md](./07-documentation.md) | Writing docs and docstrings | During and after implementation |
 | [08-adr-creation.md](./08-adr-creation.md) | Creating Architecture Decision Records | Before making architectural changes |
 
-### Operations & Deployment (09-11) 🚧
+### Operations & Deployment (09-11)
 
-**⚠️ Coming Soon:** These workflows are planned but not yet implemented.
-
-| Workflow | Purpose | When to Use | Status |
-|----------|---------|-------------|--------|
-| 09-deployment-rollback.md | Deploy to staging/prod and rollback | During releases and incident response | 🚧 Planned |
-| 10-ci-triage.md | Handling CI/CD pipeline failures | When CI checks fail | 🚧 Planned |
-| 11-environment-bootstrap.md | Setting up development environment | Onboarding and fresh setup | 🚧 Planned |
+| Workflow | Purpose | When to Use |
+|----------|---------|-------------|
+| [09-deployment-rollback.md](./09-deployment-rollback.md) | Deploy to staging/prod and rollback | During releases and incident response |
+| [10-ci-triage.md](./10-ci-triage.md) | Handling CI/CD pipeline failures | When CI checks fail |
+| [11-environment-bootstrap.md](./11-environment-bootstrap.md) | Setting up development environment | Onboarding and fresh setup |
 
 ---
 
@@ -73,11 +71,11 @@
 **As Needed:**
 - 06-debugging.md (when issues arise)
 - 08-adr-creation.md (for architecture changes)
-- 10-ci-triage.md 🚧 (when CI fails - planned)
+- 10-ci-triage.md (when CI fails)
 
 **Occasionally:**
-- 09-deployment-rollback.md 🚧 (releases - planned)
-- 11-environment-bootstrap.md 🚧 (onboarding - planned)
+- 09-deployment-rollback.md (releases)
+- 11-environment-bootstrap.md (onboarding)
 
 ### By User Role
 
@@ -92,11 +90,11 @@
 
 **Architecture/Lead Developers:**
 - 08-adr-creation.md
-- 09-deployment-rollback.md 🚧 (planned)
+- 09-deployment-rollback.md
 
 **DevOps/Infrastructure:**
-- 10-ci-triage.md 🚧 (planned)
-- 11-environment-bootstrap.md 🚧 (planned)
+- 10-ci-triage.md
+- 11-environment-bootstrap.md
 
 ---
 
@@ -105,7 +103,7 @@
 ```
 Start Feature
     ↓
-[11-environment-bootstrap.md 🚧] ← (if first time - planned)
+[11-environment-bootstrap.md] ← (if first time)
     ↓
 Implement Code (30-60 min)
     ↓
@@ -125,11 +123,11 @@ Fix Issues Found
     ↓
 [02-git-pr.md] ← Create PR
     ↓
-[10-ci-triage.md 🚧] ← (if CI fails - planned)
+[10-ci-triage.md] ← (if CI fails)
     ↓
 Merge & Deploy
     ↓
-[09-deployment-rollback.md 🚧] ← (if needed - planned)
+[09-deployment-rollback.md] ← (if needed)
 ```
 
 ---
@@ -217,9 +215,9 @@ All workflows must:
 
 ## 📊 Workflow Metrics
 
-**Total Workflows:** 8 implemented + 3 planned (11 total)
-**Implemented:** 01-08 (Git, Review, Testing, Debugging, Docs, Architecture)
-**Planned:** 09-11 (Deployment, CI, Bootstrap) 🚧
+**Total Workflows:** 11 (complete coverage)
+**Core Development:** 01-08 (Git, Review, Testing, Debugging, Docs, Architecture)
+**Operations:** 09-11 (Deployment, CI, Bootstrap)
 **Average Length:** Target ≤10 steps per workflow
 **Review Frequency:** Quarterly or after major process changes
 
@@ -248,7 +246,7 @@ All workflows must:
 - Review workflows (03-04): @development-team + zen-mcp maintainers
 - Testing/Debugging (05-06): @qa-team
 - Docs/ADR (07-08): @tech-writers + architecture-team
-- Operations (09-11) 🚧: @devops-team (planned)
+- Operations (09-11): @devops-team
 
 ---
 
