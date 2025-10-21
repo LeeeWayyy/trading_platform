@@ -1,205 +1,226 @@
-# Git Workflow & Pull Request Automation
+# Git Workflow Standards & Policies
 
-## Overview
+**Purpose:** Define mandatory git practices, commit standards, and PR policies
+**Audience:** All developers and AI assistants
+**Type:** Normative (MUST follow)
+**Last Updated:** 2025-10-21
 
-This document explains how to work with Git and automate pull request creation when using Claude Code or other AI assistants.
+---
 
-## RULE NO.1
-- ❌ NEVER WORK ON master branch DIRECTLY, ALWAYS create branch for your work
+## 🎯 Quick Reference
 
-## Prerequisites
+**For step-by-step procedures, see:**
+- **Git commits:** [`.claude/workflows/01-git-commit.md`](../../.claude/workflows/01-git-commit.md)
+- **Pull requests:** [`.claude/workflows/02-git-pr.md`](../../.claude/workflows/02-git-pr.md)
+- **Zen-mcp review (quick):** [`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md)
+- **Zen-mcp review (deep):** [`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md)
 
-### 1. Install GitHub CLI
+**This document defines:**
+- ✅ What you MUST do (policies)
+- ❌ What you MUST NOT do (anti-patterns)
+- 📋 Standards and requirements
 
-```bash
-# macOS
-brew install gh
+---
 
-# Linux
-# See https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+## 📜 Core Policies
 
-# Windows
-# See https://github.com/cli/cli#windows
-```
+### Rule #1: Never Work on Master Directly
 
-### 2. Authenticate GitHub CLI
+**POLICY:** ❌ NEVER commit directly to `master` or `main` branch
 
-```bash
-# Authenticate with GitHub
-gh auth login
+**REQUIRED:**
+- ✅ ALWAYS create a feature branch for your work
+- ✅ Use pull requests for all changes
+- ✅ Merge via PR review process only
 
-# Select:
-# - GitHub.com
-# - HTTPS
-# - Login with a web browser (recommended)
-# - Follow the prompts
+**Exemptions:** None. Emergency hotfixes still require branch + expedited PR process.
 
-# Verify authentication
-gh auth status
-```
+### Rule #2: Progressive Commits (MANDATORY)
 
-### 3. Configure Git
+**POLICY:** Commit early, commit often during development
 
-```bash
-# Set your identity (if not already done)
-git config --global user.name "Your Name"
-git config --global user.email "your.email@example.com"
+**REQUIRED:**
+- ✅ Commit at minimum every 30-60 minutes of active development
+- ✅ Make logical, incremental commits (not one massive commit)
+- ✅ Each commit should compile and pass basic checks
+- ✅ Push regularly to backup work
 
-# Recommended: Set default branch name
-git config --global init.defaultBranch main
-
-# Recommended: Enable commit signing (optional but good practice)
-git config --global commit.gpgsign true
-```
-
-## Feature Development Workflow
-
-### Two Development Modes
-
-**Mode 1: Direct to Master (Small Fixes)**
-- For trivial changes, documentation updates, or hotfixes
-- Commit directly to master with comprehensive commit message
-- Example: T1 implementation (complete feature with all tests passing)
-
-**Mode 2: Feature Branch with Incremental Commits (Recommended for Tx Tickets)**
-- Create feature branch (e.g., `feature/t2-alpaca-connector`)
-- Make incremental commits as you build the feature
-- Create PR when ticket goal is complete
-- Allows for regular backups and progress tracking
-
-### Feature Branch Development Process
-
-When implementing a Tx ticket (T2, T3, T4, etc.):
-
-1. **Create Feature Branch**
-   ```bash
-   git checkout -b feature/t2-alpaca-connector
-   ```
-
-2. **Make Incremental Commits**
-   - Commit small, logical units of work frequently
-   - Each commit should compile/pass basic checks
-   - Commit messages can be concise during development
-
-   ```bash
-   # Example incremental commits during T2 development:
-   git commit -m "Add Alpaca API client wrapper"
-   git commit -m "Implement historical data fetching"
-   git commit -m "Add rate limiting logic"
-   git commit -m "Implement corporate actions fetching"
-   git commit -m "Add unit tests for API client"
-   git commit -m "Add integration tests"
-   git commit -m "Update documentation"
-   ```
-
-3. **Push Regularly (Optional but Recommended)**
-   ```bash
-   # Push to backup your work and track progress
-   git push -u origin feature/t2-alpaca-connector
-   ```
-
-4. **When Ticket Goal Complete**
-   - Ensure all tests pass
-   - Ensure documentation is updated
-   - Create PR for review and merge
-
-### Progressive Committing Philosophy
-
-**REQUIRED: Commit Early, Commit Often**
-
-When working on any non-trivial feature, you MUST use progressive commits throughout development. Do NOT wait until everything is complete to make your first commit.
-
-**Why Incremental Commits During Feature Development?**
+**See:** [`.claude/workflows/01-git-commit.md`](../../.claude/workflows/01-git-commit.md) for commit procedures
 
 **Benefits:**
-- ✅ Regular backups of work in progress
-- ✅ Easier to revert specific changes if needed
-- ✅ Better tracking of development progress
-- ✅ Clearer history of how feature was built
-- ✅ Can resume work after interruptions
-- ✅ Enables collaboration and review at each stage
-- ✅ Makes debugging easier (bisect to find regressions)
+- Regular backups of work in progress
+- Easier to revert specific changes if needed
+- Better tracking of development progress
+- Can resume work after interruptions
+- Makes debugging easier (git bisect)
 
-**When to Commit (Progressive Strategy):**
-- After implementing a logical component (even if incomplete)
-- After tests pass for that component
-- Before taking a break or ending session
-- Before attempting risky refactoring
-- **At minimum: every 30-60 minutes of active development**
-- After fixing a bug or addressing review feedback
-- When switching between different parts of the feature
-
-**Example Progressive Commit Sequence:**
+**Anti-Pattern:**
 ```bash
-# Session 1: Initial setup (30 min)
+# ❌ BAD - Single massive commit after 8 hours
+git commit -m "Implement entire Alpaca connector (2000 lines changed)"
+
+# ✅ GOOD - Progressive commits every 30-60 min
 git commit -m "Add Alpaca API client skeleton"
-
-# Session 2: Core functionality (1 hour)
+# ... 30 min later ...
 git commit -m "Implement authentication and connection"
-git commit -m "Add historical data fetching method"
-
-# Session 3: Error handling (45 min)
+# ... 45 min later ...
 git commit -m "Add rate limiting with exponential backoff"
-git commit -m "Handle API errors with retry logic"
-
-# Session 4: Testing (1 hour)
-git commit -m "Add unit tests for API client"
-git commit -m "Add integration tests with mock server"
-
-# Session 5: Documentation (30 min)
-git commit -m "Add docstrings and update implementation guide"
 ```
 
-**Anti-Pattern to Avoid:**
+### Rule #3: Mandatory Zen-MCP Review (CRITICAL)
+
+**POLICY:** ALL code commits by AI assistants MUST be reviewed by zen-mcp before committing
+
+**REQUIRED:**
+- ✅ **Quick review** before each progressive commit ([`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md))
+- ✅ **Deep review** before creating PR ([`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md))
+- ✅ Fix ALL HIGH/CRITICAL issues before committing (blocking)
+- ✅ Address or document MEDIUM issues
+- ✅ Cannot commit if zen finds blocking issues
+
+**Exemptions (only these may skip zen review):**
+- Documentation-only changes (add `#docs-only` to commit message)
+- Auto-generated files (package-lock.json, poetry.lock)
+- Emergency hotfixes with explicit user approval + mandatory post-commit review
+
+**Override format (emergencies only):**
 ```bash
-# ❌ BAD - Single massive commit after 8 hours of work
-git commit -m "Implement entire Alpaca connector (2000 lines changed)"
+git commit -m "Add position limit validation
+
+ZEN_REVIEW_OVERRIDE: Server temporarily unavailable
+Reason: Urgent hotfix for production issue
+Will perform post-commit review and create follow-up PR if issues found"
+```
+
+**Enforcement:**
+- ❌ CANNOT commit without zen-mcp review
+- ❌ CANNOT commit if zen finds HIGH/CRITICAL issues
+- ✅ CAN commit with user override if zen unavailable (document reason)
+
+**See:**
+- Quick review: [`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md)
+- Deep review: [`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md)
+- Implementation: `/docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md`
+
+### Rule #4: Mandatory Testing Before Commit
+
+**POLICY:** All tests MUST pass before committing
+
+**REQUIRED:**
+- ✅ Run `make test` before every commit
+- ✅ Run `make lint` before every commit
+- ✅ Fix all test failures before committing
+- ✅ Fix all lint errors before committing
+
+**Anti-Pattern:**
+```bash
+# ❌ BAD - Committing with failing tests
+git commit -m "Add feature X"  # 5 tests failing
+# Now CI fails, requires another commit to fix
+
+# ✅ GOOD - Tests pass locally before commit
+make test && make lint
+# All pass ✅
+git commit -m "Add feature X"
+```
+
+**See:** [`.claude/workflows/05-testing.md`](../../.claude/workflows/05-testing.md) for testing procedures
+
+---
+
+## 📋 Branch Naming Standards
+
+**REQUIRED:** Use consistent branch naming conventions
+
+**Format:** `<type>/<ticket>-<brief-description>`
+
+**Types:**
+- `feature/` - New features
+- `fix/` - Bug fixes
+- `docs/` - Documentation only
+- `refactor/` - Refactoring
+- `chore/` - Maintenance
+
+**Examples:**
+```bash
+feature/t4-idempotent-orders     # ✅ GOOD
+fix/circuit-breaker-recovery      # ✅ GOOD
+docs/update-testing-guide         # ✅ GOOD
+refactor/extract-risk-checks      # ✅ GOOD
+chore/upgrade-dependencies        # ✅ GOOD
+
+my-changes                        # ❌ BAD - No type
+new-feature                       # ❌ BAD - No ticket reference
 ```
 
 ---
 
-## MANDATORY: Pre-Commit Code Review with Zen MCP
+## 📝 Commit Message Standards
 
-### Policy
+### Progressive Commit Messages (30-60 min cadence)
 
-**ALL code commits by Claude Code (AI assistant) MUST be reviewed by zen-mcp before committing.**
+**Format:** Concise but clear description of what changed
 
-This is a **MANDATORY** quality gate, not optional. Exceptions require explicit user approval with documented justification.
+**REQUIRED:**
+- ✅ Start with imperative verb ("Add", "Fix", "Update", "Remove")
+- ✅ Describe what changed (not how or why)
+- ✅ Keep first line ≤72 characters
+- ✅ Can be concise since PR provides context
 
-### Workflow
+**Examples:**
+```bash
+# ✅ GOOD
+"Add Alpaca API client wrapper"
+"Implement rate limiting with exponential backoff"
+"Add unit tests for historical data fetching"
+"Fix type hints in corporate actions module"
 
-**Every progressive commit (30-60 min cadence):**
+# ACCEPTABLE during development
+"WIP: Adding authentication logic"
+"Draft: Initial market data connector structure"
 
-1. **Stage changes**
-   ```bash
-   git add <files>
-   ```
+# ❌ BAD - Too vague
+"Fixed stuff"
+"Updates"
+"Changes"
+```
 
-2. **Request zen-mcp review (REQUIRED)**
-   ```
-   Use slash command: /zen-review quick
-   Or tell Claude: "Review my staged changes with zen-mcp"
+### Final PR Merge Commit (comprehensive)
 
-   (See .claude/commands/zen-review.md for full review criteria)
-   ```
+**Format:** Detailed multi-line commit message
 
-3. **Address ALL findings**
-   - Fix HIGH/CRITICAL issues immediately (blocking)
-   - Fix MEDIUM issues or document deferral reason
-   - Fix LOW issues if time permits
-   - Re-request review to verify: "I've fixed the issues, please verify"
-   - Use continuation_id for context preservation
+**REQUIRED:**
+- ✅ Summary line ≤72 characters
+- ✅ Blank line after summary
+- ✅ Detailed description of changes
+- ✅ Reference ticket/ADR
+- ✅ Include co-author attribution if using Claude Code
 
-4. **Commit only when approved**
-   ```bash
-   git commit -m "Progressive commit message"
-   ```
+**Template:**
+```bash
+Implement idempotent order submission (ADR-0004)
 
-5. **Repeat every 30-60 minutes**
+- Add SHA256-based hash function
+- Include order params and date in hash
+- Truncate to 24 chars for Alpaca compatibility
+- Add unit tests for collision resistance
 
-### Review Focus Areas
+Closes #T4
 
-Zen-mcp MUST check for:
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+**See:** [`.claude/workflows/01-git-commit.md`](../../.claude/workflows/01-git-commit.md) for commit procedures
+
+---
+
+## 🔍 Zen-MCP Review Requirements
+
+### Trading Safety Focus
+
+Zen-mcp MUST verify these critical patterns:
 
 **Trading Safety:**
 - ✅ Circuit breaker checks before order placement
@@ -220,754 +241,343 @@ Zen-mcp MUST check for:
 - ✅ Quality gate validations
 - ✅ Proper timezone handling (UTC)
 
-### Enforcement Rules
+### Review Workflow
 
-**For Claude Code (AI Assistant):**
-- ❌ CANNOT commit without zen-mcp review
-- ❌ CANNOT commit if zen finds HIGH or CRITICAL issues
-- ✅ CAN commit with user override if zen unavailable
-- ✅ MUST document override reason in commit message
+**Progressive commits (every 30-60 min):**
+1. Stage changes
+2. Request zen-mcp quick review (MANDATORY)
+3. Fix ALL findings (HIGH/CRITICAL blocking)
+4. Re-request review to verify fixes
+5. Commit only when approved
 
-**Override Format (emergencies only):**
-```bash
-git commit -m "Add position limit validation
+**Before PR:**
+1. Request zen-mcp deep review (MANDATORY)
+2. Fix ALL HIGH/CRITICAL issues (blocking)
+3. Address or document MEDIUM issues
+4. Include zen review summary in PR description
 
-ZEN_REVIEW_OVERRIDE: Server temporarily unavailable
-Reason: Urgent hotfix for production issue
-Will perform post-commit review and create follow-up PR if issues found"
-```
-
-### Exemptions
-
-Only these commits may skip zen review:
-- ✅ Documentation-only changes (add `#docs-only` to commit message)
-- ✅ Auto-generated files (package-lock.json, poetry.lock, etc.)
-- ✅ Emergency hotfixes (with explicit user approval + mandatory post-commit review)
-
-**Example docs-only commit:**
-```bash
-git commit -m "Update README with setup instructions #docs-only"
-```
-
-### Before PR: Deep Review (MANDATORY)
-
-Before creating ANY pull request, Claude Code MUST:
-
-1. **Request comprehensive zen-mcp review**
-   ```
-   Use slash command: /zen-review deep
-   Or tell Claude: "Deep review all branch changes with zen-mcp"
-
-   (See .claude/commands/zen-review.md for full comprehensive review criteria)
-   ```
-
-2. **Address ALL findings by severity:**
-   - **HIGH/CRITICAL**: MUST fix before creating PR (blocking)
-   - **MEDIUM**: MUST fix OR document deferral with justification
-   - **LOW**: Fix if time permits, or document as future improvement
-
-3. **Include in PR description:**
-   ```markdown
-   ## Zen MCP Review
-
-   **Progressive Reviews:**
-   - Total commits: 6
-   - All commits reviewed and approved by zen-mcp
-   - Issues caught and fixed: 3 HIGH, 5 MEDIUM, 2 LOW
-
-   **Deep Review (Before PR):**
-   - ✅ Completed comprehensive review
-   - ✅ Architecture: No issues
-   - ✅ Test coverage: 95% (target met)
-   - ✅ Edge cases: 2 MEDIUM issues found and fixed
-   - ✅ Final approval: Granted by zen-mcp
-
-   **Zen Conversation:**
-   - Continuation ID: abc123-def456-ghi789
-   - Total review time: ~5 minutes
-   - Issues prevented from reaching PR: 10
-   ```
-
-### Example Workflow
-
-**Scenario: Implementing position limit validation**
-
-```
-Claude Code: [Implements check_position_limits() function for 45 minutes]
-
-Claude Code: git add apps/execution_gateway/order_placer.py
-
-Claude Code: "Use zen clink with codex codereviewer to review my staged changes for trading safety"
-
-Zen MCP (Codex): ❌ "CRITICAL ISSUE found:
-  - Line 42: Missing circuit breaker check before position validation
-  - This could validate positions even when breaker is TRIPPED!
-
-  Required fix:
-  if self.breaker.is_tripped():
-      raise CircuitBreakerTripped('Cannot validate: breaker TRIPPED')
-
-  Also found:
-  - MEDIUM: Add logging when position limit exceeded
-  - LOW: Variable name 'pos' unclear, use 'current_position'"
-
-Claude Code: [Fixes all 3 issues]
-
-Claude Code: "I've fixed the circuit breaker check, added logging, and renamed the variable. Please verify."
-
-Zen MCP (Codex): ✅ "All issues resolved:
-  ✅ Circuit breaker check added correctly (line 41)
-  ✅ Logging added with proper context
-  ✅ Variable renamed for clarity
-  Safe to commit."
-
-Claude Code: git commit -m "Add position limit validation with circuit breaker check"
-
-Claude Code → User: "Committed! Zen-mcp caught a critical bug before it entered the codebase."
-```
-
-### Metrics & Monitoring
-
-Track and report weekly in ops sync:
-
-| Metric | Target | Purpose |
-|--------|--------|---------|
-| Commits reviewed | 100% | Ensure compliance |
-| Review time (median) | <60s | Avoid friction |
-| Issues caught (HIGH/CRITICAL) | Track trend | Measure value |
-| Override rate | <5% | Monitor exceptions |
-| False positive rate | <10% | Refine prompts |
-
-**Weekly Report Format:**
-```bash
-# Zen MCP Review Metrics: Week of 2025-10-19
-
-Compliance:
-- Commits reviewed: 47/47 (100%) ✅
-- Overrides: 2 (4.3%) ✅
-- Docs-only skips: 8
-
-Performance:
-- Median review time: 28s ✅
-- 95th percentile: 65s ✅
-
-Issues Found:
-- HIGH: 5 (prevented from reaching PR)
-- MEDIUM: 12 (caught early)
-- LOW: 18 (improved quality)
-
-Developer Feedback:
-- Satisfaction: 8.5/10 ✅
-- Most valuable: "Catches circuit breaker issues I always forget"
-- Friction point: None reported this week
-```
-
-### Benefits Realized
-
-**Time Savings:**
-- Find issues in ~30s vs 10-15min PR review
-- Fix while context fresh (not days later)
-- 50-66% reduction in PR review cycles
-
-**Quality Improvements:**
-- 70-90% fewer issues per PR
-- Trading safety enforced at commit time
-- Consistent quality standards
-
-**Learning:**
-- AI assistant learns trading patterns from reviews
-- Knowledge transfer through feedback
-- Improved code quality over time
+**See:**
+- Quick review workflow: [`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md)
+- Deep review workflow: [`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md)
 
 ---
 
-## Automated PR Workflow with Claude Code
+## 📋 Pull Request Policies
 
-### Workflow Overview
+### PR Creation Requirements
 
-When you ask Claude Code to implement a feature, it can automatically:
+**BEFORE creating PR, MUST:**
+- ✅ All progressive commits completed
+- ✅ Deep zen-mcp review completed and approved
+- ✅ All tests passing (`make test && make lint`)
+- ✅ Documentation updated
+- ✅ ADR created if architectural change
+- ✅ All files committed
 
-1. ✅ Create a feature branch
-2. ✅ Make code changes with incremental commits
-3. ✅ Write tests
-4. ✅ Run tests and linting
-5. ✅ Commit changes with descriptive messages
-6. ✅ Push to remote repository regularly
-7. ✅ Create pull request when feature complete
-8. ✅ Link related ADRs and documentation
+**PR Description MUST include:**
+- Summary of changes (1-2 sentences)
+- Related work (ticket, ADR, implementation guide)
+- Changes made checklist
+- Testing completed checklist
+- Documentation updated checklist
+- Zen-mcp review summary
 
-### How to Enable Automatic PR Creation
+**See:** [`.claude/workflows/02-git-pr.md`](../../.claude/workflows/02-git-pr.md) for PR creation procedures
 
-**Option 1: Explicit Request (Recommended for Learning)**
+### PR Size Guidelines
+
+**RECOMMENDED:**
+- < 500 lines of code changes
+- < 10 files changed
+- Single focused change
+
+**If larger:** Split into multiple PRs
+```bash
+# ✅ GOOD - Split large feature
+PR #1: Add deterministic ID generation (ADR-0004)
+PR #2: Integrate ID generation into order submission
+PR #3: Add duplicate detection logic
+PR #4: Add integration tests
+
+# ❌ BAD - One massive PR
+PR #1: Implement entire idempotency system (2000 lines, 25 files)
 ```
-User: "Implement idempotent order submission (ticket T4),
-       then create a PR when done"
-```
 
-**Option 2: Default Behavior (Configure in Prompts)**
+### PR Template (REQUIRED)
 
-Add to your `prompts/assistant_rules.md`:
-```markdown
-## Automatic Pull Request Creation
-
-After successfully implementing and testing any feature:
-1. Create a feature branch (if not already on one)
-2. Commit all changes with descriptive messages
-3. Push to remote repository
-4. Create a pull request using `gh pr create`
-5. Include in PR description:
-   - Summary of changes
-   - Related ADR references
-   - Testing completed
-   - Checklist from /docs/STANDARDS/TESTING.md
-```
-
-## PR Creation Template
-
-When Claude creates a PR, it should use this structure:
-
+**Minimum required sections:**
 ```markdown
 ## Summary
 Brief description of what was implemented (1-2 sentences).
 
 ## Related Work
-- Ticket: #T4 (or link to /docs/TASKS/P0_TICKETS.md#t4)
+- Ticket: #T4 or /docs/TASKS/P0_TICKETS.md#t4
 - ADR: ADR-0004 (if applicable)
-- Implementation Guide: /docs/IMPLEMENTATION_GUIDES/phase-6-execution-gateway.md
+- Implementation Guide: /docs/IMPLEMENTATION_GUIDES/...
 
 ## Changes Made
-- [ ] Implemented `deterministic_id()` function
-- [ ] Added order deduplication in `place_order()` endpoint
-- [ ] Created unit tests for ID generation
-- [ ] Created integration tests for duplicate detection
-- [ ] Updated OpenAPI spec with new error responses
-- [ ] Added concept documentation for idempotency
+- [ ] Item 1
+- [ ] Item 2
 
 ## Testing Completed
 - [x] Unit tests pass (`make test`)
 - [x] Linting passes (`make lint`)
 - [x] Manual testing in DRY_RUN mode
-- [x] Contract tests against OpenAPI spec
-- [x] Integration test with Alpaca paper API
 
 ## Documentation Updated
-- [x] /docs/CONCEPTS/idempotency.md created
-- [x] /docs/IMPLEMENTATION_GUIDES/phase-6-execution-gateway.md updated
-- [x] ADR-0004 created and accepted
-- [x] Code has comprehensive docstrings
-- [x] OpenAPI spec updated
+- [x] Concept docs (if trading-specific)
+- [x] Implementation guide
+- [x] ADR (if architectural change)
+- [x] Code has docstrings
+- [x] OpenAPI spec (if API changed)
 
-## Educational Value
-This PR demonstrates:
-- Hash-based idempotency pattern
-- Retry safety without duplicates
-- Deterministic ID generation
-- Handling broker 409 conflicts
+## Zen MCP Review
+- ✅ Progressive reviews: All commits reviewed and approved
+- ✅ Deep review: Completed before PR creation
+- ✅ Issues found and fixed: X HIGH, Y MEDIUM, Z LOW
+- ✅ Final approval: Granted
 
 ## Checklist
 - [x] Tests added/updated
 - [x] OpenAPI updated (if API changed)
 - [x] Migrations included (if DB changed)
-- [x] Docs updated (REPO_MAP / ADR / TASKS)
-- [x] ADR created (if architectural change)
-- [x] Concept docs created (if trading-specific)
+- [x] Docs updated
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-## Example Commands Claude Will Use
+---
 
-### Creating a Feature Branch
-```bash
-# Claude will run:
-git checkout -b feature/t4-idempotent-orders
-```
+## 🤖 Automated Code Review Policy
 
-### Committing Changes
-```bash
-# If ADR exists, commit it first
-git add docs/ADRs/0004-idempotent-order-submission.md
-git commit -m "ADR-0004: Use deterministic client_order_id for idempotency"
+### GitHub App Reviewers (REQUIRED)
 
-# Then commit implementation
-git add apps/execution_gateway/
-git add tests/
-git commit -m "Implement idempotent order submission (ADR-0004)
+**POLICY:** All PRs MUST be reviewed by automated reviewers before merging
 
-- Add deterministic_id() function using SHA256
-- Update place_order() to check for duplicates
-- Handle Alpaca 409 conflicts
-- Add comprehensive tests
+**Automated reviewers:**
+- `@codex` - Code quality, security, testing
+- `@gemini-code-assist` - Alternative perspective, best practices
 
-Closes #T4"
-```
+**Automation:**
+- GitHub Actions automatically requests reviews on PR creation/reopen
+- See: `.github/workflows/pr-auto-review-request.yml`
 
-### Pushing and Creating PR
-```bash
-# Push branch
-git push -u origin feature/t4-idempotent-orders
+**REQUIRED:**
+- ✅ Wait for reviewers to respond
+- ✅ Address ALL feedback (see Review Feedback Policy below)
+- ✅ Request re-review after fixing issues
+- ✅ Wait for explicit approval before merging
 
-# Create PR with gh CLI
-gh pr create \
-  --title "Implement idempotent order submission (T4)" \
-  --body "$(cat <<'EOF'
-## Summary
-Implements idempotent order submission using deterministic client_order_id generation.
+### Review Feedback Policy (CRITICAL)
 
-## Related Work
-- Ticket: T4 (/docs/TASKS/P0_TICKETS.md)
-- ADR: ADR-0004
+**ALL review feedback MUST be addressed before merging.**
 
-## Changes Made
-...
-EOF
-)"
-```
+**REQUIRED:**
+1. **High Priority Issues:** MUST fix immediately if confirmed
+2. **Medium Priority Issues:** MUST fix immediately if confirmed
+3. **Low Priority Issues:** MUST fix immediately if confirmed
+4. **Only Exception:** Owner explicitly approves deferring specific issues
 
-## Branch Naming Conventions
-
-Use consistent branch naming:
-
-```bash
-feature/t4-idempotent-orders     # New features
-fix/circuit-breaker-recovery     # Bug fixes
-docs/update-testing-guide        # Documentation only
-refactor/extract-risk-checks     # Refactoring
-chore/upgrade-dependencies       # Maintenance
-```
-
-## Controlling PR Creation
-
-### When You Want Automatic PRs
-
-Tell Claude:
-```
-"Implement ticket T4 and create a PR when tests pass"
-```
-
-### When You Want Manual Control
-
-Tell Claude:
-```
-"Implement ticket T4 but don't create a PR yet -
- I want to review the changes first"
-```
-
-Then later:
-```
-"Create a PR for the changes we just made"
-```
-
-## PR Creation Safety Checks
-
-Before Claude creates a PR, it should verify:
-
-1. ✅ All tests pass (`make test`)
-2. ✅ All linting passes (`make lint`)
-3. ✅ On a feature branch (not main/master)
-4. ✅ Changes are committed
-5. ✅ ADR created if needed
-6. ✅ Documentation updated
-
-Claude will **not** automatically:
-- ❌ Push to main/master directly
-- ❌ Force push (unless explicitly requested and justified)
-- ❌ Merge PRs without explicit reviewer approval (see "CRITICAL: Review Feedback and Merge Policy" above)
-- ❌ Delete branches
-- ❌ Modify git history with rebase/amend (unless explicitly requested)
-
-## Working with Draft PRs
-
-For work-in-progress, create draft PRs:
-
-```bash
-gh pr create --draft \
-  --title "[WIP] Implement idempotent orders (T4)" \
-  --body "Work in progress. Do not merge yet.
-
-## TODO
-- [ ] Add integration tests
-- [ ] Update documentation
-- [ ] Get ADR reviewed
-"
-```
-
-Then convert to ready when done:
-```bash
-gh pr ready
-```
-
-## Updating Existing PRs
-
-Claude can update PRs by adding commits:
-
-```bash
-# Make additional changes
-git add apps/execution_gateway/
-git commit -m "Address review feedback: improve error messages"
-git push
-
-# Add comment to PR notifying automated reviewers
-gh pr comment <PR_NUMBER> --body "Updated to address review feedback.
-
-@codex @gemini-code-assist please review the latest changes on this branch."
-```
-
-### IMPORTANT: Automated Code Review Requirement
-
-**✨ NEW: Automatic Review Requests (2025-10-19)**
-
-Review requests are now **automated via GitHub Actions**! When you create or reopen a PR, the workflow automatically:
-- Posts a comment mentioning `@codex` and `@gemini-code-assist`
-- Requests comprehensive code review (quality, security, testing, documentation)
-- References this document for review policy
-
-**See:** `.github/workflows/pr-auto-review-request.yml`
-
-**What this means for you:**
-- ✅ No need to manually request reviews on PR creation
-- ✅ Consistent review requests across all PRs
-- ✅ Never forget to request automated reviews
-- ⚠️  Still need to manually request re-review after fixing issues
-
-**WAIT for reviewers to respond and confirm no issues before merging.**
-
-This ensures multiple automated code reviewers catch issues before human review, providing diverse perspectives on code quality, security, and best practices.
-
-**Additional Automation:**
-
-- **CI/CD Pipeline**: `.github/workflows/ci-tests-coverage.yml` runs tests and coverage automatically
-- **ZEN MCP** (MANDATORY): See `docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md` for local review setup
-
-
-### CRITICAL: Review Feedback and Merge Policy
-
-**ALL review feedback MUST be addressed before merging. You are NOT allowed to merge unless:**
-
-1. **All High Priority Issues**: MUST be considered and fixed immediately if the issue is confirmed to exist, with test cases created to cover the fix if necessary
-2. **All Medium Priority Issues**: MUST be considered and fixed immediately if the issue is confirmed to exist, with test cases created to cover the fix if necessary
-3. **All Low Priority Issues**: MUST be considered and fixed immediately if the issue is confirmed to exist, with test cases created to cover the fix if necessary
-4. **Only Exception**: Owner explicitly says you can defer specific issues to future work
-
-**After fixing review feedback:**
-- Push fixes and request re-review from `@codex` and `@gemini-code-assist`, asking them to check out the latest commit to avoid caching issues.
-- **WAIT for reviewers to explicitly confirm "no issues" or approve the PR**
-- Do NOT assume fixes are sufficient - reviewers must explicitly approve
+**After fixing:**
+- ✅ Push fixes
+- ✅ Request re-review from `@codex` and `@gemini-code-assist`
+- ✅ Ask reviewers to check latest commit (avoid caching)
+- ✅ **WAIT for explicit approval** - do NOT assume fixes are sufficient
 
 **You are ONLY allowed to merge when:**
-- ✅ All reviewers explicitly say "no issues" or approve the PR
-- ✅ All review comments have been addressed or explicitly deferred by owner
+- ✅ All reviewers explicitly say "no issues" or approve
+- ✅ All review comments addressed or explicitly deferred by owner
 - ✅ All tests pass
 - ❌ **NEVER** merge without explicit reviewer approval
 
-**If you are unsure about deferring an issue:**
-- Ask the owner: "Reviewer X raised issue Y. Should I fix it now or defer to future work?"
+**If unsure about deferring:**
+- Ask owner: "Reviewer X raised issue Y. Should I fix now or defer?"
 - Wait for owner's explicit approval before deferring
-- Document deferred issues in the PR description or create follow-up tickets
+- Document deferred issues in PR description or create follow-up tickets
 
 ### Handling Conflicting Reviewer Feedback
 
-**Problem: Review Deadlocks**
+**Problem:** Review deadlocks when reviewers provide conflicting feedback
 
-Sometimes reviewers may provide conflicting feedback that creates a loop:
+**Example deadlock:**
 1. Gemini suggests adding feature X
 2. You implement feature X
-3. Codex says feature X causes regression issues
+3. Codex says feature X causes regression
 4. You remove feature X
-5. Gemini complains feature X is missing again
-6. **Review deadlock** - cannot satisfy both reviewers
+5. Gemini complains feature X missing again
+6. **Review deadlock** - cannot satisfy both
 
-**Resolution Strategy: Codex as Tie-Breaker**
+**Resolution: Codex as Tie-Breaker**
 
-When conflicting feedback creates a review loop on a **specific change**:
+**POLICY:** When conflicting feedback creates a review loop on a specific change:
+1. Identify the conflict (reviewers disagree on same implementation detail)
+2. Use Codex as golden standard if Codex approves
+3. Document decision clearly
+4. Scope is limited to specific conflicting change only
 
-1. **Identify the Conflict**: Recognize when two reviewers disagree on the same specific implementation detail
-2. **Use Codex as Golden Standard**: If Codex approves the implementation, defer Gemini's conflicting suggestion
-3. **Document the Decision**: Add a comment explaining why Gemini's suggestion was not implemented
-4. **Scope is Limited**: This only applies to the specific conflicting change, NOT all of Gemini's feedback
+**When to apply tie-breaker:**
+✅ Same specific change reviewed multiple times
+✅ Clear conflict between reviewer suggestions
+✅ Codex explicitly says implementation is correct
+✅ Loop occurred 2+ times on same issue
+✅ Regression or correctness at stake
 
-**Example Scenario:**
+**When NOT to apply:**
+❌ Reviewers comment on different parts
+❌ Suggestions are complementary (can implement both)
+❌ Only 1 round of feedback (not yet a loop)
+❌ Owner has not approved using tie-breaker
+❌ Issue is about code style (not correctness)
 
-```bash
-# Round 1: Gemini review
-Gemini: "Add error handling for network timeouts in fetch_positions()"
+**Documentation format:**
+```markdown
+## Conflicting Reviewer Feedback Resolution
 
-# Round 2: You implement
-git commit -m "Add network timeout handling to fetch_positions()"
-
-# Round 3: Codex review
-Codex: "The timeout handling in fetch_positions() will cause regression -
-        it prevents graceful degradation when Execution Gateway is temporarily down.
-        The existing error handling is correct."
-
-# Round 4: You revert
-git revert <commit-hash>
-git commit -m "Revert timeout handling - causes regression per Codex review"
-
-# Round 5: Gemini review
-Gemini: "Still missing timeout handling in fetch_positions()"
-
-# RESOLUTION: Break the loop
-gh pr comment <PR_NUMBER> --body "@codex confirmed the existing error
-handling is correct and adding timeout handling would cause regression.
-Deferring Gemini's suggestion on this specific change.
-
-@codex please confirm this implementation is still acceptable."
-```
-
-**When to Apply This Rule:**
-
-✅ **Apply tie-breaker when:**
-- Same specific change reviewed multiple times
-- Clear conflict between reviewer suggestions (not just different perspectives)
-- Codex explicitly says implementation is correct
-- Loop has occurred 2+ times on same issue
-- Regression or correctness is at stake
-
-❌ **Do NOT apply tie-breaker when:**
-- Reviewers comment on different parts of the code
-- Suggestions are complementary (can implement both)
-- Only 1 round of feedback (not yet a loop)
-- Owner has not explicitly approved using tie-breaker
-- Issue is about code style (not correctness)
-
-**Proper Documentation:**
-
-When using Codex as tie-breaker, document clearly:
-
-```bash
-# In PR comment:
-gh pr comment <PR_NUMBER> --body "## Conflicting Reviewer Feedback Resolution
-
-**Issue:** Gemini suggests adding timeout handling, Codex says it causes regression
+**Issue:** Gemini suggests X, Codex says X causes regression
 
 **Attempts:**
-1. Implemented Gemini's suggestion (commit abc123)
+1. Implemented X (commit abc123)
 2. Codex identified regression risk
 3. Reverted (commit def456)
 4. Gemini re-requested same change
 
 **Resolution:** Using Codex as tie-breaker per GIT_WORKFLOW.md
 - Codex confirmed existing implementation is correct
-- Timeout handling would prevent graceful degradation
+- X would prevent graceful degradation
 - Keeping current implementation
 
-**Scope:** This decision applies ONLY to timeout handling in fetch_positions()
+**Scope:** This applies ONLY to this specific change
 - All other Gemini feedback is still being addressed
-- Not deferring any other suggestions
 
-@codex please confirm this is still acceptable"
+@codex please confirm this is still acceptable
 ```
 
-**Important Notes:**
+---
 
-1. **Limited Scope**: Tie-breaker only applies to the specific conflicting change
-2. **All Other Feedback Remains**: Continue addressing all non-conflicting feedback
-3. **Owner Awareness**: If uncertain, ask owner before using tie-breaker
-4. **Final Approval Still Required**: Codex must still explicitly approve the PR
-5. **Document Everything**: Clear audit trail of decision process
+## 🚫 Anti-Patterns & Prohibited Actions
 
-## Best Practices
+### Prohibited Git Actions
 
-### 1. One Feature Per PR
-Keep PRs focused:
-- ✅ Single ticket implementation
-- ✅ Related tests and docs
-- ❌ Multiple unrelated changes
-- ❌ Mixing features and refactoring
+Claude Code MUST NOT:
+- ❌ Push to main/master directly
+- ❌ Force push (unless explicitly requested and justified)
+- ❌ Merge PRs without explicit reviewer approval
+- ❌ Delete branches without confirmation
+- ❌ Modify git history with rebase/amend (unless explicitly requested)
+- ❌ Commit without zen-mcp review (except exemptions)
+- ❌ Commit with failing tests
+- ❌ Skip progressive commits (must commit every 30-60 min)
 
-### 2. Meaningful Commit Messages
+### Prohibited PR Practices
 
-**For Final PR Commits (Mode 1: Direct to Master):**
+❌ **BAD:**
+- Creating PR without deep zen-mcp review
+- Creating PR with failing tests
+- Creating PR without documentation updates
+- Merging without reviewer approval
+- Ignoring review feedback
+- One massive commit after hours of work
+- Vague commit messages ("Fixed stuff", "Updates")
+
+✅ **GOOD:**
+- Progressive commits every 30-60 min with zen review
+- All tests passing before PR
+- Documentation updated
+- Zen deep review before PR creation
+- All reviewer feedback addressed
+- Explicit approval before merge
+
+---
+
+## 📊 Metrics & Monitoring
+
+**Track weekly in ops sync:**
+
+| Metric | Target | Purpose |
+|--------|--------|---------|
+| Commits reviewed by zen-mcp | 100% | Ensure compliance |
+| Review time (median) | <60s | Avoid friction |
+| Issues caught (HIGH/CRITICAL) | Track trend | Measure value |
+| Zen override rate | <5% | Monitor exceptions |
+| PR review cycles | 1-2 | Measure quality |
+| Time to merge | <2 days | Track velocity |
+
+**Benefits of zen-mcp integration:**
+- Find issues in ~30s vs 10-15min PR review
+- Fix while context fresh (not days later)
+- 50-66% reduction in PR review cycles
+- 70-90% fewer issues per PR
+- Trading safety enforced at commit time
+
+---
+
+## 📚 Related Documentation
+
+**Workflow procedures (step-by-step how-to):**
+- [Git commit workflow](../../.claude/workflows/01-git-commit.md)
+- [PR creation workflow](../../.claude/workflows/02-git-pr.md)
+- [Zen quick review workflow](../../.claude/workflows/03-zen-review-quick.md)
+- [Zen deep review workflow](../../.claude/workflows/04-zen-review-deep.md)
+- [Testing workflow](../../.claude/workflows/05-testing.md)
+
+**Other standards:**
+- [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Python style and patterns
+- [TESTING.md](./TESTING.md) - Test requirements
+- [DOCUMENTATION_STANDARDS.md](./DOCUMENTATION_STANDARDS.md) - Docstring requirements
+- [ADR_GUIDE.md](./ADR_GUIDE.md) - Architecture Decision Records
+
+**Implementation guides:**
+- `/docs/IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md` - Zen-MCP setup
+
+**CI/CD:**
+- `.github/workflows/ci-tests-coverage.yml` - Automated test runner
+- `.github/workflows/pr-auto-review-request.yml` - Automated review requests
+
+---
+
+## 🔧 Setup Prerequisites
+
+**Required tools:**
+- Git 2.x+
+- GitHub CLI (`gh`)
+- Python 3.11
+- Poetry (package manager)
+
+**Setup procedures:**
+- See [`.claude/workflows/11-environment-bootstrap.md`](../../.claude/workflows/11-environment-bootstrap.md) for complete setup
+
+**Authentication:**
 ```bash
-# GOOD - Comprehensive with details
-"Implement deterministic order ID generation (ADR-0004)
-
-- Add SHA256-based hash function
-- Include order params and date in hash
-- Truncate to 24 chars for Alpaca compatibility
-- Add unit tests for collision resistance"
-
-# BAD
-"Fixed stuff"
-"Updates"
-```
-
-**For Incremental Commits (Mode 2: Feature Branch Development):**
-```bash
-# GOOD - Concise but clear
-"Add Alpaca API client wrapper"
-"Implement rate limiting with exponential backoff"
-"Add unit tests for historical data fetching"
-"Fix type hints in corporate actions module"
-
-# ACCEPTABLE during development
-"WIP: Adding authentication logic"
-"Draft: Initial market data connector structure"
-
-# STILL BAD - Too vague
-"Fixed stuff"
-"Updates"
-"Changes"
-```
-
-**Note:** Incremental commits can be more concise since the PR description will provide comprehensive context. The key is that each commit represents a logical unit of work.
-
-### 3. Keep PRs Small
-Aim for:
-- < 500 lines of code changes
-- < 10 files changed
-- Single focused change
-
-Large changes should be split into multiple PRs:
-```
-PR #1: Add deterministic ID generation (ADR-0004)
-PR #2: Integrate ID generation into order submission
-PR #3: Add duplicate detection logic
-PR #4: Add integration tests
-```
-
-### 4. Link Everything
-In PR description, link to:
-- Ticket in /docs/TASKS/
-- ADR in /docs/ADRs/
-- Implementation guide
-- Related concept docs
-- Related PRs (if any)
-
-### 5. Use PR Templates (Optional)
-
-Create `.github/pull_request_template.md`:
-```markdown
-## Summary
-<!-- Brief description of changes -->
-
-## Related Work
-- Ticket:
-- ADR:
-- Implementation Guide:
-
-## Changes Made
-- [ ]
-
-## Testing Completed
-- [ ] Unit tests pass
-- [ ] Integration tests pass
-- [ ] Manual testing in DRY_RUN mode
-
-## Documentation Updated
-- [ ] Concept docs
-- [ ] Implementation guide
-- [ ] ADR (if architectural change)
-- [ ] Code has docstrings
-- [ ] OpenAPI spec (if API changed)
-
-## Checklist
-- [ ] Tests added/updated
-- [ ] OpenAPI updated (if API changed)
-- [ ] Migrations included (if DB changed)
-- [ ] Docs updated
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-```
-
-## Troubleshooting
-
-### Issue: `gh` command not found
-```bash
-# Install GitHub CLI
-brew install gh  # macOS
-# or follow instructions at https://cli.github.com/
-```
-
-### Issue: Authentication failed
-```bash
-# Re-authenticate
+# Authenticate GitHub CLI
 gh auth login
 
-# Check status
+# Verify
 gh auth status
 ```
 
-### Issue: Permission denied
-```bash
-# Check remote URL uses HTTPS (not SSH if not configured)
-git remote -v
+---
 
-# Update to HTTPS if needed
-git remote set-url origin https://github.com/username/repo.git
-```
+## ⚖️ Policy Hierarchy
 
-### Issue: Branch protection rules
-If main/master has branch protection:
-- PRs are required (good!)
-- Claude cannot push directly (good!)
-- You'll need to review and merge via GitHub UI
+When policies conflict, follow this priority:
 
-### Issue: PR created on wrong branch
-```bash
-# Close the PR
-gh pr close <PR_NUMBER>
+1. **Trading Safety** - Circuit breakers, idempotency, risk checks (HIGHEST)
+2. **Test Requirements** - All tests must pass
+3. **Zen-MCP Review** - Mandatory review before commit
+4. **Documentation** - Must be updated
+5. **Code Style** - Formatting, linting
 
-# Create correct branch
-git checkout -b correct-branch-name
+**Example:** If urgent hotfix needed for trading safety issue:
+- Trading safety takes precedence
+- Still requires zen review (can be quick)
+- Tests must pass
+- Can expedite PR process with owner approval
+- Documentation can be updated in follow-up if truly urgent
 
-# Cherry-pick commits
-git cherry-pick <commit-hash>
+---
 
-# Push and create new PR
-git push -u origin correct-branch-name
-gh pr create
-```
+**Questions or clarifications needed?**
+- See workflow guides in `.claude/workflows/` for procedures
+- See other STANDARDS docs for detailed requirements
+- Ask team lead for policy interpretation
 
-## Advanced: CI Integration
-
-If you have GitHub Actions:
-
-```yaml
-# .github/workflows/ci.yml
-name: CI
-on: [pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - run: pip install poetry
-      - run: poetry install
-      - run: poetry run pytest
-      - run: poetry run mypy .
-      - run: poetry run ruff check .
-```
-
-This will automatically run tests on every PR Claude creates.
-
-## Summary: Enabling Automatic PRs
-
-**Minimal setup:**
-```bash
-# 1. Install and authenticate
-brew install gh
-gh auth login
-
-# 2. Tell Claude to create PRs
-"Implement ticket T4 and create a PR when done"
-```
-
-**That's it!** Claude will handle:
-- Branch creation
-- Commits
-- Testing
-- Pushing
-- PR creation with detailed description
-
-You retain control:
-- Review the PR before merging
-- Request changes via GitHub UI
-- Close/modify as needed
-- Merge when satisfied
-
-This workflow keeps you in the driver's seat while automating the tedious parts.
