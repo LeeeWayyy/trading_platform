@@ -343,9 +343,7 @@ class TestSyncLoop:
     async def test_sync_loop_continues_on_sync_error(self, position_sync):
         """Should continue loop even when sync raises exception."""
         # First call raises, second call succeeds
-        position_sync._sync_subscriptions = AsyncMock(
-            side_effect=[ValueError("Sync error"), None]
-        )
+        position_sync._sync_subscriptions = AsyncMock(side_effect=[ValueError("Sync error"), None])
         position_sync.sync_interval = 0.1
 
         loop_task = asyncio.create_task(position_sync.start_sync_loop())

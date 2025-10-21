@@ -165,9 +165,7 @@ class TestPrometheusMetrics:
 
         for line in metric_lines:
             # Each metric line should start with execution_gateway_
-            assert (
-                "execution_gateway_" in line
-            ), f"Metric doesn't follow naming convention: {line}"
+            assert "execution_gateway_" in line, f"Metric doesn't follow naming convention: {line}"
 
     def test_metrics_have_help_text(self, client):
         """Test that all metrics have HELP text."""

@@ -110,8 +110,10 @@ class TestPrometheusMetrics:
         assert response.status_code == 200
 
         # Should be updated by health check
-        assert ("orchestrator_database_connection_status 1.0" in response.text or
-                "orchestrator_database_connection_status 0.0" in response.text)
+        assert (
+            "orchestrator_database_connection_status 1.0" in response.text
+            or "orchestrator_database_connection_status 0.0" in response.text
+        )
 
     def test_signal_service_available_initial_value(self, client):
         """Test that signal_service_available has initial value (updated by health check)."""
@@ -123,8 +125,10 @@ class TestPrometheusMetrics:
         assert response.status_code == 200
 
         # Should be updated by health check (0 or 1 depending on service availability)
-        assert ("orchestrator_signal_service_available 1.0" in response.text or
-                "orchestrator_signal_service_available 0.0" in response.text)
+        assert (
+            "orchestrator_signal_service_available 1.0" in response.text
+            or "orchestrator_signal_service_available 0.0" in response.text
+        )
 
     def test_execution_gateway_available_initial_value(self, client):
         """Test that execution_gateway_available has initial value (updated by health check)."""
@@ -136,8 +140,10 @@ class TestPrometheusMetrics:
         assert response.status_code == 200
 
         # Should be updated by health check (0 or 1 depending on service availability)
-        assert ("orchestrator_execution_gateway_available 1.0" in response.text or
-                "orchestrator_execution_gateway_available 0.0" in response.text)
+        assert (
+            "orchestrator_execution_gateway_available 1.0" in response.text
+            or "orchestrator_execution_gateway_available 0.0" in response.text
+        )
 
     def test_all_required_metrics_present(self, client):
         """Test that all required metrics are present in output."""
@@ -286,7 +292,9 @@ class TestPrometheusMetrics:
         assert db_match, "Database connection status metric not found"
         db_value = float(db_match.group(1))
         expected_db_value = 1.0 if health_data["database_connected"] else 0.0
-        assert db_value == expected_db_value, f"Expected db status={expected_db_value}, got {db_value}"
+        assert (
+            db_value == expected_db_value
+        ), f"Expected db status={expected_db_value}, got {db_value}"
 
         # Verify signal_service_available reflects health check result
         signal_pattern = r"orchestrator_signal_service_available (\d+\.?\d*)"
@@ -294,7 +302,9 @@ class TestPrometheusMetrics:
         assert signal_match, "Signal service availability metric not found"
         signal_value = float(signal_match.group(1))
         expected_signal_value = 1.0 if health_data["signal_service_healthy"] else 0.0
-        assert signal_value == expected_signal_value, f"Expected signal service={expected_signal_value}, got {signal_value}"
+        assert (
+            signal_value == expected_signal_value
+        ), f"Expected signal service={expected_signal_value}, got {signal_value}"
 
         # Verify execution_gateway_available reflects health check result
         exec_pattern = r"orchestrator_execution_gateway_available (\d+\.?\d*)"
@@ -302,4 +312,6 @@ class TestPrometheusMetrics:
         assert exec_match, "Execution gateway availability metric not found"
         exec_value = float(exec_match.group(1))
         expected_exec_value = 1.0 if health_data["execution_gateway_healthy"] else 0.0
-        assert exec_value == expected_exec_value, f"Expected execution gateway={expected_exec_value}, got {exec_value}"
+        assert (
+            exec_value == expected_exec_value
+        ), f"Expected execution gateway={expected_exec_value}, got {exec_value}"

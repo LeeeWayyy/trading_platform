@@ -44,7 +44,10 @@ def db_url():
     Reads from DATABASE_URL environment variable (set by CI) or falls back to default.
     """
     import os
-    return os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+
+    return os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+    )
 
 
 @pytest.fixture(scope="module")

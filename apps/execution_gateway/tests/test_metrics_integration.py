@@ -70,7 +70,9 @@ class TestMetricsDataCapture:
 
         # In DRY_RUN mode (test environment), we don't have Alpaca connection
         # Metric should be 0
-        assert metric_value == 0.0, f"Expected Alpaca status 0.0 in DRY_RUN mode, got {metric_value}"
+        assert (
+            metric_value == 0.0
+        ), f"Expected Alpaca status 0.0 in DRY_RUN mode, got {metric_value}"
 
     def test_dry_run_mode_metric_set_correctly(self, client):
         """Test that dry_run_mode metric reflects DRY_RUN environment variable."""
@@ -129,14 +131,10 @@ class TestMetricsDataCapture:
 
         for metric in custom_metrics:
             # Each metric should have HELP text
-            assert (
-                f"# HELP {metric}" in metrics_text
-            ), f"Missing HELP declaration for {metric}"
+            assert f"# HELP {metric}" in metrics_text, f"Missing HELP declaration for {metric}"
 
             # Each metric should have TYPE declaration
-            assert (
-                f"# TYPE {metric}" in metrics_text
-            ), f"Missing TYPE declaration for {metric}"
+            assert f"# TYPE {metric}" in metrics_text, f"Missing TYPE declaration for {metric}"
 
     def test_multiple_health_checks_update_metrics(self, client):
         """Test that calling health check multiple times updates metrics each time."""

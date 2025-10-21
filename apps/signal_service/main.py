@@ -139,15 +139,17 @@ async def model_reload_task() -> None:
                 )
 
                 # Update model metrics after successful reload
-                model_version_info.info({
-                    "version": model_registry.current_metadata.version,
-                    "strategy": model_registry.current_metadata.strategy_name,
-                    "activated_at": (
-                        model_registry.current_metadata.activated_at.isoformat()
-                        if model_registry.current_metadata.activated_at
-                        else ""
-                    ),
-                })
+                model_version_info.info(
+                    {
+                        "version": model_registry.current_metadata.version,
+                        "strategy": model_registry.current_metadata.strategy_name,
+                        "activated_at": (
+                            model_registry.current_metadata.activated_at.isoformat()
+                            if model_registry.current_metadata.activated_at
+                            else ""
+                        ),
+                    }
+                )
                 model_loaded_status.set(1)
                 model_reload_total.labels(status="success").inc()
             else:
@@ -221,15 +223,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info(f"Model loaded: {model_registry.current_metadata.version}")
 
         # Update model metrics
-        model_version_info.info({
-            "version": model_registry.current_metadata.version,
-            "strategy": model_registry.current_metadata.strategy_name,
-            "activated_at": (
-                model_registry.current_metadata.activated_at.isoformat()
-                if model_registry.current_metadata.activated_at
-                else ""
-            ),
-        })
+        model_version_info.info(
+            {
+                "version": model_registry.current_metadata.version,
+                "strategy": model_registry.current_metadata.strategy_name,
+                "activated_at": (
+                    model_registry.current_metadata.activated_at.isoformat()
+                    if model_registry.current_metadata.activated_at
+                    else ""
+                ),
+            }
+        )
         model_loaded_status.set(1)
 
         # Step 3: Initialize Redis client (optional, T1.2)
@@ -815,7 +819,8 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
         # Validate model registry exists (explicit check for production safety)
         if model_registry is None:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model registry not initialized"
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Model registry not initialized",
             )
 
         if not model_registry.is_loaded:
@@ -1102,15 +1107,17 @@ async def reload_model() -> dict[str, Any]:
 
             # Update model metrics after successful manual reload
             assert model_registry.current_metadata is not None
-            model_version_info.info({
-                "version": model_registry.current_metadata.version,
-                "strategy": model_registry.current_metadata.strategy_name,
-                "activated_at": (
-                    model_registry.current_metadata.activated_at.isoformat()
-                    if model_registry.current_metadata.activated_at
-                    else ""
-                ),
-            })
+            model_version_info.info(
+                {
+                    "version": model_registry.current_metadata.version,
+                    "strategy": model_registry.current_metadata.strategy_name,
+                    "activated_at": (
+                        model_registry.current_metadata.activated_at.isoformat()
+                        if model_registry.current_metadata.activated_at
+                        else ""
+                    ),
+                }
+            )
             model_loaded_status.set(1)
             model_reload_total.labels(status="success").inc()
         else:

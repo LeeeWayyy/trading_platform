@@ -282,7 +282,9 @@ class TestFeatureModelCompatibility:
         from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
 
         # Load model (use DATABASE_URL from env if set, for CI compatibility)
-        db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+        db_url = os.getenv(
+            "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+        )
         registry = ModelRegistry(db_url)
         registry.reload_if_changed("alpha_baseline")
 
@@ -374,7 +376,9 @@ class TestProductionResearchParity:
         )
 
         # Load model (use DATABASE_URL from env if set, for CI compatibility)
-        db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform")
+        db_url = os.getenv(
+            "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+        )
         registry = ModelRegistry(db_url)
         registry.reload_if_changed("alpha_baseline")
 
