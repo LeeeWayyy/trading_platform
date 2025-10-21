@@ -1843,7 +1843,7 @@ export BOTTOM_N=5
 
 ## Deployment
 
-See [Deployment Guide](../../docs/DEPLOYMENT/signal-service.md) for production deployment.
+See [Operational Runbook](../RUNBOOKS/ops.md) for production deployment procedures.
 ```
 
 **Checkpoint:** ✅ Documentation complete

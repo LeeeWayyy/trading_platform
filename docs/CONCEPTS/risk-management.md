@@ -721,9 +721,11 @@ RISK_DAILY_LOSS_LIMIT=500
 ## Further Reading
 
 - [ADR-0011: Risk Management System](../ADRs/0011-risk-management-system.md) - Technical architecture
-- [Implementation Guide: P1.2T3](../IMPLEMENTATION_GUIDES/p1.2t3-risk-management.md) - Step-by-step guide
-- [Runbook: Circuit Breaker Recovery](../RUNBOOKS/circuit-breaker-recovery.md) - Operational procedures
+- [Implementation Guide: P1T7](../TASKS/P1T7_DONE.md) - Step-by-step guide
+- [Operational Runbook](../RUNBOOKS/ops.md) - Deployment and troubleshooting procedures
 - [CLAUDE.md](../../CLAUDE.md) - Risk management patterns (Circuit Breakers section)
+
+> **Note:** Circuit Breaker Recovery runbook (TODO: create dedicated runbook)
 
 ---
 

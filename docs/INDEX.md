@@ -12,7 +12,7 @@ This index provides a structured guide to all documentation, organized by purpos
 
 1. **[STANDARDS/](./STANDARDS/)** - Normative guidance (MUST follow)
 2. **[TASKS/](./TASKS/)** - Current work items
-3. **[IMPLEMENTATION_GUIDES/](./IMPLEMENTATION_GUIDES/)** - How-to references
+3. **[IMPLEMENTATION_GUIDES/](./TASKS/)** - How-to references
 4. **[ADRs/](./ADRs/)** - Architecture decisions
 5. **[CONCEPTS/](./CONCEPTS/)** - Domain knowledge
 
@@ -114,16 +114,16 @@ Step-by-step implementation instructions for each major task:
 
 | Guide | Task | Lines | Test Coverage |
 |-------|------|-------|---------------|
-| [p0t1-data-etl.md](./IMPLEMENTATION_GUIDES/p0t1-data-etl.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
-| [p1.1t2-redis-integration.md](./IMPLEMENTATION_GUIDES/p1.1t2-redis-integration.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
-| [p0t2-baseline-strategy.md](./IMPLEMENTATION_GUIDES/p0t2-baseline-strategy.md) | Baseline ML strategy | 700+ | Unit tests |
-| [p0t3-signal-service.md](./IMPLEMENTATION_GUIDES/p0t3-signal-service.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
-| [p0t3-p4-fastapi-application.md](./IMPLEMENTATION_GUIDES/p0t3-p4-fastapi-application.md) | FastAPI implementation | 600+ | Phase 4 tests |
-| [p0t3-p5-hot-reload.md](./IMPLEMENTATION_GUIDES/p0t3-p5-hot-reload.md) | Hot reload mechanism | 500+ | Phase 5 tests |
-| [p0t3-p6-integration-tests.md](./IMPLEMENTATION_GUIDES/p0t3-p6-integration-tests.md) | Integration testing | 400+ | Phase 6 tests |
-| [p0t4-execution-gateway.md](./IMPLEMENTATION_GUIDES/p0t4-execution-gateway.md) | Execution gateway | 827+ | 56 tests, 100% |
-| [p0t5-orchestrator.md](./IMPLEMENTATION_GUIDES/p0t5-orchestrator.md) | Orchestrator service | 754+ | 13 tests, 100% |
-| [p0t6-paper-run.md](./IMPLEMENTATION_GUIDES/p0t6-paper-run.md) | Paper run automation | 1,059+ | 26 tests, 100% |
+| [p0t1-data-etl.md](./TASKS/P0T1_DONE.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
+| [p1.1t2-redis-integration.md](./TASKS/P1T1_DONE.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
+| [p0t2-baseline-strategy.md](./TASKS/P0T2_DONE.md) | Baseline ML strategy | 700+ | Unit tests |
+| [p0t3-signal-service.md](./TASKS/P0T3_DONE.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
+| [p0t3-p4-fastapi-application.md](./TASKS/P0T3-F4_DONE.md) | FastAPI implementation | 600+ | Phase 4 tests |
+| [p0t3-p5-hot-reload.md](./TASKS/P0T3-F5_DONE.md) | Hot reload mechanism | 500+ | Phase 5 tests |
+| [p0t3-p6-integration-tests.md](./TASKS/P0T3-F6_DONE.md) | Integration testing | 400+ | Phase 6 tests |
+| [p0t4-execution-gateway.md](./TASKS/P0T4_DONE.md) | Execution gateway | 827+ | 56 tests, 100% |
+| [p0t5-orchestrator.md](./TASKS/P0T5_DONE.md) | Orchestrator service | 754+ | 13 tests, 100% |
+| [p0t6-paper-run.md](./TASKS/P0T6_DONE.md) | Paper run automation | 1,059+ | 26 tests, 100% |
 
 **Priority:** 🟡 **HIGH** - Read the relevant guide when implementing or modifying a task
 
@@ -294,7 +294,7 @@ Documents can have one of these statuses:
 | Commit code | [GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md) |
 | Write tests | [TESTING.md](./STANDARDS/TESTING.md) |
 | Understand P&L | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) |
-| Implement P0T6 | [p0t6-paper-run.md](./IMPLEMENTATION_GUIDES/p0t6-paper-run.md) |
+| Implement P0T6 | [p0t6-paper-run.md](./TASKS/P0T6_DONE.md) |
 | Plan P1 work | [P1_PLANNING.md](./TASKS/P1_PLANNING.md) |
 | Deploy to prod | [ops.md](./RUNBOOKS/ops.md) |
 
@@ -348,7 +348,7 @@ Documents can have one of these statuses:
 
 - **Question about standards?** Check [STANDARDS/](./STANDARDS/) first
 - **Don't understand a decision?** Read the relevant [ADR](./ADRs/)
-- **Stuck implementing?** Follow the [IMPLEMENTATION_GUIDE](./IMPLEMENTATION_GUIDES/)
+- **Stuck implementing?** Follow the [IMPLEMENTATION_GUIDE](./TASKS/)
 - **Need context?** Read [CONCEPTS](./CONCEPTS/) for domain knowledge
 - **Lost in the codebase?** See [REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md)
 

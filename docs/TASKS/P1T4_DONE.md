@@ -364,8 +364,8 @@ fi
 ## Related Documentation
 
 ### Implementation Guides
-- [P0 Paper Run](./t6-paper-run.md) - Main paper trading script that uses these APIs
-- [P1.1T1 Enhanced P&L](./p1.1t1-enhanced-pnl.md) - P&L calculation that this script displays
+- [P0T6 - Paper Run Automation](./P0T6_DONE.md) - Main paper trading script that uses these APIs
+- P1T0 - Enhanced P&L Calculation (TODO: not yet started) - P&L calculation that this script displays
 
 ### Concepts
 - None required (operational tooling)

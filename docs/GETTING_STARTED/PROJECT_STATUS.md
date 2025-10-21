@@ -153,7 +153,7 @@ For detailed task information and completion summaries, see:
 - [ADRs/](../ADRs/) - 12 architecture decision records
 
 **Implementation Guides:**
-- [IMPLEMENTATION_GUIDES/](../IMPLEMENTATION_GUIDES/) - 10 detailed guides
+- [IMPLEMENTATION_GUIDES/](../TASKS/) - 10 detailed guides
 
 ---
 

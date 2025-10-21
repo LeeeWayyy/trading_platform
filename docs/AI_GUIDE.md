@@ -37,7 +37,7 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 - Find current task: `./scripts/tasks.py list --state PROGRESS`
 - Or check next task: `./scripts/tasks.py list --state TASK --limit 1`
 - Read the task file: **[TASKS/PxTy_TASK.md](./TASKS/)** or **[TASKS/PxTy_PROGRESS.md](./TASKS/)**
-- Read relevant **[IMPLEMENTATION_GUIDES/](./IMPLEMENTATION_GUIDES/)** if available
+- Read relevant **[IMPLEMENTATION_GUIDES/](./TASKS/)** if available
 
 ### 2. Review Architecture Decisions
 - Check **[ADRs/](./ADRs/)** for relevant decisions
@@ -77,7 +77,7 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
 
 **Progressive commits:** Review → Fix → Commit (repeat every 30-60 min)
 
-**See:** **[IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md](./IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md)**
+**See:** **[IMPLEMENTATION_GUIDES/workflow-optimization-zen-mcp.md](./CONCEPTS/workflow-optimization-zen-mcp.md)**
 
 ### 6. Verify
 - Run `make test` and `make lint` (expect success = green)
@@ -211,7 +211,7 @@ ALPACA_BASE_URL=https://paper-api... # Paper trading
   - corporate-actions.md, pnl-calculation.md, alpha158-features.md, etc.
 
 ### For Implementation Guidance
-- **[IMPLEMENTATION_GUIDES/](./IMPLEMENTATION_GUIDES/)** — Step-by-step task guides
+- **[IMPLEMENTATION_GUIDES/](./TASKS/)** — Step-by-step task guides
   - t1-data-etl.md, t2-baseline-strategy-qlib.md, t6-paper-run.md, etc.
 
 ### For Architecture Context

@@ -1046,7 +1046,7 @@ curl http://localhost:8002/api/v1/positions/pnl/realtime | jq
 ## Related Documents
 
 - [P1_PLANNING.md](../TASKS/P1_PLANNING.md) - P1.2T1 requirements
-- [NEXT_TASK.md](../NEXT_TASK.md) - Current task details
+- [NEXT_TASK.md](../ARCHIVE/NEXT_TASK_20241021.md) - Current task details
 - [ADR-0009](./0009-redis-integration.md) - Redis integration patterns
 - [Alpaca WebSocket Docs](https://alpaca.markets/docs/market-data/streaming/)
 

@@ -1072,8 +1072,8 @@ After completing T6:
 
 - [ADR-0007: Paper Run Automation](../ADRs/0007-paper-run-automation.md)
 - [P&L Calculation Concept](../CONCEPTS/pnl-calculation.md)
-- [T5 Orchestrator Implementation](./t5-orchestrator.md)
-- [GIT_WORKFLOW.md](../GIT_WORKFLOW.md) - Commit guidelines
+- [P0T5: Orchestrator Implementation](./P0T5_DONE.md)
+- [Git Workflow](../STANDARDS/GIT_WORKFLOW.md) - Commit guidelines
 
 ## Summary
 

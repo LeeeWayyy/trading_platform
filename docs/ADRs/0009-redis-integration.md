@@ -900,7 +900,7 @@ redis-cli info stats | grep keyspace_misses
 
 - [P1_PLANNING.md](../TASKS/P1_PLANNING.md) - T1.2 requirements
 - [ADR-0004](./0004-signal-service-architecture.md) - Signal Service architecture
-- [ADR-0006](./0006-orchestrator-architecture.md) - Orchestrator architecture
+- [ADR-0006](./0006-orchestrator-service.md) - Orchestrator architecture
 - [Redis Best Practices](https://redis.io/docs/management/optimization/)
 
 ---

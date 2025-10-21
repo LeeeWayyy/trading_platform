@@ -1171,10 +1171,6 @@ With comprehensive integration tests in place, we have:
 
 ---
 
-**Next:** [Phase 7: Documentation & Deployment](./t3-p7-documentation.md)
-
----
-
 ## Migration Notes
 
 **Migrated:** 2025-10-20

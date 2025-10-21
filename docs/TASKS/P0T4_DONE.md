@@ -850,7 +850,7 @@ curl -X POST http://localhost:8002/api/v1/orders -d '{"symbol":"AAPL","side":"bu
 - [Alpaca Trading API Documentation](https://docs.alpaca.markets/docs/trading-api)
 - [Alpaca Webhooks Guide](https://docs.alpaca.markets/docs/webhooks)
 - [HMAC Security](https://en.wikipedia.org/wiki/HMAC)
-- [P0_TICKETS.md](../TASKS/P0_TICKETS.md) - T4 Requirements
+- [P0_TICKETS.md](../TASKS/P0_TASKS.md) - T4 Requirements
 
 ---
 

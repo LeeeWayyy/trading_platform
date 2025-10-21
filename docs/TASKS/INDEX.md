@@ -377,9 +377,9 @@ grep -l "owner: \"@alice\"" P*_*.md
 - [ADR Guide](../STANDARDS/ADR_GUIDE.md)
 
 **Workflows:**
-- [Git Commit Workflow](./.claude/workflows/01-git-commit.md)
-- [PR Creation](./.claude/workflows/02-git-pr.md)
-- [Zen Review](./.claude/workflows/03-zen-review-quick.md)
+- [Git Commit Workflow](../../.claude/workflows/01-git-commit.md)
+- [PR Creation](../../.claude/workflows/02-git-pr.md)
+- [Zen Review](../../.claude/workflows/03-zen-review-quick.md)
 
 ---
 

@@ -502,8 +502,8 @@ timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')
 ## Related Documentation
 
 ### Implementation Guides
-- [P1.1T1 - Enhanced P&L Calculation](./p1.1t1-enhanced-pnl.md) - Uses timestamps for P&L snapshots
-- [T6 - Paper Run Automation](./t6-paper-run.md) - Original paper_run.py implementation
+- P1T0 - Enhanced P&L Calculation (TODO: not yet started) - Will use timestamps for P&L snapshots
+- [P0T6 - Paper Run Automation](./P0T6_DONE.md) - Original paper_run.py implementation
 
 ### Concepts
 - Python `datetime` module documentation: https://docs.python.org/3/library/datetime.html

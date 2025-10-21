@@ -777,9 +777,9 @@ spec:
 ## Related Documentation
 
 - [ADR-0006: Orchestrator Service Architecture](../ADRs/0006-orchestrator-service.md)
-- [T3: Signal Service](./t3-signal-service.md)
-- [T4: Execution Gateway](./t4-execution-gateway.md)
-- [T1: Data ETL](./t1-data-etl.md)
+- [P0T3: Signal Service](./P0T3_DONE.md)
+- [P0T4: Execution Gateway](./P0T4_DONE.md)
+- [P0T1: Data ETL](./P0T1_DONE.md)
 
 ---
 
