@@ -1022,7 +1022,7 @@ After P4 is complete:
   - ADR-0004: Signal Service Architecture
 
 - **Related Guides:**
-  - /docs/IMPLEMENTATION_GUIDES/t3-signal-service.md (overall T3 guide)
+  - /docs/TASKS/P0T3_DONE.md (overall T3 guide)
   - /docs/GETTING_STARTED/TESTING_SETUP.md (testing environment setup)
 
 - **External Resources:**

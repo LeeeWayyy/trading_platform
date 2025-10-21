@@ -176,9 +176,9 @@ P1_PLANNING.md     → Phase-level planning (living document)
 | [P0T1](#p0t1) | [Task title] | @team | PROGRESS | P0T0 | P0T2 | 5d |
 | [P0T2](#p0t2) | [Task title] | @team | DONE | P0T1 | - | 2d |
 
-### P0T0: Task Title
+### P0T0: Example Task (Template)
 **Status:** TASK (Not Started)
-**File:** [P0T0_TASK.md](./P0T0_TASK.md)
+**File:** See [00-TEMPLATE_TASK.md](./00-TEMPLATE_TASK.md) for template
 **Owner:** @development-team
 **Effort:** 3 days
 **Depends On:** -
@@ -192,9 +192,9 @@ P1_PLANNING.md     → Phase-level planning (living document)
 
 ---
 
-### P0T1: Task Title
+### P0T1: Example Task in Progress
 **Status:** PROGRESS (In Development)
-**File:** [P0T1_PROGRESS.md](./P0T1_PROGRESS.md)
+**File:** See [00-TEMPLATE_PROGRESS.md](./00-TEMPLATE_PROGRESS.md) for template
 **Owner:** @development-team
 **Started:** YYYY-MM-DD
 **Effort:** 5 days
@@ -252,9 +252,9 @@ P1_PLANNING.md     → Phase-level planning (living document)
 |----|-------|-------|-------|------------|--------|--------|
 | [P2T0](#p2t0) | [Task title] | @team | TASK | P1T5 | - | 3d |
 
-### P2T0: Task Title
+### P2T0: Example Future Task
 **Status:** TASK (Not Started)
-**File:** [P2T0_TASK.md](./P2T0_TASK.md)
+**File:** See [00-TEMPLATE_TASK.md](./00-TEMPLATE_TASK.md) for template
 
 [Details...]
 

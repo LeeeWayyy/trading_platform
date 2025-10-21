@@ -635,7 +635,7 @@ for symbol in ['AAPL', 'MSFT', 'GOOGL']:
 **Implementation:**
 - [libs/duckdb_catalog.py](../../libs/duckdb_catalog.py) - Catalog implementation (500+ lines)
 - [tests/test_duckdb_catalog.py](../../tests/test_duckdb_catalog.py) - Test suite (600+ lines)
-- [notebooks/duckdb_analytics_examples.ipynb](../../notebooks/duckdb_analytics_examples.ipynb) - Jupyter examples
+- `notebooks/duckdb_analytics_examples.ipynb` - Jupyter examples (gitignored)
 
 **External Resources:**
 - [DuckDB Documentation](https://duckdb.org/docs/)
