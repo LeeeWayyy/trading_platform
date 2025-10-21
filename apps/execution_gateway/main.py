@@ -942,6 +942,9 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
     db_positions = db_client.get_all_positions()
 
     if not db_positions:
+        # Reset P&L gauges to 0 when no positions (prevent stale values)
+        pnl_dollars.labels(type="unrealized").set(0)
+        pnl_dollars.labels(type="realized").set(0)
         return RealtimePnLResponse(
             positions=[],
             total_positions=0,
