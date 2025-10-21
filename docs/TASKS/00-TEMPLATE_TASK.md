@@ -168,6 +168,46 @@ Break this task into components, each following the 4-step pattern:
 
 ---
 
+## Task Creation Review Checklist
+
+**RECOMMENDED:** Before starting work, request task creation review to validate scope and requirements.
+
+See [`.claude/workflows/13-task-creation-review.md`](../../.claude/workflows/13-task-creation-review.md) for workflow details.
+
+**Review validates:**
+- [ ] Objective is clear and measurable
+- [ ] Success criteria are testable
+- [ ] Functional requirements are comprehensive
+- [ ] Trading safety requirements specified (circuit breakers, idempotency, position limits)
+- [ ] Non-functional requirements documented (performance, security)
+- [ ] Component breakdown follows 4-step pattern
+- [ ] Time estimates are reasonable
+- [ ] Dependencies and blockers identified
+- [ ] ADR requirement clear for architectural changes
+- [ ] Test strategy comprehensive
+
+**When to use task review:**
+- ✅ Complex tasks (>4 hours estimated)
+- ✅ Tasks with architectural changes
+- ✅ Tasks with unclear requirements
+- ✅ New feature development
+
+**Can skip for:**
+- Trivial tasks (<2 hours, well-defined)
+- Simple bug fixes
+- Documentation-only updates
+
+**How to request:**
+```bash
+# Phase 1: Gemini validation
+"Review docs/TASKS/[this_file].md using clink + gemini planner"
+
+# Phase 2: Codex synthesis
+"Use clink + codex planner with continuation_id to synthesize readiness assessment"
+```
+
+---
+
 ## State Transition Instructions
 
 **When starting this task:**
