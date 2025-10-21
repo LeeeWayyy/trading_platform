@@ -42,19 +42,30 @@ features: []
 
 ## Objective
 
-[Clear, concise statement of what this task aims to achieve]
+Implement additional ML strategies beyond Alpha158 baseline for diversification and improved risk-adjusted returns.
+
+**Current State (P0):**
+- Single baseline strategy (Alpha158 + LightGBM)
+- No strategy diversification
+- No ensemble methodology
 
 **Success looks like:**
-- [Measurable outcome 1]
-- [Measurable outcome 2]
+- Mean reversion strategy implemented and backtested
+- Momentum strategy implemented and backtested
+- Multi-model ensemble framework combining strategies
+- Strategy comparison framework with performance metrics
+- Documented strategy selection methodology
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] **AC1:** [Specific, testable criterion]
-- [ ] **AC2:** [Specific, testable criterion]
-- [ ] **AC3:** [Specific, testable criterion]
+- [ ] **AC1:** Mean reversion strategy achieves positive Sharpe ratio in backtests
+- [ ] **AC2:** Momentum strategy achieves positive Sharpe ratio in backtests
+- [ ] **AC3:** Multi-model ensemble framework combines strategy signals
+- [ ] **AC4:** Backtesting framework validates all strategies with consistent data
+- [ ] **AC5:** Strategy performance comparison report generated
+- [ ] **AC6:** Unit tests cover strategy logic and ensemble weighting
 
 ---
 
@@ -62,54 +73,90 @@ features: []
 
 ### High-Level Plan
 
-1. **Step 1:** [What needs to be done]
-2. **Step 2:** [What needs to be done]
-3. **Step 3:** [What needs to be done]
+1. **Research strategies** - Review mean reversion and momentum methodologies
+2. **Implement mean reversion** - Features, model, backtests
+3. **Implement momentum** - Features, model, backtests
+4. **Build ensemble framework** - Strategy combination and weighting
+5. **Add backtesting framework** - Consistent validation across strategies
+6. **Performance comparison** - Generate strategy comparison reports
+7. **Integration** - Integrate with signal service
 
 ### Logical Components
 
-Break this task into components, each following the 4-step pattern:
+**Component 1: Mean Reversion Strategy**
+- Implement mean reversion features (price oscillators, bollinger bands)
+- Train LightGBM model with mean reversion signals
+- Add unit tests for feature calculation
+- Backtest on historical data (2020-2024)
+- Request zen-mcp review & commit
 
-**Component 1: [Name]**
-- Implement [description]
-- Create test cases for [description]
-- Request zen-mcp review
-- Commit after approval
+**Component 2: Momentum Strategy**
+- Implement momentum features (price momentum, volume trends)
+- Train LightGBM model with momentum signals
+- Add unit tests for feature calculation
+- Backtest on historical data (2020-2024)
+- Request zen-mcp review & commit
 
-**Component 2: [Name]**
-- Implement [description]
-- Create test cases for [description]
-- Request zen-mcp review
-- Commit after approval
+**Component 3: Multi-Model Ensemble**
+- Implement strategy weighting framework
+- Combine signals from multiple strategies
+- Add configuration for strategy weights
+- Add unit tests for ensemble logic
+- Request zen-mcp review & commit
+
+**Component 4: Backtesting Framework**
+- Create consistent backtesting pipeline
+- Generate strategy performance metrics (Sharpe, IC, returns)
+- Create comparison visualization
+- Add integration tests
+- Request zen-mcp review & commit
 
 ---
 
 ## Technical Details
 
 ### Files to Modify/Create
-- `path/to/file.py` - [Why and what changes]
-- `path/to/test.py` - [Test coverage needed]
+- `strategies/mean_reversion/` - NEW: Mean reversion strategy implementation
+  - `features.py` - Mean reversion features (oscillators, bollinger bands)
+  - `model.py` - LightGBM model configuration
+  - `config.yaml` - Strategy parameters
+- `strategies/momentum/` - NEW: Momentum strategy implementation
+  - `features.py` - Momentum features (price momentum, volume trends)
+  - `model.py` - LightGBM model configuration
+  - `config.yaml` - Strategy parameters
+- `strategies/ensemble/` - NEW: Multi-strategy ensemble framework
+  - `combiner.py` - Strategy signal combination logic
+  - `weights.py` - Strategy weighting configuration
+- `strategies/backtesting/` - NEW: Backtesting framework
+  - `runner.py` - Backtest execution engine
+  - `metrics.py` - Performance metrics calculation
+  - `comparison.py` - Strategy comparison reports
+- `tests/strategies/` - NEW: Strategy tests
+  - `test_mean_reversion.py` - Mean reversion strategy tests
+  - `test_momentum.py` - Momentum strategy tests
+  - `test_ensemble.py` - Ensemble framework tests
 
 ### APIs/Contracts
-- [Any API changes or new endpoints]
-- [OpenAPI spec updates needed]
+- No API changes required
+- Signal service will support multiple strategy models via config
+- Ensemble weights configurable via YAML
 
 ### Database Changes
-- [Schema changes, migrations needed]
-- [Data model updates]
+- `model_registry` table: Add `strategy_type` column to categorize models
+- No schema migration required (nullable column)
 
 ---
 
 ## Dependencies
 
 **Blockers (must complete before starting):**
-- P1T-1: [Task name and why it's blocking]
+- P0T2: Baseline Strategy - Provides model registry and training infrastructure
 
 **Nice-to-have (can start without):**
-- P1T-2: [Task name and why it helps]
+- P1T1: Redis Integration - Would enable strategy signal caching
 
 **Blocks (other tasks waiting on this):**
-- P1T1: [Task name and what it provides]
+- None (optional enhancement)
 
 ---
 
@@ -117,7 +164,10 @@ Break this task into components, each following the 4-step pattern:
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| [Risk description] | High/Med/Low | High/Med/Low | [How to mitigate] |
+| Strategies perform poorly in live conditions | High | Medium | Extensive backtesting on 4+ years of data, walk-forward validation |
+| Overfitting to historical data | High | Medium | Cross-validation, out-of-sample testing, regular model retraining |
+| Ensemble weights not optimal | Medium | Medium | Configurable weights, A/B testing framework, performance monitoring |
+| Integration complexity with signal service | Medium | Low | Gradual rollout, feature flags, extensive integration testing |
 
 ---
 
@@ -164,13 +214,14 @@ Break this task into components, each following the 4-step pattern:
 
 ## Notes
 
-> **📋 Full Details:** See [P1_PLANNING.md](./P1_PLANNING.md#t6-advanced-trading-strategies) for:
-> - Complete requirements and acceptance criteria
-> - Implementation steps and components
-> - Technical architecture details
-> - Testing strategy
->
-> This task is **OPTIONAL** and can be deferred to P2 if needed. Focus on T0 (Enhanced P&L) and production hardening tasks (T9, T10) first.
+**Priority Note:** This task is **OPTIONAL** and can be deferred to P2 if needed. Focus on T0 (Enhanced P&L) and production hardening tasks (T9, T10) first.
+
+**Strategy Selection Rationale:**
+- Mean reversion: Captures market inefficiencies and oversold/overbought conditions
+- Momentum: Trend-following for sustained directional moves
+- Ensemble: Diversification reduces strategy-specific risk
+
+**Reference:** See [ADR-0003](../ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md) for baseline strategy architecture that this extends.
 
 ---
 

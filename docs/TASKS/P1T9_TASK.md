@@ -42,19 +42,31 @@ features: []
 
 ## Objective
 
-[Clear, concise statement of what this task aims to achieve]
+Implement centralized structured logging with aggregation and correlation to enable production debugging and observability.
+
+**Current State (P0):**
+- Scattered print statements and basic logging
+- No log aggregation or centralized storage
+- Difficult to correlate events across services
+- No retention policies
 
 **Success looks like:**
-- [Measurable outcome 1]
-- [Measurable outcome 2]
+- All services emit structured JSON logs
+- Logs aggregated in Elasticsearch or Loki
+- Trace IDs correlate events across services
+- Retention policies enforce 30-day storage
+- Query interface for debugging and analysis
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] **AC1:** [Specific, testable criterion]
-- [ ] **AC2:** [Specific, testable criterion]
-- [ ] **AC3:** [Specific, testable criterion]
+- [ ] **AC1:** All services emit structured JSON logs with consistent schema
+- [ ] **AC2:** Logs include trace IDs for request correlation across services
+- [ ] **AC3:** Log aggregation stack (ELK or Loki) deployed and ingesting logs
+- [ ] **AC4:** Query interface supports filtering by service, level, trace ID, timestamp
+- [ ] **AC5:** Retention policy auto-deletes logs older than 30 days
+- [ ] **AC6:** Unit tests verify log structure and trace ID propagation
 
 ---
 
@@ -62,54 +74,97 @@ features: []
 
 ### High-Level Plan
 
-1. **Step 1:** [What needs to be done]
-2. **Step 2:** [What needs to be done]
-3. **Step 3:** [What needs to be done]
+1. **Design log schema** - Define JSON structure, required fields, trace ID format
+2. **Implement structured logging** - Add JSON formatter to all services
+3. **Deploy log aggregation stack** - Choose and deploy ELK or Loki
+4. **Add trace ID propagation** - Generate and pass trace IDs across service calls
+5. **Configure retention** - Set up 30-day auto-delete policies
+6. **Testing** - Verify log structure, correlation, and retention
 
 ### Logical Components
 
-Break this task into components, each following the 4-step pattern:
+**Component 1: Structured Logging Library**
+- Create shared logging configuration with JSON formatter
+- Define standard log schema (timestamp, level, service, message, trace_id, context)
+- Add utility functions for trace ID generation and propagation
+- Add unit tests for log formatting and schema validation
+- Request zen-mcp review & commit
 
-**Component 1: [Name]**
-- Implement [description]
-- Create test cases for [description]
-- Request zen-mcp review
-- Commit after approval
+**Component 2: Service Integration**
+- Update all services to use structured logging library
+- Replace print statements and basic logging
+- Add trace ID middleware for FastAPI endpoints
+- Propagate trace IDs in inter-service HTTP calls (via headers)
+- Add integration tests for trace ID correlation
+- Request zen-mcp review & commit
 
-**Component 2: [Name]**
-- Implement [description]
-- Create test cases for [description]
-- Request zen-mcp review
-- Commit after approval
+**Component 3: Log Aggregation Stack**
+- Choose stack (Loki + Grafana recommended for simplicity)
+- Add docker-compose configuration for log stack
+- Configure log shipping (Promtail or Filebeat)
+- Set up retention policies (30 days)
+- Document query examples in runbook
+- Request zen-mcp review & commit
+
+**Component 4: Query Interface & Documentation**
+- Create example queries for common debugging scenarios
+- Add Grafana Explore dashboards for log browsing
+- Update runbooks with troubleshooting workflows
+- Add E2E test verifying logs appear in aggregation stack
+- Request zen-mcp review & commit
 
 ---
 
 ## Technical Details
 
 ### Files to Modify/Create
-- `path/to/file.py` - [Why and what changes]
-- `path/to/test.py` - [Test coverage needed]
+- `libs/common/logging/` - NEW: Shared structured logging library
+  - `formatter.py` - JSON log formatter with standard schema
+  - `context.py` - Trace ID generation and context propagation
+  - `config.py` - Logging configuration for all services
+- `apps/signal_service/main.py` - Update to use structured logging
+- `apps/execution_gateway/main.py` - Update to use structured logging
+- `apps/orchestrator/main.py` - Update to use structured logging
+- `infra/docker-compose.logging.yml` - NEW: Log aggregation stack
+  - Loki for log storage
+  - Promtail for log shipping
+  - Grafana for querying (reuse existing)
+- `tests/libs/common/test_logging.py` - NEW: Logging library tests
+- `tests/integration/test_trace_correlation.py` - NEW: Trace ID propagation tests
 
 ### APIs/Contracts
-- [Any API changes or new endpoints]
-- [OpenAPI spec updates needed]
+- No API changes required
+- HTTP headers: Add `X-Trace-ID` header for request correlation
+- Log schema (JSON):
+  ```json
+  {
+    "timestamp": "2025-10-21T10:30:00.000Z",
+    "level": "INFO",
+    "service": "signal_service",
+    "trace_id": "abc123-def456",
+    "message": "Generated signals for 10 symbols",
+    "context": {
+      "strategy": "alpha_baseline",
+      "symbol_count": 10
+    }
+  }
+  ```
 
 ### Database Changes
-- [Schema changes, migrations needed]
-- [Data model updates]
+- No database changes required
 
 ---
 
 ## Dependencies
 
 **Blockers (must complete before starting):**
-- P1T-1: [Task name and why it's blocking]
+- None (can start independently)
 
 **Nice-to-have (can start without):**
-- P1T-2: [Task name and why it helps]
+- P1T8: Monitoring & Alerting - Would enable alerting on log error rates
 
 **Blocks (other tasks waiting on this):**
-- P1T1: [Task name and what it provides]
+- None (improves observability but not blocking other tasks)
 
 ---
 
@@ -117,58 +172,84 @@ Break this task into components, each following the 4-step pattern:
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| [Risk description] | High/Med/Low | High/Med/Low | [How to mitigate] |
+| High log volume overwhelms storage | Medium | Medium | Configure sampling for high-frequency logs, retention policies, volume monitoring |
+| Trace ID propagation breaks across services | Medium | Medium | Comprehensive integration tests, fallback to generating new trace ID if missing |
+| Log stack (ELK/Loki) adds operational complexity | Medium | Low | Start with Loki (simpler than ELK), document runbooks, add health checks |
+| Performance impact from JSON serialization | Low | Low | Async logging, measure overhead, disable verbose logging in production if needed |
 
 ---
 
 ## Testing Strategy
 
 ### Test Coverage Needed
-- **Unit tests:** [What to test]
-- **Integration tests:** [What to test]
-- **E2E tests:** [What scenarios]
+- **Unit tests:**
+  - JSON log formatter produces valid JSON with required fields
+  - Trace ID generation creates unique IDs
+  - Log schema validation catches missing fields
+- **Integration tests:**
+  - Trace ID propagates across HTTP service calls
+  - Logs appear in aggregation stack within 10 seconds
+  - Query interface filters by service, level, trace ID
+- **E2E tests:**
+  - Full request flow (orchestrator → signal → execution) uses same trace ID
+  - Retention policy deletes logs older than 30 days
 
 ### Manual Testing
-- [ ] Test case 1
-- [ ] Test case 2
+- [ ] Generate logs from each service and verify they appear in Grafana Explore
+- [ ] Search by trace ID and verify all service logs for a request are correlated
+- [ ] Verify log retention policy deletes old logs after 30 days
+- [ ] Check performance impact (latency and CPU) of JSON logging vs basic logging
 
 ---
 
 ## Documentation Requirements
 
 ### Must Create/Update
-- [ ] ADR if architectural change (`.claude/workflows/08-adr-creation.md`)
-- [ ] Concept doc in `/docs/CONCEPTS/` if trading-specific
-- [ ] API spec in `/docs/API/` if endpoint changes
-- [ ] Database schema in `/docs/DB/` if schema changes
+- [ ] ADR for centralized logging architecture (ELK vs Loki decision, log schema design)
+- [ ] Runbook in `/docs/RUNBOOKS/` for log querying and troubleshooting
+- [ ] Update `/docs/GETTING_STARTED/SETUP.md` with log stack setup instructions
 
 ### Must Update
-- [ ] `/docs/GETTING_STARTED/REPO_MAP.md` if structure changes
+- [ ] `/docs/GETTING_STARTED/REPO_MAP.md` for new `libs/common/logging/` structure
 - [ ] `/docs/GETTING_STARTED/PROJECT_STATUS.md` when complete
+- [ ] `infra/README.md` for new logging services
 
 ---
 
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Title](../ADRs/XXX-title.md)
+- ADR (to be created): Centralized Logging Architecture (ELK vs Loki decision)
 
 **Documentation:**
-- [Related concept](../CONCEPTS/concept-name.md)
+- [P1_PLANNING.md](./P1_PLANNING.md#t9-centralized-logging) - Source planning document
 
 **Tasks:**
-- Depends on: [P1T-1](./P1T-1_STATE.md)
-- Blocks: [P1T1](./P1T1_STATE.md)
+- Nice-to-have: [P1T8_DONE.md](./P1T8_DONE.md) - Monitoring & Alerting (enables log-based alerts)
 
 ---
 
 ## Notes
 
-> **📋 Full Details:** See [P1_PLANNING.md](./P1_PLANNING.md#t9-centralized-logging) for:
-> - Complete requirements (structured JSON logging, ELK/Loki integration)
-> - Implementation steps
-> - Log correlation with trace IDs
-> - Retention policies
+**Stack Recommendation:** Use **Loki + Grafana** instead of ELK for simplicity:
+- Loki: Log aggregation and storage (simpler than Elasticsearch)
+- Promtail: Log shipping agent (lightweight)
+- Grafana: Already deployed for metrics, can query logs via Explore
+
+**Why not ELK:**
+- Elasticsearch is heavyweight (high memory requirements)
+- Logstash adds complexity vs Promtail
+- Kibana would be redundant with Grafana
+
+**Log Schema Fields:**
+- `timestamp` (ISO 8601, UTC)
+- `level` (DEBUG/INFO/WARNING/ERROR/CRITICAL)
+- `service` (signal_service, execution_gateway, orchestrator)
+- `trace_id` (UUID v4, propagated via X-Trace-ID header)
+- `message` (human-readable description)
+- `context` (dict of request-specific data: symbol, strategy, order_id, etc.)
+
+**Reference:** See [P1_PLANNING.md](./P1_PLANNING.md#t9-centralized-logging) for original requirements.
 
 ---
 

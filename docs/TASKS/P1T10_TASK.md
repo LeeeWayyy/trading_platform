@@ -42,19 +42,31 @@ features: []
 
 ## Objective
 
-[Clear, concise statement of what this task aims to achieve]
+Implement automated testing and deployment pipeline to enable rapid iteration with confidence.
+
+**Current State (P0):**
+- Manual test execution (`make test`)
+- Manual deployment steps
+- No automated quality gates
+- No integration testing in CI
 
 **Success looks like:**
-- [Measurable outcome 1]
-- [Measurable outcome 2]
+- GitHub Actions runs tests on every PR
+- Docker images built and tagged automatically
+- Automated deployment to staging environment
+- Integration tests validate service interactions
+- Quality gates prevent broken code from merging
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] **AC1:** [Specific, testable criterion]
-- [ ] **AC2:** [Specific, testable criterion]
-- [ ] **AC3:** [Specific, testable criterion]
+- [ ] **AC1:** GitHub Actions workflow runs unit tests + linters on every PR
+- [ ] **AC2:** CI builds Docker images for all services and pushes to registry
+- [ ] **AC3:** Integration tests validate service communication in CI environment
+- [ ] **AC4:** Automated deployment to staging on merge to main branch
+- [ ] **AC5:** Quality gates block merge if tests fail or coverage drops below 80%
+- [ ] **AC6:** CI pipeline completes in under 10 minutes for fast feedback
 
 ---
 
@@ -62,54 +74,84 @@ features: []
 
 ### High-Level Plan
 
-1. **Step 1:** [What needs to be done]
-2. **Step 2:** [What needs to be done]
-3. **Step 3:** [What needs to be done]
+1. **Design CI workflow** - Define GitHub Actions stages, caching strategy
+2. **Implement test automation** - Unit tests, linters, coverage reporting
+3. **Add Docker build** - Multi-stage builds, image tagging, registry push
+4. **Integration testing** - Spin up services, run E2E tests, teardown
+5. **Staging deployment** - Automated deploy on merge to main
+6. **Quality gates** - Enforce test pass, coverage thresholds
 
 ### Logical Components
 
-Break this task into components, each following the 4-step pattern:
+**Component 1: GitHub Actions Workflow**
+- Create `.github/workflows/ci.yml` with test + lint jobs
+- Add Python dependency caching for faster builds
+- Configure matrix strategy for parallel test execution
+- Add coverage reporting with codecov or coveralls
+- Request zen-mcp review & commit
 
-**Component 1: [Name]**
-- Implement [description]
-- Create test cases for [description]
-- Request zen-mcp review
-- Commit after approval
+**Component 2: Docker Build Pipeline**
+- Create Dockerfiles for each service (multi-stage for size optimization)
+- Add `.github/workflows/docker-build.yml` for image building
+- Configure Docker layer caching
+- Push images to GitHub Container Registry (ghcr.io)
+- Tag images with commit SHA and branch name
+- Request zen-mcp review & commit
 
-**Component 2: [Name]**
-- Implement [description]
-- Create test cases for [description]
-- Request zen-mcp review
-- Commit after approval
+**Component 3: Integration Testing in CI**
+- Extend CI workflow to spin up services via docker-compose
+- Add E2E tests validating service communication
+- Use test fixtures for deterministic data
+- Capture logs on failure for debugging
+- Request zen-mcp review & commit
+
+**Component 4: Staging Deployment Automation**
+- Create `.github/workflows/deploy-staging.yml`
+- Trigger on merge to main branch
+- Pull latest images and restart services
+- Run smoke tests post-deployment
+- Notify on deployment success/failure (Slack or email)
+- Request zen-mcp review & commit
 
 ---
 
 ## Technical Details
 
 ### Files to Modify/Create
-- `path/to/file.py` - [Why and what changes]
-- `path/to/test.py` - [Test coverage needed]
+- `.github/workflows/ci.yml` - NEW: Main CI workflow (test, lint, coverage)
+- `.github/workflows/docker-build.yml` - NEW: Docker image build workflow
+- `.github/workflows/deploy-staging.yml` - NEW: Staging deployment workflow
+- `Dockerfile` - NEW: Multi-stage Dockerfile for each service
+  - `apps/signal_service/Dockerfile`
+  - `apps/execution_gateway/Dockerfile`
+  - `apps/orchestrator/Dockerfile`
+- `.dockerignore` - NEW: Exclude unnecessary files from Docker context
+- `docker-compose.ci.yml` - NEW: CI-specific compose file for integration tests
+- `tests/e2e/` - NEW: End-to-end integration tests
+  - `test_signal_to_execution.py` - Validate signal → execution flow
+  - `test_orchestrator_flow.py` - Validate full orchestration
+- `scripts/deploy-staging.sh` - NEW: Staging deployment script
 
 ### APIs/Contracts
-- [Any API changes or new endpoints]
-- [OpenAPI spec updates needed]
+- No API changes required
+- CI uses existing service APIs for integration testing
 
 ### Database Changes
-- [Schema changes, migrations needed]
-- [Data model updates]
+- No database changes required
+- CI uses test database (PostgreSQL container)
 
 ---
 
 ## Dependencies
 
 **Blockers (must complete before starting):**
-- P1T-1: [Task name and why it's blocking]
+- None (can start immediately)
 
 **Nice-to-have (can start without):**
-- P1T-2: [Task name and why it helps]
+- P1T9: Centralized Logging - Would enable CI log aggregation
 
 **Blocks (other tasks waiting on this):**
-- P1T1: [Task name and what it provides]
+- None (quality-of-life improvement, not blocking other work)
 
 ---
 
@@ -117,58 +159,92 @@ Break this task into components, each following the 4-step pattern:
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| [Risk description] | High/Med/Low | High/Med/Low | [How to mitigate] |
+| CI pipeline too slow (>10min) | Medium | Medium | Optimize with caching, parallel jobs, smaller Docker images |
+| Integration tests flaky due to timing issues | Medium | Medium | Use retry logic, explicit waits, health checks before tests |
+| Docker image registry costs | Low | Low | Use GitHub Container Registry (free for public repos) or self-host |
+| Staging environment config drift | Medium | Low | Infrastructure as code, version control all configs |
 
 ---
 
 ## Testing Strategy
 
 ### Test Coverage Needed
-- **Unit tests:** [What to test]
-- **Integration tests:** [What to test]
-- **E2E tests:** [What scenarios]
+- **Unit tests:**
+  - Already covered by existing test suite (757 tests, 81% coverage)
+  - CI validates test suite passes and coverage ≥80%
+- **Integration tests:**
+  - Service-to-service communication (signal → execution)
+  - Database migrations work in CI environment
+  - Redis pub/sub message passing
+- **E2E tests:**
+  - Full orchestrator flow (data → signals → orders)
+  - Circuit breaker integration across services
+  - Paper run end-to-end workflow
 
 ### Manual Testing
-- [ ] Test case 1
-- [ ] Test case 2
+- [ ] Trigger CI workflow on test PR and verify all jobs pass
+- [ ] Verify Docker images built and pushed to registry with correct tags
+- [ ] Break a test intentionally and verify quality gate blocks merge
+- [ ] Trigger staging deployment and verify services restart successfully
+- [ ] Check CI pipeline runtime is under 10 minutes
 
 ---
 
 ## Documentation Requirements
 
 ### Must Create/Update
-- [ ] ADR if architectural change (`.claude/workflows/08-adr-creation.md`)
-- [ ] Concept doc in `/docs/CONCEPTS/` if trading-specific
-- [ ] API spec in `/docs/API/` if endpoint changes
-- [ ] Database schema in `/docs/DB/` if schema changes
+- [ ] ADR for CI/CD architecture (GitHub Actions, Docker strategy, staging deployment)
+- [ ] Update `/docs/GETTING_STARTED/SETUP.md` with CI/CD setup instructions
+- [ ] Create `/docs/RUNBOOKS/ci-cd-troubleshooting.md` for CI failures
 
 ### Must Update
-- [ ] `/docs/GETTING_STARTED/REPO_MAP.md` if structure changes
+- [ ] `/docs/GETTING_STARTED/REPO_MAP.md` for new `.github/workflows/` and `tests/e2e/`
 - [ ] `/docs/GETTING_STARTED/PROJECT_STATUS.md` when complete
+- [ ] `README.md` with CI badge and deployment status
 
 ---
 
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Title](../ADRs/XXX-title.md)
+- ADR (to be created): CI/CD Pipeline Architecture
 
 **Documentation:**
-- [Related concept](../CONCEPTS/concept-name.md)
+- [P1_PLANNING.md](./P1_PLANNING.md#t10-cicd-pipeline) - Source planning document
 
 **Tasks:**
-- Depends on: [P1T-1](./P1T-1_STATE.md)
-- Blocks: [P1T1](./P1T1_STATE.md)
+- Nice-to-have: [P1T9_TASK.md](./P1T9_TASK.md) - Centralized Logging (enables CI log aggregation)
 
 ---
 
 ## Notes
 
-> **📋 Full Details:** See [P1_PLANNING.md](./P1_PLANNING.md#t10-cicd-pipeline) for:
-> - Complete requirements (GitHub Actions, Docker, automated deployment)
-> - Implementation steps
-> - CI testing strategy
-> - Deployment automation
+**GitHub Actions Workflow Structure:**
+```
+.github/workflows/
+├── ci.yml              # Main CI (test, lint, coverage) - runs on PR
+├── docker-build.yml    # Docker image build - runs on main push
+└── deploy-staging.yml  # Staging deployment - runs after docker-build
+```
+
+**Docker Multi-Stage Build Strategy:**
+- Stage 1: Build dependencies (Python packages, compile extensions)
+- Stage 2: Runtime (copy only needed artifacts, slim base image)
+- Benefits: Smaller images (~200MB vs ~800MB), faster pulls, better caching
+
+**CI Performance Optimization:**
+- Python dependency caching: `actions/cache` with `requirements.txt` hash
+- Docker layer caching: GitHub Actions cache or registry cache
+- Parallel test execution: `pytest -n auto` with matrix strategy
+- Target: <10min total pipeline time for fast feedback
+
+**Staging Environment:**
+- Separate from production (different database, API keys)
+- Automated deployment on merge to `main` branch
+- Smoke tests verify services healthy post-deployment
+- Rollback on smoke test failure
+
+**Reference:** See [P1_PLANNING.md](./P1_PLANNING.md#t10-cicd-pipeline) for original requirements.
 
 ---
 
