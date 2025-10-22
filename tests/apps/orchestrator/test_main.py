@@ -92,6 +92,7 @@ class TestHealthCheckEndpoint:
         with (
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator),
+            patch("apps.orchestrator.main.kill_switch_unavailable", False),
         ):
             response = test_client.get("/health")
 
@@ -133,6 +134,7 @@ class TestHealthCheckEndpoint:
         with (
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator),
+            patch("apps.orchestrator.main.kill_switch_unavailable", False),
         ):
             response = test_client.get("/health")
 

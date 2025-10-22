@@ -42,18 +42,18 @@ class TestFailClosedBehaviorExecutionGateway:
     @pytest.fixture
     def mock_redis_unavailable(self):
         """Mock Redis connection failure during initialization."""
-        with patch("apps.execution_gateway.main.RedisClient") as mock_redis_class:
-            # Simulate Redis initialization failure
-            mock_redis_class.side_effect = Exception("Redis connection failed")
-            yield mock_redis_class
+        # Mock module-level variables to simulate Redis unavailable state
+        with (
+            patch("apps.execution_gateway.main.redis_client", None),
+            patch("apps.execution_gateway.main.kill_switch", None),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", True),
+        ):
+            yield
 
     @pytest.fixture
     def mock_postgres(self):
-        """Mock Postgres for tests."""
-        with (
-            patch("apps.execution_gateway.main.create_engine"),
-            patch("apps.execution_gateway.main.SessionLocal"),
-        ):
+        """Mock Postgres database client for tests."""
+        with patch("apps.execution_gateway.database.DatabaseClient"):
             yield
 
     def test_order_submission_blocked_when_redis_unavailable(
@@ -105,7 +105,7 @@ class TestFailClosedBehaviorExecutionGateway:
 
         client = TestClient(app)
 
-        response = client.get("/api/health")
+        response = client.get("/health")
 
         # Health check should still respond but indicate issues
         assert response.status_code == 200
@@ -117,17 +117,16 @@ class TestFailClosedBehaviorExecutionGateway:
     @pytest.fixture
     def mock_kill_switch_init_failure(self):
         """Mock KillSwitch initialization failure."""
+        # Redis available but KillSwitch init fails
+        mock_redis = Mock()
+        mock_redis.health_check.return_value = True
+
         with (
-            patch("apps.execution_gateway.main.RedisClient") as mock_redis_class,
-            patch("apps.execution_gateway.main.KillSwitch") as mock_ks_class,
+            patch("apps.execution_gateway.main.redis_client", mock_redis),
+            patch("apps.execution_gateway.main.kill_switch", None),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", True),
         ):
-            # Redis succeeds but KillSwitch init fails
-            mock_redis = Mock()
-            mock_redis_class.return_value = mock_redis
-
-            mock_ks_class.side_effect = Exception("KillSwitch initialization failed")
-
-            yield mock_redis, mock_ks_class
+            yield mock_redis
 
     def test_order_submission_blocked_when_kill_switch_init_fails(
         self, mock_kill_switch_init_failure, mock_postgres
@@ -167,24 +166,27 @@ class TestFailClosedBehaviorOrchestrator:
     @pytest.fixture
     def mock_redis_unavailable(self):
         """Mock Redis connection failure during initialization."""
-        with patch("apps.orchestrator.main.RedisClient") as mock_redis_class:
-            mock_redis_class.side_effect = Exception("Redis connection failed")
-            yield mock_redis_class
+        # Mock module-level variables to simulate Redis unavailable state
+        with (
+            patch("apps.orchestrator.main.redis_client", None),
+            patch("apps.orchestrator.main.kill_switch", None),
+            patch("apps.orchestrator.main.kill_switch_unavailable", True),
+        ):
+            yield
 
     @pytest.fixture
     def mock_postgres(self):
-        """Mock Postgres for tests."""
-        with (
-            patch("apps.orchestrator.main.create_engine"),
-            patch("apps.orchestrator.main.SessionLocal"),
-        ):
+        """Mock Postgres database client for tests."""
+        with patch("apps.orchestrator.database.OrchestrationDatabaseClient"):
             yield
 
     @pytest.fixture
     def mock_http_clients(self):
         """Mock HTTP clients to external services."""
-        with (patch("apps.orchestrator.main.httpx.AsyncClient"),):
-            yield
+        # TradingOrchestrator creates httpx clients internally,
+        # we don't need to mock httpx at module level
+        # This is a no-op fixture to maintain test compatibility
+        yield
 
     def test_orchestration_blocked_when_redis_unavailable(
         self, mock_redis_unavailable, mock_postgres, mock_http_clients
@@ -223,7 +225,7 @@ class TestFailClosedBehaviorOrchestrator:
 
         client = TestClient(app)
 
-        response = client.get("/api/health")
+        response = client.get("/health")
 
         # Health check should still respond but indicate issues
         assert response.status_code == 200
@@ -249,33 +251,33 @@ class TestKillSwitchJSONBodyHandling:
     @pytest.fixture
     def mock_redis_and_kill_switch(self):
         """Mock Redis and KillSwitch for testing."""
+        # Mock the module-level variables directly (not the classes)
+        # since they're initialized at import time
+        mock_redis = Mock()
+        mock_redis.health_check.return_value = True
+
+        mock_ks = Mock()
+        mock_ks.is_engaged.return_value = False
+        mock_ks.engage.return_value = None
+        mock_ks.disengage.return_value = None
+        mock_ks.get_status.return_value = {
+            "engaged": True,
+            "reason": "Test engagement",
+            "operator": "test_ops",
+            "timestamp": datetime.now().isoformat(),
+        }
+
         with (
-            patch("apps.execution_gateway.main.RedisClient") as mock_redis_class,
-            patch("apps.execution_gateway.main.KillSwitch") as mock_ks_class,
+            patch("apps.execution_gateway.main.redis_client", mock_redis),
+            patch("apps.execution_gateway.main.kill_switch", mock_ks),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
         ):
-            mock_redis = Mock()
-            mock_redis.health_check.return_value = True
-            mock_redis_class.return_value = mock_redis
-
-            mock_ks = Mock()
-            mock_ks.is_engaged.return_value = False
-            mock_ks.get_status.return_value = {
-                "engaged": True,
-                "reason": "Test engagement",
-                "operator": "test_ops",
-                "timestamp": datetime.now().isoformat(),
-            }
-            mock_ks_class.return_value = mock_ks
-
             yield mock_redis, mock_ks
 
     @pytest.fixture
     def mock_postgres(self):
-        """Mock Postgres for tests."""
-        with (
-            patch("apps.execution_gateway.main.create_engine"),
-            patch("apps.execution_gateway.main.SessionLocal"),
-        ):
+        """Mock Postgres database client for tests."""
+        with patch("apps.execution_gateway.database.DatabaseClient"):
             yield
 
     def test_engage_endpoint_accepts_json_body_with_nested_details(
@@ -400,14 +402,45 @@ class TestKillSwitchJSONBodyHandling:
 
         assert response.status_code in [200, 400]
 
+    @pytest.fixture
+    def mock_orchestrator_redis_and_kill_switch(self):
+        """Mock Redis and KillSwitch for orchestrator testing."""
+        # Mock the module-level variables for orchestrator
+        mock_redis = Mock()
+        mock_redis.health_check.return_value = True
+
+        mock_ks = Mock()
+        mock_ks.is_engaged.return_value = False
+        mock_ks.engage.return_value = None
+        mock_ks.disengage.return_value = None
+        mock_ks.get_status.return_value = {
+            "engaged": True,
+            "reason": "Test engagement",
+            "operator": "test_ops",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        with (
+            patch("apps.orchestrator.main.redis_client", mock_redis),
+            patch("apps.orchestrator.main.kill_switch", mock_ks),
+            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+        ):
+            yield mock_redis, mock_ks
+
+    @pytest.fixture
+    def mock_orchestrator_postgres(self):
+        """Mock Postgres for orchestrator tests."""
+        with patch("apps.orchestrator.database.OrchestrationDatabaseClient"):
+            yield
+
     def test_orchestrator_engage_endpoint_accepts_json_body(
-        self, mock_redis_and_kill_switch, mock_postgres
+        self, mock_orchestrator_redis_and_kill_switch, mock_orchestrator_postgres
     ):
         """Test orchestrator engage endpoint also uses JSON body."""
         from apps.orchestrator.main import app
 
         client = TestClient(app)
-        mock_redis, mock_ks = mock_redis_and_kill_switch
+        mock_redis, mock_ks = mock_orchestrator_redis_and_kill_switch
 
         engage_request = {
             "reason": "Orchestration halt for deployment",
@@ -430,13 +463,13 @@ class TestKillSwitchJSONBodyHandling:
             assert call_kwargs["details"]["deployment_id"] == "deploy-2025-10-22-001"
 
     def test_orchestrator_disengage_endpoint_accepts_json_body(
-        self, mock_redis_and_kill_switch, mock_postgres
+        self, mock_orchestrator_redis_and_kill_switch, mock_orchestrator_postgres
     ):
         """Test orchestrator disengage endpoint uses JSON body."""
         from apps.orchestrator.main import app
 
         client = TestClient(app)
-        mock_redis, mock_ks = mock_redis_and_kill_switch
+        mock_redis, mock_ks = mock_orchestrator_redis_and_kill_switch
 
         disengage_request = {
             "operator": "deployment_bot",
@@ -458,27 +491,33 @@ class TestKillSwitchEndToEnd:
     @pytest.fixture
     def mock_components(self):
         """Mock all required components."""
+        # Setup Redis mock
+        mock_redis = Mock()
+        mock_redis.health_check.return_value = True
+        mock_redis.rpush.return_value = 1
+        mock_redis.ltrim.return_value = True
+        mock_redis.lrange.return_value = [
+            b'{"action": "engage", "operator": "ops", "timestamp": "2025-10-22T10:00:00Z"}'
+        ]
+
+        # Setup KillSwitch mock
+        mock_ks = Mock()
+        mock_ks.is_engaged.return_value = False
+        mock_ks.engage.return_value = None
+        mock_ks.disengage.return_value = None
+        mock_ks.get_status.return_value = {
+            "engaged": False,
+            "reason": None,
+            "operator": None,
+            "timestamp": datetime.now().isoformat(),
+        }
+
         with (
-            patch("apps.execution_gateway.main.RedisClient") as mock_redis_class,
-            patch("apps.execution_gateway.main.KillSwitch") as mock_ks_class,
-            patch("apps.execution_gateway.main.create_engine"),
-            patch("apps.execution_gateway.main.SessionLocal"),
+            patch("apps.execution_gateway.main.redis_client", mock_redis),
+            patch("apps.execution_gateway.main.kill_switch", mock_ks),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+            patch("apps.execution_gateway.database.DatabaseClient"),
         ):
-            # Setup Redis
-            mock_redis = Mock()
-            mock_redis.health_check.return_value = True
-            mock_redis.rpush.return_value = 1
-            mock_redis.ltrim.return_value = True
-            mock_redis.lrange.return_value = [
-                b'{"action": "engage", "operator": "ops", "timestamp": "2025-10-22T10:00:00Z"}'
-            ]
-            mock_redis_class.return_value = mock_redis
-
-            # Setup KillSwitch
-            mock_ks = Mock()
-            mock_ks.is_engaged.return_value = False
-            mock_ks_class.return_value = mock_ks
-
             yield mock_redis, mock_ks
 
     def test_complete_engage_disengage_workflow(self, mock_components):

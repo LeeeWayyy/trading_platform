@@ -74,9 +74,9 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	poetry run ruff check libs/ apps/ strategies/
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 3/3: Running tests (integration tests skipped)"
+	@echo "Step 3/3: Running tests (integration and e2e tests skipped)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	PYTHONPATH=. poetry run pytest -m "not integration" --cov=libs --cov=apps --cov-report=term --cov-fail-under=80
+	PYTHONPATH=. poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=80
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "✓ All CI checks passed!"

@@ -93,10 +93,11 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql://trading_platform:dev_password@localhost:5432/trading_platform_test
         run: |
-          # Skip integration tests that require model_registry data and test data files
-          # Integration tests are marked with @pytest.mark.integration
-          # Run them locally with: pytest -m integration
-          pytest -m "not integration" --cov=libs --cov=apps --cov-report=xml --cov-report=term-missing --cov-report=html
+          # Skip integration and e2e tests that require external services
+          # Integration tests: marked with @pytest.mark.integration (require model_registry data)
+          # E2E tests: marked with @pytest.mark.e2e (require running services)
+          # Run them locally with: pytest -m integration  or  pytest -m e2e
+          pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=xml --cov-report=term-missing --cov-report=html
 
       - name: Check coverage threshold
         run: |

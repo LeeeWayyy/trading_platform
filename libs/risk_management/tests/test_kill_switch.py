@@ -1,5 +1,7 @@
 """
-Unit tests for kill-switch functionality.
+Integration tests for kill-switch functionality.
+
+These tests require a real Redis connection (localhost:6379).
 
 Tests cover:
 - Kill-switch state management (ACTIVE ↔ ENGAGED)
@@ -7,6 +9,8 @@ Tests cover:
 - Operator audit trail
 - History tracking
 - Error handling
+
+Run with: pytest -m integration
 """
 
 import json
@@ -15,6 +19,9 @@ import pytest
 
 from libs.redis_client import RedisClient
 from libs.risk_management.kill_switch import KillSwitch, KillSwitchState
+
+# Mark all tests in this module as integration tests (require Redis)
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture

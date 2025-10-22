@@ -278,7 +278,10 @@ async def health_check() -> HealthResponse:
     execution_gateway_available.set(1 if execution_healthy else 0)
 
     # Determine overall status
-    if db_connected and signal_healthy and execution_healthy:
+    if kill_switch_unavailable:
+        # Kill-switch unavailable means we're in fail-closed mode - report degraded
+        overall_status = "degraded"
+    elif db_connected and signal_healthy and execution_healthy:
         overall_status = "healthy"
     elif db_connected:
         overall_status = "degraded"  # DB OK but services down

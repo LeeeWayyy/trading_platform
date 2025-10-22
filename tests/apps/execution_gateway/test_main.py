@@ -68,7 +68,10 @@ class TestHealthEndpoint:
         """Test health check returns healthy when database is up (DRY_RUN mode)."""
         mock_db.check_connection.return_value = True
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with (
+            patch("apps.execution_gateway.main.db_client", mock_db),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+        ):
             response = test_client.get("/health")
 
         assert response.status_code == 200
@@ -81,7 +84,10 @@ class TestHealthEndpoint:
         """Test health check returns unhealthy when database is down."""
         mock_db.check_connection.return_value = False
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with (
+            patch("apps.execution_gateway.main.db_client", mock_db),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+        ):
             response = test_client.get("/health")
 
         assert response.status_code == 200

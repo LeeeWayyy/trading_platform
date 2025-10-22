@@ -574,7 +574,10 @@ async def health_check() -> HealthResponse:
 
     # Determine overall status
     overall_status: Literal["healthy", "degraded", "unhealthy"]
-    if db_connected and (DRY_RUN or alpaca_connected):
+    if kill_switch_unavailable:
+        # Kill-switch unavailable means we're in fail-closed mode - report degraded
+        overall_status = "degraded"
+    elif db_connected and (DRY_RUN or alpaca_connected):
         overall_status = "healthy"
     elif db_connected:
         overall_status = "degraded"  # DB OK but Alpaca down
