@@ -102,7 +102,7 @@ Risk Manager (trace_id: abc-123)
 Execution Gateway (trace_id: abc-123)
 ```
 
-Query in Grafana: `{trace_id="abc-123"}` shows entire request path
+Query in Grafana: `{job="docker"} | json | trace_id="abc-123"` shows entire request path
 
 ## Consequences
 
