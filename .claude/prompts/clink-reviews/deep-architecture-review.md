@@ -151,7 +151,7 @@ Given the architecture review findings above, please synthesize:
 - Parity: Research and production share feature code
 
 **Critical Patterns:**
-- **Idempotency:** `client_order_id = hash(symbol + side + qty + price + strategy + date)[:24]`
+- **Idempotency:** `client_order_id = hash(f"{symbol}|{side}|{qty}|{price}|{strategy}|{date}")[:24]`
 - **Circuit Breaker:** Check Redis state before EVERY order
 - **Reconciliation:** Boot-time + periodic, heal broker vs DB discrepancies
 - **Feature Parity:** `strategies/*/features.py` shared by research and production
