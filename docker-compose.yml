@@ -60,9 +60,38 @@ services:
     depends_on:
       - prometheus
       - postgres
+      - loki
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: trading_platform_loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki:/etc/loki
+      - lokidata:/tmp/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: trading_platform_promtail
+    volumes:
+      - ./infra/promtail:/etc/promtail
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtaildata:/tmp
+    command: -config.file=/etc/promtail/promtail-config.yml
+    depends_on:
+      - loki
 
 volumes:
   pgdata:
   redisdata:
   prometheusdata:
   grafanadata:
+  lokidata:
+  promtaildata:
