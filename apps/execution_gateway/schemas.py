@@ -433,6 +433,58 @@ class HealthResponse(BaseModel):
 
 
 # ============================================================================
+# Configuration Schema
+# ============================================================================
+
+
+class ConfigResponse(BaseModel):
+    """
+    Configuration verification response.
+
+    Exposes critical safety flags and environment settings for automated
+    verification in smoke tests and monitoring. Used to ensure paper trading
+    mode is active in staging/CI environments.
+
+    Examples:
+        >>> config = ConfigResponse(
+        ...     service="execution_gateway",
+        ...     version="0.1.0",
+        ...     environment="staging",
+        ...     dry_run=True,
+        ...     alpaca_paper=True,
+        ...     circuit_breaker_enabled=True,
+        ...     timestamp=datetime.now(timezone.utc)
+        ... )
+        >>> assert config.dry_run is True  # Staging safety check
+        >>> assert config.alpaca_paper is True
+    """
+
+    service: str = Field(..., description="Service name")
+    version: str = Field(..., description="Service version")
+    environment: str = Field(..., description="Environment (dev, staging, production)")
+    dry_run: bool = Field(..., description="Dry-run mode enabled (no real orders)")
+    alpaca_paper: bool = Field(..., description="Alpaca paper trading mode")
+    circuit_breaker_enabled: bool = Field(..., description="Circuit breaker feature enabled")
+    timestamp: datetime = Field(..., description="Response timestamp (UTC)")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "service": "execution_gateway",
+                    "version": "0.1.0",
+                    "environment": "staging",
+                    "dry_run": True,
+                    "alpaca_paper": True,
+                    "circuit_breaker_enabled": True,
+                    "timestamp": "2025-10-22T10:30:00Z",
+                }
+            ]
+        }
+    }
+
+
+# ============================================================================
 # Error Schema
 # ============================================================================
 

@@ -147,14 +147,16 @@ class TestExecutionGateway:
         self, service_urls: dict[str, str], wait_for_services: None
     ) -> None:
         """Test that execution gateway is in DRY_RUN mode (safety check)."""
-        # Query a status endpoint or config endpoint to verify DRY_RUN=true
-        # For now, we just verify the service is healthy
-        # In production, we'd want an endpoint that returns the current mode
-        response = httpx.get(f"{service_urls['execution_gateway']}/health", timeout=5.0)
+        # Verify config endpoint exposes safety flags
+        response = httpx.get(f"{service_urls['execution_gateway']}/api/v1/config", timeout=5.0)
         assert response.status_code == 200
 
-        # TODO: Add GET /config endpoint to execution gateway that returns DRY_RUN status
-        # This would allow us to programmatically verify safety mode in CI
+        config = response.json()
+        assert config["service"] == "execution_gateway"
+        assert config["dry_run"] is True, "DRY_RUN must be true in CI"
+        assert config["alpaca_paper"] is True, "ALPACA_PAPER must be true in CI"
+        assert config["environment"] in ["ci", "dev", "staging"]
+        assert config["circuit_breaker_enabled"] is True
 
     def test_circuit_breaker_status(
         self, service_urls: dict[str, str], wait_for_services: None

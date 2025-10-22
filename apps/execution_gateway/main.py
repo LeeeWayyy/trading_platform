@@ -59,6 +59,7 @@ from apps.execution_gateway.alpaca_client import (
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.order_id_generator import generate_client_order_id
 from apps.execution_gateway.schemas import (
+    ConfigResponse,
     ErrorResponse,
     HealthResponse,
     OrderDetail,
@@ -93,6 +94,9 @@ DATABASE_URL = os.getenv(
 )
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
 # Redis configuration (for real-time price lookups)
@@ -567,6 +571,42 @@ async def health_check() -> HealthResponse:
             "strategy_id": STRATEGY_ID,
             "alpaca_base_url": ALPACA_BASE_URL if not DRY_RUN else None,
         },
+    )
+
+
+@app.get("/api/v1/config", response_model=ConfigResponse, tags=["Configuration"])
+async def get_config() -> ConfigResponse:
+    """
+    Get service configuration for verification.
+
+    Returns safety flags and environment settings for automated verification
+    in smoke tests and monitoring. Critical for ensuring paper trading mode
+    in staging and detecting configuration drift.
+
+    This endpoint is used by:
+    - CI/CD smoke tests to verify paper trading mode active
+    - Monitoring systems to detect configuration drift
+    - Debugging to verify environment settings
+
+    Returns:
+        ConfigResponse with service configuration details
+
+    Examples:
+        >>> import requests
+        >>> response = requests.get("http://localhost:8002/api/v1/config")
+        >>> config = response.json()
+        >>> assert config["dry_run"] is True  # Staging safety check
+        >>> assert config["alpaca_paper"] is True
+        >>> assert config["environment"] == "staging"
+    """
+    return ConfigResponse(
+        service="execution_gateway",
+        version=__version__,
+        environment=ENVIRONMENT,
+        dry_run=DRY_RUN,
+        alpaca_paper=ALPACA_PAPER,
+        circuit_breaker_enabled=CIRCUIT_BREAKER_ENABLED,
+        timestamp=datetime.now(UTC),
     )
 
 

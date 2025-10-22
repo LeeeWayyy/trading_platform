@@ -146,11 +146,39 @@ jobs:
           curl -f http://localhost:8002/health || exit 1
           curl -f http://localhost:8003/health || exit 1
 
-          # Test 2: Verify paper trading mode (if endpoint exists)
-          # TODO: Add endpoint to return current trading mode
-          # curl http://localhost:8002/api/v1/config | jq '.dry_run' | grep -q "true" || exit 1
+          # Test 2: Verify paper trading mode (execution_gateway)
+          echo "Verifying execution_gateway paper trading mode..."
+          CONFIG=$(curl -f http://localhost:8002/api/v1/config)
+          DRY_RUN=$(echo $CONFIG | jq -r '.dry_run')
+          ALPACA_PAPER=$(echo $CONFIG | jq -r '.alpaca_paper')
 
-          echo "✅ All smoke tests passed"
+          if [ "$DRY_RUN" != "true" ]; then
+            echo "❌ ERROR: DRY_RUN is not true in staging (got: $DRY_RUN)"
+            exit 1
+          fi
+
+          if [ "$ALPACA_PAPER" != "true" ]; then
+            echo "❌ ERROR: ALPACA_PAPER is not true in staging (got: $ALPACA_PAPER)"
+            exit 1
+          fi
+
+          # Test 3: Verify paper trading mode (orchestrator)
+          echo "Verifying orchestrator paper trading mode..."
+          CONFIG=$(curl -f http://localhost:8003/api/v1/config)
+          DRY_RUN=$(echo $CONFIG | jq -r '.dry_run')
+          ALPACA_PAPER=$(echo $CONFIG | jq -r '.alpaca_paper')
+
+          if [ "$DRY_RUN" != "true" ]; then
+            echo "❌ ERROR: DRY_RUN is not true in staging (got: $DRY_RUN)"
+            exit 1
+          fi
+
+          if [ "$ALPACA_PAPER" != "true" ]; then
+            echo "❌ ERROR: ALPACA_PAPER is not true in staging (got: $ALPACA_PAPER)"
+            exit 1
+          fi
+
+          echo "✅ All smoke tests passed (paper trading mode verified)"
           echo "::endgroup::"
 
       - name: Capture deployment info

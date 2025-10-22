@@ -44,6 +44,7 @@ from apps.orchestrator import __version__
 from apps.orchestrator.database import OrchestrationDatabaseClient
 from apps.orchestrator.orchestrator import TradingOrchestrator
 from apps.orchestrator.schemas import (
+    ConfigResponse,
     HealthResponse,
     OrchestrationRequest,
     OrchestrationResult,
@@ -68,6 +69,10 @@ DATABASE_URL = os.getenv(
 CAPITAL = Decimal(os.getenv("CAPITAL", "100000"))
 MAX_POSITION_SIZE = Decimal(os.getenv("MAX_POSITION_SIZE", "20000"))
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
+DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 
 logger.info(f"Starting Orchestrator Service (version={__version__})")
 logger.info(f"Signal Service: {SIGNAL_SERVICE_URL}")
@@ -253,6 +258,28 @@ async def health_check() -> HealthResponse:
             "max_position_size": float(MAX_POSITION_SIZE),
             "strategy_id": STRATEGY_ID,
         },
+    )
+
+
+@app.get("/api/v1/config", response_model=ConfigResponse, tags=["Configuration"])
+async def get_config() -> ConfigResponse:
+    """
+    Get service configuration for verification.
+
+    Returns safety flags and environment settings for automated
+    verification in smoke tests and monitoring.
+
+    Returns:
+        ConfigResponse with service configuration details
+    """
+    return ConfigResponse(
+        service="orchestrator",
+        version=__version__,
+        environment=ENVIRONMENT,
+        dry_run=DRY_RUN,
+        alpaca_paper=ALPACA_PAPER,
+        circuit_breaker_enabled=CIRCUIT_BREAKER_ENABLED,
+        timestamp=datetime.now(),
     )
 
 

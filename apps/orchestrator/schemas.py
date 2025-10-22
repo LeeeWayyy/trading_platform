@@ -194,3 +194,20 @@ class HealthResponse(BaseModel):
     execution_gateway_healthy: bool
     database_connected: bool
     details: dict[str, Any] | None = None
+
+
+class ConfigResponse(BaseModel):
+    """
+    Configuration verification response.
+
+    Exposes critical safety flags for automated verification in
+    smoke tests and monitoring.
+    """
+
+    service: str
+    version: str
+    environment: str
+    dry_run: bool
+    alpaca_paper: bool
+    circuit_breaker_enabled: bool
+    timestamp: datetime
