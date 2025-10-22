@@ -34,21 +34,40 @@ runs:
       id: wait
       shell: bash
       run: |
+        set -euo pipefail  # Exit on error, undefined vars, and pipe failures
+
         echo "🔍 Waiting for services in ${{ inputs.compose-file }} to become healthy..."
         echo "⏱️  Max iterations: ${{ inputs.max-iterations }}, Sleep: ${{ inputs.sleep-seconds }}s"
 
         for i in $(seq 1 ${{ inputs.max-iterations }}); do
-          # Check if any services are unhealthy
-          if docker-compose -f ${{ inputs.compose-file }} ps | grep -q "unhealthy"; then
-            echo "⏳ Waiting for services to be healthy (iteration $i/${{ inputs.max-iterations }})..."
-            sleep ${{ inputs.sleep-seconds }}
-          else
-            # All services healthy
-            echo "✅ All services are healthy after $i iterations"
-            echo "healthy=true" >> $GITHUB_OUTPUT
-            echo "iterations=$i" >> $GITHUB_OUTPUT
-            exit 0
+          # Get service status - fail fast if docker-compose errors
+          if ! status=$(docker-compose -f ${{ inputs.compose-file }} ps 2>&1); then
+            echo "❌ Error: docker-compose command failed"
+            echo "$status"
+            exit 1
           fi
+
+          # Check for unhealthy or problematic states
+          if echo "$status" | grep -qE "(health: starting)|unhealthy|Exit|Restarting"; then
+            echo "⏳ Services not ready yet (iteration $i/${{ inputs.max-iterations }})..."
+            echo "$status" | grep -E "NAME|----" || true
+            echo "$status" | grep -vE "^$|NAME|----" || true
+            sleep ${{ inputs.sleep-seconds }}
+            continue
+          fi
+
+          # Verify all expected services show (healthy) status
+          if ! echo "$status" | grep -q "(healthy)"; then
+            echo "⏳ Waiting for healthy status (iteration $i/${{ inputs.max-iterations }})..."
+            sleep ${{ inputs.sleep-seconds }}
+            continue
+          fi
+
+          # All checks passed - services are truly healthy
+          echo "✅ All services are healthy after $i iterations"
+          echo "healthy=true" >> $GITHUB_OUTPUT
+          echo "iterations=$i" >> $GITHUB_OUTPUT
+          exit 0
         done
 
         # Timeout reached

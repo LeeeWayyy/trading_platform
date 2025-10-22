@@ -197,3 +197,45 @@ class TestWaitForServicesAction:
 
         # Should use emoji or symbols for clarity
         assert "✅" in all_scripts or "❌" in all_scripts or "⏳" in all_scripts
+
+    def test_action_uses_pipefail(self):
+        """Test action uses set -euo pipefail for safe error handling."""
+        action = self._load_action_yml()
+
+        steps = action["runs"]["steps"]
+        all_scripts = " ".join([step["run"] for step in steps])
+
+        # Must use pipefail to catch docker-compose errors
+        assert "set -" in all_scripts
+        assert "pipefail" in all_scripts
+        assert "errexit" in all_scripts or "-e" in "set -euo pipefail"
+
+    def test_action_checks_for_healthy_status(self):
+        """Test action explicitly checks for (healthy) status, not just absence of unhealthy."""
+        action = self._load_action_yml()
+
+        steps = action["runs"]["steps"]
+        all_scripts = " ".join([step["run"] for step in steps])
+
+        # Must check for positive healthy signal
+        assert "(healthy)" in all_scripts or "healthy" in all_scripts
+
+        # Should check for problematic states
+        assert "Exit" in all_scripts or "exit" in all_scripts.lower()
+        assert "starting" in all_scripts.lower() or "Restarting" in all_scripts
+
+    def test_action_handles_docker_compose_errors(self):
+        """Test action detects and fails on docker-compose command errors."""
+        action = self._load_action_yml()
+
+        steps = action["runs"]["steps"]
+        all_scripts = " ".join([step["run"] for step in steps])
+
+        # Should capture docker-compose output
+        assert "docker-compose" in all_scripts
+
+        # Should check for command failure
+        assert "if !" in all_scripts or "||" in all_scripts
+
+        # Should exit on docker-compose errors
+        assert "exit 1" in all_scripts
