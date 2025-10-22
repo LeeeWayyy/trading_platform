@@ -40,9 +40,9 @@ runs:
         echo "⏱️  Max iterations: ${{ inputs.max-iterations }}, Sleep: ${{ inputs.sleep-seconds }}s"
 
         for i in $(seq 1 ${{ inputs.max-iterations }}); do
-          # Get service status - fail fast if docker-compose errors
-          if ! status=$(docker-compose -f ${{ inputs.compose-file }} ps 2>&1); then
-            echo "❌ Error: docker-compose command failed"
+          # Get service status - fail fast if docker compose errors
+          if ! status=$(docker compose -f ${{ inputs.compose-file }} ps 2>&1); then
+            echo "❌ Error: docker compose command failed"
             echo "$status"
             exit 1
           fi
@@ -57,7 +57,7 @@ runs:
           fi
 
           # Count total services and healthy services to ensure ALL are ready
-          service_count=$(docker-compose -f ${{ inputs.compose-file }} ps --services | wc -l | xargs)
+          service_count=$(docker compose -f ${{ inputs.compose-file }} ps --services | wc -l | xargs)
           healthy_count=$(echo "$status" | grep -c "(healthy)" || echo "0")
 
           # All checks passed if all services are healthy
@@ -76,10 +76,10 @@ runs:
         echo "❌ Timeout: Services did not become healthy after ${{ inputs.max-iterations }} iterations"
         echo ""
         echo "📊 Current service status:"
-        docker-compose -f ${{ inputs.compose-file }} ps
+        docker compose -f ${{ inputs.compose-file }} ps
         echo ""
         echo "📋 Service logs (last 50 lines each):"
-        docker-compose -f ${{ inputs.compose-file }} logs --tail=50
+        docker compose -f ${{ inputs.compose-file }} logs --tail=50
 
         echo "healthy=false" >> $GITHUB_OUTPUT
         echo "iterations=${{ inputs.max-iterations }}" >> $GITHUB_OUTPUT

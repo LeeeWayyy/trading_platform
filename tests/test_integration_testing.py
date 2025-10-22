@@ -219,9 +219,9 @@ class TestCIWorkflowIntegration:
         ), "CI workflow should capture service logs on failure"
 
         # Check that it captures logs for all services
-        assert "docker-compose -f docker-compose.ci.yml logs signal_service" in content
-        assert "docker-compose -f docker-compose.ci.yml logs execution_gateway" in content
-        assert "docker-compose -f docker-compose.ci.yml logs orchestrator" in content
+        assert "docker compose -f docker-compose.ci.yml logs signal_service" in content
+        assert "docker compose -f docker-compose.ci.yml logs execution_gateway" in content
+        assert "docker compose -f docker-compose.ci.yml logs orchestrator" in content
 
 
 # =============================================================================
@@ -250,7 +250,7 @@ class TestDockerComposeValidation:
     def test_docker_compose_ci_syntax_valid(self, project_root: Path) -> None:
         """Test that docker-compose.ci.yml syntax is valid."""
         result = subprocess.run(
-            ["docker-compose", "-f", "docker-compose.ci.yml", "config"],
+            ["docker", "compose", "-f", "docker-compose.ci.yml", "config"],
             cwd=project_root,
             capture_output=True,
             text=True,

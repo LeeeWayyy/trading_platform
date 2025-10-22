@@ -155,13 +155,13 @@ jobs:
       - name: Build Docker images
         run: |
           echo "::group::Building Docker images for integration tests"
-          docker-compose -f docker-compose.ci.yml build --parallel
+          docker compose -f docker-compose.ci.yml build --parallel
           echo "::endgroup::"
 
       - name: Start services
         run: |
-          echo "::group::Starting services with docker-compose"
-          docker-compose -f docker-compose.ci.yml up -d
+          echo "::group::Starting services with docker compose"
+          docker compose -f docker-compose.ci.yml up -d
           echo "::endgroup::"
 
       - name: Wait for services to be healthy
@@ -195,22 +195,22 @@ jobs:
         if: failure()
         run: |
           echo "::group::Service logs (signal_service)"
-          docker-compose -f docker-compose.ci.yml logs signal_service
+          docker compose -f docker-compose.ci.yml logs signal_service
           echo "::endgroup::"
 
           echo "::group::Service logs (execution_gateway)"
-          docker-compose -f docker-compose.ci.yml logs execution_gateway
+          docker compose -f docker-compose.ci.yml logs execution_gateway
           echo "::endgroup::"
 
           echo "::group::Service logs (orchestrator)"
-          docker-compose -f docker-compose.ci.yml logs orchestrator
+          docker compose -f docker-compose.ci.yml logs orchestrator
           echo "::endgroup::"
 
       - name: Stop services
         if: always()
         run: |
           echo "::group::Stopping services"
-          docker-compose -f docker-compose.ci.yml down -v
+          docker compose -f docker-compose.ci.yml down -v
           echo "::endgroup::"
 
       - name: Integration test summary

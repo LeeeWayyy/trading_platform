@@ -228,17 +228,17 @@ class TestWaitForServicesAction:
         assert "starting" in all_scripts.lower() or "Restarting" in all_scripts
 
     def test_action_handles_docker_compose_errors(self):
-        """Test action detects and fails on docker-compose command errors."""
+        """Test action detects and fails on docker compose command errors."""
         action = self._load_action_yml()
 
         steps = action["runs"]["steps"]
         all_scripts = " ".join([step["run"] for step in steps])
 
-        # Should capture docker-compose output
-        assert "docker-compose" in all_scripts
+        # Should capture docker compose output (V2 syntax)
+        assert "docker compose" in all_scripts
 
         # Should check for command failure
         assert "if !" in all_scripts or "||" in all_scripts
 
-        # Should exit on docker-compose errors
+        # Should exit on docker compose errors
         assert "exit 1" in all_scripts
