@@ -119,6 +119,7 @@ class TestConfigureLogging:
         logger.addHandler(handler)
         # Need to set formatter manually for test
         from libs.common.logging.formatter import JSONFormatter
+
         handler.setFormatter(JSONFormatter(service_name="test_service"))
         handler.addFilter(TraceIDFilter())
 
@@ -186,6 +187,7 @@ class TestLogWithContext:
 
         handler = logging.StreamHandler(self.stream)
         from libs.common.logging.formatter import JSONFormatter
+
         handler.setFormatter(JSONFormatter(service_name="test"))
         handler.addFilter(TraceIDFilter())
         self.logger.addHandler(handler)

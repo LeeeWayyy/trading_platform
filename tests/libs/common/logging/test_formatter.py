@@ -9,7 +9,7 @@ Tests verify that logs are formatted correctly with:
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -71,7 +71,7 @@ class TestJSONFormatter:
         assert timestamp.endswith("Z")
         # Should be parseable as ISO 8601
         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_context_inclusion(self, formatter: JSONFormatter) -> None:
         """Test that context dict is included in output."""
@@ -135,6 +135,7 @@ class TestJSONFormatter:
             raise ValueError("Test error")
         except ValueError:
             import sys
+
             exc_info = sys.exc_info()
 
         record = logging.LogRecord(

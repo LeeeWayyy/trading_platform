@@ -12,17 +12,17 @@ Example:
     >>> add_trace_id_middleware(app)
 """
 
-from typing import Callable
+from collections.abc import Awaitable, Callable, MutableMapping
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from libs.common.logging.context import (
     TRACE_ID_HEADER,
     clear_trace_id,
     generate_trace_id,
-    get_trace_id,
     set_trace_id,
 )
 
@@ -42,7 +42,9 @@ class TraceIDMiddleware(BaseHTTPMiddleware):
         >>> app.add_middleware(TraceIDMiddleware)
     """
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """Process request and inject trace ID.
 
         Args:
@@ -72,7 +74,7 @@ class TraceIDMiddleware(BaseHTTPMiddleware):
 
         try:
             # Process request
-            response = await call_next(request)
+            response: Response = await call_next(request)
 
             # Add trace ID to response headers
             response.headers[TRACE_ID_HEADER] = trace_id
@@ -131,7 +133,7 @@ class ASGITraceIDMiddleware:
         """
         self.app = app
 
-    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Handle ASGI request.
 
         Args:
@@ -152,7 +154,7 @@ class ASGITraceIDMiddleware:
         # Set in context
         set_trace_id(trace_id)
 
-        async def send_with_trace_id(message: dict) -> None:
+        async def send_with_trace_id(message: MutableMapping[str, Any]) -> None:
             """Send response with trace ID header injected."""
             if message["type"] == "http.response.start":
                 # Add trace ID to response headers

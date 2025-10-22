@@ -24,6 +24,7 @@ scikit-learn>=1.4.0
 # Testing
 pytest>=8.0.0
 pytest-cov>=4.1.0
+respx>=0.20.0  # HTTP mocking for tests
 
 # Code quality (dev dependencies)
 black>=24.0.0

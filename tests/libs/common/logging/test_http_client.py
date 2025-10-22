@@ -99,9 +99,7 @@ class TestTracedHTTPXClient:
         set_trace_id("post-test-789")
 
         async with TracedHTTPXClient() as client:
-            await client.post(
-                "http://test.example.com/api/create", json={"name": "test"}
-            )
+            await client.post("http://test.example.com/api/create", json={"name": "test"})
 
         assert route.called
         request = route.calls.last.request

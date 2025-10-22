@@ -18,8 +18,7 @@ Example:
 import contextvars
 import uuid
 from types import TracebackType
-from typing import Optional, Type
-
+from typing import Optional
 
 # Context variable for storing trace ID in async contexts
 _trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
@@ -170,7 +169,7 @@ class LogContext:
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
+        exc_type: Optional[type[BaseException]],
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:

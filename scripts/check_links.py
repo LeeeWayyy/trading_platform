@@ -8,13 +8,12 @@ Validates internal file links (relative paths) in all .md files.
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DOCS_DIR = PROJECT_ROOT / "docs"
 
 
-def extract_links(content: str, file_path: Path) -> List[Tuple[str, int]]:
+def extract_links(content: str, file_path: Path) -> list[tuple[str, int]]:
     """
     Extract markdown links from content.
 
@@ -24,18 +23,18 @@ def extract_links(content: str, file_path: Path) -> List[Tuple[str, int]]:
     links = []
 
     # Match [text](link) format
-    pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+    pattern = r"\[([^\]]+)\]\(([^)]+)\)"
 
-    for line_num, line in enumerate(content.split('\n'), 1):
+    for line_num, line in enumerate(content.split("\n"), 1):
         for match in re.finditer(pattern, line):
             link_target = match.group(2)
 
             # Skip anchors (#section), external URLs, and mailto
-            if link_target.startswith(('#', 'http://', 'https://', 'mailto:')):
+            if link_target.startswith(("#", "http://", "https://", "mailto:")):
                 continue
 
             # Remove anchor from link (e.g., file.md#section -> file.md)
-            link_target = link_target.split('#')[0]
+            link_target = link_target.split("#")[0]
 
             if link_target:  # Only add non-empty links
                 links.append((link_target, line_num))
@@ -63,14 +62,14 @@ def resolve_link(link: str, source_file: Path) -> Path:
     return resolved
 
 
-def check_markdown_files() -> Dict[str, List[Tuple[str, int, str]]]:
+def check_markdown_files() -> dict[str, list[tuple[str, int, str]]]:
     """
     Check all markdown files for broken links.
 
     Returns:
         Dictionary mapping file paths to list of (link, line_num, reason) tuples
     """
-    broken_links: Dict[str, List[Tuple[str, int, str]]] = {}
+    broken_links: dict[str, list[tuple[str, int, str]]] = {}
 
     # Find all markdown files
     md_files = sorted(DOCS_DIR.rglob("*.md"))
@@ -78,7 +77,7 @@ def check_markdown_files() -> Dict[str, List[Tuple[str, int, str]]]:
     print(f"🔍 Checking {len(md_files)} markdown files for broken links...\n")
 
     for md_file in md_files:
-        with open(md_file, 'r', encoding='utf-8') as f:
+        with open(md_file, encoding="utf-8") as f:
             content = f.read()
 
         links = extract_links(content, md_file)

@@ -5,7 +5,6 @@ Tests the phase management and task lifecycle commands.
 """
 
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -63,7 +62,9 @@ def test_generate_tasks_dry_run():
 
 def test_phase_template_exists():
     """Test that phase planning template exists."""
-    template_path = Path(__file__).parent.parent / "docs" / "TASKS" / "00-TEMPLATE_PHASE_PLANNING.md"
+    template_path = (
+        Path(__file__).parent.parent / "docs" / "TASKS" / "00-TEMPLATE_PHASE_PLANNING.md"
+    )
     assert template_path.exists()
 
     # Verify template has expected structure

@@ -20,9 +20,9 @@ Example log output:
 import json
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import TracebackType
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any, Optional
 
 
 class JSONFormatter(logging.Formatter):
@@ -46,11 +46,7 @@ class JSONFormatter(logging.Formatter):
     """
 
     def __init__(
-        self,
-        service_name: str,
-        include_context: bool = True,
-        *args: Any,
-        **kwargs: Any
+        self, service_name: str, include_context: bool = True, *args: Any, **kwargs: Any
     ) -> None:
         """Initialize the JSON formatter.
 
@@ -85,7 +81,7 @@ class JSONFormatter(logging.Formatter):
             'test'
         """
         # Build base log entry
-        log_entry: Dict[str, Any] = {
+        log_entry: dict[str, Any] = {
             "timestamp": self._format_timestamp(record.created),
             "level": record.levelname,
             "service": self.service_name,
@@ -130,7 +126,7 @@ class JSONFormatter(logging.Formatter):
             >>> formatter._format_timestamp(1697896200.0)
             '2023-10-21T10:30:00.000Z'
         """
-        dt = datetime.fromtimestamp(created, tz=timezone.utc)
+        dt = datetime.fromtimestamp(created, tz=UTC)
         return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
     def _extract_trace_id(self, record: logging.LogRecord) -> Optional[str]:
@@ -154,7 +150,7 @@ class JSONFormatter(logging.Formatter):
         """
         return getattr(record, "trace_id", None)
 
-    def _extract_context(self, record: logging.LogRecord) -> Optional[Dict[str, Any]]:
+    def _extract_context(self, record: logging.LogRecord) -> Optional[dict[str, Any]]:
         """Extract context dict from log record.
 
         Looks for context in the record's extra dict. Filters out internal
@@ -180,24 +176,38 @@ class JSONFormatter(logging.Formatter):
 
         # Otherwise, extract all extra fields (excluding internal ones)
         reserved_fields = {
-            "name", "msg", "args", "created", "filename", "funcName",
-            "levelname", "levelno", "lineno", "module", "msecs", "pathname",
-            "process", "processName", "relativeCreated", "thread", "threadName",
-            "trace_id", "context", "exc_info", "exc_text", "stack_info",
+            "name",
+            "msg",
+            "args",
+            "created",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "module",
+            "msecs",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "trace_id",
+            "context",
+            "exc_info",
+            "exc_text",
+            "stack_info",
         }
 
-        extra = {
-            key: value
-            for key, value in record.__dict__.items()
-            if key not in reserved_fields
-        }
+        extra = {key: value for key, value in record.__dict__.items() if key not in reserved_fields}
 
         return extra if extra else None
 
     def _format_exception(
         self,
-        exc_info: Tuple[
-            Optional[Type[BaseException]], Optional[BaseException], Optional[TracebackType]
+        exc_info: tuple[
+            Optional[type[BaseException]], Optional[BaseException], Optional[TracebackType]
         ],
     ) -> str:
         """Format exception traceback.

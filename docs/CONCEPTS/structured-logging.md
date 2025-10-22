@@ -767,17 +767,19 @@ avg_over_time(
 try:
     execute_trade(order)
 except BrokerError as e:
-    log_with_context(
-        logger,
-        "ERROR",
+    # Use logger.exception() with extra parameter for single log entry
+    logger.exception(
         "Broker rejected order",
-        order_id=order.id,
-        symbol=order.symbol,
-        error_code=e.code,
-        error_message=str(e),
-        retry_count=retry_count
+        extra={
+            "context": {
+                "order_id": order.id,
+                "symbol": order.symbol,
+                "error_code": e.code,
+                "error_message": str(e),
+                "retry_count": retry_count
+            }
+        }
     )
-    logger.exception("Full traceback")
 ```
 
 **Query:** Analyze error patterns
