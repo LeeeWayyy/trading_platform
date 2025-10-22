@@ -55,6 +55,7 @@ pandas-stubs = "^2.3.0"
 types-psycopg2 = "^2.9.0"
 # Pre-commit
 pre-commit = "^3.6.0"
+respx = "^0.22.0"
 
 [tool.black]
 line-length = 100

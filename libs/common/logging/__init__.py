@@ -5,15 +5,22 @@ for distributed request correlation across all services.
 
 Usage:
     # At service startup
-    from libs.common.logging import configure_logging
+    from libs.common.logging import configure_logging, add_trace_id_middleware
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    add_trace_id_middleware(app)  # Automatic trace ID management
     logger = configure_logging(service_name="signal_service", log_level="INFO")
 
-    # In request handlers
-    from libs.common.logging import set_trace_id, get_logger, log_with_context
-    set_trace_id(request.headers.get("X-Trace-ID") or generate_trace_id())
-
+    # In request handlers (trace ID is automatic via middleware)
+    from libs.common.logging import get_logger, log_with_context
     logger = get_logger(__name__)
     log_with_context(logger, "INFO", "Processing request", symbol="AAPL", qty=100)
+
+    # For outgoing HTTP requests
+    from libs.common.logging import get_traced_client
+    async with get_traced_client() as client:
+        response = await client.get("http://other-service/api")
 """
 
 from libs.common.logging.config import (
@@ -31,6 +38,19 @@ from libs.common.logging.context import (
     set_trace_id,
 )
 from libs.common.logging.formatter import JSONFormatter
+from libs.common.logging.http_client import (
+    TracedHTTPXClient,
+    TracedHTTPXSyncClient,
+    get_traced_client,
+    get_traced_sync_client,
+    traced_get,
+    traced_post,
+)
+from libs.common.logging.middleware import (
+    ASGITraceIDMiddleware,
+    TraceIDMiddleware,
+    add_trace_id_middleware,
+)
 
 __all__ = [
     # Configuration
@@ -45,6 +65,17 @@ __all__ = [
     "get_or_create_trace_id",
     "LogContext",
     "TRACE_ID_HEADER",
+    # Middleware
+    "TraceIDMiddleware",
+    "ASGITraceIDMiddleware",
+    "add_trace_id_middleware",
+    # HTTP Client
+    "TracedHTTPXClient",
+    "TracedHTTPXSyncClient",
+    "get_traced_client",
+    "get_traced_sync_client",
+    "traced_get",
+    "traced_post",
     # Formatter (for advanced usage)
     "JSONFormatter",
 ]
