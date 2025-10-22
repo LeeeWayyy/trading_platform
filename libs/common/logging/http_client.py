@@ -13,7 +13,7 @@ Example:
     ...     # Request includes X-Trace-ID header automatically
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -113,7 +113,7 @@ class TracedHTTPXSyncClient(httpx.Client):
 
 
 def get_traced_client(
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
     timeout: float = 10.0,
     **kwargs: Any,
 ) -> TracedHTTPXClient:
@@ -142,7 +142,7 @@ def get_traced_client(
 
 
 def get_traced_sync_client(
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
     timeout: float = 10.0,
     **kwargs: Any,
 ) -> TracedHTTPXSyncClient:

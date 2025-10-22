@@ -12,7 +12,6 @@ Example:
 
 import logging
 import sys
-from typing import Optional
 
 from libs.common.logging.context import get_trace_id
 from libs.common.logging.formatter import JSONFormatter
@@ -112,7 +111,7 @@ def configure_logging(
     return root_logger
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     """Get a logger instance.
 
     Convenience function to get a logger by name. If configure_logging()

@@ -18,12 +18,9 @@ Example:
 import contextvars
 import uuid
 from types import TracebackType
-from typing import Optional
 
 # Context variable for storing trace ID in async contexts
-_trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "trace_id", default=None
-)
+_trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
 
 # HTTP header name for trace ID propagation
 TRACE_ID_HEADER = "X-Trace-ID"
@@ -48,7 +45,7 @@ def generate_trace_id() -> str:
     return str(uuid.uuid4())
 
 
-def get_trace_id() -> Optional[str]:
+def get_trace_id() -> str | None:
     """Get the current trace ID from context.
 
     Retrieves the trace ID for the current async context. Returns None
@@ -148,14 +145,14 @@ class LogContext:
         >>> # Original trace ID restored after exiting context
     """
 
-    def __init__(self, trace_id: Optional[str] = None) -> None:
+    def __init__(self, trace_id: str | None = None) -> None:
         """Initialize the log context.
 
         Args:
             trace_id: Trace ID to use. If None, generates a new one.
         """
         self.trace_id = trace_id or generate_trace_id()
-        self.previous_trace_id: Optional[str] = None
+        self.previous_trace_id: str | None = None
 
     def __enter__(self) -> str:
         """Enter the context and set the trace ID.
@@ -169,9 +166,9 @@ class LogContext:
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         """Exit the context and restore previous trace ID."""
         if self.previous_trace_id is not None:

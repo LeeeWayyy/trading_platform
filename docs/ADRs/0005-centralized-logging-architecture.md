@@ -208,7 +208,7 @@ Query in Grafana: `{job="docker"} | json | trace_id="abc-123"` shows entire requ
 ### References
 
 - [Grafana Loki Documentation](https://grafana.com/docs/loki/)
-- [Structured Logging Best Practices](https://www.loggly.com/ultimate-guide/python-logging-best-practices/)
+- [Python Logging Best Practices](https://betterstack.com/community/guides/logging/python/python-logging-best-practices/)
 - [Distributed Tracing for Microservices](https://microservices.io/patterns/observability/distributed-tracing.html)
 - Project: `libs/common/logging/` implementation
 - Tests: `tests/libs/common/logging/` (60 tests, 100% coverage)

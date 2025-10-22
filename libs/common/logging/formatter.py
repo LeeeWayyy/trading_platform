@@ -22,7 +22,7 @@ import logging
 import traceback
 from datetime import UTC, datetime
 from types import TracebackType
-from typing import Any, Optional
+from typing import Any
 
 
 class JSONFormatter(logging.Formatter):
@@ -129,7 +129,7 @@ class JSONFormatter(logging.Formatter):
         dt = datetime.fromtimestamp(created, tz=UTC)
         return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-    def _extract_trace_id(self, record: logging.LogRecord) -> Optional[str]:
+    def _extract_trace_id(self, record: logging.LogRecord) -> str | None:
         """Extract trace ID from log record.
 
         Looks for trace_id in the record's extra dict. Falls back to None
@@ -150,7 +150,7 @@ class JSONFormatter(logging.Formatter):
         """
         return getattr(record, "trace_id", None)
 
-    def _extract_context(self, record: logging.LogRecord) -> Optional[dict[str, Any]]:
+    def _extract_context(self, record: logging.LogRecord) -> dict[str, Any] | None:
         """Extract context dict from log record.
 
         Looks for context in the record's extra dict. Filters out internal
@@ -206,9 +206,7 @@ class JSONFormatter(logging.Formatter):
 
     def _format_exception(
         self,
-        exc_info: tuple[
-            Optional[type[BaseException]], Optional[BaseException], Optional[TracebackType]
-        ],
+        exc_info: tuple[type[BaseException] | None, BaseException | None, TracebackType | None],
     ) -> str:
         """Format exception traceback.
 
