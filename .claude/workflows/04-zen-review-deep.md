@@ -632,7 +632,7 @@ $ git commit -m "Address deep review findings
 - Handle concurrent position updates with locks
 - Complete risk management concept doc
 
-Codex deep review: 3 MEDIUM issues fixed"
+Codex deep review: 3 MEDIUM issues fixed (continuation_id: deep-xyz789)"
 
 $ "I've fixed all 3 issues, please verify (continuation_id: deep-xyz789)"
 
@@ -697,11 +697,11 @@ continuation_id: deep-pqr456"
 
 # Fix HIGH immediately
 $ git add apps/execution_gateway/rollback.py
-$ git commit -m "Add circuit breaker check to rollback path"
+$ git commit -m "Add circuit breaker check to rollback path (continuation_id: deep-pqr456)"
 
 # Also fix logging (quick)
 $ git add apps/execution_gateway/
-$ git commit -m "Add error logging per codex review"
+$ git commit -m "Add error logging per codex review (continuation_id: deep-pqr456)"
 
 $ "I fixed HIGH (circuit breaker) and one MEDIUM (logging).
 Deferring performance optimization to ticket P1.5T3 (needs analysis).

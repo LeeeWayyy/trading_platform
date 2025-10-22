@@ -184,8 +184,6 @@ Boot-time and periodic reconciliation:
 
 This project uses **zen-mcp** (Model Context Protocol server) with **clink** to orchestrate AI-assisted code reviews via authenticated CLI tools. All zen-mcp workflows use **clink exclusively** — no direct API calls.
 
-> **⚠️ Migration Note:** The workflow guides referenced below (.claude/workflows/03-zen-review-quick.md, 04-zen-review-deep.md, 13-task-creation-review.md) are currently being updated to reflect clink-based workflows. Until migration is complete, those guides may reference legacy `/zen-review` commands. Follow the clink-based approach documented in this section as the authoritative source. Workflow guides will be updated in subsequent commits.
-
 ### Model Selection Strategy
 
 **Codex CLI (gpt-5-codex):**

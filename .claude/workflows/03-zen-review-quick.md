@@ -411,13 +411,12 @@ $ "I've added the circuit breaker check, please verify (continuation_id: abc123-
 
 Claude: [Uses clink with codex, preserves context]
 
-Codex: "✅ Verified fix
+Codex: "✅ Verified fix (continuation_id: abc123-def456)
 
 Circuit breaker check added correctly at line 42.
 All safety checks now in place.
 
-Safe to commit.
-Continuation ID: abc123"
+Safe to commit."
 
 $ git commit -m "Add position validation with circuit breaker
 
