@@ -1,7 +1,7 @@
 # Deep Review Workflow (Clink + Gemini → Codex)
 
 **Purpose:** Comprehensive review of all branch changes before creating pull request (MANDATORY quality gate)
-**Tool:** clink + gemini planner → codex planner (Tier 2 review, multi-phase)
+**Tool:** clink + gemini codereviewer → codex codereviewer (Tier 2 review, multi-phase)
 **Prerequisites:** Feature complete, all progressive commits done, local tests passing
 **Expected Outcome:** Branch validated for architecture, testing, edge cases; ready for PR creation
 **Owner:** @development-team
@@ -97,9 +97,9 @@ make lint
 
 ### 5. Request Deep Review (Two-Phase: Gemini → Codex)
 
-**Phase 1: Architecture Analysis (Gemini Planner)**
+**Phase 1: Architecture Analysis (Gemini Codereviewer)**
 ```
-"Please review all branch changes using clink + gemini planner.
+"Please review all branch changes using clink + gemini codereviewer.
 Analyze architecture, scalability, trading safety, and code quality.
 Compare master..HEAD for this feature branch."
 ```
@@ -111,15 +111,15 @@ to review all branch changes from master to HEAD"
 ```
 
 **What happens in Phase 1:**
-- Claude uses clink with gemini CLI planner role (gemini-2.5-pro, 1M context)
+- Claude uses clink with gemini CLI codereviewer role (gemini-2.5-pro, 1M context)
 - Gemini analyzes ALL changes since branching from master
 - Comprehensive review: architecture, safety, scalability, maintainability
 - Review takes ~2-3 minutes
 - Returns detailed findings WITH continuation_id
 
-**Phase 2: Recommendations Synthesis (Codex)**
+**Phase 2: Recommendations Synthesis (Codex Codereviewer)**
 ```
-"Now use clink + codex planner with the same continuation_id
+"Now use clink + codex codereviewer with the same continuation_id
 to synthesize recommendations and create an action plan"
 ```
 
@@ -533,32 +533,30 @@ $ make test && make lint
 ===================== 58 passed in 2.82s ======================
 ✅ All checks passed
 
-$ "Review all branch changes using clink + gemini planner. Compare master..HEAD."
+$ "Review all branch changes using clink + gemini codereviewer. Compare master..HEAD."
 
-Claude: [Uses clink with gemini CLI planner - Phase 1]
+Claude: [Uses clink with gemini CLI codereviewer - Phase 1]
 
 # (2-3 minutes later)
 
-Gemini: "**Architecture Assessment**
-- 4 commits, 287 lines changed
-- Clean microservice boundaries ✓
-- Trading safety requirements met ✓
-- Comprehensive test coverage (97%)
-
-**Findings**
-- LOW – Validation logic could be extracted to separate class
-- LOW – Performance benchmarks would be helpful
+Gemini: "**Low Priority**
+- Validation logic could be extracted to separate class
+- Performance benchmarks would be helpful
 
 **Positives**
 - Circuit breaker integration correct
 - Idempotency preserved
 - Position limit logic sound
+- Comprehensive test coverage (97%)
+
+**Architecture Assessment**
+Clean implementation with well-defined microservice boundaries. All trading safety requirements (circuit breakers, idempotency, position limits) are properly implemented across 4 commits and 287 lines changed. No architectural concerns identified.
 
 <SUMMARY>Excellent implementation, ready for PR.</SUMMARY>
 
 continuation_id: deep-abc123"
 
-$ "Now use clink + codex planner with continuation_id: deep-abc123 to synthesize recommendations"
+$ "Now use clink + codex codereviewer with continuation_id: deep-abc123 to synthesize recommendations"
 
 Claude: [Uses clink with codex CLI - Phase 2, preserves context]
 
@@ -584,9 +582,9 @@ $ gh pr create
 ### Example 2: Issues Found and Fixed
 
 ```bash
-$ "Review all branch changes using clink + gemini planner. Compare master..HEAD."
+$ "Review all branch changes using clink + gemini codereviewer. Compare master..HEAD."
 
-Claude: [Uses clink with gemini CLI planner - Phase 1]
+Claude: [Uses clink with gemini CLI codereviewer - Phase 1]
 
 # (2-3 minutes later)
 
@@ -605,7 +603,7 @@ Gemini: "**Critical Findings**
 
 continuation_id: deep-xyz789"
 
-$ "Now use clink + codex planner with continuation_id: deep-xyz789 to synthesize recommendations"
+$ "Now use clink + codex codereviewer with continuation_id: deep-xyz789 to synthesize recommendations"
 
 Claude: [Uses clink with codex CLI - Phase 2]
 
@@ -638,7 +636,7 @@ $ "I've fixed all 3 issues, please verify (continuation_id: deep-xyz789)"
 
 Claude: [Uses clink with codex, preserves context]
 
-Codex: "✅ Verification complete
+Codex: "✅ Verification complete (continuation_id: deep-xyz789)
 
 1. Edge case test: ✅ Added, covers scenario
 2. Concurrent handling: ✅ Fixed with proper locking
@@ -655,9 +653,9 @@ $ gh pr create
 ### Example 3: Deferring Some Issues
 
 ```bash
-$ "Review all branch changes using clink + gemini planner. Compare master..HEAD."
+$ "Review all branch changes using clink + gemini codereviewer. Compare master..HEAD."
 
-Claude: [Uses clink with gemini CLI planner - Phase 1]
+Claude: [Uses clink with gemini CLI codereviewer - Phase 1]
 
 # (2-3 minutes later)
 
@@ -676,7 +674,7 @@ Gemini: "**Critical Findings**
 
 continuation_id: deep-pqr456"
 
-$ "Now use clink + codex planner with continuation_id: deep-pqr456 to synthesize recommendations"
+$ "Now use clink + codex codereviewer with continuation_id: deep-pqr456 to synthesize recommendations"
 
 Claude: [Uses clink with codex CLI - Phase 2]
 
@@ -710,7 +708,7 @@ Please verify fixes (continuation_id: deep-pqr456)"
 
 Claude: [Uses clink with codex, preserves context]
 
-Codex: "✅ Verification complete
+Codex: "✅ Verification complete (continuation_id: deep-pqr456)
 
 1. Circuit breaker: ✅ Fixed correctly in rollback path
 2. Logging: ✅ Added with proper context

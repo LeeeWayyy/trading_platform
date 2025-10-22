@@ -54,7 +54,7 @@ All tasks in this phase follow the standard development workflow with **clink-ba
 
 3. **Deep Review** (MANDATORY before PR)
    - Use workflow: `.claude/workflows/04-zen-review-deep.md`
-   - Tool: clink + gemini planner → codex planner
+   - Tool: clink + gemini codereviewer → codex codereviewer
    - Reviews: architecture, safety, scalability, test coverage
    - Duration: ~3-5 minutes
 

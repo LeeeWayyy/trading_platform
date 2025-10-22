@@ -212,14 +212,14 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 - **See:** `.claude/workflows/03-zen-review-quick.md`
 
 **Tier 2: Deep Review (Pre-PR)**
-- **Tool:** clink + gemini codereviewer → codex planner
+- **Tool:** clink + gemini codereviewer → codex codereviewer
 - **Purpose:** Comprehensive branch review (3-5 min)
 - **Example:**
   ```bash
   # Phase 1: Use clink with gemini codereviewer
   # Gemini provides architecture analysis with continuation_id
 
-  # Phase 2: Use clink with codex planner (reuse continuation_id)
+  # Phase 2: Use clink with codex codereviewer (reuse continuation_id)
   # Codex synthesizes recommendations and next steps
   ```
 - **See:** `.claude/workflows/04-zen-review-deep.md`
@@ -240,7 +240,7 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 **Monthly costs:**
 - Codex CLI subscription: $20-50/month (fixed)
 - Gemini CLI tier: Free or $20/month (fixed)
-- Maintenance hours: ~$300 (3 hours × $100/hr for setup/config)
+- Maintenance hours: ~$300 (3 hours × $100/hr for ongoing maintenance)
 - **Total: $320-370/month** (predictable, no per-token charges)
 - Min scenario: $20 + $0 + $300 = $320
 - Max scenario: $50 + $20 + $300 = $370

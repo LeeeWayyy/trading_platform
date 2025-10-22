@@ -210,7 +210,7 @@ Output format: Severity (HIGH/MEDIUM/LOW), Location, Issue, Impact, Fix"
 **Workflow:**
 ```bash
 # Phase 1: Gemini codereviewer (breadth analysis)
-"Use clink with gemini codereviewer (model: gemini-1.5-pro) to analyze all branch changes:
+"Use clink with gemini codereviewer to analyze all branch changes:
 - Overall architecture patterns
 - Service integration points
 - Test coverage completeness
@@ -223,7 +223,7 @@ Output: Comprehensive findings with severity levels
 Save continuation_id for next phase"
 
 # Phase 2: Codex planner (remediation if issues found)
-"Use clink with codex planner (model: gpt-5-codex) to create fix plan:
+"Use clink with codex planner to create fix plan:
 - Break fixes into logical steps
 - Prioritize by severity
 - Include test strategy for each fix
@@ -236,7 +236,7 @@ Codex now knows all Gemini's findings!"
 # ... implementation ...
 
 # Phase 4: Codex codereviewer (final validation)
-"Use clink with codex codereviewer (model: gpt-5-codex) to verify:
+"Use clink with codex codereviewer to verify:
 - All HIGH/CRITICAL issues resolved
 - MEDIUM issues addressed or deferred with reason
 - Tests cover new/changed logic
@@ -263,7 +263,7 @@ Ready for PR if approved!"
 **Workflow:**
 ```bash
 # Phase 1: Gemini planner (strategy)
-"Use clink with gemini planner (model: gemini-1.5-pro) to plan:
+"Use clink with gemini planner to plan:
 
 Task: Extract feature computation from apps/signal_service/ to libs/feature_store/
 
@@ -282,7 +282,7 @@ Save continuation_id"
 # ... code implementation ...
 
 # Phase 3: Codex codereviewer validates step 1
-"Use clink with codex codereviewer (model: gpt-5-codex) to validate step 1:
+"Use clink with codex codereviewer to validate step 1:
 - Code quality check
 - Test coverage verified
 - No regressions introduced
@@ -311,7 +311,7 @@ Files: libs/feature_store/momentum.py, tests/libs/test_momentum.py"
 **Workflow:**
 ```bash
 # Codex codereviewer for deep security analysis
-"Use clink with codex codereviewer (model: gpt-5-codex) to audit:
+"Use clink with codex codereviewer to audit:
 
 Target: apps/execution_gateway/
 
@@ -343,7 +343,7 @@ Output: Security findings by severity with remediation steps"
 **Workflow:**
 ```bash
 # Phase 1: Gemini planner (test strategy)
-"Use clink with gemini planner (model: gemini-1.5-flash) to design test strategy:
+"Use clink with gemini planner to design test strategy:
 
 Target: libs/risk_management/checker.py
 
@@ -359,7 +359,7 @@ Output: Test structure with specific scenarios
 Save continuation_id"
 
 # Phase 2: Codex default (test implementation)
-"Use clink with codex default (model: gpt-5-codex) to generate pytest tests:
+"Use clink with codex default to generate pytest tests:
 
 Based on test strategy, implement:
 - Happy path tests (limits enforced correctly)
@@ -431,7 +431,7 @@ Create task following template (`/docs/TASKS/00-TEMPLATE_TASK.md`):
 #### Step 2: Clink Review with Gemini Planner
 
 ```bash
-"Use clink with gemini planner (model: gemini-1.5-flash) to review task:
+"Use clink with gemini planner to review task:
 
 Task Document: docs/TASKS/P1T11_TASK.md
 
@@ -487,7 +487,7 @@ Files: docs/TASKS/P1T11_TASK.md"
 #### Step 4: Re-validate After Changes
 
 ```bash
-"Use clink with gemini planner (model: gemini-1.5-flash) to verify:
+"Use clink with gemini planner to verify:
 
 Task Document: docs/TASKS/P1T11_TASK.md (updated)
 
@@ -528,7 +528,7 @@ After addressing findings, remember to follow the established workflow:
 1. **4-Step Pattern (MANDATORY):**
    - ✅ Implement logic
    - ✅ Create test cases (TDD)
-   - ✅ Request zen-mcp review (you are here!)
+   - ✅ Request quick review (you are here!)
    - ❌ Commit changes (NOT YET - wait for approval)
 
 2. **Progressive Commits:**
@@ -674,7 +674,7 @@ After addressing task review findings, remember to follow the workflow:
 1. **Review task** (NEW!) - Gemini planner validates task document
 2. **Implement logic** - Write code based on approved task
 3. **Create test cases** - TDD following test strategy from task
-4. **Request zen-mcp review** - Codex codereviewer validates implementation
+4. **Request quick review** - Codex codereviewer validates implementation
 5. **Commit** - After approval with audit trail
 ```
 
