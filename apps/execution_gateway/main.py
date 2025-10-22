@@ -62,6 +62,8 @@ from apps.execution_gateway.schemas import (
     ConfigResponse,
     ErrorResponse,
     HealthResponse,
+    KillSwitchDisengageRequest,
+    KillSwitchEngageRequest,
     OrderDetail,
     OrderRequest,
     OrderResponse,
@@ -135,14 +137,22 @@ except (RedisError, RedisConnectionError) as e:
 
 # Kill-switch (operator-controlled emergency halt)
 kill_switch: KillSwitch | None = None
+kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
+
 if redis_client:
     try:
         kill_switch = KillSwitch(redis_client=redis_client)
         logger.info("Kill-switch initialized successfully")
     except Exception as e:
-        logger.warning(f"Failed to initialize kill-switch: {e}. Kill-switch checks will be skipped.")
+        logger.error(
+            f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all trading blocked until Redis available."
+        )
+        kill_switch_unavailable = True
 else:
-    logger.warning("Kill-switch not initialized (Redis unavailable). Kill-switch checks will be skipped.")
+    logger.error(
+        "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all trading blocked until Redis available."
+    )
+    kill_switch_unavailable = True
 
 # Alpaca client (only if not in dry run mode and credentials provided)
 alpaca_client: AlpacaExecutor | None = None
@@ -623,11 +633,7 @@ async def get_config() -> ConfigResponse:
 
 
 @app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
-async def engage_kill_switch(
-    reason: str,
-    operator: str,
-    details: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]:
     """
     Engage kill-switch (emergency trading halt).
 
@@ -635,9 +641,7 @@ async def engage_kill_switch(
     activities across all services until manually disengaged.
 
     Args:
-        reason: Human-readable reason for engagement (required)
-        operator: Operator ID/name who engaged kill-switch (required for audit)
-        details: Optional additional context
+        request: KillSwitchEngageRequest with reason, operator, and optional details
 
     Returns:
         Kill-switch status after engagement
@@ -666,7 +670,9 @@ async def engage_kill_switch(
         )
 
     try:
-        kill_switch.engage(reason=reason, operator=operator, details=details)
+        kill_switch.engage(
+            reason=request.reason, operator=request.operator, details=request.details
+        )
         return kill_switch.get_status()
     except ValueError as e:
         raise HTTPException(
@@ -676,18 +682,14 @@ async def engage_kill_switch(
 
 
 @app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
-async def disengage_kill_switch(
-    operator: str,
-    notes: str | None = None,
-) -> dict[str, Any]:
+async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str, Any]:
     """
     Disengage kill-switch (resume trading).
 
     This operator action re-enables trading after kill-switch was engaged.
 
     Args:
-        operator: Operator ID/name who disengaged kill-switch (required for audit)
-        notes: Optional notes about resolution
+        request: KillSwitchDisengageRequest with operator and optional notes
 
     Returns:
         Kill-switch status after disengagement
@@ -715,7 +717,7 @@ async def disengage_kill_switch(
         )
 
     try:
-        kill_switch.disengage(operator=operator, notes=notes)
+        kill_switch.disengage(operator=request.operator, notes=request.notes)
         return kill_switch.get_status()
     except ValueError as e:
         raise HTTPException(
@@ -830,6 +832,24 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             "order_type": order.order_type,
         },
     )
+
+    # Check kill-switch unavailable (fail closed for safety)
+    if kill_switch_unavailable:
+        logger.error(
+            f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
+            extra={
+                "client_order_id": client_order_id,
+                "kill_switch_unavailable": True,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "All trading blocked - kill-switch state unknown (Redis unavailable)",
+                "fail_closed": True,
+            },
+        )
 
     # Check kill-switch (operator-controlled emergency halt)
     if kill_switch and kill_switch.is_engaged():

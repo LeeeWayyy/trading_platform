@@ -211,3 +211,23 @@ class ConfigResponse(BaseModel):
     alpaca_paper: bool
     circuit_breaker_enabled: bool
     timestamp: datetime
+
+
+# ==============================================================================
+# Kill-Switch Schemas
+# ==============================================================================
+
+
+class KillSwitchEngageRequest(BaseModel):
+    """Request to engage kill-switch (emergency halt)."""
+
+    reason: str = Field(..., description="Human-readable reason for engagement")
+    operator: str = Field(..., description="Operator ID/name (for audit trail)")
+    details: dict[str, Any] | None = Field(None, description="Optional additional context")
+
+
+class KillSwitchDisengageRequest(BaseModel):
+    """Request to disengage kill-switch (resume trading)."""
+
+    operator: str = Field(..., description="Operator ID/name (for audit trail)")
+    notes: str | None = Field(None, description="Optional notes about resolution")

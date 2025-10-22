@@ -46,6 +46,8 @@ from apps.orchestrator.orchestrator import TradingOrchestrator
 from apps.orchestrator.schemas import (
     ConfigResponse,
     HealthResponse,
+    KillSwitchDisengageRequest,
+    KillSwitchEngageRequest,
     OrchestrationRequest,
     OrchestrationResult,
     OrchestrationRunsResponse,
@@ -112,14 +114,22 @@ except (Exception, RedisConnectionError) as e:
 
 # Kill-switch (operator-controlled emergency halt)
 kill_switch: KillSwitch | None = None
+kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
+
 if redis_client:
     try:
         kill_switch = KillSwitch(redis_client=redis_client)
         logger.info("Kill-switch initialized successfully")
     except Exception as e:
-        logger.warning(f"Failed to initialize kill-switch: {e}. Kill-switch checks will be skipped.")
+        logger.error(
+            f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all orchestration blocked until Redis available."
+        )
+        kill_switch_unavailable = True
 else:
-    logger.warning("Kill-switch not initialized (Redis unavailable). Kill-switch checks will be skipped.")
+    logger.error(
+        "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all orchestration blocked until Redis available."
+    )
+    kill_switch_unavailable = True
 
 
 # Orchestrator (initialized per request to support async context)
@@ -318,21 +328,17 @@ async def get_config() -> ConfigResponse:
 
 
 @app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
-async def engage_kill_switch(
-    reason: str,
-    operator: str,
-    details: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]:
     """
     Engage kill-switch (emergency trading halt).
 
     CRITICAL: This operator-controlled action immediately blocks ALL trading
     activities across all services until manually disengaged.
 
-    Args:
-        reason: Human-readable reason for engagement (required)
-        operator: Operator ID/name who engaged kill-switch (required for audit)
-        details: Optional additional context
+    Request Body:
+        - reason: Human-readable reason for engagement (required)
+        - operator: Operator ID/name who engaged kill-switch (required for audit)
+        - details: Optional additional context (JSON object)
 
     Returns:
         Kill-switch status after engagement
@@ -340,6 +346,14 @@ async def engage_kill_switch(
     Raises:
         HTTPException 503: Redis unavailable
         HTTPException 400: Kill-switch already engaged
+
+    Example:
+        >>> POST /api/v1/kill-switch/engage
+        >>> {
+        ...   "reason": "Market anomaly detected",
+        ...   "operator": "ops_team",
+        ...   "details": {"anomaly_type": "flash_crash", "severity": "high"}
+        ... }
     """
     if not kill_switch:
         raise HTTPException(
@@ -348,7 +362,9 @@ async def engage_kill_switch(
         )
 
     try:
-        kill_switch.engage(reason=reason, operator=operator, details=details)
+        kill_switch.engage(
+            reason=request.reason, operator=request.operator, details=request.details
+        )
         return kill_switch.get_status()
     except ValueError as e:
         raise HTTPException(
@@ -358,18 +374,15 @@ async def engage_kill_switch(
 
 
 @app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
-async def disengage_kill_switch(
-    operator: str,
-    notes: str | None = None,
-) -> dict[str, Any]:
+async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str, Any]:
     """
     Disengage kill-switch (resume trading).
 
     This operator action re-enables trading after kill-switch was engaged.
 
-    Args:
-        operator: Operator ID/name who disengaged kill-switch (required for audit)
-        notes: Optional notes about resolution
+    Request Body:
+        - operator: Operator ID/name who disengaged kill-switch (required for audit)
+        - notes: Optional notes about resolution
 
     Returns:
         Kill-switch status after disengagement
@@ -377,6 +390,13 @@ async def disengage_kill_switch(
     Raises:
         HTTPException 503: Redis unavailable
         HTTPException 400: Kill-switch not currently engaged
+
+    Example:
+        >>> POST /api/v1/kill-switch/disengage
+        >>> {
+        ...   "operator": "ops_team",
+        ...   "notes": "Market conditions normalized, all systems operational"
+        ... }
     """
     if not kill_switch:
         raise HTTPException(
@@ -385,7 +405,7 @@ async def disengage_kill_switch(
         )
 
     try:
-        kill_switch.disengage(operator=operator, notes=notes)
+        kill_switch.disengage(operator=request.operator, notes=request.notes)
         return kill_switch.get_status()
     except ValueError as e:
         raise HTTPException(
@@ -471,6 +491,23 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
                 "capital": float(request.capital) if request.capital else float(CAPITAL),
             },
         )
+
+        # Check kill-switch unavailable (fail closed for safety)
+        if kill_switch_unavailable:
+            logger.error(
+                f"🔴 Orchestration blocked by unavailable kill-switch (FAIL CLOSED)",
+                extra={
+                    "kill_switch_unavailable": True,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Kill-switch unavailable",
+                    "message": "All trading blocked - kill-switch state unknown (Redis unavailable)",
+                    "fail_closed": True,
+                },
+            )
 
         # Check kill-switch (operator-controlled emergency halt)
         if kill_switch and kill_switch.is_engaged():

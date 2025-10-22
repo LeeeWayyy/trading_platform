@@ -342,6 +342,85 @@ class RedisClient:
             logger.error(f"Redis INFO failed: {e}")
             raise
 
+    def rpush(self, key: str, *values: str) -> int:
+        """
+        Append one or more values to a list.
+
+        Args:
+            key: Redis key for the list
+            *values: Values to append
+
+        Returns:
+            Length of the list after the push operation
+
+        Raises:
+            RedisError: If operation fails
+
+        Example:
+            >>> length = client.rpush("mylist", "value1", "value2")
+            >>> print(f"List length: {length}")
+        """
+        try:
+            result = self._client.rpush(key, *values)
+            return cast(int, result)
+        except RedisError as e:
+            logger.error(f"Redis RPUSH failed for key {key}: {e}")
+            raise
+
+    def ltrim(self, key: str, start: int, stop: int) -> bool:
+        """
+        Trim a list to the specified range.
+
+        Args:
+            key: Redis key for the list
+            start: Start index (0-based)
+            stop: Stop index (inclusive, -1 for end)
+
+        Returns:
+            True if operation succeeded
+
+        Raises:
+            RedisError: If operation fails
+
+        Example:
+            >>> # Keep last 100 items
+            >>> client.ltrim("mylist", -100, -1)
+        """
+        try:
+            self._client.ltrim(key, start, stop)
+            return True
+        except RedisError as e:
+            logger.error(f"Redis LTRIM failed for key {key}: {e}")
+            raise
+
+    def lrange(self, key: str, start: int, stop: int) -> list[bytes]:
+        """
+        Get a range of elements from a list.
+
+        Args:
+            key: Redis key for the list
+            start: Start index (0-based)
+            stop: Stop index (inclusive, -1 for end)
+
+        Returns:
+            List of elements (as bytes)
+
+        Raises:
+            RedisError: If operation fails
+
+        Example:
+            >>> # Get last 10 items
+            >>> items = client.lrange("mylist", -10, -1)
+            >>> for item in items:
+            ...     print(item.decode('utf-8'))
+        """
+        try:
+            result = self._client.lrange(key, start, stop)
+            return cast(list[bytes], result)
+        except RedisError as e:
+            logger.error(f"Redis LRANGE failed for key {key}: {e}")
+            raise
+
     def close(self) -> None:
         """
         Close connection pool and release resources.

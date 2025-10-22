@@ -485,6 +485,49 @@ class ConfigResponse(BaseModel):
 
 
 # ============================================================================
+# Kill-Switch Schemas
+# ============================================================================
+
+
+class KillSwitchEngageRequest(BaseModel):
+    """Request to engage kill-switch (emergency halt)."""
+
+    reason: str = Field(..., description="Human-readable reason for engagement")
+    operator: str = Field(..., description="Operator ID/name (for audit trail)")
+    details: dict[str, Any] | None = Field(None, description="Optional additional context")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "reason": "Market anomaly detected",
+                    "operator": "ops_team",
+                    "details": {"anomaly_type": "flash_crash", "severity": "high"},
+                }
+            ]
+        }
+    }
+
+
+class KillSwitchDisengageRequest(BaseModel):
+    """Request to disengage kill-switch (resume trading)."""
+
+    operator: str = Field(..., description="Operator ID/name (for audit trail)")
+    notes: str | None = Field(None, description="Optional notes about resolution")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "operator": "ops_team",
+                    "notes": "Market conditions normalized, all systems operational",
+                }
+            ]
+        }
+    }
+
+
+# ============================================================================
 # Error Schema
 # ============================================================================
 
