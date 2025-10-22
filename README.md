@@ -668,7 +668,7 @@ All 6 tasks (T1-T6) successfully delivered:
 - ✅ T5: Orchestrator Service
 - ✅ T6: Paper Run Automation Script
 
-**Total Test Pass Rate:** 100% (152/152 tests passing)
+**Total Test Pass Rate:** 97% (1030 passed, 35 skipped, 49 integration errors requiring Redis)
 
 ### P1: Advanced Features (In Progress - 83% Complete)
 
@@ -727,7 +727,7 @@ Observability (All Services):
 - **Production Code:** 11,300+ lines (T1-T6 + logging + CI/CD infrastructure)
 - **Test Code:** 5,800+ lines (including 68 CI/CD configuration tests)
 - **Documentation:** 21,000+ lines (including deployment runbooks + guides)
-- **Test Pass Rate:** 100% (280/280 tests including CI/CD)
+- **Test Pass Rate:** 97% (1030 passed, 35 skipped, 49 integration errors requiring Redis)
 - **Live Alpaca Validation:** 100% (6/6 tests)
 
 ### Components Delivered
