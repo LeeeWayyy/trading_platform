@@ -682,6 +682,22 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except RuntimeError as e:
+        # Kill-switch state missing (fail-closed)
+        global kill_switch_unavailable
+        kill_switch_unavailable = True
+        logger.error(
+            "Kill-switch engage failed: state missing (fail-closed)",
+            extra={"fail_closed": True, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
+            },
+        ) from e
 
 
 @app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
@@ -727,6 +743,22 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except RuntimeError as e:
+        # Kill-switch state missing (fail-closed)
+        global kill_switch_unavailable
+        kill_switch_unavailable = True
+        logger.error(
+            "Kill-switch disengage failed: state missing (fail-closed)",
+            extra={"fail_closed": True, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
+            },
+        ) from e
 
 
 @app.get("/api/v1/kill-switch/status", tags=["Kill-Switch"])
@@ -755,7 +787,24 @@ async def get_kill_switch_status() -> dict[str, Any]:
             detail="Kill-switch unavailable (Redis not initialized)",
         )
 
-    return kill_switch.get_status()
+    try:
+        return kill_switch.get_status()
+    except RuntimeError as e:
+        # Kill-switch state missing (fail-closed)
+        global kill_switch_unavailable
+        kill_switch_unavailable = True
+        logger.error(
+            "Kill-switch status unavailable: state missing (fail-closed)",
+            extra={"fail_closed": True, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
+            },
+        ) from e
 
 
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
@@ -819,6 +868,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         ...     }
         ... )
     """
+    global kill_switch_unavailable
     # Start timing for metrics
     start_time = time.time()
 
@@ -855,27 +905,48 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         )
 
     # Check kill-switch (operator-controlled emergency halt)
-    if kill_switch and kill_switch.is_engaged():
-        status_info = kill_switch.get_status()
+    try:
+        if kill_switch and kill_switch.is_engaged():
+            status_info = kill_switch.get_status()
+            logger.error(
+                f"🔴 Order blocked by KILL-SWITCH: {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "kill_switch_engaged": True,
+                    "engaged_by": status_info.get("engaged_by"),
+                    "engagement_reason": status_info.get("engagement_reason"),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Kill-switch engaged",
+                    "message": "All trading halted by operator",
+                    "engaged_by": status_info.get("engaged_by"),
+                    "reason": status_info.get("engagement_reason"),
+                    "engaged_at": status_info.get("engaged_at"),
+                },
+            )
+    except RuntimeError as e:
+        # Kill-switch state missing (fail-closed)
+        kill_switch_unavailable = True
         logger.error(
-            f"🔴 Order blocked by KILL-SWITCH: {client_order_id}",
+            f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
             extra={
                 "client_order_id": client_order_id,
-                "kill_switch_engaged": True,
-                "engaged_by": status_info.get("engaged_by"),
-                "engagement_reason": status_info.get("engagement_reason"),
+                "kill_switch_unavailable": True,
+                "fail_closed": True,
+                "error": str(e),
             },
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
-                "error": "Kill-switch engaged",
-                "message": "All trading halted by operator",
-                "engaged_by": status_info.get("engaged_by"),
-                "reason": status_info.get("engagement_reason"),
-                "engaged_at": status_info.get("engaged_at"),
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
             },
-        )
+        ) from e
 
     # Check if order already exists (idempotency)
     existing_order = db_client.get_order_by_client_id(client_order_id)

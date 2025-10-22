@@ -414,19 +414,37 @@ class KillSwitch:
         Returns:
             Dictionary with current state, last engagement/disengagement details
 
+        Raises:
+            RuntimeError: If kill-switch state is missing from Redis (fail-closed)
+
         Example:
             >>> status = kill_switch.get_status()
             >>> print(status["state"])
             'ACTIVE'
             >>> print(status["last_engaged_by"])
             'ops_team'
+
+        Notes:
+            - Status checks NEVER mutate state (fail-closed principle)
+            - If state is missing (Redis flush/crash), raises RuntimeError
+            - Operator must manually verify safety and reinitialize if appropriate
         """
         state_json = self.redis.get(self.state_key)
         if not state_json:
-            self._initialize_state()
-            state_json = self.redis.get(self.state_key)
+            # FAIL CLOSED: Do not auto-reinitialize to ACTIVE
+            # Missing state could mean Redis flush while kill-switch was ENGAGED
+            # Status queries must NOT mutate state or resume trading
+            logger.error(
+                "CRITICAL: Kill-switch state missing from Redis (possible flush/restart). "
+                "Failing closed to prevent unsafe trading resumption."
+            )
+            raise RuntimeError(
+                "Kill-switch state missing from Redis. System must fail closed - "
+                "operator must verify safety and manually reinitialize if appropriate."
+            )
 
-        return json.loads(state_json) if state_json else {}
+        state_data: dict[str, Any] = json.loads(state_json)
+        return state_data
 
     def get_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """
