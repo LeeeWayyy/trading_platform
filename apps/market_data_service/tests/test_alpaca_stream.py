@@ -15,7 +15,7 @@ from redis.exceptions import RedisError
 from libs.market_data.alpaca_stream import AlpacaMarketDataStream
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_redis():
     """Mock Redis client."""
     redis = MagicMock()  # Changed from AsyncMock since RedisClient is synchronous
@@ -23,7 +23,7 @@ def mock_redis():
     return redis
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_publisher():
     """Mock event publisher."""
     publisher = MagicMock()  # Changed from AsyncMock since EventPublisher is synchronous
@@ -31,7 +31,7 @@ def mock_publisher():
     return publisher
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_alpaca_quote():
     """Mock Alpaca Quote object."""
     quote = Mock()
@@ -45,7 +45,7 @@ def mock_alpaca_quote():
     return quote
 
 
-@pytest.fixture
+@pytest.fixture()
 def stream(mock_redis, mock_publisher):
     """Create AlpacaMarketDataStream with mocked dependencies."""
     with patch("libs.market_data.alpaca_stream.StockDataStream") as mock_stream_class:
@@ -76,7 +76,7 @@ class TestAlpacaMarketDataStream:
         assert stream._running is False
         assert stream._reconnect_attempts == 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_subscribe_symbols(self, stream):
         """Test subscribing to symbols."""
         symbols = ["AAPL", "MSFT", "GOOGL"]
@@ -86,7 +86,7 @@ class TestAlpacaMarketDataStream:
         assert stream.subscribed_symbols == set(symbols)
         assert stream.stream.subscribe_quotes.called
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_subscribe_empty_list(self, stream):
         """Test subscribing with empty list does nothing."""
         await stream.subscribe_symbols([])
@@ -94,7 +94,7 @@ class TestAlpacaMarketDataStream:
         assert stream.subscribed_symbols == set()
         assert not stream.stream.subscribe_quotes.called
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_subscribe_duplicate_symbols(self, stream):
         """Test subscribing to already subscribed symbols."""
         # First subscription
@@ -109,7 +109,7 @@ class TestAlpacaMarketDataStream:
         # Should only subscribe to GOOGL
         assert stream.subscribed_symbols == {"AAPL", "MSFT", "GOOGL"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_unsubscribe_symbols(self, stream):
         """Test unsubscribing from symbols."""
         # First subscribe
@@ -120,7 +120,7 @@ class TestAlpacaMarketDataStream:
 
         assert stream.subscribed_symbols == {"GOOGL"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_quote(self, stream, mock_alpaca_quote, mock_redis, mock_publisher):
         """Test handling incoming quote."""
         await stream._handle_quote(mock_alpaca_quote)
@@ -141,7 +141,7 @@ class TestAlpacaMarketDataStream:
 
         assert isinstance(pub_call_args[0][1], PriceUpdateEvent)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_quote_with_invalid_data(self, stream, mock_redis, mock_publisher):
         """Test handling quote with invalid data logs error but doesn't crash stream."""
         # Create quote with crossed market (ask < bid)
@@ -163,7 +163,7 @@ class TestAlpacaMarketDataStream:
         # Verify event was not published (bad quote rejected)
         assert not mock_publisher.publish.called
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_stream_continues_after_bad_quote(
         self, stream, mock_alpaca_quote, mock_redis, mock_publisher
     ):
@@ -245,7 +245,7 @@ class TestAlpacaMarketDataStream:
 
         assert stream.is_connected() is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_reconnect_counter_resets_after_successful_connection(self, stream):
         """
         Test that reconnect counter resets after successful connection.
@@ -286,7 +286,7 @@ class TestAlpacaMarketDataStream:
         # (before it was 2, after successful run() it should be 0)
         assert stream._reconnect_attempts == 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_concurrent_subscribe_with_lock(self, stream):
         """
         Test that concurrent subscribe calls are handled atomically with lock.
@@ -316,7 +316,7 @@ class TestAlpacaMarketDataStream:
         # Verify AAPL is in subscribed_symbols
         assert "AAPL" in stream.subscribed_symbols
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_quote_redis_timeout_does_not_crash_stream(
         self, stream, mock_alpaca_quote, mock_redis, mock_publisher
     ):
@@ -354,7 +354,7 @@ class TestAlpacaMarketDataStream:
         assert mock_redis.set.called
         assert mock_publisher.publish.called
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_quote_with_invalid_decimal_does_not_crash_stream(
         self, stream, mock_redis, mock_publisher
     ):
@@ -389,7 +389,7 @@ class TestAlpacaMarketDataStream:
         # Verify event was not published (bad quote rejected)
         assert not mock_publisher.publish.called
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_quote_missing_symbol_attribute_does_not_crash_stream(
         self, stream, mock_redis, mock_publisher
     ):

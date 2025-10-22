@@ -37,7 +37,7 @@ class TestFailClosedBehavior:
     Critical safety requirement: NEVER auto-resume trading when state is unknown.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self):
         """Mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
@@ -45,7 +45,7 @@ class TestFailClosedBehavior:
         mock_redis.get.return_value = b'{"state": "ACTIVE", "engagement_count_today": 0}'
         return mock_redis
 
-    @pytest.fixture
+    @pytest.fixture()
     def kill_switch(self, mock_redis):
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)
@@ -148,7 +148,7 @@ class TestFailClosedScenarios:
     These tests simulate real-world failure conditions that require fail-closed.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self):
         """Mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
@@ -156,7 +156,7 @@ class TestFailClosedScenarios:
         mock_redis.get.return_value = b'{"state": "ACTIVE", "engagement_count_today": 0}'
         return mock_redis
 
-    @pytest.fixture
+    @pytest.fixture()
     def kill_switch(self, mock_redis):
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)
@@ -257,14 +257,14 @@ class TestFailClosedErrorMessages:
     3. What to do (verify safety, manually reinitialize)
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self):
         """Mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
         mock_redis.get.return_value = b'{"state": "ACTIVE", "engagement_count_today": 0}'
         return mock_redis
 
-    @pytest.fixture
+    @pytest.fixture()
     def kill_switch(self, mock_redis):
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)
@@ -378,14 +378,14 @@ class TestLogMessagesForFailClosed:
     Operators need clear logs to diagnose issues.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self):
         """Mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
         mock_redis.get.return_value = b'{"state": "ACTIVE", "engagement_count_today": 0}'
         return mock_redis
 
-    @pytest.fixture
+    @pytest.fixture()
     def kill_switch(self, mock_redis):
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)

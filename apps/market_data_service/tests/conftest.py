@@ -30,6 +30,6 @@ def set_test_environment():
     os.environ.setdefault("REDIS_PORT", "6379")
     os.environ.setdefault("EXECUTION_GATEWAY_URL", "http://localhost:8002")
 
-    yield
+    return
 
     # Cleanup handled automatically by pytest

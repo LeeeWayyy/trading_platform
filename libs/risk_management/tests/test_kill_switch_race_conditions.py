@@ -35,13 +35,13 @@ class TestKillSwitchAtomicity:
     - Concurrent state modifications
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self):
         """Mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
         return mock_redis
 
-    @pytest.fixture
+    @pytest.fixture()
     def kill_switch(self, mock_redis):
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)
@@ -187,13 +187,13 @@ class TestKillSwitchHistoryAtomicity:
     failures don't affect state consistency.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self):
         """Mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
         return mock_redis
 
-    @pytest.fixture
+    @pytest.fixture()
     def kill_switch(self, mock_redis):
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)
@@ -243,7 +243,7 @@ class TestKillSwitchHistoryAtomicity:
         # This test demonstrates history failure is isolated from state
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestKillSwitchConcurrentOperations:
     """
     Integration tests for concurrent kill-switch operations.
@@ -298,13 +298,13 @@ class TestLuaScriptErrorHandling:
     - State corruption
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis(self):
         """Mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
         return mock_redis
 
-    @pytest.fixture
+    @pytest.fixture()
     def kill_switch(self, mock_redis):
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)

@@ -39,7 +39,7 @@ class TestFailClosedBehaviorExecutionGateway:
     cannot be determined (Redis unavailable).
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_unavailable(self):
         """Mock Redis connection failure during initialization."""
         # Mock module-level variables to simulate Redis unavailable state
@@ -50,7 +50,7 @@ class TestFailClosedBehaviorExecutionGateway:
         ):
             yield
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_postgres(self):
         """Mock Postgres database client for tests."""
         with patch("apps.execution_gateway.database.DatabaseClient"):
@@ -114,7 +114,7 @@ class TestFailClosedBehaviorExecutionGateway:
         # Status should be degraded or unhealthy (not healthy)
         assert health_data["status"] in ["degraded", "unhealthy"]
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_kill_switch_init_failure(self):
         """Mock KillSwitch initialization failure."""
         # Redis available but KillSwitch init fails
@@ -163,7 +163,7 @@ class TestFailClosedBehaviorOrchestrator:
     orchestration runs when kill-switch state cannot be determined.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_unavailable(self):
         """Mock Redis connection failure during initialization."""
         # Mock module-level variables to simulate Redis unavailable state
@@ -174,19 +174,19 @@ class TestFailClosedBehaviorOrchestrator:
         ):
             yield
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_postgres(self):
         """Mock Postgres database client for tests."""
         with patch("apps.orchestrator.database.OrchestrationDatabaseClient"):
             yield
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_http_clients(self):
         """Mock HTTP clients to external services."""
         # TradingOrchestrator creates httpx clients internally,
         # we don't need to mock httpx at module level
         # This is a no-op fixture to maintain test compatibility
-        yield
+        return
 
     def test_orchestration_blocked_when_redis_unavailable(
         self, mock_redis_unavailable, mock_postgres, mock_http_clients
@@ -248,7 +248,7 @@ class TestKillSwitchJSONBodyHandling:
     validation and nested object support.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_and_kill_switch(self):
         """Mock Redis and KillSwitch for testing."""
         # Mock the module-level variables directly (not the classes)
@@ -274,7 +274,7 @@ class TestKillSwitchJSONBodyHandling:
         ):
             yield mock_redis, mock_ks
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_postgres(self):
         """Mock Postgres database client for tests."""
         with patch("apps.execution_gateway.database.DatabaseClient"):
@@ -402,7 +402,7 @@ class TestKillSwitchJSONBodyHandling:
 
         assert response.status_code in [200, 400]
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_orchestrator_redis_and_kill_switch(self):
         """Mock Redis and KillSwitch for orchestrator testing."""
         # Mock the module-level variables for orchestrator
@@ -427,7 +427,7 @@ class TestKillSwitchJSONBodyHandling:
         ):
             yield mock_redis, mock_ks
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_orchestrator_postgres(self):
         """Mock Postgres for orchestrator tests."""
         with patch("apps.orchestrator.database.OrchestrationDatabaseClient"):
@@ -488,7 +488,7 @@ class TestKillSwitchEndToEnd:
     These tests verify the fixes work together in realistic scenarios.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_components(self):
         """Mock all required components."""
         # Setup Redis mock

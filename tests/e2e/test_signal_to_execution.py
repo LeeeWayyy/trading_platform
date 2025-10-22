@@ -58,7 +58,7 @@ def wait_for_services(service_urls: dict[str, str]) -> None:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestServiceHealth:
     """Test that all services are healthy and reachable."""
 
@@ -99,7 +99,7 @@ class TestServiceHealth:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestSignalGeneration:
     """Test signal generation service."""
 
@@ -137,7 +137,7 @@ class TestSignalGeneration:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestExecutionGateway:
     """Test execution gateway service."""
 
@@ -178,7 +178,7 @@ class TestExecutionGateway:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestServiceCommunication:
     """Test that services can communicate with each other."""
 

@@ -21,25 +21,25 @@ from apps.execution_gateway.main import app
 from apps.execution_gateway.schemas import OrderDetail, Position
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_client():
     """Create FastAPI test client."""
     return TestClient(app)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_db():
     """Create a mock DatabaseClient."""
     return Mock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_redis():
     """Create a mock RedisClient."""
     return Mock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_kill_switch():
     """Create a mock KillSwitch (not engaged, available)."""
     mock_ks = Mock()

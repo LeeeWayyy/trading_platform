@@ -27,7 +27,7 @@ from apps.orchestrator.schemas import (
 )
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_client():
     """Create FastAPI test client."""
     from apps.orchestrator.main import app
@@ -35,13 +35,13 @@ def test_client():
     return TestClient(app)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_db():
     """Create mock database client."""
     return Mock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_orchestrator():
     """Create mock TradingOrchestrator."""
     mock = Mock()
@@ -55,7 +55,7 @@ def mock_orchestrator():
     return mock
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_kill_switch():
     """Create a mock KillSwitch (not engaged, available)."""
     mock_ks = Mock()

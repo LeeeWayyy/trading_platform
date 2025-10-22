@@ -26,7 +26,7 @@ from apps.market_data_service.position_sync import PositionBasedSubscription
 from libs.market_data.exceptions import SubscriptionError
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_stream():
     """Create mock AlpacaMarketDataStream."""
     stream = Mock()
@@ -36,7 +36,7 @@ def mock_stream():
     return stream
 
 
-@pytest.fixture
+@pytest.fixture()
 def position_sync(mock_stream):
     """Create PositionBasedSubscription with mocked dependencies."""
     return PositionBasedSubscription(
@@ -88,7 +88,7 @@ class TestPositionBasedSubscriptionInitialization:
 class TestFetchPositionSymbols:
     """Test position fetching from Execution Gateway."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_success_with_positions(self, position_sync):
         """Should fetch position symbols from gateway successfully."""
         mock_response = Mock()
@@ -112,7 +112,7 @@ class TestFetchPositionSymbols:
 
         assert symbols == {"AAPL", "MSFT", "GOOGL"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_success_empty_positions(self, position_sync):
         """Should return empty set when no positions exist."""
         mock_response = Mock()
@@ -128,7 +128,7 @@ class TestFetchPositionSymbols:
 
         assert symbols == set()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_http_error_returns_none(self, position_sync):
         """Should return None on HTTP error status."""
         mock_response = Mock()
@@ -143,7 +143,7 @@ class TestFetchPositionSymbols:
 
         assert symbols is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_timeout_returns_none(self, position_sync):
         """Should return None on timeout."""
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -155,7 +155,7 @@ class TestFetchPositionSymbols:
 
         assert symbols is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_connection_error_returns_none(self, position_sync):
         """Should return None on connection error."""
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -167,7 +167,7 @@ class TestFetchPositionSymbols:
 
         assert symbols is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_unexpected_exception_returns_none(self, position_sync):
         """Should return None on unexpected exception."""
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -183,7 +183,7 @@ class TestFetchPositionSymbols:
 class TestSyncSubscriptions:
     """Test subscription syncing logic."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_subscribe_to_new_symbols(self, position_sync, mock_stream):
         """Should subscribe to new position symbols."""
         # Mock fetch to return new positions
@@ -199,7 +199,7 @@ class TestSyncSubscriptions:
         subscribed_symbols = mock_stream.subscribe_symbols.call_args[0][0]
         assert set(subscribed_symbols) == {"AAPL", "MSFT"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_unsubscribe_from_closed_positions(self, position_sync, mock_stream):
         """Should unsubscribe from symbols with closed positions."""
         # Previously had AAPL and MSFT
@@ -216,7 +216,7 @@ class TestSyncSubscriptions:
         # Should unsubscribe from MSFT
         mock_stream.unsubscribe_symbols.assert_called_once_with(["MSFT"])
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_no_changes(self, position_sync, mock_stream):
         """Should handle no changes gracefully."""
         # Previously had AAPL
@@ -234,7 +234,7 @@ class TestSyncSubscriptions:
         mock_stream.subscribe_symbols.assert_not_called()
         mock_stream.unsubscribe_symbols.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_handles_subscription_error(self, position_sync, mock_stream):
         """Should handle SubscriptionError gracefully."""
         position_sync._fetch_position_symbols = AsyncMock(return_value={"AAPL"})
@@ -244,7 +244,7 @@ class TestSyncSubscriptions:
         # Should not raise, just log error
         await position_sync._sync_subscriptions()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_skips_when_fetch_fails(self, position_sync, mock_stream):
         """Should skip sync when position fetch returns None."""
         position_sync._fetch_position_symbols = AsyncMock(return_value=None)
@@ -255,7 +255,7 @@ class TestSyncSubscriptions:
         mock_stream.subscribe_symbols.assert_not_called()
         mock_stream.unsubscribe_symbols.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_updates_tracking_state(self, position_sync):
         """Should update _last_position_symbols after successful sync."""
         position_sync._fetch_position_symbols = AsyncMock(return_value={"AAPL", "MSFT"})
@@ -269,7 +269,7 @@ class TestSyncSubscriptions:
 class TestSyncLoop:
     """Test background sync loop."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_runs_initial_sync(self, mock_stream):
         """Should run initial sync on startup when enabled."""
         sync = PositionBasedSubscription(
@@ -291,7 +291,7 @@ class TestSyncLoop:
         # Should have called sync at least once (initial sync)
         assert sync._sync_subscriptions.call_count >= 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_skips_initial_sync_when_disabled(self, position_sync):
         """Should skip initial sync when initial_sync=False."""
         position_sync._sync_subscriptions = AsyncMock()
@@ -305,7 +305,7 @@ class TestSyncLoop:
         # Should not have called sync (initial_sync=False and didn't wait for interval)
         position_sync._sync_subscriptions.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_periodic_syncing(self, position_sync):
         """Should run periodic syncs at configured interval."""
         position_sync._sync_subscriptions = AsyncMock()
@@ -321,7 +321,7 @@ class TestSyncLoop:
         # Should have called sync multiple times
         assert position_sync._sync_subscriptions.call_count >= 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_handles_cancelled_error(self, position_sync):
         """Should handle CancelledError gracefully."""
         position_sync._sync_subscriptions = AsyncMock()
@@ -339,7 +339,7 @@ class TestSyncLoop:
         # (stop() needs to be called to set _running=False)
         assert position_sync._running is True  # Still true, just cancelled
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_continues_on_sync_error(self, position_sync):
         """Should continue loop even when sync raises exception."""
         # First call raises, second call succeeds

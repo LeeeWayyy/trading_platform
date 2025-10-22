@@ -34,7 +34,7 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
+@pytest.fixture()
 def redis_client():
     """Create Redis client for testing."""
     client = RedisClient(host="localhost", port=6379, db=1)  # Use test DB
@@ -44,7 +44,7 @@ def redis_client():
     client.delete("kill_switch:history")
 
 
-@pytest.fixture
+@pytest.fixture()
 def kill_switch(redis_client):
     """Create KillSwitch instance for testing."""
     return KillSwitch(redis_client=redis_client)

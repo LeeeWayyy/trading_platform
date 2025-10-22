@@ -44,7 +44,7 @@ class TestDatabaseClientInitialization:
 class TestCreateOrder:
     """Tests for create_order method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_connection(self):
         """Create mock database connection."""
         with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
@@ -183,7 +183,7 @@ class TestCreateOrder:
 class TestGetOrderByClientId:
     """Tests for get_order_by_client_id method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_connection(self):
         """Create mock database connection."""
         with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
@@ -253,7 +253,7 @@ class TestGetOrderByClientId:
 class TestUpdateOrderStatus:
     """Tests for update_order_status method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_connection(self):
         """Create mock database connection."""
         with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
@@ -354,7 +354,7 @@ class TestUpdateOrderStatus:
 class TestUpdatePositionOnFill:
     """Tests for update_position_on_fill method with complex P&L calculations."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_connection(self):
         """Create mock database connection."""
         with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
@@ -566,7 +566,7 @@ class TestUpdatePositionOnFill:
 class TestGetAllPositions:
     """Tests for get_all_positions method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_connection(self):
         """Create mock database connection."""
         with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
@@ -636,7 +636,7 @@ class TestGetAllPositions:
 class TestCheckConnection:
     """Tests for check_connection method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_connection(self):
         """Create mock database connection."""
         with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:

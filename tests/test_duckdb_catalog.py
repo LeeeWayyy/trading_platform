@@ -28,7 +28,7 @@ from libs.duckdb_catalog import (
 )
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_data_dir(tmp_path):
     """
     Create temporary directory with mock Parquet files.

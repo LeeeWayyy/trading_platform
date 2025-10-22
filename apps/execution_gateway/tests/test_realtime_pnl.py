@@ -18,13 +18,13 @@ from apps.execution_gateway.main import _resolve_and_calculate_pnl, app
 from apps.execution_gateway.schemas import Position
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_client():
     """FastAPI test client."""
     return TestClient(app)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_positions():
     """Mock positions for testing."""
     return [
@@ -49,7 +49,7 @@ def mock_positions():
     ]
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_redis_client():
     """Mock Redis client."""
     mock = MagicMock()

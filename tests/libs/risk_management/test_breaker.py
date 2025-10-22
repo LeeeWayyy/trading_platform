@@ -26,7 +26,7 @@ from libs.risk_management.exceptions import CircuitBreakerError
 class TestCircuitBreakerInitialization:
     """Tests for CircuitBreaker initialization."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
@@ -76,7 +76,7 @@ class TestCircuitBreakerInitialization:
 class TestCircuitBreakerStateQueries:
     """Tests for state query methods."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         mock_redis = Mock(spec=RedisClient)
@@ -263,7 +263,7 @@ class TestCircuitBreakerStateQueries:
 class TestCircuitBreakerTripOperation:
     """Tests for trip() operation."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client with pipeline support."""
         mock_redis = Mock(spec=RedisClient)
@@ -411,7 +411,7 @@ class TestCircuitBreakerTripOperation:
 class TestCircuitBreakerResetOperation:
     """Tests for reset() operation."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client with pipeline support."""
         mock_redis = Mock(spec=RedisClient)
@@ -492,7 +492,7 @@ class TestCircuitBreakerResetOperation:
 class TestCircuitBreakerHistoryManagement:
     """Tests for trip history management."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client with pipeline support."""
         mock_redis = Mock(spec=RedisClient)
@@ -557,7 +557,7 @@ class TestCircuitBreakerHistoryManagement:
 class TestCircuitBreakerEdgeCases:
     """Tests for edge cases and error conditions."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client with pipeline support."""
         mock_redis = Mock(spec=RedisClient)

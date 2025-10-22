@@ -54,7 +54,7 @@ def wait_for_orchestrator(orchestrator_url: str) -> None:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestOrchestratorHealth:
     """Test orchestrator health and status endpoints."""
 
@@ -80,7 +80,7 @@ class TestOrchestratorHealth:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestOrchestrationRun:
     """Test orchestration run workflow."""
 
@@ -141,7 +141,7 @@ class TestOrchestrationRun:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestDatabaseState:
     """Test that orchestrator properly updates database state."""
 
@@ -164,7 +164,7 @@ class TestDatabaseState:
 # =============================================================================
 
 
-@pytest.mark.e2e
+@pytest.mark.e2e()
 class TestErrorHandling:
     """Test error handling across service boundaries."""
 
@@ -212,8 +212,8 @@ class TestErrorHandling:
 # =============================================================================
 
 
-@pytest.mark.e2e
-@pytest.mark.slow
+@pytest.mark.e2e()
+@pytest.mark.slow()
 class TestPerformance:
     """Test orchestrator performance under load."""
 

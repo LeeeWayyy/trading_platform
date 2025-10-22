@@ -73,11 +73,24 @@ select = [
     "B",   # flake8-bugbear
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
+    "PT",  # flake8-pytest-style (MANDATORY: enforce pytest markers)
 ]
 ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
 ]
+
+[tool.ruff.lint.flake8-pytest-style]
+# Enforce pytest marker parentheses: @pytest.mark.integration()
+mark-parentheses = true
+# Enforce fixture parentheses: @pytest.fixture()
+fixture-parentheses = true
+# Require parametrize names to be tuple: @pytest.mark.parametrize(("arg1", "arg2"), ...)
+parametrize-names-type = "tuple"
+# Require parametrize values to be list: @pytest.mark.parametrize(..., [...])
+parametrize-values-type = "list"
+# Require parametrize values rows to be tuple
+parametrize-values-row-type = "tuple"
 
 [tool.mypy]
 python_version = "3.11"
@@ -116,6 +129,13 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --cov=libs --cov=apps --cov=strategies --cov-report=term-missing --cov-report=html"
+# Register custom markers (enforced by ruff PT rules)
+markers = [
+    "unit: Unit tests (pure functions, no external dependencies)",
+    "integration: Integration tests (require Redis, Postgres, or test server)",
+    "e2e: End-to-end tests (full system tests)",
+    "slow: Tests taking >1 second",
+]
 
 [tool.coverage.run]
 relative_files = true

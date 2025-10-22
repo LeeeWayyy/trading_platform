@@ -125,7 +125,7 @@ class TestConsoleOutputTimezone:
 class TestJSONExportTimezone:
     """Test that JSON export includes timezone-aware timestamps."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_json_export_timestamp_format(self, tmp_path):
         """Test that JSON export timestamp is in ISO 8601 format with timezone."""
         # Arrange
@@ -156,7 +156,7 @@ class TestJSONExportTimezone:
             data["timestamp"] == "2025-01-17T14:30:00+00:00"
         ), "Timestamp should be in ISO 8601 format with timezone"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_json_export_includes_timezone_field(self, tmp_path):
         """Test that JSON export includes explicit 'timezone' field set to 'UTC'."""
         # Arrange
@@ -180,7 +180,7 @@ class TestJSONExportTimezone:
         assert "timezone" in data, "JSON should include explicit timezone field"
         assert data["timezone"] == "UTC", "Timezone field should be set to 'UTC'"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_json_timestamp_is_utc_not_local(self, tmp_path):
         """Test that JSON timestamp uses UTC, not local time."""
         # Arrange
@@ -208,7 +208,7 @@ class TestJSONExportTimezone:
             data["timestamp"] == "2025-01-17T09:00:00+00:00"
         ), "Timestamp should be in UTC timezone"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_json_timestamp_ends_with_utc_offset(self, tmp_path):
         """Test that JSON timestamp ends with +00:00 (UTC offset)."""
         # Arrange
@@ -234,7 +234,7 @@ class TestJSONExportTimezone:
             "+00:00"
         ), f"Timestamp should end with +00:00 (UTC offset), got: {timestamp}"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_json_timestamp_parseable_with_timezone(self, tmp_path):
         """Test that JSON timestamp can be parsed back to timezone-aware datetime."""
         # Arrange
@@ -270,7 +270,7 @@ class TestJSONExportTimezone:
 class TestTimezoneConsistency:
     """Test that timestamps are consistent across console and JSON output."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_console_and_json_use_same_timestamp(self, tmp_path, capsys):
         """Test that console and JSON use the exact same timestamp when passed the same value."""
         # Arrange
@@ -323,7 +323,7 @@ class TestTimezoneRegression:
             paper_run_module, "timezone"
         ), "timezone should be imported from datetime module"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_no_naive_datetime_in_json(self, tmp_path):
         """Test that JSON never contains naive datetimes (without timezone)."""
         # Arrange
@@ -356,7 +356,7 @@ class TestTimezoneRegression:
 class TestEnhancedPnLTimezone:
     """Test timezone handling with enhanced P&L metrics."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_json_with_enhanced_pnl_includes_timezone(self, tmp_path):
         """Test that JSON with enhanced P&L still includes timezone fields."""
         # Arrange

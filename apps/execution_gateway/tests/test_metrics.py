@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture
+@pytest.fixture()
 def client():
     """Create test client for Execution Gateway."""
     # Import here to avoid issues with module-level initialization

@@ -88,7 +88,7 @@ class MockPipeline:
         return results
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_redis():
     """Mock Redis client."""
     redis = MagicMock()
@@ -155,19 +155,19 @@ def mock_redis():
     return redis
 
 
-@pytest.fixture
+@pytest.fixture()
 def breaker(mock_redis):
     """Circuit breaker instance."""
     return CircuitBreaker(redis_client=mock_redis)
 
 
-@pytest.fixture
+@pytest.fixture()
 def config():
     """Default risk config."""
     return RiskConfig()
 
 
-@pytest.fixture
+@pytest.fixture()
 def checker(config, breaker):
     """Risk checker instance."""
     return RiskChecker(config=config, breaker=breaker)

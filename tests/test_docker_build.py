@@ -241,8 +241,8 @@ class TestDockerBuildWorkflow:
 # =============================================================================
 
 
-@pytest.mark.slow
-@pytest.mark.integration
+@pytest.mark.slow()
+@pytest.mark.integration()
 class TestDockerImageBuild:
     """Integration tests for Docker image building (requires Docker daemon)."""
 

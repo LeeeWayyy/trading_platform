@@ -344,8 +344,8 @@ class TestStagingDeploymentDocumentation:
 # =============================================================================
 
 
-@pytest.mark.slow
-@pytest.mark.integration
+@pytest.mark.slow()
+@pytest.mark.integration()
 class TestDockerComposeStagingValidation:
     """Integration tests for docker-compose.staging.yml (requires Docker)."""
 

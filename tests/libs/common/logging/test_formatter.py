@@ -19,7 +19,7 @@ from libs.common.logging.formatter import JSONFormatter
 class TestJSONFormatter:
     """Test suite for JSONFormatter."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def formatter(self) -> JSONFormatter:
         """Create a JSONFormatter instance for testing."""
         return JSONFormatter(service_name="test_service")

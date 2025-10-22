@@ -24,7 +24,7 @@ from libs.common.logging.middleware import (
 )
 
 
-@pytest.fixture
+@pytest.fixture()
 def app() -> FastAPI:
     """Create a test FastAPI application."""
     app = FastAPI()

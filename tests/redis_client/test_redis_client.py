@@ -73,7 +73,7 @@ class TestRedisClientInitialization:
 class TestRedisClientOperations:
     """Tests for Redis GET/SET/DELETE operations."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -160,7 +160,7 @@ class TestRedisClientOperations:
 class TestRedisClientPubSub:
     """Tests for Redis pub/sub operations."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -211,7 +211,7 @@ class TestRedisClientPubSub:
 class TestRedisClientHealthCheck:
     """Tests for Redis health check functionality."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -284,7 +284,7 @@ class TestRedisClientContextManager:
 class TestRedisClientErrorHandling:
     """Tests for error handling and edge cases."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -337,7 +337,7 @@ class TestRedisClientListOperations:
     Without these methods, kill-switch engage/disengage operations crash.
     """
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (

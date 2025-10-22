@@ -229,8 +229,8 @@ class TestCIWorkflowIntegration:
 # =============================================================================
 
 
-@pytest.mark.slow
-@pytest.mark.integration
+@pytest.mark.slow()
+@pytest.mark.integration()
 class TestDockerComposeValidation:
     """Integration tests for docker-compose.ci.yml (requires Docker)."""
 
