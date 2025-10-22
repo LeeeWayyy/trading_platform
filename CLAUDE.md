@@ -24,15 +24,16 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 3. Review [`.claude/workflows/README.md`](./.claude/workflows/README.md) for development workflow guides
 
 **Ready to code?**
-1. **Break feature into logical components** — Use 4-step pattern (see below)
-2. **For EACH component:**
+1. **For task documents:** Request task creation review (see `.claude/workflows/13-task-creation-review.md`)
+2. **Break feature into logical components** — Use 4-step pattern (see below)
+3. **For EACH component:**
    - Implement logic
    - Create test cases (TDD)
-   - Request zen-mcp review: [`.claude/workflows/03-zen-review-quick.md`](./.claude/workflows/03-zen-review-quick.md)
+   - Request quick review via clink + codex: [`.claude/workflows/03-zen-review-quick.md`](./.claude/workflows/03-zen-review-quick.md)
    - Commit: [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md)
-3. Repeat until feature complete
-4. Deep review: [`.claude/workflows/04-zen-review-deep.md`](./.claude/workflows/04-zen-review-deep.md)
-5. Create PR: [`.claude/workflows/02-git-pr.md`](./.claude/workflows/02-git-pr.md)
+4. Repeat until feature complete
+5. Deep review via clink + gemini: [`.claude/workflows/04-zen-review-deep.md`](./.claude/workflows/04-zen-review-deep.md)
+6. Create PR: [`.claude/workflows/02-git-pr.md`](./.claude/workflows/02-git-pr.md)
 
 ---
 
@@ -104,8 +105,8 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 ### Workflows (see .claude/workflows/ for detailed guides)
 - **Git commit:** `.claude/workflows/01-git-commit.md`
 - **Create PR:** `.claude/workflows/02-git-pr.md`
-- **Zen review (quick):** `.claude/workflows/03-zen-review-quick.md`
-- **Zen review (deep):** `.claude/workflows/04-zen-review-deep.md`
+- **Quick review (clink + codex):** `.claude/workflows/03-zen-review-quick.md`
+- **Deep review (clink + gemini):** `.claude/workflows/04-zen-review-deep.md`
 - **Run tests:** `.claude/workflows/05-testing.md`
 - **Debug issues:** `.claude/workflows/06-debugging.md`
 - **Write docs:** `.claude/workflows/07-documentation.md`
@@ -113,6 +114,7 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 - **Deploy/rollback:** `.claude/workflows/09-deployment-rollback.md`
 - **Fix CI:** `.claude/workflows/10-ci-triage.md`
 - **Bootstrap env:** `.claude/workflows/11-environment-bootstrap.md`
+- **Task creation review (clink + gemini):** `.claude/workflows/13-task-creation-review.md`
 
 ---
 
@@ -178,6 +180,85 @@ Boot-time and periodic reconciliation:
 
 ---
 
+## 🤖 Zen-MCP + Clink Integration
+
+This project uses **zen-mcp** (Model Context Protocol server) with **clink** to orchestrate AI-assisted code reviews via authenticated CLI tools. All zen-mcp workflows use **clink exclusively** — no direct API calls.
+
+### Model Selection Strategy
+
+**Codex CLI (gpt-5-codex):**
+- **When:** Quick safety reviews, pre-commit validation, implementation quality checks
+- **Model:** Always uses `gpt-5-codex` (400K context, code-specialized)
+- **Configuration:** Happens in codex CLI, NOT clink parameters
+- **Duration:** ~30 seconds per review
+
+**Gemini CLI (gemini-2.5-pro/flash):**
+- **When:** Deep architecture reviews, task creation planning, comprehensive analysis
+- **Models:** `gemini-2.5-pro` (1M context, planning) or `gemini-2.5-flash` (fast, efficient)
+- **Configuration:** Happens in gemini CLI, NOT clink parameters
+- **Duration:** 3-5 minutes for deep reviews, 2-3 minutes for task reviews
+
+### Three-Tier Review System
+
+**Tier 1: Quick Review (Pre-Commit)**
+- **Tool:** clink + codex codereviewer
+- **Purpose:** Safety check before every commit (~30 sec)
+- **Example:**
+  ```bash
+  # Use clink with codex codereviewer role
+  # Codex automatically uses gpt-5-codex (configured in CLI)
+  # Review staged changes for trading safety, idempotency, test coverage
+  ```
+- **See:** `.claude/workflows/03-zen-review-quick.md`
+
+**Tier 2: Deep Review (Pre-PR)**
+- **Tool:** clink + gemini codereviewer → codex codereviewer
+- **Purpose:** Comprehensive branch review (3-5 min)
+- **Example:**
+  ```bash
+  # Phase 1: Use clink with gemini codereviewer
+  # Gemini provides architecture analysis with continuation_id
+
+  # Phase 2: Use clink with codex codereviewer (reuse continuation_id)
+  # Codex synthesizes recommendations and next steps
+  ```
+- **See:** `.claude/workflows/04-zen-review-deep.md`
+
+**Tier 3: Task Creation Review (Pre-Work)**
+- **Tool:** clink + gemini planner
+- **Purpose:** Validate task documents before starting work (2-3 min)
+- **Example:**
+  ```bash
+  # Use clink with gemini planner role
+  # Reviews task scope, requirements completeness, acceptance criteria
+  # Prevents scope creep and unclear requirements
+  ```
+- **See:** `.claude/workflows/13-task-creation-review.md`
+
+### Cost Model (Subscription-Based)
+
+**Monthly costs:**
+- Codex CLI subscription: $20-50/month (fixed)
+- Gemini CLI tier: Free or $20/month (fixed)
+- Maintenance hours: ~$300 (3 hours × $100/hr for ongoing maintenance)
+- **Total: $320-370/month** (predictable, no per-token charges)
+- Min scenario: $20 + $0 + $300 = $320
+- Max scenario: $50 + $20 + $300 = $370
+
+**Benefits over direct API calls:**
+- Predictable budgeting (no usage spikes)
+- Unlimited reviews within subscription
+- Authenticated CLI tools (secure)
+- 691% ROI vs pay-per-use API model ($468/month)
+
+**Key Points:**
+- All reviews use **clink** — no direct zen tools or API calls
+- Model selection via **CLI configuration**, NOT clink parameters
+- `continuation_id` preserves context across multi-turn conversations (up to 49 exchanges)
+- Workflow reminders embedded in every review response to prevent forgetting established patterns
+
+---
+
 ## 🎯 Development Process
 
 **See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for complete workflow guides.**
@@ -188,14 +269,14 @@ Boot-time and periodic reconciliation:
 
 1. **Implement** the logic component
 2. **Create test cases** for comprehensive coverage (TDD)
-3. **Request zen-mcp review** of the implementation and tests
+3. **Request quick review** via clink + codex codereviewer (see Tier 1 above)
 4. **Commit** changes after review approval
 
 **Example:** When implementing "position limit validation", create these 4 todo tasks:
 ```markdown
 - [ ] Implement position limit validation logic
 - [ ] Create test cases for position limit validation
-- [ ] Request zen-mcp review for position limit validation
+- [ ] Request quick review (clink + codex) for position limit validation
 - [ ] Commit position limit validation
 ```
 
@@ -220,13 +301,13 @@ Boot-time and periodic reconciliation:
    - See `.claude/workflows/07-documentation.md`
 
 4. **Progressive Commits (every 30-60 min per component)**
-   - **MANDATORY zen-mcp review before each commit**
-   - See `.claude/workflows/03-zen-review-quick.md` (quick safety check)
+   - **MANDATORY quick review (clink + codex) before each commit**
+   - See `.claude/workflows/03-zen-review-quick.md` (Tier 1 quick review)
    - See `.claude/workflows/01-git-commit.md` (commit workflow with 4-step pattern)
 
 5. **Before PR**
-   - **MANDATORY deep zen-mcp review of all branch changes**
-   - See `.claude/workflows/04-zen-review-deep.md`
+   - **MANDATORY deep review (clink + gemini) of all branch changes**
+   - See `.claude/workflows/04-zen-review-deep.md` (Tier 2 deep review)
    - See `.claude/workflows/02-git-pr.md`
 
 6. **If Issues Occur**
@@ -309,10 +390,11 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 ## ⚠️ Anti-Patterns to Avoid
 
 - **No skipping the 4-step pattern** — MANDATORY: Implement → Test → Review → Commit (`.claude/workflows/01-git-commit.md`)
-- **No committing without zen-mcp review** — MANDATORY quality gate (`.claude/workflows/03-zen-review-quick.md`)
+- **No committing without quick review** — MANDATORY clink + codex quality gate (`.claude/workflows/03-zen-review-quick.md`)
 - **No committing without passing tests** — Run `make test && make lint` before every commit
 - **No combining logical components in one commit** — Use 4-step pattern for each component separately
-- **No PRs without deep zen-mcp review** — MANDATORY comprehensive review (`.claude/workflows/04-zen-review-deep.md`)
+- **No PRs without deep review** — MANDATORY clink + gemini comprehensive review (`.claude/workflows/04-zen-review-deep.md`)
+- **No starting work without task review** — Use clink + gemini planner to validate task documents (`.claude/workflows/13-task-creation-review.md`)
 - **No duplicate feature logic** — Share code between research/production
 - **No in-memory state** — Use DB for positions/orders/breakers
 - **No silent failures** — Always log and raise with context
@@ -343,18 +425,19 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 
 **Quick checklist:**
 1. Check existing docs (`/docs/GETTING_STARTED/REPO_MAP.md`, API specs, DB schemas)
-2. Create ADR for architectural changes (`.claude/workflows/08-adr-creation.md`)
-3. Document trading concepts in `/docs/CONCEPTS/` (`.claude/workflows/07-documentation.md`)
-4. **Break feature into logical components** — Use 4-step pattern per component:
+2. **For task documents:** Request task creation review via clink + gemini (`.claude/workflows/13-task-creation-review.md`)
+3. Create ADR for architectural changes (`.claude/workflows/08-adr-creation.md`)
+4. Document trading concepts in `/docs/CONCEPTS/` (`.claude/workflows/07-documentation.md`)
+5. **Break feature into logical components** — Use 4-step pattern per component:
    - Implement logic
    - Create test cases (TDD)
-   - Request zen-mcp review
+   - Request quick review via clink + codex (`.claude/workflows/03-zen-review-quick.md`)
    - Commit after approval
-5. Add comprehensive docstrings (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
-6. Run `make test && make lint` before every commit
-7. **Never skip the 4-step pattern** (see `.claude/workflows/01-git-commit.md`)
-8. Update affected docs
-9. Before PR: deep review (`.claude/workflows/04-zen-review-deep.md`)
+6. Add comprehensive docstrings (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
+7. Run `make test && make lint` before every commit
+8. **Never skip the 4-step pattern** (see `.claude/workflows/01-git-commit.md`)
+9. Update affected docs
+10. Before PR: deep review via clink + gemini (`.claude/workflows/04-zen-review-deep.md`)
 
 **See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for detailed workflows.**
 

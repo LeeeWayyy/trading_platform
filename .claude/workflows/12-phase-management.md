@@ -96,9 +96,26 @@ Create all task files from phase planning:
 - Skips tasks that already exist
 - Reports creation count and next steps
 
-### 5. Start Working on First Task
+### 5. (Optional) Review Task Before Starting
 
-Transition first task from TASK to PROGRESS:
+**RECOMMENDED for complex tasks (>4 hours):** Validate task document before starting implementation.
+
+```bash
+# Use workflow 13 to request task creation review
+# See: .claude/workflows/13-task-creation-review.md
+```
+
+**Review validates:**
+- Scope clarity and requirements completeness
+- Trading safety requirements (circuit breakers, idempotency)
+- Component breakdown and time estimates
+- Dependencies and ADR requirements
+
+**Skip for:** Trivial tasks (<2 hours), simple bug fixes, docs-only updates
+
+### 6. Start Working on Task
+
+Transition task from TASK to PROGRESS:
 
 ```bash
 ./scripts/tasks.py start P2T0
@@ -109,7 +126,7 @@ Transition first task from TASK to PROGRESS:
 - Updates front matter: `state: PROGRESS`, `started: YYYY-MM-DD`
 - Prints next steps (edit file, follow 4-step pattern, complete command)
 
-### 6. Track Implementation Using 4-Step Pattern
+### 7. Track Implementation Using 4-Step Pattern
 
 For each logical component in the task, create 4 todos:
 1. Implement component
@@ -119,7 +136,7 @@ For each logical component in the task, create 4 todos:
 
 See [01-git-commit.md](./01-git-commit.md) for detailed 4-step pattern workflow.
 
-### 7. Complete Task
+### 8. Complete Task
 
 When task is finished, transition to DONE:
 
@@ -132,7 +149,7 @@ When task is finished, transition to DONE:
 - Updates front matter: `state: DONE`, `completed: YYYY-MM-DD`, `duration: X days`
 - Prompts to document completion details
 
-### 8. Update Documentation After Task Completion
+### 9. Update Documentation After Task Completion
 
 **MANDATORY:** After completing each task, update these documents:
 
@@ -189,7 +206,7 @@ If significant milestone reached, update `docs/GETTING_STARTED/PROJECT_STATUS.md
 
 **Automation coming soon:** `./scripts/tasks.py sync-status` will auto-generate these updates
 
-### 9. Monitor Phase Status
+### 10. Monitor Phase Status
 
 Check overall phase progress:
 
@@ -276,7 +293,10 @@ else:
 # Step 4: Generate task files
 ./scripts/tasks.py generate-tasks-from-phase P2
 
-# Step 5: Start first task
+# Step 5: (Optional) Review task before starting
+# See: .claude/workflows/13-task-creation-review.md
+
+# Step 6: Start first task
 ./scripts/tasks.py start P2T0
 ```
 

@@ -1,9 +1,10 @@
-# Quick Zen-MCP Review Workflow
+# Quick Review Workflow (Clink + Codex)
 
 **Purpose:** Fast safety check of staged changes before each commit (MANDATORY quality gate)
+**Tool:** clink + codex codereviewer (Tier 1 review)
 **Prerequisites:** Changes staged with `git add`, ready to commit
 **Expected Outcome:** Code validated for trading safety issues, approved for commit or issues identified for fixing
-**Owner:** @development-team + zen-mcp maintainers
+**Owner:** @development-team
 **Last Reviewed:** 2025-10-21
 
 ---
@@ -39,41 +40,40 @@ git diff --cached
 
 **What this does:** Prepares changes for review and commit
 
-### 2. Request Quick Zen Review
+### 2. Request Quick Review (Clink + Codex)
 
-**Option A: Use slash command (recommended)**
+**Tell Claude to use clink with codex codereviewer:**
 ```
-/zen-review quick
-```
-
-**Option B: Tell Claude directly**
-```
-"Review my staged changes with zen-mcp"
+"Please review my staged changes using clink + codex codereviewer.
+Focus on trading safety: circuit breakers, idempotency, position limits."
 ```
 
-**Option C: Specify files explicitly**
+**Alternative (specify files):**
 ```
-"Review apps/execution_gateway/order_placer.py for trading safety with zen-mcp"
+"Review apps/execution_gateway/order_placer.py using clink + codex codereviewer"
+```
+
+**Alternative (use review prompt):**
+```
+"Use the quick-safety-review prompt from .claude/prompts/clink-reviews/ to review my staged changes"
 ```
 
 **What happens:**
-- Claude Code triggers zen-mcp (Codex) codereviewer
-- Zen analyzes staged changes for safety issues
+- Claude Code uses clink (zen-mcp) with codex CLI
+- Codex automatically uses gpt-5-codex model (configured in CLI)
+- Analyzes staged changes for trading safety issues
 - Review completes in ~20-30 seconds
-- Results returned with severity ratings
+- Results returned with severity ratings and workflow reminder
+- continuation_id provided for follow-up verification
 
 ### 3. Review the Findings
 
-**Zen-mcp will report issues in this format:**
+**Codex (via clink) will report issues in this format:**
 
 ```
-🔍 Zen-MCP Quick Review Results
+**Findings**
 
-✅ APPROVED with 2 minor suggestions
-
-Findings:
-
-1. MEDIUM (apps/execution_gateway/order_placer.py:42)
+- MEDIUM – Missing logging (apps/execution_gateway/order_placer.py:42):
    Issue: Missing logging when position limit exceeded
    Impact: Harder to debug limit violations in production
    Fix: Add structured logging:
@@ -87,13 +87,18 @@ Findings:
        }
    )
 
-2. LOW (apps/execution_gateway/order_placer.py:78)
+- LOW – Variable naming (apps/execution_gateway/order_placer.py:78):
    Issue: Variable name 'pos' is unclear
    Impact: Minor readability issue
    Fix: Rename to 'current_position'
 
-Safe to commit after addressing MEDIUM issue.
-Continuation ID: abc123-def456 (for follow-up verification)
+**Positives**
+- Circuit breaker checks present
+- Idempotent client_order_id implementation
+
+<SUMMARY>Safe to commit after addressing MEDIUM issue.</SUMMARY>
+
+continuation_id: abc123-def456 (for follow-up verification)
 ```
 
 **Severity levels:**
@@ -353,24 +358,26 @@ Zen: "You're correct, breaker is checked at line 35. This is a false positive. S
 ```bash
 $ git add apps/execution_gateway/order_placer.py
 
-$ "Review my staged changes with zen-mcp"
+$ "Review my staged changes using clink + codex codereviewer"
 
-Zen: "🔍 Reviewing staged changes...
+Claude: [Uses clink with codex CLI]
 
-✅ APPROVED - No issues found
+Codex: "**Findings**
+(none)
 
-Checked:
+**Positives**
 - Circuit breaker integration: ✅ Correct
 - Position limit logic: ✅ Correct
 - Error handling: ✅ Comprehensive
 - Logging: ✅ Properly structured
 
-Safe to commit.
-Continuation ID: abc123"
+<SUMMARY>Approved - No issues found. Safe to commit.</SUMMARY>
+
+continuation_id: abc123-def456"
 
 $ git commit -m "Add position limit validation
 
-Zen-review: Approved (continuation_id: abc123)"
+Codex review (clink): Approved (continuation_id: abc123-def456)"
 ```
 
 ### Example 2: Critical Issue Found and Fixed
@@ -378,36 +385,40 @@ Zen-review: Approved (continuation_id: abc123)"
 ```bash
 $ git add apps/execution_gateway/order_placer.py
 
-$ "Review my staged changes with zen-mcp"
+$ "Review my staged changes using clink + codex codereviewer"
 
-Zen: "🔍 Reviewing staged changes...
+Claude: [Uses clink with codex CLI]
 
-❌ CRITICAL ISSUE FOUND
+Codex: "**Findings**
 
-1. CRITICAL (line 42):
+- CRITICAL – Missing circuit breaker (line 42):
    Missing circuit breaker check before order submission
    Impact: Could place orders when risk limits breached!
    Fix: Add before line 45:
    if self.breaker.is_tripped():
        raise CircuitBreakerTripped('Cannot place order: breaker TRIPPED')
 
-Do NOT commit until this is fixed.
-Continuation ID: abc123"
+<SUMMARY>BLOCKED - Do NOT commit until CRITICAL issue fixed.</SUMMARY>
+
+continuation_id: abc123-def456"
 
 # Fix immediately!
 # Add circuit breaker check
 
 $ git add apps/execution_gateway/order_placer.py
 
-$ "I've added the circuit breaker check, please verify"
+$ "I've added the circuit breaker check, please verify (continuation_id: abc123-def456)"
 
-Zen: "✅ Verified fix (continuation: abc123)
+Claude: [Uses clink with codex, preserves context]
+
+Codex: "✅ Verified fix
 
 Circuit breaker check added correctly at line 42.
 All safety checks now in place.
 
-Safe to commit.
-Continuation ID: abc123"
+<SUMMARY>Safe to commit.</SUMMARY>
+
+continuation_id: abc123-def456"
 
 $ git commit -m "Add position validation with circuit breaker
 
@@ -423,17 +434,20 @@ Zen-review: Critical issue found and fixed (abc123)"
 ```bash
 $ git add apps/execution_gateway/order_placer.py
 
-$ "Review my staged changes with zen-mcp"
+$ "Review my staged changes using clink + codex codereviewer"
 
-Zen: "✅ APPROVED with 1 MEDIUM issue
+Claude: [Uses clink with codex CLI]
 
-1. MEDIUM (line 67):
+Codex: "**Findings**
+
+- MEDIUM – Missing logging (line 67):
    Missing logging when position limit exceeded
    Impact: Harder to debug in production
    Fix: Add structured logging
 
-Safe to commit after addressing or documenting deferral.
-Continuation ID: abc123"
+<SUMMARY>Approved with conditions - Address MEDIUM issue or document deferral.</SUMMARY>
+
+continuation_id: xyz789-abc123"
 
 # Decide to defer
 $ "The logging issue is MEDIUM and requires logging infrastructure.
@@ -489,12 +503,13 @@ Zen-review: Approved with deferral (abc123)"
 ## References
 
 **Standards & Policies:**
-- [/docs/STANDARDS/GIT_WORKFLOW.md](../../docs/STANDARDS/GIT_WORKFLOW.md) - Zen review policy and requirements
+- [/docs/STANDARDS/GIT_WORKFLOW.md](../../docs/STANDARDS/GIT_WORKFLOW.md) - Review policy and requirements
 - [/docs/STANDARDS/CODING_STANDARDS.md](../../docs/STANDARDS/CODING_STANDARDS.md) - Code safety standards
 
 **Implementation Details:**
-- [/docs/CONCEPTS/workflow-optimization-zen-mcp.md](../../docs/CONCEPTS/workflow-optimization-zen-mcp.md) - Zen-MCP integration guide
-- [.claude/commands/zen-review.md](../commands/zen-review.md) - Zen review command reference
+- [/CLAUDE.md](../../CLAUDE.md#🤖-zen-mcp--clink-integration) - Clink + zen-mcp integration overview
+- [/docs/CONCEPTS/zen-mcp-clink-optimization-proposal.md](../../docs/CONCEPTS/zen-mcp-clink-optimization-proposal.md) - Clink-based workflow design
+- [.claude/prompts/clink-reviews/quick-safety-review.md](../prompts/clink-reviews/quick-safety-review.md) - Review prompt template
 
 **Focus Areas (What Zen Checks):**
 - Circuit breaker checks before order placement
