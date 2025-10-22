@@ -19,7 +19,8 @@ datasources:
     jsonData:
       maxLines: 1000
       derivedFields:
-        # Link trace IDs to a hypothetical tracing system (can be configured later)
-        - matcherRegex: "trace_id=(\\w+)"
+        # Extract trace ID from JSON logs for trace correlation
+        # Matches: "trace_id":"550e8400-e29b-41d4-a716-446655440000"
+        - matcherRegex: "\"trace_id\":\"([^\"]+)\""
           name: "TraceID"
           url: "$${__value.raw}"
