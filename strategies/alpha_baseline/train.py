@@ -19,6 +19,7 @@ from typing import cast
 
 import lightgbm as lgb
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from sklearn.metrics import (  # type: ignore[import-untyped]
     mean_absolute_error,
@@ -320,7 +321,7 @@ class BaselineTrainer:
         self,
         X: pd.DataFrame,
         num_iteration: int | None = None,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         """
         Make predictions using trained model.
 
@@ -347,7 +348,7 @@ class BaselineTrainer:
         if num_iteration is None:
             num_iteration = self.best_iteration
 
-        return cast(np.ndarray, self.model.predict(X, num_iteration=num_iteration))
+        return cast(npt.NDArray[np.float64], self.model.predict(X, num_iteration=num_iteration))
 
     def save_model(self, path: Path | None = None) -> Path:
         """
