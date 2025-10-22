@@ -86,7 +86,9 @@ class TraceIDMiddleware(BaseHTTPMiddleware):
 def add_trace_id_middleware(app: FastAPI) -> None:
     """Add trace ID middleware to FastAPI application.
 
-    Convenience function to add TraceIDMiddleware to an app.
+    Uses ASGITraceIDMiddleware (low-level ASGI) instead of BaseHTTPMiddleware
+    to ensure trace IDs are injected even on error responses.
+
     Should be called during application setup.
 
     Args:
@@ -100,8 +102,12 @@ def add_trace_id_middleware(app: FastAPI) -> None:
         >>> add_trace_id_middleware(app)
         >>>
         >>> # Now all requests will have trace IDs automatically managed
+        >>> # Works correctly on both success and error responses
     """
-    app.add_middleware(TraceIDMiddleware)
+    # Wrap the app's ASGI handler with our ASGI middleware
+    # This works at a lower level than BaseHTTPMiddleware and can
+    # inject headers into error responses from FastAPI's exception handlers
+    app.add_middleware(ASGITraceIDMiddleware)
 
 
 class ASGITraceIDMiddleware:

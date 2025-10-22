@@ -131,7 +131,7 @@ Query in Grafana: `{trace_id="abc-123"}` shows entire request path
 **Mitigation:** Easily configurable; can extend to 7 years if required
 
 **Risk:** Sensitive data (API keys, PII) logged accidentally
-**Mitigation:** Logging library sanitizes known patterns; code review enforces best practices
+**Mitigation:** ⚠️ **Code review enforces best practices; developers must manually avoid logging secrets. Automated sanitization not yet implemented - tracked as future enhancement.**
 
 ### Follow-Up Tasks
 
@@ -140,6 +140,7 @@ Query in Grafana: `{trace_id="abc-123"}` shows entire request path
 3. **Runbooks:** Document LogQL queries for typical debug scenarios
 4. **E2E Tests:** Verify trace ID propagation end-to-end
 5. **Production Migration:** Gradual rollout with shadow logging
+6. **Sanitization:** Implement automated redaction of sensitive data (API keys, account numbers, PII) in logging library
 
 ### Migration Plan
 
@@ -179,7 +180,7 @@ Query in Grafana: `{trace_id="abc-123"}` shows entire request path
 ### Security Considerations
 
 - **Access Control:** Grafana authentication required (admin/admin for development)
-- **Data Sanitization:** Logging library filters known sensitive patterns
+- **Data Sanitization:** ⚠️ **NOT YET IMPLEMENTED** - Developers must manually avoid logging secrets (API keys, account numbers, PII). Automated sanitization planned as future enhancement.
 - **Transport:** Loki/Promtail communicate over internal Docker network
 - **Retention:** Automatic deletion prevents indefinite sensitive data storage
 

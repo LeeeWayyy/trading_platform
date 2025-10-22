@@ -397,6 +397,13 @@ async with get_traced_client() as client:
 ### ❌ DON'T
 
 **Don't log sensitive data:**
+
+⚠️ **CRITICAL:** Automated sanitization is NOT yet implemented. You MUST manually avoid logging:
+- API keys, tokens, passwords
+- Account numbers, SSNs, credit cards
+- PII (names, emails, addresses)
+- Any other sensitive data
+
 ```python
 # Bad - logs API keys
 logger.info(f"Using API key: {api_key}")

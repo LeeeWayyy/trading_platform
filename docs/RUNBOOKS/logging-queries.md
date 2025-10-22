@@ -106,15 +106,15 @@ This shows the entire request flow across all services that handled this request
 
 **Find logs for a specific symbol:**
 ```logql
-{job="docker"} | json | context_symbol="AAPL"
+{job="docker"} | json | json context | symbol="AAPL"
 ```
 
 **Find logs for a strategy:**
 ```logql
-{job="docker"} | json | context_strategy_id="alpha_baseline"
+{job="docker"} | json | json context | strategy_id="alpha_baseline"
 ```
 
-**Note:** Context field names are prefixed with `context_` in Loki labels.
+**Note:** Context fields are stored as JSON (not labels) to avoid cardinality explosion. Use nested JSON parsing to filter on context fields.
 
 ---
 
@@ -405,12 +405,13 @@ sum by (service) (rate({job="docker"} | json | level="ERROR" [5m])) > 10
 - `compose_project`: Docker Compose project name
 - `compose_service`: Docker Compose service name
 - `level`: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-- `trace_id`: Distributed trace ID (UUID)
 - `service_name`: Service name from JSON log field
 
-**Context fields** (prefixed with `context_` in labels):
-- Variable per service
-- Common: `symbol`, `strategy_id`, `order_id`, `position_id`
+**JSON fields (not labels, require `| json` to query):**
+- `trace_id`: Distributed trace ID (UUID) - stored as JSON field to avoid cardinality explosion
+- `message`: Log message
+- `timestamp`: ISO 8601 timestamp
+- `context`: Nested object with service-specific fields (symbol, strategy_id, order_id, position_id, etc.)
 
 ---
 
