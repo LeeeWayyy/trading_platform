@@ -213,7 +213,7 @@ Implement automated testing and deployment pipeline to enable rapid iteration wi
 - [P1_PLANNING.md](./P1_PLANNING.md#t10-cicd-pipeline) - Source planning document
 
 **Tasks:**
-- Nice-to-have: [P1T9_TASK.md](./P1T9_TASK.md) - Centralized Logging (enables CI log aggregation)
+- Nice-to-have: [P1T9_DONE.md](./P1T9_DONE.md) - Centralized Logging (enables CI log aggregation)
 
 ---
 
