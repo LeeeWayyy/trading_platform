@@ -126,10 +126,13 @@ trading_platform/
 - [docs/ADRs/0002-exception-hierarchy.md](./docs/ADRs/0002-exception-hierarchy.md) - T1: Exception handling
 - [docs/ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md](./docs/ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md) - T2: Strategy architecture
 - **[docs/ADRs/0004-signal-service-architecture.md](./docs/ADRs/0004-signal-service-architecture.md)** - T3: Signal service decisions
+- **[docs/ADRs/0005-centralized-logging-architecture.md](./docs/ADRs/0005-centralized-logging-architecture.md)** - P1: Centralized logging with Loki/Promtail/Grafana
 - **[docs/ADRs/0005-execution-gateway-architecture.md](./docs/ADRs/0005-execution-gateway-architecture.md)** - T4: Execution gateway decisions
 - **[docs/ADRs/0006-orchestrator-service.md](./docs/ADRs/0006-orchestrator-service.md)** - T5: Orchestrator service decisions
 
 ### Concept Documentation
+
+**Trading & ML Concepts:**
 - [docs/CONCEPTS/corporate-actions.md](./docs/CONCEPTS/corporate-actions.md) - Stock splits and dividends
 - [docs/CONCEPTS/alpha158-features.md](./docs/CONCEPTS/alpha158-features.md) - Alpha158 feature set
 - [docs/CONCEPTS/qlib-data-providers.md](./docs/CONCEPTS/qlib-data-providers.md) - Qlib data integration
@@ -137,6 +140,12 @@ trading_platform/
 - **[docs/CONCEPTS/model-registry.md](./docs/CONCEPTS/model-registry.md)** - Model versioning and lifecycle
 - **[docs/CONCEPTS/hot-reload.md](./docs/CONCEPTS/hot-reload.md)** - Zero-downtime model updates
 - **[docs/CONCEPTS/feature-parity.md](./docs/CONCEPTS/feature-parity.md)** - Research-production consistency
+
+**Observability & Logging:**
+- **[docs/CONCEPTS/centralized-logging.md](./docs/CONCEPTS/centralized-logging.md)** - Loki/Promtail/Grafana stack for unified log aggregation
+- **[docs/CONCEPTS/distributed-tracing.md](./docs/CONCEPTS/distributed-tracing.md)** - Trace IDs for request correlation across services
+- **[docs/CONCEPTS/structured-logging.md](./docs/CONCEPTS/structured-logging.md)** - JSON log format and querying patterns
+- **[docs/GETTING_STARTED/LOGGING_GUIDE.md](./docs/GETTING_STARTED/LOGGING_GUIDE.md)** - Developer usage guide for logging library
 
 ## Current Status
 
@@ -459,11 +468,14 @@ None currently - P0 MVP Complete! 🎉
 - **Complete workflow orchestration** from signals to execution (T5)
 - **Comprehensive testing** (99% pass rate across 126 tests)
 - **Performance targets exceeded** (all < 100ms latency, full workflow < 5s)
+- **[Centralized logging](./docs/CONCEPTS/centralized-logging.md)** with Loki/Promtail/Grafana for unified observability
+- **[Distributed tracing](./docs/CONCEPTS/distributed-tracing.md)** with trace IDs for request correlation across microservices
+- **[Structured JSON logging](./docs/CONCEPTS/structured-logging.md)** for powerful querying and analysis
 
 ### Educational Documentation ✅
-- **14,200+ lines of documentation**
-- 6 ADRs documenting architectural decisions
-- 7 concept docs explaining trading/ML patterns
+- **17,000+ lines of documentation** (updated with logging system docs)
+- 7 ADRs documenting architectural decisions (including centralized logging)
+- 10 concept docs explaining trading/ML patterns and observability
 - 8 implementation guides with step-by-step instructions
 - Testing guides and lessons learned
 
@@ -472,6 +484,59 @@ None currently - P0 MVP Complete! 🎉
 - Quick health checks for each component
 - Phase-by-phase validation scripts
 - Comprehensive troubleshooting guides
+- **Grafana dashboards** for log exploration and monitoring (http://localhost:3000)
+
+---
+
+## Observability Stack
+
+### Centralized Logging with Loki/Promtail/Grafana
+
+The platform includes a production-ready logging stack for unified observability across all microservices:
+
+**Components:**
+- **Loki** - Time-series log storage with 30-day retention (configurable)
+- **Promtail** - Automatic log collection from Docker containers
+- **Grafana** - Query interface with LogQL for log exploration
+
+**Features:**
+- **Structured JSON logging** - Machine-readable logs with consistent schema
+- **Distributed tracing** - Trace IDs correlate requests across services
+- **Low resource footprint** - 512MB RAM typical usage (vs 8GB+ for ELK Stack)
+- **Fast queries** - Label-based indexing for sub-second queries
+
+**Access Grafana:**
+```bash
+# Start infrastructure (includes logging stack)
+make up
+
+# Open Grafana
+open http://localhost:3000
+# Login: admin/admin
+```
+
+**Query logs:**
+```logql
+# All logs from a service
+{service_name="execution_gateway"} | json
+
+# Filter by log level
+{service_name="execution_gateway", level="ERROR"} | json
+
+# Trace a request across services
+{job="docker"} | json | trace_id="550e8400-e29b-41d4-a716-446655440000"
+
+# Query context fields
+{service_name="execution_gateway"} | json | json context | symbol="AAPL"
+```
+
+**Documentation:**
+- [Centralized Logging Concept](./docs/CONCEPTS/centralized-logging.md) - Architecture and rationale
+- [Distributed Tracing Concept](./docs/CONCEPTS/distributed-tracing.md) - How trace IDs work
+- [Structured Logging Concept](./docs/CONCEPTS/structured-logging.md) - JSON format and benefits
+- [Logging Guide](./docs/GETTING_STARTED/LOGGING_GUIDE.md) - Developer usage
+- [Logging Queries Runbook](./docs/RUNBOOKS/logging-queries.md) - LogQL examples
+- [ADR-0005](./docs/ADRs/0005-centralized-logging-architecture.md) - Architecture decisions
 
 ---
 
@@ -485,6 +550,9 @@ None currently - P0 MVP Complete! 🎉
 
 # Verify setup
 ./scripts/test_health_check.sh
+
+# Start observability stack (Loki, Promtail, Grafana)
+make up
 ```
 
 ### 2. Train and Register Model
@@ -625,6 +693,13 @@ T5: Orchestrator → Position Sizing → Signal-Order Mapping
 T4: Execution Gateway → Orders (PostgreSQL) → Alpaca API
                       ↓
 T6: paper_run.py → One-Command Automation ✅ COMPLETE
+
+Observability (All Services):
+  All Services → JSON Logs → Promtail → Loki → Grafana
+                     ↓
+              Trace IDs (X-Trace-ID header)
+                     ↓
+          Correlated logs across services
 ```
 
 ### Key Patterns
@@ -634,25 +709,29 @@ T6: paper_run.py → One-Command Automation ✅ COMPLETE
 3. **Idempotency** - Safe retries with deterministic client_order_id (T4)
 4. **Position Sizing** - Dollar-based capital allocation with risk limits (T5)
 5. **Workflow Orchestration** - Complete signal-to-execution coordination (T5)
+6. **[Distributed Tracing](./docs/CONCEPTS/distributed-tracing.md)** - Trace IDs propagate via X-Trace-ID HTTP header
+7. **[Structured Logging](./docs/CONCEPTS/structured-logging.md)** - JSON format with consistent schema across all services
 
 ---
 
 ## Statistics
 
 ### Code Metrics
-- **Production Code:** 9,700+ lines (T1-T6)
-- **Test Code:** 4,600+ lines
-- **Documentation:** 17,200+ lines
-- **Test Pass Rate:** 100% (152/152 tests)
+- **Production Code:** 10,800+ lines (T1-T6 + logging infrastructure)
+- **Test Code:** 5,200+ lines (including 60 logging tests)
+- **Documentation:** 20,200+ lines (including 3 logging concept docs + guides)
+- **Test Pass Rate:** 100% (212/212 tests including logging)
 - **Live Alpaca Validation:** 100% (6/6 tests)
 
 ### Components Delivered
 - **6 major tasks complete** (T1, T2, T3, T4, T5, T6)
+- **Centralized logging infrastructure** (Loki/Promtail/Grafana)
 - 3 database schemas (model_registry, execution_tables, orchestration_tables)
 - 7 architectural decisions documented (ADRs)
-- 8 concept documents
+- 10 concept documents (including 3 observability docs)
 - 9 implementation guides
 - 11 deployment scripts
+- **Observability stack** with structured logging and distributed tracing
 
 ### Performance
 - Data ETL: < 1s for 750 rows ✅
