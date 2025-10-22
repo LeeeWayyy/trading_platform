@@ -55,6 +55,14 @@ def mock_orchestrator():
     return mock
 
 
+@pytest.fixture
+def mock_kill_switch():
+    """Create a mock KillSwitch (not engaged, available)."""
+    mock_ks = Mock()
+    mock_ks.is_engaged.return_value = False
+    return mock_ks
+
+
 class TestRootEndpoint:
     """Tests for root endpoint."""
 
@@ -137,7 +145,7 @@ class TestHealthCheckEndpoint:
 class TestRunOrchestrationEndpoint:
     """Tests for run orchestration endpoint."""
 
-    def test_run_orchestration_success(self, test_client, mock_db, mock_orchestrator):
+    def test_run_orchestration_success(self, test_client, mock_db, mock_orchestrator, mock_kill_switch):
         """Test successful orchestration run."""
         # Mock orchestration result
         run_result = OrchestrationResult(
@@ -161,6 +169,8 @@ class TestRunOrchestrationEndpoint:
         with (
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
+            patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
+            patch("apps.orchestrator.main.kill_switch_unavailable", False),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
@@ -180,17 +190,21 @@ class TestRunOrchestrationEndpoint:
         # Verify orchestrator was closed
         mock_orchestrator.close.assert_called_once()
 
-    def test_run_orchestration_invalid_date_format(self, test_client):
+    def test_run_orchestration_invalid_date_format(self, test_client, mock_kill_switch):
         """Test orchestration run with invalid date format returns 400."""
-        response = test_client.post(
-            "/api/v1/orchestration/run",
-            json={"symbols": ["AAPL"], "as_of_date": "invalid-date"},
-        )
+        with (
+            patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
+            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+        ):
+            response = test_client.post(
+                "/api/v1/orchestration/run",
+                json={"symbols": ["AAPL"], "as_of_date": "invalid-date"},
+            )
 
         assert response.status_code == 400
         assert "Invalid date format" in response.json()["detail"]
 
-    def test_run_orchestration_with_custom_capital(self, test_client, mock_db, mock_orchestrator):
+    def test_run_orchestration_with_custom_capital(self, test_client, mock_db, mock_orchestrator, mock_kill_switch):
         """Test orchestration run with custom capital and max_position_size."""
         run_result = OrchestrationResult(
             run_id=uuid4(),
@@ -215,6 +229,8 @@ class TestRunOrchestrationEndpoint:
             patch(
                 "apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator
             ) as mock_orch_class,
+            patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
+            patch("apps.orchestrator.main.kill_switch_unavailable", False),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
@@ -233,7 +249,7 @@ class TestRunOrchestrationEndpoint:
         assert call_kwargs["capital"] == Decimal("200000")
         assert call_kwargs["max_position_size"] == Decimal("50000")
 
-    def test_run_orchestration_without_date(self, test_client, mock_db, mock_orchestrator):
+    def test_run_orchestration_without_date(self, test_client, mock_db, mock_orchestrator, mock_kill_switch):
         """Test orchestration run without as_of_date (defaults to today)."""
         run_result = OrchestrationResult(
             run_id=uuid4(),
@@ -256,6 +272,8 @@ class TestRunOrchestrationEndpoint:
         with (
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
+            patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
+            patch("apps.orchestrator.main.kill_switch_unavailable", False),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
