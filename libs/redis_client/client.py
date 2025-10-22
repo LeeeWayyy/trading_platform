@@ -342,9 +342,14 @@ class RedisClient:
             logger.error(f"Redis INFO failed: {e}")
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
     def rpush(self, key: str, *values: str) -> int:
         """
-        Append one or more values to a list.
+        Append one or more values to a list with retry logic.
 
         Args:
             key: Redis key for the list
@@ -354,7 +359,7 @@ class RedisClient:
             Length of the list after the push operation
 
         Raises:
-            RedisError: If operation fails
+            RedisError: If operation fails after retries
 
         Example:
             >>> length = client.rpush("mylist", "value1", "value2")
@@ -367,9 +372,14 @@ class RedisClient:
             logger.error(f"Redis RPUSH failed for key {key}: {e}")
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
     def ltrim(self, key: str, start: int, stop: int) -> bool:
         """
-        Trim a list to the specified range.
+        Trim a list to the specified range with retry logic.
 
         Args:
             key: Redis key for the list
@@ -380,7 +390,7 @@ class RedisClient:
             True if operation succeeded
 
         Raises:
-            RedisError: If operation fails
+            RedisError: If operation fails after retries
 
         Example:
             >>> # Keep last 100 items
@@ -393,9 +403,14 @@ class RedisClient:
             logger.error(f"Redis LTRIM failed for key {key}: {e}")
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
     def lrange(self, key: str, start: int, stop: int) -> list[bytes]:
         """
-        Get a range of elements from a list.
+        Get a range of elements from a list with retry logic.
 
         Args:
             key: Redis key for the list
@@ -406,7 +421,7 @@ class RedisClient:
             List of elements (as bytes)
 
         Raises:
-            RedisError: If operation fails
+            RedisError: If operation fails after retries
 
         Example:
             >>> # Get last 10 items
