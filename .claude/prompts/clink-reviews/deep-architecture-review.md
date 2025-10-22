@@ -77,7 +77,7 @@ Please perform a comprehensive architecture review of all changes in this branch
 
 ---
 
-## Phase 2 Prompt (Codex Codereviewer - Reuse continuation_id)
+## Phase 2 Prompt (Codex Codereviewer (model: gpt-5-codex) - Reuse continuation_id)
 
 Given the architecture review findings above, please synthesize:
 
@@ -123,6 +123,7 @@ Given the architecture review findings above, please synthesize:
 3. **After Fixes:**
    - Re-request deep review with continuation_id
    - Verify all CRITICAL/HIGH addressed
+   - Verify no other issue exist
    - Only proceed to PR after explicit approval
 
 4. **PR Creation:**

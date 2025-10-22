@@ -11,7 +11,6 @@ Handles:
 
 import re
 from pathlib import Path
-from typing import Dict
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DOCS_DIR = PROJECT_ROOT / "docs"
@@ -63,7 +62,7 @@ def fix_link_in_line(line: str, file_path: Path) -> str:
         Fixed line
     """
     # Pattern for markdown links: [text](link)
-    pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+    pattern = r"\[([^\]]+)\]\(([^)]+)\)"
 
     def replace_link(match):
         text = match.group(1)
@@ -71,32 +70,32 @@ def fix_link_in_line(line: str, file_path: Path) -> str:
         original_link = link
 
         # Skip external URLs and anchors
-        if link.startswith(('#', 'http://', 'https://', 'mailto:')):
+        if link.startswith(("#", "http://", "https://", "mailto:")):
             return match.group(0)
 
         # Preserve anchor part
         anchor = ""
-        if '#' in link:
-            link, anchor = link.split('#', 1)
-            anchor = f'#{anchor}'
+        if "#" in link:
+            link, anchor = link.split("#", 1)
+            anchor = f"#{anchor}"
 
         # Try implementation guide mapping
         for old_path, new_path in IMPL_GUIDE_MAP.items():
             if old_path in link:
                 link = link.replace(old_path, new_path)
-                return f'[{text}]({link}{anchor})'
+                return f"[{text}]({link}{anchor})"
 
         # Try other fixes
         for old_ref, new_ref in OTHER_FIXES.items():
-            if link.endswith(old_ref) or f'/{old_ref}' in link:
+            if link.endswith(old_ref) or f"/{old_ref}" in link:
                 link = link.replace(old_ref, new_ref)
-                return f'[{text}]({link}{anchor})'
+                return f"[{text}]({link}{anchor})"
 
         # Try directory references
         for old_dir, new_dir in DIRECTORY_REFS.items():
             if old_dir in link:
                 link = link.replace(old_dir, new_dir)
-                return f'[{text}]({link}{anchor})'
+                return f"[{text}]({link}{anchor})"
 
         # Return original if no fix found
         return match.group(0)
@@ -111,7 +110,7 @@ def fix_file(file_path: Path) -> int:
     Returns:
         Number of changes made
     """
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding="utf-8") as f:
         lines = f.readlines()
 
     new_lines = []
@@ -124,7 +123,7 @@ def fix_file(file_path: Path) -> int:
         new_lines.append(new_line)
 
     if changes > 0:
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
 
     return changes
@@ -161,10 +160,10 @@ def main():
     print(f"\n✅ Fixed {total_changes} broken link(s) in {files_modified} file(s)")
 
     if files_modified > 0:
-        print(f"\n📝 Next steps:")
-        print(f"   1. Review changes: git diff")
-        print(f"   2. Verify links: python3 scripts/check_links.py")
-        print(f"   3. Commit: git add . && git commit")
+        print("\n📝 Next steps:")
+        print("   1. Review changes: git diff")
+        print("   2. Verify links: python3 scripts/check_links.py")
+        print("   3. Commit: git add . && git commit")
 
 
 if __name__ == "__main__":

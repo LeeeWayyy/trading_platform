@@ -15,13 +15,12 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 PROJECT_ROOT = Path(__file__).parent.parent
 TASKS_DIR = PROJECT_ROOT / "docs" / "TASKS"
 
 
-def parse_planning_structure(phase: str) -> Dict[str, int]:
+def parse_planning_structure(phase: str) -> dict[str, int]:
     """
     Parse Px_PLANNING.md to build mapping from Tx.y notation to sequential numbers.
 
@@ -35,13 +34,13 @@ def parse_planning_structure(phase: str) -> Dict[str, int]:
     if not planning_file.exists():
         raise FileNotFoundError(f"Planning file not found: {planning_file}")
 
-    with open(planning_file, "r", encoding="utf-8") as f:
+    with open(planning_file, encoding="utf-8") as f:
         content = f.read()
 
     # Find all task headers with Tx.y notation
     # Pattern: #### T1.1: Task Title or ### T1.1: Task Title
     pattern = r"^#{3,4}\s+T(\d+)\.(\d+):\s+(.+)$"
-    tasks_by_track: Dict[int, List[Tuple[int, str]]] = {}
+    tasks_by_track: dict[int, list[tuple[int, str]]] = {}
 
     for line in content.split("\n"):
         match = re.match(pattern, line)
@@ -69,7 +68,7 @@ def parse_planning_structure(phase: str) -> Dict[str, int]:
     return mapping
 
 
-def find_existing_task_files(phase: str) -> List[Path]:
+def find_existing_task_files(phase: str) -> list[Path]:
     """
     Find all existing task files for a phase.
 
@@ -103,8 +102,8 @@ def extract_task_id_from_filename(filename: str) -> str:
 
 
 def build_renaming_map(
-    phase: str, notation_map: Dict[str, int], existing_files: List[Path]
-) -> Dict[str, str]:
+    phase: str, notation_map: dict[str, int], existing_files: list[Path]
+) -> dict[str, str]:
     """
     Build mapping of old task IDs to new task IDs.
 
@@ -132,7 +131,7 @@ def build_renaming_map(
             continue
 
         # Read title from file to match against planning
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
 
         title_match = re.search(r'^title:\s*"(.+)"', content, re.MULTILINE)
@@ -145,7 +144,7 @@ def build_renaming_map(
         # Match title to notation in planning file
         # Read planning again to find title match
         planning_file = TASKS_DIR / f"{phase}_PLANNING.md"
-        with open(planning_file, "r", encoding="utf-8") as f:
+        with open(planning_file, encoding="utf-8") as f:
             planning_content = f.read()
 
         # Find the Tx.y notation for this title
@@ -159,9 +158,9 @@ def build_renaming_map(
                 # Check if titles match (fuzzy match for emojis/symbols, punctuation)
                 # Remove emojis, punctuation, extra spaces, normalize case
                 def normalize_title(t):
-                    t = re.sub(r'[⭐🔶🔷]', '', t)  # Remove priority symbols
-                    t = re.sub(r'[&-]', ' ', t)  # Replace & and - with space
-                    t = re.sub(r'\s+', ' ', t)  # Normalize whitespace
+                    t = re.sub(r"[⭐🔶🔷]", "", t)  # Remove priority symbols
+                    t = re.sub(r"[&-]", " ", t)  # Replace & and - with space
+                    t = re.sub(r"\s+", " ", t)  # Normalize whitespace
                     return t.strip().lower()
 
                 plan_title_clean = normalize_title(plan_title)
@@ -173,9 +172,11 @@ def build_renaming_map(
 
                 # Match if significant overlap (at least 2 common words, or substring match)
                 common_words = plan_words & file_words
-                if (len(common_words) >= 2 or
-                    plan_title_clean in file_title_clean or
-                    file_title_clean in plan_title_clean):
+                if (
+                    len(common_words) >= 2
+                    or plan_title_clean in file_title_clean
+                    or file_title_clean in plan_title_clean
+                ):
                     # Found the match!
                     sequential_num = notation_map.get(notation)
                     if sequential_num is not None:
@@ -194,9 +195,7 @@ def build_renaming_map(
     return renaming
 
 
-def preview_changes(
-    renaming_map: Dict[str, str], existing_files: List[Path]
-) -> None:
+def preview_changes(renaming_map: dict[str, str], existing_files: list[Path]) -> None:
     """
     Print preview of changes that will be made.
 
@@ -220,12 +219,12 @@ def preview_changes(
         print(f"{old_id:<15} → {new_id:<15} {file_path.name:<40} {status}")
 
     print(f"\nTotal files: {len(existing_files)}")
-    print(f"Files to rename: {sum(1 for f in existing_files if renaming_map.get(extract_task_id_from_filename(f.name), extract_task_id_from_filename(f.name)) != extract_task_id_from_filename(f.name))}")
+    print(
+        f"Files to rename: {sum(1 for f in existing_files if renaming_map.get(extract_task_id_from_filename(f.name), extract_task_id_from_filename(f.name)) != extract_task_id_from_filename(f.name))}"
+    )
 
 
-def apply_renaming(
-    phase: str, renaming_map: Dict[str, str], existing_files: List[Path]
-) -> None:
+def apply_renaming(phase: str, renaming_map: dict[str, str], existing_files: list[Path]) -> None:
     """
     Apply renaming using git mv and update front matter.
 
@@ -252,15 +251,12 @@ def apply_renaming(
         subprocess.run(["git", "mv", str(file_path), str(new_path)], check=True)
 
         # Update front matter (id field)
-        with open(new_path, "r", encoding="utf-8") as f:
+        with open(new_path, encoding="utf-8") as f:
             content = f.read()
 
         # Update id field
         updated_content = re.sub(
-            r"^id:\s*" + re.escape(old_id) + r"\s*$",
-            f"id: {new_id}",
-            content,
-            flags=re.MULTILINE
+            r"^id:\s*" + re.escape(old_id) + r"\s*$", f"id: {new_id}", content, flags=re.MULTILINE
         )
 
         # Update title in markdown header (e.g., # P1T2: Title → # P1T1: Title)
@@ -268,7 +264,7 @@ def apply_renaming(
             r"^(#\s+)" + re.escape(old_id) + r":",
             r"\1" + new_id + ":",
             updated_content,
-            flags=re.MULTILINE
+            flags=re.MULTILINE,
         )
 
         with open(new_path, "w", encoding="utf-8") as f:
@@ -279,7 +275,7 @@ def apply_renaming(
     print(f"\n✅ Renamed {renamed_count} file(s)")
 
 
-def update_planning_file(phase: str, notation_map: Dict[str, int]) -> None:
+def update_planning_file(phase: str, notation_map: dict[str, int]) -> None:
     """
     Rewrite Px_PLANNING.md to use sequential task numbers.
 
@@ -289,7 +285,7 @@ def update_planning_file(phase: str, notation_map: Dict[str, int]) -> None:
     """
     planning_file = TASKS_DIR / f"{phase}_PLANNING.md"
 
-    with open(planning_file, "r", encoding="utf-8") as f:
+    with open(planning_file, encoding="utf-8") as f:
         content = f.read()
 
     # Replace all Tx.y: with Tz:
@@ -325,7 +321,7 @@ Examples:
 
   # Apply renumbering
   ./scripts/renumber_phase.py P1 --apply
-        """
+        """,
     )
 
     parser.add_argument("phase", choices=["P0", "P1", "P2"], help="Phase to renumber")
@@ -341,7 +337,7 @@ Examples:
         print(f"🔍 Analyzing {args.phase}_PLANNING.md structure...")
         notation_map = parse_planning_structure(args.phase)
 
-        print(f"\n📊 Task Numbering Map:")
+        print("\n📊 Task Numbering Map:")
         for notation, seq_num in sorted(notation_map.items(), key=lambda x: x[1]):
             print(f"  {notation} → T{seq_num}")
 
@@ -360,7 +356,11 @@ Examples:
             print("\n📝 Next steps:")
             print("   1. Review changes: git status")
             print("   2. Test task CLI: ./scripts/tasks.py list --phase " + args.phase)
-            print("   3. Commit: git commit -m 'Renumber " + args.phase + " tasks to sequential numbering'")
+            print(
+                "   3. Commit: git commit -m 'Renumber "
+                + args.phase
+                + " tasks to sequential numbering'"
+            )
         else:
             print("\n💡 Run with --apply to execute changes")
 

@@ -105,7 +105,148 @@ git push -u origin feature/your-branch-name
 
 **What this does:** Ensures remote has all your commits before creating PR
 
-### 5. Gather PR Information
+### 5. Mark Task as Complete (MANDATORY)
+
+**After implementation is complete, mark the task as DONE:**
+
+```bash
+# Complete the task (PROGRESS → DONE)
+./scripts/tasks.py complete P1T9
+
+# This will:
+# 1. Rename P1T9_PROGRESS.md → P1T9_DONE.md
+# 2. Update front matter: state=DONE, completed date, duration
+# 3. Calculate duration automatically
+```
+
+**CRITICAL: Update all links to the task file:**
+
+```bash
+# Find all references to the task
+grep -r "P1T9_TASK.md\|P1T9_PROGRESS.md" docs/
+
+# Update each file to point to P1T9_DONE.md
+# This is REQUIRED for link checker to pass!
+```
+
+**Example updates needed:**
+- `[P1T9_TASK.md](./P1T9_TASK.md)` → `[P1T9_DONE.md](./P1T9_DONE.md)`
+- `[P1T9_PROGRESS.md](./P1T9_PROGRESS.md)` → `[P1T9_DONE.md](./P1T9_DONE.md)`
+
+**Commit the completion:**
+```bash
+# Stage all changes (task file + link updates)
+git add docs/TASKS/P1T9_DONE.md docs/TASKS/P1T10_TASK.md  # etc.
+
+# Commit with clear message
+git commit -m "Mark P1T9 as complete and update links"
+
+# Push to remote
+git push
+```
+
+**Why this must happen before PR:**
+- ❌ If you create PR with broken links → link checker fails
+- ✅ Mark DONE and update links first → all checks pass
+
+**Verify completion:**
+```bash
+# Check task was marked complete
+./scripts/tasks.py list --state DONE
+
+# Sync project status
+./scripts/tasks.py sync-status
+
+# Verify no broken links
+make check-links  # or your link checker command
+```
+
+### 6. Update Documentation (MANDATORY)
+
+**Before creating PR, update all relevant documentation:**
+
+**A. Concept Documentation (docs/CONCEPTS/)**
+
+If your task introduces important concepts, algorithms, or architectural patterns that beginners should understand:
+
+```bash
+# Create concept documents explaining:
+# - What problem does this solve?
+# - How does it work? (with examples)
+# - Why did we choose this approach?
+# - Common patterns and best practices
+
+# Examples:
+docs/CONCEPTS/centralized-logging.md      # Loki/Promtail/Grafana architecture
+docs/CONCEPTS/distributed-tracing.md      # Trace ID propagation
+docs/CONCEPTS/hot-reload.md               # Zero-downtime model updates
+docs/CONCEPTS/feature-parity.md           # Research-production consistency
+```
+
+**B. README.md Updates**
+
+Update README.md to reflect new capabilities:
+
+```bash
+# 1. Add new features to "Key Achievements" section
+# 2. Update "Observability Stack" or relevant sections
+# 3. Add new concept doc links to "Concept Documentation" section
+# 4. Update statistics (code metrics, components delivered)
+# 5. Add usage examples if applicable
+```
+
+**Example updates for P1T9 (Centralized Logging):**
+- Added "Observability Stack" section with Loki/Promtail/Grafana
+- Added 3 concept doc links (centralized-logging, distributed-tracing, structured-logging)
+- Updated "Key Achievements" with logging capabilities
+- Updated code metrics with logging library stats
+
+**C. Getting Started Guides**
+
+Update relevant guides if your task changes how developers work:
+
+```bash
+# Examples:
+docs/GETTING_STARTED/LOGGING_GUIDE.md    # How to use logging library
+docs/GETTING_STARTED/SETUP.md            # Environment setup changes
+docs/RUNBOOKS/logging-queries.md         # LogQL query examples
+```
+
+**D. Commit Documentation Updates**
+
+```bash
+# Stage all documentation
+git add docs/CONCEPTS/ README.md docs/GETTING_STARTED/ docs/RUNBOOKS/
+
+# Commit with clear message
+git commit -m "Add concept documentation and update README for P1T9
+
+- Added centralized-logging.md concept doc
+- Added distributed-tracing.md concept doc
+- Added structured-logging.md concept doc
+- Updated README with Observability Stack section
+- Added logging guide for developers
+"
+
+# Push
+git push
+```
+
+**Why this must happen before PR:**
+- ✅ Documentation reviewed alongside code changes
+- ✅ Complete picture of what was implemented
+- ✅ Helps reviewers understand architectural decisions
+- ✅ Educational value maintained (key project principle)
+
+**Checklist:**
+- [ ] Created concept docs for new patterns/architecture (if applicable)
+- [ ] Updated README.md with new capabilities
+- [ ] Updated relevant getting started guides
+- [ ] Added usage examples or query patterns
+- [ ] All documentation links working (no broken links)
+- [ ] Documentation committed and pushed
+
+### 7. Gather PR Information
 
 **Collect this information before creating PR:**
 
@@ -132,7 +273,7 @@ git push -u origin feature/your-branch-name
 - Coverage changes
 - Manual testing performed
 
-### 6. Create PR Using GitHub CLI
+### 8. Create PR Using GitHub CLI
 
 **Basic PR creation:**
 ```bash
@@ -225,7 +366,7 @@ EOF
 )"
 ```
 
-### 7. Request Automated Reviews
+### 9. Request Automated Reviews
 
 **GitHub Action will automatically request reviews** from:
 - `@codex`
@@ -238,7 +379,7 @@ See `.github/workflows/pr-auto-review-request.yml`
 - When PR is reopened
 - Can manually trigger with comment: `@codex @gemini-code-assist please review`
 
-### 8. Wait for Review Feedback
+### 10. Wait for Review Feedback
 
 **DO NOT merge until:**
 - ✅ All automated reviewers approve (explicitly say "no issues")
@@ -251,7 +392,7 @@ See `.github/workflows/pr-auto-review-request.yml`
 - Check CI status
 - Be ready to respond to questions
 
-### 9. Address Review Feedback Systematically
+### 11. Address Review Feedback Systematically
 
 **⚠️ CRITICAL:** When reviewers (Codex, Gemini, or CI) find issues, follow this MANDATORY 5-phase process to avoid repeated CI failures and incomplete fixes.
 
@@ -598,7 +739,7 @@ gh pr comment <PR_NUMBER> --body "All review feedback addressed in latest commit
 - [ ] Zen-mcp reviewed and approved
 - [ ] Ready to commit ALL fixes in ONE commit
 
-### 10. Handle Conflicting Reviewer Feedback (If Needed)
+### 12. Handle Conflicting Reviewer Feedback (If Needed)
 
 **If reviewers disagree on specific implementation:**
 
@@ -610,7 +751,7 @@ See [/docs/STANDARDS/GIT_WORKFLOW.md](../../docs/STANDARDS/GIT_WORKFLOW.md#handl
 - Only for the specific conflicting change
 - All other feedback must still be addressed
 
-### 11. Merge When Approved
+### 13. Merge When Approved
 
 **Merge only when:**
 - ✅ All reviewers explicitly approve or say "no issues"
@@ -633,6 +774,7 @@ gh pr merge --merge
 - Delete feature branch (GitHub offers this automatically)
 - Close any related issues/tickets
 - Update project status docs if needed
+- Task should already be marked DONE from Step 5
 
 ---
 

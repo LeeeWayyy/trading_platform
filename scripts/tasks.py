@@ -31,7 +31,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Literal, Optional
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -69,7 +69,7 @@ class TaskMetadata:
     file_path: Optional[Path] = None
 
 
-def parse_front_matter(file_path: Path) -> Dict[str, str]:
+def parse_front_matter(file_path: Path) -> dict[str, str]:
     """
     Parse YAML front matter from a markdown file.
 
@@ -79,7 +79,7 @@ def parse_front_matter(file_path: Path) -> Dict[str, str]:
     Raises:
         ValueError: If front matter is malformed.
     """
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     # Extract front matter
@@ -102,7 +102,7 @@ def parse_front_matter(file_path: Path) -> Dict[str, str]:
     return front_matter
 
 
-def update_front_matter(file_path: Path, updates: Dict[str, str]) -> None:
+def update_front_matter(file_path: Path, updates: dict[str, str]) -> None:
     """
     Update front matter in a markdown file.
 
@@ -110,7 +110,7 @@ def update_front_matter(file_path: Path, updates: Dict[str, str]) -> None:
         file_path: Path to markdown file
         updates: Dictionary of key-value pairs to update
     """
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     # Extract front matter
@@ -179,7 +179,7 @@ def get_task_file(task_id: str, state: Optional[TaskState] = None) -> Optional[P
 
 def list_tasks(
     state: Optional[TaskState] = None, phase: Optional[str] = None
-) -> List[TaskMetadata]:
+) -> list[TaskMetadata]:
     """
     List all tasks, optionally filtered by state and/or phase.
 
@@ -264,7 +264,7 @@ def create_task(task_id: str, title: str, owner: str, phase: str, effort: str = 
     if not TEMPLATE_TASK.exists():
         raise FileNotFoundError(f"Template not found: {TEMPLATE_TASK}")
 
-    with open(TEMPLATE_TASK, "r", encoding="utf-8") as f:
+    with open(TEMPLATE_TASK, encoding="utf-8") as f:
         template_content = f.read()
 
     # Replace placeholders
@@ -296,14 +296,12 @@ def create_task(task_id: str, title: str, owner: str, phase: str, effort: str = 
         f.write(new_content)
 
     print(f"✅ Created task: {new_file}")
-    print(f"\n📝 Next steps:")
+    print("\n📝 Next steps:")
     print(f"   1. Edit {new_file} to fill in details")
     print(f"   2. When ready to start: ./scripts/tasks.py start {task_id}")
 
 
-def create_feature(
-    feature_id: str, title: str, owner: str, parent_task: str, phase: str
-) -> None:
+def create_feature(feature_id: str, title: str, owner: str, parent_task: str, phase: str) -> None:
     """
     Create a new feature from template.
 
@@ -332,7 +330,7 @@ def create_feature(
     if not TEMPLATE_FEATURE.exists():
         raise FileNotFoundError(f"Template not found: {TEMPLATE_FEATURE}")
 
-    with open(TEMPLATE_FEATURE, "r", encoding="utf-8") as f:
+    with open(TEMPLATE_FEATURE, encoding="utf-8") as f:
         template_content = f.read()
 
     # Replace placeholders
@@ -366,9 +364,9 @@ def create_feature(
         f.write(new_content)
 
     print(f"✅ Created feature: {new_file}")
-    print(f"\n📝 Next steps:")
+    print("\n📝 Next steps:")
     print(f"   1. Edit {new_file} to fill in details")
-    print(f"   2. Track implementation using 4-step pattern")
+    print("   2. Track implementation using 4-step pattern")
     print(f"   3. When complete: ./scripts/tasks.py complete {feature_id}")
 
 
@@ -399,12 +397,12 @@ def start_task(task_id: str) -> None:
 
     print(f"✅ Started task: {task_id}")
     print(f"   File renamed: {task_file.name} → {progress_file.name}")
-    print(f"   State: TASK → PROGRESS")
+    print("   State: TASK → PROGRESS")
     print(f"   Started: {today}")
-    print(f"\n📝 Next steps:")
+    print("\n📝 Next steps:")
     print(f"   1. Edit {progress_file} to track implementation")
-    print(f"   2. Follow 4-step pattern for each component:")
-    print(f"      - Implement → Test → Review → Commit")
+    print("   2. Follow 4-step pattern for each component:")
+    print("      - Implement → Test → Review → Commit")
     print(f"   3. When complete: ./scripts/tasks.py complete {task_id}")
 
 
@@ -447,25 +445,21 @@ def complete_task(task_id: str) -> None:
             pass
 
     # Update front matter
-    update_front_matter(
-        done_file, {"state": "DONE", "completed": today, "duration": duration}
-    )
+    update_front_matter(done_file, {"state": "DONE", "completed": today, "duration": duration})
 
     print(f"✅ Completed task: {task_id}")
     print(f"   File renamed: {progress_file.name} → {done_file.name}")
-    print(f"   State: PROGRESS → DONE")
+    print("   State: PROGRESS → DONE")
     print(f"   Completed: {today}")
     print(f"   Duration: {duration}")
-    print(f"\n📝 Next steps:")
+    print("\n📝 Next steps:")
     print(f"   1. Edit {done_file} to document completion details")
-    print(f"   2. Update docs/TASKS/INDEX.md")
-    print(f"   3. Update docs/GETTING_STARTED/PROJECT_STATUS.md")
-    print(f"   Or run: ./scripts/tasks.py sync-status")
+    print("   2. Update docs/TASKS/INDEX.md")
+    print("   3. Update docs/GETTING_STARTED/PROJECT_STATUS.md")
+    print("   Or run: ./scripts/tasks.py sync-status")
 
 
-def create_phase(
-    phase: str, source: Optional[str] = None, interactive: bool = True
-) -> None:
+def create_phase(phase: str, source: Optional[str] = None, interactive: bool = True) -> None:
     """
     Create a phase planning document (Px_PLANNING.md).
 
@@ -489,7 +483,11 @@ def create_phase(
     # Phase descriptions
     phase_info = {
         "P0": ("MVP Core", "0-45 days", "Core functionality and end-to-end pipeline"),
-        "P1": ("Hardening & Automation", "46-90 days", "Production readiness and advanced features"),
+        "P1": (
+            "Hardening & Automation",
+            "46-90 days",
+            "Production readiness and advanced features",
+        ),
         "P2": ("Advanced Features", "91-120 days", "Optimization and scaling"),
     }
 
@@ -502,10 +500,10 @@ def create_phase(
             raise FileNotFoundError(f"Source file not found: {source}")
 
         print(f"📖 Reading master plan from {source}...")
-        with open(source_path, "r", encoding="utf-8") as f:
+        with open(source_path, encoding="utf-8") as f:
             master_content = f.read()
 
-        print(f"\n⚠️  Automatic extraction not yet implemented.")
+        print("\n⚠️  Automatic extraction not yet implemented.")
         print(f"   Please manually extract {phase} content from {source}")
         print(f"   and paste into {phase_file}")
 
@@ -513,7 +511,7 @@ def create_phase(
     if not TEMPLATE_PHASE_PLANNING.exists():
         raise FileNotFoundError(f"Template not found: {TEMPLATE_PHASE_PLANNING}")
 
-    with open(TEMPLATE_PHASE_PLANNING, "r", encoding="utf-8") as f:
+    with open(TEMPLATE_PHASE_PLANNING, encoding="utf-8") as f:
         template_content = f.read()
 
     # Replace placeholders
@@ -534,9 +532,9 @@ def create_phase(
         f.write(new_content)
 
     print(f"✅ Created phase planning: {phase_file}")
-    print(f"\n📝 Next steps:")
+    print("\n📝 Next steps:")
     print(f"   1. Edit {phase_file} to fill in phase details")
-    print(f"   2. Add task breakdown (T0, T1, T2, ...)")
+    print("   2. Add task breakdown (T0, T1, T2, ...)")
     print(f"   3. When ready: ./scripts/tasks.py generate-tasks-from-phase {phase}")
 
 
@@ -558,7 +556,7 @@ def generate_tasks_from_phase(phase: str, dry_run: bool = False) -> None:
 
     print(f"📖 Reading phase planning from {phase_file}...")
 
-    with open(phase_file, "r", encoding="utf-8") as f:
+    with open(phase_file, encoding="utf-8") as f:
         content = f.read()
 
     # Parse tasks from phase planning
@@ -594,7 +592,7 @@ def generate_tasks_from_phase(phase: str, dry_run: bool = False) -> None:
 
     if not tasks_to_create:
         print(f"⚠️  No new tasks found to create in {phase_file}")
-        print(f"   All tasks may already exist, or no task headers found.")
+        print("   All tasks may already exist, or no task headers found.")
         return
 
     print(f"\n📋 Found {len(tasks_to_create)} task(s) to create:")
@@ -603,7 +601,7 @@ def generate_tasks_from_phase(phase: str, dry_run: bool = False) -> None:
         print(f"   {status}: {task_id} - {title}")
 
     if dry_run:
-        print(f"\n💡 Run without --dry-run to create these tasks")
+        print("\n💡 Run without --dry-run to create these tasks")
         return
 
     # Create tasks
@@ -655,12 +653,14 @@ def generate_tasks_from_phase(phase: str, dry_run: bool = False) -> None:
             print(f"⚠️  Failed to create {task_id}: {e}")
 
     print(f"\n✅ Created {created_count}/{len(tasks_to_create)} task(s)")
-    print(f"\n📝 Next steps:")
-    print(f"   1. Edit each task file to add details")
+    print("\n📝 Next steps:")
+    print("   1. Edit each task file to add details")
     if tasks_to_create:
         print(f"   2. Start first task: ./scripts/tasks.py start {tasks_to_create[0][0]}")
     else:
-        print(f"   2. All tasks already exist, check task status with: ./scripts/tasks.py list --phase {phase}")
+        print(
+            f"   2. All tasks already exist, check task status with: ./scripts/tasks.py list --phase {phase}"
+        )
 
 
 def lint_tasks() -> int:
@@ -734,7 +734,7 @@ def sync_status() -> None:
     tasks = list_tasks()
 
     # Count by phase and state
-    counts: Dict[str, Dict[str, int]] = {
+    counts: dict[str, dict[str, int]] = {
         "P0": {"TASK": 0, "PROGRESS": 0, "DONE": 0, "total": 0},
         "P1": {"TASK": 0, "PROGRESS": 0, "DONE": 0, "total": 0},
         "P2": {"TASK": 0, "PROGRESS": 0, "DONE": 0, "total": 0},
@@ -763,10 +763,14 @@ def sync_status() -> None:
         total_tasks += total
         total_done += done
 
-        print(f"| {phase} | {total:5} | {c['TASK']:4} | {c['PROGRESS']:8} | {c['DONE']:4} | {pct:9}% |")
+        print(
+            f"| {phase} | {total:5} | {c['TASK']:4} | {c['PROGRESS']:8} | {c['DONE']:4} | {pct:9}% |"
+        )
 
     overall_pct = int(100 * total_done / total_tasks) if total_tasks > 0 else 0
-    print(f"| **Total** | **{total_tasks:3}** | **{sum(c['TASK'] for c in counts.values()):2}** | **{sum(c['PROGRESS'] for c in counts.values()):6}** | **{sum(c['DONE'] for c in counts.values()):2}** | **{overall_pct:7}%** |")
+    print(
+        f"| **Total** | **{total_tasks:3}** | **{sum(c['TASK'] for c in counts.values()):2}** | **{sum(c['PROGRESS'] for c in counts.values()):6}** | **{sum(c['DONE'] for c in counts.values()):2}** | **{overall_pct:7}%** |"
+    )
 
     print(f"\n✅ Overall progress: {overall_pct}% ({total_done}/{total_tasks} tasks complete)")
     print("\n💡 Note: Auto-generation of INDEX.md and PROJECT_STATUS.md coming soon!")
@@ -817,7 +821,7 @@ def next_task(phase: Optional[str] = None) -> None:
     # No tasks found
     phase_str = f" in phase {phase}" if phase else ""
     print(f"✅ No pending tasks{phase_str}!")
-    print(f"\n💡 All tasks are complete or no tasks exist.")
+    print("\n💡 All tasks are complete or no tasks exist.")
 
 
 def main():
@@ -876,7 +880,9 @@ Examples:
 
     # List command
     list_parser = subparsers.add_parser("list", help="List tasks")
-    list_parser.add_argument("--state", choices=["TASK", "PROGRESS", "DONE"], help="Filter by state")
+    list_parser.add_argument(
+        "--state", choices=["TASK", "PROGRESS", "DONE"], help="Filter by state"
+    )
     list_parser.add_argument("--phase", choices=["P0", "P1", "P2"], help="Filter by phase")
 
     # Sync command
@@ -886,7 +892,9 @@ Examples:
     subparsers.add_parser("lint", help="Lint task files for completeness")
 
     # Create-phase command
-    create_phase_parser = subparsers.add_parser("create-phase", help="Create phase planning document")
+    create_phase_parser = subparsers.add_parser(
+        "create-phase", help="Create phase planning document"
+    )
     create_phase_parser.add_argument("phase", choices=["P0", "P1", "P2"], help="Phase ID")
     create_phase_parser.add_argument(
         "--source",
@@ -898,7 +906,9 @@ Examples:
         "generate-tasks-from-phase", help="Generate task files from phase planning"
     )
     gen_tasks_parser.add_argument("phase", choices=["P0", "P1", "P2"], help="Phase ID")
-    gen_tasks_parser.add_argument("--dry-run", action="store_true", help="Show what would be created")
+    gen_tasks_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be created"
+    )
 
     args = parser.parse_args()
 

@@ -1,0 +1,26 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true
+    jsonData:
+      timeInterval: "5s"
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    editable: true
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        # Extract trace ID from JSON logs for trace correlation
+        # Matches: "trace_id":"550e8400-e29b-41d4-a716-446655440000"
+        - matcherRegex: "\"trace_id\":\"([^\"]+)\""
+          name: "TraceID"
+          url: '/explore?orgId=1&left=["now-1h","now","Loki",{"expr":"{job=\"docker\"} | json | trace_id=\"$${__value.raw}\""}]'

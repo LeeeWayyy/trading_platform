@@ -6,8 +6,8 @@ Converts old implementation guides to PxTy_DONE.md format with proper front matt
 """
 
 import re
-from pathlib import Path
 from datetime import date
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
 IMPL_GUIDES = PROJECT_ROOT / "docs" / "IMPLEMENTATION_GUIDES"
@@ -19,7 +19,13 @@ MIGRATION_MAP = {
     "p0t1-data-etl.md": ("P0T1", "Data ETL Pipeline", "P0", "T1"),
     "p0t2-baseline-strategy.md": ("P0T2", "Baseline Qlib Strategy", "P0", "T2"),
     "p0t3-signal-service.md": ("P0T3", "Signal Service", "P0", "T3"),
-    "p0t3-p4-fastapi-application.md": ("P0T3-F4", "FastAPI Application Framework", "P0", "T3", "F4"),
+    "p0t3-p4-fastapi-application.md": (
+        "P0T3-F4",
+        "FastAPI Application Framework",
+        "P0",
+        "T3",
+        "F4",
+    ),
     "p0t3-p5-hot-reload.md": ("P0T3-F5", "Model Hot Reload", "P0", "T3", "F5"),
     "p0t3-p6-integration-tests.md": ("P0T3-F6", "Integration Tests", "P0", "T3", "F6"),
     "p0t4-execution-gateway.md": ("P0T4", "Execution Gateway", "P0", "T4"),
@@ -29,8 +35,20 @@ MIGRATION_MAP = {
     "p1.1t3-duckdb-analytics.md": ("P1T3", "DuckDB Analytics", "P1", "T3"),
     "p1.1t4-timezone-timestamps.md": ("P1T4", "Timezone & Timestamps", "P1", "T4"),
     "p1.1t5-operational-status.md": ("P1T5", "Operational Status Dashboard", "P1", "T5"),
-    "p1.2t1-realtime-market-data-phase1.md": ("P1T1-F1", "Real-time Market Data - Phase 1", "P1", "T1", "F1"),
-    "p1.2t1-realtime-market-data-phase3.md": ("P1T1-F3", "Real-time Market Data - Phase 3", "P1", "T1", "F3"),
+    "p1.2t1-realtime-market-data-phase1.md": (
+        "P1T1-F1",
+        "Real-time Market Data - Phase 1",
+        "P1",
+        "T1",
+        "F1",
+    ),
+    "p1.2t1-realtime-market-data-phase3.md": (
+        "P1T1-F3",
+        "Real-time Market Data - Phase 3",
+        "P1",
+        "T1",
+        "F3",
+    ),
     "p1.2t3-risk-management.md": ("P1T6", "Risk Management System", "P1", "T6"),
 }
 
@@ -47,7 +65,9 @@ def extract_title_from_content(content: str) -> str:
     return match.group(1) if match else "Untitled"
 
 
-def generate_front_matter(task_id: str, title: str, phase: str, task: str, feature: str = None) -> str:
+def generate_front_matter(
+    task_id: str, title: str, phase: str, task: str, feature: str = None
+) -> str:
     """Generate YAML front matter for DONE file."""
     today = date.today().isoformat()
 
@@ -77,7 +97,7 @@ related_docs: []"""
 def migrate_file(old_file: Path, task_info: tuple) -> None:
     """Migrate single implementation guide to new format."""
     # Read old content
-    with open(old_file, "r", encoding="utf-8") as f:
+    with open(old_file, encoding="utf-8") as f:
         old_content = f.read()
 
     # Parse task info
@@ -165,7 +185,7 @@ def migrate_special_file(old_file: Path, new_name: str) -> None:
     new_file = CONCEPTS_DIR / new_name
 
     # Simply copy content (these are concept docs, not task implementations)
-    with open(old_file, "r", encoding="utf-8") as f:
+    with open(old_file, encoding="utf-8") as f:
         content = f.read()
 
     with open(new_file, "w", encoding="utf-8") as f:
@@ -204,16 +224,16 @@ def main():
         else:
             print(f"⚠️  File not found: {old_name}")
 
-    print(f"\n✅ Migration complete!")
+    print("\n✅ Migration complete!")
     print(f"   Tasks migrated: {migrated_count}")
     print(f"   Concepts moved: {special_count}")
-    print(f"\n📝 Next steps:")
-    print(f"   1. Review migrated files in docs/TASKS/")
-    print(f"   2. Update cross-references if needed")
-    print(f"   3. Run: ./scripts/tasks.py lint")
-    print(f"   4. Run: ./scripts/tasks.py sync-status")
-    print(f"   5. Git add and commit the migration")
-    print(f"   6. Remove docs/IMPLEMENTATION_GUIDES/ directory")
+    print("\n📝 Next steps:")
+    print("   1. Review migrated files in docs/TASKS/")
+    print("   2. Update cross-references if needed")
+    print("   3. Run: ./scripts/tasks.py lint")
+    print("   4. Run: ./scripts/tasks.py sync-status")
+    print("   5. Git add and commit the migration")
+    print("   6. Remove docs/IMPLEMENTATION_GUIDES/ directory")
 
 
 if __name__ == "__main__":
