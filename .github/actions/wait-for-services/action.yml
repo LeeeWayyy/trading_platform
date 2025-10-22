@@ -1,0 +1,76 @@
+name: 'Wait for Docker Compose Services'
+description: 'Waits for all services in a docker-compose file to become healthy with configurable timeout and retry behavior'
+author: 'Trading Platform Team'
+
+inputs:
+  compose-file:
+    description: 'Path to docker-compose file (e.g., docker-compose.ci.yml)'
+    required: true
+  max-iterations:
+    description: 'Maximum number of health check iterations before timeout'
+    required: false
+    default: '30'
+  sleep-seconds:
+    description: 'Number of seconds to sleep between health check iterations'
+    required: false
+    default: '4'
+  fail-on-timeout:
+    description: 'Whether to fail the workflow if services do not become healthy within timeout'
+    required: false
+    default: 'true'
+
+outputs:
+  healthy:
+    description: 'Whether all services became healthy (true/false)'
+    value: ${{ steps.wait.outputs.healthy }}
+  iterations:
+    description: 'Number of iterations taken until healthy or timeout'
+    value: ${{ steps.wait.outputs.iterations }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Wait for services to be healthy
+      id: wait
+      shell: bash
+      run: |
+        echo "🔍 Waiting for services in ${{ inputs.compose-file }} to become healthy..."
+        echo "⏱️  Max iterations: ${{ inputs.max-iterations }}, Sleep: ${{ inputs.sleep-seconds }}s"
+
+        for i in $(seq 1 ${{ inputs.max-iterations }}); do
+          # Check if any services are unhealthy
+          if docker-compose -f ${{ inputs.compose-file }} ps | grep -q "unhealthy"; then
+            echo "⏳ Waiting for services to be healthy (iteration $i/${{ inputs.max-iterations }})..."
+            sleep ${{ inputs.sleep-seconds }}
+          else
+            # All services healthy
+            echo "✅ All services are healthy after $i iterations"
+            echo "healthy=true" >> $GITHUB_OUTPUT
+            echo "iterations=$i" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+        done
+
+        # Timeout reached
+        echo "❌ Timeout: Services did not become healthy after ${{ inputs.max-iterations }} iterations"
+        echo ""
+        echo "📊 Current service status:"
+        docker-compose -f ${{ inputs.compose-file }} ps
+        echo ""
+        echo "📋 Service logs (last 50 lines each):"
+        docker-compose -f ${{ inputs.compose-file }} logs --tail=50
+
+        echo "healthy=false" >> $GITHUB_OUTPUT
+        echo "iterations=${{ inputs.max-iterations }}" >> $GITHUB_OUTPUT
+
+        if [ "${{ inputs.fail-on-timeout }}" = "true" ]; then
+          echo "💥 Failing workflow due to timeout (fail-on-timeout=true)"
+          exit 1
+        else
+          echo "⚠️  Continuing despite timeout (fail-on-timeout=false)"
+          exit 0
+        fi
+
+branding:
+  icon: 'clock'
+  color: 'blue'

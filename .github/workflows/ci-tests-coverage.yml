@@ -164,18 +164,12 @@ jobs:
           echo "::endgroup::"
 
       - name: Wait for services to be healthy
-        run: |
-          echo "::group::Waiting for services to be healthy"
-          # Wait up to 120 seconds for all services to be healthy
-          timeout 120 bash -c 'until docker-compose -f docker-compose.ci.yml ps | grep -q "(healthy)"; do echo "Waiting for services..."; sleep 5; done' || {
-            echo "::error::Services did not become healthy within 120 seconds"
-            docker-compose -f docker-compose.ci.yml ps
-            docker-compose -f docker-compose.ci.yml logs
-            exit 1
-          }
-          echo "All services are healthy!"
-          docker-compose -f docker-compose.ci.yml ps
-          echo "::endgroup::"
+        uses: ./.github/actions/wait-for-services
+        with:
+          compose-file: docker-compose.ci.yml
+          max-iterations: 30
+          sleep-seconds: 4
+          fail-on-timeout: true
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
