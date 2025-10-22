@@ -544,7 +544,7 @@ log_with_context(logger, "INFO", "...", id="ORDER-456")  # Different field name!
 logger.info(f"Using API key: {api_key}")
 
 # Good - sanitized
-logger.info("Using API key", extra={"context": {"key_prefix": api_key[:4]}})
+log_with_context(logger, "INFO", "Using API key", key_prefix=api_key[:4])
 ```
 
 **Don't use string concatenation:**

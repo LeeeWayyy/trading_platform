@@ -102,8 +102,8 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "sum by (service, level) (count_over_time({job=\"docker\"} | json [$__interval]))",
-          "legendFormat": "{{service}} - {{level}}",
+          "expr": "sum by (service_name, level) (count_over_time({job=\"docker\", service_name=~\"$service_name\"} | json [$__interval]))",
+          "legendFormat": "{{service_name}} - {{level}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -141,7 +141,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "{job=\"docker\"} | json | level=~\"ERROR|WARNING|CRITICAL\"",
+          "expr": "{job=\"docker\", service_name=~\"$service_name\"} | json | level=~\"ERROR|WARNING|CRITICAL\"",
           "queryType": "range",
           "refId": "A"
         }
@@ -179,7 +179,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "{job=\"docker\"} | json",
+          "expr": "{job=\"docker\", service_name=~\"$service_name\"} | json",
           "queryType": "range",
           "refId": "A"
         }
@@ -272,8 +272,8 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "sum by (service) (rate({job=\"docker\"} | json | level=\"ERROR\" [1m]))",
-          "legendFormat": "{{service}}",
+          "expr": "sum by (service_name) (rate({job=\"docker\", service_name=~\"$service_name\"} | json | level=\"ERROR\" [1m]))",
+          "legendFormat": "{{service_name}}",
           "queryType": "range",
           "refId": "A"
         }
@@ -339,7 +339,7 @@
             "uid": "Loki"
           },
           "editorMode": "code",
-          "expr": "count(count by (trace_id) ({job=\"docker\"} | json | trace_id != \"\"))",
+          "expr": "count(count by (trace_id) ({job=\"docker\", service_name=~\"$service_name\"} | json | trace_id != \"\"))",
           "legendFormat": "Unique Traces",
           "queryType": "range",
           "refId": "A"
@@ -365,14 +365,14 @@
           "type": "loki",
           "uid": "Loki"
         },
-        "definition": "label_values({job=\"docker\"}, service)",
+        "definition": "label_values({job=\"docker\"}, service_name)",
         "hide": 0,
         "includeAll": true,
         "label": "Service",
         "multi": true,
-        "name": "service",
+        "name": "service_name",
         "options": [],
-        "query": "label_values({job=\"docker\"}, service)",
+        "query": "label_values({job=\"docker\"}, service_name)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
