@@ -1,0 +1,99 @@
+name: Docker Build and Push
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'apps/**'
+      - 'libs/**'
+      - 'strategies/**'
+      - 'requirements.txt'
+      - 'apps/*/Dockerfile'
+      - '.github/workflows/docker-build.yml'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'apps/**'
+      - 'libs/**'
+      - 'strategies/**'
+      - 'requirements.txt'
+      - 'apps/*/Dockerfile'
+      - '.github/workflows/docker-build.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/trading-platform
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - name: signal_service
+            context: .
+            dockerfile: apps/signal_service/Dockerfile
+            port: 8001
+          - name: execution_gateway
+            context: .
+            dockerfile: apps/execution_gateway/Dockerfile
+            port: 8002
+          - name: orchestrator
+            context: .
+            dockerfile: apps/orchestrator/Dockerfile
+            port: 8003
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}
+          tags: |
+            # Git commit SHA (short)
+            type=sha,prefix={{branch}}-,format=short
+            # Branch name
+            type=ref,event=branch
+            # PR number
+            type=ref,event=pr,prefix=pr-
+            # Latest tag for main/master branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            SERVICE_NAME=${{ matrix.service.name }}
+            SERVICE_PORT=${{ matrix.service.port }}
+
+      - name: Image digest
+        run: echo "Image pushed with digest ${{ steps.meta.outputs.digest }}"
