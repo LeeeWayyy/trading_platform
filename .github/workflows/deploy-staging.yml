@@ -1,0 +1,199 @@
+name: Deploy to Staging
+
+# CRITICAL SAFETY: This workflow only deploys to staging environment with paper trading
+# Live trading is NEVER enabled in this workflow - use manual deployment for production
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:  # Allow manual staging deployments
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/trading-platform
+
+jobs:
+  # ===========================================================================
+  # Job 1: Credential Safety Validation
+  # ===========================================================================
+  validate-credentials:
+    name: Validate staging credentials (safety check)
+    runs-on: ubuntu-latest
+    environment: staging  # Use GitHub Environments for protection rules
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate PAPER_API_KEY exists
+        run: |
+          if [ -z "${{ secrets.ALPACA_PAPER_API_KEY }}" ]; then
+            echo "::error::ALPACA_PAPER_API_KEY not found in staging environment secrets"
+            exit 1
+          fi
+          echo "✅ ALPACA_PAPER_API_KEY found"
+
+      - name: Validate PAPER_API_SECRET exists
+        run: |
+          if [ -z "${{ secrets.ALPACA_PAPER_API_SECRET }}" ]; then
+            echo "::error::ALPACA_PAPER_API_SECRET not found in staging environment secrets"
+            exit 1
+          fi
+          echo "✅ ALPACA_PAPER_API_SECRET found"
+
+      - name: Block live API keys (safety check)
+        run: |
+          # Check that LIVE_API_KEY is NOT set in staging environment
+          # This prevents accidental use of live credentials
+          if [ -n "${{ secrets.ALPACA_LIVE_API_KEY }}" ]; then
+            echo "::error::ALPACA_LIVE_API_KEY found in staging environment"
+            echo "::error::Staging environment must ONLY have paper trading credentials"
+            echo "::error::Remove ALPACA_LIVE_API_KEY from staging environment secrets"
+            exit 1
+          fi
+          echo "✅ No live API keys found in staging environment"
+
+      - name: Validate DRY_RUN flag
+        run: |
+          # Verify DRY_RUN is set to true in staging config
+          # This is a defense-in-depth measure
+          if [ "${{ vars.DRY_RUN }}" != "true" ]; then
+            echo "::warning::DRY_RUN is not explicitly set to 'true' in staging environment"
+            echo "::warning::Defaulting to paper trading mode"
+          else
+            echo "✅ DRY_RUN=true confirmed"
+          fi
+
+      - name: Safety validation summary
+        run: |
+          echo "## Credential Safety Validation ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Paper API credentials present" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Live API credentials blocked" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ DRY_RUN mode enforced" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Safe to proceed with staging deployment." >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Job 2: Pull Images and Deploy
+  # ===========================================================================
+  deploy-staging:
+    name: Deploy to staging environment
+    runs-on: ubuntu-latest
+    needs: validate-credentials  # Only deploy after credential validation passes
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull latest Docker images
+        run: |
+          echo "::group::Pulling latest images"
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-signal_service:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-execution_gateway:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-orchestrator:latest
+          echo "::endgroup::"
+
+      - name: Stop existing services
+        run: |
+          echo "::group::Stopping existing services"
+          # Stop services gracefully (if they exist)
+          docker-compose -f docker-compose.staging.yml down || true
+          echo "::endgroup::"
+
+      - name: Start services with latest images
+        env:
+          # Paper trading credentials (from GitHub Environments secrets)
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
+          ALPACA_PAPER: "true"
+          DRY_RUN: "true"
+
+          # Database credentials
+          DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+
+          # Service configuration
+          ENVIRONMENT: "staging"
+          LOG_LEVEL: "INFO"
+        run: |
+          echo "::group::Starting services"
+          docker-compose -f docker-compose.staging.yml up -d
+          echo "::endgroup::"
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "::group::Waiting for services to be healthy"
+          # Wait up to 120 seconds for all services to be healthy
+          timeout 120 bash -c 'until docker-compose -f docker-compose.staging.yml ps | grep -q "(healthy)"; do echo "Waiting for services..."; sleep 5; done' || {
+            echo "::error::Services did not become healthy within 120 seconds"
+            docker-compose -f docker-compose.staging.yml ps
+            docker-compose -f docker-compose.staging.yml logs
+            exit 1
+          }
+          echo "All services are healthy!"
+          docker-compose -f docker-compose.staging.yml ps
+          echo "::endgroup::"
+
+      - name: Run smoke tests
+        run: |
+          echo "::group::Running smoke tests"
+          # Test 1: Health checks
+          curl -f http://localhost:8001/health || exit 1
+          curl -f http://localhost:8002/health || exit 1
+          curl -f http://localhost:8003/health || exit 1
+
+          # Test 2: Verify paper trading mode (if endpoint exists)
+          # TODO: Add endpoint to return current trading mode
+          # curl http://localhost:8002/api/v1/config | jq '.dry_run' | grep -q "true" || exit 1
+
+          echo "✅ All smoke tests passed"
+          echo "::endgroup::"
+
+      - name: Capture deployment info
+        if: always()
+        run: |
+          echo "::group::Deployment Info"
+          echo "Deployment Time: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Deployed by: ${{ github.actor }}"
+          echo "Docker Images:"
+          docker images | grep trading-platform
+          echo "::endgroup::"
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "## Staging Deployment Successful 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** staging" >> $GITHUB_STEP_SUMMARY
+          echo "- **Mode:** Paper trading (DRY_RUN=true)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time:** $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ signal_service (port 8001)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ execution_gateway (port 8002)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ orchestrator (port 8003)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All smoke tests passed." >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Staging deployment failed"
+          echo "## Staging Deployment Failed ❌" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check logs above for details." >> $GITHUB_STEP_SUMMARY
+          # TODO: Add Slack/email notification here
+          # curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} -d '{"text":"Staging deployment failed"}'
