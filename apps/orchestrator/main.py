@@ -32,7 +32,7 @@ See ADR-0006 for architecture decisions.
 import logging
 import os
 import time
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
