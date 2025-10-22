@@ -75,6 +75,7 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
 )
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
+from libs.risk_management import KillSwitch, KillSwitchEngaged, KillSwitchState
 
 # ============================================================================
 # Configuration
@@ -131,6 +132,17 @@ except (RedisError, RedisConnectionError) as e:
     logger.warning(
         f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices."
     )
+
+# Kill-switch (operator-controlled emergency halt)
+kill_switch: KillSwitch | None = None
+if redis_client:
+    try:
+        kill_switch = KillSwitch(redis_client=redis_client)
+        logger.info("Kill-switch initialized successfully")
+    except Exception as e:
+        logger.warning(f"Failed to initialize kill-switch: {e}. Kill-switch checks will be skipped.")
+else:
+    logger.warning("Kill-switch not initialized (Redis unavailable). Kill-switch checks will be skipped.")
 
 # Alpaca client (only if not in dry run mode and credentials provided)
 alpaca_client: AlpacaExecutor | None = None
@@ -610,6 +622,137 @@ async def get_config() -> ConfigResponse:
     )
 
 
+@app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
+async def engage_kill_switch(
+    reason: str,
+    operator: str,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Engage kill-switch (emergency trading halt).
+
+    CRITICAL: This operator-controlled action immediately blocks ALL trading
+    activities across all services until manually disengaged.
+
+    Args:
+        reason: Human-readable reason for engagement (required)
+        operator: Operator ID/name who engaged kill-switch (required for audit)
+        details: Optional additional context
+
+    Returns:
+        Kill-switch status after engagement
+
+    Raises:
+        HTTPException 503: Redis unavailable
+        HTTPException 400: Kill-switch already engaged
+
+    Examples:
+        >>> import requests
+        >>> response = requests.post(
+        ...     "http://localhost:8002/api/v1/kill-switch/engage",
+        ...     json={
+        ...         "reason": "Market anomaly detected",
+        ...         "operator": "ops_team",
+        ...         "details": {"anomaly_type": "flash_crash"}
+        ...     }
+        ... )
+        >>> response.json()
+        {"state": "ENGAGED", "engaged_by": "ops_team", ...}
+    """
+    if not kill_switch:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kill-switch unavailable (Redis not initialized)",
+        )
+
+    try:
+        kill_switch.engage(reason=reason, operator=operator, details=details)
+        return kill_switch.get_status()
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
+async def disengage_kill_switch(
+    operator: str,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """
+    Disengage kill-switch (resume trading).
+
+    This operator action re-enables trading after kill-switch was engaged.
+
+    Args:
+        operator: Operator ID/name who disengaged kill-switch (required for audit)
+        notes: Optional notes about resolution
+
+    Returns:
+        Kill-switch status after disengagement
+
+    Raises:
+        HTTPException 503: Redis unavailable
+        HTTPException 400: Kill-switch not currently engaged
+
+    Examples:
+        >>> import requests
+        >>> response = requests.post(
+        ...     "http://localhost:8002/api/v1/kill-switch/disengage",
+        ...     json={
+        ...         "operator": "ops_team",
+        ...         "notes": "Market conditions normalized"
+        ...     }
+        ... )
+        >>> response.json()
+        {"state": "ACTIVE", "disengaged_by": "ops_team", ...}
+    """
+    if not kill_switch:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kill-switch unavailable (Redis not initialized)",
+        )
+
+    try:
+        kill_switch.disengage(operator=operator, notes=notes)
+        return kill_switch.get_status()
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@app.get("/api/v1/kill-switch/status", tags=["Kill-Switch"])
+async def get_kill_switch_status() -> dict[str, Any]:
+    """
+    Get kill-switch status.
+
+    Returns current state, last engagement/disengagement details, and history.
+
+    Returns:
+        Kill-switch status with state, timestamps, and operator info
+
+    Raises:
+        HTTPException 503: Redis unavailable
+
+    Examples:
+        >>> import requests
+        >>> response = requests.get("http://localhost:8002/api/v1/kill-switch/status")
+        >>> status = response.json()
+        >>> print(status["state"])
+        'ACTIVE'
+    """
+    if not kill_switch:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kill-switch unavailable (Redis not initialized)",
+        )
+
+    return kill_switch.get_status()
+
+
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
 async def submit_order(order: OrderRequest) -> OrderResponse:
     """
@@ -687,6 +830,29 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             "order_type": order.order_type,
         },
     )
+
+    # Check kill-switch (operator-controlled emergency halt)
+    if kill_switch and kill_switch.is_engaged():
+        status_info = kill_switch.get_status()
+        logger.error(
+            f"🔴 Order blocked by KILL-SWITCH: {client_order_id}",
+            extra={
+                "client_order_id": client_order_id,
+                "kill_switch_engaged": True,
+                "engaged_by": status_info.get("engaged_by"),
+                "engagement_reason": status_info.get("engagement_reason"),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch engaged",
+                "message": "All trading halted by operator",
+                "engaged_by": status_info.get("engaged_by"),
+                "reason": status_info.get("engagement_reason"),
+                "engaged_at": status_info.get("engaged_at"),
+            },
+        )
 
     # Check if order already exists (idempotency)
     existing_order = db_client.get_order_by_client_id(client_order_id)

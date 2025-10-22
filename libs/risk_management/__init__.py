@@ -4,17 +4,19 @@ Risk management library for trading platform.
 This library provides:
 - Risk limit configuration (position limits, loss limits, exposure limits)
 - Circuit breaker state machine (automatic trading halts)
+- Kill-switch (operator-controlled emergency halt)
 - Pre-trade risk validation
 - Post-trade monitoring
 
 Example:
-    >>> from libs.risk_management import RiskConfig, CircuitBreaker, RiskChecker
+    >>> from libs.risk_management import RiskConfig, CircuitBreaker, KillSwitch, RiskChecker
     >>> from libs.redis_client import RedisClient
     >>>
     >>> # Initialize
     >>> config = RiskConfig()
     >>> redis = RedisClient(host="localhost", port=6379)
     >>> breaker = CircuitBreaker(redis_client=redis)
+    >>> kill_switch = KillSwitch(redis_client=redis)
     >>> checker = RiskChecker(config=config, breaker=breaker)
     >>>
     >>> # Pre-trade check
@@ -45,6 +47,7 @@ from libs.risk_management.exceptions import (
     CircuitBreakerTripped,
     RiskViolation,
 )
+from libs.risk_management.kill_switch import KillSwitch, KillSwitchEngaged, KillSwitchState
 
 __all__ = [
     # Configuration
@@ -56,6 +59,10 @@ __all__ = [
     "CircuitBreaker",
     "CircuitBreakerState",
     "TripReason",
+    # Kill-Switch
+    "KillSwitch",
+    "KillSwitchState",
+    "KillSwitchEngaged",
     # Risk Checker
     "RiskChecker",
     # Exceptions
