@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -59,9 +58,9 @@ class TestDeployStagingWorkflow:
             content = f.read()
 
         # Check for environment: staging
-        assert "environment: staging" in content, (
-            "Workflow must use 'environment: staging' for credential isolation"
-        )
+        assert (
+            "environment: staging" in content
+        ), "Workflow must use 'environment: staging' for credential isolation"
 
     def test_workflow_has_credential_validation_job(self, project_root: Path) -> None:
         """Test that workflow has credential validation job (safety check)."""
@@ -73,9 +72,9 @@ class TestDeployStagingWorkflow:
         jobs = config["jobs"]
 
         # Check for validate-credentials job
-        assert "validate-credentials" in jobs, (
-            "Workflow missing 'validate-credentials' job (safety check)"
-        )
+        assert (
+            "validate-credentials" in jobs
+        ), "Workflow missing 'validate-credentials' job (safety check)"
 
     def test_workflow_validates_paper_api_keys(self, project_root: Path) -> None:
         """Test that workflow validates paper API keys exist."""
@@ -84,12 +83,10 @@ class TestDeployStagingWorkflow:
             content = f.read()
 
         # Check that workflow validates paper API credentials
-        assert "ALPACA_PAPER_API_KEY" in content, (
-            "Workflow should validate ALPACA_PAPER_API_KEY"
-        )
-        assert "ALPACA_PAPER_API_SECRET" in content, (
-            "Workflow should validate ALPACA_PAPER_API_SECRET"
-        )
+        assert "ALPACA_PAPER_API_KEY" in content, "Workflow should validate ALPACA_PAPER_API_KEY"
+        assert (
+            "ALPACA_PAPER_API_SECRET" in content
+        ), "Workflow should validate ALPACA_PAPER_API_SECRET"
 
     def test_workflow_blocks_live_api_keys(self, project_root: Path) -> None:
         """Test that workflow blocks live API keys (critical safety check)."""
@@ -98,14 +95,10 @@ class TestDeployStagingWorkflow:
             content = f.read()
 
         # Check for live API key blocking logic
-        assert "ALPACA_LIVE_API_KEY" in content, (
-            "Workflow should check for ALPACA_LIVE_API_KEY"
-        )
+        assert "ALPACA_LIVE_API_KEY" in content, "Workflow should check for ALPACA_LIVE_API_KEY"
 
         # Check that workflow exits with error if live keys found
-        assert "exit 1" in content, (
-            "Workflow should exit with error if live API keys detected"
-        )
+        assert "exit 1" in content, "Workflow should exit with error if live API keys detected"
 
     def test_workflow_deployment_depends_on_validation(self, project_root: Path) -> None:
         """Test that deployment job depends on credential validation."""
@@ -121,17 +114,15 @@ class TestDeployStagingWorkflow:
         deploy_job = jobs["deploy-staging"]
 
         # Check that deploy-staging depends on validate-credentials
-        assert "needs" in deploy_job, (
-            "deploy-staging job must have 'needs' dependency"
-        )
+        assert "needs" in deploy_job, "deploy-staging job must have 'needs' dependency"
 
         needs = deploy_job["needs"]
         if isinstance(needs, str):
             needs = [needs]
 
-        assert "validate-credentials" in needs, (
-            "deploy-staging must depend on validate-credentials (safety check)"
-        )
+        assert (
+            "validate-credentials" in needs
+        ), "deploy-staging must depend on validate-credentials (safety check)"
 
     def test_workflow_runs_smoke_tests(self, project_root: Path) -> None:
         """Test that workflow runs smoke tests after deployment."""
@@ -140,14 +131,10 @@ class TestDeployStagingWorkflow:
             content = f.read()
 
         # Check for smoke test step
-        assert "smoke tests" in content.lower(), (
-            "Workflow should include smoke tests"
-        )
+        assert "smoke tests" in content.lower(), "Workflow should include smoke tests"
 
         # Check that smoke tests verify health endpoints
-        assert "/health" in content, (
-            "Smoke tests should verify /health endpoints"
-        )
+        assert "/health" in content, "Smoke tests should verify /health endpoints"
 
 
 # =============================================================================
@@ -203,22 +190,20 @@ class TestDockerComposeStagingConfig:
 
         # Check execution_gateway has DRY_RUN=true
         execution_gateway_env = services["execution_gateway"].get("environment", {})
-        assert "DRY_RUN" in execution_gateway_env, (
-            "execution_gateway missing DRY_RUN environment variable"
-        )
+        assert (
+            "DRY_RUN" in execution_gateway_env
+        ), "execution_gateway missing DRY_RUN environment variable"
         # Check it's a string "true" (not boolean)
-        assert execution_gateway_env["DRY_RUN"] == "true", (
-            f"execution_gateway DRY_RUN={execution_gateway_env['DRY_RUN']}, expected 'true'"
-        )
+        assert (
+            execution_gateway_env["DRY_RUN"] == "true"
+        ), f"execution_gateway DRY_RUN={execution_gateway_env['DRY_RUN']}, expected 'true'"
 
         # Check orchestrator has DRY_RUN=true
         orchestrator_env = services["orchestrator"].get("environment", {})
-        assert "DRY_RUN" in orchestrator_env, (
-            "orchestrator missing DRY_RUN environment variable"
-        )
-        assert orchestrator_env["DRY_RUN"] == "true", (
-            f"orchestrator DRY_RUN={orchestrator_env['DRY_RUN']}, expected 'true'"
-        )
+        assert "DRY_RUN" in orchestrator_env, "orchestrator missing DRY_RUN environment variable"
+        assert (
+            orchestrator_env["DRY_RUN"] == "true"
+        ), f"orchestrator DRY_RUN={orchestrator_env['DRY_RUN']}, expected 'true'"
 
     def test_docker_compose_staging_enforces_alpaca_paper(self, project_root: Path) -> None:
         """Test that docker-compose.staging.yml enforces ALPACA_PAPER=true."""
@@ -230,17 +215,15 @@ class TestDockerComposeStagingConfig:
 
         # Check execution_gateway has ALPACA_PAPER=true
         execution_gateway_env = services["execution_gateway"].get("environment", {})
-        assert "ALPACA_PAPER" in execution_gateway_env, (
-            "execution_gateway missing ALPACA_PAPER environment variable"
-        )
+        assert (
+            "ALPACA_PAPER" in execution_gateway_env
+        ), "execution_gateway missing ALPACA_PAPER environment variable"
         assert execution_gateway_env["ALPACA_PAPER"] == "true", (
             f"execution_gateway ALPACA_PAPER={execution_gateway_env['ALPACA_PAPER']}, "
             f"expected 'true'"
         )
 
-    def test_docker_compose_staging_uses_environment_variables(
-        self, project_root: Path
-    ) -> None:
+    def test_docker_compose_staging_uses_environment_variables(self, project_root: Path) -> None:
         """Test that sensitive values use environment variables (not hardcoded)."""
         compose_path = project_root / "docker-compose.staging.yml"
         with open(compose_path) as f:
@@ -253,12 +236,12 @@ class TestDockerComposeStagingConfig:
         alpaca_key = execution_gateway_env.get("ALPACA_API_KEY", "")
         alpaca_secret = execution_gateway_env.get("ALPACA_API_SECRET", "")
 
-        assert alpaca_key.startswith("${") or alpaca_key == "", (
-            "ALPACA_API_KEY should use ${ALPACA_API_KEY} syntax (not hardcoded)"
-        )
-        assert alpaca_secret.startswith("${") or alpaca_secret == "", (
-            "ALPACA_API_SECRET should use ${ALPACA_API_SECRET} syntax (not hardcoded)"
-        )
+        assert (
+            alpaca_key.startswith("${") or alpaca_key == ""
+        ), "ALPACA_API_KEY should use ${ALPACA_API_KEY} syntax (not hardcoded)"
+        assert (
+            alpaca_secret.startswith("${") or alpaca_secret == ""
+        ), "ALPACA_API_SECRET should use ${ALPACA_API_SECRET} syntax (not hardcoded)"
 
     def test_docker_compose_staging_has_health_checks(self, project_root: Path) -> None:
         """Test that all app services have health checks."""
@@ -270,9 +253,7 @@ class TestDockerComposeStagingConfig:
 
         for service_name in app_services:
             service = config["services"][service_name]
-            assert "healthcheck" in service, (
-                f"{service_name} missing healthcheck configuration"
-            )
+            assert "healthcheck" in service, f"{service_name} missing healthcheck configuration"
 
     def test_docker_compose_staging_uses_restart_policy(self, project_root: Path) -> None:
         """Test that app services use restart policy for resilience."""
@@ -284,13 +265,12 @@ class TestDockerComposeStagingConfig:
 
         for service_name in app_services:
             service = config["services"][service_name]
-            assert "restart" in service, (
-                f"{service_name} missing restart policy"
-            )
+            assert "restart" in service, f"{service_name} missing restart policy"
             # Should be "unless-stopped" or "always"
-            assert service["restart"] in ["unless-stopped", "always"], (
-                f"{service_name} restart policy should be 'unless-stopped' or 'always'"
-            )
+            assert service["restart"] in [
+                "unless-stopped",
+                "always",
+            ], f"{service_name} restart policy should be 'unless-stopped' or 'always'"
 
     def test_docker_compose_staging_pulls_from_ghcr(self, project_root: Path) -> None:
         """Test that app services pull images from GitHub Container Registry."""
@@ -306,9 +286,9 @@ class TestDockerComposeStagingConfig:
 
             image = service["image"]
             # Should reference ghcr.io or use ${REGISTRY} variable
-            assert "ghcr.io" in image or "${REGISTRY" in image, (
-                f"{service_name} should pull from GitHub Container Registry"
-            )
+            assert (
+                "ghcr.io" in image or "${REGISTRY" in image
+            ), f"{service_name} should pull from GitHub Container Registry"
 
 
 # =============================================================================
@@ -331,15 +311,11 @@ class TestStagingDeploymentDocumentation:
         content = runbook_path.read_text()
 
         # Check for key credential management topics
-        assert "Credential Management" in content, (
-            "Runbook should cover credential management"
-        )
-        assert "ALPACA_PAPER_API_KEY" in content, (
-            "Runbook should document paper API key setup"
-        )
-        assert "rotation" in content.lower(), (
-            "Runbook should document credential rotation procedures"
-        )
+        assert "Credential Management" in content, "Runbook should cover credential management"
+        assert "ALPACA_PAPER_API_KEY" in content, "Runbook should document paper API key setup"
+        assert (
+            "rotation" in content.lower()
+        ), "Runbook should document credential rotation procedures"
 
     def test_runbook_covers_safety_procedures(self, project_root: Path) -> None:
         """Test that runbook covers safety procedures."""
@@ -348,12 +324,10 @@ class TestStagingDeploymentDocumentation:
 
         # Check for safety procedures
         assert "DRY_RUN" in content, "Runbook should document DRY_RUN enforcement"
-        assert "paper trading" in content.lower(), (
-            "Runbook should document paper trading mode"
-        )
-        assert "live" in content.lower() or "production" in content.lower(), (
-            "Runbook should warn about live/production credentials"
-        )
+        assert "paper trading" in content.lower(), "Runbook should document paper trading mode"
+        assert (
+            "live" in content.lower() or "production" in content.lower()
+        ), "Runbook should warn about live/production credentials"
 
     def test_runbook_covers_rollback_procedures(self, project_root: Path) -> None:
         """Test that runbook covers rollback procedures."""
@@ -362,9 +336,7 @@ class TestStagingDeploymentDocumentation:
 
         # Check for rollback procedures
         assert "rollback" in content.lower(), "Runbook should cover rollback procedures"
-        assert "emergency" in content.lower(), (
-            "Runbook should document emergency procedures"
-        )
+        assert "emergency" in content.lower(), "Runbook should document emergency procedures"
 
 
 # =============================================================================
@@ -400,9 +372,9 @@ class TestDockerComposeStagingValidation:
             timeout=30,
         )
 
-        assert result.returncode == 0, (
-            f"docker-compose.staging.yml syntax invalid:\n{result.stderr}"
-        )
+        assert (
+            result.returncode == 0
+        ), f"docker-compose.staging.yml syntax invalid:\n{result.stderr}"
 
 
 # =============================================================================

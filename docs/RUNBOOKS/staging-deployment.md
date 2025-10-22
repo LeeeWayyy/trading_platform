@@ -166,10 +166,10 @@ curl -f http://localhost:8002/health  # execution_gateway
 curl -f http://localhost:8003/health  # orchestrator
 ```
 
-**Test 2: Paper Trading Mode (TODO)**
+**Test 2: Paper Trading Mode**
 
 ```bash
-# Future: Add endpoint to verify trading mode
+# Verify paper trading mode is active
 curl http://localhost:8002/api/v1/config | jq '.dry_run' | grep -q "true"
 curl http://localhost:8002/api/v1/config | jq '.alpaca_paper' | grep -q "true"
 ```

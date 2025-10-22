@@ -41,7 +41,6 @@ from enum import Enum
 from typing import Any
 
 from libs.redis_client import RedisClient
-from libs.risk_management.exceptions import CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -141,14 +140,30 @@ class KillSwitch:
         Returns:
             Current state (ACTIVE or ENGAGED)
 
+        Raises:
+            RuntimeError: If kill-switch state is missing from Redis (fail-closed)
+
         Example:
             >>> kill_switch.get_state()
             <KillSwitchState.ACTIVE: 'ACTIVE'>
+
+        Notes:
+            - If Redis state is missing after initialization, this is a critical
+              error (e.g., Redis flush while ENGAGED) and we must fail closed
+              rather than silently resuming trading
         """
         state_json = self.redis.get(self.state_key)
         if not state_json:
-            self._initialize_state()
-            return KillSwitchState.ACTIVE
+            # State should exist after __init__ - if missing, Redis was flushed/restarted
+            # FAIL CLOSED: Do not auto-reinitialize to ACTIVE (could resume trading unsafely)
+            logger.error(
+                "CRITICAL: Kill-switch state missing from Redis (possible flush/restart). "
+                "Failing closed to prevent unsafe trading resumption."
+            )
+            raise RuntimeError(
+                "Kill-switch state missing from Redis. System must fail closed - "
+                "operator must verify safety and manually disengage if appropriate."
+            )
 
         state_data = json.loads(state_json)
         return KillSwitchState(state_data["state"])
@@ -198,33 +213,70 @@ class KillSwitch:
             - Logs to history for audit trail
             - Requires operator identification
         """
-        current_state = self.get_state()
-
-        if current_state == KillSwitchState.ENGAGED:
-            logger.warning(
-                f"Kill-switch already engaged (operator={operator}, reason={reason})"
-            )
-            raise ValueError("Kill-switch already engaged")
-
-        # Update state
-        state_json = self.redis.get(self.state_key)
-        state_data = json.loads(state_json) if state_json else {}
-
+        # Atomic state transition using Lua script to prevent race conditions
         engaged_at = datetime.now(UTC)
-        state_data.update(
-            {
-                "state": KillSwitchState.ENGAGED.value,
-                "engaged_at": engaged_at.isoformat(),
-                "engaged_by": operator,
-                "engagement_reason": reason,
-                "engagement_details": details,
-                "disengaged_at": None,
-                "disengaged_by": None,
-                "engagement_count_today": state_data.get("engagement_count_today", 0) + 1,
-            }
-        )
+        engagement_details_json = json.dumps(details) if details else "null"
 
-        self.redis.set(self.state_key, json.dumps(state_data))
+        lua_script = """
+        local state_key = KEYS[1]
+        local engaged_value = ARGV[1]
+        local active_value = ARGV[2]
+        local engaged_at = ARGV[3]
+        local operator = ARGV[4]
+        local reason = ARGV[5]
+        local details = ARGV[6]
+
+        -- Get current state
+        local state_json = redis.call('GET', state_key)
+        if not state_json then
+            return redis.error_reply('Kill-switch state missing')
+        end
+
+        local state_data = cjson.decode(state_json)
+
+        -- Check if already engaged
+        if state_data.state == engaged_value then
+            return redis.error_reply('Kill-switch already engaged')
+        end
+
+        -- Update state atomically
+        state_data.state = engaged_value
+        state_data.engaged_at = engaged_at
+        state_data.engaged_by = operator
+        state_data.engagement_reason = reason
+        state_data.engagement_details = cjson.decode(details)
+        state_data.disengaged_at = cjson.null
+        state_data.disengaged_by = cjson.null
+        state_data.engagement_count_today = (state_data.engagement_count_today or 0) + 1
+
+        redis.call('SET', state_key, cjson.encode(state_data))
+        return 1
+        """
+
+        try:
+            self.redis.eval(
+                lua_script,
+                1,  # numkeys
+                self.state_key,  # KEYS[1]
+                KillSwitchState.ENGAGED.value,  # ARGV[1]
+                KillSwitchState.ACTIVE.value,  # ARGV[2]
+                engaged_at.isoformat(),  # ARGV[3]
+                operator,  # ARGV[4]
+                reason,  # ARGV[5]
+                engagement_details_json,  # ARGV[6]
+            )
+        except Exception as e:
+            error_msg = str(e)
+            if "Kill-switch already engaged" in error_msg:
+                logger.warning(
+                    f"Kill-switch already engaged (operator={operator}, reason={reason})"
+                )
+                raise ValueError("Kill-switch already engaged") from e
+            elif "Kill-switch state missing" in error_msg:
+                raise RuntimeError("Kill-switch state missing from Redis") from e
+            else:
+                logger.error(f"Failed to engage kill-switch: {e}")
+                raise
 
         # Log to history
         history_entry = {
@@ -277,27 +329,62 @@ class KillSwitch:
             - Logs to history for audit trail
             - Requires operator identification
         """
-        current_state = self.get_state()
-
-        if current_state == KillSwitchState.ACTIVE:
-            logger.warning(f"Kill-switch already active (operator={operator})")
-            raise ValueError("Kill-switch not engaged")
-
-        # Update state
-        state_json = self.redis.get(self.state_key)
-        state_data = json.loads(state_json) if state_json else {}
-
+        # Atomic state transition using Lua script to prevent race conditions
         disengaged_at = datetime.now(UTC)
-        state_data.update(
-            {
-                "state": KillSwitchState.ACTIVE.value,
-                "disengaged_at": disengaged_at.isoformat(),
-                "disengaged_by": operator,
-                "disengagement_notes": notes,
-            }
-        )
+        notes_json = json.dumps(notes) if notes else "null"
 
-        self.redis.set(self.state_key, json.dumps(state_data))
+        lua_script = """
+        local state_key = KEYS[1]
+        local active_value = ARGV[1]
+        local engaged_value = ARGV[2]
+        local disengaged_at = ARGV[3]
+        local operator = ARGV[4]
+        local notes = ARGV[5]
+
+        -- Get current state
+        local state_json = redis.call('GET', state_key)
+        if not state_json then
+            return redis.error_reply('Kill-switch state missing')
+        end
+
+        local state_data = cjson.decode(state_json)
+
+        -- Check if not engaged
+        if state_data.state == active_value then
+            return redis.error_reply('Kill-switch not engaged')
+        end
+
+        -- Update state atomically
+        state_data.state = active_value
+        state_data.disengaged_at = disengaged_at
+        state_data.disengaged_by = operator
+        state_data.disengagement_notes = cjson.decode(notes)
+
+        redis.call('SET', state_key, cjson.encode(state_data))
+        return 1
+        """
+
+        try:
+            self.redis.eval(
+                lua_script,
+                1,  # numkeys
+                self.state_key,  # KEYS[1]
+                KillSwitchState.ACTIVE.value,  # ARGV[1]
+                KillSwitchState.ENGAGED.value,  # ARGV[2]
+                disengaged_at.isoformat(),  # ARGV[3]
+                operator,  # ARGV[4]
+                notes_json,  # ARGV[5]
+            )
+        except Exception as e:
+            error_msg = str(e)
+            if "Kill-switch not engaged" in error_msg:
+                logger.warning(f"Kill-switch already active (operator={operator})")
+                raise ValueError("Kill-switch not engaged") from e
+            elif "Kill-switch state missing" in error_msg:
+                raise RuntimeError("Kill-switch state missing from Redis") from e
+            else:
+                logger.error(f"Failed to disengage kill-switch: {e}")
+                raise
 
         # Log to history
         history_entry = {

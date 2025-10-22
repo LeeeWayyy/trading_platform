@@ -10,10 +10,11 @@ Tests cover:
 """
 
 import json
+
 import pytest
-from datetime import datetime, UTC
+
 from libs.redis_client import RedisClient
-from libs.risk_management.kill_switch import KillSwitch, KillSwitchState, KillSwitchEngaged
+from libs.risk_management.kill_switch import KillSwitch, KillSwitchState
 
 
 @pytest.fixture

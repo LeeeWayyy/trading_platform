@@ -5,9 +5,9 @@ Tests ensure that duplicate order submissions are handled correctly
 and the idempotency mechanism cannot regress.
 """
 
-import pytest
 from datetime import date
 from decimal import Decimal
+
 from apps.execution_gateway.order_id_generator import generate_client_order_id
 from apps.execution_gateway.schemas import OrderRequest
 
@@ -139,9 +139,9 @@ class TestIdempotencyRegression:
         client_order_id = generate_client_order_id(order, strategy_id, as_of_date)
 
         # Should only contain hexadecimal characters (0-9, a-f)
-        assert all(c in "0123456789abcdef" for c in client_order_id), (
-            f"client_order_id contains invalid characters: {client_order_id}"
-        )
+        assert all(
+            c in "0123456789abcdef" for c in client_order_id
+        ), f"client_order_id contains invalid characters: {client_order_id}"
 
     def test_client_order_id_not_empty(self):
         """Test that client_order_id is never empty."""

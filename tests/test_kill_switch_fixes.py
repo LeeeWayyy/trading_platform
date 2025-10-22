@@ -15,14 +15,12 @@ See Also:
     - .claude/workflows/03-zen-review-quick.md (mandatory pre-commit review)
 """
 
-import json
 from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from redis.exceptions import ConnectionError as RedisConnectionError
 
 # Import after services are mocked
 # from apps.execution_gateway.main import app as execution_app
@@ -92,10 +90,7 @@ class TestFailClosedBehaviorExecutionGateway:
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert "kill-switch unavailable" in response.json()["detail"]["error"].lower()
         assert response.json()["detail"]["fail_closed"] is True
-        assert (
-            "kill-switch state unknown"
-            in response.json()["detail"]["message"].lower()
-        )
+        assert "kill-switch state unknown" in response.json()["detail"]["message"].lower()
 
     def test_health_endpoint_reports_kill_switch_unavailable(
         self, mock_redis_unavailable, mock_postgres
@@ -188,9 +183,7 @@ class TestFailClosedBehaviorOrchestrator:
     @pytest.fixture
     def mock_http_clients(self):
         """Mock HTTP clients to external services."""
-        with (
-            patch("apps.orchestrator.main.httpx.AsyncClient"),
-        ):
+        with (patch("apps.orchestrator.main.httpx.AsyncClient"),):
             yield
 
     def test_orchestration_blocked_when_redis_unavailable(
@@ -215,7 +208,7 @@ class TestFailClosedBehaviorOrchestrator:
             "as_of_date": "2025-10-22",
         }
 
-        response = client.post("/api/v1/orchestrate", json=orchestration_request)
+        response = client.post("/api/v1/orchestration/run", json=orchestration_request)
 
         # Verify fail-closed behavior
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE

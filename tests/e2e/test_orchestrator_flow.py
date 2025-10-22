@@ -17,7 +17,6 @@ from datetime import date
 import httpx
 import pytest
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -59,9 +58,7 @@ def wait_for_orchestrator(orchestrator_url: str) -> None:
 class TestOrchestratorHealth:
     """Test orchestrator health and status endpoints."""
 
-    def test_orchestrator_health(
-        self, orchestrator_url: str, wait_for_orchestrator: None
-    ) -> None:
+    def test_orchestrator_health(self, orchestrator_url: str, wait_for_orchestrator: None) -> None:
         """Test orchestrator health endpoint."""
         response = httpx.get(f"{orchestrator_url}/health", timeout=5.0)
         assert response.status_code == 200

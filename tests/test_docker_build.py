@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -84,16 +83,16 @@ class TestDockerfileSyntax:
             content = dockerfile_path.read_text()
 
             # Check for builder stage
-            assert "FROM python:3.11-slim as builder" in content, (
-                f"{service['name']}: Missing builder stage"
-            )
+            assert (
+                "FROM python:3.11-slim as builder" in content
+            ), f"{service['name']}: Missing builder stage"
 
             # Check for runtime stage (second FROM without 'as')
             lines = [line.strip() for line in content.split("\n") if line.strip()]
             from_lines = [line for line in lines if line.startswith("FROM")]
-            assert len(from_lines) == 2, (
-                f"{service['name']}: Expected 2 FROM statements (builder + runtime)"
-            )
+            assert (
+                len(from_lines) == 2
+            ), f"{service['name']}: Expected 2 FROM statements (builder + runtime)"
 
     def test_dockerfiles_set_pythonunbuffered(
         self, project_root: Path, services: list[dict]
@@ -103,13 +102,9 @@ class TestDockerfileSyntax:
             dockerfile_path = project_root / service["dockerfile"]
             content = dockerfile_path.read_text()
 
-            assert "PYTHONUNBUFFERED=1" in content, (
-                f"{service['name']}: Missing PYTHONUNBUFFERED=1"
-            )
+            assert "PYTHONUNBUFFERED=1" in content, f"{service['name']}: Missing PYTHONUNBUFFERED=1"
 
-    def test_dockerfiles_use_nonroot_user(
-        self, project_root: Path, services: list[dict]
-    ) -> None:
+    def test_dockerfiles_use_nonroot_user(self, project_root: Path, services: list[dict]) -> None:
         """Test that Dockerfiles create and use a non-root user."""
         for service in services:
             dockerfile_path = project_root / service["dockerfile"]
@@ -130,20 +125,20 @@ class TestDockerfileSyntax:
             content = dockerfile_path.read_text()
 
             expected_port = service["port"]
-            assert f"EXPOSE {expected_port}" in content, (
-                f"{service['name']}: Missing EXPOSE {expected_port}"
-            )
+            assert (
+                f"EXPOSE {expected_port}" in content
+            ), f"{service['name']}: Missing EXPOSE {expected_port}"
 
-    def test_dockerfiles_have_healthcheck(
-        self, project_root: Path, services: list[dict]
-    ) -> None:
+    def test_dockerfiles_have_healthcheck(self, project_root: Path, services: list[dict]) -> None:
         """Test that all Dockerfiles include health checks."""
         for service in services:
             dockerfile_path = project_root / service["dockerfile"]
             content = dockerfile_path.read_text()
 
             assert "HEALTHCHECK" in content, f"{service['name']}: Missing HEALTHCHECK"
-            assert "/health" in content, f"{service['name']}: Health check should use /health endpoint"
+            assert (
+                "/health" in content
+            ), f"{service['name']}: Health check should use /health endpoint"
 
 
 # =============================================================================
@@ -282,9 +277,7 @@ class TestDockerImageBuild:
             timeout=300,  # 5 minutes timeout
         )
 
-        assert result.returncode == 0, (
-            f"Docker build failed for signal_service:\n{result.stderr}"
-        )
+        assert result.returncode == 0, f"Docker build failed for signal_service:\n{result.stderr}"
 
     def test_build_execution_gateway_image(self, project_root: Path) -> None:
         """Test building execution_gateway Docker image."""
@@ -304,9 +297,9 @@ class TestDockerImageBuild:
             timeout=300,
         )
 
-        assert result.returncode == 0, (
-            f"Docker build failed for execution_gateway:\n{result.stderr}"
-        )
+        assert (
+            result.returncode == 0
+        ), f"Docker build failed for execution_gateway:\n{result.stderr}"
 
     def test_build_orchestrator_image(self, project_root: Path) -> None:
         """Test building orchestrator Docker image."""
@@ -326,9 +319,7 @@ class TestDockerImageBuild:
             timeout=300,
         )
 
-        assert result.returncode == 0, (
-            f"Docker build failed for orchestrator:\n{result.stderr}"
-        )
+        assert result.returncode == 0, f"Docker build failed for orchestrator:\n{result.stderr}"
 
 
 # =============================================================================

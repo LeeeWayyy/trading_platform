@@ -436,6 +436,57 @@ class RedisClient:
             logger.error(f"Redis LRANGE failed for key {key}: {e}")
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def eval(self, script: str, numkeys: int, *keys_and_args: str) -> Any:
+        """
+        Execute a Lua script atomically with retry logic.
+
+        Redis guarantees Lua scripts run atomically, making them ideal for
+        complex read-modify-write operations that must be free of race conditions.
+
+        Args:
+            script: Lua script to execute
+            numkeys: Number of keys (vs args) in keys_and_args
+            *keys_and_args: Keys followed by args
+
+        Returns:
+            Script result (type depends on script)
+
+        Raises:
+            RedisError: If operation fails after retries
+
+        Example:
+            >>> # Atomic compare-and-set
+            >>> script = '''
+            ... if redis.call("GET", KEYS[1]) == ARGV[1] then
+            ...     redis.call("SET", KEYS[1], ARGV[2])
+            ...     return 1
+            ... else
+            ...     return 0
+            ... end
+            ... '''
+            >>> result = client.eval(script, 1, "mykey", "old_value", "new_value")
+
+        Performance:
+            - Scripts are sent to Redis and executed server-side
+            - Redis caches compiled scripts for efficiency
+            - Atomic execution prevents race conditions
+
+        Notes:
+            - All keys must be passed before args (per Redis convention)
+            - numkeys tells Redis how many keys vs args
+        """
+        try:
+            result = self._client.eval(script, numkeys, *keys_and_args)
+            return result
+        except RedisError as e:
+            logger.error(f"Redis EVAL failed: {e}")
+            raise
+
     def close(self) -> None:
         """
         Close connection pool and release resources.

@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -81,21 +80,19 @@ class TestDockerComposeCI:
 
         # Check execution_gateway has DRY_RUN=true
         execution_gateway_env = services["execution_gateway"].get("environment", {})
-        assert "DRY_RUN" in execution_gateway_env, (
-            "execution_gateway missing DRY_RUN environment variable"
-        )
-        assert execution_gateway_env["DRY_RUN"] == "true", (
-            f"execution_gateway DRY_RUN={execution_gateway_env['DRY_RUN']}, expected 'true'"
-        )
+        assert (
+            "DRY_RUN" in execution_gateway_env
+        ), "execution_gateway missing DRY_RUN environment variable"
+        assert (
+            execution_gateway_env["DRY_RUN"] == "true"
+        ), f"execution_gateway DRY_RUN={execution_gateway_env['DRY_RUN']}, expected 'true'"
 
         # Check orchestrator has DRY_RUN=true
         orchestrator_env = services["orchestrator"].get("environment", {})
-        assert "DRY_RUN" in orchestrator_env, (
-            "orchestrator missing DRY_RUN environment variable"
-        )
-        assert orchestrator_env["DRY_RUN"] == "true", (
-            f"orchestrator DRY_RUN={orchestrator_env['DRY_RUN']}, expected 'true'"
-        )
+        assert "DRY_RUN" in orchestrator_env, "orchestrator missing DRY_RUN environment variable"
+        assert (
+            orchestrator_env["DRY_RUN"] == "true"
+        ), f"orchestrator DRY_RUN={orchestrator_env['DRY_RUN']}, expected 'true'"
 
     def test_docker_compose_ci_has_health_checks(self, project_root: Path) -> None:
         """Test that all application services have health checks."""
@@ -107,9 +104,7 @@ class TestDockerComposeCI:
 
         for service_name in app_services:
             service = config["services"][service_name]
-            assert "healthcheck" in service, (
-                f"{service_name} missing healthcheck configuration"
-            )
+            assert "healthcheck" in service, f"{service_name} missing healthcheck configuration"
 
             healthcheck = service["healthcheck"]
             assert "test" in healthcheck, f"{service_name} healthcheck missing 'test'"
@@ -126,9 +121,7 @@ class TestDockerComposeCI:
 
         # Postgres should use 5433 (not 5432 to avoid conflicts with GitHub Actions)
         postgres_ports = services["postgres"]["ports"]
-        assert "5433:5432" in postgres_ports, (
-            f"postgres should use port 5433, got {postgres_ports}"
-        )
+        assert "5433:5432" in postgres_ports, f"postgres should use port 5433, got {postgres_ports}"
 
         # Redis should use 6380 (not 6379 to avoid conflicts)
         redis_ports = services["redis"]["ports"]
@@ -174,9 +167,9 @@ class TestE2ETestFiles:
             content = test_file.read_text()
 
             # Check that file uses @pytest.mark.e2e
-            assert "@pytest.mark.e2e" in content, (
-                f"{test_file.name} should use @pytest.mark.e2e marker"
-            )
+            assert (
+                "@pytest.mark.e2e" in content
+            ), f"{test_file.name} should use @pytest.mark.e2e marker"
 
 
 # =============================================================================
@@ -196,14 +189,12 @@ class TestCIWorkflowIntegration:
             content = f.read()
 
         # Check for integration-tests job
-        assert "integration-tests:" in content, (
-            "CI workflow missing 'integration-tests' job"
-        )
+        assert "integration-tests:" in content, "CI workflow missing 'integration-tests' job"
 
         # Check that it depends on test-and-coverage
-        assert "needs: test-and-coverage" in content, (
-            "integration-tests job should depend on test-and-coverage"
-        )
+        assert (
+            "needs: test-and-coverage" in content
+        ), "integration-tests job should depend on test-and-coverage"
 
     def test_ci_workflow_uses_docker_compose_ci(self, project_root: Path) -> None:
         """Test that CI workflow uses docker-compose.ci.yml."""
@@ -213,9 +204,7 @@ class TestCIWorkflowIntegration:
             content = f.read()
 
         # Check that workflow uses docker-compose.ci.yml
-        assert "docker-compose.ci.yml" in content, (
-            "CI workflow should use docker-compose.ci.yml"
-        )
+        assert "docker-compose.ci.yml" in content, "CI workflow should use docker-compose.ci.yml"
 
     def test_ci_workflow_captures_logs_on_failure(self, project_root: Path) -> None:
         """Test that CI workflow captures service logs on failure."""
@@ -225,9 +214,9 @@ class TestCIWorkflowIntegration:
             content = f.read()
 
         # Check that workflow captures logs on failure
-        assert "Capture service logs on failure" in content, (
-            "CI workflow should capture service logs on failure"
-        )
+        assert (
+            "Capture service logs on failure" in content
+        ), "CI workflow should capture service logs on failure"
 
         # Check that it captures logs for all services
         assert "docker-compose -f docker-compose.ci.yml logs signal_service" in content
@@ -268,9 +257,7 @@ class TestDockerComposeValidation:
             timeout=30,
         )
 
-        assert result.returncode == 0, (
-            f"docker-compose.ci.yml syntax invalid:\n{result.stderr}"
-        )
+        assert result.returncode == 0, f"docker-compose.ci.yml syntax invalid:\n{result.stderr}"
 
 
 # =============================================================================

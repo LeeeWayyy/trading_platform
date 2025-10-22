@@ -145,7 +145,9 @@ class TestHealthCheckEndpoint:
 class TestRunOrchestrationEndpoint:
     """Tests for run orchestration endpoint."""
 
-    def test_run_orchestration_success(self, test_client, mock_db, mock_orchestrator, mock_kill_switch):
+    def test_run_orchestration_success(
+        self, test_client, mock_db, mock_orchestrator, mock_kill_switch
+    ):
         """Test successful orchestration run."""
         # Mock orchestration result
         run_result = OrchestrationResult(
@@ -204,7 +206,9 @@ class TestRunOrchestrationEndpoint:
         assert response.status_code == 400
         assert "Invalid date format" in response.json()["detail"]
 
-    def test_run_orchestration_with_custom_capital(self, test_client, mock_db, mock_orchestrator, mock_kill_switch):
+    def test_run_orchestration_with_custom_capital(
+        self, test_client, mock_db, mock_orchestrator, mock_kill_switch
+    ):
         """Test orchestration run with custom capital and max_position_size."""
         run_result = OrchestrationResult(
             run_id=uuid4(),
@@ -249,7 +253,9 @@ class TestRunOrchestrationEndpoint:
         assert call_kwargs["capital"] == Decimal("200000")
         assert call_kwargs["max_position_size"] == Decimal("50000")
 
-    def test_run_orchestration_without_date(self, test_client, mock_db, mock_orchestrator, mock_kill_switch):
+    def test_run_orchestration_without_date(
+        self, test_client, mock_db, mock_orchestrator, mock_kill_switch
+    ):
         """Test orchestration run without as_of_date (defaults to today)."""
         run_result = OrchestrationResult(
             run_id=uuid4(),

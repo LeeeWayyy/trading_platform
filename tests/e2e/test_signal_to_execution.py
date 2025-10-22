@@ -12,11 +12,9 @@ Requires: docker-compose -f docker-compose.ci.yml up -d
 """
 
 import time
-from typing import Any
 
 import httpx
 import pytest
-
 
 # =============================================================================
 # Fixtures

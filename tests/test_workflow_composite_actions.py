@@ -4,8 +4,9 @@ Tests for GitHub Actions composite actions.
 Validates action.yml syntax, parameters, and configuration.
 """
 
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 class TestWaitForServicesAction:
@@ -65,7 +66,9 @@ class TestWaitForServicesAction:
         # All inputs have descriptions
         for input_name, input_config in inputs.items():
             assert "description" in input_config, f"Input {input_name} missing description"
-            assert len(input_config["description"]) > 10, f"Input {input_name} has too short description"
+            assert (
+                len(input_config["description"]) > 10
+            ), f"Input {input_name} has too short description"
 
     def test_action_outputs(self):
         """Test action defines expected outputs."""

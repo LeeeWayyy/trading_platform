@@ -77,7 +77,7 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
 )
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
-from libs.risk_management import KillSwitch, KillSwitchEngaged, KillSwitchState
+from libs.risk_management import KillSwitch
 
 # ============================================================================
 # Configuration
@@ -678,7 +678,7 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
@@ -723,7 +723,7 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @app.get("/api/v1/kill-switch/status", tags=["Kill-Switch"])

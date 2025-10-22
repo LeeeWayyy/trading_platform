@@ -47,27 +47,29 @@ runs:
             exit 1
           fi
 
-          # Check for unhealthy or problematic states
-          if echo "$status" | grep -qE "(health: starting)|unhealthy|Exit|Restarting"; then
-            echo "⏳ Services not ready yet (iteration $i/${{ inputs.max-iterations }})..."
+          # Check for unhealthy or problematic states that require immediate attention or retry
+          if echo "$status" | grep -qE "unhealthy|Exit|Restarting"; then
+            echo "⏳ Some services are in a problematic state (iteration $i/${{ inputs.max-iterations }})..."
             echo "$status" | grep -E "NAME|----" || true
             echo "$status" | grep -vE "^$|NAME|----" || true
             sleep ${{ inputs.sleep-seconds }}
             continue
           fi
 
-          # Verify all expected services show (healthy) status
-          if ! echo "$status" | grep -q "(healthy)"; then
-            echo "⏳ Waiting for healthy status (iteration $i/${{ inputs.max-iterations }})..."
-            sleep ${{ inputs.sleep-seconds }}
-            continue
+          # Count total services and healthy services to ensure ALL are ready
+          service_count=$(docker-compose -f ${{ inputs.compose-file }} ps --services | wc -l | xargs)
+          healthy_count=$(echo "$status" | grep -c "(healthy)" || echo "0")
+
+          # All checks passed if all services are healthy
+          if [ "$healthy_count" -ge "$service_count" ] && [ "$service_count" -gt 0 ]; then
+            echo "✅ All $service_count services are healthy after $i iterations"
+            echo "healthy=true" >> $GITHUB_OUTPUT
+            echo "iterations=$i" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          # All checks passed - services are truly healthy
-          echo "✅ All services are healthy after $i iterations"
-          echo "healthy=true" >> $GITHUB_OUTPUT
-          echo "iterations=$i" >> $GITHUB_OUTPUT
-          exit 0
+          echo "⏳ Waiting for services to be healthy ($healthy_count/$service_count) (iteration $i/${{ inputs.max-iterations }})..."
+          sleep ${{ inputs.sleep-seconds }}
         done
 
         # Timeout reached

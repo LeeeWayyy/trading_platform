@@ -53,7 +53,7 @@ from apps.orchestrator.schemas import (
     OrchestrationRunsResponse,
 )
 from libs.redis_client import RedisClient, RedisConnectionError
-from libs.risk_management import KillSwitch, KillSwitchEngaged, KillSwitchState
+from libs.risk_management import KillSwitch
 
 # ============================================================================
 # Configuration
@@ -108,9 +108,7 @@ try:
     )
     logger.info("Redis client initialized successfully")
 except (Exception, RedisConnectionError) as e:
-    logger.warning(
-        f"Failed to initialize Redis client: {e}. Kill-switch checks will be skipped."
-    )
+    logger.warning(f"Failed to initialize Redis client: {e}. Kill-switch checks will be skipped.")
 
 # Kill-switch (operator-controlled emergency halt)
 kill_switch: KillSwitch | None = None
@@ -323,7 +321,7 @@ async def get_config() -> ConfigResponse:
         dry_run=DRY_RUN,
         alpaca_paper=ALPACA_PAPER,
         circuit_breaker_enabled=CIRCUIT_BREAKER_ENABLED,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
     )
 
 
@@ -370,7 +368,7 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
@@ -411,7 +409,7 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @app.get("/api/v1/kill-switch/status", tags=["Kill-Switch"])
@@ -495,7 +493,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
         # Check kill-switch unavailable (fail closed for safety)
         if kill_switch_unavailable:
             logger.error(
-                f"🔴 Orchestration blocked by unavailable kill-switch (FAIL CLOSED)",
+                "🔴 Orchestration blocked by unavailable kill-switch (FAIL CLOSED)",
                 extra={
                     "kill_switch_unavailable": True,
                 },
@@ -513,7 +511,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
         if kill_switch and kill_switch.is_engaged():
             status_info = kill_switch.get_status()
             logger.error(
-                f"🔴 Orchestration blocked by KILL-SWITCH",
+                "🔴 Orchestration blocked by KILL-SWITCH",
                 extra={
                     "kill_switch_engaged": True,
                     "engaged_by": status_info.get("engaged_by"),
