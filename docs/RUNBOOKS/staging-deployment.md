@@ -423,7 +423,7 @@ docker-compose -f docker-compose.staging.yml up -d
 
 ## Related Documentation
 
-- [CI/CD Pipeline (P1T10)](../TASKS/P1T10_PROGRESS.md)
+- [CI/CD Pipeline (P1T10)](../TASKS/P1T10_DONE.md)
 - [Centralized Logging Guide](../GETTING_STARTED/LOGGING_GUIDE.md)
 - [Logging Queries](./logging-queries.md)
 - [Docker Build Pipeline Tests](../../tests/test_docker_build.py)

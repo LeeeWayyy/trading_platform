@@ -72,8 +72,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}
           tags: |
-            # Git commit SHA (short)
-            type=sha,prefix={{branch}}-,format=short
+            # Git commit SHA (short) - use 'sha-' prefix for all events
+            type=sha,prefix=sha-,format=short
             # Branch name
             type=ref,event=branch
             # PR number
