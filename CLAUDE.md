@@ -517,7 +517,7 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 
 9. **🔒 MANDATORY: Before PR** - deep review via clink + gemini (`.claude/workflows/04-zen-review-deep.md`)
 
-**See [`.claude/workflows/README.md`](./.claude/workflows/README.md`) for detailed workflows.**
+**See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for detailed workflows.**
 
 ---
 
