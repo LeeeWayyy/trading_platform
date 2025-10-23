@@ -14,7 +14,7 @@ from apps.market_data_service.position_sync import PositionBasedSubscription
 from libs.market_data import AlpacaMarketDataStream
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_stream():
     """Mock AlpacaMarketDataStream."""
     stream = AsyncMock(spec=AlpacaMarketDataStream)
@@ -24,7 +24,7 @@ def mock_stream():
     return stream
 
 
-@pytest.fixture
+@pytest.fixture()
 def subscription_manager(mock_stream):
     """Create PositionBasedSubscription with mocked stream."""
     return PositionBasedSubscription(
@@ -45,7 +45,7 @@ class TestPositionBasedSubscription:
         assert subscription_manager.initial_sync is False
         assert subscription_manager._running is False
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_position_symbols_success(self, subscription_manager):
         """Test fetching position symbols succeeds."""
         mock_response = Mock()
@@ -68,7 +68,7 @@ class TestPositionBasedSubscription:
 
         assert symbols == {"AAPL", "MSFT"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_position_symbols_empty(self, subscription_manager):
         """Test fetching positions when no positions exist."""
         mock_response = Mock()
@@ -88,7 +88,7 @@ class TestPositionBasedSubscription:
 
         assert symbols == set()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_position_symbols_http_error(self, subscription_manager):
         """Test fetching positions when HTTP request fails."""
         mock_response = Mock()
@@ -104,7 +104,7 @@ class TestPositionBasedSubscription:
 
         assert symbols is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_position_symbols_timeout(self, subscription_manager):
         """Test fetching positions when request times out."""
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -117,7 +117,7 @@ class TestPositionBasedSubscription:
 
         assert symbols is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_position_symbols_connection_error(self, subscription_manager):
         """Test fetching positions when connection fails."""
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -130,7 +130,7 @@ class TestPositionBasedSubscription:
 
         assert symbols is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_subscriptions_new_symbols(self, subscription_manager, mock_stream):
         """Test sync subscribes to new symbols."""
         # Mock stream has no current subscriptions
@@ -147,7 +147,7 @@ class TestPositionBasedSubscription:
         call_args = mock_stream.subscribe_symbols.call_args[0][0]
         assert set(call_args) == {"AAPL", "MSFT"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_subscriptions_closed_symbols(self, subscription_manager, mock_stream):
         """
         Test sync unsubscribes from closed symbols.
@@ -173,7 +173,7 @@ class TestPositionBasedSubscription:
         call_args = mock_stream.unsubscribe_symbols.call_args[0][0]
         assert set(call_args) == {"MSFT"}  # Only MSFT, NOT GOOGL
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_subscriptions_no_changes(self, subscription_manager, mock_stream):
         """Test sync when subscriptions already match positions."""
         # Mock stream already subscribed to correct symbols
@@ -189,7 +189,7 @@ class TestPositionBasedSubscription:
         mock_stream.subscribe_symbols.assert_not_called()
         mock_stream.unsubscribe_symbols.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_subscriptions_fetch_failure(self, subscription_manager, mock_stream):
         """Test sync handles fetch failure gracefully."""
         # Mock fetch failure (returns None)
@@ -200,7 +200,7 @@ class TestPositionBasedSubscription:
         mock_stream.subscribe_symbols.assert_not_called()
         mock_stream.unsubscribe_symbols.assert_not_called()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_start_sync_loop_with_initial_sync(self, mock_stream):
         """Test sync loop runs initial sync on startup."""
         manager = PositionBasedSubscription(
@@ -221,7 +221,7 @@ class TestPositionBasedSubscription:
         # Verify subscribe was called during initial sync
         mock_stream.subscribe_symbols.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_start_sync_loop_periodic_sync(self, subscription_manager, mock_stream):
         """Test sync loop runs periodically."""
         sync_count = 0
@@ -244,7 +244,7 @@ class TestPositionBasedSubscription:
         # Verify sync was called at least twice
         assert sync_count >= 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_continues_on_error(self, subscription_manager):
         """Test sync loop continues even when sync fails."""
         sync_count = 0

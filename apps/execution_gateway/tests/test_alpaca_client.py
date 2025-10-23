@@ -20,7 +20,7 @@ from apps.execution_gateway.schemas import OrderRequest
 class TestAlpacaClientTypeGuards:
     """Test runtime type checking for Alpaca API responses."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def alpaca_client(self):
         """Create AlpacaExecutor with mocked dependencies."""
 

@@ -20,7 +20,7 @@ from apps.signal_service.signal_generator import SignalGenerator
 from libs.redis_client import FeatureCache
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_model_registry():
     """Mock ModelRegistry with loaded model."""
     registry = Mock(spec=ModelRegistry)
@@ -47,7 +47,7 @@ def mock_model_registry():
     return registry
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_feature_cache():
     """Mock FeatureCache for testing."""
     cache = Mock(spec=FeatureCache)
@@ -56,7 +56,7 @@ def mock_feature_cache():
     return cache
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_data_dir(tmp_path):
     """Create temporary data directory with test data."""
     data_dir = tmp_path / "data" / "adjusted"

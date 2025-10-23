@@ -27,7 +27,7 @@ from strategies.alpha_baseline.config import DataConfig, ModelConfig, StrategyCo
 from strategies.alpha_baseline.train import BaselineTrainer, train_baseline_model
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 @pytest.mark.skip(reason="Requires T1 data - run manually when data available")
 class TestCompleteWorkflow:
     """
@@ -199,7 +199,7 @@ class TestCompleteWorkflow:
                 shutil.rmtree(temp_dir)
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 @pytest.mark.skip(reason="Requires T1 data - run manually when data available")
 class TestDataProviderIntegration:
     """Integration tests for T1DataProvider with real data."""
@@ -239,7 +239,7 @@ class TestDataProviderIntegration:
         print(f"Loaded {len(df)} rows for {symbol}")
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 @pytest.mark.skip(reason="Requires T1 data - run manually when data available")
 class TestFeatureGenerationIntegration:
     """Integration tests for Alpha158 feature generation with real data."""

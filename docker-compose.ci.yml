@@ -1,0 +1,185 @@
+# Docker Compose configuration for CI integration tests
+# This file is used by GitHub Actions to spin up services for E2E testing
+#
+# Usage:
+#   docker-compose -f docker-compose.ci.yml up -d
+#   pytest tests/e2e/
+#   docker-compose -f docker-compose.ci.yml down
+
+version: "3.9"
+
+services:
+  # =============================================================================
+  # Infrastructure Services
+  # =============================================================================
+
+  postgres:
+    image: postgres:16
+    container_name: ci_postgres
+    environment:
+      POSTGRES_USER: trader
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: trader_test
+    ports:
+      - "5433:5432"  # Use different port to avoid conflicts with GitHub Actions services
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trader"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ci_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ci_redis
+    ports:
+      - "6380:6379"  # Use different port to avoid conflicts
+    command: redis-server --appendonly no --save ""  # Disable persistence for speed
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ci_network
+
+  # =============================================================================
+  # Application Services
+  # =============================================================================
+
+  signal_service:
+    build:
+      context: .
+      dockerfile: apps/signal_service/Dockerfile
+    container_name: ci_signal_service
+    environment:
+      # Service config
+      SERVICE_NAME: signal_service
+      HOST: 0.0.0.0
+      PORT: 8001
+      LOG_LEVEL: INFO
+
+      # Database
+      DB_URL: postgresql://trader:test_password@postgres:5432/trader_test
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # Feature store
+      FEATURE_CACHE_ENABLED: "false"  # Disable caching for deterministic tests
+
+      # Model registry
+      MODEL_ARTIFACTS_DIR: /tmp/models
+      MODEL_NAME: test_model
+
+      # Testing mode
+      TESTING: "true"
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - ci_network
+
+  execution_gateway:
+    build:
+      context: .
+      dockerfile: apps/execution_gateway/Dockerfile
+    container_name: ci_execution_gateway
+    environment:
+      # Service config
+      SERVICE_NAME: execution_gateway
+      HOST: 0.0.0.0
+      PORT: 8002
+      LOG_LEVEL: INFO
+
+      # Database
+      DB_URL: postgresql://trader:test_password@postgres:5432/trader_test
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # Alpaca (paper trading)
+      DRY_RUN: "true"  # CRITICAL: Always dry-run in CI
+      ALPACA_API_KEY: "fake_key_for_testing"
+      ALPACA_API_SECRET: "fake_secret_for_testing"
+      ALPACA_PAPER: "true"
+
+      # Circuit breaker
+      CIRCUIT_BREAKER_ENABLED: "true"
+
+      # Testing mode
+      TESTING: "true"
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - ci_network
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: apps/orchestrator/Dockerfile
+    container_name: ci_orchestrator
+    environment:
+      # Service config
+      SERVICE_NAME: orchestrator
+      HOST: 0.0.0.0
+      PORT: 8003
+      LOG_LEVEL: INFO
+
+      # Database
+      DB_URL: postgresql://trader:test_password@postgres:5432/trader_test
+
+      # Service URLs
+      SIGNAL_SERVICE_URL: http://signal_service:8001
+      EXECUTION_GATEWAY_URL: http://execution_gateway:8002
+
+      # Trading config
+      DRY_RUN: "true"  # CRITICAL: Always dry-run in CI
+
+      # Testing mode
+      TESTING: "true"
+    ports:
+      - "8003:8003"
+    depends_on:
+      signal_service:
+        condition: service_healthy
+      execution_gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - ci_network
+
+networks:
+  ci_network:
+    driver: bridge

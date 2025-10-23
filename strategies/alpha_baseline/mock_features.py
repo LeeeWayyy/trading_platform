@@ -10,7 +10,6 @@ Qlib data format.
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -289,4 +288,4 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     # Replace inf with 0
     features = features.replace([np.inf, -np.inf], 0)
 
-    return cast(pd.DataFrame, features)
+    return features

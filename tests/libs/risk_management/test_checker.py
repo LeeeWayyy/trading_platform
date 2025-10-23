@@ -41,7 +41,7 @@ class TestRiskCheckerInitialization:
 class TestValidateOrderCircuitBreaker:
     """Tests for circuit breaker integration."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def checker(self):
         """Create RiskChecker with mock circuit breaker."""
         config = RiskConfig()
@@ -107,7 +107,7 @@ class TestValidateOrderBlacklist:
 class TestValidateOrderPositionSizeLimits:
     """Tests for position size limits (absolute shares)."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def checker(self):
         """Create RiskChecker with custom position limits."""
         config = RiskConfig(
@@ -167,7 +167,7 @@ class TestValidateOrderPositionSizeLimits:
 class TestValidateOrderPositionPercentLimits:
     """Tests for position size limits (% of portfolio)."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def checker(self):
         """Create RiskChecker with position % limits."""
         config = RiskConfig(
@@ -248,7 +248,7 @@ class TestValidateOrderPositionPercentLimits:
 class TestCalculateNewPosition:
     """Tests for position calculation logic."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def checker(self):
         """Create basic RiskChecker."""
         config = RiskConfig()
@@ -289,7 +289,7 @@ class TestCalculateNewPosition:
 class TestCheckPortfolioExposure:
     """Tests for portfolio-level exposure limits."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def checker(self):
         """Create RiskChecker with portfolio limits."""
         config = RiskConfig(
@@ -390,7 +390,7 @@ class TestCheckPortfolioExposure:
 class TestValidateOrderEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def checker(self):
         """Create basic RiskChecker."""
         config = RiskConfig()

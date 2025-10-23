@@ -57,7 +57,7 @@ def initialize_mlflow(
         else:
             experiment_id = experiment.experiment_id
     except Exception as e:
-        warnings.warn(f"Failed to get/create experiment: {e}")
+        warnings.warn(f"Failed to get/create experiment: {e}", stacklevel=2)
         experiment_id = "0"  # Default experiment
 
     # Set active experiment
@@ -301,7 +301,7 @@ def load_model_from_run(run_id: str, artifact_path: str = "model") -> Any:
 
 def compare_runs(
     experiment_name: str,
-    metric_names: list[str] = ["valid_ic", "valid_mae", "train_ic", "train_mae"],
+    metric_names: list[str] | None = None,
     max_results: int = 10,
 ) -> Any | None:
     """
@@ -309,7 +309,7 @@ def compare_runs(
 
     Args:
         experiment_name: Name of experiment
-        metric_names: Metrics to include in comparison
+        metric_names: Metrics to include in comparison (default: ["valid_ic", "valid_mae", "train_ic", "train_mae"])
         max_results: Maximum number of runs to return
 
     Returns:
@@ -327,10 +327,13 @@ def compare_runs(
         - Can export to CSV, plot, etc.
         - Requires pandas for DataFrame creation
     """
+    if metric_names is None:
+        metric_names = ["valid_ic", "valid_mae", "train_ic", "train_mae"]
+
     try:
         import pandas as pd
     except ImportError:
-        warnings.warn("pandas not installed, cannot create comparison DataFrame")
+        warnings.warn("pandas not installed, cannot create comparison DataFrame", stacklevel=2)
         return None
 
     client = MlflowClient()

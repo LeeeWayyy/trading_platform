@@ -32,7 +32,7 @@ See ADR-0006 for architecture decisions.
 import logging
 import os
 import time
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -44,11 +44,16 @@ from apps.orchestrator import __version__
 from apps.orchestrator.database import OrchestrationDatabaseClient
 from apps.orchestrator.orchestrator import TradingOrchestrator
 from apps.orchestrator.schemas import (
+    ConfigResponse,
     HealthResponse,
+    KillSwitchDisengageRequest,
+    KillSwitchEngageRequest,
     OrchestrationRequest,
     OrchestrationResult,
     OrchestrationRunsResponse,
 )
+from libs.redis_client import RedisClient, RedisConnectionError
+from libs.risk_management import KillSwitch
 
 # ============================================================================
 # Configuration
@@ -68,6 +73,16 @@ DATABASE_URL = os.getenv(
 CAPITAL = Decimal(os.getenv("CAPITAL", "100000"))
 MAX_POSITION_SIZE = Decimal(os.getenv("MAX_POSITION_SIZE", "20000"))
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
+DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
+
+# Redis configuration (for kill-switch)
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 
 logger.info(f"Starting Orchestrator Service (version={__version__})")
 logger.info(f"Signal Service: {SIGNAL_SERVICE_URL}")
@@ -81,6 +96,38 @@ logger.info(f"Max Position Size: ${MAX_POSITION_SIZE}")
 
 # Database client
 db_client = OrchestrationDatabaseClient(DATABASE_URL)
+
+# Redis client (for kill-switch)
+redis_client: RedisClient | None = None
+try:
+    redis_client = RedisClient(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=REDIS_PASSWORD,
+    )
+    logger.info("Redis client initialized successfully")
+except (Exception, RedisConnectionError) as e:
+    logger.warning(f"Failed to initialize Redis client: {e}. Kill-switch checks will be skipped.")
+
+# Kill-switch (operator-controlled emergency halt)
+kill_switch: KillSwitch | None = None
+kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
+
+if redis_client:
+    try:
+        kill_switch = KillSwitch(redis_client=redis_client)
+        logger.info("Kill-switch initialized successfully")
+    except Exception as e:
+        logger.error(
+            f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all orchestration blocked until Redis available."
+        )
+        kill_switch_unavailable = True
+else:
+    logger.error(
+        "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all orchestration blocked until Redis available."
+    )
+    kill_switch_unavailable = True
 
 
 # Orchestrator (initialized per request to support async context)
@@ -231,7 +278,10 @@ async def health_check() -> HealthResponse:
     execution_gateway_available.set(1 if execution_healthy else 0)
 
     # Determine overall status
-    if db_connected and signal_healthy and execution_healthy:
+    if kill_switch_unavailable:
+        # Kill-switch unavailable means we're in fail-closed mode - report degraded
+        overall_status = "degraded"
+    elif db_connected and signal_healthy and execution_healthy:
         overall_status = "healthy"
     elif db_connected:
         overall_status = "degraded"  # DB OK but services down
@@ -254,6 +304,186 @@ async def health_check() -> HealthResponse:
             "strategy_id": STRATEGY_ID,
         },
     )
+
+
+@app.get("/api/v1/config", response_model=ConfigResponse, tags=["Configuration"])
+async def get_config() -> ConfigResponse:
+    """
+    Get service configuration for verification.
+
+    Returns safety flags and environment settings for automated
+    verification in smoke tests and monitoring.
+
+    Returns:
+        ConfigResponse with service configuration details
+    """
+    return ConfigResponse(
+        service="orchestrator",
+        version=__version__,
+        environment=ENVIRONMENT,
+        dry_run=DRY_RUN,
+        alpaca_paper=ALPACA_PAPER,
+        circuit_breaker_enabled=CIRCUIT_BREAKER_ENABLED,
+        timestamp=datetime.now(UTC),
+    )
+
+
+@app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
+async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]:
+    """
+    Engage kill-switch (emergency trading halt).
+
+    CRITICAL: This operator-controlled action immediately blocks ALL trading
+    activities across all services until manually disengaged.
+
+    Request Body:
+        - reason: Human-readable reason for engagement (required)
+        - operator: Operator ID/name who engaged kill-switch (required for audit)
+        - details: Optional additional context (JSON object)
+
+    Returns:
+        Kill-switch status after engagement
+
+    Raises:
+        HTTPException 503: Redis unavailable
+        HTTPException 400: Kill-switch already engaged
+
+    Example:
+        >>> POST /api/v1/kill-switch/engage
+        >>> {
+        ...   "reason": "Market anomaly detected",
+        ...   "operator": "ops_team",
+        ...   "details": {"anomaly_type": "flash_crash", "severity": "high"}
+        ... }
+    """
+    if not kill_switch:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kill-switch unavailable (Redis not initialized)",
+        )
+
+    try:
+        kill_switch.engage(
+            reason=request.reason, operator=request.operator, details=request.details
+        )
+        return kill_switch.get_status()
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except RuntimeError as e:
+        # Kill-switch state missing (fail-closed)
+        global kill_switch_unavailable
+        kill_switch_unavailable = True
+        logger.error(
+            "Kill-switch engage failed: state missing (fail-closed)",
+            extra={"fail_closed": True, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
+            },
+        ) from e
+
+
+@app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
+async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str, Any]:
+    """
+    Disengage kill-switch (resume trading).
+
+    This operator action re-enables trading after kill-switch was engaged.
+
+    Request Body:
+        - operator: Operator ID/name who disengaged kill-switch (required for audit)
+        - notes: Optional notes about resolution
+
+    Returns:
+        Kill-switch status after disengagement
+
+    Raises:
+        HTTPException 503: Redis unavailable
+        HTTPException 400: Kill-switch not currently engaged
+
+    Example:
+        >>> POST /api/v1/kill-switch/disengage
+        >>> {
+        ...   "operator": "ops_team",
+        ...   "notes": "Market conditions normalized, all systems operational"
+        ... }
+    """
+    if not kill_switch:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kill-switch unavailable (Redis not initialized)",
+        )
+
+    try:
+        kill_switch.disengage(operator=request.operator, notes=request.notes)
+        return kill_switch.get_status()
+    except RuntimeError as e:
+        # Kill-switch state missing (fail-closed)
+        global kill_switch_unavailable
+        kill_switch_unavailable = True
+        logger.error(
+            "Kill-switch disengage failed: state missing (fail-closed)",
+            extra={"fail_closed": True, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
+            },
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@app.get("/api/v1/kill-switch/status", tags=["Kill-Switch"])
+async def get_kill_switch_status() -> dict[str, Any]:
+    """
+    Get kill-switch status.
+
+    Returns current state, last engagement/disengagement details, and history.
+
+    Returns:
+        Kill-switch status with state, timestamps, and operator info
+
+    Raises:
+        HTTPException 503: Redis unavailable or state missing
+    """
+    if not kill_switch:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kill-switch unavailable (Redis not initialized)",
+        )
+
+    try:
+        return kill_switch.get_status()
+    except RuntimeError as e:
+        # Kill-switch state missing (fail-closed)
+        global kill_switch_unavailable
+        kill_switch_unavailable = True
+        logger.error(
+            "Kill-switch status check failed: state missing (fail-closed)",
+            extra={"fail_closed": True, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch unavailable",
+                "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                "fail_closed": True,
+            },
+        ) from e
 
 
 @app.post(
@@ -298,6 +528,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
         >>> print(result["num_orders_submitted"])
         2
     """
+    global kill_switch_unavailable
     # Start timing for metrics
     run_started = time.time()
     run_status = "success"
@@ -311,6 +542,65 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
                 "capital": float(request.capital) if request.capital else float(CAPITAL),
             },
         )
+
+        # Check kill-switch unavailable (fail closed for safety)
+        if kill_switch_unavailable:
+            logger.error(
+                "🔴 Orchestration blocked by unavailable kill-switch (FAIL CLOSED)",
+                extra={
+                    "kill_switch_unavailable": True,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Kill-switch unavailable",
+                    "message": "All trading blocked - kill-switch state unknown (Redis unavailable)",
+                    "fail_closed": True,
+                },
+            )
+
+        # Check kill-switch (operator-controlled emergency halt)
+        try:
+            if kill_switch and kill_switch.is_engaged():
+                status_info = kill_switch.get_status()
+                logger.error(
+                    "🔴 Orchestration blocked by KILL-SWITCH",
+                    extra={
+                        "kill_switch_engaged": True,
+                        "engaged_by": status_info.get("engaged_by"),
+                        "engagement_reason": status_info.get("engagement_reason"),
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error": "Kill-switch engaged",
+                        "message": "All trading halted by operator",
+                        "engaged_by": status_info.get("engaged_by"),
+                        "reason": status_info.get("engagement_reason"),
+                        "engaged_at": status_info.get("engaged_at"),
+                    },
+                )
+        except RuntimeError as e:
+            # Kill-switch state missing (fail-closed)
+            kill_switch_unavailable = True
+            logger.error(
+                "🔴 Orchestration blocked by unavailable kill-switch (FAIL CLOSED)",
+                extra={
+                    "kill_switch_unavailable": True,
+                    "fail_closed": True,
+                    "error": str(e),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Kill-switch unavailable",
+                    "message": "Kill-switch state missing in Redis (fail-closed for safety)",
+                    "fail_closed": True,
+                },
+            ) from e
 
         # Parse as_of_date
         as_of_date_parsed = None

@@ -21,22 +21,30 @@ from apps.execution_gateway.main import app
 from apps.execution_gateway.schemas import OrderDetail, Position
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_client():
     """Create FastAPI test client."""
     return TestClient(app)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_db():
     """Create a mock DatabaseClient."""
     return Mock()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_redis():
     """Create a mock RedisClient."""
     return Mock()
+
+
+@pytest.fixture()
+def mock_kill_switch():
+    """Create a mock KillSwitch (not engaged, available)."""
+    mock_ks = Mock()
+    mock_ks.is_engaged.return_value = False
+    return mock_ks
 
 
 class TestRootEndpoint:
@@ -60,7 +68,10 @@ class TestHealthEndpoint:
         """Test health check returns healthy when database is up (DRY_RUN mode)."""
         mock_db.check_connection.return_value = True
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with (
+            patch("apps.execution_gateway.main.db_client", mock_db),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+        ):
             response = test_client.get("/health")
 
         assert response.status_code == 200
@@ -73,7 +84,10 @@ class TestHealthEndpoint:
         """Test health check returns unhealthy when database is down."""
         mock_db.check_connection.return_value = False
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with (
+            patch("apps.execution_gateway.main.db_client", mock_db),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+        ):
             response = test_client.get("/health")
 
         assert response.status_code == 200
@@ -85,7 +99,7 @@ class TestHealthEndpoint:
 class TestSubmitOrderEndpoint:
     """Tests for order submission endpoint."""
 
-    def test_submit_order_dry_run_mode(self, test_client, mock_db):
+    def test_submit_order_dry_run_mode(self, test_client, mock_db, mock_kill_switch):
         """Test order submission in DRY_RUN mode logs order without broker submission."""
         # Mock: Order doesn't exist yet
         mock_db.get_order_by_client_id.return_value = None
@@ -114,7 +128,11 @@ class TestSubmitOrderEndpoint:
         )
         mock_db.create_order.return_value = created_order
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with (
+            patch("apps.execution_gateway.main.db_client", mock_db),
+            patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+        ):
             response = test_client.post(
                 "/api/v1/orders",
                 json={"symbol": "AAPL", "side": "buy", "qty": 10, "order_type": "market"},
@@ -128,7 +146,7 @@ class TestSubmitOrderEndpoint:
         assert data["qty"] == 10
         assert "Order logged (DRY_RUN mode)" in data["message"]
 
-    def test_submit_order_idempotent_returns_existing(self, test_client, mock_db):
+    def test_submit_order_idempotent_returns_existing(self, test_client, mock_db, mock_kill_switch):
         """Test submitting duplicate order returns existing order (idempotent)."""
         # Mock: Order already exists
         existing_order = OrderDetail(
@@ -154,7 +172,11 @@ class TestSubmitOrderEndpoint:
         )
         mock_db.get_order_by_client_id.return_value = existing_order
 
-        with patch("apps.execution_gateway.main.db_client", mock_db):
+        with (
+            patch("apps.execution_gateway.main.db_client", mock_db),
+            patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
+            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+        ):
             response = test_client.post(
                 "/api/v1/orders",
                 json={

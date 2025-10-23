@@ -86,7 +86,7 @@ class TestSignalGeneration:
 
         assert "Model not loaded" in str(exc_info.value)
 
-    @pytest.mark.integration
+    @pytest.mark.integration()
     @pytest.mark.skip(reason="Requires T1 data and trained model")
     def test_generate_signals_success(self, test_db_url, alpha_baseline_model_path):
         """Generate signals successfully with real model and data."""
@@ -118,7 +118,7 @@ class TestSignalGeneration:
         assert signals["rank"].dtype in [np.int64, np.int32]
         assert signals["target_weight"].dtype in [np.float64, np.float32]
 
-    @pytest.mark.integration
+    @pytest.mark.integration()
     @pytest.mark.skip(reason="Requires T1 data and trained model")
     def test_generate_signals_weights_sum_correctly(self, test_db_url):
         """Portfolio weights sum to 1.0 (long) and -1.0 (short)."""
@@ -142,7 +142,7 @@ class TestSignalGeneration:
         assert np.isclose(long_weights.sum(), 1.0, atol=1e-6)
         assert np.isclose(short_weights.sum(), -1.0, atol=1e-6)
 
-    @pytest.mark.integration
+    @pytest.mark.integration()
     @pytest.mark.skip(reason="Requires T1 data and trained model")
     def test_generate_signals_correct_position_counts(self, test_db_url):
         """Correct number of long and short positions."""
@@ -167,7 +167,7 @@ class TestSignalGeneration:
         assert short_count == 2
         assert neutral_count == 1  # 5 total - 2 long - 2 short
 
-    @pytest.mark.integration
+    @pytest.mark.integration()
     @pytest.mark.skip(reason="Requires T1 data and trained model")
     def test_generate_signals_ranks_are_consecutive(self, test_db_url):
         """Ranks are consecutive integers starting from 1."""
@@ -276,7 +276,7 @@ class TestEdgeCases:
         assert generator.top_n == 0
         assert generator.bottom_n == 0
 
-    @pytest.mark.integration
+    @pytest.mark.integration()
     @pytest.mark.skip(reason="Requires T1 data and trained model")
     def test_generate_signals_with_missing_data(self, test_db_url):
         """Generating signals with missing data raises ValueError."""

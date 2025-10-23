@@ -136,7 +136,7 @@ class TestModelLoading:
         assert model is not None
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 @pytest.mark.skip(reason="Requires test database setup")
 class TestDatabaseIntegration:
     """Integration tests requiring database."""

@@ -35,7 +35,7 @@ from sklearn.model_selection import train_test_split  # type: ignore[import-unty
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_dir():
     """
     Create temporary directory for tests.
@@ -62,7 +62,7 @@ def temp_dir():
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_model(temp_dir):
     """
     Create a mock LightGBM model for testing.
@@ -105,12 +105,12 @@ def mock_model(temp_dir):
     model_path = temp_dir / "test_model.txt"
     model.save_model(str(model_path))
 
-    yield model_path
+    return model_path
 
     # Cleanup handled by temp_dir fixture
 
 
-@pytest.fixture
+@pytest.fixture()
 def alpha_baseline_model_path():
     """
     Path to actual alpha_baseline model (if exists).
@@ -138,7 +138,7 @@ def alpha_baseline_model_path():
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_db_url():
     """
     Test database connection string.
@@ -163,7 +163,7 @@ def test_db_url():
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def db_connection(test_db_url):
     """
     Create test database connection.
@@ -188,7 +188,7 @@ def db_connection(test_db_url):
     conn.close()
 
 
-@pytest.fixture
+@pytest.fixture()
 def setup_model_registry_table(db_connection):
     """
     Create model_registry table in test database.
@@ -235,7 +235,7 @@ def setup_model_registry_table(db_connection):
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_t1_data(temp_dir):
     """
     Create mock T1 adjusted data (Parquet files).
@@ -293,7 +293,7 @@ def mock_t1_data(temp_dir):
         file_path = date_dir / f"{symbol}.parquet"
         df.to_parquet(file_path, index=False)
 
-    yield temp_dir
+    return temp_dir
 
 
 # ============================================================================
@@ -301,7 +301,7 @@ def mock_t1_data(temp_dir):
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_model_metadata():
     """
     Sample model metadata for testing.
@@ -343,7 +343,7 @@ def sample_model_metadata():
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_alpha158_features():
     """
     Mock Alpha158 features DataFrame.
@@ -381,7 +381,7 @@ def mock_alpha158_features():
 # ============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_config():
     """
     Test configuration dictionary.

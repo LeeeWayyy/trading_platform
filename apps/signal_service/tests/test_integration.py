@@ -73,7 +73,7 @@ def test_date():
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestModelRegistryIntegration:
     """Integration tests for ModelRegistry with real database."""
 
@@ -148,7 +148,7 @@ class TestModelRegistryIntegration:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestSignalGeneratorIntegration:
     """Integration tests for SignalGenerator with real data."""
 
@@ -283,7 +283,7 @@ class TestSignalGeneratorIntegration:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestFeatureParity:
     """Validate production features match research features."""
 
@@ -369,7 +369,7 @@ class TestFeatureParity:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestEndToEndWorkflow:
     """Test complete workflow from database to signals."""
 
@@ -498,7 +498,7 @@ class TestEndToEndWorkflow:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestErrorHandling:
     """Test error handling in integration scenarios."""
 

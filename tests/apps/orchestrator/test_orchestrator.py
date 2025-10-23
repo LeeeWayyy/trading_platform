@@ -64,7 +64,7 @@ class TestTradingOrchestratorInitialization:
 class TestTradingOrchestratorRun:
     """Tests for main orchestration workflow."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def orchestrator(self):
         """Create TradingOrchestrator with mocked clients."""
         orch = TradingOrchestrator(
@@ -81,7 +81,7 @@ class TestTradingOrchestratorRun:
 
         return orch
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_successful_run_with_all_orders_accepted(self, orchestrator):
         """Test successful orchestration run with all orders accepted."""
         # Mock signal response
@@ -139,7 +139,7 @@ class TestTradingOrchestratorRun:
         assert result.num_orders_rejected == 0
         assert len(result.mappings) == 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_partial_success_with_some_rejected(self, orchestrator):
         """Test orchestration run with partial success (some orders rejected)."""
         # Mock signal response
@@ -189,7 +189,7 @@ class TestTradingOrchestratorRun:
         assert result.num_orders_accepted == 1
         assert result.num_orders_rejected == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_failed_run_all_orders_rejected(self, orchestrator):
         """Test orchestration run where all orders are rejected."""
         # Mock signal response
@@ -225,7 +225,7 @@ class TestTradingOrchestratorRun:
         assert result.num_orders_accepted == 0
         assert result.num_orders_rejected == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_error_during_signal_fetching(self, orchestrator):
         """Test orchestration run fails gracefully when signal fetching fails."""
         # Mock signal client to raise error
@@ -244,7 +244,7 @@ class TestTradingOrchestratorRun:
 class TestFetchSignals:
     """Tests for signal fetching."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_signals_success(self):
         """Test successful signal fetching."""
         orchestrator = TradingOrchestrator(
@@ -286,7 +286,7 @@ class TestFetchSignals:
 class TestMapSignalsToOrders:
     """Tests for signal-to-order mapping with position sizing."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def orchestrator(self):
         """Create orchestrator with price cache."""
         return TradingOrchestrator(
@@ -297,7 +297,7 @@ class TestMapSignalsToOrders:
             price_cache={"AAPL": Decimal("150.00"), "MSFT": Decimal("300.00")},
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_map_long_signal_to_buy_order(self, orchestrator):
         """Test mapping long signal (positive weight) to buy order."""
         signals = [Signal(symbol="AAPL", predicted_return=0.05, rank=1, target_weight=0.10)]
@@ -310,7 +310,7 @@ class TestMapSignalsToOrders:
         assert mappings[0].order_qty == 66  # floor(100000 * 0.10 / 150)
         assert mappings[0].skip_reason is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_map_short_signal_to_sell_order(self, orchestrator):
         """Test mapping short signal (negative weight) to sell order."""
         signals = [Signal(symbol="MSFT", predicted_return=-0.02, rank=1, target_weight=-0.05)]
@@ -322,7 +322,7 @@ class TestMapSignalsToOrders:
         assert mappings[0].order_side == "sell"
         assert mappings[0].order_qty == 16  # floor(100000 * 0.05 / 300)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_skip_zero_weight_signal(self, orchestrator):
         """Test skipping signal with zero target weight."""
         signals = [Signal(symbol="AAPL", predicted_return=0.0, rank=1, target_weight=0.0)]
@@ -333,7 +333,7 @@ class TestMapSignalsToOrders:
         assert mappings[0].skip_reason == "zero_weight"
         assert mappings[0].order_qty is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_cap_position_at_max_size(self, orchestrator):
         """Test capping position size when exceeding max."""
         # Signal with 50% weight = $50k, but max is $20k
@@ -345,7 +345,7 @@ class TestMapSignalsToOrders:
         # Should use max_position_size ($20k) instead of calculated ($50k)
         assert mappings[0].order_qty == 133  # floor(20000 / 150)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_skip_when_qty_less_than_one_share(self, orchestrator):
         """Test skipping signal when position size < 1 share."""
         # Very small weight results in qty < 1
@@ -357,7 +357,7 @@ class TestMapSignalsToOrders:
         assert mappings[0].skip_reason == "qty_less_than_one_share"
         assert mappings[0].order_qty is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_skip_when_price_fetch_fails(self):
         """Test skipping signal when price cannot be fetched."""
         # No price cache, price fetch will fail for unknown symbols
@@ -383,7 +383,7 @@ class TestMapSignalsToOrders:
 class TestSubmitOrders:
     """Tests for order submission."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def orchestrator(self):
         """Create orchestrator with mocked execution client."""
         orch = TradingOrchestrator(
@@ -395,7 +395,7 @@ class TestSubmitOrders:
         orch.execution_client = Mock()
         return orch
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_submit_orders_success(self, orchestrator):
         """Test successful order submission updates mappings."""
         from apps.orchestrator.schemas import SignalOrderMapping
@@ -431,7 +431,7 @@ class TestSubmitOrders:
         assert mappings[0].broker_order_id == "broker123"
         assert mappings[0].order_status == "pending_new"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_submit_orders_http_error(self, orchestrator):
         """Test order submission with HTTP error marks order as rejected."""
         from apps.orchestrator.schemas import SignalOrderMapping
@@ -460,7 +460,7 @@ class TestSubmitOrders:
         assert mappings[0].order_status == "rejected"
         assert "submission_failed: 400" in mappings[0].skip_reason
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_submit_orders_unexpected_error(self, orchestrator):
         """Test order submission with unexpected error marks order as rejected."""
         from apps.orchestrator.schemas import SignalOrderMapping
@@ -489,7 +489,7 @@ class TestSubmitOrders:
 class TestGetCurrentPrice:
     """Tests for price fetching."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_price_from_cache(self):
         """Test getting price from cache."""
         orchestrator = TradingOrchestrator(
@@ -504,7 +504,7 @@ class TestGetCurrentPrice:
 
         assert price == Decimal("150.50")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_price_default_when_not_in_cache(self):
         """Test getting default price when symbol not in cache."""
         orchestrator = TradingOrchestrator(

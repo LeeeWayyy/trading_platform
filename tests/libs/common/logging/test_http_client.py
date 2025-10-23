@@ -29,7 +29,7 @@ from libs.common.logging.http_client import (
 class TestTracedHTTPXClient:
     """Test suite for async traced HTTP client."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_adds_trace_id_to_request(self) -> None:
         """Test that client adds trace ID header to requests."""
@@ -48,7 +48,7 @@ class TestTracedHTTPXClient:
         request = route.calls.last.request
         assert request.headers[TRACE_ID_HEADER] == test_trace_id
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_no_trace_id_when_not_set(self) -> None:
         """Test that client doesn't add header when no trace ID in context."""
@@ -66,7 +66,7 @@ class TestTracedHTTPXClient:
         request = route.calls.last.request
         assert TRACE_ID_HEADER not in request.headers
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_preserves_existing_headers(self) -> None:
         """Test that client preserves existing headers."""
@@ -88,7 +88,7 @@ class TestTracedHTTPXClient:
         assert request.headers["Custom-Header"] == "value"
         assert request.headers[TRACE_ID_HEADER] == "test-456"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_post_request_with_trace_id(self) -> None:
         """Test POST request includes trace ID."""
@@ -164,7 +164,7 @@ class TestTracedHTTPXSyncClient:
 class TestClientFactoryFunctions:
     """Test suite for client factory functions."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_get_traced_client(self) -> None:
         """Test get_traced_client factory function."""
@@ -182,7 +182,7 @@ class TestClientFactoryFunctions:
         assert request.url == "http://api.example.com/users"
         assert request.headers[TRACE_ID_HEADER] == "factory-test"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_get_traced_client_with_timeout(self) -> None:
         """Test factory function with custom timeout."""
@@ -221,7 +221,7 @@ class TestClientFactoryFunctions:
 class TestConvenienceFunctions:
     """Test suite for convenience functions."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_traced_get(self) -> None:
         """Test traced_get convenience function."""
@@ -239,7 +239,7 @@ class TestConvenienceFunctions:
         assert request.headers[TRACE_ID_HEADER] == "convenience-get"
         assert request.method == "GET"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_traced_post(self) -> None:
         """Test traced_post convenience function."""
@@ -260,7 +260,7 @@ class TestConvenienceFunctions:
         assert request.headers[TRACE_ID_HEADER] == "convenience-post"
         assert request.method == "POST"
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_traced_get_with_params(self) -> None:
         """Test traced_get with query parameters."""

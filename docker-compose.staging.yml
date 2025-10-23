@@ -1,0 +1,270 @@
+# Docker Compose configuration for STAGING environment
+# CRITICAL: This configuration is for PAPER TRADING ONLY
+#
+# Safety features:
+# - DRY_RUN=true enforced for all trading services
+# - ALPACA_PAPER=true for paper trading mode
+# - No live API keys should ever be used
+#
+# Usage:
+#   docker-compose -f docker-compose.staging.yml up -d
+#   docker-compose -f docker-compose.staging.yml down
+
+version: "3.9"
+
+services:
+  # =============================================================================
+  # Infrastructure Services
+  # =============================================================================
+
+  postgres:
+    image: postgres:16
+    container_name: staging_postgres
+    environment:
+      POSTGRES_USER: trader
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-staging_password}
+      POSTGRES_DB: trader_staging
+    ports:
+      - "5432:5432"
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - staging_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: staging_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - staging_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - staging_network
+
+  # =============================================================================
+  # Observability Services
+  # =============================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: staging_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus:/etc/prometheus
+      - staging_prometheusdata:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+    networks:
+      - staging_network
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: staging_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SERVER_ROOT_URL=http://staging.example.com:3000
+    volumes:
+      - staging_grafanadata:/var/lib/grafana
+      - ./infra/grafana:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+    networks:
+      - staging_network
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: staging_loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki:/etc/loki
+      - staging_lokidata:/tmp/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - staging_network
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: staging_promtail
+    volumes:
+      - ./infra/promtail:/etc/promtail
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - staging_promtaildata:/tmp
+    command: -config.file=/etc/promtail/promtail-config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+    networks:
+      - staging_network
+
+  # =============================================================================
+  # Application Services (from ghcr.io)
+  # =============================================================================
+
+  signal_service:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_PREFIX:-trading-platform}-signal_service:latest
+    container_name: staging_signal_service
+    environment:
+      # Service config
+      SERVICE_NAME: signal_service
+      HOST: 0.0.0.0
+      PORT: 8001
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+
+      # Database
+      DB_URL: postgresql://trader:${DB_PASSWORD:-staging_password}@postgres:5432/trader_staging
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # Feature store
+      FEATURE_CACHE_ENABLED: "true"
+
+      # Model registry
+      MODEL_ARTIFACTS_DIR: /app/models
+      MODEL_NAME: ${MODEL_NAME:-alpha_baseline}
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - staging_network
+    labels:
+      logging: "promtail"
+
+  execution_gateway:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_PREFIX:-trading-platform}-execution_gateway:latest
+    container_name: staging_execution_gateway
+    environment:
+      # Service config
+      SERVICE_NAME: execution_gateway
+      HOST: 0.0.0.0
+      PORT: 8002
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+
+      # Database
+      DB_URL: postgresql://trader:${DB_PASSWORD:-staging_password}@postgres:5432/trader_staging
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # CRITICAL SAFETY: Paper trading credentials only
+      DRY_RUN: "true"  # MANDATORY: Always true in staging
+      ALPACA_API_KEY: ${ALPACA_API_KEY}  # Paper API key from secrets
+      ALPACA_API_SECRET: ${ALPACA_API_SECRET}  # Paper API secret from secrets
+      ALPACA_PAPER: "true"  # MANDATORY: Always true in staging
+
+      # Circuit breaker
+      CIRCUIT_BREAKER_ENABLED: "true"
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - staging_network
+    labels:
+      logging: "promtail"
+
+  orchestrator:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_PREFIX:-trading-platform}-orchestrator:latest
+    container_name: staging_orchestrator
+    environment:
+      # Service config
+      SERVICE_NAME: orchestrator
+      HOST: 0.0.0.0
+      PORT: 8003
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+
+      # Database
+      DB_URL: postgresql://trader:${DB_PASSWORD:-staging_password}@postgres:5432/trader_staging
+
+      # Service URLs
+      SIGNAL_SERVICE_URL: http://signal_service:8001
+      EXECUTION_GATEWAY_URL: http://execution_gateway:8002
+
+      # CRITICAL SAFETY: Paper trading only
+      DRY_RUN: "true"  # MANDATORY: Always true in staging
+    ports:
+      - "8003:8003"
+    depends_on:
+      signal_service:
+        condition: service_healthy
+      execution_gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - staging_network
+    labels:
+      logging: "promtail"
+
+volumes:
+  staging_pgdata:
+  staging_redisdata:
+  staging_prometheusdata:
+  staging_grafanadata:
+  staging_lokidata:
+  staging_promtaildata:
+
+networks:
+  staging_network:
+    driver: bridge

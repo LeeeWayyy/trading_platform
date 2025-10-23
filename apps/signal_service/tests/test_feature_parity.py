@@ -57,7 +57,7 @@ def test_date():
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestCodeImportParity:
     """Validate that production imports feature code from research."""
 
@@ -116,7 +116,7 @@ class TestCodeImportParity:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestFeatureComputationDeterminism:
     """Validate that feature computation is deterministic."""
 
@@ -191,7 +191,7 @@ class TestFeatureComputationDeterminism:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestFeatureDimensions:
     """Validate feature dimensions match expectations."""
 
@@ -272,7 +272,7 @@ class TestFeatureDimensions:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestFeatureModelCompatibility:
     """Validate features are compatible with model."""
 
@@ -352,7 +352,7 @@ class TestFeatureModelCompatibility:
 # ==============================================================================
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestProductionResearchParity:
     """Validate production signals match research predictions."""
 

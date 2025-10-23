@@ -5,22 +5,26 @@ phase: P1
 task: T10
 priority: P1
 owner: "@development-team"
-state: TASK
+state: DONE
 created: 2025-10-20
 dependencies: []
 estimated_effort: "3-5 days"
 related_adrs: []
 related_docs: []
 features: []
+started: 2025-10-22
+completed: 2025-10-22
+duration: 0 days
 ---
 
 # P1T10: CI/CD Pipeline
 
 **Phase:** P1 (Hardening & Automation, 46-90 days)
-**Status:** TASK (Not Started)
+**Status:** PROGRESS (In Progress)
 **Priority:** P1 (MVP)
 **Owner:** @development-team
 **Created:** 2025-10-20
+**Started:** 2025-10-22
 **Estimated Effort:** 3-5 days
 
 ---
@@ -83,12 +87,12 @@ Implement automated testing and deployment pipeline to enable rapid iteration wi
 
 ### Logical Components
 
-**Component 1: GitHub Actions Workflow**
-- Create `.github/workflows/ci.yml` with test + lint jobs
-- Add Python dependency caching for faster builds
-- Configure matrix strategy for parallel test execution
-- Add coverage reporting with codecov or coveralls
-- Request zen-mcp review & commit
+**Component 1: GitHub Actions Workflow** (PARTIALLY COMPLETE)
+- ✅ EXISTING: `.github/workflows/ci-tests-coverage.yml` with test + lint jobs
+- ✅ EXISTING: Python dependency caching, coverage reporting (codecov + PR comments)
+- ✅ EXISTING: Quality gates (80% coverage threshold, mypy strict, ruff)
+- NOTE: This component is 25% complete. Basic CI exists but missing integration tests
+- Future work: Extend existing workflow for integration tests (Component 3)
 
 **Component 2: Docker Build Pipeline**
 - Create Dockerfiles for each service (multi-stage for size optimization)
@@ -108,8 +112,14 @@ Implement automated testing and deployment pipeline to enable rapid iteration wi
 **Component 4: Staging Deployment Automation**
 - Create `.github/workflows/deploy-staging.yml`
 - Trigger on merge to main branch
+- **SAFETY: Enforce paper-trading/sandbox credentials only**
+  - Document required secret segregation (PAPER_API_KEY vs LIVE_API_KEY)
+  - Add automated checks to block live-exchange API keys
+  - Implement credential rotation flow
+  - Use GitHub Environments with protection rules (staging, production)
+  - Verify DRY_RUN=true or ALPACA_PAPER=true in staging config
 - Pull latest images and restart services
-- Run smoke tests post-deployment
+- Run smoke tests post-deployment (verify paper trading mode active)
 - Notify on deployment success/failure (Slack or email)
 - Request zen-mcp review & commit
 

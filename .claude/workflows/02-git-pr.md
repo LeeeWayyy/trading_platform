@@ -57,23 +57,31 @@ See [04-zen-review-deep.md](./04-zen-review-deep.md) for detailed deep review wo
 
 ### 2. Verify All Tests Pass
 
+**CRITICAL:** Run the EXACT same checks that CI runs using `make ci-local`:
+
 ```bash
-# Run full test suite
-make test
-
-# Run linting
-make lint
-
-# Check coverage if available
-make coverage
+# Run CI checks locally (mirrors GitHub Actions exactly)
+make ci-local
 ```
 
-**Expected:** ✅ All green, no failures
+**This runs (in order):**
+1. `mypy --strict` (type checking)
+2. `ruff check` (linting)
+3. `pytest -m "not integration and not e2e"` (unit tests with coverage)
+
+**Expected:** ✅ All green, no failures, coverage ≥80%
 
 **If any failures:**
 - Fix them immediately
 - Run zen review of fixes
+- Re-run `make ci-local` to verify
 - Don't create PR until all pass
+
+**Why use `make ci-local`?**
+- Eliminates local/CI testing gap
+- Runs exact same commands CI uses
+- Catches issues before pushing
+- Saves time (no waiting for CI feedback loop)
 
 ### 3. Verify Branch Status
 
@@ -535,27 +543,23 @@ Common mistake: Committing after each fix → multiple commits → repeated CI f
 **3A. Run Complete Local Validation:**
 
 ```bash
-# 1. All tests must pass
-make test
-# Expected: 100% pass rate
+# Run CI checks locally (mirrors exact CI environment)
+make ci-local
+# This runs: mypy → ruff → pytest with coverage
+# Expected: ✅ All checks pass, coverage ≥80%
 
-# 2. All linting must pass
-make lint
-# Expected: No errors
-
-# 3. Link checks must pass (if docs changed)
+# If documentation changed, also check links
 find docs -name "*.md" -exec markdown-link-check {} \; | grep "Status: 400" | wc -l
 # Expected: 0
 
-# 4. Manual spot-check of fixes
+# Manual spot-check of fixes
 git diff --staged
 ```
 
 **3B. Only Proceed When:**
 - ✅ ALL issues from Phase 1 are fixed
-- ✅ ALL local tests pass
-- ✅ ALL local lint checks pass
-- ✅ ALL link checks pass (if applicable)
+- ✅ `make ci-local` passes (all checks green)
+- ✅ ALL link checks pass (if docs changed)
 - ✅ No new errors introduced
 
 **DO NOT COMMIT** until ALL checks pass locally!
@@ -845,14 +849,28 @@ gh pr ready
 
 **Symptom:** Local tests pass, CI fails with same tests
 
-**Causes & Solutions:**
+**ROOT CAUSE:** Not running exact same commands CI uses
+
+**SOLUTION: Use `make ci-local` (mirrors CI exactly):**
+
+```bash
+# Run exact CI checks locally
+make ci-local
+
+# This automatically runs:
+# 1. mypy --strict (same flags as CI)
+# 2. ruff check (same config as CI)
+# 3. pytest -m "not integration and not e2e" (same filter as CI)
+```
+
+**If `make ci-local` passes but CI still fails, check:**
 
 **1. Environment differences:**
 ```bash
 # Check Python version matches CI
 python --version  # Should match .github/workflows/
 
-# Check dependencies
+# Check dependencies are in sync
 poetry install --sync
 ```
 
@@ -867,7 +885,7 @@ poetry install --sync
 # CI uses fresh DB, you might have stale data
 # Reset local DB to match CI
 make db-reset
-make test
+make ci-local  # Re-test with fresh DB
 ```
 
 ### Issue: Automated Reviewers Not Responding
@@ -962,10 +980,19 @@ gh pr view <PR_NUMBER> --web
 "Deep review all branch changes with zen-mcp"
 # ✅ Approved - 1 MEDIUM issue found and fixed
 
-# 2. Tests
-$ make test && make lint
-===================== 82 passed in 3.41s ======================
-✅ All checks passed
+# 2. Run CI checks locally
+$ make ci-local
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Step 1/3: Type checking with mypy --strict
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Success: no issues found in 95 source files
+Step 2/3: Linting with ruff
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+All checks passed!
+Step 3/3: Running tests
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+======== 1015 passed, 15 skipped, 84 deselected in 53.04s =========
+✓ All CI checks passed!
 
 # 3. Push
 $ git push

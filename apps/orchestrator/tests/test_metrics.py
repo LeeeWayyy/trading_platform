@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture
+@pytest.fixture()
 def client():
     """Create test client for Orchestrator."""
     # Import here to avoid issues with module-level initialization

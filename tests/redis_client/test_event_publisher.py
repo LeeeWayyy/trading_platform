@@ -39,7 +39,7 @@ class TestEventPublisherInitialization:
 class TestEventPublisherPublish:
     """Tests for generic publish method."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_publisher(self):
         """Create mock event publisher."""
         mock_redis = Mock()
@@ -108,7 +108,7 @@ class TestEventPublisherPublish:
 class TestEventPublisherSignalEvents:
     """Tests for publishing SignalEvents."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_publisher(self):
         """Create mock event publisher."""
         mock_redis = Mock()
@@ -165,7 +165,7 @@ class TestEventPublisherSignalEvents:
 class TestEventPublisherOrderEvents:
     """Tests for publishing OrderEvents."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_publisher(self):
         """Create mock event publisher."""
         mock_redis = Mock()
@@ -227,7 +227,7 @@ class TestEventPublisherOrderEvents:
 class TestEventPublisherPositionEvents:
     """Tests for publishing PositionEvents."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_publisher(self):
         """Create mock event publisher."""
         mock_redis = Mock()
@@ -293,7 +293,7 @@ class TestEventPublisherPositionEvents:
 class TestEventPublisherEndToEnd:
     """End-to-end tests for typical publishing patterns."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_publisher(self):
         """Create mock event publisher."""
         mock_redis = Mock()

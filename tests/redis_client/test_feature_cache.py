@@ -66,7 +66,7 @@ class TestFeatureCacheKeyGeneration:
 class TestFeatureCacheGet:
     """Tests for cache GET operations."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_cache(self):
         """Create mock feature cache."""
         mock_redis = Mock()
@@ -138,7 +138,7 @@ class TestFeatureCacheGet:
 class TestFeatureCacheSet:
     """Tests for cache SET operations."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_cache(self):
         """Create mock feature cache."""
         mock_redis = Mock()
@@ -210,7 +210,7 @@ class TestFeatureCacheSet:
 class TestFeatureCacheInvalidation:
     """Tests for cache invalidation."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_cache(self):
         """Create mock feature cache."""
         mock_redis = Mock()
@@ -250,7 +250,7 @@ class TestFeatureCacheInvalidation:
 class TestFeatureCacheStatistics:
     """Tests for cache statistics."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_cache(self):
         """Create mock feature cache."""
         mock_redis = Mock()
@@ -290,7 +290,7 @@ class TestFeatureCacheStatistics:
 class TestFeatureCacheEndToEnd:
     """End-to-end tests for typical cache usage patterns."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_cache(self):
         """Create mock feature cache."""
         mock_redis = Mock()

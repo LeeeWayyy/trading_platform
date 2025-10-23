@@ -153,7 +153,7 @@ class TestAlpacaExecutorInitialization:
 class TestAlpacaExecutorOrderSubmission:
     """Test order submission with different order types and scenarios."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def executor(self):
         """Create AlpacaExecutor with mocked Alpaca clients."""
         if not ALPACA_AVAILABLE:
@@ -167,7 +167,7 @@ class TestAlpacaExecutorOrderSubmission:
             executor.client = mock_trading.return_value
             yield executor
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_order_response(self):
         """Create mock Order object for successful responses."""
         mock_order = Mock()
@@ -426,7 +426,7 @@ class TestAlpacaExecutorOrderSubmission:
 class TestAlpacaExecutorBuildRequest:
     """Test _build_alpaca_request helper method for different order types."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def executor(self):
         """Create AlpacaExecutor with mocked clients."""
         if not ALPACA_AVAILABLE:
@@ -522,7 +522,7 @@ class TestAlpacaExecutorBuildRequest:
 class TestAlpacaExecutorOrderQuery:
     """Test order status query methods."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def executor(self):
         """Create AlpacaExecutor with mocked clients."""
         if not ALPACA_AVAILABLE:
@@ -607,7 +607,7 @@ class TestAlpacaExecutorOrderQuery:
 class TestAlpacaExecutorOrderCancellation:
     """Test order cancellation."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def executor(self):
         """Create AlpacaExecutor with mocked clients."""
         if not ALPACA_AVAILABLE:
@@ -652,7 +652,7 @@ class TestAlpacaExecutorOrderCancellation:
 class TestAlpacaExecutorConnectionHealth:
     """Test connection health check."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def executor(self):
         """Create AlpacaExecutor with mocked clients."""
         if not ALPACA_AVAILABLE:
@@ -687,7 +687,7 @@ class TestAlpacaExecutorConnectionHealth:
 class TestAlpacaExecutorAccountInfo:
     """Test account information retrieval."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def executor(self):
         """Create AlpacaExecutor with mocked clients."""
         if not ALPACA_AVAILABLE:
@@ -737,7 +737,7 @@ class TestAlpacaExecutorAccountInfo:
 class TestAlpacaExecutorLatestQuotes:
     """Test latest market quotes fetching."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def executor(self):
         """Create AlpacaExecutor with mocked clients."""
         if not ALPACA_AVAILABLE:

@@ -73,7 +73,7 @@ class TestRedisClientInitialization:
 class TestRedisClientOperations:
     """Tests for Redis GET/SET/DELETE operations."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -160,7 +160,7 @@ class TestRedisClientOperations:
 class TestRedisClientPubSub:
     """Tests for Redis pub/sub operations."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -211,7 +211,7 @@ class TestRedisClientPubSub:
 class TestRedisClientHealthCheck:
     """Tests for Redis health check functionality."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -284,7 +284,7 @@ class TestRedisClientContextManager:
 class TestRedisClientErrorHandling:
     """Tests for error handling and edge cases."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_redis_client(self):
         """Create mock Redis client for testing."""
         with (
@@ -327,3 +327,158 @@ class TestRedisClientErrorHandling:
 
         with pytest.raises(RedisError):
             client.publish("channel", "message")
+
+
+class TestRedisClientListOperations:
+    """
+    Tests for Redis list operations (rpush, ltrim, lrange).
+
+    These operations are critical for kill-switch history tracking.
+    Without these methods, kill-switch engage/disengage operations crash.
+    """
+
+    @pytest.fixture()
+    def mock_redis_client(self):
+        """Create mock Redis client for testing."""
+        with (
+            patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
+            patch("libs.redis_client.client.ConnectionPool"),
+        ):
+
+            mock_redis = Mock()
+            mock_redis.ping.return_value = True
+            mock_redis_class.return_value = mock_redis
+
+            client = RedisClient()
+            client._client = mock_redis
+
+            yield client, mock_redis
+
+    def test_rpush_single_value(self, mock_redis_client):
+        """Test RPUSH operation with single value."""
+        client, mock_redis = mock_redis_client
+        mock_redis.rpush.return_value = 1  # List length after push
+
+        result = client.rpush("test_list", "value1")
+
+        assert result == 1
+        mock_redis.rpush.assert_called_once_with("test_list", "value1")
+
+    def test_rpush_multiple_values(self, mock_redis_client):
+        """Test RPUSH operation with multiple values."""
+        client, mock_redis = mock_redis_client
+        mock_redis.rpush.return_value = 3  # List length after push
+
+        result = client.rpush("test_list", "value1", "value2", "value3")
+
+        assert result == 3
+        mock_redis.rpush.assert_called_once_with("test_list", "value1", "value2", "value3")
+
+    def test_rpush_error_handling(self, mock_redis_client):
+        """Test RPUSH operation error handling."""
+        client, mock_redis = mock_redis_client
+        mock_redis.rpush.side_effect = RedisError("RPUSH failed")
+
+        with pytest.raises(RedisError, match="RPUSH failed"):
+            client.rpush("test_list", "value1")
+
+    def test_ltrim_success(self, mock_redis_client):
+        """Test LTRIM operation success."""
+        client, mock_redis = mock_redis_client
+        mock_redis.ltrim.return_value = True
+
+        result = client.ltrim("test_list", 0, 99)
+
+        assert result is True
+        mock_redis.ltrim.assert_called_once_with("test_list", 0, 99)
+
+    def test_ltrim_keep_last_n(self, mock_redis_client):
+        """Test LTRIM operation to keep last N items."""
+        client, mock_redis = mock_redis_client
+        mock_redis.ltrim.return_value = True
+
+        # Keep last 100 items
+        result = client.ltrim("history:kill-switch", -100, -1)
+
+        assert result is True
+        mock_redis.ltrim.assert_called_once_with("history:kill-switch", -100, -1)
+
+    def test_ltrim_error_handling(self, mock_redis_client):
+        """Test LTRIM operation error handling."""
+        client, mock_redis = mock_redis_client
+        mock_redis.ltrim.side_effect = RedisError("LTRIM failed")
+
+        with pytest.raises(RedisError, match="LTRIM failed"):
+            client.ltrim("test_list", 0, 99)
+
+    def test_lrange_success(self, mock_redis_client):
+        """Test LRANGE operation success."""
+        client, mock_redis = mock_redis_client
+        mock_redis.lrange.return_value = [b"value1", b"value2", b"value3"]
+
+        result = client.lrange("test_list", 0, -1)
+
+        assert result == [b"value1", b"value2", b"value3"]
+        mock_redis.lrange.assert_called_once_with("test_list", 0, -1)
+
+    def test_lrange_empty_list(self, mock_redis_client):
+        """Test LRANGE operation on empty list."""
+        client, mock_redis = mock_redis_client
+        mock_redis.lrange.return_value = []
+
+        result = client.lrange("empty_list", 0, -1)
+
+        assert result == []
+
+    def test_lrange_get_last_n(self, mock_redis_client):
+        """Test LRANGE operation to get last N items."""
+        client, mock_redis = mock_redis_client
+        mock_redis.lrange.return_value = [
+            b'{"operator": "ops_team", "action": "engage"}',
+            b'{"operator": "ops_team", "action": "disengage"}',
+        ]
+
+        # Get last 10 items from kill-switch history
+        result = client.lrange("history:kill-switch", -10, -1)
+
+        assert len(result) == 2
+        mock_redis.lrange.assert_called_once_with("history:kill-switch", -10, -1)
+
+    def test_lrange_error_handling(self, mock_redis_client):
+        """Test LRANGE operation error handling."""
+        client, mock_redis = mock_redis_client
+        mock_redis.lrange.side_effect = RedisError("LRANGE failed")
+
+        with pytest.raises(RedisError, match="LRANGE failed"):
+            client.lrange("test_list", 0, -1)
+
+    def test_kill_switch_history_workflow(self, mock_redis_client):
+        """
+        Test complete kill-switch history workflow using list operations.
+
+        This simulates how KillSwitch uses these operations:
+        1. RPUSH to append history event
+        2. LTRIM to keep last 100 events
+        3. LRANGE to retrieve recent history
+        """
+        client, mock_redis = mock_redis_client
+
+        # Step 1: Append history event
+        mock_redis.rpush.return_value = 1
+        length = client.rpush("history:kill-switch", '{"action": "engage", "operator": "ops"}')
+        assert length == 1
+
+        # Step 2: Trim to keep last 100 events
+        mock_redis.ltrim.return_value = True
+        trimmed = client.ltrim("history:kill-switch", -100, -1)
+        assert trimmed is True
+
+        # Step 3: Get recent history
+        mock_redis.lrange.return_value = [b'{"action": "engage", "operator": "ops"}']
+        history = client.lrange("history:kill-switch", -10, -1)
+        assert len(history) == 1
+
+        # Verify all operations were called correctly
+        mock_redis.rpush.assert_called_once()
+        mock_redis.ltrim.assert_called_once()
+        mock_redis.lrange.assert_called_once()

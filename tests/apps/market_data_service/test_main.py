@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from libs.market_data import SubscriptionError
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_client(monkeypatch):
     """Create FastAPI test client with mocked lifespan to avoid external dependencies."""
     # Set required environment variables before importing (using monkeypatch to avoid test pollution)
@@ -41,7 +41,7 @@ def test_client(monkeypatch):
         return TestClient(app, raise_server_exceptions=False)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_stream():
     """Create mock AlpacaMarketDataStream."""
     mock = Mock()
@@ -54,7 +54,7 @@ def mock_stream():
     return mock
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_subscription_manager():
     """Create mock PositionBasedSubscription."""
     mock = Mock()

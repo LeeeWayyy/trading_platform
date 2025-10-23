@@ -24,16 +24,29 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 3. Review [`.claude/workflows/README.md`](./.claude/workflows/README.md) for development workflow guides
 
 **Ready to code?**
-1. **For task documents:** Request task creation review (see `.claude/workflows/13-task-creation-review.md`)
-2. **Break feature into logical components** — Use 4-step pattern (see below)
-3. **For EACH component:**
+1. **🔍 MANDATORY: Complete Pre-Implementation Analysis** (30-60 min)
+   - Follow [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md)
+   - Identify ALL impacted components, call sites, tests
+   - Verify pattern parity and process compliance
+   - Create comprehensive todo list with 4-step pattern
+   - **⚠️ DO NOT write code before completing analysis**
+
+2. **For task documents:** Request task creation review (see `.claude/workflows/13-task-creation-review.md`)
+
+3. **Break feature into logical components** — Use 4-step pattern (see below)
+
+4. **For EACH component:**
    - Implement logic
    - Create test cases (TDD)
-   - Request quick review via clink + codex: [`.claude/workflows/03-zen-review-quick.md`](./.claude/workflows/03-zen-review-quick.md)
-   - Commit: [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md)
-4. Repeat until feature complete
-5. Deep review via clink + gemini: [`.claude/workflows/04-zen-review-deep.md`](./.claude/workflows/04-zen-review-deep.md)
-6. Create PR: [`.claude/workflows/02-git-pr.md`](./.claude/workflows/02-git-pr.md)
+   - **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): [`.claude/workflows/03-zen-review-quick.md`](./.claude/workflows/03-zen-review-quick.md)
+   - **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
+   - Commit ONLY after review approval + CI passes: [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md)
+
+5. Repeat until feature complete
+
+6. **🔍 MANDATORY: Deep review** via clink + gemini: [`.claude/workflows/04-zen-review-deep.md`](./.claude/workflows/04-zen-review-deep.md)
+
+7. Create PR: [`.claude/workflows/02-git-pr.md`](./.claude/workflows/02-git-pr.md)
 
 ---
 
@@ -103,6 +116,7 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 ```
 
 ### Workflows (see .claude/workflows/ for detailed guides)
+- **🔍 Pre-Implementation Analysis (MANDATORY):** `.claude/workflows/00-analysis-checklist.md`
 - **Git commit:** `.claude/workflows/01-git-commit.md`
 - **Create PR:** `.claude/workflows/02-git-pr.md`
 - **Quick review (clink + codex):** `.claude/workflows/03-zen-review-quick.md`
@@ -263,26 +277,57 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 
 **See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for complete workflow guides.**
 
+### 🔍 PHASE 0: Pre-Implementation Analysis (MANDATORY - 30-60 min)
+
+**⚠️ CRITICAL:** Complete comprehensive analysis BEFORE writing ANY code. Skipping this phase is the PRIMARY root cause of multiple fix commits.
+
+**Requirements:**
+- Follow [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md) completely
+- Identify ALL impacted components, call sites, tests
+- Verify pattern parity (retries, error handling, logging)
+- Verify process compliance (review gates, CI gates)
+- Create comprehensive todo list with 4-step pattern for EACH component
+
+**DO NOT write code before completing this analysis.**
+
+**Time saved by thorough analysis:** 3-11 hours (vs. reactive fixing)
+
+---
+
 ### ⚠️ MANDATORY: 4-Step Pattern for Each Logical Component
 
-**CRITICAL:** To prevent skipping testing or review steps, EVERY logical component implementation MUST follow this pattern:
+**CRITICAL:** After completing Phase 0 analysis, implement EVERY logical component using this pattern:
 
 1. **Implement** the logic component
 2. **Create test cases** for comprehensive coverage (TDD)
-3. **Request quick review** via clink + codex codereviewer (see Tier 1 above)
-4. **Commit** changes after review approval
+3. **🔒 MANDATORY: Request zen-mcp review** (NEVER skip) via clink + codex codereviewer (see Tier 1 above)
+4. **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
+5. **Commit** ONLY after review approval + CI passes
 
-**Example:** When implementing "position limit validation", create these 4 todo tasks:
+**Example:** When implementing "position limit validation", create these 5 todo tasks:
 ```markdown
 - [ ] Implement position limit validation logic
 - [ ] Create test cases for position limit validation
 - [ ] Request quick review (clink + codex) for position limit validation
-- [ ] Commit position limit validation
+- [ ] Run `make ci-local` for position limit validation
+- [ ] Commit position limit validation (after review + CI pass)
 ```
+
+**⚠️ PROCESS VIOLATION WARNING:**
+- Committing without zen-mcp review = PRIMARY root cause of 7 fix commits (10-15 hours wasted)
+- Committing without `make ci-local` = 2-4x slower than running locally first
+- **NEVER skip review gates regardless of urgency**
 
 **Never skip or combine steps!** See [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md) for detailed guidance and examples.
 
 ### Quick Reference
+
+0. **🔍 MANDATORY: Pre-Implementation Analysis (30-60 min)**
+   - **ALWAYS complete [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md) FIRST**
+   - Identify ALL impacted components, call sites, tests
+   - Verify pattern parity and process compliance
+   - Create comprehensive todo list (4-step pattern per component)
+   - **DO NOT write code before completing analysis**
 
 1. **Pre-Implementation**
    - Read ticket in `/docs/TASKS/`
@@ -301,14 +346,13 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
    - See `.claude/workflows/07-documentation.md`
 
 4. **Progressive Commits (every 30-60 min per component)**
-   - **MANDATORY quick review (clink + codex) before each commit**
-   - See `.claude/workflows/03-zen-review-quick.md` (Tier 1 quick review)
-   - See `.claude/workflows/01-git-commit.md` (commit workflow with 4-step pattern)
+   - **🔒 MANDATORY: zen-mcp review** (NEVER skip): `.claude/workflows/03-zen-review-quick.md`
+   - **🔒 MANDATORY: `make ci-local`** (NEVER skip)
+   - Commit workflow: `.claude/workflows/01-git-commit.md` (commit only after review + CI pass)
 
 5. **Before PR**
-   - **MANDATORY deep review (clink + gemini) of all branch changes**
-   - See `.claude/workflows/04-zen-review-deep.md` (Tier 2 deep review)
-   - See `.claude/workflows/02-git-pr.md`
+   - **🔒 MANDATORY: deep review** via clink + gemini: `.claude/workflows/04-zen-review-deep.md`
+   - Create PR: `.claude/workflows/02-git-pr.md`
 
 6. **If Issues Occur**
    - Debugging: `.claude/workflows/06-debugging.md`
@@ -389,13 +433,28 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 
 ## ⚠️ Anti-Patterns to Avoid
 
-- **No skipping the 4-step pattern** — MANDATORY: Implement → Test → Review → Commit (`.claude/workflows/01-git-commit.md`)
+### 🔴 CRITICAL Process Violations (Root Cause of Multiple Fix Commits)
+
+- **🚫 No coding without analysis** — **PRIMARY ROOT CAUSE**: Complete [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md) FIRST (saves 3-11 hours)
+- **🚫 No skipping review gates** — **CRITICAL**: Skipping zen-mcp review caused 7 fix commits (10-15 hours wasted) (`.claude/workflows/03-zen-review-quick.md`)
+- **🚫 No skipping local CI** — Run `make ci-local` BEFORE commit (2-4x faster than remote CI)
+- **🚫 No incremental fixing** — Find ALL issues upfront via analysis, not reactively via reviews
+
+### 🟡 Development Process Anti-Patterns
+
+- **No skipping the 4-step pattern** — MANDATORY: Implement → Test → Review + CI → Commit (`.claude/workflows/01-git-commit.md`)
 - **No committing without quick review** — MANDATORY clink + codex quality gate (`.claude/workflows/03-zen-review-quick.md`)
 - **No committing without passing tests** — Run `make test && make lint` before every commit
 - **No combining logical components in one commit** — Use 4-step pattern for each component separately
 - **No PRs without deep review** — MANDATORY clink + gemini comprehensive review (`.claude/workflows/04-zen-review-deep.md`)
 - **No starting work without task review** — Use clink + gemini planner to validate task documents (`.claude/workflows/13-task-creation-review.md`)
+
+### 🟢 Code Quality Anti-Patterns
+
 - **No duplicate feature logic** — Share code between research/production
+- **No pattern violations** — New code MUST match established patterns (retries, error handling, logging)
+- **No call site ignorance** — When changing function signatures, analyze ALL call sites first
+- **No test mocking gaps** — Verify `@patch` paths, pytest markers, health endpoint tests
 - **No in-memory state** — Use DB for positions/orders/breakers
 - **No silent failures** — Always log and raise with context
 - **No scattered configs** — Centralize in Pydantic Settings
@@ -403,6 +462,8 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 - **No untested order paths** — Require backtest replay parity
 - **No live without paper** — Paper validation required first
 - **No architectural changes without ADR** — MANDATORY (`.claude/workflows/08-adr-creation.md`)
+
+**See `/tmp/ci-failure-root-cause-analysis.md` for detailed analysis of root causes.**
 
 ---
 
@@ -424,20 +485,37 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 ## 🆘 When Making Changes
 
 **Quick checklist:**
+
+0. **🔍 MANDATORY: Pre-Implementation Analysis (30-60 min)**
+   - **Complete [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md) FIRST**
+   - Identify ALL impacted components, call sites, tests
+   - Verify pattern parity (retries, error handling, logging)
+   - Verify process compliance (review gates, CI gates)
+   - Create comprehensive todo list with 4-step pattern per component
+   - **⚠️ DO NOT write code before completing analysis** (PRIMARY root cause of fix commits)
+
 1. Check existing docs (`/docs/GETTING_STARTED/REPO_MAP.md`, API specs, DB schemas)
+
 2. **For task documents:** Request task creation review via clink + gemini (`.claude/workflows/13-task-creation-review.md`)
+
 3. Create ADR for architectural changes (`.claude/workflows/08-adr-creation.md`)
+
 4. Document trading concepts in `/docs/CONCEPTS/` (`.claude/workflows/07-documentation.md`)
+
 5. **Break feature into logical components** — Use 4-step pattern per component:
    - Implement logic
    - Create test cases (TDD)
-   - Request quick review via clink + codex (`.claude/workflows/03-zen-review-quick.md`)
-   - Commit after approval
+   - **🔒 MANDATORY: Quick review** via clink + codex (`.claude/workflows/03-zen-review-quick.md`)
+   - **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
+   - Commit ONLY after review approval + CI passes
+
 6. Add comprehensive docstrings (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
-7. Run `make test && make lint` before every commit
-8. **Never skip the 4-step pattern** (see `.claude/workflows/01-git-commit.md`)
-9. Update affected docs
-10. Before PR: deep review via clink + gemini (`.claude/workflows/04-zen-review-deep.md`)
+
+7. **Never skip the 4-step pattern** (see `.claude/workflows/01-git-commit.md`)
+
+8. Update affected docs
+
+9. **🔒 MANDATORY: Before PR** - deep review via clink + gemini (`.claude/workflows/04-zen-review-deep.md`)
 
 **See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for detailed workflows.**
 

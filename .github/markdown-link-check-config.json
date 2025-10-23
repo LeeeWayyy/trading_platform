@@ -13,6 +13,9 @@
       "pattern": "^https://staging.example.com"
     },
     {
+      "pattern": "^http://staging.example.com"
+    },
+    {
       "pattern": "^https://api.example.com"
     },
     {
