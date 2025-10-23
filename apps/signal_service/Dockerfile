@@ -36,6 +36,7 @@ FROM python:3.11-slim
 # Install runtime dependencies only (no build tools)
 RUN apt-get update && apt-get install -y \
     libpq5 \
+    libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
