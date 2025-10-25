@@ -219,7 +219,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "Check database has active model registered."
             )
 
-        assert model_registry is not None and model_registry.current_metadata is not None
+        assert model_registry is not None
+        assert model_registry.current_metadata is not None
         logger.info(f"Model loaded: {model_registry.current_metadata.version}")
 
         # Update model metrics
@@ -286,7 +287,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         logger.info("=" * 60)
         logger.info("Signal Service Ready!")
-        assert model_registry is not None and model_registry.current_metadata is not None
+        assert model_registry is not None
+        assert model_registry.current_metadata is not None
         logger.info(f"  - Model: {model_registry.current_metadata.strategy_name}")
         logger.info(f"  - Version: {model_registry.current_metadata.version}")
         logger.info(f"  - Top N (long): {settings.top_n}")

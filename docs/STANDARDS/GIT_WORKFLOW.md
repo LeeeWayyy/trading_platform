@@ -130,28 +130,49 @@ git commit -m "Add feature X"
 
 ## 📋 Branch Naming Standards
 
-**REQUIRED:** Use consistent branch naming conventions
+**REQUIRED:** Use consistent branch naming with phase/task/subfeature tracking
 
-**Format:** `<type>/<ticket>-<brief-description>`
+**Format:** `<type>/PxTy(-Fz)?-<brief-description>`
+
+**Components:**
+- `<type>` - Branch type (feature, bugfix, hotfix)
+- `Px` - Phase number (P0, P1, P2, etc.)
+- `Ty` - Task number within phase (T1, T2, T11, etc.)
+- `Fz` - *Optional* subfeature number (F1, F2, F3, etc.)
+- `<brief-description>` - Lowercase with hyphens
 
 **Types:**
-- `feature/` - New features
-- `fix/` - Bug fixes
-- `docs/` - Documentation only
-- `refactor/` - Refactoring
-- `chore/` - Maintenance
+- `feature/` - New features and enhancements
+- `bugfix/` - Bug fixes
+- `hotfix/` - Urgent production fixes
 
 **Examples:**
 ```bash
-feature/t4-idempotent-orders     # ✅ GOOD
-fix/circuit-breaker-recovery      # ✅ GOOD
-docs/update-testing-guide         # ✅ GOOD
-refactor/extract-risk-checks      # ✅ GOOD
-chore/upgrade-dependencies        # ✅ GOOD
+# Single-branch tasks (no subfeatures)
+feature/P0T1-initial-setup           # ✅ GOOD - Phase 0, Task 1
+feature/P1T11-workflow-optimization  # ✅ GOOD - Phase 1, Task 11
+bugfix/P0T2-fix-circuit-breaker      # ✅ GOOD - Bug fix for P0T2
 
-my-changes                        # ❌ BAD - No type
-new-feature                       # ❌ BAD - No ticket reference
+# Multi-branch tasks (with subfeatures)
+feature/P1T11-F1-tool-restriction    # ✅ GOOD - Subfeature 1
+feature/P1T11-F2-hard-gates          # ✅ GOOD - Subfeature 2
+feature/P0T4-F1-id-generation        # ✅ GOOD - Subfeature F1 of P0T4
+
+# Bad examples
+my-changes                           # ❌ BAD - No type or task reference
+feature/new-feature                  # ❌ BAD - No PxTy task reference
+feature/P1T11_F1-docs                # ❌ BAD - Use hyphen not underscore
+feature/P1T11-DOCS                   # ❌ BAD - Description must be lowercase
 ```
+
+**When to use subfeatures (Fz):**
+- Task is complex (>8 hours estimated time)
+- Task has multiple independent components
+- Want progressive PRs instead of one large PR
+
+**See:** [`.claude/workflows/00-task-breakdown.md`](../../.claude/workflows/00-task-breakdown.md) for subfeature decomposition strategy
+
+**Enforced by:** Pre-commit hook (`scripts/hooks/verify_branch_name.sh`)
 
 ---
 

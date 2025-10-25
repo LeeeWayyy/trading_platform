@@ -9,6 +9,19 @@
 
 ---
 
+## 🚨 CRITICAL: Clink-Only Tool Usage
+
+**⚠️ MANDATORY: Use `mcp__zen-mcp__clink` EXCLUSIVELY for all zen-mcp interactions.**
+
+**❌ NEVER use direct zen-mcp tools** (chat, thinkdeep, planner, debug, consensus, etc.) — they cause **API permission errors** and break the workflow.
+
+**✅ CORRECT:** `mcp__zen-mcp__clink(prompt="...", cli_name="gemini", role="planner")`
+**❌ WRONG:** `mcp__zen-mcp__planner(...)` ← API permission error!
+
+See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) for complete policy.
+
+---
+
 ## When to Use This Workflow
 
 **RECOMMENDED for:**

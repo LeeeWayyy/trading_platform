@@ -284,15 +284,19 @@ make lint
 **Check if documentation needs updating:**
 
 #### Task Lifecycle Changes
-If you just completed a task component or entire task:
+If you just completed a subfeature or entire task:
 
-```bash
-# Did you complete a task component?
-./scripts/tasks.py complete P1T5-F1  # Mark feature as done
+**For subfeature completion (PxTy-Fz):**
+1. Ensure all 4-step components are marked complete in TodoWrite
+2. Create PR for subfeature (see [02-git-pr.md](./02-git-pr.md))
+3. After PR merged, update task progress file (PxTy_PROGRESS.md)
 
-# Did you complete an entire task?
-./scripts/tasks.py complete P1T5     # Mark task as done
-```
+**For entire task completion (PxTy):**
+1. Ensure all subfeatures (if any) are merged
+2. Rename `PxTy_PROGRESS.md` to `PxTy_DONE.md`
+3. Update phase planning document (Px_PLANNING.md)
+
+**See:** [`.claude/workflows/00-task-breakdown.md`](./00-task-breakdown.md) for subfeature workflow details
 
 #### Update Planning Documents (MANDATORY)
 
