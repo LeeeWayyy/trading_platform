@@ -49,19 +49,15 @@ class TestSignalGeneratorInitialization:
         """Initialize with negative top_n raises ValueError."""
         registry = ModelRegistry(test_db_url)
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="must be >= 0"):
             SignalGenerator(registry, temp_dir, top_n=-1, bottom_n=3)
-
-        assert "must be >= 0" in str(exc_info.value)
 
     def test_initialization_with_negative_bottom_n_raises_error(self, test_db_url, temp_dir):
         """Initialize with negative bottom_n raises ValueError."""
         registry = ModelRegistry(test_db_url)
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="must be >= 0"):
             SignalGenerator(registry, temp_dir, top_n=3, bottom_n=-1)
-
-        assert "must be >= 0" in str(exc_info.value)
 
     def test_initialization_with_nonexistent_dir_raises_error(self, test_db_url):
         """Initialize with nonexistent data_dir raises FileNotFoundError."""
@@ -284,10 +280,8 @@ class TestEdgeCases:
         generator = SignalGenerator(registry, Path("data/adjusted"))
 
         # Date far in the future (no data)
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="No features available"):
             generator.generate_signals(
                 symbols=["AAPL"],
                 as_of_date=datetime(2099, 1, 1),
             )
-
-        assert "No features available" in str(exc_info.value)
