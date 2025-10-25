@@ -34,7 +34,7 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.paper_run import (
+from scripts.paper_run import (  # noqa: E402
     calculate_enhanced_pnl,
     calculate_simple_pnl,
     check_dependencies,

@@ -32,9 +32,9 @@ except ImportError:
     print("⚠️  python-dotenv not installed. Using system environment variables only.")
     pass
 
-from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor
-from apps.execution_gateway.order_id_generator import generate_client_order_id
-from apps.execution_gateway.schemas import OrderRequest
+from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor  # noqa: E402
+from apps.execution_gateway.order_id_generator import generate_client_order_id  # noqa: E402
+from apps.execution_gateway.schemas import OrderRequest  # noqa: E402
 
 
 def print_separator(title: str):

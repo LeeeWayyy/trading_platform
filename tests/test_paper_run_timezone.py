@@ -26,7 +26,7 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.paper_run import (
+from scripts.paper_run import (  # noqa: E402
     format_console_output,
     save_results,
 )
