@@ -293,7 +293,7 @@ class TestAlpacaExecutorOrderSubmission:
 
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=100, order_type="market")
 
-        with pytest.raises(AlpacaValidationError, match="Invalid order"):
+        with pytest.raises(AlpacaValidationError, match=r"Invalid.*must be positive"):
             executor.submit_order(order_request, "client_order_abc")
 
     def test_submit_order_rejection_error_422(self, executor):
@@ -308,7 +308,7 @@ class TestAlpacaExecutorOrderSubmission:
 
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=1000000, order_type="market")
 
-        with pytest.raises(AlpacaRejectionError, match="Order rejected"):
+        with pytest.raises(AlpacaRejectionError, match=r"Insufficient buying power"):
             executor.submit_order(order_request, "client_order_abc")
 
     def test_submit_order_rejection_error_403(self, executor):
@@ -323,7 +323,7 @@ class TestAlpacaExecutorOrderSubmission:
 
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=100, order_type="market")
 
-        with pytest.raises(AlpacaRejectionError, match="Order rejected"):
+        with pytest.raises(AlpacaRejectionError, match=r"restricted"):
             executor.submit_order(order_request, "client_order_abc")
 
     def test_submit_order_connection_error_retryable(self, executor, mock_order_response):
@@ -626,7 +626,7 @@ class TestAlpacaExecutorOrderCancellation:
         api_error = create_mock_alpaca_error("Order already filled, cannot cancel", 422)
         executor.client.cancel_order_by_id = Mock(side_effect=api_error)
 
-        with pytest.raises(AlpacaRejectionError, match="cannot be cancelled"):
+        with pytest.raises(AlpacaRejectionError, match=r"already filled.*cannot cancel"):
             executor.cancel_order("broker_order_123")
 
 

@@ -100,7 +100,7 @@ class TestModelLoading:
         """Loading nonexistent model raises FileNotFoundError."""
         registry = ModelRegistry(test_db_url)
 
-        with pytest.raises(FileNotFoundError, match="Model file not found"):
+        with pytest.raises(FileNotFoundError, match=r"Model file not found.*/nonexistent/model.txt"):
             registry.load_model_from_file("/nonexistent/model.txt")
 
     def test_load_model_from_invalid_file_raises_error(self, test_db_url, temp_dir):
@@ -173,7 +173,7 @@ class TestDatabaseIntegration:
         """Fetching metadata when no active model raises ValueError."""
         registry = ModelRegistry(test_db_url)
 
-        with pytest.raises(ValueError, match="No active model found"):
+        with pytest.raises(ValueError, match=r"No active model found.*nonexistent_strategy"):
             registry.get_active_model_metadata("nonexistent_strategy")
 
     def test_reload_if_changed_initial_load(

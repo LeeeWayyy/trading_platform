@@ -199,7 +199,7 @@ class TestPortfolioBacktest:
             actual_returns=self.actual_returns,
         )
 
-        with pytest.raises(ValueError, match="must run backtest first"):
+        with pytest.raises(ValueError, match="(?i)must run backtest first"):
             backtest.plot_cumulative_returns()
 
     def test_report_without_running_raises_error(self) -> None:
@@ -209,7 +209,7 @@ class TestPortfolioBacktest:
             actual_returns=self.actual_returns,
         )
 
-        with pytest.raises(ValueError, match="must run backtest first"):
+        with pytest.raises(ValueError, match="(?i)must run backtest first"):
             backtest.generate_report()
 
     def test_perfect_predictions(self) -> None:
