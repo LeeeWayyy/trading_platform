@@ -310,25 +310,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             redis_client = None
             feature_cache = None
 
-        # Step 4: Initialize SignalGenerator
-        logger.info(f"Initializing signal generator (data: {settings.data_dir})")
-        signal_generator = SignalGenerator(
-            model_registry=model_registry,
-            data_dir=settings.data_dir,
-            top_n=settings.top_n,
-            bottom_n=settings.bottom_n,
-            feature_cache=feature_cache,  # Pass feature cache (None if disabled)
-        )
+        # Step 4: Initialize SignalGenerator (skip in TESTING mode if model not loaded)
+        if settings.testing and not model_registry.is_loaded:
+            logger.info("TESTING MODE: Skipping SignalGenerator initialization (no model loaded)")
+            signal_generator = None
+        else:
+            logger.info(f"Initializing signal generator (data: {settings.data_dir})")
+            signal_generator = SignalGenerator(
+                model_registry=model_registry,
+                data_dir=settings.data_dir,
+                top_n=settings.top_n,
+                bottom_n=settings.bottom_n,
+                feature_cache=feature_cache,  # Pass feature cache (None if disabled)
+            )
 
         logger.info("=" * 60)
-        logger.info("Signal Service Ready!")
-        assert model_registry is not None
-        assert model_registry.current_metadata is not None
-        logger.info(f"  - Model: {model_registry.current_metadata.strategy_name}")
-        logger.info(f"  - Version: {model_registry.current_metadata.version}")
-        logger.info(f"  - Top N (long): {settings.top_n}")
-        logger.info(f"  - Bottom N (short): {settings.bottom_n}")
-        logger.info(f"  - Data directory: {settings.data_dir}")
+        if model_registry.is_loaded and model_registry.current_metadata:
+            logger.info("Signal Service Ready!")
+            logger.info(f"  - Model: {model_registry.current_metadata.strategy_name}")
+            logger.info(f"  - Version: {model_registry.current_metadata.version}")
+            logger.info(f"  - Top N (long): {settings.top_n}")
+            logger.info(f"  - Bottom N (short): {settings.bottom_n}")
+            logger.info(f"  - Data directory: {settings.data_dir}")
+        else:
+            logger.info("Signal Service Ready (TESTING MODE - No Model)")
+            logger.info("  - Model: NOT LOADED")
+            logger.info("  - Signal generation: DISABLED (will return 500)")
+            logger.info("  - Health checks: ENABLED")
+
         logger.info(f"  - Redis enabled: {settings.redis_enabled}")
         if settings.redis_enabled and feature_cache:
             logger.info(f"  - Feature cache: ACTIVE (TTL: {settings.redis_ttl}s)")
