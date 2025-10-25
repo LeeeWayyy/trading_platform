@@ -33,70 +33,114 @@ Audit and simplify the `.claude/workflows/` directory to improve usability, redu
 ## Background
 
 After completing P1T11, we have:
-- 13 workflows in `.claude/workflows/`
+- **17 workflows** in `.claude/workflows/` (not 13 - updated count)
 - Pre-commit framework with 3 gates (branch naming, TodoWrite, CI tests)
 - Documented 4-step pattern and subfeature branching strategy
 
-**Problem:**
-- Some workflows are verbose (>10 steps)
+**Problems Identified:**
+- **7 workflows exceed 500 lines** (readability suffers, target: ≤600 lines)
+- **Documentation hierarchy unclear:** CLAUDE.md vs `.claude/workflows/README.md` roles not distinct
 - Potential redundancy across workflow guides
 - No systematic enforcement of workflow best practices (ADR updates, documentation, etc.)
 - ADR creation doesn't automatically trigger updates to README.md, CONCEPTS/, or LESSONS_LEARNED/
+- Task creation review (workflow 13) is manual, no enforcement
 
-**Goal:**
-Simplify workflows and design (not implement) additional pre-commit gates to enforce documentation best practices.
+**Goals:**
+1. **Clarify documentation hierarchy:** CLAUDE.md = PRIMARY guidance, README.md = PURE INDEX
+2. Simplify workflows and extract examples to reduce verbosity
+3. Design (not implement) additional pre-commit gates to enforce documentation best practices
+4. Design non-blocking reminder for task creation review workflow
 
 ---
 
 ## Scope
 
-### 1. Workflow Audit (1-2 hours)
+### 0. Documentation Hierarchy Fix (30 min - 1 hour) **[NEW - HIGH PRIORITY]**
 
 **Tasks:**
-- Review all 13 workflows in `.claude/workflows/`
-- Identify verbose workflows (>10 steps)
+- Update CLAUDE.md to explicitly position it as PRIMARY guidance document
+- Slim `.claude/workflows/README.md` to pure index (2 sentences + tables only)
+- Find and fix all cross-references using `rg -n "workflows/README"`
+- Update all workflows to reference CLAUDE.md (not README.md) for overview
+
+**Deliverables:**
+- Updated CLAUDE.md with clear "workflow index" positioning
+- Slimmed README.md (pure navigational index)
+- Fixed cross-references throughout all workflows
+
+**Rationale:** Creates clean foundation before audit (Gemini/Codex recommendation)
+
+### 1. Workflow Audit (1.5-2 hours)
+
+**Tasks:**
+- Review all **17 workflows** in `.claude/workflows/` (updated count)
+- Use table template (timebox: 10 min per workflow)
+- Capture: line count, redundancy notes, missing cross-links
+- Identify verbose workflows (>500 lines, target: ≤600)
 - Find redundant or overlapping content
 - Assess clarity and ease of discovery
 
 **Deliverables:**
-- Audit report documenting findings
-- List of workflows requiring simplification
+- Structured audit report (table format) documenting findings
+- Prioritized list of workflows requiring simplification (wave-based: largest first)
 
-### 2. Workflow Simplification (2-3 hours)
-
-**Tasks:**
-- Consolidate duplicate information across workflows
-- Simplify verbose workflows (target: ≤10 steps each)
-- Improve cross-referencing between related workflows
-- Update `.claude/workflows/README.md` with better navigation
-
-**Deliverables:**
-- Simplified workflow guides
-- Improved README with categorization
-- Better cross-links between workflows
-
-### 3. Pre-commit Gate Design (1-2 hours)
+### 2. Workflow Simplification (3-4 hours)
 
 **Tasks:**
-- Enumerate workflow steps that should be enforced via pre-commit hooks
-- Design enforcement mechanisms (e.g., check for ADR creation, documentation updates)
-- Document gates in ADR (ADR-00XX: Workflow Automation Gates)
-- Mark enforced steps in workflows with "🔒 ENFORCED:" prefix
-
-**Candidate Gates:**
-- **ADR Documentation Gate:** When ADR is created/modified, ensure:
-  - README.md updated (relevant sections)
-  - CONCEPTS/ has corresponding concept doc (if needed)
-  - LESSONS_LEARNED/ retrospective created (after completion)
-- **Test Coverage Gate:** Ensure tests exist for code changes
-- **Documentation Update Gate:** Code changes require docstring updates
-
-**Important:** This task is **design only** - implementation deferred to future task
+- Simplify top 5 verbose workflows (wave-based: largest first)
+  - 02-git-pr.md (1,114 → ~600 lines)
+  - 04-zen-review-deep.md (798 → ~500 lines)
+  - 01-git-commit.md (678 → ~450 lines)
+  - 11-environment-bootstrap.md (678 → ~400 lines)
+  - 13-task-creation-review.md (624 → ~400 lines)
+- Extract examples to `.claude/examples/` directory
+- Use shared snippets for repeated content (reduce duplication)
+- Add expandable appendix sections (don't delete crucial content)
+- Consolidate DRAFT-pr-review-feedback-rules.md into 02-git-pr.md
 
 **Deliverables:**
-- ADR documenting proposed pre-commit gates
-- Updated workflows with "🔒 ENFORCED:" markers
-- Implementation plan (scope, effort estimate)
+- Simplified workflow guides (≤600 lines or justified)
+- `.claude/examples/` directory with extracted examples
+- Better cross-links using shared snippets
+
+### 3. Pre-commit Gate Design (2 hours)
+
+**Tasks:**
+- Design 4 pre-commit gates (enforcement mechanisms, exit codes, integration plan)
+- Document in ADR-00XX: Workflow Automation Gates
+- Mark enforced steps in workflows with "🔒 ENFORCED (planned):" prefix
+- Create follow-up ticket placeholders for implementation
+
+**Gates to Design:**
+
+1. **Task Review Reminder (Non-blocking)** **[NEW - Gemini/Codex recommendation]**
+   - **Trigger:** `docs/TASKS/*.md` staged
+   - **Action:** Print reminder message (echo once per commit)
+   - **Exit code:** Always 0 (warning only, not blocking)
+   - **Rationale:** Hard gate can be spoofed; reminder reinforces process without friction
+
+2. **ADR Documentation Gate**
+   - **Trigger:** `docs/ADRs/*.md` created/modified
+   - **Checks:** README.md updated (if needed), CONCEPTS/ exists (if new concept)
+   - **Exit codes:** 0 (pass), 1 (warning), 2 (fail)
+
+3. **Test Coverage Gate**
+   - **Trigger:** `apps/**/*.py` or `libs/**/*.py` modified
+   - **Checks:** Corresponding test file exists and updated
+   - **Exit codes:** 0 (pass), 1 (new file warning), 2 (fail)
+
+4. **Documentation Update Gate**
+   - **Trigger:** Python function signatures changed
+   - **Checks:** Docstrings present and updated
+   - **Exit codes:** 0 (pass), 1 (warning), 2 (fail)
+
+**Important:** This task is **design only** - implementation explicitly deferred to future task
+
+**Deliverables:**
+- ADR-00XX documenting 4 proposed gates with "Simplicity and Maintainability" as NFR
+- Updated workflows with "🔒 ENFORCED (planned):" markers
+- Implementation plan with scope, effort estimate, and follow-up tickets
+- CI pre-merge checklist mirroring task review reminder
 
 ### 4. ADR Update Checklist (30 min - 1 hour)
 
@@ -121,39 +165,62 @@ Simplify workflows and design (not implement) additional pre-commit gates to enf
 
 ## Implementation Plan
 
-### Phase 1: Audit (1-2 hours)
-1. Review all workflows systematically
-2. Document findings in audit report
-3. Prioritize workflows for simplification
+**Revised order based on Gemini/Codex strategic guidance:**
 
-### Phase 2: Simplification (2-3 hours)
-1. Simplify top 3-5 verbose workflows
-2. Consolidate duplicate content
-3. Improve cross-references
-4. Update README
+### Phase 1: Documentation Hierarchy + Audit (2-3 hours) **[HIGHEST PRIORITY]**
+**Rationale:** Creates clean foundation; hierarchy fixes inform audit
 
-### Phase 3: Gate Design (1-2 hours)
-1. Enumerate candidate gates
-2. Create ADR for workflow automation
-3. Document enforcement mechanisms
-4. Mark workflows with enforcement indicators
+1. **Fix documentation hierarchy (30 min - 1 hour)**
+   - Update CLAUDE.md quick-start to position README as workflow index
+   - Slim README.md to pure index (2 sentences + tables)
+   - Fix cross-references: `rg -n "workflows/README"` → update all
+   - Add link-check step to audit
 
-### Phase 4: ADR Checklist (30 min - 1 hour)
-1. Create ADR update checklist
-2. Integrate into 08-adr-creation.md
-3. Document enforcement approach
+2. **Conduct systematic audit (1.5-2 hours)**
+   - Use table template (10 min per workflow, strict timebox)
+   - Capture: line count, redundancy, missing cross-links
+   - Create structured audit report
+
+**Quick Wins (Codex):** Batch doc-link rewrites with `rg`, lightweight template keeps timeboxed
+
+### Phase 2: Simplification + ADR Checklist (3-4 hours)
+**Rationale:** Audit findings drive simplification targets
+
+1. **Simplify workflows (2.5-3 hours)**
+   - Wave-based approach (largest first = maximum impact quickly)
+   - Extract examples to `.claude/examples/`
+   - Use shared snippets for repeated content
+   - Add appendix sections (preserve crucial content)
+
+2. **Create ADR checklist (30 min - 1 hour)**
+   - Design systematic ADR lifecycle checklist
+   - Integrate into `08-adr-creation.md`
+   - Mark "🔒 ENFORCED (planned)" items
+
+### Phase 3: Pre-commit Gate Design (2 hours)
+**Rationale:** Design based on final, simplified workflow state
+
+1. Design 4 gates (task reminder + 3 automation gates)
+2. Create ADR-00XX with "Simplicity and Maintainability" NFR
+3. Mark workflows with enforcement indicators
+4. Create follow-up implementation tickets
+5. **Critical:** Explicitly state "Implementation deferred" in ADR
 
 ---
 
 ## Success Criteria
 
-- [ ] All workflows ≤10 steps (or clearly justified if longer)
-- [ ] No redundant content across workflows
-- [ ] `.claude/workflows/README.md` has clear navigation
-- [ ] ADR created documenting proposed pre-commit gates
-- [ ] ADR update checklist integrated into workflow
-- [ ] Implementation plan for gates documented
-- [ ] Zen-mcp review approval
+- [ ] **CLAUDE.md is PRIMARY guidance** (all workflows reference it, not README.md)
+- [ ] **README.md is PURE INDEX** (2 sentences + tables only, no narrative)
+- [ ] All cross-references fixed and validated (`rg -n "workflows/README"` returns clean)
+- [ ] Audit report completed (17 workflows analyzed with table template)
+- [ ] Top 5 workflows simplified (≤600 lines or justified)
+- [ ] Examples extracted to `.claude/examples/` directory
+- [ ] No redundant content across workflows (shared snippets used)
+- [ ] ADR update checklist integrated into `08-adr-creation.md`
+- [ ] **ADR-00XX created** (4 gates designed: task reminder + 3 automation)
+- [ ] Implementation explicitly deferred in ADR with follow-up tickets
+- [ ] Zen-mcp review approval (deep review before PR)
 
 ---
 
@@ -193,10 +260,23 @@ Simplify workflows and design (not implement) additional pre-commit gates to enf
 
 ## Notes
 
-- Codex recommended splitting from P1T11 due to scope (16+ workflows to audit)
-- Focus on design over implementation for gates
+- **Updated:** Actually 17 workflows (not 13) - discovered during initial analysis
+- Codex recommended splitting from P1T11 due to scope (17 workflows to audit)
+- **Strategic guidance from Gemini + Codex (continuation_id: 424c08d2-7308-4ec1-86ed-35b14f4920e5):**
+  - Documentation hierarchy fix is HIGH PRIORITY foundation
+  - Non-blocking task review reminder preferred over hard gate (low friction)
+  - Wave-based simplification (largest first) = maximum impact
+  - "Simplicity and Maintainability" as explicit NFR for gates
+  - Mirror task review reminder in CI pre-merge checklist
+- Focus on design over implementation for gates (explicitly defer to follow-up task)
 - Leverage existing `.claude/workflows/07-documentation.md` as baseline
 - Consider consolidating with 00-task-breakdown.md patterns
+
+**Risk Mitigations:**
+- Timebox audit (10 min/workflow) to prevent scope creep
+- Use appendix sections instead of deleting crucial content
+- Add link-check step after hierarchy fix
+- Create follow-up tickets for gate implementation (avoid scope creep)
 
 ---
 

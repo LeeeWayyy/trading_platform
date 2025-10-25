@@ -1,16 +1,6 @@
-# Claude Code Workflows
+# Workflow Index
 
-**Purpose:** Step-by-step operational guides for common development tasks
-**Last Updated:** 2025-10-24
-**Maintained By:** Development Team
-
----
-
-## 📖 Quick Start
-
-1. **New to the project?** Start with [CLAUDE.md](../../CLAUDE.md) for project overview
-2. **Need to do a specific task?** Find the workflow below
-3. **Workflow doesn't exist?** Use [00-template.md](./00-template.md) to create one
+**Quick reference index for finding specific step-by-step workflows.** See [CLAUDE.md](../../CLAUDE.md) for primary guidance, principles, and mandatory process steps.
 
 ---
 
@@ -213,22 +203,7 @@ All workflows must:
 
 ## 🆘 Getting Help
 
-**Can't find the workflow you need?**
-1. Check [docs/INDEX.md](../../docs/INDEX.md) for related documentation
-2. Search existing workflows for similar tasks
-3. Ask in team chat or create an issue
-4. Create new workflow using template
-
-**Workflow seems outdated?**
-1. Check "Last Reviewed" date in workflow header
-2. Test the workflow and document issues
-3. Update workflow and increment review date
-4. Create PR with changes
-
-**Workflow conflicts with standards?**
-1. Standards documents in `/docs/STANDARDS/` take precedence
-2. Update workflow to match standards
-3. If standards need updating, create ADR first
+**Start with [CLAUDE.md](../../CLAUDE.md)** for project principles, mandatory steps, and process overview. This index helps you find specific workflow details.
 
 ---
 

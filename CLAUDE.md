@@ -54,7 +54,8 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 ## 📖 Essential Documentation
 
 **📂 Workflow Guides (step-by-step procedures):**
-- [`.claude/workflows/README.md`](./.claude/workflows/README.md) — **Start here for all workflows**
+- This document (CLAUDE.md) is your **PRIMARY guidance** — start here for principles and process
+- [`.claude/workflows/README.md`](./.claude/workflows/README.md) — **Workflow Index** (quick reference to find specific workflows)
 
 **📖 First Time? Documentation Index:**
 1. `/docs/INDEX.md` — Canonical entry point with navigation guide
@@ -326,7 +327,7 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 
 ## 🎯 Development Process
 
-**See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for complete workflow guides.**
+**Workflow Index:** [`.claude/workflows/README.md`](./.claude/workflows/README.md) — Find specific step-by-step workflows
 
 ### 🔍 PHASE 0: Pre-Implementation Analysis (MANDATORY - 30-60 min)
 
@@ -569,7 +570,7 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 
 9. **🔒 MANDATORY: Before PR** - deep review via clink + gemini (`.claude/workflows/04-zen-review-deep.md`)
 
-**See [`.claude/workflows/README.md`](./.claude/workflows/README.md) for detailed workflows.**
+**Workflow Index:** [`.claude/workflows/README.md`](./.claude/workflows/README.md) — Find specific step-by-step workflows
 
 ---
 
@@ -595,6 +596,7 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 ---
 
 **Questions or need help?**
-- Check [`.claude/workflows/README.md`](./.claude/workflows/README.md) for workflow guides
+- **This document (CLAUDE.md) is your PRIMARY guidance** — review principles and mandatory steps here first
+- Find specific workflows in [`.claude/workflows/README.md`](./.claude/workflows/README.md) (workflow index)
 - Review `/docs/INDEX.md` for complete documentation index
 - See `/docs/GETTING_STARTED/` for setup and orientation
