@@ -299,7 +299,7 @@ See `.github/workflows/pr-auto-review-request.yml`
 **Automated review happens:**
 - When PR is created
 - When PR is reopened
-- Can manually trigger with comment: `@codex @gemini-code-assist please review`
+- Can manually trigger with comment: `@gemini-code-assist @codex please review`
 
 ### 10. Wait for Review Feedback
 
@@ -544,7 +544,7 @@ If still fails: Check Python version, dependencies (`poetry install --sync`), DB
 ### Automated Reviewers Not Responding
 
 ```bash
-gh pr comment <PR_NUMBER> --body "@codex @gemini-code-assist please review"
+gh pr comment <PR_NUMBER> --body "@gemini-code-assist @codex please review"
 ```
 
 ### Merge Conflicts
