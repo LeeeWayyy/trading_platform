@@ -329,9 +329,8 @@ class TestRiskCheckerCalculateNewPosition:
 
     def test_invalid_side_raises_error(self, checker):
         """Test invalid side raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Invalid side"):
             checker._calculate_new_position(100, "invalid", 50)
-        assert "Invalid side" in str(exc_info.value)
 
 
 class TestRiskCheckerPortfolioExposure:
