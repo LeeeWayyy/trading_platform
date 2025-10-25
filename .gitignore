@@ -87,3 +87,6 @@ Thumbs.db
 
 # Zen-MCP temporary files
 zen_precommit.changeset
+
+# Claude Code runtime state
+.claude/state/current-todo.json

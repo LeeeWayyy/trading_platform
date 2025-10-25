@@ -22,3 +22,14 @@ repos:
       - id: check-json
       - id: check-toml
       - id: mixed-line-ending
+
+  # Local hooks (version-controlled workflow quality gates)
+  - repo: local
+    hooks:
+      - id: zen-pre-commit
+        name: Zen Pre-Commit Quality Gates
+        entry: scripts/hooks/zen_pre_commit.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
