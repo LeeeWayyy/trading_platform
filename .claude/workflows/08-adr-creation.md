@@ -103,7 +103,78 @@ git commit -m "ADR-0013: Use Redis for circuit breaker state"
 git commit -m "Implement circuit breaker in Redis (ADR-0013)"
 ```
 
-### 7. Reference ADR in Related Work
+### 7. Complete ADR Documentation Update Checklist
+
+**MANDATORY: After creating ADR, update all related documentation to maintain project coherence.**
+
+**Review and complete this checklist:**
+
+```markdown
+## ADR Documentation Update Checklist
+
+### Core ADR
+- [ ] ADR created in `docs/ADRs/NNNN-title.md` with all required sections
+- [ ] ADR status updated to "Accepted" before implementation
+- [ ] ADR committed to git BEFORE implementation code
+
+### Project Documentation Updates
+- [ ] **README.md updated** (if introducing new component/service/capability)
+  - Add to "Key Achievements" or relevant feature section
+  - Update architecture overview if structural change
+  - Add links to new documentation
+
+- [ ] **CONCEPTS/ documentation created** (if introducing new architectural concept)
+  - Create `docs/CONCEPTS/concept-name.md` explaining:
+    - What problem does this solve?
+    - How does it work? (with examples)
+    - Why did we choose this approach?
+    - Common patterns and best practices
+  - Link from README.md "Concept Documentation" section
+
+- [ ] **Workflow updates** (if ADR changes development process)
+  - Update affected workflows in `.claude/workflows/`
+  - Add new workflow if introducing new process
+  - Update workflow index in `.claude/workflows/README.md`
+
+- [ ] **API documentation** (if ADR affects API contracts)
+  - Update OpenAPI specs in `docs/API/*.openapi.yaml`
+  - Document breaking changes clearly
+  - Update API migration guides if needed
+
+- [ ] **Database documentation** (if ADR affects schema)
+  - Update schema docs in `docs/DB/*.sql`
+  - Create migration guide if schema changes
+  - Document data migration strategy
+
+### Implementation Tracking
+- [ ] **LESSONS_LEARNED/ retrospective planned** (schedule post-implementation review)
+  - Create placeholder: `docs/LESSONS_LEARNED/NNNN-title-retrospective.md`
+  - Schedule review: 1-2 weeks after implementation complete
+  - Document: What worked? What didn't? What would we do differently?
+
+- [ ] **Task tracking updated** (if part of larger task/phase)
+  - Link ADR in relevant `docs/TASKS/*.md`
+  - Update implementation approach section
+  - Note ADR number in acceptance criteria
+
+### Cross-References
+- [ ] **Related ADRs linked**
+  - Add "Related ADRs" section if this builds on/modifies previous decisions
+  - Update superseded ADRs with "Status: Superseded by ADR-NNNN"
+
+- [ ] **Code references prepared** (for implementation phase)
+  - Plan where to add "See ADR-NNNN" comments
+  - Identify key modules/functions that implement this decision
+```
+
+**Enforcement:** This checklist is reviewed during:
+- Pre-commit review (quick zen-mcp check)
+- Deep zen-mcp review before PR
+- PR review by automated reviewers
+
+**Time estimate:** 15-30 minutes for thorough documentation updates
+
+### 8. Reference ADR in Related Work
 
 **In code:**
 ```python
@@ -353,11 +424,38 @@ $ git add docs/ADRs/0013-redis-circuit-breaker.md
 $ git commit -m "ADR-0013: Use Redis for circuit breaker state"
 $ git push
 
-# Step 7: Implement and reference
+# Step 7: Complete documentation update checklist
+$ # Review checklist and update related docs:
+
+# 7a. Update README.md (new capability)
+$ vim README.md
+# Added: Circuit breaker section to "Key Features"
+# Added: Link to circuit breaker concept doc
+
+# 7b. Create CONCEPTS/ doc (new architectural concept)
+$ vim docs/CONCEPTS/circuit-breaker-design.md
+# Explained: What circuit breakers are, why needed, how implemented
+
+# 7c. Plan retrospective
+$ vim docs/LESSONS_LEARNED/0013-circuit-breaker-retrospective.md
+# Created placeholder for post-implementation review
+
+# 7d. Commit documentation updates
+$ git add README.md docs/CONCEPTS/circuit-breaker-design.md docs/LESSONS_LEARNED/
+$ git commit -m "Add circuit breaker documentation (ADR-0013)
+
+- Updated README.md with circuit breaker capabilities
+- Created circuit-breaker-design.md concept doc
+- Planned retrospective for post-implementation review
+
+Related: ADR-0013"
+$ git push
+
+# Step 8: Implement and reference
 $ # ... implement code ...
 $ git commit -m "Implement Redis circuit breaker (ADR-0013)"
 
-# Step 8: Reference in code
+# Step 9: Reference in code
 # See code example in step-by-step section
 ```
 
@@ -417,6 +515,12 @@ class AppConfig(BaseSettings):
 - [ ] Implementation notes include code examples
 - [ ] Status is "Accepted" before implementation starts
 - [ ] ADR committed to git before implementation commit
+- [ ] **Documentation update checklist completed** (Step 7):
+  - [ ] README.md updated if new component/service
+  - [ ] CONCEPTS/ doc created if new architectural pattern
+  - [ ] Related workflows updated if process changes
+  - [ ] LESSONS_LEARNED/ retrospective planned
+  - [ ] Related ADRs cross-referenced
 
 **What to check if ADR seems incomplete:**
 - Read it as if you're new to the decision
@@ -424,6 +528,7 @@ class AppConfig(BaseSettings):
 - Are trade-offs honest (not hiding downsides)?
 - Is the "why" explained, not just "what"?
 - Would this help in 6 months when debugging?
+- Is the broader documentation ecosystem updated?
 
 ---
 
