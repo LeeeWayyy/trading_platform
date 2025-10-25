@@ -165,7 +165,7 @@ class TestLogContext:
         original_id = "original-999"
         set_trace_id(original_id)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Test error"):
             with LogContext("temporary-111"):
                 assert get_trace_id() == "temporary-111"
                 raise ValueError("Test error")

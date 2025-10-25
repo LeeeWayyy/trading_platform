@@ -56,8 +56,9 @@ class TestFailClosedBehaviorExecutionGateway:
         with patch("apps.execution_gateway.database.DatabaseClient"):
             yield
 
+    @pytest.mark.usefixtures("_mock_redis_unavailable", "_mock_postgres")
     def test_order_submission_blocked_when_redis_unavailable(
-        self, _mock_redis_unavailable, _mock_postgres
+        self
     ):
         """
         Test orders are blocked (fail closed) when Redis unavailable.
@@ -92,8 +93,9 @@ class TestFailClosedBehaviorExecutionGateway:
         assert response.json()["detail"]["fail_closed"] is True
         assert "kill-switch state unknown" in response.json()["detail"]["message"].lower()
 
+    @pytest.mark.usefixtures("_mock_redis_unavailable", "_mock_postgres")
     def test_health_endpoint_reports_kill_switch_unavailable(
-        self, _mock_redis_unavailable, _mock_postgres
+        self
     ):
         """
         Test health endpoint reports kill-switch unavailability.
@@ -128,8 +130,9 @@ class TestFailClosedBehaviorExecutionGateway:
         ):
             yield mock_redis
 
+    @pytest.mark.usefixtures("_mock_postgres")
     def test_order_submission_blocked_when_kill_switch_init_fails(
-        self, mock_kill_switch_init_failure, _mock_postgres
+        self, mock_kill_switch_init_failure
     ):
         """
         Test orders blocked when KillSwitch initialization fails.
@@ -188,8 +191,9 @@ class TestFailClosedBehaviorOrchestrator:
         # This is a no-op fixture to maintain test compatibility
         return
 
+    @pytest.mark.usefixtures("_mock_redis_unavailable", "_mock_postgres", "_mock_http_clients")
     def test_orchestration_blocked_when_redis_unavailable(
-        self, _mock_redis_unavailable, _mock_postgres, _mock_http_clients
+        self
     ):
         """
         Test orchestration runs are blocked when Redis unavailable.
@@ -217,8 +221,9 @@ class TestFailClosedBehaviorOrchestrator:
         assert "kill-switch unavailable" in response.json()["detail"]["error"].lower()
         assert response.json()["detail"]["fail_closed"] is True
 
+    @pytest.mark.usefixtures("_mock_redis_unavailable", "_mock_postgres", "_mock_http_clients")
     def test_health_endpoint_reports_kill_switch_unavailable(
-        self, _mock_redis_unavailable, _mock_postgres, _mock_http_clients
+        self
     ):
         """Test health endpoint reports kill-switch unavailability."""
         from apps.orchestrator.main import app
@@ -280,8 +285,9 @@ class TestKillSwitchJSONBodyHandling:
         with patch("apps.execution_gateway.database.DatabaseClient"):
             yield
 
+    @pytest.mark.usefixtures("_mock_postgres")
     def test_engage_endpoint_accepts_json_body_with_nested_details(
-        self, mock_redis_and_kill_switch, _mock_postgres
+        self, mock_redis_and_kill_switch
     ):
         """
         Test engage endpoint accepts JSON body with nested details object.
@@ -330,8 +336,9 @@ class TestKillSwitchJSONBodyHandling:
             assert call_kwargs["details"]["anomaly_type"] == "flash_crash"
             assert len(call_kwargs["details"]["affected_symbols"]) == 2
 
+    @pytest.mark.usefixtures("_mock_postgres")
     def test_engage_endpoint_validates_required_fields(
-        self, mock_redis_and_kill_switch, _mock_postgres
+        self, mock_redis_and_kill_switch
     ):
         """Test engage endpoint validates required fields (reason, operator)."""
         from apps.execution_gateway.main import app
@@ -351,8 +358,9 @@ class TestKillSwitchJSONBodyHandling:
         error_detail = response.json()["detail"]
         assert any("reason" in str(err).lower() for err in error_detail)
 
+    @pytest.mark.usefixtures("_mock_postgres")
     def test_disengage_endpoint_accepts_json_body_with_notes(
-        self, mock_redis_and_kill_switch, _mock_postgres
+        self, mock_redis_and_kill_switch
     ):
         """
         Test disengage endpoint accepts JSON body with optional notes.
@@ -384,8 +392,9 @@ class TestKillSwitchJSONBodyHandling:
             assert call_kwargs["operator"] == "ops_team"
             assert "normalized" in call_kwargs["notes"]
 
+    @pytest.mark.usefixtures("_mock_postgres")
     def test_disengage_endpoint_allows_optional_notes(
-        self, mock_redis_and_kill_switch, _mock_postgres
+        self, mock_redis_and_kill_switch
     ):
         """Test disengage endpoint works without optional notes field."""
         from apps.execution_gateway.main import app
@@ -433,8 +442,9 @@ class TestKillSwitchJSONBodyHandling:
         with patch("apps.orchestrator.database.OrchestrationDatabaseClient"):
             yield
 
+    @pytest.mark.usefixtures("_mock_orchestrator_postgres")
     def test_orchestrator_engage_endpoint_accepts_json_body(
-        self, mock_orchestrator_redis_and_kill_switch, _mock_orchestrator_postgres
+        self, mock_orchestrator_redis_and_kill_switch
     ):
         """Test orchestrator engage endpoint also uses JSON body."""
         from apps.orchestrator.main import app
@@ -462,8 +472,9 @@ class TestKillSwitchJSONBodyHandling:
             assert "deployment" in call_kwargs["reason"].lower()
             assert call_kwargs["details"]["deployment_id"] == "deploy-2025-10-22-001"
 
+    @pytest.mark.usefixtures("_mock_orchestrator_postgres")
     def test_orchestrator_disengage_endpoint_accepts_json_body(
-        self, mock_orchestrator_redis_and_kill_switch, _mock_orchestrator_postgres
+        self, mock_orchestrator_redis_and_kill_switch
     ):
         """Test orchestrator disengage endpoint uses JSON body."""
         from apps.orchestrator.main import app

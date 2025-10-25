@@ -130,8 +130,6 @@ class TestAdjustForSplits:
         with pytest.raises(ValueError, match="missing required columns"):
             adjust_for_splits(df, ca)
 
-.lower()
-
     def test_reverse_split(self):
         """Reverse split (ratio < 1.0) should increase prices, decrease volume."""
         # 1:4 reverse split (ratio = 0.25)

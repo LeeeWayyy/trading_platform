@@ -202,8 +202,6 @@ class TestPortfolioBacktest:
         with pytest.raises(ValueError, match="must run backtest first"):
             backtest.plot_cumulative_returns()
 
-.lower()
-
     def test_report_without_running_raises_error(self) -> None:
         """Generating report without running raises error."""
         backtest = PortfolioBacktest(
@@ -213,8 +211,6 @@ class TestPortfolioBacktest:
 
         with pytest.raises(ValueError, match="must run backtest first"):
             backtest.generate_report()
-
-.lower()
 
     def test_perfect_predictions(self) -> None:
         """Perfect predictions should have high Sharpe ratio."""

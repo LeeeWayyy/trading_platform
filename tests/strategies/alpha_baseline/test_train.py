@@ -160,8 +160,6 @@ class TestBaselineTrainer:
         with pytest.raises(ValueError, match="not trained yet"):
             trainer.predict(X_test)
 
-.lower()
-
     @pytest.mark.skip(reason="Requires trained model - integration test for Phase 6")
     def test_save_model(self) -> None:
         """Save trained model to disk."""
@@ -189,8 +187,6 @@ class TestBaselineTrainer:
 
         with pytest.raises(ValueError, match="not trained yet"):
             trainer.save_model()
-
-.lower()
 
     @pytest.mark.skip(reason="Requires trained model - integration test for Phase 6")
     def test_load_model(self) -> None:

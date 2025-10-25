@@ -174,8 +174,6 @@ class TestRunETLPipeline:
         with pytest.raises(ValueError, match="empty"):
             run_etl_pipeline(raw_data)
 
-.lower()
-
     def test_missing_columns_raises_error(self):
         """Missing required columns should raise DataQualityError."""
         raw_data = pl.DataFrame(
@@ -188,8 +186,6 @@ class TestRunETLPipeline:
 
         with pytest.raises(DataQualityError, match="missing required columns"):
             run_etl_pipeline(raw_data)
-
-.lower()
 
     def test_file_persistence(self):
         """Pipeline should save files to disk when output_dir provided."""
