@@ -75,6 +75,56 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 ---
 
+## 🤖 Zen-MCP + Clink Integration
+
+This project uses **zen-mcp** (Model Context Protocol server) with **clink** to orchestrate AI-assisted code reviews via authenticated CLI tools.
+
+### 🚨 CRITICAL: Clink-Only Tool Usage Policy
+
+**⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen-mcp__clink` exclusively.**
+
+**WHY THIS MATTERS:**
+- MCP server configuration is **system-level** (not project-level)
+- Direct zen tools (chat, thinkdeep, debug, etc.) bypass CLI authentication
+- Using wrong tools causes **API permission errors** and breaks workflows
+- Cost model depends on CLI subscriptions, not direct API usage
+
+**✅ CORRECT Tool Usage:**
+```python
+# Use clink with appropriate CLI and role
+mcp__zen-mcp__clink(
+    prompt="Review this implementation for trading safety",
+    cli_name="codex",  # or "gemini"
+    role="codereviewer"  # or "planner" or "default"
+)
+```
+
+**❌ INCORRECT Tool Usage (NEVER DO THIS):**
+```python
+# ❌ WRONG: Direct zen-mcp tools bypass CLI authentication
+mcp__zen-mcp__chat(...)           # API permission error
+mcp__zen-mcp__thinkdeep(...)      # API permission error
+mcp__zen-mcp__codereview(...)     # API permission error
+mcp__zen-mcp__debug(...)          # API permission error
+mcp__zen-mcp__consensus(...)      # API permission error
+mcp__zen-mcp__planner(...)        # API permission error
+```
+
+**Technical Limitation:**
+Tool restriction is **not enforceable at project level** because MCP config is system-level (`~/.claude/config/`). This policy relies on **documentation + workflow discipline** rather than technical gates.
+
+**If you catch yourself using direct zen-mcp tools:**
+1. STOP immediately
+2. Use `mcp__zen-mcp__clink` instead with appropriate cli_name and role
+3. Check `.claude/workflows/03-zen-review-quick.md` for correct patterns
+4. See `.claude/TROUBLESHOOTING.md` for detailed error resolution
+
+**See also:**
+- [Quick Review Workflow](/.claude/workflows/03-zen-review-quick.md) - Clink usage examples
+- [Troubleshooting Guide](/.claude/TROUBLESHOOTING.md) - Wrong-tool error fixes
+
+---
+
 ## 📁 Repository Structure
 
 - `apps/` — Microservices (FastAPI): signal_service, execution_gateway, reconciler, risk_manager, cli
@@ -436,6 +486,7 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 ### 🔴 CRITICAL Process Violations (Root Cause of Multiple Fix Commits)
 
 - **🚫 No coding without analysis** — **PRIMARY ROOT CAUSE**: Complete [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md) FIRST (saves 3-11 hours)
+- **🚫 No direct zen-mcp tools** — **CRITICAL**: ONLY use `mcp__zen-mcp__clink` (direct tools cause API permission errors and break workflows)
 - **🚫 No skipping review gates** — **CRITICAL**: Skipping zen-mcp review caused 7 fix commits (10-15 hours wasted) (`.claude/workflows/03-zen-review-quick.md`)
 - **🚫 No skipping local CI** — Run `make ci-local` BEFORE commit (2-4x faster than remote CI)
 - **🚫 No incremental fixing** — Find ALL issues upfront via analysis, not reactively via reviews
