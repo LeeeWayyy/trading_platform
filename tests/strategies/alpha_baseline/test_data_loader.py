@@ -210,7 +210,7 @@ class TestT1DataProvider:
         """Invalid field names should raise ValueError."""
         self._create_test_data("AAPL", ["2024-01-01"], [150.0])
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Invalid fields"):
             self.provider.load_data(
                 symbols=["AAPL"],
                 start_date=date(2024, 1, 1),
@@ -218,18 +218,18 @@ class TestT1DataProvider:
                 fields=["close", "invalid_field"],
             )
 
-        assert "Invalid fields" in str(exc_info.value)
+
 
     def test_nonexistent_data_dir_raises_error(self) -> None:
         """Non-existent data directory should raise ValueError."""
         provider = T1DataProvider(data_dir=Path("/nonexistent/path"))
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Data directory not found"):
             provider.load_data(
                 symbols=["AAPL"], start_date=date(2024, 1, 1), end_date=date(2024, 1, 1)
             )
 
-        assert "Data directory not found" in str(exc_info.value)
+
 
     def test_get_available_symbols(self) -> None:
         """Get list of available symbols."""

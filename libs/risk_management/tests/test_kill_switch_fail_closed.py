@@ -193,9 +193,7 @@ class TestFailClosedScenarios:
         with pytest.raises(RuntimeError):
             kill_switch.is_engaged()  # Can't even check - fail closed
 
-    def test_scenario_redis_restart_during_trading_halt(
-        self, kill_switch, mock_redis
-    ):
+    def test_scenario_redis_restart_during_trading_halt(self, kill_switch, mock_redis):
         """
         Scenario: Redis restarted while kill-switch was ENGAGED.
 
@@ -224,9 +222,7 @@ class TestFailClosedScenarios:
         with pytest.raises(RuntimeError):
             kill_switch.is_engaged()
 
-    def test_scenario_status_endpoint_during_redis_outage(
-        self, kill_switch, mock_redis
-    ):
+    def test_scenario_status_endpoint_during_redis_outage(self, kill_switch, mock_redis):
         """
         Scenario: /status endpoint called during Redis outage.
 
@@ -278,9 +274,7 @@ class TestFailClosedErrorMessages:
 
         assert "fail closed" in str(exc_info.value).lower()
 
-    def test_error_message_mentions_operator_action_required(
-        self, kill_switch, mock_redis
-    ):
+    def test_error_message_mentions_operator_action_required(self, kill_switch, mock_redis):
         """Test that error message tells operator what to do."""
         mock_redis.get.return_value = None
 

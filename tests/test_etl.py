@@ -171,10 +171,10 @@ class TestRunETLPipeline:
             }
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="empty"):
             run_etl_pipeline(raw_data)
 
-        assert "empty" in str(exc_info.value).lower()
+.lower()
 
     def test_missing_columns_raises_error(self):
         """Missing required columns should raise DataQualityError."""
@@ -186,10 +186,10 @@ class TestRunETLPipeline:
             }
         )
 
-        with pytest.raises(DataQualityError) as exc_info:
+        with pytest.raises(DataQualityError, match="missing required columns"):
             run_etl_pipeline(raw_data)
 
-        assert "missing required columns" in str(exc_info.value).lower()
+.lower()
 
     def test_file_persistence(self):
         """Pipeline should save files to disk when output_dir provided."""
@@ -210,7 +210,7 @@ class TestRunETLPipeline:
                 }
             )
 
-            result = run_etl_pipeline(raw_data, output_dir=temp_dir, run_date=date(2024, 1, 11))
+            _result = run_etl_pipeline(raw_data, output_dir=temp_dir, run_date=date(2024, 1, 11))
 
             # Check files were created
             adjusted_dir = temp_dir / "adjusted" / "2024-01-11"
@@ -245,7 +245,7 @@ class TestRunETLPipeline:
                 }
             )
 
-            result = run_etl_pipeline(raw_data, output_dir=temp_dir, run_date=date(2024, 1, 12))
+            _result = run_etl_pipeline(raw_data, output_dir=temp_dir, run_date=date(2024, 1, 12))
 
             # Check quarantine file created
             quarantine_dir = temp_dir / "quarantine" / "2024-01-12"

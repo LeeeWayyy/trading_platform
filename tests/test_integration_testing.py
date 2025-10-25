@@ -235,7 +235,7 @@ class TestDockerComposeValidation:
     """Integration tests for docker-compose.ci.yml (requires Docker)."""
 
     @pytest.fixture(autouse=True)
-    def check_docker_available(self) -> None:
+    def _check_docker_available(self) -> None:
         """Skip tests if Docker is not available."""
         try:
             subprocess.run(

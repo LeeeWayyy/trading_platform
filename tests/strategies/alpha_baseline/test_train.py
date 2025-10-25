@@ -157,10 +157,10 @@ class TestBaselineTrainer:
         trainer = BaselineTrainer()
         X_test = pd.DataFrame(np.random.randn(50, 158))
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="not trained yet"):
             trainer.predict(X_test)
 
-        assert "not trained yet" in str(exc_info.value).lower()
+.lower()
 
     @pytest.mark.skip(reason="Requires trained model - integration test for Phase 6")
     def test_save_model(self) -> None:
@@ -187,10 +187,10 @@ class TestBaselineTrainer:
         """Save without training raises ValueError."""
         trainer = BaselineTrainer()
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="not trained yet"):
             trainer.save_model()
 
-        assert "not trained yet" in str(exc_info.value).lower()
+.lower()
 
     @pytest.mark.skip(reason="Requires trained model - integration test for Phase 6")
     def test_load_model(self) -> None:

@@ -29,7 +29,7 @@ def orchestrator_url() -> str:
 
 
 @pytest.fixture(scope="module")
-def wait_for_orchestrator(orchestrator_url: str) -> None:
+def _wait_for_orchestrator(orchestrator_url: str) -> None:
     """Wait for orchestrator to be healthy before running tests."""
     timeout = 60
     start_time = time.time()

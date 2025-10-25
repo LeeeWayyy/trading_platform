@@ -67,7 +67,7 @@ def fix_link_in_line(line: str, file_path: Path) -> str:
     def replace_link(match):
         text = match.group(1)
         link = match.group(2)
-        original_link = link
+        _original_link = link
 
         # Skip external URLs and anchors
         if link.startswith(("#", "http://", "https://", "mailto:")):

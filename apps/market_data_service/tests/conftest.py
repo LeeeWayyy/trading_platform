@@ -11,7 +11,7 @@ import pytest
 
 
 @pytest.fixture(scope="session", autouse=True)
-def set_test_environment():
+def _set_test_environment():
     """
     Set environment variables for tests.
 

@@ -36,7 +36,7 @@ class TestRedisClientInitialization:
         mock_redis_class.return_value = mock_redis
 
         # Initialize client
-        client = RedisClient(host="localhost", port=6379, db=0, max_connections=10)
+        _client = RedisClient(host="localhost", port=6379, db=0, max_connections=10)
 
         # Verify connection pool created
         mock_pool_class.assert_called_once_with(

@@ -332,7 +332,7 @@ class TestPNLCalculation:
 class TestEnhancedPNLCalculation:
     """Test enhanced P&L calculation with realized/unrealized breakdown."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_calculate_enhanced_pnl_open_positions_only(self):
         """Test enhanced P&L with only open positions (unrealized only)."""
         positions = [
@@ -363,7 +363,7 @@ class TestEnhancedPNLCalculation:
         assert pnl["per_symbol"]["AAPL"]["status"] == "open"
         assert pnl["per_symbol"]["MSFT"]["unrealized"] == Decimal("250.00")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_calculate_enhanced_pnl_closed_positions_only(self):
         """Test enhanced P&L with only closed positions (realized only)."""
         positions = [
@@ -397,7 +397,7 @@ class TestEnhancedPNLCalculation:
         assert pnl["per_symbol"]["AAPL"]["status"] == "closed"
         assert pnl["per_symbol"]["MSFT"]["realized"] == Decimal("-100.00")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_calculate_enhanced_pnl_mixed_positions(self):
         """Test enhanced P&L with both open and closed positions."""
         positions = [
@@ -437,7 +437,7 @@ class TestEnhancedPNLCalculation:
         assert pnl["num_open_positions"] == 2
         assert pnl["num_closed_positions"] == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_calculate_enhanced_pnl_short_position_profit(self):
         """Test unrealized P&L for profitable short position."""
         positions = [
@@ -457,7 +457,7 @@ class TestEnhancedPNLCalculation:
         assert pnl["unrealized_pnl"] == Decimal("500.00")
         assert pnl["total_pnl"] == Decimal("500.00")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_calculate_enhanced_pnl_short_position_loss(self):
         """Test unrealized P&L for losing short position."""
         positions = [
@@ -477,7 +477,7 @@ class TestEnhancedPNLCalculation:
         assert pnl["unrealized_pnl"] == Decimal("-500.00")
         assert pnl["total_pnl"] == Decimal("-500.00")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_calculate_enhanced_pnl_missing_price_fallback(self):
         """Test fallback to avg_entry_price when current price unavailable."""
         positions = [
@@ -494,7 +494,7 @@ class TestEnhancedPNLCalculation:
         assert pnl["unrealized_pnl"] == Decimal("0.00")
         assert pnl["per_symbol"]["AAPL"]["current_price"] == Decimal("150.00")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_calculate_enhanced_pnl_empty_positions(self):
         """Test enhanced P&L with no positions."""
         positions = []
@@ -513,7 +513,7 @@ class TestEnhancedPNLCalculation:
 class TestFetchPositions:
     """Test position fetching from T4 Execution Gateway."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_positions_success(self):
         """Test successful position fetching."""
         expected_positions = [
@@ -536,7 +536,7 @@ class TestFetchPositions:
 
         assert positions == expected_positions
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_positions_invalid_format(self):
         """Test error handling for invalid response format."""
         mock_response = AsyncMock()
@@ -553,7 +553,7 @@ class TestFetchPositions:
             with pytest.raises(RuntimeError, match="unexpected format"):
                 await fetch_positions("http://localhost:8002")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_positions_connection_error(self):
         """Test handling of connection errors."""
         import httpx
@@ -571,7 +571,7 @@ class TestFetchPositions:
 class TestFetchCurrentPrices:
     """Test price fetching from Alpaca API."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_current_prices_success(self):
         """Test successful price fetching."""
         symbols = ["AAPL", "MSFT"]
@@ -608,13 +608,13 @@ class TestFetchCurrentPrices:
         assert prices["AAPL"] == Decimal("152.75")
         assert prices["MSFT"] == Decimal("380.50")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_current_prices_empty_symbols(self):
         """Test fetching prices with empty symbol list."""
         prices = await fetch_current_prices([], {})
         assert prices == {}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_current_prices_alpaca_error(self):
         """Test graceful degradation when Alpaca API fails."""
         from apps.execution_gateway.alpaca_client import AlpacaConnectionError
@@ -635,7 +635,7 @@ class TestFetchCurrentPrices:
         # Should return empty dict on error (graceful degradation)
         assert prices == {}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_fetch_current_prices_missing_quote_fields(self):
         """Test handling of missing quote fields."""
         symbols = ["AAPL"]
@@ -666,7 +666,7 @@ class TestFetchCurrentPrices:
 class TestHealthChecks:
     """Test service health checks."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_check_dependencies_success(self):
         """Test successful health check."""
         config = {"orchestrator_url": "http://localhost:8003"}
@@ -685,7 +685,7 @@ class TestHealthChecks:
                 # Should not raise
                 await check_dependencies(config)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_check_dependencies_unhealthy(self):
         """Test health check with unhealthy service (non-200 status)."""
         config = {"orchestrator_url": "http://localhost:8003"}
@@ -703,7 +703,7 @@ class TestHealthChecks:
             with pytest.raises(RuntimeError, match="unhealthy"):
                 await check_dependencies(config)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_check_dependencies_connection_error(self):
         """Test health check with connection error."""
         import httpx
@@ -719,7 +719,7 @@ class TestHealthChecks:
             with pytest.raises(RuntimeError, match="unavailable"):
                 await check_dependencies(config)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_check_dependencies_timeout(self):
         """Test health check with timeout."""
         import httpx
@@ -739,7 +739,7 @@ class TestHealthChecks:
 class TestOrchestrationTrigger:
     """Test orchestration triggering."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trigger_orchestration_success(self):
         """Test successful orchestration trigger."""
         config = {
@@ -775,7 +775,7 @@ class TestOrchestrationTrigger:
 
         assert result == expected_result
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trigger_orchestration_http_error(self):
         """Test orchestration trigger with HTTP error."""
         import httpx
@@ -811,7 +811,7 @@ class TestOrchestrationTrigger:
 class TestResultsSaving:
     """Test JSON results saving."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_save_results_creates_file(self, tmp_path):
         """Test saving results to JSON file."""
         output_file = tmp_path / "results.json"
@@ -856,7 +856,7 @@ class TestResultsSaving:
         assert data["results"]["total_notional"] == 15000.00  # Converted to float
         assert data["results"]["success_rate"] == 100.0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_save_results_creates_parent_dirs(self, tmp_path):
         """Test saving results creates parent directories."""
         output_file = tmp_path / "nested" / "dir" / "results.json"
@@ -886,7 +886,7 @@ class TestResultsSaving:
         assert output_file.parent.exists()
         assert output_file.exists()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_save_results_no_output(self):
         """Test saving results when no output file specified."""
         config = {"output_file": None}
@@ -896,7 +896,7 @@ class TestResultsSaving:
         # Should do nothing (not raise)
         await save_results(config, result, pnl_metrics)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_save_results_enhanced_pnl(self, tmp_path):
         """Test saving results with enhanced P&L format."""
         output_file = tmp_path / "results.json"

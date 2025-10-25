@@ -264,7 +264,7 @@ class TestCompleteDataPipeline:
         original_close = raw_data["close"].to_list()
 
         # Run pipeline
-        result = run_etl_pipeline(raw_data, output_dir=None)
+        _result = run_etl_pipeline(raw_data, output_dir=None)
 
         # Original data should be unchanged
         assert raw_data["close"].to_list() == original_close

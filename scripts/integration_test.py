@@ -149,7 +149,7 @@ if len(metrics) > 0:
 
     print("\nBacktest metrics:")
     for name, value in metrics.items():
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             if name in [
                 "total_return",
                 "annualized_return",

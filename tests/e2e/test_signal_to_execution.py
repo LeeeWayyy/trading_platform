@@ -32,7 +32,7 @@ def service_urls() -> dict[str, str]:
 
 
 @pytest.fixture(scope="module")
-def wait_for_services(service_urls: dict[str, str]) -> None:
+def _wait_for_services(service_urls: dict[str, str]) -> None:
     """Wait for all services to be healthy before running tests."""
     timeout = 60  # 60 seconds timeout
     start_time = time.time()

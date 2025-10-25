@@ -284,7 +284,7 @@ class TestConvenienceFunctions:
 
 
 @pytest.fixture(autouse=True)
-def cleanup_trace_context():
+def _cleanup_trace_context():
     """Ensure trace context is clean before and after each test."""
     clear_trace_id()
     yield

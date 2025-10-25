@@ -434,7 +434,7 @@ class TestProductionResearchParity:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def print_test_summary(request):
+def _print_test_summary(request):
     """Print summary after all tests complete."""
     yield
 

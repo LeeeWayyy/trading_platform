@@ -66,7 +66,7 @@ try:
 
     print("\nMetrics:")
     for name, value in trainer.metrics.items():
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             print(f"  {name}: {value:.6f}")
         else:
             print(f"  {name}: {value}")

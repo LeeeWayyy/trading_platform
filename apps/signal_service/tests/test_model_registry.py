@@ -69,10 +69,10 @@ class TestModelRegistryInitialization:
 
     def test_initialization_with_empty_url_raises_error(self):
         """Initialize with empty URL raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="cannot be empty"):
             ModelRegistry("")
 
-        assert "cannot be empty" in str(exc_info.value)
+
 
     def test_properties_before_loading(self, test_db_url):
         """Properties return None before model loaded."""
@@ -100,10 +100,10 @@ class TestModelLoading:
         """Loading nonexistent model raises FileNotFoundError."""
         registry = ModelRegistry(test_db_url)
 
-        with pytest.raises(FileNotFoundError) as exc_info:
+        with pytest.raises(FileNotFoundError, match="Model file not found"):
             registry.load_model_from_file("/nonexistent/model.txt")
 
-        assert "Model file not found" in str(exc_info.value)
+
         assert "/nonexistent/model.txt" in str(exc_info.value)
 
     def test_load_model_from_invalid_file_raises_error(self, test_db_url, temp_dir):
@@ -114,10 +114,10 @@ class TestModelLoading:
         invalid_file = temp_dir / "invalid_model.txt"
         invalid_file.write_text("not a model")
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Invalid LightGBM model"):
             registry.load_model_from_file(str(invalid_file))
 
-        assert "Invalid LightGBM model" in str(exc_info.value)
+
 
     def test_load_model_updates_properties(self, test_db_url, mock_model):
         """Loading model is reflected in properties."""
@@ -176,10 +176,10 @@ class TestDatabaseIntegration:
         """Fetching metadata when no active model raises ValueError."""
         registry = ModelRegistry(test_db_url)
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="No active model found"):
             registry.get_active_model_metadata("nonexistent_strategy")
 
-        assert "No active model found" in str(exc_info.value)
+
         assert "nonexistent_strategy" in str(exc_info.value)
 
     def test_reload_if_changed_initial_load(
