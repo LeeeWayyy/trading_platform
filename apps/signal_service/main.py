@@ -211,31 +211,66 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         # Step 2: Load active model
         logger.info(f"Loading model: {settings.default_strategy}")
-        reloaded = model_registry.reload_if_changed(settings.default_strategy)
 
-        if not model_registry.is_loaded:
-            raise RuntimeError(
-                f"Failed to load model '{settings.default_strategy}'. "
-                "Check database has active model registered."
+        # In testing mode, allow service to start without model
+        model_load_failed = False
+        try:
+            reloaded = model_registry.reload_if_changed(settings.default_strategy)
+
+            if not model_registry.is_loaded:
+                model_load_failed = True
+                error_msg = (
+                    f"Failed to load model '{settings.default_strategy}'. "
+                    "Check database has active model registered."
+                )
+                if settings.testing:
+                    logger.warning(
+                        f"TESTING MODE: {error_msg} Service will start without model. "
+                        "Signal generation endpoints will return 500."
+                    )
+                else:
+                    raise RuntimeError(error_msg)
+        except ValueError as e:
+            # Model not found in database
+            model_load_failed = True
+            if settings.testing:
+                logger.warning(
+                    f"TESTING MODE: Model loading failed: {e}. "
+                    "Service will start without model. Signal generation endpoints will return 500."
+                )
+            else:
+                raise RuntimeError(f"Failed to load model: {e}") from e
+
+        # Only update metrics if model loaded successfully
+        if model_registry.is_loaded:
+            assert model_registry is not None
+            assert model_registry.current_metadata is not None
+            logger.info(f"Model loaded: {model_registry.current_metadata.version}")
+
+            # Update model metrics
+            model_version_info.info(
+                {
+                    "version": model_registry.current_metadata.version,
+                    "strategy": model_registry.current_metadata.strategy_name,
+                    "activated_at": (
+                        model_registry.current_metadata.activated_at.isoformat()
+                        if model_registry.current_metadata.activated_at
+                        else ""
+                    ),
+                }
             )
-
-        assert model_registry is not None
-        assert model_registry.current_metadata is not None
-        logger.info(f"Model loaded: {model_registry.current_metadata.version}")
-
-        # Update model metrics
-        model_version_info.info(
-            {
-                "version": model_registry.current_metadata.version,
-                "strategy": model_registry.current_metadata.strategy_name,
-                "activated_at": (
-                    model_registry.current_metadata.activated_at.isoformat()
-                    if model_registry.current_metadata.activated_at
-                    else ""
-                ),
-            }
-        )
-        model_loaded_status.set(1)
+            model_loaded_status.set(1)
+        else:
+            # Model not loaded - set status to 0
+            model_loaded_status.set(0)
+            if settings.testing:
+                logger.info(
+                    "TESTING MODE: Service started without model. "
+                    "Health checks will pass, signal generation will return 500."
+                )
+            else:
+                # This should never happen - we should have raised error earlier
+                logger.error("Unexpected state: model not loaded in non-testing mode")
 
         # Step 3: Initialize Redis client (optional, T1.2)
         if settings.redis_enabled:
@@ -563,6 +598,7 @@ class HealthResponse(BaseModel):
     """
 
     status: str = Field(..., description="Service health status")
+    service: str = Field(default="signal_service", description="Service name")
     model_loaded: bool = Field(..., description="Whether model is loaded")
     model_info: dict[str, Any] | None = Field(None, description="Model metadata")
     redis_status: str = Field(
@@ -688,18 +724,47 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-12-31T10:30:00Z"
         }
     """
+    # In testing mode, allow health check to pass even without model
     if model_registry is None or not model_registry.is_loaded:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
+        if not settings.testing:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
+            )
+
+        # Testing mode: return healthy but with model_loaded=False
+        redis_status_str = "disabled" if not settings.redis_enabled else "disconnected"
+
+        return HealthResponse(
+            status="healthy",
+            model_loaded=False,
+            model_info=None,
+            redis_status=redis_status_str,
+            feature_cache_enabled=False,
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            service="signal_service",
         )
 
     metadata = model_registry.current_metadata
 
     # Validate metadata exists (explicit check for production safety)
     if metadata is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Model metadata not available despite is_loaded=True",
+        if not settings.testing:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Model metadata not available despite is_loaded=True",
+            )
+
+        # Testing mode: return healthy with model_loaded=False
+        redis_status_str = "disabled" if not settings.redis_enabled else "disconnected"
+
+        return HealthResponse(
+            status="healthy",
+            model_loaded=False,
+            model_info=None,
+            redis_status=redis_status_str,
+            feature_cache_enabled=False,
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            service="signal_service",
         )
 
     # Check Redis status (T1.2)
@@ -723,6 +788,7 @@ async def health_check() -> HealthResponse:
         redis_status=redis_status_str,
         feature_cache_enabled=(feature_cache is not None),
         timestamp=datetime.utcnow().isoformat() + "Z",
+        service="signal_service",
     )
 
 
