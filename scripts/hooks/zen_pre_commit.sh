@@ -4,8 +4,8 @@
 #
 # Quality Gates (Hard Blocks):
 #   1. Branch naming convention
-#   2. Tests must pass (mypy, ruff, pytest)
-#   3. TodoWrite state verification (warning only)
+#   2. TodoWrite state verification (with warning fallback if jq missing)
+#   3. Tests must pass (mypy, ruff, pytest)
 #
 # Exit codes:
 #   0 - All gates passed
@@ -73,14 +73,19 @@ FAILED=0
 echo "🏷️  Checking branch naming convention..."
 GATE_START=$(get_timestamp_ms)
 
-if "$SCRIPT_DIR/verify_branch_name.sh"; then
-    GATE_END=$(get_timestamp_ms)
-    DURATION=$((GATE_END - GATE_START))
+# Temporarily disable set -e to capture exit code without aborting
+set +e
+"$SCRIPT_DIR/verify_branch_name.sh"
+BRANCH_EXIT_CODE=$?
+set -e
+
+GATE_END=$(get_timestamp_ms)
+DURATION=$((GATE_END - GATE_START))
+
+if [ $BRANCH_EXIT_CODE -eq 0 ]; then
     log_event "branch_name" "pass" "$DURATION"
     echo -e "${GREEN}✓${NC} Branch naming convention valid"
 else
-    GATE_END=$(get_timestamp_ms)
-    DURATION=$((GATE_END - GATE_START))
     log_event "branch_name" "fail" "$DURATION"
     echo -e "${RED}✗${NC} Branch naming convention failed"
     FAILED=1
@@ -88,22 +93,33 @@ fi
 echo ""
 
 # ============================================================================
-# GATE 2: TodoWrite State (Warning Only)
+# GATE 2: TodoWrite State (Hard Block)
 # ============================================================================
 echo "📝 Checking TodoWrite state..."
 GATE_START=$(get_timestamp_ms)
 
-if "$SCRIPT_DIR/verify_todo.sh"; then
-    GATE_END=$(get_timestamp_ms)
-    DURATION=$((GATE_END - GATE_START))
+# Temporarily disable set -e to capture exit code without aborting
+set +e
+"$SCRIPT_DIR/verify_todo.sh"
+TODO_EXIT_CODE=$?
+set -e
+
+GATE_END=$(get_timestamp_ms)
+DURATION=$((GATE_END - GATE_START))
+
+if [ $TODO_EXIT_CODE -eq 0 ]; then
+    # Success: has active todos
     log_event "todo_state" "pass" "$DURATION"
     echo -e "${GREEN}✓${NC} TodoWrite state valid"
-else
-    GATE_END=$(get_timestamp_ms)
-    DURATION=$((GATE_END - GATE_START))
+elif [ $TODO_EXIT_CODE -eq 1 ]; then
+    # Warning only: jq not installed or missing todo file
     log_event "todo_state" "warn" "$DURATION"
-    # Note: verify_todo.sh returns non-zero but we don't block
-    # It's handled as warning-only
+    echo -e "${YELLOW}⚠${NC}  TodoWrite check skipped (see warning above)"
+else
+    # Hard failure (exit code 2): no active todos when file exists
+    log_event "todo_state" "fail" "$DURATION"
+    echo -e "${RED}✗${NC} TodoWrite state invalid"
+    FAILED=1
 fi
 echo ""
 

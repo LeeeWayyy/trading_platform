@@ -6,8 +6,9 @@
 #   - Has at least one non-completed todo
 #
 # Exit codes:
-#   0 - TodoWrite state valid (active todos exist) OR missing todo file (warning only)
-#   1 - TodoWrite state invalid (no active todos) OR jq not installed (warning only)
+#   0 - TodoWrite state valid (active todos exist)
+#   1 - Warning only (jq not installed OR missing todo file)
+#   2 - Hard failure (no active todos when file exists)
 
 set -euo pipefail
 
@@ -38,8 +39,8 @@ if [ ! -f "$TODO_FILE" ]; then
     echo "   - Break down your task into logical components"
     echo "   - Follow 4-step pattern: Implement → Test → Review → Commit"
     echo ""
-    # Allow commit without todo (warning only)
-    exit 0
+    # Exit 1 for warning (commit allowed, but logged as warning)
+    exit 1
 fi
 
 # Parse JSON and check for active todos
@@ -60,5 +61,6 @@ else
     echo ""
     echo "To bypass this check: git commit --no-verify"
     echo ""
-    exit 1
+    # Exit 2 for hard failure (blocks commit)
+    exit 2
 fi
