@@ -31,29 +31,15 @@
 
 ### 1. Run Deep Zen-MCP Review (MANDATORY)
 
-**Before creating ANY pull request, comprehensive review is required:**
+**Before creating ANY pull request, comprehensive review is MANDATORY.**
 
-```
-Use slash command: /zen-review deep
+See [04-zen-review-deep.md](./04-zen-review-deep.md) for complete deep review workflow.
 
-Or tell Claude: "Deep review all branch changes with zen-mcp"
-```
-
-**This reviews:**
-- Overall architecture and design
-- Test coverage completeness
-- Edge cases and error handling
-- Integration points
-- Documentation quality
-
-**Address ALL findings:**
-- **HIGH/CRITICAL:** MUST fix (blocking)
-- **MEDIUM:** MUST fix OR document deferral with justification
-- **LOW:** Fix if time permits, or document as future improvement
-
-**Only proceed after zen-mcp approval!**
-
-See [04-zen-review-deep.md](./04-zen-review-deep.md) for detailed deep review workflow.
+**Quick summary:**
+- Reviews: architecture, test coverage, edge cases, integration, docs
+- Address ALL HIGH/CRITICAL findings before PR
+- Document any deferred MEDIUM/LOW issues
+- Only proceed after zen-mcp approval
 
 ### 2. Verify All Tests Pass
 
@@ -286,93 +272,21 @@ git push
 **Basic PR creation:**
 ```bash
 gh pr create
+# Prompts for: Title, Body, Base branch
 ```
 
-**This will prompt you for:**
-1. Title (use format: "[Type] Brief description (Ticket)")
-2. Body (use template below)
-3. Base branch (usually `master`)
+**Use format:** `[Type] Brief description (Ticket)`
 
-**PR with pre-filled template:**
-```bash
-gh pr create --title "Add position limit validation (P0T5)" --body "$(cat <<'EOF'
-## Summary
-Implements position limit validation to prevent order placement beyond risk limits.
+**PR description template:**
 
-## Related Work
-- **Ticket:** P0T5 - Position Limit Validation
-- **ADR:** [ADR-0011: Risk Management System](../../docs/ADRs/0011-risk-management-system.md)
-- **Implementation Guide:** [P1T7 Risk Management](../../docs/TASKS/P1T7_DONE.md)
-
-## Changes Made
-- [x] Implement `check_position_limits()` function
-- [x] Add circuit breaker check before validation
-- [x] Integrate into order placement flow
-- [x] Add comprehensive error handling
-- [x] Add unit tests (15 new tests)
-- [x] Add integration tests (5 tests)
-- [x] Update OpenAPI spec
-- [x] Add concept documentation
-
-## Zen-MCP Review ⚠️ MANDATORY
-
-### Progressive Reviews (Commits 1-6):
-- Total commits: 6
-- All commits reviewed by zen-mcp before committing
-- Issues caught early: 2 HIGH, 4 MEDIUM, 3 LOW
-- All issues fixed before reaching PR
-
-### Deep Review (Before PR): ✅ APPROVED
-- Continuation ID: `abc123-def456-ghi789`
-- Architecture: No issues
-- Test coverage: 95% (target: 80%) ✅
-- Edge cases: 1 MEDIUM issue found and fixed
-- Integration points: Verified with execution gateway
-- Final approval: Granted by zen-mcp
-
-**Review prevented 9 issues from reaching PR stage**
-
-## Testing Completed
-- [x] Unit tests pass (70/70 - 100%)
-- [x] Integration tests pass (12/12 - 100%)
-- [x] Linting passes (mypy --strict + ruff)
-- [x] Manual testing in DRY_RUN mode
-- [x] Manual testing in paper trading
-- [x] Performance test: <50ms per check ✅
-
-## Documentation Updated
-- [x] Concept doc created: `/docs/CONCEPTS/risk-management.md`
-- [x] Implementation guide updated
-- [x] ADR created and approved
-- [x] Code has comprehensive docstrings
-- [x] OpenAPI spec updated
-- [x] REPO_MAP.md updated
-
-## Educational Value
-This PR demonstrates:
-- Pre-trade risk validation patterns
-- Circuit breaker integration
-- Position tracking and limits
-- Error handling for risk violations
-- Test strategies for safety-critical code
-
-## Checklist
-- [x] Tests added/updated
-- [x] OpenAPI updated (API changed)
-- [x] Migrations included (N/A - no DB changes)
-- [x] Docs updated (ADR, concepts, guides)
-- [x] ADR created (architectural change)
-- [x] Zen-mcp deep review completed ✅
-
-## Reviewer Notes
-- Focus on risk calculation logic in `check_position_limits()`
-- Verify circuit breaker integration is correct
-- Check error messages are clear and actionable
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-```
+See [.claude/examples/git-pr/good-pr-description-template.md](../examples/git-pr/good-pr-description-template.md) for complete template with all required sections:
+- Summary & Related Work
+- Changes Made checklist
+- Zen-MCP Review evidence (MANDATORY)
+- Testing completed
+- Documentation updated
+- Educational value
+- Reviewer notes
 
 ### 9. Request Automated Reviews
 
@@ -402,346 +316,117 @@ See `.github/workflows/pr-auto-review-request.yml`
 
 ### 11. Address Review Feedback Systematically
 
-**⚠️ CRITICAL:** When reviewers (Codex, Gemini, or CI) find issues, follow this MANDATORY 5-phase process to avoid repeated CI failures and incomplete fixes.
+**⚠️ MANDATORY 5-Phase Process** to avoid repeated CI failures:
 
-#### Core Principle: Never Hide or Ignore Issues
+#### Core Principle
+- ✅ Fix the root cause
+- ❌ Never hide issues with ignore patterns
+- ✅ Create TODO for deferred work
 
-**CRITICAL RULE:** Do NOT use ignore patterns, comments, or workarounds to hide actual issues.
-
-**Required Actions:**
-- ✅ **Fix the issue** - Address root cause immediately
-- ✅ **Add to TODO list** - If fix requires separate work, create explicit task
-- ❌ **NEVER ignore** - Don't add ignore patterns for actual broken links, tests, or checks
-
-**Only Valid Ignore Patterns:**
-- External HTTP URLs that 404 (third-party sites)
-- Localhost URLs (development only)
-- Staging/test environments
+**Only valid ignores:** External HTTP URLs, localhost, staging environments
 
 ---
 
-#### Phase 1: Collect ALL Issues (DO NOT START FIXING YET)
-
-**⏱️ Expected Time:** 5-10 minutes
-
-**1A. Gather Issues from ALL Sources:**
+#### Phase 1: Collect ALL Issues First
 
 ```bash
-# Check all review comments (Codex)
-gh pr view <PR_NUMBER> --json comments --jq '.comments[] | select(.author.login=="codex") | .body'
-
-# Check all review comments (Gemini)
-gh pr view <PR_NUMBER> --json comments --jq '.comments[] | select(.author.login=="gemini-code-assist") | .body'
-
-# Check CI failures
-gh pr checks <PR_NUMBER>
-
-# Get detailed CI logs if needed
-gh run view <RUN_ID> --log-failed
+# Gather from all sources
+gh pr view <PR> --json comments
+gh pr checks <PR>
+make ci-local  # Reproduce locally
 ```
 
-**1B. Create Comprehensive Issue List:**
-
-Create a todo list with ALL issues found:
-
-```markdown
-## PR Review Feedback - Comprehensive List
-
-### Issues from Codex Review:
-- [ ] HIGH: Missing null check in position calculation (line 42)
-- [ ] MEDIUM: Add logging for limit violations (line 67)
-- [ ] LOW: Variable `pos` should be `current_position`
-
-### Issues from Gemini Review:
-- [ ] MEDIUM: Improve error message clarity (line 89)
-- [ ] LOW: Consider caching position lookups
-
-### Issues from CI:
-- [ ] CRITICAL: 11 broken links to IMPLEMENTATION_GUIDES
-- [ ] CRITICAL: Test failure - emoji assertion mismatch
-- [ ] ERROR: 3 template placeholder links to non-existent files
-```
-
-**1C. Verify You Found EVERYTHING:**
-
-```bash
-# Run link check locally to catch ALL link issues
-npm install -g markdown-link-check
-find docs -name "*.md" -exec markdown-link-check {} \; > link-check-results.txt
-
-# Count remaining Status: 400 errors (broken file links)
-grep "Status: 400" link-check-results.txt | wc -l
-# Must be 0 before proceeding!
-
-# Run tests locally
-make test
-
-# Run linting locally
-make lint
-```
-
-**DO NOT PROCEED** until you have a complete list of ALL issues from ALL sources.
-
-**1D. Special Case: Large Issue Lists (>20 issues):**
-
-If you have more than 20 issues total, break into batches by severity:
-
-```markdown
-## Batch 1: CRITICAL + HIGH (5 issues)
-- [ ] CRITICAL: Broken links
-- [ ] HIGH: Null check missing
-
-## Batch 2: MEDIUM (10 issues)
-- [ ] MEDIUM: Logging
-
-## Batch 3: LOW (8 issues)
-- [ ] LOW: Variable naming
-```
-
-Work through batches sequentially: Fix Batch 1 → Test → Zen review → Commit. Repeat for each batch.
+Create comprehensive todo list with ALL issues before fixing anything.
 
 ---
 
-#### Phase 2: Fix ALL Issues (No Partial Fixes)
+#### Phase 2: Fix ALL Issues Together
 
-**⏱️ Expected Time:** 10-60 minutes (depends on issue count and complexity)
-
-**2A. Work Through Entire List Systematically:**
-
-Fix ALL issues in the todo list:
-- All HIGH/CRITICAL issues (mandatory)
-- All MEDIUM issues (fix or document deferral)
-- LOW issues if time permits (5-10 min total)
-
-**2B. Test Each Fix Locally:**
-
-```bash
-# After fixing each category, test locally
-make test
-make lint
-
-# For link fixes, verify ZERO Status: 400 errors
-find docs -name "*.md" -exec markdown-link-check {} \; | grep "Status: 400"
-# Should return nothing!
-
-# For code fixes, verify specific tests pass
-pytest path/to/affected/tests -v
-```
-
-**2C. DO NOT COMMIT Yet!**
-
-Common mistake: Committing after each fix → multiple commits → repeated CI failures
-
-✅ **Correct approach:** Fix ALL issues, verify ALL tests pass, THEN commit once.
+- Fix all HIGH/CRITICAL (mandatory)
+- Fix all MEDIUM (or document deferral)
+- Fix LOW if quick (<10 min total)
+- Test each fix: `make ci-local`
+- **Don't commit yet!**
 
 ---
 
-#### Phase 3: Verify Locally Before Committing
-
-**⏱️ Expected Time:** 5-15 minutes
-
-**3A. Run Complete Local Validation:**
+#### Phase 3: Verify Locally
 
 ```bash
-# Run CI checks locally (mirrors exact CI environment)
-make ci-local
-# This runs: mypy → ruff → pytest with coverage
-# Expected: ✅ All checks pass, coverage ≥80%
-
-# If documentation changed, also check links
-find docs -name "*.md" -exec markdown-link-check {} \; | grep "Status: 400" | wc -l
-# Expected: 0
-
-# Manual spot-check of fixes
-git diff --staged
+make ci-local  # Must pass 100%
+git diff --staged  # Review all changes
 ```
 
-**3B. Only Proceed When:**
-- ✅ ALL issues from Phase 1 are fixed
-- ✅ `make ci-local` passes (all checks green)
-- ✅ ALL link checks pass (if docs changed)
-- ✅ No new errors introduced
-
-**DO NOT COMMIT** until ALL checks pass locally!
+Only proceed when ALL checks pass locally.
 
 ---
 
-#### Phase 4: Mandatory Zen-MCP Review of Fixes
-
-**⏱️ Expected Time:** 5-10 minutes (including zen response)
-
-**4A. Stage ALL Fixes:**
+#### Phase 4: Zen-MCP Review of Fixes (MANDATORY)
 
 ```bash
-# Stage all files with fixes
 git add -A
-
-# Verify what's staged
-git status
-git diff --cached --stat
+# Request detailed review with context
 ```
 
-**4B. Request Zen-MCP Review with Detailed Context:**
-
-Use this structured template:
-
+**Template:**
 ```
-"Reviewing PR feedback fixes for PR #XX. Requesting verification before commit.
+"Reviewing PR feedback fixes for PR #XX.
 
-## Context
-- **PR:** #XX - [Brief PR title]
-- **Review Sources:** Codex, Gemini, CI
-- **Total Issues:** [N] issues found ([X] CRITICAL, [Y] HIGH, [Z] MEDIUM, [W] LOW)
+## Issues Fixed:
+- [Severity] [Brief description] - [Fix applied]
+[List all fixes]
 
-## Issues Identified and Fixes Applied
+## Local Validation:
+- ✅ All tests pass
+- ✅ Linting passes
+- ✅ [Type-specific checks]
 
-### Issue 1: [Severity] - [Brief description]
-- **Source:** [Codex/Gemini/CI]
-- **Problem:** [What was wrong]
-- **Fix Applied:** [Specific code change or action taken]
-- **Location:** [File:line or files affected]
-
-[Repeat for all issues]
-
-## Verification Requested
-
-Please verify:
-1. All issues are truly fixed (not hidden/ignored)
-2. Fixes are correct and safe
-3. No new issues introduced by these changes
-4. [Specific technical verification for critical fixes]
-
-## Local Validation Completed
-
-- ✅ All tests pass: [X/X passed]
-- ✅ Linting passes: No errors
-- ✅ [Type-specific checks]: [e.g., Zero Status: 400 link errors]
-- ✅ Manual spot-check: Reviewed all changes
-
-Ready for zen-mcp verification before commit."
+Please verify all fixes before commit."
 ```
 
-**4C. Wait for Zen-MCP Approval:**
+**Don't commit** until zen-mcp approves!
 
-Zen-mcp will verify:
-- Issues are truly fixed (not hidden/ignored)
-- Fixes are correct and safe
-- No new issues introduced
-- Nothing was missed
-
-**DO NOT COMMIT** until zen-mcp approves!
-
-**4D. If Zen-MCP Finds NEW Issues:**
-
-If zen-mcp identifies additional problems:
-1. Add new issues to todo list
-2. Loop back to Phase 2 (fix new issues)
-3. Re-run Phase 3 (local validation)
-4. Return to Phase 4 with updated fixes
-5. Iterate until zen-mcp approves: "All fixes verified ✅"
-
-**Important:** Zen-mcp catching additional issues is GOOD - it prevents bugs from reaching production.
+If zen finds new issues → Loop back to Phase 2.
 
 ---
 
-#### Phase 5: Commit Once When Everything Approved
-
-**⏱️ Expected Time:** 5-10 minutes
-
-**5A. Write Comprehensive Commit Message:**
+#### Phase 5: Commit Once When Approved
 
 ```bash
 git commit -m "Address all PR review feedback from Codex, Gemini, and CI
 
-Fix issues found by Codex:
-- Add null check for position calculation (HIGH)
-- Add logging for limit violations (MEDIUM)
-- Rename 'pos' to 'current_position' for clarity (LOW)
+[List all fixes by source]
 
-Fix issues found by Gemini:
-- Improve error message clarity in validation (MEDIUM)
-
-Fix issues found by CI:
-- Map 11 IMPLEMENTATION_GUIDES references to TASKS files (CRITICAL)
-- Fix emoji test assertion to use plain text (CRITICAL)
-
-All tests pass locally (7/7 passed).
-Zero broken file links remain (Status: 400).
-make lint passes with no errors.
-
-Zen-mcp review: ALL fixes verified, no new issues introduced
+All tests pass locally.
+Zen-mcp review: ALL fixes verified ✅
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
 Co-Authored-By: Claude <noreply@anthropic.com>"
-```
 
-**5B. Commit and Push:**
-
-```bash
-# Commit all fixes together
-git commit
-# (Message from 5A)
-
-# Push to update PR
 git push
 ```
 
-**5C. Notify Reviewers:**
-
-```bash
-gh pr comment <PR_NUMBER> --body "All review feedback addressed in latest commit.
-
-**Fixed:**
-- Codex: 3 issues (1 HIGH, 1 MEDIUM, 1 LOW)
-- Gemini: 2 issues (1 MEDIUM, 1 LOW)
-- CI: 3 critical failures
-
-**Verification:**
-- All tests pass locally (7/7)
-- All link checks pass (0 broken file links)
-- Linting passes
-- Zen-mcp reviewed and approved all fixes
-
-@codex @gemini-code-assist Please review latest commit to verify all issues are resolved. Thank you for the thorough reviews!"
-```
+Notify reviewers with summary of fixes.
 
 ---
 
-#### Anti-Patterns to AVOID
+#### Anti-Patterns to Avoid
 
-❌ **Anti-Pattern 1: Committing Before Finding All Issues**
-- Bad: Fix one issue → commit → CI fails → fix another → commit → CI fails again
-- Good: Collect ALL issues → fix ALL → test ALL → commit ONCE
-
-❌ **Anti-Pattern 2: Hiding Issues with Ignore Patterns**
-- Bad: Add ignore patterns for broken links/tests instead of fixing them
-- Good: Fix or remove broken links, update tests
-
-❌ **Anti-Pattern 3: Not Testing Locally**
-- Bad: Fix → commit → push → wait for CI → CI fails
-- Good: Fix → test locally → verify passes → commit → push → CI passes
-
-❌ **Anti-Pattern 4: Skipping Zen Review**
-- Bad: Fix → commit → push introduces new bug
-- Good: Fix → zen review finds issue → fix properly → zen approves → commit
+❌ Committing before finding all issues
+❌ Hiding issues with ignore patterns  
+❌ Not testing locally (`make ci-local`)
+❌ Skipping zen review of fixes
 
 ---
 
-#### Summary: The 5-Phase Process
+#### Summary Checklist
 
-1. **COLLECT** - Gather issues from ALL sources (Codex, Gemini, CI)
-2. **FIX** - Fix ALL issues (no partial fixes)
-3. **VERIFY** - Test everything locally
-4. **ZEN REVIEW** - Mandatory review with detailed context
-5. **COMMIT ONCE** - Single commit with all fixes
-
-**Validation Checklist:**
-- [ ] Collected issues from ALL sources
+- [ ] Collected issues from ALL sources (Codex, Gemini, CI)
 - [ ] Fixed ALL HIGH/CRITICAL issues
-- [ ] All local tests pass
-- [ ] Zen-mcp reviewed and approved
+- [ ] All local tests pass (`make ci-local`)
+- [ ] Zen-mcp reviewed and approved fixes
 - [ ] Ready to commit ALL fixes in ONE commit
+
 
 ### 12. Handle Conflicting Reviewer Feedback (If Needed)
 
@@ -843,228 +528,56 @@ gh pr ready
 
 ---
 
-## Common Issues & Solutions
+<details>
+<summary><h2>📖 Appendix: Common Issues & Solutions</h2></summary>
 
-### Issue: CI Failing But Tests Pass Locally
+### CI Failing But Tests Pass Locally
 
-**Symptom:** Local tests pass, CI fails with same tests
-
-**ROOT CAUSE:** Not running exact same commands CI uses
-
-**SOLUTION: Use `make ci-local` (mirrors CI exactly):**
+**Solution:** Use `make ci-local` to mirror CI exactly
 
 ```bash
-# Run exact CI checks locally
-make ci-local
-
-# This automatically runs:
-# 1. mypy --strict (same flags as CI)
-# 2. ruff check (same config as CI)
-# 3. pytest -m "not integration and not e2e" (same filter as CI)
+make ci-local  # Runs: mypy → ruff → pytest (same as CI)
 ```
 
-**If `make ci-local` passes but CI still fails, check:**
+If still fails: Check Python version, dependencies (`poetry install --sync`), DB state (`make db-reset`)
 
-**1. Environment differences:**
+### Automated Reviewers Not Responding
+
 ```bash
-# Check Python version matches CI
-python --version  # Should match .github/workflows/
-
-# Check dependencies are in sync
-poetry install --sync
+gh pr comment <PR_NUMBER> --body "@codex @gemini-code-assist please review"
 ```
 
-**2. Missing environment variables:**
+### Merge Conflicts
+
 ```bash
-# Check .env.example for required vars
-# Ensure CI has access to secrets
-```
-
-**3. Database state:**
-```bash
-# CI uses fresh DB, you might have stale data
-# Reset local DB to match CI
-make db-reset
-make ci-local  # Re-test with fresh DB
-```
-
-### Issue: Automated Reviewers Not Responding
-
-**Symptom:** Created PR but no automated review
-
-**Solution:**
-```bash
-# Check GitHub Actions ran
-gh pr checks
-
-# Manually trigger review via comment
-gh pr comment <PR_NUMBER> --body "@codex @gemini-code-assist please review this PR"
-
-# Check if workflow file exists
-ls .github/workflows/pr-auto-review-request.yml
-```
-
-### Issue: Merge Conflicts
-
-**Symptom:** PR shows merge conflicts with master
-
-**Solution:**
-```bash
-# Update master
-git checkout master
-git pull
-
-# Go back to feature branch
+git checkout master && git pull
 git checkout feature/your-branch
-
-# Merge or rebase master
-git merge master  # Preserves all commits
-# OR
-git rebase master  # Cleaner history but rewrites commits
-
-# Resolve conflicts
-# Edit conflicting files
-git add <resolved files>
-git commit  # If merge
-# OR
-git rebase --continue  # If rebase
-
-# Push (may need force push if rebased)
-git push
-# OR
-git push --force-with-lease  # If rebased
+git merge master  # Or: git rebase master
+# Resolve conflicts, then push
 ```
 
-### Issue: Forgot to Run Deep Zen Review
+### Forgot Deep Zen Review
 
-**Symptom:** Created PR without deep review
+Request immediately: `"Deep review all branch changes with zen-mcp"`, then update PR description
 
-**Solution:**
+### Missing PR Information
+
 ```bash
-# Request deep review immediately
-"Deep review all branch changes with zen-mcp"
-
-# Address findings
-# Push fixes if needed
-
-# Update PR description with zen review results
 gh pr edit <PR_NUMBER> --body "$(cat updated_description.md)"
 ```
 
-### Issue: PR Description Missing Information
-
-**Symptom:** Reviewers asking for context you forgot to include
-
-**Solution:**
-```bash
-# Edit PR description
-gh pr edit <PR_NUMBER> --body "$(cat <<'EOF'
-[Updated description with missing info]
-EOF
-)"
-
-# Or edit via GitHub UI
-gh pr view <PR_NUMBER> --web
-```
+</details>
 
 ---
 
 ## Examples
 
-### Example 1: Standard PR Creation
+**See extracted examples in `.claude/examples/git-pr/`:**
 
-```bash
-# Feature complete after 6 progressive commits
+- **[Standard PR Creation](../examples/git-pr/example-standard-pr-creation.md)** - Complete workflow from feature completion to merge
+- **[Review Feedback Loop](../examples/git-pr/example-review-feedback-loop.md)** - Handling multiple rounds of review feedback
 
-# 1. Deep zen review
-"Deep review all branch changes with zen-mcp"
-# ✅ Approved - 1 MEDIUM issue found and fixed
-
-# 2. Run CI checks locally
-$ make ci-local
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Step 1/3: Type checking with mypy --strict
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Success: no issues found in 95 source files
-Step 2/3: Linting with ruff
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-All checks passed!
-Step 3/3: Running tests
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-======== 1015 passed, 15 skipped, 84 deselected in 53.04s =========
-✓ All CI checks passed!
-
-# 3. Push
-$ git push
-
-# 4. Create PR
-$ gh pr create --title "Add position limit validation (P0T5)"
-# (Enter description using template from step 6)
-
-Creating pull request for feature/position-limits into master in LeeeWayyy/trading_platform
-
-https://github.com/LeeeWayyy/trading_platform/pull/26
-
-# 5. Automated reviews requested automatically
-
-# 6. Wait for feedback...
-
-# 7. Address feedback
-# (Fix issues found)
-$ git add <files>
-$ git commit -m "Address review feedback"
-$ git push
-
-$ gh pr comment 26 --body "@codex @gemini-code-assist updated to address your feedback, please verify"
-
-# 8. Reviewers approve
-# Codex: "All issues resolved, approved ✅"
-# Gemini: "No issues found ✅"
-
-# 9. Merge
-$ gh pr merge 26 --merge
-✓ Merged Pull Request #26 (Add position limit validation)
-✓ Deleted branch feature/position-limits
-
-# Done!
-```
-
-### Example 2: Handling Review Feedback Loop
-
-```bash
-# PR created, Codex finds issues
-
-# Codex review:
-# - HIGH: Missing null check in position calculation
-# - MEDIUM: Add logging for limit violations
-# - LOW: Variable naming could be clearer
-
-# Fix HIGH and MEDIUM immediately
-# (Fix code)
-$ git add apps/execution_gateway/order_placer.py
-$ git commit -m "Add null check and logging per Codex review"
-$ git push
-
-# Request re-review
-$ gh pr comment 26 --body "Fixed the null check and added logging.
-
-@codex please review latest commit to verify fixes."
-
-# Codex: "Fixes look good, but now notice edge case in error handling"
-
-# Fix new issue
-$ git add apps/execution_gateway/order_placer.py
-$ git commit -m "Improve error handling for edge case"
-$ git push
-
-$ gh pr comment 26 --body "@codex verified edge case fix, please approve if no further issues"
-
-# Codex: "All issues resolved ✅"
-# Gemini: "No issues ✅"
-
-# Merge!
-$ gh pr merge 26 --merge
-```
+These examples show real scenarios with complete commands, timing, and key decision points.
 
 ---
 
