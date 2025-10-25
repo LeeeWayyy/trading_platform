@@ -55,7 +55,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Save current branch
-ORIGINAL_BRANCH=$(git branch --show-current)
+ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # Test valid branch names
 echo "Valid branch names (should pass):"

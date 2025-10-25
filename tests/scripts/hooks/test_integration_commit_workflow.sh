@@ -28,7 +28,7 @@ echo "Test 1: Valid branch with passing tests"
 TESTS_RUN=$((TESTS_RUN + 1))
 
 # Save current state
-ORIGINAL_BRANCH=$(git branch --show-current)
+ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # Create test branch
 git checkout -b feature/P1T99-integration-test 2>/dev/null || git checkout feature/P1T99-integration-test 2>/dev/null
