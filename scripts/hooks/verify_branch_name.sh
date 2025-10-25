@@ -8,13 +8,21 @@
 #   - bugfix/P0T2-fix-circuit-breaker
 #
 # Exit codes:
-#   0 - Branch name valid
+#   0 - Branch name valid OR detached HEAD (skip validation)
 #   1 - Branch name invalid
 
 set -euo pipefail
 
 # Get current branch name
 BRANCH=$(git branch --show-current)
+
+# Handle detached HEAD scenarios (rebase, amend, bisect, CI)
+# In these cases, --show-current returns empty string
+if [ -z "$BRANCH" ]; then
+    # Detached HEAD - skip validation with success
+    # This allows rebasing, amending, and other operations
+    exit 0
+fi
 
 # Branch naming pattern: feature/PxTy(-Fz)?-description or bugfix/PxTy(-Fz)?-description
 # Allowed branch types: feature, bugfix, hotfix

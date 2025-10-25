@@ -48,14 +48,20 @@ log_event() {
     echo "{\"timestamp\":\"$timestamp\",\"gate\":\"$gate\",\"status\":\"$status\",\"duration_ms\":$duration}" >> "$EVENT_LOG"
 }
 
-# Log override usage
+# Log override usage (JSON-safe)
 log_override() {
     local reason="$1"
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local branch=$(git branch --show-current)
+    local branch=$(git branch --show-current || echo "")
     local user=$(git config user.name || echo "unknown")
 
-    echo "{\"timestamp\":\"$timestamp\",\"user\":\"$user\",\"branch\":\"$branch\",\"reason\":\"$reason\"}" >> "$OVERRIDE_LOG"
+    # Use Python to properly escape JSON fields (prevents injection)
+    python3 -c "import json, sys; print(json.dumps({
+        'timestamp': sys.argv[1],
+        'user': sys.argv[2],
+        'branch': sys.argv[3],
+        'reason': sys.argv[4]
+    }))" "$timestamp" "$user" "$branch" "$reason" >> "$OVERRIDE_LOG"
 }
 
 # Print header
@@ -66,6 +72,29 @@ echo ""
 
 # Track failures
 FAILED=0
+
+# ============================================================================
+# Emergency Override
+# ============================================================================
+# Check for PRE_COMMIT_OVERRIDE environment variable
+if [ "${PRE_COMMIT_OVERRIDE:-0}" = "1" ]; then
+    log_override "PRE_COMMIT_OVERRIDE=1"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}⚠  PRE_COMMIT_OVERRIDE=1 detected${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "🚨 Bypassing all quality gates!"
+    echo ""
+    echo "This should ONLY be used in emergency situations:"
+    echo "  • Bootstrap scenario (hooks catching pre-existing issues)"
+    echo "  • Critical hotfix deployment"
+    echo "  • Infrastructure failure preventing normal workflow"
+    echo ""
+    echo "⚠️  WARNING: Override usage is logged to:"
+    echo "   $OVERRIDE_LOG"
+    echo ""
+    exit 0
+fi
 
 # ============================================================================
 # GATE 1: Branch Naming Convention
