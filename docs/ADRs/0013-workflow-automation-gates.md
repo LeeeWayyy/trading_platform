@@ -19,12 +19,12 @@ The trading platform's workflow processes (task reviews, ADR documentation, test
 - **Incomplete ADR documentation:** ADRs created without updating README, CONCEPTS/, or related docs
 - **Test gaps:** New code committed without corresponding tests
 - **Stale documentation:** Function signatures change without docstring updates
-- **No #docs-only support:** Current pre-commit hook runs full CI even for documentation-only commits (experienced during P1T12)
+- **No docs-only skip:** Current pre-commit hook runs full CI even for documentation-only commits (experienced during P1T12, blocked commit with pre-existing test lint errors)
 
 **Why Now:**
 - P1T12 (Workflow Review & Pre-commit Automation) identified these gaps
 - Workflow audit revealed 17 workflows with varying compliance expectations
-- Recent experience: #docs-only commits blocked by full CI checks (inefficient)
+- Recent experience: docs-only commits blocked by full CI checks (inefficient, need skip mechanism)
 - Growing codebase requires systematic enforcement
 - Educational project principle requires maintaining comprehensive documentation
 
@@ -78,7 +78,7 @@ See: .claude/workflows/13-task-creation-review.md
 1. **Core ADR validity:**
    - Status field present and valid (Proposed|Accepted|Superseded)
    - Required sections exist (Context, Decision, Consequences)
-   - At least 200 words in Context section (ensures thought)
+   - At least 200 words in Context section **for newly created ADRs only** (not enforced on edits to existing ADRs)
 
 2. **Documentation ecosystem updates** (heuristics):
    - If ADR introduces "service" or "component" → Check README.md staged
@@ -119,12 +119,12 @@ See: .claude/workflows/08-adr-creation.md Step 7
    - `apps/service/module.py` → `apps/service/tests/test_module.py`
    - `libs/package/file.py` → `libs/package/tests/test_file.py`
 
-2. **Test file updated:** If source modified, check test file also staged
-   - Exception: If test file recently updated (within 1 hour) or has 90%+ coverage for this module
+2. **Test file updated:** If source modified, check test file also staged (or modified in last commit)
 
-3. **#skip-test-check marker:** Allow explicit skip with commit message marker
-   - Supported markers: `#refactor-only`, `#docs-only`, `#test-update-deferred`
-   - If `#test-update-deferred` used → Require TODO comment in code or follow-up ticket reference
+3. **Skip via environment variable:** Allow explicit skip with env var
+   - Set `SKIP_TEST_CHECK=1` before commit: `SKIP_TEST_CHECK=1 git commit -m "..."`
+   - Requires TODO comment in code or follow-up ticket reference in commit message
+   - Alternative: Use `--no-verify` (less preferred, skips all gates)
 
 **Exit Codes:**
 - `0` - Test file exists and updated (or valid skip marker)
@@ -140,7 +140,7 @@ Missing:  apps/execution_gateway/tests/test_order_placer.py (not staged)
 
 Action required:
 • Update test file and stage it, OR
-• Add commit message marker: #test-update-deferred + reference follow-up ticket
+• Use SKIP_TEST_CHECK=1: SKIP_TEST_CHECK=1 git commit -m "..." + reference follow-up ticket
 
 See: .claude/workflows/05-testing.md
 ```
@@ -165,12 +165,15 @@ See: .claude/workflows/05-testing.md
    - For each changed function, verify docstring exists (triple-quoted string after def)
    - Check docstring mentions new parameters (simple keyword search)
 
-3. **#docs-only support:**
-   - If commit message contains `#docs-only` → Skip gate entirely (exit 0)
-   - Allows pure documentation commits without running full CI
+3. **Skip via environment variable:**
+   - Set `DOCS_ONLY=1` before commit: `DOCS_ONLY=1 git commit -m "..."`
+   - Skips Gate 4 entirely (exit 0) and also skips CI checks (mypy, ruff, tests)
+   - **WARNING:** Only use for commits with ZERO code changes (pure .md/.txt/.rst files)
+   - Commits with any .py files should NOT use this skip (tests will not run)
+   - Alternative name consideration for implementation: `SKIP_CI_CHECKS=1` (more explicit)
 
 **Exit Codes:**
-- `0` - Docstrings present and updated, OR `#docs-only` marker present
+- `0` - Docstrings present and updated, OR `DOCS_ONLY=1` env var set
 - `1` - Warning: New function without docstring (allows if TODO comment present)
 - `2` - Error: Existing function signature changed without docstring update
 
@@ -190,7 +193,7 @@ See: .claude/workflows/07-documentation.md
 
 **Rationale:**
 - Enforces documentation standards (educational project principle)
-- Supports `#docs-only` for pure documentation commits (addresses P1T12 finding)
+- Supports `DOCS_ONLY=1` env var for pure documentation commits (addresses P1T12 finding)
 - Pragmatic: warnings for new code, errors for modified code
 - Simple implementation: diff parsing + keyword search (no AST analysis needed)
 
@@ -200,22 +203,23 @@ See: .claude/workflows/07-documentation.md
 
 **Implementation Structure:**
 ```
-tests/scripts/hooks/
+scripts/hooks/
 ├── pre-commit                       # Main hook (existing, minimal changes)
 ├── gates/
 │   ├── 00-task-review-reminder.sh  # Gate 1 (non-blocking)
 │   ├── 01-adr-documentation.sh     # Gate 2
 │   ├── 02-test-coverage.sh         # Gate 3
 │   └── 03-documentation-update.sh  # Gate 4
-├── lib/
-│   ├── common.sh                   # Shared: colors, logging, temp files
-│   ├── git-utils.sh                # Shared: staged files, diff parsing
-│   └── markers.sh                  # Shared: #docs-only, #test-update-deferred detection
-└── tests/
-    ├── test_gate_task_review.sh
-    ├── test_gate_adr_docs.sh
-    ├── test_gate_test_coverage.sh
-    └── test_gate_doc_update.sh
+└── lib/
+    ├── common.sh                   # Shared: colors, logging, temp files
+    ├── git-utils.sh                # Shared: staged files, diff parsing
+    └── env-check.sh                # Shared: DOCS_ONLY, SKIP_TEST_CHECK env var detection
+
+tests/scripts/hooks/gates/
+├── test_gate_task_review.sh
+├── test_gate_adr_docs.sh
+├── test_gate_test_coverage.sh
+└── test_gate_doc_update.sh
 ```
 
 **Integration Points:**
@@ -227,15 +231,15 @@ tests/scripts/hooks/
    - If any gate exits 1 → Print warnings, allow commit
    - If all gates exit 0 → Proceed silently
 
-2. **Commit message markers:**
-   - `#docs-only` - Skips CI checks and Gate 4
-   - `#test-update-deferred` - Skips Gate 3 (requires TODO or ticket reference)
-   - `#refactor-only` - Skips Gate 3 (for pure refactors)
+2. **Environment variable overrides:**
+   - `DOCS_ONLY=1` - Skips CI checks and Gate 4 (pure documentation commits)
+   - `SKIP_TEST_CHECK=1` - Skips Gate 3 (requires TODO or ticket reference in commit msg)
+   - Usage: `DOCS_ONLY=1 git commit -m "Update README"`
 
 3. **Workflow updates:**
    - Mark enforced steps with "🔒 ENFORCED (planned):" prefix
    - Link to this ADR in workflow docs
-   - Update 03-zen-review-quick.md to document #docs-only behavior
+   - Update 03-zen-review-quick.md to document `DOCS_ONLY=1` usage
 
 **Effort Estimate:**
 - Gate 1 (Task Review Reminder): 2 hours (simple echo + temp file dedup)
@@ -246,9 +250,9 @@ tests/scripts/hooks/
 - **Total: 26 hours (~3-4 days)**
 
 **Follow-up Tickets:**
-- **P1.1T1:** Implement Gate 1 (Task Review Reminder) + Gate 4 (#docs-only support) [Priority: HIGH, 8 hours]
+- **P1.1T1:** Implement Gate 1 (Task Review Reminder) + Gate 4 (DOCS_ONLY env var support) [Priority: HIGH, 8 hours]
 - **P1.1T2:** Implement Gate 2 (ADR Documentation) [Priority: MEDIUM, 6 hours]
-- **P1.1T3:** Implement Gate 3 (Test Coverage) [Priority: MEDIUM, 8 hours]
+- **P1.1T3:** Implement Gate 3 (Test Coverage with SKIP_TEST_CHECK) [Priority: MEDIUM, 8 hours]
 - **P1.1T4:** Integration testing + documentation [Priority: LOW, 4 hours]
 
 **Testing Strategy:**
@@ -340,7 +344,7 @@ tests/scripts/hooks/
 
 2. **Faster feedback cycles**
    - Violations caught locally (not in PR review)
-   - #docs-only commits skip unnecessary CI
+   - `DOCS_ONLY=1` commits skip unnecessary CI
    - Clear error messages guide fixes
 
 3. **Educational value maintained**
@@ -374,7 +378,7 @@ tests/scripts/hooks/
 
 3. **Developer friction**
    - Additional steps before commit
-   - Learning curve for markers (#docs-only, etc.)
+   - Learning curve for env vars (DOCS_ONLY, SKIP_TEST_CHECK)
    - May slow initial commits
 
 4. **Hook bypass risk**
@@ -404,7 +408,7 @@ tests/scripts/hooks/
 
 1. **Immediate (P1T12 completion):**
    - Mark enforced steps in workflows with "🔒 ENFORCED (planned):"
-   - Update 03-zen-review-quick.md with #docs-only documentation
+   - Update 03-zen-review-quick.md with `DOCS_ONLY=1` documentation
    - Create follow-up tickets (P1.1T1-4)
 
 2. **After Gate Implementation (P1.1T1-4 completion):**
@@ -425,9 +429,9 @@ tests/scripts/hooks/
 
 **Phase 2: High-Priority Gates (P1.1T1)**
 - Implement Gate 1 (Task Review Reminder) - Addresses workflow adoption
-- Implement Gate 4 (#docs-only support) - Addresses P1T12 finding
+- Implement Gate 4 (DOCS_ONLY env var support) - Addresses P1T12 finding
 - Timeline: 8 hours
-- Risk: LOW (non-blocking reminder + simple marker check)
+- Risk: LOW (non-blocking reminder + simple env var check)
 
 **Phase 3: ADR Documentation Gate (P1.1T2)**
 - Implement Gate 2 (ADR Documentation Completeness)
@@ -493,7 +497,10 @@ main() {
     fi
 
     # Check if already reminded this commit (dedup)
-    local lock_file="/tmp/claude-task-reminder-$$.lock"
+    # Use hash of repo path + git tree to create unique but consistent lock file
+    local repo_hash
+    repo_hash=$(echo "$(pwd)-$(git write-tree 2>/dev/null || echo 'no-tree')" | md5sum | cut -d' ' -f1)
+    local lock_file="/tmp/claude-task-reminder-${repo_hash}.lock"
     if [[ -f "$lock_file" ]]; then
         exit 0  # Already reminded
     fi

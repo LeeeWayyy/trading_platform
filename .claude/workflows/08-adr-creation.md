@@ -442,21 +442,17 @@ $ vim docs/LESSONS_LEARNED/0013-circuit-breaker-retrospective.md
 
 # 7d. Commit documentation updates
 $ git add README.md docs/CONCEPTS/circuit-breaker-design.md docs/LESSONS_LEARNED/
-$ git commit -m "Add circuit breaker documentation (ADR-0013)
-
-- Updated README.md with circuit breaker capabilities
-- Created circuit-breaker-design.md concept doc
-- Planned retrospective for post-implementation review
-
-Related: ADR-0013"
+$ git commit -m "Add circuit breaker documentation (ADR-0013)" \
+             -m "Updated README.md with circuit breaker capabilities" \
+             -m "Created circuit-breaker-design.md concept doc" \
+             -m "Planned retrospective for post-implementation review" \
+             -m "Related: ADR-0013"
 $ git push
 
 # Step 8: Implement and reference
 $ # ... implement code ...
 $ git commit -m "Implement Redis circuit breaker (ADR-0013)"
-
-# Step 9: Reference in code
-# See code example in step-by-step section
+# See code reference example in Step 8 of workflow
 ```
 
 ### Example 2: Quick ADR for Dependency Addition

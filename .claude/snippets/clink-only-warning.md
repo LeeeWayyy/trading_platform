@@ -7,4 +7,4 @@
 **✅ CORRECT:** `mcp__zen-mcp__clink(prompt="...", cli_name="gemini", role="codereviewer")`
 **❌ WRONG:** `mcp__zen-mcp__codereview(...)` ← API permission error!
 
-See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) for complete policy.
+See CLAUDE.md (Zen-MCP + Clink Integration section) for complete policy.
