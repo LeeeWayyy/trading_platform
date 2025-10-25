@@ -42,7 +42,7 @@ else
     echo "  • Fz: Optional feature/subfeature number (F1, F2, etc.)"
     echo "  • description: Lowercase kebab-case description"
     echo ""
-    echo "💡 Create proper branch using: ./scripts/tasks.py create <task-id>"
+    echo "💡 See task breakdown workflow: .claude/workflows/00-task-breakdown.md"
     echo ""
     exit 1
 fi

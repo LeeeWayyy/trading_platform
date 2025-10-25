@@ -34,6 +34,7 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 2. **For task documents:** Request task creation review (see `.claude/workflows/13-task-creation-review.md`)
 
 3. **Break feature into logical components** — Use 4-step pattern (see below)
+   - For large tasks (>8h), decompose into subfeatures: [`.claude/workflows/00-task-breakdown.md`](./.claude/workflows/00-task-breakdown.md)
 
 4. **For EACH component:**
    - Implement logic

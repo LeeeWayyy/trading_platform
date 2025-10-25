@@ -1,7 +1,7 @@
 # Claude Code Workflows
 
 **Purpose:** Step-by-step operational guides for common development tasks
-**Last Updated:** 2025-10-21
+**Last Updated:** 2025-10-24
 **Maintained By:** Development Team
 
 ---
@@ -15,6 +15,12 @@
 ---
 
 ## 📋 Workflow Index
+
+### Task Management & Planning (00)
+
+| Workflow | Purpose | When to Use |
+|----------|---------|-------------|
+| [00-task-breakdown.md](./00-task-breakdown.md) | Break down large tasks into PxTy-Fz subfeatures | Before starting complex tasks (>8 hours) |
 
 ### Git & Version Control (01-02)
 
@@ -64,6 +70,9 @@
 
 ### By Frequency
 
+**Before Starting (for complex tasks):**
+- 00-task-breakdown.md (for tasks >8 hours)
+
 **Every Development Session:**
 - 01-git-commit.md (every 30-60 min)
 - 03-zen-review-quick.md (before each commit)
@@ -112,6 +121,8 @@
 Start Feature
     ↓
 [11-environment-bootstrap.md] ← (if first time)
+    ↓
+[00-task-breakdown.md] ← (if complex task >8h, decompose into subfeatures)
     ↓
 Implement Code (30-60 min)
     ↓
@@ -223,14 +234,15 @@ All workflows must:
 
 ## 📊 Workflow Metrics
 
-**Total Workflows:** 12 (complete coverage)
+**Total Workflows:** 13 (complete coverage)
+**Task Management:** 00 (Task Breakdown)
 **Core Development:** 01-08 (Git, Review, Testing, Debugging, Docs, Architecture)
 **Operations:** 09-11 (Deployment, CI, Bootstrap)
 **Project Management:** 12 (Phase Management)
 **Average Length:** Target ≤10 steps per workflow
 **Review Frequency:** Quarterly or after major process changes
 
-**Last Repository-Wide Review:** 2025-10-20
+**Last Repository-Wide Review:** 2025-10-24
 
 ---
 
