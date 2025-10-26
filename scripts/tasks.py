@@ -177,9 +177,7 @@ def get_task_file(task_id: str, state: TaskState | None = None) -> Path | None:
     return None
 
 
-def list_tasks(
-    state: TaskState | None = None, phase: str | None = None
-) -> list[TaskMetadata]:
+def list_tasks(state: TaskState | None = None, phase: str | None = None) -> list[TaskMetadata]:
     """
     List all tasks, optionally filtered by state and/or phase.
 

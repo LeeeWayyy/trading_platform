@@ -218,8 +218,6 @@ class TestT1DataProvider:
                 fields=["close", "invalid_field"],
             )
 
-
-
     def test_nonexistent_data_dir_raises_error(self) -> None:
         """Non-existent data directory should raise ValueError."""
         provider = T1DataProvider(data_dir=Path("/nonexistent/path"))
@@ -228,8 +226,6 @@ class TestT1DataProvider:
             provider.load_data(
                 symbols=["AAPL"], start_date=date(2024, 1, 1), end_date=date(2024, 1, 1)
             )
-
-
 
     def test_get_available_symbols(self) -> None:
         """Get list of available symbols."""

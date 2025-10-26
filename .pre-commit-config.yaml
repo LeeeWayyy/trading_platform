@@ -32,4 +32,10 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-        stages: [commit]
+        stages: [pre-commit]
+
+      - id: zen-commit-msg
+        name: Zen-MCP Review Approval Gate
+        entry: scripts/hooks/zen_commit_msg.sh
+        language: system
+        stages: [commit-msg]
