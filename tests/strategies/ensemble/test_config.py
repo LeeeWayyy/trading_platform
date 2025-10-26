@@ -51,9 +51,7 @@ class TestEnsembleConfig:
 
     def test_negative_weights_validation(self) -> None:
         """Test that negative weights are rejected."""
-        config = EnsembleConfig(
-            strategy_weights={"mean_reversion": 1.2, "momentum": -0.2}
-        )
+        config = EnsembleConfig(strategy_weights={"mean_reversion": 1.2, "momentum": -0.2})
 
         with pytest.raises(ValueError, match="non-negative"):
             config.validate()

@@ -17,7 +17,6 @@ Feature parity pattern: Same features used in research and production.
 See /docs/CONCEPTS/momentum-trading.md for detailed explanation (will create).
 """
 
-
 import polars as pl
 
 

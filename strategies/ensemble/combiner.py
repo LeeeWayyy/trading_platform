@@ -49,10 +49,16 @@ class CombinationMethod(str, Enum):
 
 def combine_signals(
     signals: pl.DataFrame,
-    method: CombinationMethod | Literal[
-        "weighted_average", "majority_vote", "unanimous",
-        "confidence_weighted", "max_confidence"
-    ] = CombinationMethod.WEIGHTED_AVERAGE,
+    method: (
+        CombinationMethod
+        | Literal[
+            "weighted_average",
+            "majority_vote",
+            "unanimous",
+            "confidence_weighted",
+            "max_confidence",
+        ]
+    ) = CombinationMethod.WEIGHTED_AVERAGE,
     weights: dict[str, float] | None = None,
     signal_threshold: float = 0.3,
 ) -> pl.DataFrame:
@@ -122,9 +128,7 @@ def combine_signals(
     """
     # Validate threshold range
     if not 0.0 <= signal_threshold <= 1.0:
-        raise ValueError(
-            f"signal_threshold must be in [0, 1], got {signal_threshold}"
-        )
+        raise ValueError(f"signal_threshold must be in [0, 1], got {signal_threshold}")
 
     # Convert method to enum if string
     if isinstance(method, str):
@@ -137,9 +141,7 @@ def combine_signals(
     strategy_names = _extract_strategy_names(signals)
 
     if len(strategy_names) < 2:
-        raise ValueError(
-            f"Need at least 2 strategies to combine, got {len(strategy_names)}"
-        )
+        raise ValueError(f"Need at least 2 strategies to combine, got {len(strategy_names)}")
 
     # Validate and normalize weights
     if weights is None:
@@ -186,7 +188,9 @@ def _validate_signals_dataframe(signals: pl.DataFrame) -> None:
         raise ValueError(f"Signals missing required columns: {missing}")
 
     # Check that each signal column has corresponding confidence column
-    signal_cols = [col for col in signals.columns if col.startswith("strategy_") and col.endswith("_signal")]
+    signal_cols = [
+        col for col in signals.columns if col.startswith("strategy_") and col.endswith("_signal")
+    ]
     for signal_col in signal_cols:
         # Extract strategy name (strategy_{name}_signal → {name})
         strategy_name = signal_col.replace("strategy_", "").replace("_signal", "")
@@ -234,9 +238,7 @@ def _extract_strategy_names(signals: pl.DataFrame) -> list[str]:
     return sorted(set(strategy_names))
 
 
-def _validate_weights(
-    weights: dict[str, float], strategy_names: list[str]
-) -> dict[str, float]:
+def _validate_weights(weights: dict[str, float], strategy_names: list[str]) -> dict[str, float]:
     """
     Validate and normalize strategy weights.
 
@@ -307,18 +309,16 @@ def _weighted_average(
         weight = weights[name]
 
         # Add weighted components (fill_null to handle missing)
-        signal_expr = signal_expr + (
-            pl.col(signal_col).fill_null(0.0) * weight
-        )
-        confidence_expr = confidence_expr + (
-            pl.col(conf_col).fill_null(0.0) * weight
-        )
+        signal_expr = signal_expr + (pl.col(signal_col).fill_null(0.0) * weight)
+        confidence_expr = confidence_expr + (pl.col(conf_col).fill_null(0.0) * weight)
 
     # Apply threshold to convert continuous signal to discrete
-    df = signals.with_columns([
-        signal_expr.alias("_raw_signal"),
-        confidence_expr.alias("ensemble_confidence"),
-    ])
+    df = signals.with_columns(
+        [
+            signal_expr.alias("_raw_signal"),
+            confidence_expr.alias("ensemble_confidence"),
+        ]
+    )
 
     df = df.with_columns(
         pl.when(pl.col("_raw_signal") > threshold)
@@ -333,9 +333,7 @@ def _weighted_average(
     return df.drop("_raw_signal")
 
 
-def _majority_vote(
-    signals: pl.DataFrame, strategy_names: list[str]
-) -> pl.DataFrame:
+def _majority_vote(signals: pl.DataFrame, strategy_names: list[str]) -> pl.DataFrame:
     """
     Combine signals using majority voting.
 
@@ -370,12 +368,14 @@ def _majority_vote(
         # Sum confidences for averaging
         conf_sum = conf_sum + pl.col(conf_col).fill_null(0.0)
 
-    df = signals.with_columns([
-        buy_expr.alias("_buy_votes"),
-        sell_expr.alias("_sell_votes"),
-        total_expr.alias("_total_votes"),
-        (conf_sum / len(strategy_names)).alias("ensemble_confidence"),
-    ])
+    df = signals.with_columns(
+        [
+            buy_expr.alias("_buy_votes"),
+            sell_expr.alias("_sell_votes"),
+            total_expr.alias("_total_votes"),
+            (conf_sum / len(strategy_names)).alias("ensemble_confidence"),
+        ]
+    )
 
     # Determine majority (need >50%)
     df = df.with_columns(
@@ -400,8 +400,9 @@ def _majority_vote(
 
     # Combine confidence metrics
     df = df.with_columns(
-        ((pl.col("ensemble_confidence") + pl.col("_agreement_conf")) / 2.0)
-        .alias("ensemble_confidence")
+        ((pl.col("ensemble_confidence") + pl.col("_agreement_conf")) / 2.0).alias(
+            "ensemble_confidence"
+        )
     )
 
     return df.drop(["_buy_votes", "_sell_votes", "_total_votes", "_agreement_conf"])
@@ -443,10 +444,12 @@ def _unanimous(signals: pl.DataFrame, strategy_names: list[str]) -> pl.DataFrame
     avg_conf = conf_sum / len(strategy_names)
 
     # If unanimous, use first strategy's signal; otherwise hold
-    df = signals.with_columns([
-        all_agree_expr.alias("_unanimous"),
-        avg_conf.alias("_avg_conf"),
-    ])
+    df = signals.with_columns(
+        [
+            all_agree_expr.alias("_unanimous"),
+            avg_conf.alias("_avg_conf"),
+        ]
+    )
 
     df = df.with_columns(
         pl.when(pl.col("_unanimous"))
@@ -507,10 +510,12 @@ def _confidence_weighted(
         conf_sum = conf_sum + confidence
 
     # Avoid division by zero
-    df = signals.with_columns([
-        (weighted_signal / total_confidence.clip(1e-6, None)).alias("_raw_signal"),
-        (conf_sum / len(strategy_names)).alias("ensemble_confidence"),
-    ])
+    df = signals.with_columns(
+        [
+            (weighted_signal / total_confidence.clip(1e-6, None)).alias("_raw_signal"),
+            (conf_sum / len(strategy_names)).alias("ensemble_confidence"),
+        ]
+    )
 
     # Apply threshold
     df = df.with_columns(
@@ -526,9 +531,7 @@ def _confidence_weighted(
     return df.drop("_raw_signal")
 
 
-def _max_confidence(
-    signals: pl.DataFrame, strategy_names: list[str]
-) -> pl.DataFrame:
+def _max_confidence(signals: pl.DataFrame, strategy_names: list[str]) -> pl.DataFrame:
     """
     Use signal from strategy with highest confidence.
 
@@ -566,9 +569,11 @@ def _max_confidence(
             .otherwise(signal_expr)
         )
 
-    df = df.with_columns([
-        signal_expr.alias("ensemble_signal"),
-        pl.col("_max_conf").alias("ensemble_confidence"),
-    ])
+    df = df.with_columns(
+        [
+            signal_expr.alias("ensemble_signal"),
+            pl.col("_max_conf").alias("ensemble_confidence"),
+        ]
+    )
 
     return df.drop("_max_conf")

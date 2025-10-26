@@ -75,10 +75,12 @@ class EnsembleConfig:
     combination_method: CombinationMethod = CombinationMethod.WEIGHTED_AVERAGE
 
     # Strategy weights (must sum to 1.0)
-    strategy_weights: dict[str, float] = field(default_factory=lambda: {
-        "mean_reversion": 0.5,
-        "momentum": 0.5,
-    })
+    strategy_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "mean_reversion": 0.5,
+            "momentum": 0.5,
+        }
+    )
 
     # Confidence thresholds
     min_confidence: float = 0.6  # Minimum confidence to act
@@ -108,9 +110,7 @@ class EnsembleConfig:
         if self.strategy_weights:
             total_weight = sum(self.strategy_weights.values())
             if abs(total_weight - 1.0) > 1e-6:
-                raise ValueError(
-                    f"Strategy weights must sum to 1.0, got {total_weight}"
-                )
+                raise ValueError(f"Strategy weights must sum to 1.0, got {total_weight}")
 
             # Check non-negative
             negative = {k: v for k, v in self.strategy_weights.items() if v < 0}
@@ -119,20 +119,14 @@ class EnsembleConfig:
 
         # Validate thresholds
         if not 0.0 <= self.min_confidence <= 1.0:
-            raise ValueError(
-                f"min_confidence must be in [0, 1], got {self.min_confidence}"
-            )
+            raise ValueError(f"min_confidence must be in [0, 1], got {self.min_confidence}")
 
         if not 0.0 <= self.signal_threshold <= 1.0:
-            raise ValueError(
-                f"signal_threshold must be in [0, 1], got {self.signal_threshold}"
-            )
+            raise ValueError(f"signal_threshold must be in [0, 1], got {self.signal_threshold}")
 
         # Validate min_strategies
         if self.min_strategies < 1:
-            raise ValueError(
-                f"min_strategies must be >= 1, got {self.min_strategies}"
-            )
+            raise ValueError(f"min_strategies must be >= 1, got {self.min_strategies}")
 
 
 @dataclass
@@ -201,9 +195,7 @@ class AdaptiveWeightConfig:
             raise ValueError(f"min_trades must be >= 1, got {self.min_trades}")
 
         if not 0.0 < self.smoothing_factor <= 1.0:
-            raise ValueError(
-                f"smoothing_factor must be in (0, 1], got {self.smoothing_factor}"
-            )
+            raise ValueError(f"smoothing_factor must be in (0, 1], got {self.smoothing_factor}")
 
         valid_frequencies = {"intraday", "daily", "weekly"}
         if self.update_frequency not in valid_frequencies:

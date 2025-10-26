@@ -21,37 +21,43 @@ class TestCombineSignalsValidation:
     def test_missing_required_columns(self) -> None:
         """Test that missing required columns raises ValueError."""
         # Missing 'date' column
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+            }
+        )
 
         with pytest.raises(ValueError, match="missing required columns"):
             combine_signals(signals)
 
     def test_too_few_strategies(self) -> None:
         """Test that < 2 strategies raises ValueError."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_only_one_signal": [1],
-            "strategy_only_one_confidence": [0.8],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_only_one_signal": [1],
+                "strategy_only_one_confidence": [0.8],
+            }
+        )
 
         with pytest.raises(ValueError, match="at least 2 strategies"):
             combine_signals(signals)
 
     def test_invalid_weights_sum(self) -> None:
         """Test that weights not summing to 1.0 raises ValueError."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         weights = {"a": 0.5, "b": 0.6}  # Sum = 1.1
 
@@ -60,14 +66,16 @@ class TestCombineSignalsValidation:
 
     def test_negative_weights(self) -> None:
         """Test that negative weights raise ValueError."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         weights = {"a": 1.2, "b": -0.2}  # Negative weight
 
@@ -76,14 +84,16 @@ class TestCombineSignalsValidation:
 
     def test_missing_strategy_in_weights(self) -> None:
         """Test that missing strategy in weights raises ValueError."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         weights = {"a": 1.0}  # Missing 'b'
 
@@ -96,14 +106,16 @@ class TestWeightedAverage:
 
     def test_basic_weighted_average(self) -> None:
         """Test simple weighted average combination."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         result = combine_signals(
             signals,
@@ -118,14 +130,16 @@ class TestWeightedAverage:
 
     def test_conflicting_signals_weighted(self) -> None:
         """Test weighted average with conflicting signals."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],  # Buy
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [-1],  # Sell
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],  # Buy
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [-1],  # Sell
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         # Equal weights → should cancel to 0
         result = combine_signals(
@@ -139,14 +153,16 @@ class TestWeightedAverage:
 
     def test_weighted_average_threshold(self) -> None:
         """Test that signals below threshold become HOLD."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [0],  # Hold
-            "strategy_b_confidence": [0.5],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [0],  # Hold
+                "strategy_b_confidence": [0.5],
+            }
+        )
 
         # Weighted: 1*0.7 + 0*0.3 = 0.7 > 0.3 threshold → BUY
         result = combine_signals(
@@ -168,14 +184,16 @@ class TestWeightedAverage:
 
     def test_equal_weights_default(self) -> None:
         """Test that None weights gives equal weighting."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         result = combine_signals(signals, method="weighted_average", weights=None)
 
@@ -189,16 +207,18 @@ class TestMajorityVote:
 
     def test_clear_majority_buy(self) -> None:
         """Test clear majority for buy signal."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.7],
-            "strategy_c_signal": [-1],
-            "strategy_c_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.7],
+                "strategy_c_signal": [-1],
+                "strategy_c_confidence": [0.6],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAJORITY_VOTE)
 
@@ -207,16 +227,18 @@ class TestMajorityVote:
 
     def test_clear_majority_sell(self) -> None:
         """Test clear majority for sell signal."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [-1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.7],
-            "strategy_c_signal": [1],
-            "strategy_c_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [-1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.7],
+                "strategy_c_signal": [1],
+                "strategy_c_confidence": [0.6],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAJORITY_VOTE)
 
@@ -225,16 +247,18 @@ class TestMajorityVote:
 
     def test_no_majority(self) -> None:
         """Test no majority results in HOLD."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.7],
-            "strategy_c_signal": [0],
-            "strategy_c_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.7],
+                "strategy_c_signal": [0],
+                "strategy_c_confidence": [0.6],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAJORITY_VOTE)
 
@@ -243,14 +267,16 @@ class TestMajorityVote:
 
     def test_majority_with_nulls(self) -> None:
         """Test majority vote handles missing data."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [None],  # Missing
-            "strategy_b_confidence": [None],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [None],  # Missing
+                "strategy_b_confidence": [None],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAJORITY_VOTE)
 
@@ -264,16 +290,18 @@ class TestUnanimous:
 
     def test_unanimous_buy(self) -> None:
         """Test all strategies agree on buy."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.7],
-            "strategy_c_signal": [1],
-            "strategy_c_confidence": [0.9],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.7],
+                "strategy_c_signal": [1],
+                "strategy_c_confidence": [0.9],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.UNANIMOUS)
 
@@ -284,14 +312,16 @@ class TestUnanimous:
 
     def test_unanimous_sell(self) -> None:
         """Test all strategies agree on sell."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [-1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.7],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [-1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.7],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.UNANIMOUS)
 
@@ -299,14 +329,16 @@ class TestUnanimous:
 
     def test_not_unanimous(self) -> None:
         """Test disagreement results in HOLD."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [-1],  # Disagrees
-            "strategy_b_confidence": [0.7],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [-1],  # Disagrees
+                "strategy_b_confidence": [0.7],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.UNANIMOUS)
 
@@ -317,14 +349,16 @@ class TestUnanimous:
 
     def test_unanimous_hold(self) -> None:
         """Test all strategies hold."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [0],
-            "strategy_a_confidence": [0.5],
-            "strategy_b_signal": [0],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [0],
+                "strategy_a_confidence": [0.5],
+                "strategy_b_signal": [0],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.UNANIMOUS)
 
@@ -336,14 +370,16 @@ class TestConfidenceWeighted:
 
     def test_high_confidence_dominates(self) -> None:
         """Test that high confidence strategy has more influence."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.9],  # High confidence BUY
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.2],  # Low confidence SELL
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.9],  # High confidence BUY
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.2],  # Low confidence SELL
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.CONFIDENCE_WEIGHTED)
 
@@ -352,14 +388,16 @@ class TestConfidenceWeighted:
 
     def test_equal_confidence_cancels(self) -> None:
         """Test equal confidence opposite signals cancel."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.7],
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.7],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.7],
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.7],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.CONFIDENCE_WEIGHTED)
 
@@ -368,14 +406,16 @@ class TestConfidenceWeighted:
 
     def test_confidence_weighted_zero_division(self) -> None:
         """Test handles zero total confidence gracefully."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.0],
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.0],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.0],
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.0],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.CONFIDENCE_WEIGHTED)
 
@@ -388,14 +428,16 @@ class TestMaxConfidence:
 
     def test_picks_highest_confidence(self) -> None:
         """Test picks signal from most confident strategy."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.6],
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.9],  # Higher confidence
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.6],
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.9],  # Higher confidence
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAX_CONFIDENCE)
 
@@ -405,14 +447,16 @@ class TestMaxConfidence:
 
     def test_tie_picks_first(self) -> None:
         """Test tie in confidence picks first strategy alphabetically."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [-1],
-            "strategy_b_confidence": [0.8],  # Same confidence
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [-1],
+                "strategy_b_confidence": [0.8],  # Same confidence
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAX_CONFIDENCE)
 
@@ -426,14 +470,16 @@ class TestMultiSymbol:
 
     def test_multi_symbol_weighted_average(self) -> None:
         """Test weighted average works across multiple symbols."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL", "GOOGL", "MSFT"],
-            "date": [date(2024, 1, 1)] * 3,
-            "strategy_a_signal": [1, -1, 0],
-            "strategy_a_confidence": [0.8, 0.7, 0.5],
-            "strategy_b_signal": [1, 1, -1],
-            "strategy_b_confidence": [0.6, 0.6, 0.8],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "GOOGL", "MSFT"],
+                "date": [date(2024, 1, 1)] * 3,
+                "strategy_a_signal": [1, -1, 0],
+                "strategy_a_confidence": [0.8, 0.7, 0.5],
+                "strategy_b_signal": [1, 1, -1],
+                "strategy_b_confidence": [0.6, 0.6, 0.8],
+            }
+        )
 
         result = combine_signals(
             signals,
@@ -446,16 +492,18 @@ class TestMultiSymbol:
 
     def test_multi_symbol_majority_vote(self) -> None:
         """Test majority vote works across multiple symbols."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL", "GOOGL"],
-            "date": [date(2024, 1, 1)] * 2,
-            "strategy_a_signal": [1, -1],
-            "strategy_a_confidence": [0.8, 0.7],
-            "strategy_b_signal": [1, -1],
-            "strategy_b_confidence": [0.6, 0.8],
-            "strategy_c_signal": [1, 1],
-            "strategy_c_confidence": [0.7, 0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "GOOGL"],
+                "date": [date(2024, 1, 1)] * 2,
+                "strategy_a_signal": [1, -1],
+                "strategy_a_confidence": [0.8, 0.7],
+                "strategy_b_signal": [1, -1],
+                "strategy_b_confidence": [0.6, 0.8],
+                "strategy_c_signal": [1, 1],
+                "strategy_c_confidence": [0.7, 0.6],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAJORITY_VOTE)
 
@@ -470,14 +518,16 @@ class TestMethodMetadata:
 
     def test_method_recorded(self) -> None:
         """Test that combination method is added to result."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         result = combine_signals(signals, method=CombinationMethod.MAJORITY_VOTE)
 
@@ -486,14 +536,16 @@ class TestMethodMetadata:
 
     def test_string_method_conversion(self) -> None:
         """Test that string method names work."""
-        signals = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "date": [date(2024, 1, 1)],
-            "strategy_a_signal": [1],
-            "strategy_a_confidence": [0.8],
-            "strategy_b_signal": [1],
-            "strategy_b_confidence": [0.6],
-        })
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "date": [date(2024, 1, 1)],
+                "strategy_a_signal": [1],
+                "strategy_a_confidence": [0.8],
+                "strategy_b_signal": [1],
+                "strategy_b_confidence": [0.6],
+            }
+        )
 
         # Pass method as string
         result = combine_signals(signals, method="unanimous")
