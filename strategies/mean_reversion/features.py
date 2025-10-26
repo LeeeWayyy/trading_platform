@@ -17,6 +17,7 @@ See /docs/CONCEPTS/mean-reversion.md for detailed explanation (will create).
 """
 
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
@@ -416,12 +417,87 @@ def compute_mean_reversion_features(
     return df
 
 
+def _validate_price_data(df: pl.DataFrame) -> None:
+    """
+    Validate input price data for correctness and data quality.
+
+    Checks for:
+    - Required columns exist
+    - high >= low (logical consistency)
+    - All price/volume values are positive and finite
+    - No unexpected NaN/null values in critical columns
+
+    Args:
+        df: DataFrame with OHLCV price data
+
+    Raises:
+        ValueError: If validation fails with specific error message
+    """
+    # Check required columns
+    required_cols = ["symbol", "date", "open", "high", "low", "close", "volume"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+
+    # Check high >= low
+    invalid_hl = df.filter(pl.col("high") < pl.col("low"))
+    if len(invalid_hl) > 0:
+        raise ValueError(
+            f"Found {len(invalid_hl)} rows where high < low. "
+            f"Sample: {invalid_hl.head(3).to_dict(as_series=False)}"
+        )
+
+    # Check for non-positive prices
+    price_cols = ["open", "high", "low", "close"]
+    for col in price_cols:
+        non_positive = df.filter(pl.col(col) <= 0)
+        if len(non_positive) > 0:
+            raise ValueError(
+                f"Found {len(non_positive)} non-positive values in '{col}' column. "
+                f"Sample: {non_positive.head(3).to_dict(as_series=False)}"
+            )
+
+    # Check for NaN values in price columns
+    for col in price_cols:
+        has_nan = df.filter(pl.col(col).is_nan())
+        if len(has_nan) > 0:
+            raise ValueError(
+                f"Found {len(has_nan)} NaN values in '{col}' column. "
+                f"Sample: {has_nan.head(3).to_dict(as_series=False)}"
+            )
+
+    # Check for infinite values (only on float price columns, not integer volume)
+    for col in price_cols:
+        has_inf = df.filter(pl.col(col).is_infinite())
+        if len(has_inf) > 0:
+            raise ValueError(
+                f"Found {len(has_inf)} infinite values in '{col}' column. "
+                f"Sample: {has_inf.head(3).to_dict(as_series=False)}"
+            )
+
+    # Check for non-positive volume
+    non_positive_vol = df.filter(pl.col("volume") <= 0)
+    if len(non_positive_vol) > 0:
+        raise ValueError(
+            f"Found {len(non_positive_vol)} non-positive volume values. "
+            f"Sample: {non_positive_vol.head(3).to_dict(as_series=False)}"
+        )
+
+    # Check for unexpected nulls in critical columns
+    for col in required_cols:
+        null_count = df.select(pl.col(col).is_null().sum()).item()
+        if null_count > 0:
+            raise ValueError(
+                f"Found {null_count} null values in '{col}' column (unexpected in raw price data)"
+            )
+
+
 def load_and_compute_features(
     symbols: list[str],
     start_date: str,
     end_date: str,
     data_dir: Path = Path("data/adjusted"),
-    **feature_params: int | float,
+    **feature_params: Any,
 ) -> pl.DataFrame:
     """
     Load price data from T1 adjusted Parquet files and compute mean reversion features.
@@ -460,11 +536,57 @@ def load_and_compute_features(
         FileNotFoundError: If data files don't exist
         ValueError: If data is malformed or incomplete
     """
-    # TODO: Implement data loading from T1 adjusted Parquet files
-    # For now, this is a placeholder that will be implemented
-    # when integrating with T1 data pipeline
+    # Convert data_dir to Path if string
+    data_dir = Path(data_dir)
 
-    raise NotImplementedError(
-        "Data loading not yet implemented. "
-        "Will integrate with T1 data pipeline in next iteration."
+    if not data_dir.exists():
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
+
+    # Find all available date directories and use only the newest to avoid duplicates
+    # (Each snapshot contains the full historical series, so loading multiple would duplicate candles)
+    date_dirs = sorted([d for d in data_dir.iterdir() if d.is_dir()])
+
+    if not date_dirs:
+        raise FileNotFoundError(f"No date directories found in {data_dir}")
+
+    # Use only the newest snapshot to avoid duplicate candles
+    latest_snapshot = date_dirs[-1]
+
+    # Load data for each symbol from the latest snapshot
+    dfs = []
+    for symbol in symbols:
+        parquet_file = latest_snapshot / f"{symbol}.parquet"
+
+        if not parquet_file.exists():
+            raise FileNotFoundError(
+                f"No data file found for symbol '{symbol}' in {latest_snapshot}"
+            )
+
+        try:
+            df = pl.read_parquet(parquet_file)
+            dfs.append(df)
+        except Exception as e:
+            raise ValueError(f"Failed to read {parquet_file}: {e}") from e
+
+    # Combine all symbols
+    df = pl.concat(dfs, how="vertical")
+
+    # Filter by date range
+    df = df.filter(
+        (pl.col("date") >= pl.lit(start_date).str.to_date())
+        & (pl.col("date") <= pl.lit(end_date).str.to_date())
     )
+
+    if len(df) == 0:
+        raise ValueError(
+            f"No data found for symbols {symbols} in date range {start_date} to {end_date}"
+        )
+
+    # Validate data quality
+    _validate_price_data(df)
+
+    # Sort by symbol and date for consistent processing
+    df = df.sort(["symbol", "date"])
+
+    # Compute features
+    return compute_mean_reversion_features(df, **feature_params)
