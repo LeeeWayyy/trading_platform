@@ -15,7 +15,6 @@ This is a simplified backtesting approach that assumes:
 Real trading has additional complexities covered in production backtests.
 """
 
-
 import polars as pl
 
 from strategies.backtest import metrics
@@ -164,7 +163,9 @@ class SignalEvaluator:
             "total_return": metrics.calculate_total_return(strategy_returns),
             "annualized_return": metrics.calculate_annualized_return(strategy_returns),
             "sharpe_ratio": metrics.calculate_sharpe_ratio(strategy_returns, risk_free_rate),
-            "max_drawdown": metrics.calculate_max_drawdown((1 + strategy_returns).cum_prod()),
+            "max_drawdown": metrics.calculate_max_drawdown(
+                pl.concat([pl.Series([1.0]), (1 + strategy_returns).cum_prod()])
+            ),
             "win_rate": metrics.calculate_win_rate(strategy_returns),
             "profit_factor": metrics.calculate_profit_factor(strategy_returns),
             "num_trades": int((combined[self.signal_column] != 0).sum()),
@@ -212,7 +213,7 @@ class SignalEvaluator:
         """
         if self._strategy_returns is None:
             raise RuntimeError("Must call evaluate() before accessing cumulative returns")
-        return (1 + self._strategy_returns).cum_prod()
+        return pl.concat([pl.Series([1.0]), (1 + self._strategy_returns).cum_prod()])
 
 
 def quick_evaluate(

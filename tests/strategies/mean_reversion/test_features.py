@@ -425,3 +425,103 @@ class TestEdgeCases:
         # Should raise error due to missing columns
         with pytest.raises(pl.exceptions.ColumnNotFoundError, match="high|low"):
             compute_stochastic_oscillator(prices)
+
+    def test_multi_symbol_no_cross_contamination(self) -> None:
+        """
+        Test that rolling indicators don't mix data between different symbols.
+
+        This is a critical test for the per-symbol grouping fix. Without .over("symbol"),
+        rolling windows would blend the last rows of AAPL with the first rows of MSFT,
+        producing incorrect feature values at symbol boundaries.
+        """
+        # Create data for two symbols with very different price patterns
+        # AAPL: prices 100-119 (trending up)
+        # MSFT: prices 200-219 (trending up but different level)
+        prices = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 20 + ["MSFT"] * 20,
+                "date": pl.date_range(
+                    start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 20), interval="1d", eager=True
+                ).to_list()
+                * 2,  # Same dates for both symbols
+                "close": list(range(100, 120)) + list(range(200, 220)),
+                "high": list(range(101, 121)) + list(range(201, 221)),
+                "low": list(range(99, 119)) + list(range(199, 219)),
+                "open": list(range(100, 120)) + list(range(200, 220)),
+                "volume": [1000000] * 40,
+            }
+        ).sort(
+            ["symbol", "date"]
+        )  # Ensure sorted by symbol, date
+
+        # Test RSI - should be calculated independently per symbol
+        result_rsi = compute_rsi(prices, period=14)
+
+        # Get RSI values for each symbol
+        aapl_rsi = result_rsi.filter(pl.col("symbol") == "AAPL")["rsi"]
+        msft_rsi = result_rsi.filter(pl.col("symbol") == "MSFT")["rsi"]
+
+        # First values should be null (insufficient data for EMA)
+        # EMA-based RSI starts calculating after period, so expect most early values to be null
+        assert aapl_rsi[:13].null_count() >= 12, "Most early AAPL RSI values should be null"
+        assert msft_rsi[:13].null_count() >= 12, "Most early MSFT RSI values should be null"
+
+        # RSI values should be similar for both (both trending up at similar rate)
+        # But they should be calculated independently, not influenced by each other
+        aapl_rsi_valid = aapl_rsi.drop_nulls()
+        msft_rsi_valid = msft_rsi.drop_nulls()
+
+        assert len(aapl_rsi_valid) > 0, "Should have some valid AAPL RSI values"
+        assert len(msft_rsi_valid) > 0, "Should have some valid MSFT RSI values"
+
+        # Test Bollinger Bands - middle band should reflect each symbol's price level
+        result_bb = compute_bollinger_bands(prices, period=10)
+
+        aapl_bb_middle = result_bb.filter(pl.col("symbol") == "AAPL")["bb_middle"].drop_nulls()
+        msft_bb_middle = result_bb.filter(pl.col("symbol") == "MSFT")["bb_middle"].drop_nulls()
+
+        # AAPL middle band should be around 100-119
+        # MSFT middle band should be around 200-219
+        # If cross-contaminated, MSFT's first values would be affected by AAPL's 100-119 prices
+        assert aapl_bb_middle.max() < 150, "AAPL Bollinger middle should stay in 100-120 range"
+        assert msft_bb_middle.min() > 150, "MSFT Bollinger middle should stay in 200-220 range"
+        assert not (
+            aapl_bb_middle.to_list() == msft_bb_middle.to_list()
+        ), "Bollinger bands should be different for different price levels"
+
+        # Test Stochastic Oscillator - should be calculated per symbol
+        result_stoch = compute_stochastic_oscillator(prices, k_period=14, d_period=3)
+
+        # Get stochastic values for each symbol (drop nulls for comparison)
+        aapl_stoch_k = result_stoch.filter(pl.col("symbol") == "AAPL")["stoch_k"].drop_nulls()
+        msft_stoch_k = result_stoch.filter(pl.col("symbol") == "MSFT")["stoch_k"].drop_nulls()
+
+        assert len(aapl_stoch_k) > 0, "Should have some valid AAPL stochastic values"
+        assert len(msft_stoch_k) > 0, "Should have some valid MSFT stochastic values"
+
+        # Stochastic should be calculated independently - values should exist for both symbols
+        # and should be in valid range [0, 100]
+        assert aapl_stoch_k.min() >= 0
+        assert aapl_stoch_k.max() <= 100
+        assert msft_stoch_k.min() >= 0
+        assert msft_stoch_k.max() <= 100
+
+        # Test Z-Score - should be calculated per symbol relative to each symbol's own mean
+        result_zscore = compute_price_zscore(prices, period=10)
+
+        aapl_zscore = result_zscore.filter(pl.col("symbol") == "AAPL")["price_zscore"].drop_nulls()
+        msft_zscore = result_zscore.filter(pl.col("symbol") == "MSFT")["price_zscore"].drop_nulls()
+
+        # Both symbols have similar upward trends, so z-scores should be similar
+        # If cross-contaminated, MSFT's first z-score would be huge (200 vs AAPL's mean of ~110)
+        assert len(aapl_zscore) > 0, "Should have some valid AAPL z-score values"
+        assert len(msft_zscore) > 0, "Should have some valid MSFT z-score values"
+
+        # Z-scores should be reasonable (within -3 to 3 for normal distributions)
+        # If contaminated, we'd see extreme values (>10) for MSFT
+        assert abs(aapl_zscore.mean()) < 3, "AAPL z-scores should be reasonable"
+        assert abs(msft_zscore.mean()) < 3, "MSFT z-scores should be reasonable"
+        assert aapl_zscore.max() < 10, "AAPL z-scores shouldn't have extreme outliers"
+        assert (
+            msft_zscore.max() < 10
+        ), "MSFT z-scores shouldn't have extreme outliers from contamination"

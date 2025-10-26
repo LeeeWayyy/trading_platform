@@ -56,14 +56,16 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
         - RSI > 70: Overbought (potential sell signal)
         - RSI < 30: Oversold (potential buy signal)
         - First `period` rows will have null RSI values
-        - Wilders smoothing method used (EMA-based)
+        - Uses Exponential Moving Average (EMA) for smoothing gains and losses
 
     See Also:
         - https://www.investopedia.com/terms/r/rsi.asp
         - /docs/CONCEPTS/technical-indicators.md
     """
-    # Calculate price changes
-    df = prices.with_columns((pl.col(column) - pl.col(column).shift(1)).alias("price_change"))
+    # Calculate price changes (per-symbol to avoid cross-contamination)
+    df = prices.with_columns(
+        (pl.col(column) - pl.col(column).shift(1).over("symbol")).alias("price_change")
+    )
 
     # Separate gains and losses
     df = df.with_columns(
@@ -81,15 +83,18 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
 
     # Calculate average gain and loss using EWM (Exponential Weighted Moving Average)
     # This matches Wilder's smoothing method
+    # Per-symbol to prevent data leakage between different stocks
     alpha = 1.0 / period
 
     df = df.with_columns(
         [
             pl.col("gain")
             .ewm_mean(alpha=alpha, adjust=False, min_samples=period)
+            .over("symbol")
             .alias("avg_gain"),
             pl.col("loss")
             .ewm_mean(alpha=alpha, adjust=False, min_samples=period)
+            .over("symbol")
             .alias("avg_loss"),
         ]
     )
@@ -157,11 +162,15 @@ def compute_bollinger_bands(
         - https://www.investopedia.com/terms/b/bollingerbands.asp
         - /docs/CONCEPTS/technical-indicators.md
     """
-    # Calculate rolling mean (middle band)
-    df = prices.with_columns(pl.col(column).rolling_mean(window_size=period).alias("bb_middle"))
+    # Calculate rolling mean (middle band) per-symbol
+    df = prices.with_columns(
+        pl.col(column).rolling_mean(window_size=period).over("symbol").alias("bb_middle")
+    )
 
-    # Calculate rolling standard deviation
-    df = df.with_columns(pl.col(column).rolling_std(window_size=period).alias("bb_std"))
+    # Calculate rolling standard deviation per-symbol
+    df = df.with_columns(
+        pl.col(column).rolling_std(window_size=period).over("symbol").alias("bb_std")
+    )
 
     # Calculate upper and lower bands
     df = df.with_columns(
@@ -242,11 +251,11 @@ def compute_stochastic_oscillator(
         - https://www.investopedia.com/terms/s/stochasticoscillator.asp
         - /docs/CONCEPTS/technical-indicators.md
     """
-    # Calculate rolling high and low
+    # Calculate rolling high and low per-symbol
     df = prices.with_columns(
         [
-            pl.col("high").rolling_max(window_size=k_period).alias("period_high"),
-            pl.col("low").rolling_min(window_size=k_period).alias("period_low"),
+            pl.col("high").rolling_max(window_size=k_period).over("symbol").alias("period_high"),
+            pl.col("low").rolling_min(window_size=k_period).over("symbol").alias("period_low"),
         ]
     )
 
@@ -259,8 +268,10 @@ def compute_stochastic_oscillator(
         ).alias("stoch_k")
     )
 
-    # Calculate %D (slow stochastic - SMA of %K)
-    df = df.with_columns(pl.col("stoch_k").rolling_mean(window_size=d_period).alias("stoch_d"))
+    # Calculate %D (slow stochastic - SMA of %K) per-symbol
+    df = df.with_columns(
+        pl.col("stoch_k").rolling_mean(window_size=d_period).over("symbol").alias("stoch_d")
+    )
 
     # Drop intermediate columns
     return df.drop(["period_high", "period_low"])
@@ -309,11 +320,11 @@ def compute_price_zscore(
         - https://www.investopedia.com/terms/z/zscore.asp
         - /docs/CONCEPTS/statistical-indicators.md
     """
-    # Calculate rolling mean and std
+    # Calculate rolling mean and std per-symbol
     df = prices.with_columns(
         [
-            pl.col(column).rolling_mean(window_size=period).alias("rolling_mean"),
-            pl.col(column).rolling_std(window_size=period).alias("rolling_std"),
+            pl.col(column).rolling_mean(window_size=period).over("symbol").alias("rolling_mean"),
+            pl.col(column).rolling_std(window_size=period).over("symbol").alias("rolling_std"),
         ]
     )
 

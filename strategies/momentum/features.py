@@ -69,25 +69,25 @@ def compute_moving_averages(
         - https://www.investopedia.com/terms/m/movingaverage.asp
         - https://www.investopedia.com/terms/g/goldencross.asp
     """
-    # Calculate fast and slow moving averages
+    # Calculate fast and slow moving averages per-symbol
     df = prices.with_columns(
         [
-            pl.col(column).rolling_mean(window_size=fast_period).alias("ma_fast"),
-            pl.col(column).rolling_mean(window_size=slow_period).alias("ma_slow"),
+            pl.col(column).rolling_mean(window_size=fast_period).over("symbol").alias("ma_fast"),
+            pl.col(column).rolling_mean(window_size=slow_period).over("symbol").alias("ma_slow"),
         ]
     )
 
     # Calculate difference (positive = bullish, negative = bearish)
     df = df.with_columns((pl.col("ma_fast") - pl.col("ma_slow")).alias("ma_diff"))
 
-    # Detect crossovers
+    # Detect crossovers per-symbol
     # 1 = fast crosses above slow (bullish/golden cross)
     # -1 = fast crosses below slow (bearish/death cross)
     # 0 = no cross
     df = df.with_columns(
-        pl.when((pl.col("ma_diff") > 0) & (pl.col("ma_diff").shift(1) <= 0))
+        pl.when((pl.col("ma_diff") > 0) & (pl.col("ma_diff").shift(1).over("symbol") <= 0))
         .then(1)  # Golden cross
-        .when((pl.col("ma_diff") < 0) & (pl.col("ma_diff").shift(1) >= 0))
+        .when((pl.col("ma_diff") < 0) & (pl.col("ma_diff").shift(1).over("symbol") >= 0))
         .then(-1)  # Death cross
         .otherwise(0)
         .alias("ma_cross")
@@ -156,8 +156,14 @@ def compute_macd(
     # Using span parameter for EMA (span = period)
     df = prices.with_columns(
         [
-            pl.col(column).ewm_mean(span=fast_period, adjust=False).alias("ema_fast"),
-            pl.col(column).ewm_mean(span=slow_period, adjust=False).alias("ema_slow"),
+            pl.col(column)
+            .ewm_mean(span=fast_period, adjust=False)
+            .over("symbol")
+            .alias("ema_fast"),
+            pl.col(column)
+            .ewm_mean(span=slow_period, adjust=False)
+            .over("symbol")
+            .alias("ema_slow"),
         ]
     )
 
@@ -166,7 +172,10 @@ def compute_macd(
 
     # Calculate signal line (EMA of MACD)
     df = df.with_columns(
-        pl.col("macd_line").ewm_mean(span=signal_period, adjust=False).alias("macd_signal")
+        pl.col("macd_line")
+        .ewm_mean(span=signal_period, adjust=False)
+        .over("symbol")
+        .alias("macd_signal")
     )
 
     # Calculate histogram
@@ -174,9 +183,9 @@ def compute_macd(
 
     # Detect MACD-signal crossovers
     df = df.with_columns(
-        pl.when((pl.col("macd_hist") > 0) & (pl.col("macd_hist").shift(1) <= 0))
+        pl.when((pl.col("macd_hist") > 0) & (pl.col("macd_hist").shift(1).over("symbol") <= 0))
         .then(1)  # Bullish cross
-        .when((pl.col("macd_hist") < 0) & (pl.col("macd_hist").shift(1) >= 0))
+        .when((pl.col("macd_hist") < 0) & (pl.col("macd_hist").shift(1).over("symbol") >= 0))
         .then(-1)  # Bearish cross
         .otherwise(0)
         .alias("macd_cross")
@@ -295,8 +304,8 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     df = prices.with_columns(
         [
             (pl.col("high") - pl.col("low")).alias("hl"),
-            (pl.col("high") - pl.col("close").shift(1)).abs().alias("hc"),
-            (pl.col("low") - pl.col("close").shift(1)).abs().alias("lc"),
+            (pl.col("high") - pl.col("close").shift(1).over("symbol")).abs().alias("hc"),
+            (pl.col("low") - pl.col("close").shift(1).over("symbol")).abs().alias("lc"),
         ]
     )
 
@@ -305,8 +314,8 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     # Calculate directional movements
     df = df.with_columns(
         [
-            (pl.col("high") - pl.col("high").shift(1)).alias("high_diff"),
-            (pl.col("low").shift(1) - pl.col("low")).alias("low_diff"),
+            (pl.col("high") - pl.col("high").shift(1).over("symbol")).alias("high_diff"),
+            (pl.col("low").shift(1).over("symbol") - pl.col("low")).alias("low_diff"),
         ]
     )
 
@@ -329,7 +338,10 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     alpha = 1.0 / period
     df = df.with_columns(
         [
-            pl.col("tr").ewm_mean(alpha=alpha, adjust=False, min_samples=period).alias("atr"),
+            pl.col("tr")
+            .ewm_mean(alpha=alpha, adjust=False, min_samples=period)
+            .over("symbol")
+            .alias("atr"),
             pl.col("plus_dm")
             .ewm_mean(alpha=alpha, adjust=False, min_samples=period)
             .alias("plus_dm_smooth"),
@@ -357,7 +369,12 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
     )
 
     # Calculate ADX (smoothed DX using Wilder's smoothing for consistency)
-    df = df.with_columns(pl.col("dx").ewm_mean(alpha=1.0 / period, adjust=False, min_samples=period).alias("adx"))
+    df = df.with_columns(
+        pl.col("dx")
+        .ewm_mean(alpha=1.0 / period, adjust=False, min_samples=period)
+        .over("symbol")
+        .alias("adx")
+    )
 
     # Drop intermediate columns
     return df.drop(
