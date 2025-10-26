@@ -151,14 +151,28 @@ class TWAPSlicer:
         self.horizon = timedelta(minutes=horizon_minutes)
 
     def plan(self, start_time: datetime) -> list[dict]:
-        """Generate slice schedule with proper remainder handling"""
-        base_qty = int(self.total_qty / self.n_slices)
-        remainder = self.total_qty - (base_qty * self.n_slices)
-        interval = self.horizon / self.n_slices
+        """
+        Generate slice schedule with proper remainder handling
+
+        Validates inputs and ensures minimum lot size (1 share) respected.
+        If total_qty < n_slices, reduces number of slices to avoid 0-qty slices.
+        """
+        if self.n_slices <= 0:
+            raise ValueError("Number of slices must be positive")
+        if self.total_qty <= 0:
+            return []  # No quantity to allocate
+
+        # Adjust number of slices to avoid creating slices with zero quantity
+        # Ensures minimum lot size of 1 share per slice
+        num_slices = min(self.total_qty, self.n_slices)
+
+        base_qty = int(self.total_qty / num_slices)
+        remainder = self.total_qty - (base_qty * num_slices)
+        interval = self.horizon / num_slices
 
         schedule = []
         allocated = 0
-        for i in range(self.n_slices):
+        for i in range(num_slices):
             # Distribute remainder across first slices to ensure total_qty is allocated
             slice_qty = base_qty + (1 if i < remainder else 0)
             allocated += slice_qty
@@ -972,10 +986,10 @@ class AccountMonitor:
 ### Phase Breakdown
 
 **Priority Order:**
-1. **T0: TWAP Slicer** (5-7 days) - Better execution for large orders
+1. **T0: TWAP Slicer** (7-9 days) - Better execution for large orders
 2. **T1: Multi-Alpha Allocator** (5-7 days) - Capital allocation across strategies
-3. **T2: Secrets Management** (3-4 days) - Security requirement for live
-4. **T4: Tax & Compliance** (5-7 days) - Regulatory requirement
+3. **T2: Secrets Management** (5-7 days) - Security requirement for live
+4. **T4: Tax & Compliance** (7-10 days) - Regulatory requirement
 5. **T3: Web Console** (7-10 days) - Operational convenience (can be parallel)
 6. **T5: Live Rollout** (3-5 days prep + 30 days execution) - Final graduation
 
@@ -998,7 +1012,7 @@ class AccountMonitor:
 - **Output:** Live-trading capable system without UI
 
 ### Recommended P2
-- **Time:** 41-55 days (preparation) + 30 days (rollout)
+- **Time:** 34-48 days (preparation) + 30 days (rollout)
 - **Focus:** All 6 tasks (full phase scope with updated estimates)
 - **Output:** Complete live trading system with operational UI and graduated rollout
 
@@ -1009,8 +1023,9 @@ class AccountMonitor:
 - T3 Web Console: 7-10 days
 - T4 Tax: 7-10 days
 - T5 Rollout Prep: 3-5 days
+- **Subtotal:** 34-48 days prep
 - Rollout Execution: 30 days (phases 1-4)
-- **Total:** 34-48 days prep + 30 days rollout = 64-78 days with buffer
+- **Total:** 34-48 days prep + 30 days rollout = 64-78 days end-to-end
 
 ---
 
