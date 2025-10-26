@@ -138,9 +138,16 @@ class SignalEvaluator:
             Sharpe: 1.85
             Win Rate: 58.5%
         """
-        # Join signals with returns on (symbol, date)
+        # Shift return values forward by 1 period per symbol to align signal(D) with return(D+1)
+        # This prevents lookahead bias: signal generated on date D should match next period's return
+        # Keep dates unchanged, shift the return column itself
+        returns_shifted = self.returns.with_columns(
+            pl.col(self.return_column).shift(-1).over("symbol").alias(self.return_column)
+        ).drop_nulls(subset=[self.return_column])
+
+        # Join signals with shifted returns on (symbol, date)
         combined = self.signals.join(
-            self.returns,
+            returns_shifted,
             on=["symbol", "date"],
             how="inner",
         )

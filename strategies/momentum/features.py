@@ -242,8 +242,8 @@ def compute_rate_of_change(
     See Also:
         - https://www.investopedia.com/terms/r/rateofchange.asp
     """
-    # Calculate price n periods ago
-    df = prices.with_columns(pl.col(column).shift(period).alias("price_n_ago"))
+    # Calculate price n periods ago (per-symbol to prevent cross-contamination)
+    df = prices.with_columns(pl.col(column).shift(period).over("symbol").alias("price_n_ago"))
 
     # Calculate ROC as percentage change
     df = df.with_columns(
@@ -347,9 +347,11 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
             .alias("atr"),
             pl.col("plus_dm")
             .ewm_mean(alpha=alpha, adjust=False, min_samples=period)
+            .over("symbol")
             .alias("plus_dm_smooth"),
             pl.col("minus_dm")
             .ewm_mean(alpha=alpha, adjust=False, min_samples=period)
+            .over("symbol")
             .alias("minus_dm_smooth"),
         ]
     )
@@ -440,8 +442,8 @@ def compute_obv(prices: pl.DataFrame) -> pl.DataFrame:
     See Also:
         - https://www.investopedia.com/terms/o/onbalancevolume.asp
     """
-    # Calculate price direction
-    df = prices.with_columns(pl.col("close").diff().alias("price_change"))
+    # Calculate price direction (per-symbol to prevent cross-contamination)
+    df = prices.with_columns(pl.col("close").diff().over("symbol").alias("price_change"))
 
     # Calculate signed volume (volume * direction)
     df = df.with_columns(
@@ -453,8 +455,8 @@ def compute_obv(prices: pl.DataFrame) -> pl.DataFrame:
         .alias("signed_volume")
     )
 
-    # Calculate cumulative OBV
-    df = df.with_columns(pl.col("signed_volume").cum_sum().alias("obv"))
+    # Calculate cumulative OBV (per-symbol to prevent cross-contamination)
+    df = df.with_columns(pl.col("signed_volume").cum_sum().over("symbol").alias("obv"))
 
     # Drop intermediate columns
     return df.drop(["price_change", "signed_volume"])

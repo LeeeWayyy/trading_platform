@@ -114,11 +114,12 @@ class TestSignalEvaluatorEvaluate:
                 "signal": [1, 1, 1],  # All long
             }
         )
+        # Returns shifted: signal(D) matches return(D+1) to avoid lookahead bias
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL", "AAPL"],
-                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
-                "return": [0.01, 0.02, 0.015],  # All positive
+                "symbol": ["AAPL", "AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+                "return": [0.01, 0.02, 0.015, 0.01],  # All positive
             }
         )
 
@@ -140,11 +141,12 @@ class TestSignalEvaluatorEvaluate:
                 "signal": [1, 1],  # Long
             }
         )
+        # Returns shifted: signal(D) matches return(D+1) to avoid lookahead bias
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL"],
-                "date": [date(2024, 1, 1), date(2024, 1, 2)],
-                "return": [-0.02, -0.01],  # Negative returns
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "return": [-0.02, -0.01, -0.005],  # Negative returns
             }
         )
 
@@ -213,11 +215,12 @@ class TestSignalEvaluatorEvaluate:
                 "signal": [1, -1, 0, 1, -1],
             }
         )
+        # Returns shifted: signal(D) matches return(D+1) to avoid lookahead bias
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL"] * 5,
-                "date": [date(2024, 1, i) for i in range(1, 6)],
-                "return": [0.01, 0.01, 0.01, -0.01, 0.01],
+                "symbol": ["AAPL"] * 6,
+                "date": [date(2024, 1, i) for i in range(1, 7)],
+                "return": [0.01, 0.01, 0.01, -0.01, 0.01, 0.01],
             }
         )
 
@@ -266,11 +269,13 @@ class TestSignalEvaluatorEvaluate:
                 "signal": [1, 1, -1, -1],
             }
         )
+        # Need 3 returns per symbol for 2 signals per symbol (N+1 pattern)
+        # Return values shift forward: signal(D) gets return(D+1)
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL", "GOOGL", "GOOGL"],
-                "date": [date(2024, 1, 1), date(2024, 1, 2)] * 2,
-                "return": [0.01, 0.02, 0.01, 0.01],
+                "symbol": ["AAPL", "AAPL", "AAPL", "GOOGL", "GOOGL", "GOOGL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)] * 2,
+                "return": [0.01, 0.02, 0.01, 0.01, 0.01, 0.01],
             }
         )
 
@@ -295,11 +300,13 @@ class TestSignalEvaluatorMethods:
                 "signal": [1, 1],
             }
         )
+        # Need 3 returns for 2 signals (N+1 pattern)
+        # Return values shift forward: signal(D) gets return(D+1)
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL"],
-                "date": [date(2024, 1, 1), date(2024, 1, 2)],
-                "return": [0.01, 0.02],
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "return": [0.01, 0.02, 0.01],
             }
         )
 
@@ -343,11 +350,13 @@ class TestSignalEvaluatorMethods:
                 "signal": [1, 1],
             }
         )
+        # Need 3 returns for 2 signals (N+1 pattern)
+        # Return values shift forward: signal(D) gets return(D+1)
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL"],
-                "date": [date(2024, 1, 1), date(2024, 1, 2)],
-                "return": [0.01, 0.01],
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "return": [0.01, 0.01, 0.01],
             }
         )
 
@@ -371,11 +380,13 @@ class TestSignalEvaluatorMethods:
                 "signal": [1, 1, 1],
             }
         )
+        # Need 4 returns for 3 signals (N+1 pattern)
+        # Return values shift forward: signal(D) gets return(D+1)
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL", "AAPL"],
-                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
-                "return": [0.10, 0.05, -0.03],  # 10%, 5%, -3%
+                "symbol": ["AAPL", "AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+                "return": [0.10, 0.05, -0.03, 0.02],  # 10%, 5%, -3%, 2%
             }
         )
 
@@ -384,12 +395,13 @@ class TestSignalEvaluatorMethods:
 
         cum_returns = evaluator.get_cumulative_returns()
 
-        # Correct multiplicative: (1.10) * (1.05) * (0.97) = 1.1203
-        expected_final = 1.10 * 1.05 * 0.97
+        # Correct multiplicative: (1.05) * (0.97) * (1.02) = 1.03989
+        # signal(1) gets return(2)=0.05, signal(2) gets return(3)=-0.03, signal(3) gets return(4)=0.02
+        expected_final = 1.05 * 0.97 * 1.02
         assert abs(cum_returns[3] - expected_final) < 1e-6  # Index 3 due to prepended 1.0
 
-        # Verify it's NOT additive: (1.10) + (1.05) + (0.97) = 3.12
-        wrong_additive = 1.10 + 1.05 + 0.97
+        # Verify it's NOT additive: (1.05) + (0.97) + (1.02) = 3.04
+        wrong_additive = 1.05 + 0.97 + 1.02
         assert abs(cum_returns[3] - wrong_additive) > 0.1  # Should be very different
 
     def test_get_cumulative_returns_before_evaluate(self) -> None:
@@ -427,11 +439,13 @@ class TestQuickEvaluate:
                 "signal": [1, 1],
             }
         )
+        # Need 3 returns for 2 signals (N+1 pattern)
+        # Return values shift forward: signal(D) gets return(D+1)
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL"],
-                "date": [date(2024, 1, 1), date(2024, 1, 2)],
-                "return": [0.01, 0.02],
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "return": [0.01, 0.02, 0.01],
             }
         )
 
@@ -452,11 +466,13 @@ class TestQuickEvaluate:
                 "my_sig": [1],
             }
         )
+        # Need 2 returns for 1 signal (N+1 pattern)
+        # Return values shift forward: signal(D) gets return(D+1)
         returns = pl.DataFrame(
             {
-                "symbol": ["AAPL"],
-                "date": [date(2024, 1, 1)],
-                "my_ret": [0.01],
+                "symbol": ["AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2)],
+                "my_ret": [0.01, 0.02],
             }
         )
 
