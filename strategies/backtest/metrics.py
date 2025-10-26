@@ -68,7 +68,7 @@ def calculate_max_drawdown(cumulative_returns: pl.Series) -> float:
     Max Drawdown = (Trough Value - Peak Value) / Peak Value
 
     Args:
-        cumulative_returns: Cumulative returns series (1 + sum of returns)
+        cumulative_returns: Cumulative returns series starting at 1.0 (multiplicative compounding)
 
     Returns:
         Maximum drawdown as negative decimal (-0.15 = -15%)

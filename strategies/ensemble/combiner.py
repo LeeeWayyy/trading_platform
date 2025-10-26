@@ -360,10 +360,10 @@ def _majority_vote(signals: pl.DataFrame, strategy_names: list[str]) -> pl.DataF
         signal_col = f"strategy_{name}_signal"
         conf_col = f"strategy_{name}_confidence"
 
-        # Count votes (treat null as 0/hold)
+        # Count votes (only count BUY/SELL, not HOLD)
         buy_expr = buy_expr + (pl.col(signal_col).fill_null(0) == 1).cast(pl.Int32)
         sell_expr = sell_expr + (pl.col(signal_col).fill_null(0) == -1).cast(pl.Int32)
-        total_expr = total_expr + (pl.col(signal_col).is_not_null()).cast(pl.Int32)
+        total_expr = total_expr + pl.col(signal_col).is_not_null().cast(pl.Int32)
 
         # Sum confidences for averaging
         conf_sum = conf_sum + pl.col(conf_col).fill_null(0.0)
@@ -561,8 +561,9 @@ def _max_confidence(signals: pl.DataFrame, strategy_names: list[str]) -> pl.Data
     df = signals.with_columns(max_conf_expr.alias("_max_conf"))
 
     # Find which strategy has max confidence (first match wins ties)
+    # Iterate in reverse so first strategy overwrites later ones
     signal_expr = pl.lit(0).cast(pl.Int8)
-    for signal_col, conf_col in strategy_cols:
+    for signal_col, conf_col in reversed(strategy_cols):
         signal_expr = (
             pl.when(pl.col(conf_col).fill_null(0.0) == pl.col("_max_conf"))
             .then(pl.col(signal_col).fill_null(0))
