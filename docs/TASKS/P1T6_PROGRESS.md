@@ -5,8 +5,9 @@ phase: P1
 task: T6
 priority: P1
 owner: "@development-team"
-state: TASK
+state: PROGRESS
 created: 2025-10-20
+started: 2025-10-25
 dependencies: []
 estimated_effort: "7-10 days"
 related_adrs: []

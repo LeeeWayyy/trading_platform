@@ -35,7 +35,9 @@ class TestCheckFreshness:
         old_time = datetime.now(UTC) - timedelta(hours=2)
         df = pl.DataFrame({"symbol": ["AAPL"], "timestamp": [old_time]})
 
-        with pytest.raises(StalenessError, match=r"Data is.*minutes old, exceeds threshold") as exc_info:
+        with pytest.raises(
+            StalenessError, match=r"Data is.*minutes old, exceeds threshold"
+        ) as exc_info:
             check_freshness(df, max_age_minutes=30)
 
         # Verify error message contains useful details
@@ -69,8 +71,6 @@ class TestCheckFreshness:
 
         with pytest.raises(ValueError, match="timezone-aware"):
             check_freshness(df)
-
-
 
     def test_multiple_timestamps_uses_latest(self):
         """Should use the most recent timestamp in the DataFrame."""

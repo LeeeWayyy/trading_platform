@@ -52,9 +52,9 @@ else
 fi
 echo ""
 
-# Step 3: Run fast unit tests (skip integration tests like CI does)
-echo "3️⃣  Running unit tests (integration tests skipped)..."
-if PYTHONPATH=. poetry run pytest -m "not integration" -q 2>&1 | tee /tmp/pytest-output.txt; then
+# Step 3: Run fast unit tests (skip integration and e2e tests like CI does)
+echo "3️⃣  Running unit tests (integration and e2e tests skipped)..."
+if PYTHONPATH=. poetry run pytest -m "not integration and not e2e" -q 2>&1 | tee /tmp/pytest-output.txt; then
     print_status 0 "unit tests passed"
 else
     print_status 1 "unit tests failed"
