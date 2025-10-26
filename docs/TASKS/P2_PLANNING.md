@@ -260,6 +260,11 @@ GROUP BY parent.client_order_id, parent.symbol, parent.side, parent.qty, parent.
 **Files to Create:**
 - `apps/execution_gateway/order_slicer.py`
 - `apps/execution_gateway/slice_scheduler.py` (NEW: handles time-based execution)
+  - **Implementation:** APScheduler with `BackgroundScheduler`
+  - **Precision:** ±1 second accuracy (sufficient for minute-level TWAP intervals)
+  - **Mechanism:** Cron-based scheduling with asyncio integration
+  - **Robustness:** Job persistence to Redis, automatic retry on failure
+  - **Drift handling:** Each slice uses absolute timestamp (not relative delays)
 - `tests/apps/execution_gateway/test_order_slicer.py`
 - `tests/apps/execution_gateway/test_slice_scheduler.py` (NEW)
 - `docs/ADRs/ADR-XXX-twap-order-slicing.md`
@@ -488,15 +493,19 @@ class AWSSecretsManager(SecretManager):
 # apps/web_console/app.py
 import streamlit as st
 import requests
+import os
 
 st.set_page_config(page_title="Trading Platform Console", layout="wide")
+
+# Configuration via environment variables (avoid hardcoded URLs)
+EXECUTION_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
 
 # Cache data fetching to prevent blocking I/O on every UI interaction
 @st.cache_data(ttl=10)  # Cache for 10 seconds
 def fetch_positions():
     """Fetch positions from execution gateway with error handling"""
     try:
-        response = requests.get("http://localhost:8002/api/v1/positions", timeout=5)
+        response = requests.get(f"{EXECUTION_GATEWAY_URL}/api/v1/positions", timeout=5)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
@@ -664,8 +673,11 @@ class TaxLotTracker:
 
 **DDL for Tax Lots:**
 ```sql
+-- Enable UUID extension (PostgreSQL)
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 CREATE TABLE IF NOT EXISTS tax_lots (
-  id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,  -- UUID for guaranteed uniqueness
   symbol TEXT NOT NULL,
   qty NUMERIC NOT NULL,
   price NUMERIC NOT NULL,
