@@ -110,11 +110,11 @@ These features require P0+P1 infrastructure and are P2 priority:
 
 | # | Feature | Why P2 | Effort | Priority |
 |---|---------|--------|--------|----------|
-| 1 | **TWAP Slicer** | Needs execution gateway + position tracking | 5-7 days | ⭐ HIGH |
+| 1 | **TWAP Slicer** | Needs execution gateway + position tracking | 7-9 days | ⭐ HIGH |
 | 2 | **Multi-Alpha Allocator** | Needs multiple strategies from P1 | 5-7 days | ⭐ HIGH |
-| 3 | **Secrets Management** | Required before live trading | 3-4 days | ⭐ HIGH |
+| 3 | **Secrets Management** | Required before live trading | 5-7 days | ⭐ HIGH |
 | 4 | **Web Console** | Nice-to-have for operations | 7-10 days | 🔶 MEDIUM |
-| 5 | **Tax Tracking** | Required for live trading compliance | 5-7 days | ⭐ HIGH |
+| 5 | **Tax Tracking** | Required for live trading compliance | 7-10 days | ⭐ HIGH |
 | 6 | **Live Rollout** | Final graduation to live trading | 3-5 days | ⭐ HIGH |
 
 **Documentation:** See `docs/TASKS/P1_PLANNING.md` for P1 status
@@ -477,6 +477,18 @@ import requests
 
 st.set_page_config(page_title="Trading Platform Console", layout="wide")
 
+# Cache data fetching to prevent blocking I/O on every UI interaction
+@st.cache_data(ttl=10)  # Cache for 10 seconds
+def fetch_positions():
+    """Fetch positions from execution gateway with error handling"""
+    try:
+        response = requests.get("http://localhost:8002/api/v1/positions", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        st.error(f"Failed to fetch positions: {e}")
+        return []
+
 # Dashboard tab
 with st.expander("📊 Dashboard", expanded=True):
     col1, col2, col3 = st.columns(3)
@@ -489,8 +501,12 @@ with st.expander("📊 Dashboard", expanded=True):
         st.metric("Strategies Active", "3/4")
 
     # Positions table from execution gateway (port 8002)
-    positions = requests.get("http://localhost:8002/api/v1/positions").json()
-    st.dataframe(positions)
+    # Using cached function to prevent blocking on every UI interaction
+    positions = fetch_positions()
+    if positions:
+        st.dataframe(positions)
+    else:
+        st.warning("No positions data available")
 
 # Manual Order Entry tab
 with st.expander("📝 Manual Order Entry"):
@@ -685,9 +701,7 @@ CREATE TABLE IF NOT EXISTS wash_sales (
 10. **Create compliance report** job (daily/monthly)
 11. **Add tests** for FIFO, LIFO, wash sales, corporate action integration, compliance
 12. **Add documentation** with tax compliance guidance and corporate action handling
-
-**Implementation Steps (continued):**
-12. **Position limit checks** for regulatory requirements
+13. **Position limit checks** for regulatory requirements
 
 **Acceptance Criteria:**
 - [ ] Tax lots tracked for all buy orders (with corporate action adjustment history)
@@ -854,36 +868,59 @@ class AccountMonitor:
         }
 
     def check_margin_status(self) -> dict:
-        """Check margin and shorting eligibility"""
+        """
+        Check margin and shorting eligibility
+
+        CRITICAL: trading_blocked indicates if account is blocked from trading
+        (e.g., violations), NOT margin eligibility. Cash accounts with no
+        violations will have trading_blocked=False but multiplier=1.
+
+        Use multiplier to determine margin capability:
+        - multiplier = 1: Cash account (no margin)
+        - multiplier = 2: Standard margin account (Reg T)
+        - multiplier = 4: Day trading account (>=$25k equity)
+        """
         account = self.client.get_account()
+        multiplier = float(account.multiplier)
+
         return {
-            'margin_enabled': account.trading_blocked == False,
+            'margin_enabled': multiplier > 1,  # True if margin account
+            'account_type': 'margin' if multiplier > 1 else 'cash',
             'shorting_enabled': account.shorting_enabled,
-            'multiplier': float(account.multiplier)
+            'multiplier': multiplier,
+            'day_trading_buying_power': multiplier >= 4  # >=4x for pattern day traders
         }
 
     def enforce_market_hours(self, allow_extended: bool = False) -> bool:
-        """Check if trading allowed based on market hours policy"""
+        """
+        Check if trading allowed based on market hours policy
+
+        Uses broker's calendar API to handle:
+        - Early closes (half-day before holidays)
+        - Holidays (market closed)
+        - Daylight Saving Time transitions
+        - Extended hours (4 AM - 8 PM ET)
+        """
         clock = self.client.get_clock()
         if not clock.is_open:
             return False
 
         # During extended hours, is_open=True but we may want to restrict to regular hours only
-        # Regular hours: 9:30 AM - 4:00 PM ET
-        # Extended hours: 4:00 AM - 8:00 PM ET
         if not allow_extended:
-            # Check if current time is within regular market hours
-            # Alpaca clock provides next_open/next_close for regular hours
-            from datetime import datetime
-            import pytz
+            # Fetch today's official market hours from calendar API
+            # This handles early closes, holidays, and DST correctly
+            today_str = clock.timestamp.date().isoformat()
+            calendar = self.client.get_calendar(start=today_str, end=today_str)
 
-            et_tz = pytz.timezone('America/New_York')
-            now_et = datetime.now(et_tz)
-            market_open_time = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
-            market_close_time = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+            if not calendar:
+                return False  # Market is closed today (holiday)
 
-            if not (market_open_time <= now_et <= market_close_time):
-                return False  # Outside regular hours
+            market_open = calendar[0].open
+            market_close = calendar[0].close
+
+            # All times are timezone-aware (UTC)
+            if not (market_open <= clock.timestamp <= market_close):
+                return False  # Outside regular trading hours
 
         return True
 ```
@@ -955,8 +992,9 @@ class AccountMonitor:
 **IMPORTANT:** These estimates assume P1 is 100% complete. If P1 tasks remain, add their effort before calculating P2 timeline.
 
 ### Minimum Viable P2
-- **Time:** 26-35 days (preparation only, no web console)
-- **Focus:** T0, T1, T2, T4 only (updated estimates: 7-9, 5-7, 5-7, 7-10 days)
+- **Time:** 24-33 days (preparation only, no web console)
+- **Focus:** T0, T1, T2, T4 only (7-9 + 5-7 + 5-7 + 7-10 = 24-33 days)
+- **Breakdown:** TWAP 7-9 + Allocator 5-7 + Secrets 5-7 + Tax 7-10 days
 - **Output:** Live-trading capable system without UI
 
 ### Recommended P2
