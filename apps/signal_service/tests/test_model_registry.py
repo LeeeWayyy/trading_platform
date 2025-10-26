@@ -72,8 +72,6 @@ class TestModelRegistryInitialization:
         with pytest.raises(ValueError, match="cannot be empty"):
             ModelRegistry("")
 
-
-
     def test_properties_before_loading(self, test_db_url):
         """Properties return None before model loaded."""
         registry = ModelRegistry(test_db_url)
@@ -100,7 +98,9 @@ class TestModelLoading:
         """Loading nonexistent model raises FileNotFoundError."""
         registry = ModelRegistry(test_db_url)
 
-        with pytest.raises(FileNotFoundError, match=r"Model file not found.*/nonexistent/model.txt"):
+        with pytest.raises(
+            FileNotFoundError, match=r"Model file not found.*/nonexistent/model.txt"
+        ):
             registry.load_model_from_file("/nonexistent/model.txt")
 
     def test_load_model_from_invalid_file_raises_error(self, test_db_url, temp_dir):
@@ -113,8 +113,6 @@ class TestModelLoading:
 
         with pytest.raises(ValueError, match="Invalid LightGBM model"):
             registry.load_model_from_file(str(invalid_file))
-
-
 
     def test_load_model_updates_properties(self, test_db_url, mock_model):
         """Loading model is reflected in properties."""

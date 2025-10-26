@@ -242,8 +242,12 @@ class TestGenerateClientOrderId:
             quantized_str = str(quantized)
 
             # Should not contain 'E' or 'e' (scientific notation marker)
-            assert "E" not in quantized_str, f"Price {price} produced scientific notation: {quantized_str}"
-            assert "e" not in quantized_str, f"Price {price} produced scientific notation: {quantized_str}"
+            assert (
+                "E" not in quantized_str
+            ), f"Price {price} produced scientific notation: {quantized_str}"
+            assert (
+                "e" not in quantized_str
+            ), f"Price {price} produced scientific notation: {quantized_str}"
 
     def test_generate_uses_today_by_default(self):
         """
