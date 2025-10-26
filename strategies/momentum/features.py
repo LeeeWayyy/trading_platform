@@ -47,6 +47,9 @@ def compute_moving_averages(
         - ma_cross: Crossover signal (1 = bullish cross, -1 = bearish cross, 0 = no cross)
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 60,
         ...     "date": pd.date_range("2024-01-01", periods=60),
@@ -126,6 +129,9 @@ def compute_macd(
         - macd_cross: Crossover signal (1 = bullish, -1 = bearish, 0 = no cross)
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 50,
         ...     "date": pd.date_range("2024-01-01", periods=50),
@@ -201,6 +207,9 @@ def compute_rate_of_change(
         DataFrame with 'roc' column (percentage change)
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 30,
         ...     "date": pd.date_range("2024-01-01", periods=30),
@@ -257,6 +266,9 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
         - minus_di: Negative Directional Indicator
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 30,
         ...     "date": pd.date_range("2024-01-01", periods=30),
@@ -344,8 +356,8 @@ def compute_adx(prices: pl.DataFrame, period: int = 14) -> pl.DataFrame:
         ).alias("dx")
     )
 
-    # Calculate ADX (smoothed DX)
-    df = df.with_columns(pl.col("dx").rolling_mean(window_size=period).alias("adx"))
+    # Calculate ADX (smoothed DX using Wilder's smoothing for consistency)
+    df = df.with_columns(pl.col("dx").ewm_mean(alpha=1.0 / period, adjust=False, min_samples=period).alias("adx"))
 
     # Drop intermediate columns
     return df.drop(
@@ -385,6 +397,9 @@ def compute_obv(prices: pl.DataFrame) -> pl.DataFrame:
         DataFrame with 'obv' column (cumulative volume)
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 30,
         ...     "date": pd.date_range("2024-01-01", periods=30),
@@ -464,6 +479,9 @@ def compute_momentum_features(
         - obv: On-balance volume
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 60,
         ...     "date": pd.date_range("2024-01-01", periods=60),

@@ -9,6 +9,7 @@ environment variables for flexibility across environments (dev, staging, prod).
 """
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from strategies.ensemble.combiner import CombinationMethod
 
@@ -176,9 +177,9 @@ class AdaptiveWeightConfig:
 
     enabled: bool = False
     lookback_days: int = 30
-    update_frequency: str = "daily"
+    update_frequency: Literal["intraday", "daily", "weekly"] = "daily"
     min_trades: int = 10
-    performance_metric: str = "sharpe"
+    performance_metric: Literal["sharpe", "returns", "win_rate", "profit_factor"] = "sharpe"
     smoothing_factor: float = 0.2
 
     def validate(self) -> None:

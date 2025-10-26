@@ -359,6 +359,38 @@ class TestSignalEvaluatorMethods:
         assert len(cum_returns) == 2
         # Should be monotonically increasing with positive returns
         assert cum_returns[1] > cum_returns[0]
+        # Verify multiplicative compounding: (1 + 0.01) * (1 + 0.01) = 1.0201
+        assert abs(cum_returns[1] - 1.0201) < 1e-6
+
+    def test_cumulative_returns_uses_compounding(self) -> None:
+        """Test that cumulative returns use multiplicative compounding, not additive."""
+        signals = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "signal": [1, 1, 1],
+            }
+        )
+        returns = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+                "return": [0.10, 0.05, -0.03],  # 10%, 5%, -3%
+            }
+        )
+
+        evaluator = SignalEvaluator(signals, returns)
+        evaluator.evaluate()
+
+        cum_returns = evaluator.get_cumulative_returns()
+
+        # Correct multiplicative: (1.10) * (1.05) * (0.97) = 1.1203
+        expected_final = 1.10 * 1.05 * 0.97
+        assert abs(cum_returns[2] - expected_final) < 1e-6
+
+        # Verify it's NOT additive: (1.10) + (1.05) + (0.97) = 3.12
+        wrong_additive = 1.10 + 1.05 + 0.97
+        assert abs(cum_returns[2] - wrong_additive) > 0.1  # Should be very different
 
     def test_get_cumulative_returns_before_evaluate(self) -> None:
         """Test that accessing cumulative returns before evaluate raises error."""

@@ -41,6 +41,8 @@ def compute_rsi(prices: pl.DataFrame, period: int = 14, column: str = "close") -
         DataFrame with original columns plus 'rsi' column
 
     Example:
+        >>> import pandas as pd
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 20,
         ...     "date": pd.date_range("2024-01-01", periods=20),
@@ -133,6 +135,9 @@ def compute_bollinger_bands(
         - bb_pct: Percent B - where price falls relative to bands (0-1 scale)
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 30,
         ...     "date": pd.date_range("2024-01-01", periods=30),
@@ -210,6 +215,9 @@ def compute_stochastic_oscillator(
         - stoch_d: %D line (slow oscillator, signal line)
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 20,
         ...     "date": pd.date_range("2024-01-01", periods=20),
@@ -279,6 +287,9 @@ def compute_price_zscore(
         DataFrame with 'price_zscore' column
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 30,
         ...     "date": pd.date_range("2024-01-01", periods=30),
@@ -350,6 +361,9 @@ def compute_mean_reversion_features(
         - price_zscore: Z-Score of price
 
     Example:
+        >>> import pandas as pd
+        >>> import numpy as np
+        >>> import polars as pl
         >>> df = pl.DataFrame({
         ...     "symbol": ["AAPL"] * 50,
         ...     "date": pd.date_range("2024-01-01", periods=50),
