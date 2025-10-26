@@ -154,40 +154,74 @@ class TWAPSlicer:
         """
         Generate slice schedule with proper remainder handling
 
-        Validates inputs and ensures minimum lot size (1 share) respected.
-        If total_qty < n_slices, reduces number of slices to avoid 0-qty slices.
+        Supports both integer (stocks) and fractional (crypto/FX) quantities.
+        For integer quantities: distributes evenly with remainder across first slices.
+        For fractional quantities: uses decimal division to preserve precision.
         """
         if self.n_slices <= 0:
             raise ValueError("Number of slices must be positive")
         if self.total_qty <= 0:
             return []  # No quantity to allocate
 
-        # Adjust number of slices to avoid creating slices with zero quantity
-        # Ensures minimum lot size of 1 share per slice
-        num_slices = min(self.total_qty, self.n_slices)
+        # Determine if quantity is integer or fractional
+        is_integer_qty = (self.total_qty == int(self.total_qty))
 
-        base_qty = int(self.total_qty / num_slices)
-        remainder = self.total_qty - (base_qty * num_slices)
+        # Adjust number of slices (must be integer for range() compatibility)
+        # For integer quantities < n_slices: reduce slices to avoid 0-qty slices (e.g., qty=3, slices=10 → 3)
+        # For fractional quantities < 1: single slice to avoid dust (e.g., 0.5 BTC, slices=10 → 1 slice)
+        # For fractional quantities >= 1: use requested slices (e.g., 1.5 BTC, slices=3 → 3 slices)
+        if is_integer_qty and self.total_qty < self.n_slices:
+            num_slices = int(self.total_qty)
+        elif not is_integer_qty and self.total_qty < 1:
+            num_slices = 1  # Don't split sub-unit quantities into dust
+        else:
+            num_slices = max(1, self.n_slices)
+
         interval = self.horizon / num_slices
-
         schedule = []
-        allocated = 0
-        for i in range(num_slices):
-            # Distribute remainder across first slices to ensure total_qty is allocated
-            slice_qty = base_qty + (1 if i < remainder else 0)
-            allocated += slice_qty
+        # Initialize accumulator in same type as total_qty to avoid Decimal/float mixing
+        allocated = type(self.total_qty)(0)
 
-            schedule.append({
-                'parent_id': self.parent_id,
-                'slice_num': i,
-                'qty': slice_qty,
-                'scheduled_time': start_time + (interval * i),
-                'symbol': self.symbol,
-                'side': self.side
-            })
+        if is_integer_qty:
+            # Integer quantity: use integer distribution with remainder
+            base_qty = int(self.total_qty / num_slices)
+            remainder = int(self.total_qty) - (base_qty * num_slices)
 
-        # Verify total allocation equals parent quantity
-        assert allocated == self.total_qty, f"Allocation mismatch: {allocated} != {self.total_qty}"
+            for i in range(num_slices):
+                # Distribute remainder across first slices to ensure total_qty allocated
+                slice_qty = base_qty + (1 if i < remainder else 0)
+                allocated += slice_qty
+
+                schedule.append({
+                    'parent_id': self.parent_id,
+                    'slice_num': i,
+                    'qty': slice_qty,
+                    'scheduled_time': start_time + (interval * i),
+                    'symbol': self.symbol,
+                    'side': self.side
+                })
+        else:
+            # Fractional quantity: use decimal distribution to preserve precision
+            for i in range(num_slices):
+                if i == num_slices - 1:
+                    # Last slice: allocate remaining to handle rounding
+                    slice_qty = self.total_qty - allocated
+                else:
+                    slice_qty = self.total_qty / num_slices
+
+                allocated += slice_qty
+
+                schedule.append({
+                    'parent_id': self.parent_id,
+                    'slice_num': i,
+                    'qty': slice_qty,
+                    'scheduled_time': start_time + (interval * i),
+                    'symbol': self.symbol,
+                    'side': self.side
+                })
+
+        # Verify total allocation equals parent quantity (with floating point tolerance)
+        assert abs(allocated - self.total_qty) < 1e-9, f"Allocation mismatch: {allocated} != {self.total_qty}"
         return schedule
 ```
 
