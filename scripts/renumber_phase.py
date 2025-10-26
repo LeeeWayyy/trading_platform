@@ -60,7 +60,7 @@ def parse_planning_structure(phase: str) -> dict[str, int]:
 
     for track in sorted(tasks_by_track.keys()):
         tasks = sorted(tasks_by_track[track], key=lambda x: x[0])
-        for task_num, title in tasks:
+        for task_num, _title in tasks:
             old_notation = f"T{track}.{task_num}"
             mapping[old_notation] = sequential
             sequential += 1

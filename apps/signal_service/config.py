@@ -70,6 +70,29 @@ class Settings(BaseSettings):
     debug: bool = False
     """Enable debug mode with auto-reload. Never use in production."""
 
+    testing: bool = False
+    """
+    Enable testing mode for CI/E2E tests.
+
+    When enabled:
+        - Service starts without requiring an active model in database
+        - Model loading failures are logged as warnings instead of crashing
+        - Allows health checks and endpoint testing without model data
+
+    When disabled:
+        - Service requires active model to start (production behavior)
+        - Model loading failures cause startup failure
+
+    Example:
+        export TESTING=true   # CI/E2E environments
+        export TESTING=false  # Production (default)
+
+    Notes:
+        - Only use in CI/E2E test environments
+        - Signal generation endpoints return 500 when no model loaded
+        - Health check passes even without model
+    """
+
     # ========================================================================
     # Database Configuration
     # ========================================================================

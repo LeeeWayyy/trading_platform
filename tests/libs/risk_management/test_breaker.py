@@ -67,7 +67,7 @@ class TestCircuitBreakerInitialization:
         }
         mock_redis_client.get.return_value = json.dumps(existing_state)
 
-        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        _breaker = CircuitBreaker(redis_client=mock_redis_client)
 
         # Verify no initialization call (state already exists)
         mock_redis_client.set.assert_not_called()

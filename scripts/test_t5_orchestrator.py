@@ -28,9 +28,12 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from apps.orchestrator.database import OrchestrationDatabaseClient
-from apps.orchestrator.orchestrator import TradingOrchestrator, calculate_position_size
-from apps.orchestrator.schemas import Signal
+from apps.orchestrator.database import OrchestrationDatabaseClient  # noqa: E402
+from apps.orchestrator.orchestrator import (  # noqa: E402
+    TradingOrchestrator,
+    calculate_position_size,
+)
+from apps.orchestrator.schemas import Signal  # noqa: E402
 
 
 def print_separator(title: str):

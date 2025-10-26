@@ -61,7 +61,7 @@ services:
       LOG_LEVEL: INFO
 
       # Database
-      DB_URL: postgresql://trader:test_password@postgres:5432/trader_test
+      DATABASE_URL: postgresql://trader:test_password@postgres:5432/trader_test
 
       # Redis
       REDIS_HOST: redis
@@ -106,7 +106,7 @@ services:
       LOG_LEVEL: INFO
 
       # Database
-      DB_URL: postgresql://trader:test_password@postgres:5432/trader_test
+      DATABASE_URL: postgresql://trader:test_password@postgres:5432/trader_test
 
       # Redis
       REDIS_HOST: redis
@@ -153,7 +153,7 @@ services:
       LOG_LEVEL: INFO
 
       # Database
-      DB_URL: postgresql://trader:test_password@postgres:5432/trader_test
+      DATABASE_URL: postgresql://trader:test_password@postgres:5432/trader_test
 
       # Service URLs
       SIGNAL_SERVICE_URL: http://signal_service:8001

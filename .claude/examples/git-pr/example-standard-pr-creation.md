@@ -50,7 +50,7 @@ $ git add <files>
 $ git commit -m "Address review feedback"
 $ git push
 
-$ gh pr comment 26 --body "@codex @gemini-code-assist updated to address your feedback, please verify"
+$ gh pr comment 26 --body "@gemini-code-assist @codex updated to address your feedback, please verify"
 
 # 8. Reviewers approve
 # Codex: "All issues resolved, approved ✅"

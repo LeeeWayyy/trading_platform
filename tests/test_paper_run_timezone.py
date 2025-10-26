@@ -26,7 +26,7 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.paper_run import (
+from scripts.paper_run import (  # noqa: E402
     format_console_output,
     save_results,
 )
@@ -58,7 +58,7 @@ class TestConsoleOutputTimezone:
             "as_of_date": None,
         }
         result = {"status": "completed"}
-        pnl_metrics = create_simple_pnl_metrics(Decimal("50000"))
+        _pnl_metrics = create_simple_pnl_metrics(Decimal("50000"))
 
         # Fixed timezone-aware timestamp
         fixed_time = datetime(2025, 1, 17, 9, 0, 0, tzinfo=UTC)
@@ -85,7 +85,7 @@ class TestConsoleOutputTimezone:
             "as_of_date": None,
         }
         result = {"status": "completed"}
-        pnl_metrics = {}
+        _pnl_metrics = {}
 
         # Act
         format_console_output(config, result, datetime.now(UTC))
@@ -108,7 +108,7 @@ class TestConsoleOutputTimezone:
             "as_of_date": None,
         }
         result = {"status": "completed"}
-        pnl_metrics = {}
+        _pnl_metrics = {}
 
         # Fixed UTC timestamp
         fixed_time = datetime(2025, 1, 17, 14, 30, 0, tzinfo=UTC)

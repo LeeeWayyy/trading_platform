@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from apps.signal_service.main import _format_database_url_for_logging
+from apps.signal_service.main import _format_database_url_for_logging  # noqa: E402
 
 
 def test_format_database_url_with_credentials():

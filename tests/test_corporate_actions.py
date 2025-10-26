@@ -127,10 +127,8 @@ class TestAdjustForSplits:
 
         ca = pl.DataFrame({"symbol": ["AAPL"], "date": ["2024-01-10"], "split_ratio": [4.0]})
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="missing required columns"):
             adjust_for_splits(df, ca)
-
-        assert "missing required columns" in str(exc_info.value).lower()
 
     def test_reverse_split(self):
         """Reverse split (ratio < 1.0) should increase prices, decrease volume."""

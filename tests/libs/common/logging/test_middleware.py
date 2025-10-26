@@ -186,7 +186,7 @@ class TestASGITraceIDMiddleware:
                         await send({"type": "lifespan.shutdown.complete"})
                         break
 
-        wrapped_app = ASGITraceIDMiddleware(simple_app)
+        _wrapped_app = ASGITraceIDMiddleware(simple_app)
 
         # Should not raise exception for non-HTTP scope
         # This is tested implicitly by TestClient startup/shutdown
@@ -199,7 +199,7 @@ class TestASGITraceIDMiddleware:
 
 
 @pytest.fixture(autouse=True)
-def cleanup_trace_context():
+def _cleanup_trace_context():
     """Ensure trace context is clean before and after each test."""
     clear_trace_id()
     yield

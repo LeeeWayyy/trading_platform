@@ -31,7 +31,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -63,10 +63,10 @@ class TaskMetadata:
     owner: str
     state: TaskState
     created: str
-    started: Optional[str] = None
-    completed: Optional[str] = None
-    duration: Optional[str] = None
-    file_path: Optional[Path] = None
+    started: str | None = None
+    completed: str | None = None
+    duration: str | None = None
+    file_path: Path | None = None
 
 
 def parse_front_matter(file_path: Path) -> dict[str, str]:
@@ -152,7 +152,7 @@ def update_front_matter(file_path: Path, updates: dict[str, str]) -> None:
         f.write(new_content)
 
 
-def get_task_file(task_id: str, state: Optional[TaskState] = None) -> Optional[Path]:
+def get_task_file(task_id: str, state: TaskState | None = None) -> Path | None:
     """
     Find task file by ID and optionally state.
 
@@ -178,7 +178,7 @@ def get_task_file(task_id: str, state: Optional[TaskState] = None) -> Optional[P
 
 
 def list_tasks(
-    state: Optional[TaskState] = None, phase: Optional[str] = None
+    state: TaskState | None = None, phase: str | None = None
 ) -> list[TaskMetadata]:
     """
     List all tasks, optionally filtered by state and/or phase.
@@ -253,7 +253,7 @@ def create_task(task_id: str, title: str, owner: str, phase: str, effort: str = 
     if not match:
         raise ValueError(f"Invalid task ID format: {task_id}. Expected format: PxTy (e.g., P0T5)")
 
-    phase_num = match.group(1)
+    _phase_num = match.group(1)
     task_num = match.group(2)
 
     # Check if task already exists
@@ -424,7 +424,7 @@ def complete_task(task_id: str) -> None:
     # Parse metadata to get started date
     fm = parse_front_matter(progress_file)
     started = fm.get("started", "")
-    created = fm.get("created", "")
+    _created = fm.get("created", "")
 
     # New DONE file path
     done_file = TASKS_DIR / f"{task_id}_DONE.md"
@@ -459,7 +459,7 @@ def complete_task(task_id: str) -> None:
     print("   Or run: ./scripts/tasks.py sync-status")
 
 
-def create_phase(phase: str, source: Optional[str] = None, interactive: bool = True) -> None:
+def create_phase(phase: str, source: str | None = None, interactive: bool = True) -> None:
     """
     Create a phase planning document (Px_PLANNING.md).
 
@@ -501,7 +501,7 @@ def create_phase(phase: str, source: Optional[str] = None, interactive: bool = T
 
         print(f"📖 Reading master plan from {source}...")
         with open(source_path, encoding="utf-8") as f:
-            master_content = f.read()
+            _master_content = f.read()
 
         print("\n⚠️  Automatic extraction not yet implemented.")
         print(f"   Please manually extract {phase} content from {source}")
@@ -776,7 +776,7 @@ def sync_status() -> None:
     print("\n💡 Note: Auto-generation of INDEX.md and PROJECT_STATUS.md coming soon!")
 
 
-def next_task(phase: Optional[str] = None) -> None:
+def next_task(phase: str | None = None) -> None:
     """
     Show the next task to work on.
 

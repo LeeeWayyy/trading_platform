@@ -171,10 +171,8 @@ class TestDetectOutliers:
             }
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="missing required columns"):
             detect_outliers(df)
-
-        assert "missing required columns" in str(exc_info.value).lower()
 
     def test_reason_column_format(self):
         """Quarantined data should have properly formatted reason."""

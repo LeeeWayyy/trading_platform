@@ -29,10 +29,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import numpy as np
+import numpy as np  # noqa: E402
 
-from apps.signal_service.model_registry import ModelRegistry
-from apps.signal_service.signal_generator import SignalGenerator
+from apps.signal_service.model_registry import ModelRegistry  # noqa: E402
+from apps.signal_service.signal_generator import SignalGenerator  # noqa: E402
 
 # Configure logging
 logging.basicConfig(

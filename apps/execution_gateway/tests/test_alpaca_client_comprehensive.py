@@ -144,10 +144,10 @@ class TestAlpacaExecutorInitialization:
     def test_initialization_failure_when_alpaca_not_installed(self):
         """Should raise ImportError when alpaca-py package is not installed."""
         with patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", False):
-            with pytest.raises(ImportError) as exc_info:
+            with pytest.raises(ImportError, match="alpaca-py package is required"):
                 AlpacaExecutor(api_key="test", secret_key="test")
 
-            assert "alpaca-py package is required" in str(exc_info.value)
+
 
 
 class TestAlpacaExecutorOrderSubmission:
@@ -293,11 +293,8 @@ class TestAlpacaExecutorOrderSubmission:
 
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=100, order_type="market")
 
-        with pytest.raises(AlpacaValidationError) as exc_info:
+        with pytest.raises(AlpacaValidationError, match=r"Invalid.*must be positive"):
             executor.submit_order(order_request, "client_order_abc")
-
-        assert "Invalid order" in str(exc_info.value)
-        assert "must be positive" in str(exc_info.value)
 
     def test_submit_order_rejection_error_422(self, executor):
         """
@@ -311,11 +308,8 @@ class TestAlpacaExecutorOrderSubmission:
 
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=1000000, order_type="market")
 
-        with pytest.raises(AlpacaRejectionError) as exc_info:
+        with pytest.raises(AlpacaRejectionError, match=r"Insufficient buying power"):
             executor.submit_order(order_request, "client_order_abc")
-
-        assert "Order rejected" in str(exc_info.value)
-        assert "Insufficient buying power" in str(exc_info.value)
 
     def test_submit_order_rejection_error_403(self, executor):
         """
@@ -329,11 +323,8 @@ class TestAlpacaExecutorOrderSubmission:
 
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=100, order_type="market")
 
-        with pytest.raises(AlpacaRejectionError) as exc_info:
+        with pytest.raises(AlpacaRejectionError, match=r"restricted"):
             executor.submit_order(order_request, "client_order_abc")
-
-        assert "Order rejected" in str(exc_info.value)
-        assert "restricted" in str(exc_info.value)
 
     def test_submit_order_connection_error_retryable(self, executor, mock_order_response):
         """
@@ -373,10 +364,10 @@ class TestAlpacaExecutorOrderSubmission:
 
         # Stub sleep to avoid 14s delay in tests (2s + 4s + 8s)
         with patch("time.sleep"):
-            with pytest.raises(AlpacaConnectionError) as exc_info:
+            with pytest.raises(AlpacaConnectionError, match="Connection timeout"):
                 executor.submit_order(order_request, "client_order_abc")
 
-        assert "Connection timeout" in str(exc_info.value)
+
         assert executor.client.submit_order.call_count == 3  # Max retries reached
 
     def test_submit_order_unexpected_exception(self, executor):
@@ -390,10 +381,10 @@ class TestAlpacaExecutorOrderSubmission:
 
         order_request = OrderRequest(symbol="AAPL", side="buy", qty=100, order_type="market")
 
-        with pytest.raises(AlpacaClientError) as exc_info:
+        with pytest.raises(AlpacaClientError, match="Unexpected error"):
             executor.submit_order(order_request, "client_order_abc")
 
-        assert "Unexpected error" in str(exc_info.value)
+
 
     def test_submit_order_handles_qty_none_from_alpaca(self, executor):
         """
@@ -464,10 +455,10 @@ class TestAlpacaExecutorBuildRequest:
             limit_price=None,  # Missing required field
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="limit_price is required for limit orders"):
             executor._build_alpaca_request(order, "client_123")
 
-        assert "limit_price is required for limit orders" in str(exc_info.value)
+
 
     def test_build_stop_order_request_missing_stop_price(self, executor):
         """Should raise ValueError when stop_price missing for stop order."""
@@ -479,10 +470,10 @@ class TestAlpacaExecutorBuildRequest:
             stop_price=None,  # Missing required field
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="stop_price is required for stop orders"):
             executor._build_alpaca_request(order, "client_123")
 
-        assert "stop_price is required for stop orders" in str(exc_info.value)
+
 
     def test_build_stop_limit_order_request_missing_prices(self, executor):
         """Should raise ValueError when prices missing for stop_limit order."""
@@ -495,10 +486,10 @@ class TestAlpacaExecutorBuildRequest:
             stop_price=None,  # Both missing
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Both limit_price and stop_price are required"):
             executor._build_alpaca_request(order, "client_123")
 
-        assert "Both limit_price and stop_price are required" in str(exc_info.value)
+
 
     def test_build_request_unsupported_order_type(self, executor):
         """
@@ -513,10 +504,10 @@ class TestAlpacaExecutorBuildRequest:
         # Bypass Pydantic by modifying __dict__ directly (for testing only)
         order.__dict__["order_type"] = "trailing_stop"
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Unsupported order type"):
             executor._build_alpaca_request(order, "client_123")
 
-        assert "Unsupported order type" in str(exc_info.value)
+
 
 
 class TestAlpacaExecutorOrderQuery:
@@ -635,10 +626,10 @@ class TestAlpacaExecutorOrderCancellation:
         api_error = create_mock_alpaca_error("Order already filled, cannot cancel", 422)
         executor.client.cancel_order_by_id = Mock(side_effect=api_error)
 
-        with pytest.raises(AlpacaRejectionError) as exc_info:
+        with pytest.raises(AlpacaRejectionError, match=r"already filled.*cannot cancel"):
             executor.cancel_order("broker_order_123")
 
-        assert "cannot be cancelled" in str(exc_info.value)
+
 
     def test_cancel_order_connection_error(self, executor):
         """Should raise AlpacaConnectionError for connection failures."""
@@ -772,10 +763,10 @@ class TestAlpacaExecutorLatestQuotes:
 
     def test_get_latest_quotes_empty_symbols_list(self, executor):
         """Should raise ValueError when symbols list is empty."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="symbols list cannot be empty"):
             executor.get_latest_quotes([])
 
-        assert "symbols list cannot be empty" in str(exc_info.value)
+
 
     def test_get_latest_quotes_missing_bid_ask(self, executor):
         """Should handle missing bid/ask prices gracefully."""
@@ -817,19 +808,19 @@ class TestAlpacaExecutorLatestQuotes:
         api_error = create_mock_alpaca_error("Rate limit exceeded", 429)
         executor.data_client.get_stock_latest_quote = Mock(side_effect=api_error)
 
-        with pytest.raises(AlpacaConnectionError) as exc_info:
+        with pytest.raises(AlpacaConnectionError, match="Failed to fetch quotes"):
             executor.get_latest_quotes(["AAPL"])
 
-        assert "Failed to fetch quotes" in str(exc_info.value)
+
 
     def test_get_latest_quotes_unexpected_exception(self, executor):
         """Should raise AlpacaConnectionError on unexpected exception."""
         executor.data_client.get_stock_latest_quote = Mock(side_effect=ValueError("Unexpected"))
 
-        with pytest.raises(AlpacaConnectionError) as exc_info:
+        with pytest.raises(AlpacaConnectionError, match="Unexpected error fetching quotes"):
             executor.get_latest_quotes(["AAPL"])
 
-        assert "Unexpected error fetching quotes" in str(exc_info.value)
+
 
     def test_get_latest_quotes_retry_on_connection_error(self, executor):
         """Should retry up to 3 times on connection errors."""

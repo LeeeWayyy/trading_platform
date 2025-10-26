@@ -99,7 +99,7 @@ User                    Claude Code                 Zen MCP (Codex)
 5. Claude Code: Continues coding...
 6. Repeat until feature complete
 7. Claude Code: Creates PR
-8. WAIT for @codex @gemini-code-assist reviews (10-15 min)
+8. WAIT for @gemini-code-assist @codex reviews (10-15 min)
 9. Claude Code: Fixes issues found
 10. Claude Code: Pushes fixes, waits for re-review
 11. Repeat until approved

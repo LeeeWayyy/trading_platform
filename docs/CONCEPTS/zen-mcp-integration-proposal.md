@@ -424,7 +424,7 @@ Zen provides 14+ specialized tools organized by category:
 ```bash
 # Old way (PR #17):
 1. Claude creates PR
-2. GitHub Actions posts "@codex @gemini-code-assist please review"
+2. GitHub Actions posts "@gemini-code-assist @codex please review"
 3. Wait for Codex review (minutes)
 4. Wait for Gemini review (minutes)
 5. Reviews are independent - no shared context

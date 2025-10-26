@@ -22,7 +22,7 @@ print("\n" + "=" * 70)
 print("TEST 1: T1 Data Provider")
 print("=" * 70)
 
-from strategies.alpha_baseline.data_loader import T1DataProvider
+from strategies.alpha_baseline.data_loader import T1DataProvider  # noqa: E402
 
 provider = T1DataProvider(data_dir=Path("data/adjusted"))
 
@@ -73,7 +73,7 @@ print("\n" + "=" * 70)
 print("TEST 2: Configuration Management")
 print("=" * 70)
 
-from strategies.alpha_baseline.config import DataConfig, ModelConfig, StrategyConfig
+from strategies.alpha_baseline.config import DataConfig, ModelConfig, StrategyConfig  # noqa: E402
 
 config = StrategyConfig(
     data=DataConfig(
@@ -108,7 +108,7 @@ print("\n" + "=" * 70)
 print("TEST 3: Portfolio Backtesting")
 print("=" * 70)
 
-from strategies.alpha_baseline.backtest import PortfolioBacktest
+from strategies.alpha_baseline.backtest import PortfolioBacktest  # noqa: E402
 
 # Create mock predictions and returns for test period
 print("\nCreating mock predictions from test data...")
@@ -149,7 +149,7 @@ if len(metrics) > 0:
 
     print("\nBacktest metrics:")
     for name, value in metrics.items():
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             if name in [
                 "total_return",
                 "annualized_return",
@@ -190,8 +190,8 @@ print("\n" + "=" * 70)
 print("TEST 4: Model Training (Mock Features)")
 print("=" * 70)
 
-import lightgbm as lgb
-from sklearn.metrics import mean_absolute_error
+import lightgbm as lgb  # noqa: E402
+from sklearn.metrics import mean_absolute_error  # noqa: E402
 
 print("\nCreating mock features for training...")
 

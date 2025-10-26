@@ -165,10 +165,16 @@ class TestLogContext:
         original_id = "original-999"
         set_trace_id(original_id)
 
-        with pytest.raises(ValueError):
+        # Helper to verify ID change and raise exception (single callable for PT012)
+        def raise_error_in_context():
             with LogContext("temporary-111"):
+                # Verify ID was changed inside context
                 assert get_trace_id() == "temporary-111"
                 raise ValueError("Test error")
+
+        # Verify exception is raised
+        with pytest.raises(ValueError, match="Test error"):
+            raise_error_in_context()
 
         # Should still restore original ID
         assert get_trace_id() == original_id

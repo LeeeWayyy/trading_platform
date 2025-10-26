@@ -324,7 +324,7 @@ def create_stale_data(symbol: str = "AAPL", hours_old: int = 2, num_days: int = 
 
 
 def create_multi_symbol_data(
-    symbols: list[str] = ["AAPL", "MSFT", "GOOGL"],
+    symbols: list[str] = None,
     num_days: int = 10,
     include_split: bool = True,
     include_dividend: bool = True,
@@ -358,6 +358,8 @@ def create_multi_symbol_data(
         >>> raw["symbol"].unique().to_list()
         ['AAPL', 'GOOGL', 'MSFT']
     """
+    if symbols is None:
+        symbols = ["AAPL", "MSFT", "GOOGL"]
     all_data = []
     splits_data = []
     dividends_data = []

@@ -158,6 +158,23 @@ jobs:
           docker compose -f docker-compose.ci.yml build --parallel
           echo "::endgroup::"
 
+      - name: Start database for migrations
+        run: |
+          echo "::group::Starting PostgreSQL for migrations"
+          docker compose -f docker-compose.ci.yml up -d postgres
+          echo "Waiting for PostgreSQL to be healthy..."
+          timeout 60 sh -c 'until docker compose -f docker-compose.ci.yml exec -T postgres pg_isready -U trader; do sleep 2; done'
+          echo "::endgroup::"
+
+      - name: Run database migrations
+        run: |
+          echo "::group::Running database migrations"
+          for migration in migrations/*.sql; do
+            echo "Running migration: $migration"
+            cat "$migration" | docker compose -f docker-compose.ci.yml exec -T postgres psql -U trader -d trader_test
+          done
+          echo "::endgroup::"
+
       - name: Start services
         run: |
           echo "::group::Starting services with docker compose"

@@ -115,9 +115,7 @@ class TestKillSwitchAtomicity:
         with pytest.raises(ValueError, match="not engaged"):
             kill_switch.disengage(operator="ops1")
 
-    def test_engage_lua_script_increments_counter_atomically(
-        self, kill_switch, mock_redis
-    ):
+    def test_engage_lua_script_increments_counter_atomically(self, kill_switch, mock_redis):
         """
         Test that engagement counter is incremented atomically within Lua script.
 
@@ -198,9 +196,7 @@ class TestKillSwitchHistoryAtomicity:
         """Create KillSwitch with mocked Redis."""
         return KillSwitch(redis_client=mock_redis)
 
-    def test_history_written_after_atomic_state_change(
-        self, kill_switch, mock_redis
-    ):
+    def test_history_written_after_atomic_state_change(self, kill_switch, mock_redis):
         """
         Test that history is written after state transition completes.
 
@@ -221,9 +217,7 @@ class TestKillSwitchHistoryAtomicity:
         rpush_index = next(i for i, call in enumerate(calls) if call == "rpush")
         assert eval_index < rpush_index  # eval (state) before rpush (history)
 
-    def test_history_write_failure_after_successful_state_change(
-        self, kill_switch, mock_redis
-    ):
+    def test_history_write_failure_after_successful_state_change(self, kill_switch, mock_redis):
         """
         Test that history write failure doesn't affect state consistency.
 

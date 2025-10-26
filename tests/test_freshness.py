@@ -35,7 +35,7 @@ class TestCheckFreshness:
         old_time = datetime.now(UTC) - timedelta(hours=2)
         df = pl.DataFrame({"symbol": ["AAPL"], "timestamp": [old_time]})
 
-        with pytest.raises(StalenessError) as exc_info:
+        with pytest.raises(StalenessError, match=r"Data is.*minutes old, exceeds threshold") as exc_info:
             check_freshness(df, max_age_minutes=30)
 
         # Verify error message contains useful details
@@ -47,10 +47,8 @@ class TestCheckFreshness:
         """DataFrame without timestamp column should raise ValueError."""
         df = pl.DataFrame({"symbol": ["AAPL"], "close": [150.0]})
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="timestamp"):
             check_freshness(df)
-
-        assert "timestamp" in str(exc_info.value).lower()
 
     def test_empty_dataframe_raises_error(self):
         """Empty DataFrame should raise ValueError."""
@@ -61,20 +59,18 @@ class TestCheckFreshness:
             }
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="empty"):
             check_freshness(df)
-
-        assert "empty" in str(exc_info.value).lower()
 
     def test_timezone_naive_timestamp_raises_error(self):
         """Timestamp without timezone should raise ValueError."""
         # Create timezone-naive timestamp
         df = pl.DataFrame({"symbol": ["AAPL"], "timestamp": [datetime.now()]})  # No timezone
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="timezone-aware"):
             check_freshness(df)
 
-        assert "timezone-aware" in str(exc_info.value)
+
 
     def test_multiple_timestamps_uses_latest(self):
         """Should use the most recent timestamp in the DataFrame."""
@@ -142,5 +138,5 @@ class TestCheckFreshnessSafe:
         """Invalid data should raise when default_to_stale=False."""
         df = pl.DataFrame({"symbol": ["AAPL"], "close": [150.0]})  # Missing timestamp
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="timestamp"):
             check_freshness_safe(df, default_to_stale=False)
