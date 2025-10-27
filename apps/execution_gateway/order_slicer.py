@@ -168,7 +168,7 @@ class TWAPSlicer:
             qty=qty,
             limit_price=limit_price,
             stop_price=stop_price,
-            strategy_id="twap_parent",
+            strategy_id=f"twap_parent_{duration_minutes}m",
             order_date=_trade_date,
         )
 

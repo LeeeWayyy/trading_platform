@@ -45,6 +45,7 @@ See Also:
 
 import logging
 from decimal import Decimal
+from typing import Literal
 
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
 from tenacity import (
@@ -182,11 +183,11 @@ class SliceScheduler:
         parent_order_id: str,
         slices: list[SliceDetail],
         symbol: str,
-        side: str,
-        order_type: str,
+        side: Literal["buy", "sell"],
+        order_type: Literal["market", "limit", "stop", "stop_limit"],
         limit_price: Decimal | None,
         stop_price: Decimal | None,
-        time_in_force: str,
+        time_in_force: Literal["day", "gtc", "ioc", "fok"],
     ) -> list[str]:
         """
         Schedule all slices for execution at their scheduled times.
@@ -259,11 +260,11 @@ class SliceScheduler:
         parent_order_id: str,
         slice_detail: SliceDetail,
         symbol: str,
-        side: str,
-        order_type: str,
+        side: Literal["buy", "sell"],
+        order_type: Literal["market", "limit", "stop", "stop_limit"],
         limit_price: Decimal | None,
         stop_price: Decimal | None,
-        time_in_force: str,
+        time_in_force: Literal["day", "gtc", "ioc", "fok"],
     ) -> None:
         """
         Job wrapper for APScheduler that handles final retry exhaustion.
@@ -312,11 +313,11 @@ class SliceScheduler:
         parent_order_id: str,
         slice_detail: SliceDetail,
         symbol: str,
-        side: str,
-        order_type: str,
+        side: Literal["buy", "sell"],
+        order_type: Literal["market", "limit", "stop", "stop_limit"],
         limit_price: Decimal | None,
         stop_price: Decimal | None,
-        time_in_force: str,
+        time_in_force: Literal["day", "gtc", "ioc", "fok"],
     ) -> None:
         """
         Execute single slice with safety guards and retry logic.
@@ -414,12 +415,12 @@ class SliceScheduler:
         # Create order request
         order_request = OrderRequest(
             symbol=symbol,
-            side=side,  # type: ignore[arg-type]
+            side=side,
             qty=slice_detail.qty,
-            order_type=order_type,  # type: ignore[arg-type]
+            order_type=order_type,
             limit_price=limit_price,
             stop_price=stop_price,
-            time_in_force=time_in_force,  # type: ignore[arg-type]
+            time_in_force=time_in_force,
         )
 
         try:

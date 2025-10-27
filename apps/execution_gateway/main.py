@@ -57,7 +57,10 @@ from apps.execution_gateway.alpaca_client import (
     AlpacaValidationError,
 )
 from apps.execution_gateway.database import DatabaseClient
-from apps.execution_gateway.order_id_generator import generate_client_order_id
+from apps.execution_gateway.order_id_generator import (
+    generate_client_order_id,
+    reconstruct_order_params_hash,
+)
 from apps.execution_gateway.order_slicer import TWAPSlicer
 from apps.execution_gateway.schemas import (
     ConfigResponse,
@@ -1231,7 +1234,56 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         )
 
         # Check if parent order already exists (idempotency)
+        # First check new hash (with duration), then legacy hash (backward compatibility)
         existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
+
+        if not existing_parent:
+            # Backward compatibility: check legacy hash without duration
+            # (for TWAP orders created before this fix was deployed)
+            legacy_parent_id = reconstruct_order_params_hash(
+                symbol=request.symbol,
+                side=request.side,
+                qty=request.qty,
+                limit_price=request.limit_price,
+                stop_price=request.stop_price,
+                strategy_id="twap_parent",  # Legacy format without duration
+                order_date=datetime.now(UTC).date(),
+            )
+            existing_parent = db_client.get_order_by_client_id(legacy_parent_id)
+
+            if existing_parent:
+                # Found legacy order - validate it matches this request
+                # Only honor legacy match if duration matches (prevent collision)
+                if existing_parent.total_slices == request.duration_minutes:
+                    # Same duration - this is a true idempotent retry
+                    logger.info(
+                        f"Found legacy TWAP order (pre-duration hash): legacy_id={legacy_parent_id}",
+                        extra={
+                            "legacy_parent_id": legacy_parent_id,
+                            "new_parent_id": slicing_plan.parent_order_id,
+                            "status": existing_parent.status,
+                            "total_slices": existing_parent.total_slices,
+                        },
+                    )
+                    # Override parent_order_id to match legacy order
+                    slicing_plan.parent_order_id = legacy_parent_id
+                else:
+                    # Different duration - this is a new order, skip legacy fallback
+                    logger.info(
+                        f"Legacy TWAP order found but duration differs: "
+                        f"legacy_duration={existing_parent.total_slices}min, "
+                        f"request_duration={request.duration_minutes}min. "
+                        f"Creating new order with new hash.",
+                        extra={
+                            "legacy_parent_id": legacy_parent_id,
+                            "new_parent_id": slicing_plan.parent_order_id,
+                            "legacy_duration": existing_parent.total_slices,
+                            "request_duration": request.duration_minutes,
+                        },
+                    )
+                    # Clear the match so we create a new order below
+                    existing_parent = None
+
         if existing_parent:
             logger.info(
                 f"TWAP order already exists (idempotent): parent={slicing_plan.parent_order_id}",
@@ -1246,16 +1298,35 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
 
             # Convert OrderDetail list to SliceDetail list for response
-            slice_details = [
-                SliceDetail(
-                    slice_num=s.slice_num or 0,
-                    qty=s.qty,
-                    scheduled_time=s.scheduled_time or datetime.now(UTC),
-                    client_order_id=s.client_order_id,
-                    status=s.status,
+            slice_details = []
+            for s in existing_slices:
+                # Child slices must have slice_num and scheduled_time
+                # If these are None, it indicates data corruption
+                if s.slice_num is None or s.scheduled_time is None:
+                    logger.error(
+                        f"Corrupt slice data for parent {slicing_plan.parent_order_id}: "
+                        f"slice_num or scheduled_time is None for client_order_id={s.client_order_id}",
+                        extra={
+                            "parent_order_id": slicing_plan.parent_order_id,
+                            "client_order_id": s.client_order_id,
+                            "slice_num": s.slice_num,
+                            "scheduled_time": s.scheduled_time,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Corrupt slice data found in database",
+                    )
+
+                slice_details.append(
+                    SliceDetail(
+                        slice_num=s.slice_num,
+                        qty=s.qty,
+                        scheduled_time=s.scheduled_time,
+                        client_order_id=s.client_order_id,
+                        status=s.status,
+                    )
                 )
-                for s in existing_slices
-            ]
 
             # Return existing slicing plan (idempotent response)
             return SlicingPlan(
