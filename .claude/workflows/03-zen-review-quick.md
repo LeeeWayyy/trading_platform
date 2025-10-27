@@ -31,7 +31,6 @@ See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integrat
 - ✅ After modifying order placement, risk checks, or data handling
 
 **Can skip only for:**
-- 📝 Documentation-only changes (add `#docs-only` to commit message)
 - 🔧 Auto-generated files (package-lock.json, poetry.lock)
 - 🚨 Emergency hotfixes (with explicit user approval + mandatory post-commit review)
 

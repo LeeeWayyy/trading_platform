@@ -75,7 +75,7 @@ if [[ "$CURRENT_BRANCH" == feature/* ]] || [[ "$CURRENT_BRANCH" == fix/* ]] || [
         echo -e "${RED}⚠️  CRITICAL PROCESS VIOLATION${NC}"
         echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        echo "Feature branch commits require zen-mcp review approval."
+        echo "Feature branch commits require zen-mcp review approval. (from both codex and gemini)"
         echo ""
         echo "Why this matters:"
         echo "  • Skipping review gates caused 7 fix commits (10-15 hours wasted)"
