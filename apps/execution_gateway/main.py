@@ -58,6 +58,7 @@ from apps.execution_gateway.alpaca_client import (
 )
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.order_id_generator import generate_client_order_id
+from apps.execution_gateway.order_slicer import TWAPSlicer
 from apps.execution_gateway.schemas import (
     ConfigResponse,
     ErrorResponse,
@@ -71,13 +72,16 @@ from apps.execution_gateway.schemas import (
     PositionsResponse,
     RealtimePnLResponse,
     RealtimePositionPnL,
+    SlicingPlan,
+    SlicingRequest,
 )
+from apps.execution_gateway.slice_scheduler import SliceScheduler
 from apps.execution_gateway.webhook_security import (
     extract_signature_from_header,
     verify_webhook_signature,
 )
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
-from libs.risk_management import KillSwitch
+from libs.risk_management import CircuitBreaker, KillSwitch
 
 # ============================================================================
 # Configuration
@@ -173,6 +177,38 @@ if not DRY_RUN:
             logger.info("Alpaca client initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Alpaca client: {e}")
+
+# Circuit Breaker (for post-trade risk monitoring)
+circuit_breaker: CircuitBreaker | None = None
+if redis_client:
+    try:
+        circuit_breaker = CircuitBreaker(redis_client=redis_client)
+        logger.info("Circuit breaker initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize circuit breaker: {e}")
+else:
+    logger.warning("Circuit breaker not initialized (Redis unavailable)")
+
+# TWAP Order Slicer (stateless, no dependencies)
+twap_slicer = TWAPSlicer()
+logger.info("TWAP slicer initialized successfully")
+
+# Slice Scheduler (for time-based TWAP slice execution)
+slice_scheduler: SliceScheduler | None = None
+if kill_switch and circuit_breaker:
+    # Note: alpaca_client can be None in DRY_RUN mode - scheduler handles this
+    try:
+        slice_scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=circuit_breaker,
+            db_client=db_client,
+            executor=alpaca_client,  # type: ignore[arg-type]
+        )
+        logger.info("Slice scheduler initialized (not started yet)")
+    except Exception as e:
+        logger.error(f"Failed to initialize slice scheduler: {e}")
+else:
+    logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
 
 # ============================================================================
 # FastAPI Application
@@ -1089,6 +1125,183 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             ) from e
 
 
+@app.post("/api/v1/orders/slice", response_model=SlicingPlan, tags=["Orders"])
+async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
+    """
+    Submit TWAP order with automatic slicing and scheduled execution.
+
+    Creates a parent order and multiple child slice orders distributed evenly
+    over the specified duration. Each slice is scheduled for execution at regular
+    intervals (1 minute apart) with mandatory safety guards (kill switch, circuit
+    breaker checks).
+
+    Args:
+        request: TWAP slicing request (symbol, side, qty, duration, etc.)
+
+    Returns:
+        SlicingPlan with parent_order_id and list of scheduled slices
+
+    Raises:
+        HTTPException 400: Invalid request parameters
+        HTTPException 503: Required services unavailable (scheduler, kill-switch, etc.)
+        HTTPException 500: Database or scheduling error
+
+    Examples:
+        Market order TWAP:
+        >>> import requests
+        >>> response = requests.post(
+        ...     "http://localhost:8002/api/v1/orders/slice",
+        ...     json={
+        ...         "symbol": "AAPL",
+        ...         "side": "buy",
+        ...         "qty": 100,
+        ...         "duration_minutes": 5,
+        ...         "order_type": "market"
+        ...     }
+        ... )
+        >>> response.json()
+        {
+            "parent_order_id": "abc123...",
+            "symbol": "AAPL",
+            "side": "buy",
+            "total_qty": 100,
+            "total_slices": 5,
+            "duration_minutes": 5,
+            "slices": [
+                {"slice_num": 0, "qty": 20, "scheduled_time": "...", ...},
+                {"slice_num": 1, "qty": 20, "scheduled_time": "...", ...},
+                ...
+            ]
+        }
+    """
+    # Check if slice scheduler is available
+    if not slice_scheduler:
+        logger.error("Slice scheduler unavailable - cannot accept TWAP orders")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TWAP order service unavailable (scheduler not initialized)",
+        )
+
+    # Check kill-switch availability (fail closed)
+    if kill_switch_unavailable:
+        logger.error("Kill-switch unavailable - cannot accept TWAP orders (fail closed)")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TWAP order service unavailable (kill-switch state unknown)",
+        )
+
+    # Check kill-switch status
+    if kill_switch and kill_switch.is_engaged():
+        status_info = kill_switch.get_status()
+        logger.error(
+            f"TWAP order blocked by kill-switch: {request.symbol} {request.side} {request.qty}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch engaged",
+                "message": "All trading halted by operator",
+                "engaged_by": status_info.get("engaged_by"),
+                "reason": status_info.get("engagement_reason"),
+            },
+        )
+
+    logger.info(
+        f"TWAP order request: {request.symbol} {request.side} {request.qty} over {request.duration_minutes} min",
+        extra={
+            "symbol": request.symbol,
+            "side": request.side,
+            "qty": request.qty,
+            "duration_minutes": request.duration_minutes,
+        },
+    )
+
+    try:
+        # Create slicing plan
+        slicing_plan = twap_slicer.plan(
+            symbol=request.symbol,
+            side=request.side,
+            qty=request.qty,
+            duration_minutes=request.duration_minutes,
+            order_type=request.order_type,
+            limit_price=request.limit_price,
+            stop_price=request.stop_price,
+            time_in_force=request.time_in_force,
+        )
+
+        # Create parent order in database
+        parent_order_request = OrderRequest(
+            symbol=request.symbol,
+            side=request.side,
+            qty=request.qty,
+            order_type=request.order_type,
+            limit_price=request.limit_price,
+            stop_price=request.stop_price,
+            time_in_force=request.time_in_force,
+        )
+        db_client.create_parent_order(
+            client_order_id=slicing_plan.parent_order_id,
+            strategy_id=STRATEGY_ID,
+            order_request=parent_order_request,
+            total_slices=slicing_plan.total_slices,
+        )
+
+        # Create child slice orders in database
+        for slice_detail in slicing_plan.slices:
+            slice_order_request = OrderRequest(
+                symbol=request.symbol,
+                side=request.side,
+                qty=slice_detail.qty,
+                order_type=request.order_type,
+                limit_price=request.limit_price,
+                stop_price=request.stop_price,
+                time_in_force=request.time_in_force,
+            )
+            db_client.create_child_slice(
+                client_order_id=slice_detail.client_order_id,
+                parent_order_id=slicing_plan.parent_order_id,
+                slice_num=slice_detail.slice_num,
+                strategy_id=STRATEGY_ID,
+                order_request=slice_order_request,
+                scheduled_time=slice_detail.scheduled_time,
+            )
+
+        # Schedule slices for execution
+        job_ids = slice_scheduler.schedule_slices(
+            parent_order_id=slicing_plan.parent_order_id,
+            slices=slicing_plan.slices,
+            symbol=request.symbol,
+            side=request.side,
+            order_type=request.order_type,
+            limit_price=request.limit_price,
+            stop_price=request.stop_price,
+            time_in_force=request.time_in_force,
+        )
+
+        logger.info(
+            f"TWAP order created: parent={slicing_plan.parent_order_id}, slices={len(job_ids)}",
+            extra={
+                "parent_order_id": slicing_plan.parent_order_id,
+                "total_slices": len(job_ids),
+                "symbol": request.symbol,
+            },
+        )
+
+        return slicing_plan
+
+    except ValueError as e:
+        # Validation error from slicer
+        logger.error(f"TWAP validation error: {e}", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        # Database or scheduling error
+        logger.error(f"TWAP order creation failed: {e}", extra={"error": str(e)})
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"TWAP order creation failed: {str(e)}",
+        ) from e
+
+
 @app.get("/api/v1/orders/{client_order_id}", response_model=OrderDetail, tags=["Orders"])
 async def get_order(client_order_id: str) -> OrderDetail:
     """
@@ -1457,11 +1670,24 @@ async def startup_event() -> None:
         else:
             logger.info("Alpaca connection OK")
 
+    # Start slice scheduler (for TWAP order execution)
+    if slice_scheduler:
+        slice_scheduler.start()
+        logger.info("Slice scheduler started")
+    else:
+        logger.warning("Slice scheduler not available (not started)")
+
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Application shutdown."""
     logger.info("Execution Gateway shutting down")
+
+    # Shutdown slice scheduler (wait for running jobs to complete)
+    if slice_scheduler:
+        logger.info("Shutting down slice scheduler...")
+        slice_scheduler.shutdown(wait=True)
+        logger.info("Slice scheduler shutdown complete")
 
 
 if __name__ == "__main__":
