@@ -82,7 +82,12 @@ class DatabaseClient:
             psycopg.Connection: Database connection with transaction support
 
         Raises:
-            DatabaseError: If database operation fails (after rollback)
+            Exception: Re-raises any exception that occurs within the transaction context
+                after performing a rollback. Common exception types include:
+                - psycopg.IntegrityError: Constraint violations (e.g., duplicate keys)
+                - psycopg.DatabaseError: Database-level errors (e.g., connection loss)
+                - ValueError, TypeError: Application-level validation errors
+                - Any other exception raised by operations within the context
 
         Examples:
             >>> db = DatabaseClient("postgresql://localhost/trading_platform")
@@ -96,8 +101,11 @@ class DatabaseClient:
         Notes:
             - Pass the connection to methods that support it via `conn=` parameter
             - Transaction auto-commits on successful context exit
-            - Transaction auto-rollbacks on any exception
+            - Transaction auto-rollbacks on any exception, then re-raises original exception
             - Connection auto-closes after commit or rollback
+            - Nested transactions are NOT supported - opening multiple contexts will
+              create separate connections and transactions
+            - Rollback is logged at WARNING level with error type and message
         """
         conn = None
         try:

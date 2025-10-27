@@ -1274,16 +1274,75 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             # Transaction auto-commits on successful context exit
 
         # Schedule slices for execution
-        job_ids = slice_scheduler.schedule_slices(
-            parent_order_id=slicing_plan.parent_order_id,
-            slices=slicing_plan.slices,
-            symbol=request.symbol,
-            side=request.side,
-            order_type=request.order_type,
-            limit_price=request.limit_price,
-            stop_price=request.stop_price,
-            time_in_force=request.time_in_force,
-        )
+        # Note: Scheduling happens AFTER transaction commit, so we must compensate if it fails
+        try:
+            job_ids = slice_scheduler.schedule_slices(
+                parent_order_id=slicing_plan.parent_order_id,
+                slices=slicing_plan.slices,
+                symbol=request.symbol,
+                side=request.side,
+                order_type=request.order_type,
+                limit_price=request.limit_price,
+                stop_price=request.stop_price,
+                time_in_force=request.time_in_force,
+            )
+        except Exception as e:
+            # Scheduling failed after DB commit - compensate by canceling created orders
+            logger.error(
+                f"Scheduling failed for parent={slicing_plan.parent_order_id}, compensating by canceling pending orders",
+                extra={
+                    "parent_order_id": slicing_plan.parent_order_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
+            # Cancel only orders still in 'pending_new' status to avoid race conditions
+            # (First slice scheduled for "now" may have already executed and submitted to broker)
+            try:
+                # Cancel all child slices still in pending_new status
+                canceled_count = db_client.cancel_pending_slices(slicing_plan.parent_order_id)
+
+                # Check if any child slices have already progressed past pending_new
+                all_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
+                progressed_slices = [
+                    s for s in all_slices if s.status != "pending_new" and s.status != "canceled"
+                ]
+
+                if not progressed_slices:
+                    # All slices still pending or canceled - safe to cancel parent
+                    db_client.update_order_status(
+                        client_order_id=slicing_plan.parent_order_id,
+                        status="canceled",
+                        error_message=f"Scheduling failed: {str(e)}",
+                    )
+                    logger.info(
+                        f"Compensated scheduling failure: canceled parent and {canceled_count} pending slices",
+                        extra={
+                            "parent_order_id": slicing_plan.parent_order_id,
+                            "canceled_slices": canceled_count,
+                            "total_slices": len(all_slices),
+                        },
+                    )
+                else:
+                    # Some slices already submitted/executing - don't cancel parent to avoid inconsistency
+                    logger.warning(
+                        f"Scheduling partially failed but {len(progressed_slices)} slices already progressed "
+                        f"(statuses: {[s.status for s in progressed_slices]}). "
+                        f"Canceled {canceled_count} pending slices but leaving parent active to track live orders.",
+                        extra={
+                            "parent_order_id": slicing_plan.parent_order_id,
+                            "canceled_slices": canceled_count,
+                            "progressed_slices": len(progressed_slices),
+                            "progressed_statuses": [s.status for s in progressed_slices],
+                        },
+                    )
+            except Exception as cleanup_error:
+                logger.error(
+                    f"Cleanup failed after scheduling error: {cleanup_error}",
+                    extra={"parent_order_id": slicing_plan.parent_order_id},
+                )
+            # Re-raise original scheduling error
+            raise
 
         logger.info(
             f"TWAP order created: parent={slicing_plan.parent_order_id}, slices={len(job_ids)}",
