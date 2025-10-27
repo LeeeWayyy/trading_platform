@@ -37,3 +37,17 @@ def test_slice_endpoint_exists(test_app_with_mocks: FastAPI):
     response = client.options("/api/v1/orders/slice")
     # Should not be 404
     assert response.status_code != 404
+
+
+def test_get_slices_endpoint_exists(test_app_with_mocks: FastAPI):
+    """Test that GET /api/v1/orders/{parent_id}/slices endpoint is registered."""
+    client = TestClient(test_app_with_mocks)
+    response = client.options("/api/v1/orders/test_parent/slices")
+    assert response.status_code != 404
+
+
+def test_delete_slices_endpoint_exists(test_app_with_mocks: FastAPI):
+    """Test that DELETE /api/v1/orders/{parent_id}/slices endpoint is registered."""
+    client = TestClient(test_app_with_mocks)
+    response = client.options("/api/v1/orders/test_parent/slices")
+    assert response.status_code != 404

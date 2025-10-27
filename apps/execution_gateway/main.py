@@ -1302,6 +1302,127 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         ) from e
 
 
+@app.get("/api/v1/orders/{parent_id}/slices", response_model=list[OrderDetail], tags=["Orders"])
+async def get_slices_by_parent(parent_id: str) -> list[OrderDetail]:
+    """
+    Get all child slices for a parent TWAP order.
+
+    Retrieves all child slice orders (both pending and executed) for a given
+    parent order ID, ordered by slice number.
+
+    Args:
+        parent_id: Parent order's client_order_id
+
+    Returns:
+        List of OrderDetail for all child slices (ordered by slice_num)
+
+    Raises:
+        HTTPException 404: Parent order not found
+        HTTPException 500: Database error
+
+    Examples:
+        >>> import requests
+        >>> response = requests.get(
+        ...     "http://localhost:8002/api/v1/orders/parent123/slices"
+        ... )
+        >>> response.json()
+        [
+            {"client_order_id": "slice0_abc...", "slice_num": 0, "status": "filled", ...},
+            {"client_order_id": "slice1_def...", "slice_num": 1, "status": "pending_new", ...},
+            ...
+        ]
+    """
+    try:
+        slices = db_client.get_slices_by_parent_id(parent_id)
+        if not slices:
+            # Check if parent exists
+            parent = db_client.get_order_by_client_id(parent_id)
+            if not parent:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Parent order not found: {parent_id}",
+                )
+            # Parent exists but has no slices (shouldn't happen for TWAP orders)
+            return []
+        return slices
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch slices for parent {parent_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch slices: {str(e)}",
+        ) from e
+
+
+@app.delete("/api/v1/orders/{parent_id}/slices", tags=["Orders"])
+async def cancel_slices(parent_id: str) -> dict[str, Any]:
+    """
+    Cancel all pending child slices for a parent TWAP order.
+
+    Removes scheduled jobs from the scheduler and updates database to mark
+    all pending_new slices as canceled. Already-executed slices are not affected.
+
+    Args:
+        parent_id: Parent order's client_order_id
+
+    Returns:
+        Dictionary with cancellation counts
+
+    Raises:
+        HTTPException 404: Parent order not found
+        HTTPException 503: Scheduler unavailable
+        HTTPException 500: Cancellation error
+
+    Examples:
+        >>> import requests
+        >>> response = requests.delete(
+        ...     "http://localhost:8002/api/v1/orders/parent123/slices"
+        ... )
+        >>> response.json()
+        {
+            "parent_order_id": "parent123",
+            "scheduler_canceled": 3,
+            "db_canceled": 3,
+            "message": "Canceled 3 pending slices"
+        }
+    """
+    # Check scheduler availability
+    if not slice_scheduler:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Slice scheduler unavailable - cannot cancel slices",
+        )
+
+    # Check if parent exists
+    parent = db_client.get_order_by_client_id(parent_id)
+    if not parent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Parent order not found: {parent_id}"
+        )
+
+    try:
+        # Cancel remaining slices (removes from scheduler + updates DB)
+        canceled_count = slice_scheduler.cancel_remaining_slices(parent_id)
+
+        logger.info(
+            f"Canceled slices for parent {parent_id}: {canceled_count} jobs",
+            extra={"parent_order_id": parent_id, "canceled_count": canceled_count},
+        )
+
+        return {
+            "parent_order_id": parent_id,
+            "canceled_count": canceled_count,
+            "message": f"Canceled {canceled_count} pending slices",
+        }
+    except Exception as e:
+        logger.error(f"Failed to cancel slices for parent {parent_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel slices: {str(e)}",
+        ) from e
+
+
 @app.get("/api/v1/orders/{client_order_id}", response_model=OrderDetail, tags=["Orders"])
 async def get_order(client_order_id: str) -> OrderDetail:
     """
