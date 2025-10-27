@@ -1,11 +1,11 @@
-# Quick Review Workflow (Clink + Codex)
+# Quick Review Workflow (Clink + Gemini → Codex)
 
-**Purpose:** Fast safety check of staged changes before each commit (MANDATORY quality gate)
-**Tool:** clink + codex codereviewer (Tier 1 review)
+**Purpose:** Two-phase safety check of staged changes before each commit (MANDATORY quality gate)
+**Tool:** clink + gemini codereviewer → codex codereviewer (Tier 1 review, multi-phase)
 **Prerequisites:** Changes staged with `git add`, ready to commit
 **Expected Outcome:** Code validated for trading safety issues, approved for commit or issues identified for fixing
 **Owner:** @development-team
-**Last Reviewed:** 2025-10-21
+**Last Reviewed:** 2025-10-26
 
 ---
 
@@ -34,7 +34,7 @@ See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integrat
 - 🔧 Auto-generated files (package-lock.json, poetry.lock)
 - 🚨 Emergency hotfixes (with explicit user approval + mandatory post-commit review)
 
-**Frequency:** ~30 seconds every 30-60 minutes = **< 1% of development time** for massive safety benefit
+**Frequency:** ~2-3 minutes every 30-60 minutes = **~5% of development time** for massive safety benefit (two-phase review: gemini analysis + codex synthesis)
 
 ---
 
@@ -52,31 +52,38 @@ git diff --cached
 
 **What this does:** Prepares changes for review and commit
 
-### 2. Request Quick Review (Clink + Codex)
+### 2. Request Quick Review (Two-Phase: Gemini → Codex)
 
-**Tell Claude to use clink with codex codereviewer:**
+**Phase 1: Safety Analysis (Gemini Codereviewer)**
 ```
-"Please review my staged changes using clink + codex codereviewer.
-Focus on trading safety: circuit breakers, idempotency, position limits."
+"Please review my staged changes using clink + gemini codereviewer.
+Focus on trading safety: circuit breakers, idempotency, position limits, type safety."
 ```
 
 **Alternative (specify files):**
 ```
-"Review apps/execution_gateway/order_placer.py using clink + codex codereviewer"
+"Review apps/execution_gateway/order_placer.py using clink + gemini codereviewer"
 ```
 
-**Alternative (use review prompt):**
+**What happens in Phase 1:**
+- Claude uses clink with gemini CLI codereviewer role (gemini-2.5-flash, fast and efficient)
+- Analyzes staged changes for trading safety, architecture, and quality issues
+- Review takes ~1-2 minutes
+- Returns detailed findings WITH continuation_id
+
+**Phase 2: Recommendations Synthesis (Codex Codereviewer)**
 ```
-"Use the quick-safety-review prompt from .claude/prompts/clink-reviews/ to review my staged changes"
+"Now use clink + codex codereviewer with continuation_id <continuation_id>
+to synthesize recommendations and provide final approval or action items"
 ```
 
-**What happens:**
-- Claude Code uses clink (zen-mcp) with codex CLI
-- Codex automatically uses gpt-5-codex model (configured in CLI)
-- Analyzes staged changes for trading safety issues
-- Review completes in ~20-30 seconds
-- Results returned with severity ratings and workflow reminder
-- continuation_id provided for follow-up verification
+**What happens in Phase 2:**
+- Claude uses clink with codex CLI (preserves continuation_id context)
+- Codex synthesizes gemini's findings into actionable plan
+- Prioritizes fixes, confirms safety checks passed
+- Takes ~30-60 seconds
+- Total review time: ~2-3 minutes across both phases
+- Final continuation_id provided for follow-up verification
 
 ### 3. Review the Findings
 
@@ -230,14 +237,14 @@ git commit -m "Update README with setup instructions #docs-only"
 
 ### Zen review taking too long?
 
-**Normal:** 20-30 seconds
-**Acceptable:** Up to 60 seconds
-**Too long:** > 90 seconds
+**Normal:** 2-3 minutes (two-phase: gemini + codex)
+**Acceptable:** Up to 5 minutes
+**Too long:** > 6 minutes
 
-**If taking > 90 seconds:**
+**If taking > 6 minutes:**
 1. Check zen-mcp server status
 2. Check network connection
-3. Try again
+3. Try again with single-phase (codex only) as fallback
 4. If still fails, see "Zen Server Unavailable" below
 
 ### Zen found many issues - should I fix all now?
@@ -365,43 +372,64 @@ Zen: "You're correct, breaker is checked at line 35. This is a false positive. S
 
 ## Examples
 
-### Example 1: Clean Approval
+### Example 1: Clean Approval (Two-Phase)
 
 ```bash
 $ git add apps/execution_gateway/order_placer.py
 
-$ "Review my staged changes using clink + codex codereviewer"
+# Phase 1: Gemini Analysis
+$ "Review my staged changes using clink + gemini codereviewer"
 
-Claude: [Uses clink with codex CLI]
+Claude: [Uses clink with gemini CLI]
 
-Codex: "**Findings**
+Gemini: "**Findings**
 (none)
 
 **Positives**
 - Circuit breaker integration: ✅ Correct
 - Position limit logic: ✅ Correct
 - Error handling: ✅ Comprehensive
-- Logging: ✅ Properly structured
+- Type hints: ✅ Complete
 
-<SUMMARY>Approved - No issues found. Safe to commit.</SUMMARY>
+<SUMMARY>Safety checks passed. Proceeding to codex synthesis.</SUMMARY>
+
+continuation_id: abc123-def456"
+
+# Phase 2: Codex Synthesis
+$ "Now use clink + codex codereviewer with continuation_id abc123-def456 to synthesize"
+
+Claude: [Uses clink with codex CLI, preserves context]
+
+Codex: "✅ Verified gemini analysis
+
+**Final Assessment**
+- All safety checks passed
+- No blocking issues
+- Quality standards met
+
+<SUMMARY>Approved - Safe to commit.</SUMMARY>
 
 continuation_id: abc123-def456"
 
 $ git commit -m "Add position limit validation
 
-Codex review (clink): Approved (continuation_id: abc123-def456)"
+Zen-review (two-phase): Approved
+  Phase 1 (gemini): Safety checks passed
+  Phase 2 (codex): Final approval
+Continuation-id: abc123-def456"
 ```
 
-### Example 2: Critical Issue Found and Fixed
+### Example 2: Critical Issue Found and Fixed (Two-Phase)
 
 ```bash
 $ git add apps/execution_gateway/order_placer.py
 
-$ "Review my staged changes using clink + codex codereviewer"
+# Phase 1: Gemini Analysis
+$ "Review my staged changes using clink + gemini codereviewer"
 
-Claude: [Uses clink with codex CLI]
+Claude: [Uses clink with gemini CLI]
 
-Codex: "**Findings**
+Gemini: "**Findings**
 
 - CRITICAL – Missing circuit breaker (line 42):
    Missing circuit breaker check before order submission
@@ -410,7 +438,21 @@ Codex: "**Findings**
    if self.breaker.is_tripped():
        raise CircuitBreakerTripped('Cannot place order: breaker TRIPPED')
 
-<SUMMARY>BLOCKED - Do NOT commit until CRITICAL issue fixed.</SUMMARY>
+<SUMMARY>CRITICAL issue found. Awaiting codex synthesis.</SUMMARY>
+
+continuation_id: abc123-def456"
+
+# Phase 2: Codex Synthesis
+$ "Now use clink + codex codereviewer with continuation_id abc123-def456"
+
+Claude: [Uses clink with codex CLI]
+
+Codex: "Confirmed CRITICAL issue from gemini analysis.
+
+**Action Required**
+❌ BLOCKED - Do NOT commit until circuit breaker check added at line 42.
+
+<SUMMARY>Fix CRITICAL issue before committing.</SUMMARY>
 
 continuation_id: abc123-def456"
 
@@ -419,9 +461,10 @@ continuation_id: abc123-def456"
 
 $ git add apps/execution_gateway/order_placer.py
 
-$ "I've added the circuit breaker check, please verify (continuation_id: abc123-def456)"
+# Verify fix (codex-only verification is faster - recommended for fix verification)
+$ "I've added the circuit breaker check, please verify using clink + codex codereviewer (continuation_id: abc123-def456)"
 
-Claude: [Uses clink with codex, preserves context]
+Claude: [Uses clink with codex CLI, preserves context]
 
 Codex: "✅ Verified fix
 
@@ -432,32 +475,60 @@ All safety checks now in place.
 
 continuation_id: abc123-def456"
 
+# Note: For simple fixes, codex-only verification (30-60s) is faster than full two-phase re-review (~2 min).
+# Use full two-phase re-review only if the fix introduces significant new logic.
+
 $ git commit -m "Add position validation with circuit breaker
 
 - Implement check_position_limits()
 - Add circuit breaker check (zen critical fix)
 - Add comprehensive error handling
 
-Zen-review: Critical issue found and fixed (abc123)"
+Zen-review (two-phase): Critical issue found and fixed
+  Phase 1 (gemini): Found missing circuit breaker
+  Phase 2 (codex): Verified fix and approved
+Continuation-id: abc123-def456"
+
+# Note: The detailed commit message above is BEST PRACTICE when critical issues are found
+# and fixed during pre-commit review. It provides valuable audit trail for:
+# - What issue was found (missing circuit breaker)
+# - How it was resolved (added check)
+# - Review verification (two-phase approval)
+# This level of detail helps future debugging and compliance audits.
 ```
 
-### Example 3: Medium Issue Deferred
+### Example 3: Medium Issue Deferred (Two-Phase)
 
 ```bash
 $ git add apps/execution_gateway/order_placer.py
 
-$ "Review my staged changes using clink + codex codereviewer"
+# Phase 1: Gemini Analysis
+$ "Review my staged changes using clink + gemini codereviewer"
 
-Claude: [Uses clink with codex CLI]
+Claude: [Uses clink with gemini CLI]
 
-Codex: "**Findings**
+Gemini: "**Findings**
 
 - MEDIUM – Missing logging (line 67):
    Missing logging when position limit exceeded
    Impact: Harder to debug in production
    Fix: Add structured logging
 
-<SUMMARY>Approved with conditions - Address MEDIUM issue or document deferral.</SUMMARY>
+<SUMMARY>MEDIUM issue found. Proceeding to codex synthesis.</SUMMARY>
+
+continuation_id: xyz789-abc123"
+
+# Phase 2: Codex Synthesis
+$ "Now use clink + codex codereviewer with continuation_id xyz789-abc123"
+
+Claude: [Uses clink with codex CLI]
+
+Codex: "Confirmed MEDIUM logging gap from gemini analysis.
+
+**Recommendation**
+⚠️ Address MEDIUM issue or document deferral with justification.
+
+<SUMMARY>Approved with conditions - fix or defer with docs.</SUMMARY>
 
 continuation_id: xyz789-abc123"
 
@@ -470,7 +541,7 @@ Is this deferral acceptable?"
 
 User: "Yes, that's fine. Create a follow-up task."
 
-Zen: "Deferral accepted. Create follow-up task for logging.
+Claude: "Deferral accepted. Create follow-up task for logging.
 Safe to commit with deferral documented."
 
 $ git commit -m "Add position validation
@@ -481,7 +552,10 @@ $ git commit -m "Add position validation
 Deferred: Logging for limit violations (requires logging setup first)
 Follow-up: Created task T5.1
 
-Zen-review: Approved with deferral (abc123)"
+Zen-review (two-phase): Approved with deferral
+  Phase 1 (gemini): Found MEDIUM logging gap
+  Phase 2 (codex): Approved deferral with docs
+Continuation-id: xyz789-abc123"
 ```
 
 ---
