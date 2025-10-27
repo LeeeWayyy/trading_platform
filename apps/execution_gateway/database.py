@@ -300,124 +300,75 @@ class DatabaseClient:
             - Parent orders are typically not submitted to broker directly
             - When using with transaction(), pass conn= to avoid auto-commit
         """
+
+        def _execute_insert(conn: psycopg.Connection) -> OrderDetail:
+            """Helper to execute parent order insert and return OrderDetail."""
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO orders (
+                        client_order_id,
+                        strategy_id,
+                        symbol,
+                        side,
+                        qty,
+                        order_type,
+                        limit_price,
+                        stop_price,
+                        time_in_force,
+                        status,
+                        parent_order_id,
+                        total_slices,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, NOW(), NOW())
+                    RETURNING *
+                    """,
+                    (
+                        client_order_id,
+                        strategy_id,
+                        order_request.symbol,
+                        order_request.side,
+                        order_request.qty,
+                        order_request.order_type,
+                        order_request.limit_price,
+                        order_request.stop_price,
+                        order_request.time_in_force,
+                        status,
+                        total_slices,
+                    ),
+                )
+
+                row = cur.fetchone()
+
+            if row is None:
+                raise ValueError(f"Failed to create parent order: {client_order_id}")
+
+            logger.info(
+                f"Parent order created in database: {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "symbol": order_request.symbol,
+                    "total_slices": total_slices,
+                    "status": status,
+                },
+            )
+
+            return OrderDetail(**row)
+
         try:
             # Two different paths: own connection vs. provided connection
             if conn is None:
                 # Create and manage our own connection
                 with psycopg.connect(self.db_conn_string) as conn:
-                    with conn.cursor(row_factory=dict_row) as cur:
-                        cur.execute(
-                            """
-                            INSERT INTO orders (
-                                client_order_id,
-                                strategy_id,
-                                symbol,
-                                side,
-                                qty,
-                                order_type,
-                                limit_price,
-                                stop_price,
-                                time_in_force,
-                                status,
-                                parent_order_id,
-                                total_slices,
-                                created_at,
-                                updated_at
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, NOW(), NOW())
-                            RETURNING *
-                            """,
-                            (
-                                client_order_id,
-                                strategy_id,
-                                order_request.symbol,
-                                order_request.side,
-                                order_request.qty,
-                                order_request.order_type,
-                                order_request.limit_price,
-                                order_request.stop_price,
-                                order_request.time_in_force,
-                                status,
-                                total_slices,
-                            ),
-                        )
-
-                        row = cur.fetchone()
-
+                    result = _execute_insert(conn)
                     # Commit manually (inside connection context, after cursor closes)
                     conn.commit()
-
-                if row is None:
-                    raise ValueError(f"Failed to create parent order: {client_order_id}")
-
-                logger.info(
-                    f"Parent order created in database: {client_order_id}",
-                    extra={
-                        "client_order_id": client_order_id,
-                        "symbol": order_request.symbol,
-                        "total_slices": total_slices,
-                        "status": status,
-                    },
-                )
-
-                return OrderDetail(**row)
+                return result
             else:
                 # Use provided connection (transactional mode - caller handles commit)
-                with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO orders (
-                            client_order_id,
-                            strategy_id,
-                            symbol,
-                            side,
-                            qty,
-                            order_type,
-                            limit_price,
-                            stop_price,
-                            time_in_force,
-                            status,
-                            parent_order_id,
-                            total_slices,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, NOW(), NOW())
-                        RETURNING *
-                        """,
-                        (
-                            client_order_id,
-                            strategy_id,
-                            order_request.symbol,
-                            order_request.side,
-                            order_request.qty,
-                            order_request.order_type,
-                            order_request.limit_price,
-                            order_request.stop_price,
-                            order_request.time_in_force,
-                            status,
-                            total_slices,
-                        ),
-                    )
-
-                    row = cur.fetchone()
-
-                # No commit - caller is responsible
-
-                if row is None:
-                    raise ValueError(f"Failed to create parent order: {client_order_id}")
-
-                logger.info(
-                    f"Parent order created in database: {client_order_id}",
-                    extra={
-                        "client_order_id": client_order_id,
-                        "symbol": order_request.symbol,
-                        "total_slices": total_slices,
-                        "status": status,
-                    },
-                )
-
-                return OrderDetail(**row)
+                return _execute_insert(conn)
 
         except IntegrityError:
             logger.warning(
@@ -495,132 +446,79 @@ class DatabaseClient:
             - scheduled_time is used by scheduler to determine execution timing
             - When using with transaction(), pass conn= to avoid auto-commit
         """
+
+        def _execute_insert(conn: psycopg.Connection) -> OrderDetail:
+            """Helper to execute child slice insert and return OrderDetail."""
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO orders (
+                        client_order_id,
+                        parent_order_id,
+                        slice_num,
+                        strategy_id,
+                        symbol,
+                        side,
+                        qty,
+                        order_type,
+                        limit_price,
+                        stop_price,
+                        time_in_force,
+                        scheduled_time,
+                        status,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    RETURNING *
+                    """,
+                    (
+                        client_order_id,
+                        parent_order_id,
+                        slice_num,
+                        strategy_id,
+                        order_request.symbol,
+                        order_request.side,
+                        order_request.qty,
+                        order_request.order_type,
+                        order_request.limit_price,
+                        order_request.stop_price,
+                        order_request.time_in_force,
+                        scheduled_time,
+                        status,
+                    ),
+                )
+
+                row = cur.fetchone()
+
+            if row is None:
+                raise ValueError(f"Failed to create child slice: {client_order_id}")
+
+            logger.info(
+                f"Child slice created in database: {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "parent_order_id": parent_order_id,
+                    "slice_num": slice_num,
+                    "symbol": order_request.symbol,
+                    "status": status,
+                },
+            )
+
+            return OrderDetail(**row)
+
         try:
             # Two different paths: own connection vs. provided connection
             if conn is None:
                 # Create and manage our own connection
                 with psycopg.connect(self.db_conn_string) as conn:
-                    with conn.cursor(row_factory=dict_row) as cur:
-                        cur.execute(
-                            """
-                            INSERT INTO orders (
-                                client_order_id,
-                                parent_order_id,
-                                slice_num,
-                                strategy_id,
-                                symbol,
-                                side,
-                                qty,
-                                order_type,
-                                limit_price,
-                                stop_price,
-                                time_in_force,
-                                scheduled_time,
-                                status,
-                                created_at,
-                                updated_at
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                            RETURNING *
-                            """,
-                            (
-                                client_order_id,
-                                parent_order_id,
-                                slice_num,
-                                strategy_id,
-                                order_request.symbol,
-                                order_request.side,
-                                order_request.qty,
-                                order_request.order_type,
-                                order_request.limit_price,
-                                order_request.stop_price,
-                                order_request.time_in_force,
-                                scheduled_time,
-                                status,
-                            ),
-                        )
-
-                        row = cur.fetchone()
-
+                    result = _execute_insert(conn)
                     # Commit manually (inside connection context, after cursor closes)
                     conn.commit()
-
-                if row is None:
-                    raise ValueError(f"Failed to create child slice: {client_order_id}")
-
-                logger.info(
-                    f"Child slice created in database: {client_order_id}",
-                    extra={
-                        "client_order_id": client_order_id,
-                        "parent_order_id": parent_order_id,
-                        "slice_num": slice_num,
-                        "symbol": order_request.symbol,
-                        "status": status,
-                    },
-                )
-
-                return OrderDetail(**row)
+                return result
             else:
                 # Use provided connection (transactional mode - caller handles commit)
-                with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO orders (
-                            client_order_id,
-                            parent_order_id,
-                            slice_num,
-                            strategy_id,
-                            symbol,
-                            side,
-                            qty,
-                            order_type,
-                            limit_price,
-                            stop_price,
-                            time_in_force,
-                            scheduled_time,
-                            status,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                        RETURNING *
-                        """,
-                        (
-                            client_order_id,
-                            parent_order_id,
-                            slice_num,
-                            strategy_id,
-                            order_request.symbol,
-                            order_request.side,
-                            order_request.qty,
-                            order_request.order_type,
-                            order_request.limit_price,
-                            order_request.stop_price,
-                            order_request.time_in_force,
-                            scheduled_time,
-                            status,
-                        ),
-                    )
-
-                    row = cur.fetchone()
-
-                # No commit - caller is responsible
-
-                if row is None:
-                    raise ValueError(f"Failed to create child slice: {client_order_id}")
-
-                logger.info(
-                    f"Child slice created in database: {client_order_id}",
-                    extra={
-                        "client_order_id": client_order_id,
-                        "parent_order_id": parent_order_id,
-                        "slice_num": slice_num,
-                        "symbol": order_request.symbol,
-                        "status": status,
-                    },
-                )
-
-                return OrderDetail(**row)
+                return _execute_insert(conn)
 
         except IntegrityError as e:
             logger.warning(

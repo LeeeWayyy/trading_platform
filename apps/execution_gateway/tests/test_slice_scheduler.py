@@ -19,8 +19,6 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
-
 from apps.execution_gateway.alpaca_client import (
     AlpacaConnectionError,
     AlpacaExecutor,
@@ -327,11 +325,12 @@ class TestExecuteSliceKillSwitch:
         # Verify executor called (not blocked)
         executor.submit_order.assert_called_once()
 
-        # Verify DB updated to submitted
+        # Verify DB updated to submitted with error_message cleared
         db.update_order_status.assert_called_with(
             client_order_id="child0",
             status="submitted",
             broker_order_id="broker123",
+            error_message="",  # Clears any error from previous retry attempts
         )
 
 
@@ -440,11 +439,12 @@ class TestExecuteSliceSuccess:
         assert call_args[1]["order"].symbol == "AAPL"
         assert call_args[1]["order"].qty == 20
 
-        # Verify DB updated to submitted with broker_order_id
+        # Verify DB updated to submitted with broker_order_id and error_message cleared
         db.update_order_status.assert_called_once_with(
             client_order_id="child0",
             status="submitted",
             broker_order_id="broker_abc123",
+            error_message="",  # Clears any error from previous retry attempts
         )
 
 
@@ -641,7 +641,12 @@ class TestExecuteSliceErrors:
         )
 
     def test_execute_slice_connection_error_retries_then_fails(self):
-        """Test connection error retries 3 times then updates DB to failed."""
+        """Test connection error retries 3 times then updates DB to failed.
+
+        The wrapper method _execute_slice_job_wrapper handles marking as failed
+        when all retries are exhausted. The inner _execute_slice method only
+        logs and re-raises connection errors for tenacity to handle.
+        """
         kill_switch = MagicMock(spec=KillSwitch)
         kill_switch.is_engaged.return_value = False
 
@@ -669,23 +674,23 @@ class TestExecuteSliceErrors:
             status="pending_new",
         )
 
-        # Should raise after 3 retries
-        with pytest.raises(AlpacaConnectionError):
-            scheduler._execute_slice(
-                parent_order_id="parent123",
-                slice_detail=slice_detail,
-                symbol="AAPL",
-                side="buy",
-                order_type="market",
-                limit_price=None,
-                stop_price=None,
-                time_in_force="day",
-            )
+        # Call the wrapper method (used by APScheduler) instead of the inner method
+        # The wrapper catches the final exception and marks as failed
+        scheduler._execute_slice_job_wrapper(
+            parent_order_id="parent123",
+            slice_detail=slice_detail,
+            symbol="AAPL",
+            side="buy",
+            order_type="market",
+            limit_price=None,
+            stop_price=None,
+            time_in_force="day",
+        )
 
         # Verify executor called 3 times (retry policy)
         assert executor.submit_order.call_count == 3
 
-        # Verify DB updated to failed
+        # Verify DB updated to failed (by the wrapper after all retries exhausted)
         db.update_order_status.assert_called_with(
             client_order_id="child0",
             status="failed",

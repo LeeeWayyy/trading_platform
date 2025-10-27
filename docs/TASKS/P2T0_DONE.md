@@ -422,7 +422,6 @@ else:
 **Implementation:**
 - `/docs/ADRs/0015-twap-order-slicer.md` - Architecture decisions
 - `/docs/CONCEPTS/execution-algorithms.md` - Algorithm guide
-- `/docs/TASKS/P2T0_IMPLEMENTATION_ANALYSIS.md` - Original analysis (archived)
 
 ---
 

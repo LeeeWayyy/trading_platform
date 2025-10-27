@@ -231,7 +231,7 @@ class SliceScheduler:
         for slice_detail in slices:
             job_id = f"{parent_order_id}_slice_{slice_detail.slice_num}"
             self.scheduler.add_job(
-                func=self._execute_slice,
+                func=self._execute_slice_job_wrapper,
                 trigger="date",
                 run_date=slice_detail.scheduled_time,
                 id=job_id,
@@ -253,6 +253,53 @@ class SliceScheduler:
             extra={"parent_order_id": parent_order_id, "slice_count": len(job_ids)},
         )
         return job_ids
+
+    def _execute_slice_job_wrapper(
+        self,
+        parent_order_id: str,
+        slice_detail: SliceDetail,
+        symbol: str,
+        side: str,
+        order_type: str,
+        limit_price: Decimal | None,
+        stop_price: Decimal | None,
+        time_in_force: str,
+    ) -> None:
+        """
+        Job wrapper for APScheduler that handles final retry exhaustion.
+
+        This wrapper calls the retry-decorated _execute_slice method and catches
+        the final exception when all retries are exhausted, marking the order as failed.
+        """
+        try:
+            self._execute_slice(
+                parent_order_id=parent_order_id,
+                slice_detail=slice_detail,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                limit_price=limit_price,
+                stop_price=stop_price,
+                time_in_force=time_in_force,
+            )
+        except AlpacaConnectionError as e:
+            # All retries exhausted - mark as failed in DB
+            self.db.update_order_status(
+                client_order_id=slice_detail.client_order_id,
+                status="failed",
+                error_message=f"Retry exhausted: {e}",
+            )
+            logger.error(
+                f"Slice failed after all retries exhausted: parent={parent_order_id}, "
+                f"slice={slice_detail.slice_num}, error={e}",
+                extra={
+                    "parent_order_id": parent_order_id,
+                    "slice_num": slice_detail.slice_num,
+                    "client_order_id": slice_detail.client_order_id,
+                    "error": str(e),
+                    "retries_exhausted": True,
+                },
+            )
 
     @retry(
         stop=stop_after_attempt(3),
@@ -296,7 +343,7 @@ class SliceScheduler:
             time_in_force: Time in force ("day", "gtc", "ioc", "fok")
 
         Raises:
-            AlpacaConnectionError: If retry exhausted after 3 attempts (also updates DB)
+            AlpacaConnectionError: If all retries exhausted (propagated to wrapper)
 
         Notes:
             - 🔒 MANDATORY: DB cancellation check (prevents race condition)
@@ -304,8 +351,9 @@ class SliceScheduler:
             - 🔒 MANDATORY: Circuit breaker check before submission
             - Blocked slices update DB status to 'blocked_kill_switch' or 'blocked_circuit_breaker'
             - Rejected slices update DB status to 'rejected'
-            - Failed slices (retry exhausted) update DB status to 'failed'
-            - Successful slices update DB status to 'submitted'
+            - Connection errors are logged and re-raised for tenacity retry
+            - Final failure marking (when all retries exhausted) is handled by _execute_slice_job_wrapper
+            - Successful slices update DB status to 'submitted' and clear any prior error_message
         """
         # 🔒 MANDATORY: Check if slice was already canceled in DB (prevents race condition)
         current_order = self.db.get_order_by_client_id(slice_detail.client_order_id)
@@ -420,11 +468,12 @@ class SliceScheduler:
                     client_order_id=slice_detail.client_order_id,
                 )
 
-                # Update DB status to 'submitted'
+                # Update DB status to 'submitted' and clear any error message from failed retries
                 self.db.update_order_status(
                     client_order_id=slice_detail.client_order_id,
                     status="submitted",
                     broker_order_id=broker_response["id"],
+                    error_message="",  # Clear any error from previous retry attempts
                 )
 
                 logger.info(
@@ -457,23 +506,22 @@ class SliceScheduler:
             )
 
         except AlpacaConnectionError as e:
-            # Retry exhausted - update DB and log
-            self.db.update_order_status(
-                client_order_id=slice_detail.client_order_id,
-                status="failed",
-                error_message=f"Retry exhausted: {e}",
-            )
-            logger.error(
-                f"Slice failed after retries: parent={parent_order_id}, "
+            # Transient connection error - log and re-raise for tenacity to retry
+            # Do NOT mark as failed here - tenacity will retry up to 3 times
+            # Only if ALL retries are exhausted will this exception propagate to APScheduler
+            logger.warning(
+                f"Slice submission connection error (will retry): parent={parent_order_id}, "
                 f"slice={slice_detail.slice_num}, error={e}",
                 extra={
                     "parent_order_id": parent_order_id,
                     "slice_num": slice_detail.slice_num,
                     "client_order_id": slice_detail.client_order_id,
                     "error": str(e),
+                    "will_retry": True,
                 },
             )
-            # Re-raise to let tenacity know retry failed
+            # Re-raise to trigger tenacity retry logic
+            # If all retries fail, APScheduler will log the final exception
             raise
 
     def cancel_remaining_slices(self, parent_order_id: str) -> int:
