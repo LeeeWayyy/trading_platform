@@ -185,6 +185,378 @@ class DatabaseClient:
             logger.error(f"Database error creating order: {e}")
             raise
 
+    def create_parent_order(
+        self,
+        client_order_id: str,
+        strategy_id: str,
+        order_request: OrderRequest,
+        total_slices: int,
+        status: str = "pending_new",
+    ) -> OrderDetail:
+        """
+        Create parent order for TWAP slicing.
+
+        Parent orders have parent_order_id=NULL and total_slices set to the
+        number of child slices planned. They serve as logical containers for
+        time-distributed child slice execution.
+
+        Args:
+            client_order_id: Unique parent order ID (deterministic)
+            strategy_id: Strategy identifier (e.g., "twap_parent")
+            order_request: Order parameters (symbol, side, qty, etc.)
+            total_slices: Number of child slices planned
+            status: Initial order status (default: "pending_new")
+
+        Returns:
+            OrderDetail with created parent order information
+
+        Raises:
+            IntegrityError: If order with same client_order_id already exists
+            DatabaseError: If database operation fails
+
+        Example:
+            >>> db = DatabaseClient("postgresql://localhost/trading_platform")
+            >>> order_request = OrderRequest(
+            ...     symbol="AAPL",
+            ...     side="buy",
+            ...     qty=100,
+            ...     order_type="market"
+            ... )
+            >>> parent = db.create_parent_order(
+            ...     client_order_id="abc123...",
+            ...     strategy_id="twap_parent",
+            ...     order_request=order_request,
+            ...     total_slices=5
+            ... )
+            >>> parent.parent_order_id is None
+            True
+            >>> parent.total_slices
+            5
+
+        Notes:
+            - parent_order_id is explicitly set to NULL for parent orders
+            - total_slices indicates how many child slices will be created
+            - slice_num and scheduled_time are NULL for parent orders
+            - Parent orders are typically not submitted to broker directly
+        """
+        try:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO orders (
+                            client_order_id,
+                            strategy_id,
+                            symbol,
+                            side,
+                            qty,
+                            order_type,
+                            limit_price,
+                            stop_price,
+                            time_in_force,
+                            status,
+                            parent_order_id,
+                            total_slices,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, NOW(), NOW())
+                        RETURNING *
+                        """,
+                        (
+                            client_order_id,
+                            strategy_id,
+                            order_request.symbol,
+                            order_request.side,
+                            order_request.qty,
+                            order_request.order_type,
+                            order_request.limit_price,
+                            order_request.stop_price,
+                            order_request.time_in_force,
+                            status,
+                            total_slices,
+                        ),
+                    )
+
+                    row = cur.fetchone()
+                    conn.commit()
+
+                    if row is None:
+                        raise ValueError(f"Failed to create parent order: {client_order_id}")
+
+                    logger.info(
+                        f"Parent order created in database: {client_order_id}",
+                        extra={
+                            "client_order_id": client_order_id,
+                            "symbol": order_request.symbol,
+                            "total_slices": total_slices,
+                            "status": status,
+                        },
+                    )
+
+                    return OrderDetail(**row)
+
+        except IntegrityError:
+            logger.warning(
+                f"Parent order already exists: {client_order_id}",
+                extra={"client_order_id": client_order_id},
+            )
+            raise
+
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error creating parent order: {e}")
+            raise
+
+    def create_child_slice(
+        self,
+        client_order_id: str,
+        parent_order_id: str,
+        slice_num: int,
+        strategy_id: str,
+        order_request: OrderRequest,
+        scheduled_time: datetime,
+        status: str = "pending_new",
+    ) -> OrderDetail:
+        """
+        Create child slice order for TWAP execution.
+
+        Child slices reference their parent order via parent_order_id and include
+        a slice_num for ordering and a scheduled_time for timed execution.
+
+        Args:
+            client_order_id: Unique child slice order ID (deterministic)
+            parent_order_id: Parent order's client_order_id
+            slice_num: Slice number (0-indexed)
+            strategy_id: Strategy identifier (e.g., "twap_slice_<parent_id>_0")
+            order_request: Order parameters (symbol, side, qty, etc.)
+            scheduled_time: When to execute this slice (UTC)
+            status: Initial order status (default: "pending_new")
+
+        Returns:
+            OrderDetail with created child slice information
+
+        Raises:
+            IntegrityError: If order with same client_order_id already exists,
+                           or if (parent_order_id, slice_num) already exists
+            DatabaseError: If database operation fails
+
+        Example:
+            >>> db = DatabaseClient("postgresql://localhost/trading_platform")
+            >>> from datetime import datetime, timedelta, UTC
+            >>> order_request = OrderRequest(
+            ...     symbol="AAPL",
+            ...     side="buy",
+            ...     qty=20,
+            ...     order_type="market"
+            ... )
+            >>> child = db.create_child_slice(
+            ...     client_order_id="def456...",
+            ...     parent_order_id="abc123...",
+            ...     slice_num=0,
+            ...     strategy_id="twap_slice_abc123_0",
+            ...     order_request=order_request,
+            ...     scheduled_time=datetime.now(UTC) + timedelta(minutes=1)
+            ... )
+            >>> child.parent_order_id
+            'abc123...'
+            >>> child.slice_num
+            0
+
+        Notes:
+            - parent_order_id must reference an existing parent order
+            - (parent_order_id, slice_num) must be unique (enforced by DB index)
+            - slice_num should be 0-indexed and sequential
+            - scheduled_time is used by scheduler to determine execution timing
+        """
+        try:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO orders (
+                            client_order_id,
+                            parent_order_id,
+                            slice_num,
+                            strategy_id,
+                            symbol,
+                            side,
+                            qty,
+                            order_type,
+                            limit_price,
+                            stop_price,
+                            time_in_force,
+                            scheduled_time,
+                            status,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                        RETURNING *
+                        """,
+                        (
+                            client_order_id,
+                            parent_order_id,
+                            slice_num,
+                            strategy_id,
+                            order_request.symbol,
+                            order_request.side,
+                            order_request.qty,
+                            order_request.order_type,
+                            order_request.limit_price,
+                            order_request.stop_price,
+                            order_request.time_in_force,
+                            scheduled_time,
+                            status,
+                        ),
+                    )
+
+                    row = cur.fetchone()
+                    conn.commit()
+
+                    if row is None:
+                        raise ValueError(f"Failed to create child slice: {client_order_id}")
+
+                    logger.info(
+                        f"Child slice created in database: {client_order_id}",
+                        extra={
+                            "client_order_id": client_order_id,
+                            "parent_order_id": parent_order_id,
+                            "slice_num": slice_num,
+                            "symbol": order_request.symbol,
+                            "status": status,
+                        },
+                    )
+
+                    return OrderDetail(**row)
+
+        except IntegrityError as e:
+            logger.warning(
+                f"Child slice already exists or duplicate slice_num: {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "parent_order_id": parent_order_id,
+                    "slice_num": slice_num,
+                    "error": str(e),
+                },
+            )
+            raise
+
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error creating child slice: {e}")
+            raise
+
+    def get_slices_by_parent_id(self, parent_order_id: str) -> list[OrderDetail]:
+        """
+        Get all child slices for a parent order, ordered by slice_num.
+
+        Args:
+            parent_order_id: Parent order's client_order_id
+
+        Returns:
+            List of OrderDetail for all child slices, ordered by slice_num
+            (empty list if parent has no slices)
+
+        Raises:
+            DatabaseError: If database operation fails
+
+        Example:
+            >>> db = DatabaseClient("postgresql://localhost/trading_platform")
+            >>> slices = db.get_slices_by_parent_id("abc123...")
+            >>> len(slices)
+            5
+            >>> slices[0].slice_num
+            0
+            >>> slices[0].parent_order_id
+            'abc123...'
+
+        Notes:
+            - Returns slices in slice_num order (0, 1, 2, ...)
+            - Includes all slices regardless of status
+            - Returns empty list if parent_order_id not found or has no slices
+        """
+        try:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT * FROM orders
+                        WHERE parent_order_id = %s
+                        ORDER BY slice_num
+                        """,
+                        (parent_order_id,),
+                    )
+
+                    rows = cur.fetchall()
+
+                    logger.info(
+                        f"Retrieved {len(rows)} slices for parent: {parent_order_id}",
+                        extra={"parent_order_id": parent_order_id, "slice_count": len(rows)},
+                    )
+
+                    return [OrderDetail(**row) for row in rows]
+
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching slices: {e}")
+            raise
+
+    def cancel_pending_slices(self, parent_order_id: str) -> int:
+        """
+        Cancel all pending child slices for a parent order.
+
+        Updates all child slices with status="pending_new" to status="canceled".
+        Used when parent order is canceled or circuit breaker trips.
+
+        Args:
+            parent_order_id: Parent order's client_order_id
+
+        Returns:
+            Number of slices canceled
+
+        Raises:
+            DatabaseError: If database operation fails
+
+        Example:
+            >>> db = DatabaseClient("postgresql://localhost/trading_platform")
+            >>> # Cancel all pending slices for parent
+            >>> canceled_count = db.cancel_pending_slices("abc123...")
+            >>> canceled_count
+            3
+
+        Notes:
+            - Only cancels slices with status="pending_new"
+            - Does not affect slices already accepted/filled/canceled
+            - Returns 0 if parent has no pending slices
+            - Sets updated_at timestamp to NOW()
+        """
+        try:
+            with psycopg.connect(self.db_conn_string) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE orders
+                        SET status = 'canceled', updated_at = NOW()
+                        WHERE parent_order_id = %s AND status = 'pending_new'
+                        """,
+                        (parent_order_id,),
+                    )
+
+                    canceled_count = cur.rowcount
+                    conn.commit()
+
+                    logger.info(
+                        f"Canceled {canceled_count} pending slices for parent: {parent_order_id}",
+                        extra={
+                            "parent_order_id": parent_order_id,
+                            "canceled_count": canceled_count,
+                        },
+                    )
+
+                    return canceled_count
+
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error canceling pending slices: {e}")
+            raise
+
     def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         """
         Get order by client_order_id.
