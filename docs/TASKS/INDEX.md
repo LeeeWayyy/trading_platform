@@ -236,11 +236,11 @@ P1_PLANNING.md     → Phase-level planning (living document)
 
 | ID | Title | Owner | State | Depends On | Blocks | Effort |
 |----|-------|-------|-------|------------|--------|--------|
-| [P1T0](#p1t0) | [Task title] | @team | TASK | P0T6 | - | 4d |
+| [P1T0](#p1t0) | Enhanced P&L Calculation | @development-team | DONE | P0T4 | - | 3-5d |
 
-### P1T0: Task Title
-**Status:** TASK (Not Started)
-**File:** [P1T0_TASK.md](./P1T0_TASK.md)
+### P1T0: Enhanced P&L Calculation
+**Status:** DONE (Completed)
+**File:** [P1T0_DONE.md](./P1T0_DONE.md)
 
 [Details...]
 
