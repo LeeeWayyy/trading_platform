@@ -28,10 +28,10 @@ fmt: ## Format code with black and ruff
 	poetry run black .
 	poetry run ruff check --fix .
 
-lint: ## Run linters (black, ruff, mypy)
+lint: ## Run linters (black, ruff, mypy --strict)
 	poetry run black --check .
 	poetry run ruff check .
-	poetry run mypy libs/ apps/ strategies/
+	poetry run mypy libs/ apps/ strategies/ --strict
 
 test: ## Run tests
 	PYTHONPATH=. poetry run pytest
