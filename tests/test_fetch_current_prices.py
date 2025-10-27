@@ -96,18 +96,21 @@ class TestFetchCurrentPrices:
         mock_executor.get_latest_quotes.assert_called_once_with(["AAPL", "MSFT", "GOOGL"])
 
     @pytest.mark.asyncio()
-    async def test_fallback_to_mid_quote(self) -> None:
+    async def test_uses_mid_quote_from_latest_quotes(self) -> None:
         """
-        Test fallback to mid-quote when last_price is None.
+        Test that mid-quote calculated by get_latest_quotes() is used.
+
+        Note: get_latest_quotes() already calculates mid-quote when bid/ask available
+        and returns it as last_price. This test verifies we use that value correctly.
 
         Scenario:
-            - AAPL: last_price=None, bid=$152.70, ask=$152.80
-            - Expected: mid-quote = (152.70 + 152.80) / 2 = $152.75
+            - AAPL: last_price=$152.75 (mid-quote from get_latest_quotes)
+            - Expected: Use last_price directly
         """
         mock_executor = MagicMock()
         mock_executor.get_latest_quotes.return_value = {
             "AAPL": {
-                "last_price": None,
+                "last_price": Decimal("152.75"),  # Mid-quote calculated by get_latest_quotes
                 "ask_price": Decimal("152.80"),
                 "bid_price": Decimal("152.70"),
             }
@@ -214,7 +217,7 @@ class TestFetchCurrentPrices:
             "AAPL": {"last_price": Decimal("152.75"), "ask_price": None, "bid_price": None},
             "MSFT": {"last_price": None, "ask_price": None, "bid_price": None},
             "GOOGL": {
-                "last_price": None,
+                "last_price": Decimal("140.25"),  # Mid-quote from get_latest_quotes
                 "ask_price": Decimal("140.30"),
                 "bid_price": Decimal("140.20"),
             },
@@ -325,6 +328,42 @@ class TestFetchCurrentPrices:
             )
 
     @pytest.mark.asyncio()
+    async def test_config_overrides_environment_variables(self) -> None:
+        """
+        Test that config-provided credentials override environment variables.
+
+        Scenario:
+            - Environment has one set of credentials
+            - Config dict provides different credentials
+            - Expected: AlpacaExecutor receives config credentials, not env
+        """
+        mock_executor = MagicMock()
+        mock_executor.get_latest_quotes.return_value = {}
+
+        # Set env vars with "env_" prefix
+        os.environ["ALPACA_API_KEY"] = "env_api_key"
+        os.environ["ALPACA_SECRET_KEY"] = "env_secret_key"
+        os.environ["ALPACA_BASE_URL"] = "https://env.alpaca.markets"
+
+        # Provide different credentials via config
+        config: dict[str, Any] = {
+            "alpaca_api_key": "config_api_key",
+            "alpaca_secret_key": "config_secret_key",
+            "alpaca_base_url": "https://config.alpaca.markets",
+        }
+
+        with patch("scripts.paper_run.AlpacaExecutor") as mock_alpaca_class:
+            mock_alpaca_class.return_value = mock_executor
+            await fetch_current_prices(["AAPL"], config)
+
+            # Verify config credentials are used, not env vars
+            mock_alpaca_class.assert_called_once_with(
+                api_key="config_api_key",
+                secret_key="config_secret_key",
+                base_url="https://config.alpaca.markets",
+            )
+
+    @pytest.mark.asyncio()
     async def test_decimal_precision(self) -> None:
         """
         Test Decimal precision is maintained for prices.
@@ -350,18 +389,23 @@ class TestFetchCurrentPrices:
         assert prices["AAPL"] == Decimal("152.123456")
 
     @pytest.mark.asyncio()
-    async def test_mid_quote_calculation_precision(self) -> None:
+    async def test_mid_quote_from_latest_quotes_precision(self) -> None:
         """
-        Test mid-quote calculation maintains Decimal precision.
+        Test that mid-quote from get_latest_quotes() maintains Decimal precision.
+
+        Note: get_latest_quotes() calculates mid-quote with Decimal precision
+        when bid/ask are available. This test verifies precision is maintained.
 
         Scenario:
             - Bid: $152.123, Ask: $152.789
-            - Expected: Mid-quote = (152.123 + 152.789) / 2 = $152.456
+            - get_latest_quotes returns: last_price = $152.456 (mid-quote)
+            - Expected: Decimal precision preserved
         """
         mock_executor = MagicMock()
+        expected_mid = (Decimal("152.789") + Decimal("152.123")) / Decimal("2")
         mock_executor.get_latest_quotes.return_value = {
             "AAPL": {
-                "last_price": None,
+                "last_price": expected_mid,  # Mid-quote from get_latest_quotes
                 "ask_price": Decimal("152.789"),
                 "bid_price": Decimal("152.123"),
             }
@@ -371,6 +415,5 @@ class TestFetchCurrentPrices:
             config: dict[str, Any] = {}
             prices = await fetch_current_prices(["AAPL"], config)
 
-        # Verify mid-quote precision
-        expected_mid = (Decimal("152.789") + Decimal("152.123")) / Decimal("2")
+        # Verify mid-quote precision preserved
         assert prices["AAPL"] == expected_mid

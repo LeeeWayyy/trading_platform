@@ -118,11 +118,12 @@ async def fetch_current_prices(symbols: list[str], config: dict[str, Any]) -> di
 
     try:
         # Initialize Alpaca client with credentials from config
-        # Note: Reuse same credentials as execution gateway
+        # Fallback to environment variables if config doesn't have them
         alpaca_client = AlpacaExecutor(
-            api_key=os.getenv("ALPACA_API_KEY"),
-            secret_key=os.getenv("ALPACA_SECRET_KEY"),
-            base_url=os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
+            api_key=config.get("alpaca_api_key") or os.getenv("ALPACA_API_KEY"),
+            secret_key=config.get("alpaca_secret_key") or os.getenv("ALPACA_SECRET_KEY"),
+            base_url=config.get("alpaca_base_url")
+            or os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
         )
 
         # Fetch latest quotes for all symbols (batch request)
@@ -139,9 +140,6 @@ async def fetch_current_prices(symbols: list[str], config: dict[str, Any]) -> di
 
             if last_price is not None:
                 prices[symbol] = last_price
-            elif ask_price is not None and bid_price is not None:
-                # Calculate mid-quote manually if last_price is None
-                prices[symbol] = (ask_price + bid_price) / Decimal("2")
             elif ask_price is not None:
                 prices[symbol] = ask_price
             elif bid_price is not None:
