@@ -80,7 +80,7 @@ class SliceScheduler:
         kill_switch: Kill switch instance for critical safety checks
         breaker: Circuit breaker instance for risk management
         db: Database client for order status updates
-        executor: Alpaca executor for order submission
+        executor: Alpaca executor for order submission (None in DRY_RUN mode)
         scheduler: APScheduler BackgroundScheduler instance (UTC timezone)
 
     Example:
@@ -115,7 +115,7 @@ class SliceScheduler:
         kill_switch: KillSwitch,
         breaker: CircuitBreaker,
         db_client: DatabaseClient,
-        executor: AlpacaExecutor,
+        executor: AlpacaExecutor | None,
     ):
         """
         Initialize slice scheduler.
@@ -124,15 +124,19 @@ class SliceScheduler:
             kill_switch: Kill switch instance for critical safety checks
             breaker: Circuit breaker instance for risk management
             db_client: Database client for order status updates
-            executor: Alpaca executor for order submission
+            executor: Alpaca executor for order submission (None in DRY_RUN mode)
 
         Example:
             >>> scheduler = SliceScheduler(
             ...     kill_switch=kill_switch,
             ...     breaker=breaker,
             ...     db_client=db,
-            ...     executor=alpaca_executor,
+            ...     executor=alpaca_executor,  # or None for DRY_RUN
             ... )
+
+        Notes:
+            - When executor is None (DRY_RUN mode), slices are logged but not submitted to broker
+            - DRY_RUN slices update DB status to 'dry_run' instead of 'submitted'
         """
         self.kill_switch = kill_switch
         self.breaker = breaker
@@ -387,29 +391,52 @@ class SliceScheduler:
                 )
                 return
 
-            # Submit to broker (with automatic retry on connection errors via @retry decorator)
-            broker_response = self.executor.submit_order(
-                order=order_request,
-                client_order_id=slice_detail.client_order_id,
-            )
+            # Submit to broker (or log as dry-run if executor is None)
+            if self.executor is None:
+                # DRY_RUN mode: Log order without submitting to broker
+                logger.info(
+                    f"DRY_RUN: Slice would be submitted: parent={parent_order_id}, "
+                    f"slice={slice_detail.slice_num}, qty={slice_detail.qty}",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "slice_num": slice_detail.slice_num,
+                        "client_order_id": slice_detail.client_order_id,
+                        "symbol": symbol,
+                        "side": side,
+                        "qty": str(slice_detail.qty),
+                        "order_type": order_type,
+                        "dry_run": True,
+                    },
+                )
+                # Update DB status to 'dry_run'
+                self.db.update_order_status(
+                    client_order_id=slice_detail.client_order_id,
+                    status="dry_run",
+                )
+            else:
+                # Production mode: Submit to broker (with automatic retry on connection errors via @retry decorator)
+                broker_response = self.executor.submit_order(
+                    order=order_request,
+                    client_order_id=slice_detail.client_order_id,
+                )
 
-            # Update DB status to 'submitted'
-            self.db.update_order_status(
-                client_order_id=slice_detail.client_order_id,
-                status="submitted",
-                broker_order_id=broker_response["id"],
-            )
+                # Update DB status to 'submitted'
+                self.db.update_order_status(
+                    client_order_id=slice_detail.client_order_id,
+                    status="submitted",
+                    broker_order_id=broker_response["id"],
+                )
 
-            logger.info(
-                f"Slice submitted successfully: parent={parent_order_id}, "
-                f"slice={slice_detail.slice_num}, broker_id={broker_response['id']}",
-                extra={
-                    "parent_order_id": parent_order_id,
-                    "slice_num": slice_detail.slice_num,
-                    "client_order_id": slice_detail.client_order_id,
-                    "broker_order_id": broker_response["id"],
-                },
-            )
+                logger.info(
+                    f"Slice submitted successfully: parent={parent_order_id}, "
+                    f"slice={slice_detail.slice_num}, broker_id={broker_response['id']}",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "slice_num": slice_detail.slice_num,
+                        "client_order_id": slice_detail.client_order_id,
+                        "broker_order_id": broker_response["id"],
+                    },
+                )
 
         except (AlpacaValidationError, AlpacaRejectionError) as e:
             # Non-retryable errors - update DB and log

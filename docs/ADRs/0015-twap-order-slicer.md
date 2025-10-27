@@ -1,8 +1,8 @@
 # ADR-0015: TWAP Order Slicer with APScheduler
 
-**Status:** Accepted  
-**Date:** 2025-10-27  
-**Deciders:** Lee (implemented P2T0 TWAP Order Slicer)  
+**Status:** Accepted
+**Date:** 2025-10-27
+**Deciders:** Lee (implemented P2T0 TWAP Order Slicer)
 **Tags:** execution, TWAP, scheduling, API
 
 ## Context
@@ -96,8 +96,8 @@ Implement TWAP order slicing with the following architecture:
 
 ### Migration Path
 
-**Phase 1 (Current):** In-process APScheduler with manual recovery  
-**Phase 2 (Future):** Add boot-time rescheduling from database  
+**Phase 1 (Current):** In-process APScheduler with manual recovery
+**Phase 2 (Future):** Add boot-time rescheduling from database
 **Phase 3 (Future):** Evaluate Celery migration if distributed execution needed
 
 ## Implementation
@@ -114,13 +114,12 @@ Implement TWAP order slicing with the following architecture:
 - API endpoints: 3 minimal tests (endpoint registration)
 
 **Documentation:**
-- Task: docs/TASKS/P2T0_PLANNING.md
 - Code: Comprehensive docstrings following DOCUMENTATION_STANDARDS.md
 - Examples: Embedded in docstrings (doctest format)
+- See inline code documentation for implementation details
 
 ## References
 
-- [P2T0 TWAP Order Slicer Planning](../TASKS/P2T0_PLANNING.md)
-- [ADR-0005: Execution Gateway Architecture](./ADR-0005-execution-gateway-architecture.md)
+- [ADR-0005: Execution Gateway Architecture](./0005-execution-gateway-architecture.md)
 - [APScheduler Documentation](https://apscheduler.readthedocs.io/)
-- [TWAP Algorithm Explained](../CONCEPTS/execution-algorithms.md)
+- [Python PEP 8 - Exception Names](https://peps.python.org/pep-0008/#exception-names)

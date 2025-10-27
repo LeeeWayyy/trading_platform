@@ -448,6 +448,103 @@ class TestExecuteSliceSuccess:
         )
 
 
+class TestExecuteSliceDryRun:
+    """Tests for DRY_RUN mode (executor=None)."""
+
+    def test_execute_slice_dry_run_mode(self):
+        """Test DRY_RUN mode logs without broker submission and updates DB to dry_run status."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        kill_switch.is_engaged.return_value = False
+
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+
+        db = MagicMock(spec=DatabaseClient)
+        db.get_order_by_client_id.return_value = None  # Not canceled
+
+        # DRY_RUN mode: executor is None
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=None,  # DRY_RUN mode
+        )
+
+        now = datetime.now(UTC)
+        slice_detail = SliceDetail(
+            slice_num=0,
+            qty=20,
+            scheduled_time=now,
+            client_order_id="child0",
+            status="pending_new",
+        )
+
+        scheduler._execute_slice(
+            parent_order_id="parent123",
+            slice_detail=slice_detail,
+            symbol="AAPL",
+            side="buy",
+            order_type="market",
+            limit_price=None,
+            stop_price=None,
+            time_in_force="day",
+        )
+
+        # Verify DB updated to dry_run status (NOT submitted)
+        db.update_order_status.assert_called_once_with(
+            client_order_id="child0",
+            status="dry_run",
+        )
+
+        # Verify executor was NOT called (since it's None)
+        assert scheduler.executor is None
+
+    def test_execute_slice_dry_run_respects_safety_guards(self):
+        """Test DRY_RUN mode still respects kill switch and circuit breaker."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        kill_switch.is_engaged.return_value = True  # Kill switch engaged
+
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+
+        db = MagicMock(spec=DatabaseClient)
+        db.get_order_by_client_id.return_value = None
+
+        # DRY_RUN mode: executor is None
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=None,  # DRY_RUN mode
+        )
+
+        now = datetime.now(UTC)
+        slice_detail = SliceDetail(
+            slice_num=0,
+            qty=20,
+            scheduled_time=now,
+            client_order_id="child0",
+            status="pending_new",
+        )
+
+        scheduler._execute_slice(
+            parent_order_id="parent123",
+            slice_detail=slice_detail,
+            symbol="AAPL",
+            side="buy",
+            order_type="market",
+            limit_price=None,
+            stop_price=None,
+            time_in_force="day",
+        )
+
+        # Verify slice blocked by kill switch (NOT executed in dry-run)
+        db.update_order_status.assert_called_once_with(
+            client_order_id="child0",
+            status="blocked_kill_switch",
+        )
+
+
 class TestExecuteSliceErrors:
     """Tests for slice execution error handling."""
 

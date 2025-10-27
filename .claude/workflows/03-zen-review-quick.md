@@ -71,7 +71,7 @@ Focus on trading safety: circuit breakers, idempotency, position limits, type sa
 - Review takes ~1-2 minutes
 - Returns detailed findings WITH continuation_id
 
-**Phase 2: Recommendations Synthesis (Codex Codereviewer)**
+**Phase 2: Recommendations Synthesis (Codex Codereviewer) - REQUIRED**
 ```
 "Now use clink + codex codereviewer with continuation_id <continuation_id>
 to synthesize recommendations and provide final approval or action items"
@@ -84,6 +84,9 @@ to synthesize recommendations and provide final approval or action items"
 - Takes ~30-60 seconds
 - Total review time: ~2-3 minutes across both phases
 - Final continuation_id provided for follow-up verification
+
+**⚠️ IMPORTANT: Both Phase 1 (Gemini) and Phase 2 (Codex) are MANDATORY.**
+Skipping either phase invalidates the zen-mcp review approval required by pre-commit hooks.
 
 ### 3. Review the Findings
 

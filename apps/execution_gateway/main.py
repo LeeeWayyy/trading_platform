@@ -196,13 +196,13 @@ logger.info("TWAP slicer initialized successfully")
 # Slice Scheduler (for time-based TWAP slice execution)
 slice_scheduler: SliceScheduler | None = None
 if kill_switch and circuit_breaker:
-    # Note: alpaca_client can be None in DRY_RUN mode - scheduler handles this
+    # Note: alpaca_client can be None in DRY_RUN mode - scheduler logs dry-run slices without broker submission
     try:
         slice_scheduler = SliceScheduler(
             kill_switch=kill_switch,
             breaker=circuit_breaker,
             db_client=db_client,
-            executor=alpaca_client,  # type: ignore[arg-type]
+            executor=alpaca_client,  # Can be None in DRY_RUN mode
         )
         logger.info("Slice scheduler initialized (not started yet)")
     except Exception as e:
@@ -1299,10 +1299,12 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
     except ValueError as e:
         # Validation error from slicer
         logger.error(f"TWAP validation error: {e}", extra={"error": str(e)})
+        # Re-raise with 'from e' to preserve original traceback for debugging
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
         # Database or scheduling error
         logger.error(f"TWAP order creation failed: {e}", extra={"error": str(e)})
+        # Re-raise with 'from e' to preserve original traceback for debugging
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"TWAP order creation failed: {str(e)}",

@@ -110,7 +110,7 @@ class DatabaseClient:
                 conn.rollback()
                 logger.warning(
                     f"Transaction rolled back due to error: {e}",
-                    extra={"error_type": type(e).__name__},
+                    extra={"error_type": type(e).__name__, "error_message": str(e)},
                 )
             raise
         finally:
