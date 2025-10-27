@@ -5,8 +5,11 @@ phase: P1
 task: T12
 priority: P1
 owner: "@development-team"
-state: TODO
+state: DONE
 created: 2025-10-24
+started: 2025-10-25
+completed: 2025-10-25
+duration: 0 days
 dependencies: ["P1T11"]
 estimated_effort: "4-6 hours"
 related_adrs: []
@@ -17,7 +20,7 @@ features: []
 # P1T12: Workflow Review & Pre-commit Automation
 
 **Phase:** P1 (Hardening, 46-90 days)
-**Status:** TODO (Not Started)
+**Status:** ✅ DONE (Completed Oct 25, 2025, PR #32)
 **Priority:** P1 (HIGH)
 **Owner:** @development-team
 **Created:** 2025-10-24
