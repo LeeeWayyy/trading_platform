@@ -117,12 +117,31 @@ class OrderResponse(BaseModel):
     """
 
     client_order_id: str
-    status: str
+    status: Literal[
+        "pending_new",
+        "accepted",
+        "filled",
+        "canceled",
+        "rejected",
+        "expired",
+        "replaced",
+        "done_for_day",
+        "stopped",
+        "suspended",
+        "pending_cancel",
+        "pending_replace",
+        "calculated",
+        "submitted",
+        "dry_run",
+        "failed",
+        "blocked_kill_switch",
+        "blocked_circuit_breaker",
+    ]
     broker_order_id: str | None = None
     symbol: str
-    side: str
+    side: Literal["buy", "sell"]
     qty: int
-    order_type: str
+    order_type: Literal["market", "limit", "stop", "stop_limit"]
     limit_price: Decimal | None = None
     created_at: datetime
     message: str
@@ -175,13 +194,32 @@ class OrderDetail(BaseModel):
     client_order_id: str
     strategy_id: str
     symbol: str
-    side: str
+    side: Literal["buy", "sell"]
     qty: int
-    order_type: str
+    order_type: Literal["market", "limit", "stop", "stop_limit"]
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
-    time_in_force: str
-    status: str
+    time_in_force: Literal["day", "gtc", "ioc", "fok"]
+    status: Literal[
+        "pending_new",
+        "accepted",
+        "filled",
+        "canceled",
+        "rejected",
+        "expired",
+        "replaced",
+        "done_for_day",
+        "stopped",
+        "suspended",
+        "pending_cancel",
+        "pending_replace",
+        "calculated",
+        "submitted",
+        "dry_run",
+        "failed",
+        "blocked_kill_switch",
+        "blocked_circuit_breaker",
+    ]
     broker_order_id: str | None = None
     error_message: str | None = None
     retry_count: int
@@ -677,6 +715,7 @@ class SliceDetail(BaseModel):
         "pending_cancel",
         "pending_replace",
         "calculated",
+        "submitted",
         "dry_run",
         "failed",
         "blocked_kill_switch",

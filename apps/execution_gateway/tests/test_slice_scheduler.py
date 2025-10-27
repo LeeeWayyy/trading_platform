@@ -840,17 +840,18 @@ class TestCancelRemainingSlices:
         )
         scheduler.scheduler.remove_job = MagicMock()
 
-        canceled_count = scheduler.cancel_remaining_slices("parent123")
+        scheduler_count, db_count = scheduler.cancel_remaining_slices("parent123")
 
-        # Verify 3 jobs removed (not the other_parent job)
-        assert canceled_count == 3
+        # Verify 3 jobs removed (not the other_parent job) and 3 DB rows updated
+        assert scheduler_count == 3
+        assert db_count == 3
         assert scheduler.scheduler.remove_job.call_count == 3
 
         # Verify DB called
         db.cancel_pending_slices.assert_called_once_with("parent123")
 
     def test_cancel_remaining_slices_no_jobs_to_cancel(self):
-        """Test canceling when no jobs exist returns 0."""
+        """Test canceling when no jobs exist returns (0, 0)."""
         kill_switch = MagicMock(spec=KillSwitch)
         breaker = MagicMock(spec=CircuitBreaker)
         db = MagicMock(spec=DatabaseClient)
@@ -867,8 +868,9 @@ class TestCancelRemainingSlices:
         scheduler.scheduler.get_jobs = MagicMock(return_value=[])
         scheduler.scheduler.remove_job = MagicMock()
 
-        canceled_count = scheduler.cancel_remaining_slices("parent_no_jobs")
+        scheduler_count, db_count = scheduler.cancel_remaining_slices("parent_no_jobs")
 
-        assert canceled_count == 0
+        assert scheduler_count == 0
+        assert db_count == 0
         scheduler.scheduler.remove_job.assert_not_called()
         db.cancel_pending_slices.assert_called_once()

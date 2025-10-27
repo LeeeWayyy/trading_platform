@@ -72,6 +72,7 @@ from apps.execution_gateway.schemas import (
     PositionsResponse,
     RealtimePnLResponse,
     RealtimePositionPnL,
+    SliceDetail,
     SlicingPlan,
     SlicingRequest,
 )
@@ -1229,6 +1230,44 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             time_in_force=request.time_in_force,
         )
 
+        # Check if parent order already exists (idempotency)
+        existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
+        if existing_parent:
+            logger.info(
+                f"TWAP order already exists (idempotent): parent={slicing_plan.parent_order_id}",
+                extra={
+                    "parent_order_id": slicing_plan.parent_order_id,
+                    "status": existing_parent.status,
+                    "total_slices": existing_parent.total_slices,
+                },
+            )
+
+            # Fetch all child slices to return complete plan
+            existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
+
+            # Convert OrderDetail list to SliceDetail list for response
+            slice_details = [
+                SliceDetail(
+                    slice_num=s.slice_num or 0,
+                    qty=s.qty,
+                    scheduled_time=s.scheduled_time or datetime.now(UTC),
+                    client_order_id=s.client_order_id,
+                    status=s.status,
+                )
+                for s in existing_slices
+            ]
+
+            # Return existing slicing plan (idempotent response)
+            return SlicingPlan(
+                parent_order_id=slicing_plan.parent_order_id,
+                symbol=request.symbol,
+                side=request.side,
+                total_qty=request.qty,
+                total_slices=len(slice_details),
+                duration_minutes=request.duration_minutes,
+                slices=slice_details,
+            )
+
         # 🔒 CRITICAL: Create parent + child orders atomically (defense against partial writes)
         # Use database transaction to ensure all-or-nothing behavior. If any insert fails,
         # the entire TWAP order creation rolls back to prevent orphaned parent orders.
@@ -1472,12 +1511,9 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
     try:
         # Cancel remaining slices (removes from scheduler + updates DB)
         # Note: SliceScheduler updates DB first, then removes scheduler jobs
-        scheduler_canceled_count = slice_scheduler.cancel_remaining_slices(parent_id)
-
-        # Query DB to verify how many were actually canceled
-        # (provides independent confirmation of DB state)
-        slices = db_client.get_slices_by_parent_id(parent_id)
-        db_canceled_count = sum(1 for s in slices if s.status == "canceled")
+        scheduler_canceled_count, db_canceled_count = slice_scheduler.cancel_remaining_slices(
+            parent_id
+        )
 
         logger.info(
             f"Canceled slices for parent {parent_id}: scheduler={scheduler_canceled_count}, db={db_canceled_count}",

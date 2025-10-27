@@ -35,7 +35,7 @@ Example:
     ... )
     >>>
     >>> # Later: cancel remaining slices
-    >>> canceled_count = scheduler.cancel_remaining_slices("parent123")
+    >>> scheduler_count, db_count = scheduler.cancel_remaining_slices("parent123")
 
 See Also:
     - docs/TASKS/P2T0_PLANNING.md#p2t0-twap-order-slicer
@@ -524,7 +524,7 @@ class SliceScheduler:
             # If all retries fail, APScheduler will log the final exception
             raise
 
-    def cancel_remaining_slices(self, parent_order_id: str) -> int:
+    def cancel_remaining_slices(self, parent_order_id: str) -> tuple[int, int]:
         """
         Cancel all pending jobs for parent order and update DB.
 
@@ -535,21 +535,21 @@ class SliceScheduler:
             parent_order_id: Parent order's client_order_id
 
         Returns:
-            Number of jobs canceled from scheduler
+            Tuple of (scheduler_canceled_count, db_canceled_count)
 
         Example:
             >>> scheduler.schedule_slices(...)
             >>> # ... later ...
-            >>> canceled_count = scheduler.cancel_remaining_slices("parent123")
-            >>> canceled_count
-            3
+            >>> scheduler_count, db_count = scheduler.cancel_remaining_slices("parent123")
+            >>> scheduler_count, db_count
+            (3, 3)
 
         Notes:
             - Job IDs match pattern: "{parent_order_id}_slice_*"
             - DB update happens BEFORE job removal to close race condition
-            - Returns count of jobs removed from scheduler (not DB updates)
-            - Safe to call even if no jobs exist (returns 0)
-            - Returns 0 if parent order does not exist in database
+            - Returns tuple: (jobs removed from scheduler, rows updated in DB)
+            - Safe to call even if no jobs exist (returns (0, 0))
+            - Returns (0, 0) if parent order does not exist in database
         """
         # Check if parent order exists to avoid errors
         parent_order = self.db.get_order_by_client_id(parent_order_id)
@@ -558,7 +558,7 @@ class SliceScheduler:
                 f"Parent order not found, cannot cancel slices: {parent_order_id}",
                 extra={"parent_order_id": parent_order_id},
             )
-            return 0
+            return (0, 0)
 
         # 🔒 CRITICAL: Update DB FIRST so any jobs that fire during removal see 'canceled' status
         db_canceled = self.db.cancel_pending_slices(parent_order_id)
@@ -579,4 +579,4 @@ class SliceScheduler:
             },
         )
 
-        return canceled_count
+        return (canceled_count, db_canceled)
