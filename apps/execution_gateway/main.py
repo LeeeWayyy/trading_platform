@@ -1229,42 +1229,49 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             time_in_force=request.time_in_force,
         )
 
-        # Create parent order in database
-        parent_order_request = OrderRequest(
-            symbol=request.symbol,
-            side=request.side,
-            qty=request.qty,
-            order_type=request.order_type,
-            limit_price=request.limit_price,
-            stop_price=request.stop_price,
-            time_in_force=request.time_in_force,
-        )
-        db_client.create_parent_order(
-            client_order_id=slicing_plan.parent_order_id,
-            strategy_id=STRATEGY_ID,
-            order_request=parent_order_request,
-            total_slices=slicing_plan.total_slices,
-        )
-
-        # Create child slice orders in database
-        for slice_detail in slicing_plan.slices:
-            slice_order_request = OrderRequest(
+        # 🔒 CRITICAL: Create parent + child orders atomically (defense against partial writes)
+        # Use database transaction to ensure all-or-nothing behavior. If any insert fails,
+        # the entire TWAP order creation rolls back to prevent orphaned parent orders.
+        with db_client.transaction() as conn:
+            # Create parent order in database
+            parent_order_request = OrderRequest(
                 symbol=request.symbol,
                 side=request.side,
-                qty=slice_detail.qty,
+                qty=request.qty,
                 order_type=request.order_type,
                 limit_price=request.limit_price,
                 stop_price=request.stop_price,
                 time_in_force=request.time_in_force,
             )
-            db_client.create_child_slice(
-                client_order_id=slice_detail.client_order_id,
-                parent_order_id=slicing_plan.parent_order_id,
-                slice_num=slice_detail.slice_num,
+            db_client.create_parent_order(
+                client_order_id=slicing_plan.parent_order_id,
                 strategy_id=STRATEGY_ID,
-                order_request=slice_order_request,
-                scheduled_time=slice_detail.scheduled_time,
+                order_request=parent_order_request,
+                total_slices=slicing_plan.total_slices,
+                conn=conn,  # Use shared transaction connection
             )
+
+            # Create child slice orders in database
+            for slice_detail in slicing_plan.slices:
+                slice_order_request = OrderRequest(
+                    symbol=request.symbol,
+                    side=request.side,
+                    qty=slice_detail.qty,
+                    order_type=request.order_type,
+                    limit_price=request.limit_price,
+                    stop_price=request.stop_price,
+                    time_in_force=request.time_in_force,
+                )
+                db_client.create_child_slice(
+                    client_order_id=slice_detail.client_order_id,
+                    parent_order_id=slicing_plan.parent_order_id,
+                    slice_num=slice_detail.slice_num,
+                    strategy_id=STRATEGY_ID,
+                    order_request=slice_order_request,
+                    scheduled_time=slice_detail.scheduled_time,
+                    conn=conn,  # Use shared transaction connection
+                )
+            # Transaction auto-commits on successful context exit
 
         # Schedule slices for execution
         job_ids = slice_scheduler.schedule_slices(
@@ -1403,17 +1410,28 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
 
     try:
         # Cancel remaining slices (removes from scheduler + updates DB)
-        canceled_count = slice_scheduler.cancel_remaining_slices(parent_id)
+        # Note: SliceScheduler updates DB first, then removes scheduler jobs
+        scheduler_canceled_count = slice_scheduler.cancel_remaining_slices(parent_id)
+
+        # Query DB to verify how many were actually canceled
+        # (provides independent confirmation of DB state)
+        slices = db_client.get_slices_by_parent_id(parent_id)
+        db_canceled_count = sum(1 for s in slices if s.status == "canceled")
 
         logger.info(
-            f"Canceled slices for parent {parent_id}: {canceled_count} jobs",
-            extra={"parent_order_id": parent_id, "canceled_count": canceled_count},
+            f"Canceled slices for parent {parent_id}: scheduler={scheduler_canceled_count}, db={db_canceled_count}",
+            extra={
+                "parent_order_id": parent_id,
+                "scheduler_canceled": scheduler_canceled_count,
+                "db_canceled": db_canceled_count,
+            },
         )
 
         return {
             "parent_order_id": parent_id,
-            "canceled_count": canceled_count,
-            "message": f"Canceled {canceled_count} pending slices",
+            "scheduler_canceled": scheduler_canceled_count,
+            "db_canceled": db_canceled_count,
+            "message": f"Canceled {db_canceled_count} pending slices in DB, removed {scheduler_canceled_count} jobs from scheduler",
         }
     except Exception as e:
         logger.error(f"Failed to cancel slices for parent {parent_id}: {e}")
