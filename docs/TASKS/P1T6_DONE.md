@@ -152,26 +152,38 @@ Implement additional ML strategies beyond Alpha158 baseline for diversification 
 
 ## Technical Details
 
-### Files to Modify/Create
-- `strategies/mean_reversion/` - NEW: Mean reversion strategy implementation
-  - `features.py` - Mean reversion features (oscillators, bollinger bands)
-  - `model.py` - LightGBM model configuration
-  - `config.yaml` - Strategy parameters
-- `strategies/momentum/` - NEW: Momentum strategy implementation
-  - `features.py` - Momentum features (price momentum, volume trends)
-  - `model.py` - LightGBM model configuration
-  - `config.yaml` - Strategy parameters
-- `strategies/ensemble/` - NEW: Multi-strategy ensemble framework
-  - `combiner.py` - Strategy signal combination logic
-  - `weights.py` - Strategy weighting configuration
-- `strategies/backtesting/` - NEW: Backtesting framework
-  - `runner.py` - Backtest execution engine
-  - `metrics.py` - Performance metrics calculation
-  - `comparison.py` - Strategy comparison reports
-- `tests/strategies/` - NEW: Strategy tests
-  - `test_mean_reversion.py` - Mean reversion strategy tests
-  - `test_momentum.py` - Momentum strategy tests
-  - `test_ensemble.py` - Ensemble framework tests
+### Files Created (Actual Implementation in PR #35)
+
+**Mean Reversion Strategy:**
+- `strategies/mean_reversion/features.py` - RSI, Bollinger Bands, Z-score features
+- `strategies/mean_reversion/config.py` - Pydantic config with strategy parameters
+- `strategies/mean_reversion/README.md` - Strategy documentation
+
+**Momentum Strategy:**
+- `strategies/momentum/features.py` - ADX, MACD, EMA crossover features
+- `strategies/momentum/config.py` - Pydantic config with strategy parameters
+- `strategies/momentum/README.md` - Strategy documentation
+
+**Ensemble Framework:**
+- `strategies/ensemble/combiner.py` - Majority vote, weighted avg, max confidence
+- `strategies/ensemble/config.py` - Pydantic config with ensemble methods
+
+**Backtesting Framework:**
+- `strategies/backtest/evaluator.py` - SignalEvaluator for signal-based backtesting
+- `strategies/backtest/metrics.py` - Sharpe, max drawdown, win rate, profit factor
+
+**Tests (100% Coverage):**
+- `tests/strategies/mean_reversion/test_features.py`
+- `tests/strategies/momentum/test_features.py`
+- `tests/strategies/ensemble/test_combiner.py`
+- `tests/strategies/backtest/test_evaluator.py`
+- `tests/strategies/backtest/test_metrics.py`
+
+**Notes:**
+- Used `config.py` (Pydantic) instead of `config.yaml` for type safety
+- `model.py` not created - LightGBM config embedded in feature modules
+- `weights.py` not created - weighting logic in combiner.py with config.py
+- `runner.py` and `comparison.py` deferred to future iteration (mentioned in AC5)
 
 ### APIs/Contracts
 - No API changes required

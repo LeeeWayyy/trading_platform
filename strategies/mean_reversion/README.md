@@ -343,7 +343,7 @@ Mean reversion is based on the statistical observation that extreme price moveme
 
 ## Related Documentation
 
-- [P1T6 Task File](../../docs/TASKS/P1T6_PROGRESS.md) - Implementation progress
+- [P1T6 Done](../../docs/TASKS/P1T6_DONE.md) - Implementation complete
 - [Baseline Strategy](../alpha_baseline/README.md) - Existing momentum strategy
 - [Trading Concepts](../../docs/CONCEPTS/) - Educational trading concepts
 - [Coding Standards](../../docs/STANDARDS/CODING_STANDARDS.md) - Code quality requirements
