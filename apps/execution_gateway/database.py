@@ -361,10 +361,9 @@ class DatabaseClient:
             # Two different paths: own connection vs. provided connection
             if conn is None:
                 # Create and manage our own connection
+                # The psycopg context manager auto-commits on successful exit
                 with psycopg.connect(self.db_conn_string) as conn:
                     result = _execute_insert(conn)
-                    # Commit manually (inside connection context, after cursor closes)
-                    conn.commit()
                 return result
             else:
                 # Use provided connection (transactional mode - caller handles commit)
@@ -511,10 +510,9 @@ class DatabaseClient:
             # Two different paths: own connection vs. provided connection
             if conn is None:
                 # Create and manage our own connection
+                # The psycopg context manager auto-commits on successful exit
                 with psycopg.connect(self.db_conn_string) as conn:
                     result = _execute_insert(conn)
-                    # Commit manually (inside connection context, after cursor closes)
-                    conn.commit()
                 return result
             else:
                 # Use provided connection (transactional mode - caller handles commit)

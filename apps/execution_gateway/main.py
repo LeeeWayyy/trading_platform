@@ -1985,8 +1985,14 @@ async def startup_event() -> None:
 
     # Start slice scheduler (for TWAP order execution)
     if slice_scheduler:
-        slice_scheduler.start()
-        logger.info("Slice scheduler started")
+        # Guard against restarting a shutdown scheduler (APScheduler limitation)
+        # After shutdown(), APScheduler cannot be restarted; this prevents errors
+        # in test scenarios or app reloads where startup is called multiple times
+        if not slice_scheduler.scheduler.running:
+            slice_scheduler.start()
+            logger.info("Slice scheduler started")
+        else:
+            logger.info("Slice scheduler already running (skipping start)")
     else:
         logger.warning("Slice scheduler not available (not started)")
 

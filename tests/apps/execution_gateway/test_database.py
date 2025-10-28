@@ -733,7 +733,7 @@ class TestCreateParentOrder:
 
         # Verify database operations
         mock_cursor.execute.assert_called_once()
-        mock_conn.commit.assert_called_once()
+        # Note: commit() is automatic via psycopg context manager, not explicitly called
 
     def test_create_parent_order_duplicate_raises_integrity_error(self, mock_connection):
         """Test creating duplicate parent order raises IntegrityError."""
@@ -873,7 +873,7 @@ class TestCreateChildSlice:
 
         # Verify database operations
         mock_cursor.execute.assert_called_once()
-        mock_conn.commit.assert_called_once()
+        # Note: commit() is automatic via psycopg context manager, not explicitly called
 
     def test_create_child_slice_duplicate_id_raises_integrity_error(self, mock_connection):
         """Test creating child slice with duplicate client_order_id raises IntegrityError."""
