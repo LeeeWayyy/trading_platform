@@ -1221,7 +1221,11 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
     )
 
     try:
-        # Create slicing plan
+        # CRITICAL: Use consistent trade_date for idempotency across midnight
+        # If client retries after midnight, must pass same trade_date to avoid duplicate orders
+        trade_date = request.trade_date or datetime.now(UTC).date()
+
+        # Create slicing plan with consistent trade_date
         slicing_plan = twap_slicer.plan(
             symbol=request.symbol,
             side=request.side,
@@ -1231,6 +1235,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             limit_price=request.limit_price,
             stop_price=request.stop_price,
             time_in_force=request.time_in_force,
+            trade_date=trade_date,  # Pass consistent trade_date
         )
 
         # Check if parent order already exists (idempotency)
@@ -1240,6 +1245,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         if not existing_parent:
             # Backward compatibility: check legacy hash without duration
             # (for TWAP orders created before this fix was deployed)
+            # CRITICAL: Use same trade_date for idempotency across midnight
             legacy_parent_id = reconstruct_order_params_hash(
                 symbol=request.symbol,
                 side=request.side,
@@ -1247,7 +1253,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
                 limit_price=request.limit_price,
                 stop_price=request.stop_price,
                 strategy_id="twap_parent",  # Legacy format without duration
-                order_date=datetime.now(UTC).date(),
+                order_date=trade_date,  # Use consistent trade_date, not current date
             )
             existing_parent = db_client.get_order_by_client_id(legacy_parent_id)
 

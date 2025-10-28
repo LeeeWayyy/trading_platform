@@ -5,7 +5,7 @@ Defines request and response models for all endpoints, ensuring type safety
 and validation at the API boundary.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -626,6 +626,12 @@ class SlicingRequest(BaseModel):
     )
     time_in_force: Literal["day", "gtc", "ioc", "fok"] = Field(
         default="day", description="Time in force for each slice"
+    )
+    trade_date: date | None = Field(
+        default=None,
+        description="Trading date for order ID generation (defaults to today UTC). "
+        "CRITICAL for idempotency: retries after midnight must pass same trade_date "
+        "to avoid creating duplicate orders.",
     )
 
     @field_validator("symbol")

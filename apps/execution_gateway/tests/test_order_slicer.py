@@ -14,7 +14,7 @@ Test Coverage:
     - Validation errors (qty, duration, missing prices)
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -556,4 +556,110 @@ class TestTWAPSlicer:
                 order_type="stop_limit",
                 limit_price=Decimal("150.50"),
                 stop_price=None,  # Missing
+            )
+
+
+class TestCrossMidnightIdempotency:
+    """
+    Test cross-midnight idempotency for TWAP order IDs.
+
+    Regression test for P1 bug: Idempotent retries fail after midnight.
+
+    Without explicit trade_date, a client submitting the same TWAP order
+    before and after midnight would get different parent_order_ids, creating
+    duplicate orders.
+    """
+
+    def test_same_trade_date_produces_identical_parent_ids(self):
+        """Explicit trade_date ensures same parent_order_id across midnight."""
+        slicer = TWAPSlicer()
+        monday = date(2025, 10, 27)
+
+        # Submit same order on Monday
+        plan_monday = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            trade_date=monday,
+        )
+
+        # Retry same order on Tuesday with same trade_date
+        plan_tuesday = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            trade_date=monday,  # Same trade_date as Monday submission
+        )
+
+        # Parent IDs must match for idempotency
+        assert plan_monday.parent_order_id == plan_tuesday.parent_order_id, (
+            "Retrying same TWAP order after midnight with same trade_date "
+            "must produce identical parent_order_id for idempotency"
+        )
+
+    def test_different_trade_dates_produce_different_parent_ids(self):
+        """Different trade_dates produce different parent_order_ids (expected)."""
+        slicer = TWAPSlicer()
+        monday = date(2025, 10, 27)
+        tuesday = date(2025, 10, 28)
+
+        # Submit on Monday
+        plan_monday = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            trade_date=monday,
+        )
+
+        # Submit on Tuesday (NEW order for Tuesday's trading day)
+        plan_tuesday = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            trade_date=tuesday,
+        )
+
+        # Parent IDs must differ (different trading days)
+        assert plan_monday.parent_order_id != plan_tuesday.parent_order_id, (
+            "Same TWAP order on different trade_dates must produce "
+            "different parent_order_ids (different trading days)"
+        )
+
+    def test_child_slice_ids_stable_across_trade_date(self):
+        """Child slice IDs remain stable when using same trade_date."""
+        slicer = TWAPSlicer()
+        monday = date(2025, 10, 27)
+
+        # Generate slices twice with same trade_date
+        plan1 = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            trade_date=monday,
+        )
+
+        plan2 = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            trade_date=monday,
+        )
+
+        # All child slice IDs must match
+        for slice1, slice2 in zip(plan1.slices, plan2.slices, strict=False):
+            assert slice1.client_order_id == slice2.client_order_id, (
+                f"Slice {slice1.slice_num} client_order_id mismatch: "
+                f"{slice1.client_order_id} != {slice2.client_order_id}"
             )
