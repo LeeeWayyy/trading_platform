@@ -102,7 +102,7 @@ class TestCreateOrder:
 
         # Verify database operations
         mock_cursor.execute.assert_called_once()
-        mock_conn.commit.assert_called_once()
+        # Note: Context manager handles commit automatically - no explicit commit needed
 
     def test_create_order_with_dry_run_status(self, mock_connection):
         """Test order creation with dry_run status (no submitted_at)."""
@@ -302,7 +302,7 @@ class TestUpdateOrderStatus:
         assert result is not None
         assert result.status == "filled"
         assert result.filled_qty == Decimal("10")
-        mock_conn.commit.assert_called_once()
+        # Context manager handles commit automatically - no explicit commit needed
 
     def test_update_status_order_not_found(self, mock_connection):
         """Test updating non-existent order returns None."""
@@ -1181,7 +1181,7 @@ class TestCancelPendingSlices:
         result = db.cancel_pending_slices("parent_no_pending")
 
         assert result == 0
-        mock_conn.commit.assert_called_once()
+        # Context manager handles commit automatically - no explicit commit needed
 
     def test_cancel_pending_slices_some(self, mock_connection):
         """Test canceling some pending slices returns correct count."""
@@ -1192,7 +1192,7 @@ class TestCancelPendingSlices:
         result = db.cancel_pending_slices("parent123")
 
         assert result == 3
-        mock_conn.commit.assert_called_once()
+        # Context manager handles commit automatically - no explicit commit needed
 
     def test_cancel_pending_slices_all(self, mock_connection):
         """Test canceling all pending slices for a parent."""
@@ -1203,7 +1203,7 @@ class TestCancelPendingSlices:
         result = db.cancel_pending_slices("parent_all_pending")
 
         assert result == 5
-        mock_conn.commit.assert_called_once()
+        # Context manager handles commit automatically - no explicit commit needed
 
     def test_cancel_pending_slices_ignores_non_pending(self, mock_connection):
         """Test cancel only affects pending_new slices, not filled/canceled/etc."""
@@ -1216,4 +1216,4 @@ class TestCancelPendingSlices:
         result = db.cancel_pending_slices("parent_mixed_status")
 
         assert result == 2
-        mock_conn.commit.assert_called_once()
+        # Context manager handles commit automatically - no explicit commit needed

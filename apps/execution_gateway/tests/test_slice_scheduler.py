@@ -449,6 +449,82 @@ class TestExecuteSliceSuccess:
             error_message="",  # Clears any error from previous retry attempts
         )
 
+    def test_execute_slice_db_failure_after_broker_submission_retries_then_fallback(self):
+        """Test DB update failure after broker submission retries with backoff then falls back to submitted_unconfirmed."""
+        import pytest
+
+        kill_switch = MagicMock(spec=KillSwitch)
+        kill_switch.is_engaged.return_value = False
+
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+        executor.submit_order.return_value = {"id": "broker_abc123"}
+
+        # Mock DB to fail 3 times with status="submitted", then succeed with status="submitted_unconfirmed"
+        db_error = Exception("DB connection lost")
+        db.update_order_status.side_effect = [
+            db_error,  # Retry 1 fails
+            db_error,  # Retry 2 fails
+            db_error,  # Retry 3 fails (exhaust retries)
+            None,  # Fallback to submitted_unconfirmed succeeds
+        ]
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+        )
+
+        now = datetime.now(UTC)
+        slice_detail = SliceDetail(
+            slice_num=0,
+            qty=20,
+            scheduled_time=now,
+            client_order_id="child0",
+            status="pending_new",
+        )
+
+        # Execute slice - fallback re-raises exception to let APScheduler log failure
+        with pytest.raises(Exception, match="DB connection lost"):
+            scheduler._execute_slice(
+                parent_order_id="parent123",
+                slice_detail=slice_detail,
+                symbol="AAPL",
+                side="buy",
+                order_type="market",
+                limit_price=None,
+                stop_price=None,
+                time_in_force="day",
+            )
+
+        # Verify executor called (broker submission succeeded)
+        executor.submit_order.assert_called_once()
+
+        # Verify DB update_order_status called 4 times:
+        # - 3 attempts with status="submitted" (retries with exponential backoff)
+        # - 1 attempt with status="submitted_unconfirmed" (fallback)
+        assert db.update_order_status.call_count == 4
+
+        # Verify first 3 calls were retries for status="submitted"
+        for i in range(3):
+            call = db.update_order_status.call_args_list[i]
+            assert call[1]["client_order_id"] == "child0"
+            assert call[1]["status"] == "submitted"
+            assert call[1]["broker_order_id"] == "broker_abc123"
+            assert call[1]["error_message"] == ""
+
+        # Verify 4th call was fallback to submitted_unconfirmed
+        fallback_call = db.update_order_status.call_args_list[3]
+        assert fallback_call[1]["client_order_id"] == "child0"
+        assert fallback_call[1]["status"] == "submitted_unconfirmed"
+        assert fallback_call[1]["broker_order_id"] == "broker_abc123"
+        assert "DB update failed after broker submission" in fallback_call[1]["error_message"]
+        assert "DB connection lost" in fallback_call[1]["error_message"]
+
 
 class TestExecuteSliceDryRun:
     """Tests for DRY_RUN mode (executor=None)."""

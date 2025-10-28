@@ -253,7 +253,7 @@ class DatabaseClient:
                     )
 
                     row = cur.fetchone()
-                    conn.commit()
+                    # Context manager handles commit automatically - no explicit commit needed
 
                     if row is None:
                         raise ValueError(f"Failed to create order: {client_order_id}")
@@ -652,7 +652,7 @@ class DatabaseClient:
                     )
 
                     canceled_count = cur.rowcount
-                    conn.commit()
+                    # Context manager handles commit automatically - no explicit commit needed
 
                     logger.info(
                         f"Canceled {canceled_count} pending slices for parent: {parent_order_id}",
@@ -781,7 +781,7 @@ class DatabaseClient:
                     )
 
                     row = cur.fetchone()
-                    conn.commit()
+                    # Context manager handles commit automatically - no explicit commit needed
 
                     if not row:
                         logger.warning(f"Order not found for update: {client_order_id}")
@@ -943,7 +943,7 @@ class DatabaseClient:
                     )
 
                     row = cur.fetchone()
-                    conn.commit()
+                    # Context manager handles commit automatically - no explicit commit needed
 
                     if row is None:
                         raise ValueError(f"Failed to update position for symbol: {symbol}")

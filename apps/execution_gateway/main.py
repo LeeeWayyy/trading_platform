@@ -39,7 +39,7 @@ import json
 import logging
 import os
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
@@ -585,7 +585,7 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-10-17T16:30:00Z"
         }
     """
-    global kill_switch_unavailable
+    global kill_switch_unavailable, kill_switch
 
     # Check database connection
     db_connected = db_client.check_connection()
@@ -596,8 +596,16 @@ async def health_check() -> HealthResponse:
         redis_connected = redis_client.health_check()
 
         # Attempt to recover kill-switch if it was previously unavailable
-        if kill_switch_unavailable and redis_connected and kill_switch:
+        if kill_switch_unavailable and redis_connected:
             try:
+                # Re-initialize kill-switch if it was None at startup
+                if kill_switch is None:
+                    kill_switch = KillSwitch(redis_client=redis_client)
+                    logger.info(
+                        "Kill-switch re-initialized after Redis recovery",
+                        extra={"kill_switch_recovered": True},
+                    )
+
                 # Test kill-switch availability by checking its state
                 kill_switch.is_engaged()
                 # If we get here, kill-switch is available again
@@ -1150,6 +1158,417 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             ) from e
 
 
+# ============================================================================
+# TWAP Order Helper Functions
+# ============================================================================
+
+
+def _check_twap_prerequisites() -> None:
+    """
+    Check prerequisites for TWAP order submission.
+
+    Validates that slice scheduler is available and kill-switch allows trading.
+    Follows fail-closed principle for kill-switch unavailability.
+
+    Raises:
+        HTTPException 503: If scheduler unavailable or kill-switch state unknown
+        HTTPException 503: If kill-switch is engaged
+    """
+    # Check if slice scheduler is available
+    if not slice_scheduler:
+        logger.error("Slice scheduler unavailable - cannot accept TWAP orders")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TWAP order service unavailable (scheduler not initialized)",
+        )
+
+    # Check kill-switch availability (fail closed)
+    if kill_switch_unavailable:
+        logger.error("Kill-switch unavailable - cannot accept TWAP orders (fail closed)")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TWAP order service unavailable (kill-switch state unknown)",
+        )
+
+    # Check kill-switch status
+    if kill_switch and kill_switch.is_engaged():
+        status_info = kill_switch.get_status()
+        logger.error("TWAP order blocked by kill-switch")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Kill-switch engaged",
+                "message": "All trading halted by operator",
+                "engaged_by": status_info.get("engaged_by"),
+                "reason": status_info.get("engagement_reason"),
+            },
+        )
+
+
+def _convert_slices_to_details(
+    slices: list[OrderDetail], parent_order_id: str
+) -> list[SliceDetail]:
+    """
+    Convert OrderDetail list to SliceDetail list for response.
+
+    Validates that each slice has required slice_num and scheduled_time fields.
+    Raises HTTPException if data corruption detected.
+
+    Args:
+        slices: List of OrderDetail from database
+        parent_order_id: Parent order ID for error logging
+
+    Returns:
+        List of SliceDetail for API response
+
+    Raises:
+        HTTPException 500: If slice data is corrupt (missing slice_num or scheduled_time)
+    """
+    slice_details = []
+    for s in slices:
+        # Child slices must have slice_num and scheduled_time
+        # If these are None, it indicates data corruption
+        if s.slice_num is None or s.scheduled_time is None:
+            logger.error(
+                f"Corrupt slice data for parent {parent_order_id}: "
+                f"slice_num or scheduled_time is None for client_order_id={s.client_order_id}",
+                extra={
+                    "parent_order_id": parent_order_id,
+                    "client_order_id": s.client_order_id,
+                    "slice_num": s.slice_num,
+                    "scheduled_time": s.scheduled_time,
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Corrupt slice data found in database",
+            ) from None
+
+        slice_details.append(
+            SliceDetail(
+                slice_num=s.slice_num,
+                qty=s.qty,
+                scheduled_time=s.scheduled_time,
+                client_order_id=s.client_order_id,
+                status=s.status,
+            )
+        )
+    return slice_details
+
+
+def _find_existing_twap_plan(
+    request: SlicingRequest, slicing_plan: SlicingPlan, trade_date: date
+) -> SlicingPlan | None:
+    """
+    Check for existing TWAP order (idempotency + backward compatibility).
+
+    First checks new hash format (with duration), then legacy hash (without duration)
+    for backward compatibility with pre-fix orders. If legacy order found, validates
+    duration matches before returning to prevent hash collisions.
+
+    Args:
+        request: TWAP order request
+        slicing_plan: Generated slicing plan with parent_order_id
+        trade_date: Consistent trade date for idempotency
+
+    Returns:
+        SlicingPlan if existing order found, None if new order needed
+
+    Raises:
+        HTTPException 500: If corrupt slice data found
+    """
+    # Check if parent order already exists (idempotency)
+    # First check new hash (with duration), then legacy hash (backward compatibility)
+    existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
+
+    if not existing_parent:
+        # Backward compatibility: check legacy hash without duration
+        # (for TWAP orders created before this fix was deployed)
+        # CRITICAL: Use same trade_date for idempotency across midnight
+        legacy_parent_id = reconstruct_order_params_hash(
+            symbol=request.symbol,
+            side=request.side,
+            qty=request.qty,
+            limit_price=request.limit_price,
+            stop_price=request.stop_price,
+            strategy_id="twap_parent",  # Legacy format without duration
+            order_date=trade_date,  # Use consistent trade_date, not current date
+        )
+        existing_parent = db_client.get_order_by_client_id(legacy_parent_id)
+
+        if existing_parent:
+            # Found legacy order - validate it matches this request
+            # Only honor legacy match if duration matches (prevent collision)
+            if existing_parent.total_slices == request.duration_minutes:
+                # Same duration - this is a true idempotent retry
+                logger.info(
+                    f"Found legacy TWAP order (pre-duration hash): legacy_id={legacy_parent_id}",
+                    extra={
+                        "legacy_parent_id": legacy_parent_id,
+                        "new_parent_id": slicing_plan.parent_order_id,
+                        "status": existing_parent.status,
+                        "total_slices": existing_parent.total_slices,
+                    },
+                )
+                # Override parent_order_id to match legacy order
+                slicing_plan.parent_order_id = legacy_parent_id
+            else:
+                # Different duration - this is a new order, skip legacy fallback
+                logger.info(
+                    f"Legacy TWAP order found but duration differs: "
+                    f"legacy_duration={existing_parent.total_slices}min, "
+                    f"request_duration={request.duration_minutes}min. "
+                    f"Creating new order with new hash.",
+                    extra={
+                        "legacy_parent_id": legacy_parent_id,
+                        "new_parent_id": slicing_plan.parent_order_id,
+                        "legacy_duration": existing_parent.total_slices,
+                        "request_duration": request.duration_minutes,
+                    },
+                )
+                # Different duration - this is a new order, not a retry of the legacy one.
+                # Clear the match to proceed with creating a new order using the new hash.
+                # This prevents hash collisions between orders with different durations.
+                existing_parent = None
+
+    if not existing_parent:
+        return None
+
+    # Existing order found - return it (idempotent response)
+    logger.info(
+        f"TWAP order already exists (idempotent): parent={slicing_plan.parent_order_id}",
+        extra={
+            "parent_order_id": slicing_plan.parent_order_id,
+            "status": existing_parent.status,
+            "total_slices": existing_parent.total_slices,
+        },
+    )
+
+    # Fetch all child slices to return complete plan
+    existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
+    slice_details = _convert_slices_to_details(existing_slices, slicing_plan.parent_order_id)
+
+    # Return existing slicing plan (idempotent response)
+    return SlicingPlan(
+        parent_order_id=slicing_plan.parent_order_id,
+        symbol=request.symbol,
+        side=request.side,
+        total_qty=request.qty,
+        total_slices=len(slice_details),
+        duration_minutes=request.duration_minutes,
+        slices=slice_details,
+    )
+
+
+def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> SlicingPlan | None:
+    """
+    Create parent + child orders atomically in database.
+
+    Uses database transaction for all-or-nothing behavior. Handles race condition
+    where concurrent identical requests both pass idempotency check: catches
+    UniqueViolation and returns existing plan instead of 500 error.
+
+    Args:
+        request: TWAP order request
+        slicing_plan: Generated slicing plan
+
+    Returns:
+        SlicingPlan if concurrent submission detected, None if created successfully
+
+    Raises:
+        HTTPException 500: If database inconsistency after UniqueViolation
+    """
+    # 🔒 CRITICAL: Create parent + child orders atomically (defense against partial writes)
+    # Use database transaction to ensure all-or-nothing behavior. If any insert fails,
+    # the entire TWAP order creation rolls back to prevent orphaned parent orders.
+    #
+    # 🔒 RACE CONDITION DEFENSE: Handle concurrent submissions with identical client_order_ids.
+    # Two simultaneous requests can both pass the pre-transaction idempotency check and attempt
+    # to insert. The second insert will fail with UniqueViolation. We catch this and return
+    # the existing plan to make concurrent submissions deterministic and idempotent.
+    try:
+        with db_client.transaction() as conn:
+            # Create parent order in database
+            parent_order_request = OrderRequest(
+                symbol=request.symbol,
+                side=request.side,
+                qty=request.qty,
+                order_type=request.order_type,
+                limit_price=request.limit_price,
+                stop_price=request.stop_price,
+                time_in_force=request.time_in_force,
+            )
+            db_client.create_parent_order(
+                client_order_id=slicing_plan.parent_order_id,
+                strategy_id=STRATEGY_ID,
+                order_request=parent_order_request,
+                total_slices=slicing_plan.total_slices,
+                conn=conn,  # Use shared transaction connection
+            )
+
+            # Create child slice orders in database
+            for slice_detail in slicing_plan.slices:
+                slice_order_request = OrderRequest(
+                    symbol=request.symbol,
+                    side=request.side,
+                    qty=slice_detail.qty,
+                    order_type=request.order_type,
+                    limit_price=request.limit_price,
+                    stop_price=request.stop_price,
+                    time_in_force=request.time_in_force,
+                )
+                db_client.create_child_slice(
+                    client_order_id=slice_detail.client_order_id,
+                    parent_order_id=slicing_plan.parent_order_id,
+                    slice_num=slice_detail.slice_num,
+                    strategy_id=STRATEGY_ID,
+                    order_request=slice_order_request,
+                    scheduled_time=slice_detail.scheduled_time,
+                    conn=conn,  # Use shared transaction connection
+                )
+            # Transaction auto-commits on successful context exit
+    except UniqueViolation:
+        # Concurrent submission detected: Another request created this parent_order_id
+        # between our idempotency check and transaction commit. Fetch and return the
+        # existing plan to provide deterministic, idempotent response without 500 error.
+        logger.info(
+            f"Concurrent TWAP submission detected (UniqueViolation): parent={slicing_plan.parent_order_id}. "
+            f"Returning existing plan.",
+            extra={
+                "parent_order_id": slicing_plan.parent_order_id,
+                "symbol": request.symbol,
+                "side": request.side,
+                "qty": request.qty,
+            },
+        )
+
+        # Fetch existing parent and slices
+        existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
+        if not existing_parent:
+            # Should never happen: UniqueViolation means the parent exists
+            logger.error(
+                f"UniqueViolation raised but parent order not found: {slicing_plan.parent_order_id}",
+                extra={"parent_order_id": slicing_plan.parent_order_id},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database inconsistency: parent order not found after UniqueViolation",
+            ) from None
+
+        existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
+        slice_details = _convert_slices_to_details(existing_slices, slicing_plan.parent_order_id)
+
+        # Return existing plan (idempotent response for concurrent submission)
+        return SlicingPlan(
+            parent_order_id=slicing_plan.parent_order_id,
+            symbol=request.symbol,
+            side=request.side,
+            total_qty=request.qty,
+            total_slices=len(slice_details),
+            duration_minutes=request.duration_minutes,
+            slices=slice_details,
+        )
+
+    # Successfully created in database
+    return None
+
+
+def _schedule_slices_with_compensation(
+    request: SlicingRequest, slicing_plan: SlicingPlan
+) -> list[str]:
+    """
+    Schedule slices for execution with failure compensation.
+
+    Schedules all slices using APScheduler. If scheduling fails after database
+    commit, compensates by canceling pending slices. Uses defense-in-depth:
+    only cancels slices still in 'pending_new' status to avoid race conditions.
+
+    Args:
+        request: TWAP order request
+        slicing_plan: Slicing plan with parent and child orders
+
+    Returns:
+        List of APScheduler job IDs
+
+    Raises:
+        Exception: Re-raises scheduling errors after compensation attempt
+    """
+    # Type narrowing: slice_scheduler is checked in _check_twap_prerequisites()
+    assert slice_scheduler is not None, "Slice scheduler must be initialized"
+
+    # Schedule slices for execution
+    # Note: Scheduling happens AFTER transaction commit, so we must compensate if it fails
+    try:
+        job_ids = slice_scheduler.schedule_slices(
+            parent_order_id=slicing_plan.parent_order_id,
+            slices=slicing_plan.slices,
+            symbol=request.symbol,
+            side=request.side,
+            order_type=request.order_type,
+            limit_price=request.limit_price,
+            stop_price=request.stop_price,
+            time_in_force=request.time_in_force,
+        )
+        return job_ids
+    except Exception as e:
+        # Scheduling failed after DB commit - compensate by canceling created orders
+        logger.error(
+            f"Scheduling failed for parent={slicing_plan.parent_order_id}, compensating by canceling pending orders",
+            extra={
+                "parent_order_id": slicing_plan.parent_order_id,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
+        # Cancel only orders still in 'pending_new' status to avoid race conditions
+        # (First slice scheduled for "now" may have already executed and submitted to broker)
+        try:
+            # Cancel all child slices still in pending_new status
+            canceled_count = db_client.cancel_pending_slices(slicing_plan.parent_order_id)
+
+            # Check if any child slices have already progressed past pending_new
+            all_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
+            progressed_slices = [
+                s for s in all_slices if s.status != "pending_new" and s.status != "canceled"
+            ]
+
+            if not progressed_slices:
+                # All slices still pending or canceled - safe to cancel parent
+                db_client.update_order_status(
+                    client_order_id=slicing_plan.parent_order_id,
+                    status="canceled",
+                    error_message=f"Scheduling failed: {str(e)}",
+                )
+                logger.info(
+                    f"Compensated scheduling failure: canceled parent and {canceled_count} pending slices",
+                    extra={
+                        "parent_order_id": slicing_plan.parent_order_id,
+                        "canceled_slices": canceled_count,
+                        "total_slices": len(all_slices),
+                    },
+                )
+            else:
+                # Some slices already submitted/executing - don't cancel parent to avoid inconsistency
+                logger.warning(
+                    f"Scheduling partially failed but {len(progressed_slices)} slices already progressed "
+                    f"(statuses: {[s.status for s in progressed_slices]}). "
+                    f"Canceled {canceled_count} pending slices but leaving parent active to track live orders.",
+                    extra={
+                        "parent_order_id": slicing_plan.parent_order_id,
+                        "canceled_slices": canceled_count,
+                        "progressed_slices": len(progressed_slices),
+                        "progressed_statuses": [s.status for s in progressed_slices],
+                    },
+                )
+        except Exception as cleanup_error:
+            logger.error(
+                f"Cleanup failed after scheduling error: {cleanup_error}",
+                extra={"parent_order_id": slicing_plan.parent_order_id},
+            )
+        # Re-raise original scheduling error
+        raise
+
+
 @app.post("/api/v1/orders/slice", response_model=SlicingPlan, tags=["Orders"])
 async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
     """
@@ -1199,38 +1618,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             ]
         }
     """
-    # Check if slice scheduler is available
-    if not slice_scheduler:
-        logger.error("Slice scheduler unavailable - cannot accept TWAP orders")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TWAP order service unavailable (scheduler not initialized)",
-        )
-
-    # Check kill-switch availability (fail closed)
-    if kill_switch_unavailable:
-        logger.error("Kill-switch unavailable - cannot accept TWAP orders (fail closed)")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TWAP order service unavailable (kill-switch state unknown)",
-        )
-
-    # Check kill-switch status
-    if kill_switch and kill_switch.is_engaged():
-        status_info = kill_switch.get_status()
-        logger.error(
-            f"TWAP order blocked by kill-switch: {request.symbol} {request.side} {request.qty}"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "Kill-switch engaged",
-                "message": "All trading halted by operator",
-                "engaged_by": status_info.get("engaged_by"),
-                "reason": status_info.get("engagement_reason"),
-            },
-        )
-
+    # Step 1: Log request (before prerequisite checks for observability)
     logger.info(
         f"TWAP order request: {request.symbol} {request.side} {request.qty} over {request.duration_minutes} min",
         extra={
@@ -1241,12 +1629,15 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         },
     )
 
+    # Step 2: Check prerequisites (scheduler availability, kill-switch)
+    _check_twap_prerequisites()
+
     try:
         # CRITICAL: Use consistent trade_date for idempotency across midnight
         # If client retries after midnight, must pass same trade_date to avoid duplicate orders
         trade_date = request.trade_date or datetime.now(UTC).date()
 
-        # Create slicing plan with consistent trade_date
+        # Step 3: Create slicing plan with consistent trade_date
         slicing_plan = twap_slicer.plan(
             symbol=request.symbol,
             side=request.side,
@@ -1259,305 +1650,21 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             trade_date=trade_date,  # Pass consistent trade_date
         )
 
-        # Check if parent order already exists (idempotency)
-        # First check new hash (with duration), then legacy hash (backward compatibility)
-        existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
+        # Step 4: Check for existing order (idempotency + backward compatibility)
+        existing_plan = _find_existing_twap_plan(request, slicing_plan, trade_date)
+        if existing_plan:
+            return existing_plan
 
-        if not existing_parent:
-            # Backward compatibility: check legacy hash without duration
-            # (for TWAP orders created before this fix was deployed)
-            # CRITICAL: Use same trade_date for idempotency across midnight
-            legacy_parent_id = reconstruct_order_params_hash(
-                symbol=request.symbol,
-                side=request.side,
-                qty=request.qty,
-                limit_price=request.limit_price,
-                stop_price=request.stop_price,
-                strategy_id="twap_parent",  # Legacy format without duration
-                order_date=trade_date,  # Use consistent trade_date, not current date
-            )
-            existing_parent = db_client.get_order_by_client_id(legacy_parent_id)
+        # Step 5: Create parent + child orders atomically in database
+        # Handles concurrent submissions by catching UniqueViolation
+        concurrent_plan = _create_twap_in_db(request, slicing_plan)
+        if concurrent_plan:
+            return concurrent_plan
 
-            if existing_parent:
-                # Found legacy order - validate it matches this request
-                # Only honor legacy match if duration matches (prevent collision)
-                if existing_parent.total_slices == request.duration_minutes:
-                    # Same duration - this is a true idempotent retry
-                    logger.info(
-                        f"Found legacy TWAP order (pre-duration hash): legacy_id={legacy_parent_id}",
-                        extra={
-                            "legacy_parent_id": legacy_parent_id,
-                            "new_parent_id": slicing_plan.parent_order_id,
-                            "status": existing_parent.status,
-                            "total_slices": existing_parent.total_slices,
-                        },
-                    )
-                    # Override parent_order_id to match legacy order
-                    slicing_plan.parent_order_id = legacy_parent_id
-                else:
-                    # Different duration - this is a new order, skip legacy fallback
-                    logger.info(
-                        f"Legacy TWAP order found but duration differs: "
-                        f"legacy_duration={existing_parent.total_slices}min, "
-                        f"request_duration={request.duration_minutes}min. "
-                        f"Creating new order with new hash.",
-                        extra={
-                            "legacy_parent_id": legacy_parent_id,
-                            "new_parent_id": slicing_plan.parent_order_id,
-                            "legacy_duration": existing_parent.total_slices,
-                            "request_duration": request.duration_minutes,
-                        },
-                    )
-                    # Clear the match to trigger new order creation below with different slicing plan.
-                    # The existing order has a different duration_minutes, so we need a fresh order
-                    # with a new slicing plan rather than reusing the old one.
-                    existing_parent = None
+        # Step 6: Schedule slices for execution with failure compensation
+        job_ids = _schedule_slices_with_compensation(request, slicing_plan)
 
-        if existing_parent:
-            logger.info(
-                f"TWAP order already exists (idempotent): parent={slicing_plan.parent_order_id}",
-                extra={
-                    "parent_order_id": slicing_plan.parent_order_id,
-                    "status": existing_parent.status,
-                    "total_slices": existing_parent.total_slices,
-                },
-            )
-
-            # Fetch all child slices to return complete plan
-            existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
-
-            # Convert OrderDetail list to SliceDetail list for response
-            slice_details = []
-            for s in existing_slices:
-                # Child slices must have slice_num and scheduled_time
-                # If these are None, it indicates data corruption
-                if s.slice_num is None or s.scheduled_time is None:
-                    logger.error(
-                        f"Corrupt slice data for parent {slicing_plan.parent_order_id}: "
-                        f"slice_num or scheduled_time is None for client_order_id={s.client_order_id}",
-                        extra={
-                            "parent_order_id": slicing_plan.parent_order_id,
-                            "client_order_id": s.client_order_id,
-                            "slice_num": s.slice_num,
-                            "scheduled_time": s.scheduled_time,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Corrupt slice data found in database",
-                    )
-
-                slice_details.append(
-                    SliceDetail(
-                        slice_num=s.slice_num,
-                        qty=s.qty,
-                        scheduled_time=s.scheduled_time,
-                        client_order_id=s.client_order_id,
-                        status=s.status,
-                    )
-                )
-
-            # Return existing slicing plan (idempotent response)
-            return SlicingPlan(
-                parent_order_id=slicing_plan.parent_order_id,
-                symbol=request.symbol,
-                side=request.side,
-                total_qty=request.qty,
-                total_slices=len(slice_details),
-                duration_minutes=request.duration_minutes,
-                slices=slice_details,
-            )
-
-        # 🔒 CRITICAL: Create parent + child orders atomically (defense against partial writes)
-        # Use database transaction to ensure all-or-nothing behavior. If any insert fails,
-        # the entire TWAP order creation rolls back to prevent orphaned parent orders.
-        #
-        # 🔒 RACE CONDITION DEFENSE: Handle concurrent submissions with identical client_order_ids.
-        # Two simultaneous requests can both pass the pre-transaction idempotency check and attempt
-        # to insert. The second insert will fail with UniqueViolation. We catch this and return
-        # the existing plan to make concurrent submissions deterministic and idempotent.
-        try:
-            with db_client.transaction() as conn:
-                # Create parent order in database
-                parent_order_request = OrderRequest(
-                    symbol=request.symbol,
-                    side=request.side,
-                    qty=request.qty,
-                    order_type=request.order_type,
-                    limit_price=request.limit_price,
-                    stop_price=request.stop_price,
-                    time_in_force=request.time_in_force,
-                )
-                db_client.create_parent_order(
-                    client_order_id=slicing_plan.parent_order_id,
-                    strategy_id=STRATEGY_ID,
-                    order_request=parent_order_request,
-                    total_slices=slicing_plan.total_slices,
-                    conn=conn,  # Use shared transaction connection
-                )
-
-                # Create child slice orders in database
-                for slice_detail in slicing_plan.slices:
-                    slice_order_request = OrderRequest(
-                        symbol=request.symbol,
-                        side=request.side,
-                        qty=slice_detail.qty,
-                        order_type=request.order_type,
-                        limit_price=request.limit_price,
-                        stop_price=request.stop_price,
-                        time_in_force=request.time_in_force,
-                    )
-                    db_client.create_child_slice(
-                        client_order_id=slice_detail.client_order_id,
-                        parent_order_id=slicing_plan.parent_order_id,
-                        slice_num=slice_detail.slice_num,
-                        strategy_id=STRATEGY_ID,
-                        order_request=slice_order_request,
-                        scheduled_time=slice_detail.scheduled_time,
-                        conn=conn,  # Use shared transaction connection
-                    )
-                # Transaction auto-commits on successful context exit
-        except UniqueViolation:
-            # Concurrent submission detected: Another request created this parent_order_id
-            # between our idempotency check and transaction commit. Fetch and return the
-            # existing plan to provide deterministic, idempotent response without 500 error.
-            logger.info(
-                f"Concurrent TWAP submission detected (UniqueViolation): parent={slicing_plan.parent_order_id}. "
-                f"Returning existing plan.",
-                extra={
-                    "parent_order_id": slicing_plan.parent_order_id,
-                    "symbol": request.symbol,
-                    "side": request.side,
-                    "qty": request.qty,
-                },
-            )
-
-            # Fetch existing parent and slices
-            existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
-            if not existing_parent:
-                # Should never happen: UniqueViolation means the parent exists
-                logger.error(
-                    f"UniqueViolation raised but parent order not found: {slicing_plan.parent_order_id}",
-                    extra={"parent_order_id": slicing_plan.parent_order_id},
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Database inconsistency: parent order not found after UniqueViolation",
-                ) from None
-
-            existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
-
-            # Convert to SliceDetail list for response
-            slice_details = []
-            for s in existing_slices:
-                if s.slice_num is None or s.scheduled_time is None:
-                    logger.error(
-                        f"Corrupt slice data for parent {slicing_plan.parent_order_id}: "
-                        f"slice_num or scheduled_time is None for client_order_id={s.client_order_id}",
-                        extra={
-                            "parent_order_id": slicing_plan.parent_order_id,
-                            "client_order_id": s.client_order_id,
-                            "slice_num": s.slice_num,
-                            "scheduled_time": s.scheduled_time,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Corrupt slice data found in database",
-                    ) from None
-
-                slice_details.append(
-                    SliceDetail(
-                        slice_num=s.slice_num,
-                        qty=s.qty,
-                        scheduled_time=s.scheduled_time,
-                        client_order_id=s.client_order_id,
-                        status=s.status,
-                    )
-                )
-
-            # Return existing plan (idempotent response for concurrent submission)
-            return SlicingPlan(
-                parent_order_id=slicing_plan.parent_order_id,
-                symbol=request.symbol,
-                side=request.side,
-                total_qty=request.qty,
-                total_slices=len(slice_details),
-                duration_minutes=request.duration_minutes,
-                slices=slice_details,
-            )
-
-        # Schedule slices for execution
-        # Note: Scheduling happens AFTER transaction commit, so we must compensate if it fails
-        try:
-            job_ids = slice_scheduler.schedule_slices(
-                parent_order_id=slicing_plan.parent_order_id,
-                slices=slicing_plan.slices,
-                symbol=request.symbol,
-                side=request.side,
-                order_type=request.order_type,
-                limit_price=request.limit_price,
-                stop_price=request.stop_price,
-                time_in_force=request.time_in_force,
-            )
-        except Exception as e:
-            # Scheduling failed after DB commit - compensate by canceling created orders
-            logger.error(
-                f"Scheduling failed for parent={slicing_plan.parent_order_id}, compensating by canceling pending orders",
-                extra={
-                    "parent_order_id": slicing_plan.parent_order_id,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                },
-            )
-            # Cancel only orders still in 'pending_new' status to avoid race conditions
-            # (First slice scheduled for "now" may have already executed and submitted to broker)
-            try:
-                # Cancel all child slices still in pending_new status
-                canceled_count = db_client.cancel_pending_slices(slicing_plan.parent_order_id)
-
-                # Check if any child slices have already progressed past pending_new
-                all_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
-                progressed_slices = [
-                    s for s in all_slices if s.status != "pending_new" and s.status != "canceled"
-                ]
-
-                if not progressed_slices:
-                    # All slices still pending or canceled - safe to cancel parent
-                    db_client.update_order_status(
-                        client_order_id=slicing_plan.parent_order_id,
-                        status="canceled",
-                        error_message=f"Scheduling failed: {str(e)}",
-                    )
-                    logger.info(
-                        f"Compensated scheduling failure: canceled parent and {canceled_count} pending slices",
-                        extra={
-                            "parent_order_id": slicing_plan.parent_order_id,
-                            "canceled_slices": canceled_count,
-                            "total_slices": len(all_slices),
-                        },
-                    )
-                else:
-                    # Some slices already submitted/executing - don't cancel parent to avoid inconsistency
-                    logger.warning(
-                        f"Scheduling partially failed but {len(progressed_slices)} slices already progressed "
-                        f"(statuses: {[s.status for s in progressed_slices]}). "
-                        f"Canceled {canceled_count} pending slices but leaving parent active to track live orders.",
-                        extra={
-                            "parent_order_id": slicing_plan.parent_order_id,
-                            "canceled_slices": canceled_count,
-                            "progressed_slices": len(progressed_slices),
-                            "progressed_statuses": [s.status for s in progressed_slices],
-                        },
-                    )
-            except Exception as cleanup_error:
-                logger.error(
-                    f"Cleanup failed after scheduling error: {cleanup_error}",
-                    extra={"parent_order_id": slicing_plan.parent_order_id},
-                )
-            # Re-raise original scheduling error
-            raise
-
+        # Step 7: Log success and return
         logger.info(
             f"TWAP order created: parent={slicing_plan.parent_order_id}, slices={len(job_ids)}",
             extra={
@@ -1568,7 +1675,6 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         )
 
         return slicing_plan
-
     except ValueError as e:
         # Validation error from slicer
         logger.error(f"TWAP validation error: {e}", extra={"error": str(e)})

@@ -32,6 +32,7 @@ OrderStatus: TypeAlias = Literal[
     "pending_replace",
     "calculated",
     "submitted",
+    "submitted_unconfirmed",  # Broker submitted but DB update failed (reconciliation needed)
     "dry_run",
     "failed",
     "blocked_kill_switch",
