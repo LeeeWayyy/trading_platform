@@ -1307,7 +1307,9 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
                             "request_duration": request.duration_minutes,
                         },
                     )
-                    # Clear the match so we create a new order below
+                    # Clear the match to trigger new order creation below with different slicing plan.
+                    # The existing order has a different duration_minutes, so we need a fresh order
+                    # with a new slicing plan rather than reusing the old one.
                     existing_parent = None
 
         if existing_parent:

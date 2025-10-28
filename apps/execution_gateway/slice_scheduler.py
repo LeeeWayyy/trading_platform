@@ -383,10 +383,11 @@ class SliceScheduler:
                     "block_reason": "kill_switch_engaged",
                 },
             )
-            # Update DB status to 'blocked_kill_switch'
+            # Update DB status to 'blocked_kill_switch' with error message for debuggability
             self.db.update_order_status(
                 client_order_id=slice_detail.client_order_id,
                 status="blocked_kill_switch",
+                error_message="Kill switch is engaged - all new orders blocked",
             )
             # Do NOT raise - job should complete silently
             return
@@ -405,10 +406,11 @@ class SliceScheduler:
                     "trip_reason": str(reason),
                 },
             )
-            # Update DB status to 'blocked_circuit_breaker'
+            # Update DB status to 'blocked_circuit_breaker' with error message for debuggability
             self.db.update_order_status(
                 client_order_id=slice_detail.client_order_id,
                 status="blocked_circuit_breaker",
+                error_message=f"Circuit breaker is tripped - reason: {reason}",
             )
             return
 
@@ -469,24 +471,47 @@ class SliceScheduler:
                     client_order_id=slice_detail.client_order_id,
                 )
 
-                # Update DB status to 'submitted' and clear any error message from failed retries
-                self.db.update_order_status(
-                    client_order_id=slice_detail.client_order_id,
-                    status="submitted",
-                    broker_order_id=broker_response["id"],
-                    error_message="",  # Clear any error from previous retry attempts
-                )
+                # 🔒 CRITICAL: Handle DB failures after broker submission to prevent inconsistent state
+                # If DB update fails after Alpaca submission, the order is placed but DB shows pending_new,
+                # creating double execution risk. We catch DB errors and mark the slice appropriately.
+                try:
+                    # Update DB status to 'submitted' and clear any error message from failed retries
+                    self.db.update_order_status(
+                        client_order_id=slice_detail.client_order_id,
+                        status="submitted",
+                        broker_order_id=broker_response["id"],
+                        error_message="",  # Clear any error from previous retry attempts
+                    )
 
-                logger.info(
-                    f"Slice submitted successfully: parent={parent_order_id}, "
-                    f"slice={slice_detail.slice_num}, broker_id={broker_response['id']}",
-                    extra={
-                        "parent_order_id": parent_order_id,
-                        "slice_num": slice_detail.slice_num,
-                        "client_order_id": slice_detail.client_order_id,
-                        "broker_order_id": broker_response["id"],
-                    },
-                )
+                    logger.info(
+                        f"Slice submitted successfully: parent={parent_order_id}, "
+                        f"slice={slice_detail.slice_num}, broker_id={broker_response['id']}",
+                        extra={
+                            "parent_order_id": parent_order_id,
+                            "slice_num": slice_detail.slice_num,
+                            "client_order_id": slice_detail.client_order_id,
+                            "broker_order_id": broker_response["id"],
+                        },
+                    )
+
+                except Exception as db_error:
+                    # Database update failed AFTER broker submission - critical inconsistency
+                    # The order exists at the broker but DB doesn't reflect it
+                    logger.error(
+                        f"CRITICAL: DB update failed after broker submission: parent={parent_order_id}, "
+                        f"slice={slice_detail.slice_num}, broker_id={broker_response['id']}, error={db_error}",
+                        extra={
+                            "parent_order_id": parent_order_id,
+                            "slice_num": slice_detail.slice_num,
+                            "client_order_id": slice_detail.client_order_id,
+                            "broker_order_id": broker_response["id"],
+                            "db_error": str(db_error),
+                            "inconsistent_state": True,
+                        },
+                    )
+                    # Re-raise to ensure visibility - APScheduler will log the failure
+                    # Reconciliation will eventually heal this inconsistency
+                    raise
 
         except (AlpacaValidationError, AlpacaRejectionError) as e:
             # Non-retryable errors - update DB and log

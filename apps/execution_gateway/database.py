@@ -11,10 +11,11 @@ See ADR-0005 for architecture decisions.
 """
 
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
+from typing import TypeVar
 
 import psycopg
 from psycopg import DatabaseError, IntegrityError, OperationalError
@@ -23,6 +24,8 @@ from psycopg.rows import dict_row
 from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class DatabaseClient:
@@ -69,6 +72,41 @@ class DatabaseClient:
             "DatabaseClient initialized",
             extra={"db": db_conn_string.split("@")[1] if "@" in db_conn_string else "local"},
         )
+
+    def _execute_with_conn(
+        self,
+        conn: psycopg.Connection | None,
+        operation: Callable[[psycopg.Connection], T],
+    ) -> T:
+        """
+        Execute database operation with optional connection.
+
+        Helper to handle two connection modes:
+        1. conn=None: Create and manage own connection (auto-commit on success)
+        2. conn provided: Use provided connection (transactional mode)
+
+        Args:
+            conn: Optional database connection for transactional use
+            operation: Callable that takes a connection and returns a result
+
+        Returns:
+            Result of the operation
+
+        Example:
+            >>> def insert_order(conn):
+            ...     with conn.cursor() as cur:
+            ...         cur.execute("INSERT INTO orders ...")
+            ...         return cur.fetchone()
+            >>> result = db._execute_with_conn(None, insert_order)
+        """
+        if conn is None:
+            # Create and manage our own connection
+            # The psycopg context manager auto-commits on successful exit
+            with psycopg.connect(self.db_conn_string) as new_conn:
+                return operation(new_conn)
+        else:
+            # Use provided connection (transactional mode - caller handles commit)
+            return operation(conn)
 
     @contextmanager
     def transaction(self) -> Generator[psycopg.Connection, None, None]:
@@ -358,16 +396,8 @@ class DatabaseClient:
             return OrderDetail(**row)
 
         try:
-            # Two different paths: own connection vs. provided connection
-            if conn is None:
-                # Create and manage our own connection
-                # The psycopg context manager auto-commits on successful exit
-                with psycopg.connect(self.db_conn_string) as conn:
-                    result = _execute_insert(conn)
-                return result
-            else:
-                # Use provided connection (transactional mode - caller handles commit)
-                return _execute_insert(conn)
+            # Use helper to handle connection management
+            return self._execute_with_conn(conn, _execute_insert)
 
         except IntegrityError:
             logger.warning(
@@ -507,16 +537,8 @@ class DatabaseClient:
             return OrderDetail(**row)
 
         try:
-            # Two different paths: own connection vs. provided connection
-            if conn is None:
-                # Create and manage our own connection
-                # The psycopg context manager auto-commits on successful exit
-                with psycopg.connect(self.db_conn_string) as conn:
-                    result = _execute_insert(conn)
-                return result
-            else:
-                # Use provided connection (transactional mode - caller handles commit)
-                return _execute_insert(conn)
+            # Use helper to handle connection management
+            return self._execute_with_conn(conn, _execute_insert)
 
         except IntegrityError as e:
             logger.warning(

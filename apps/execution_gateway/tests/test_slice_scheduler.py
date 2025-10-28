@@ -274,10 +274,11 @@ class TestExecuteSliceKillSwitch:
         # Verify kill switch checked
         kill_switch.is_engaged.assert_called_once()
 
-        # Verify DB updated to blocked_kill_switch
+        # Verify DB updated to blocked_kill_switch with error message
         db.update_order_status.assert_called_once_with(
             client_order_id="child0",
             status="blocked_kill_switch",
+            error_message="Kill switch is engaged - all new orders blocked",
         )
 
         # Verify executor NOT called (blocked)
@@ -380,10 +381,11 @@ class TestExecuteSliceCircuitBreaker:
         breaker.is_tripped.assert_called_once()
         breaker.get_trip_reason.assert_called_once()
 
-        # Verify DB updated to blocked_circuit_breaker
+        # Verify DB updated to blocked_circuit_breaker with error message
         db.update_order_status.assert_called_once_with(
             client_order_id="child0",
             status="blocked_circuit_breaker",
+            error_message="Circuit breaker is tripped - reason: DRAWDOWN_BREACH",
         )
 
         # Verify executor NOT called (blocked)
@@ -538,10 +540,11 @@ class TestExecuteSliceDryRun:
             time_in_force="day",
         )
 
-        # Verify slice blocked by kill switch (NOT executed in dry-run)
+        # Verify slice blocked by kill switch with error message (NOT executed in dry-run)
         db.update_order_status.assert_called_once_with(
             client_order_id="child0",
             status="blocked_kill_switch",
+            error_message="Kill switch is engaged - all new orders blocked",
         )
 
 
