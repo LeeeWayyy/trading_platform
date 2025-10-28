@@ -46,6 +46,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
+from psycopg.errors import UniqueViolation
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 
@@ -1370,46 +1371,121 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         # 🔒 CRITICAL: Create parent + child orders atomically (defense against partial writes)
         # Use database transaction to ensure all-or-nothing behavior. If any insert fails,
         # the entire TWAP order creation rolls back to prevent orphaned parent orders.
-        with db_client.transaction() as conn:
-            # Create parent order in database
-            parent_order_request = OrderRequest(
-                symbol=request.symbol,
-                side=request.side,
-                qty=request.qty,
-                order_type=request.order_type,
-                limit_price=request.limit_price,
-                stop_price=request.stop_price,
-                time_in_force=request.time_in_force,
-            )
-            db_client.create_parent_order(
-                client_order_id=slicing_plan.parent_order_id,
-                strategy_id=STRATEGY_ID,
-                order_request=parent_order_request,
-                total_slices=slicing_plan.total_slices,
-                conn=conn,  # Use shared transaction connection
-            )
-
-            # Create child slice orders in database
-            for slice_detail in slicing_plan.slices:
-                slice_order_request = OrderRequest(
+        #
+        # 🔒 RACE CONDITION DEFENSE: Handle concurrent submissions with identical client_order_ids.
+        # Two simultaneous requests can both pass the pre-transaction idempotency check and attempt
+        # to insert. The second insert will fail with UniqueViolation. We catch this and return
+        # the existing plan to make concurrent submissions deterministic and idempotent.
+        try:
+            with db_client.transaction() as conn:
+                # Create parent order in database
+                parent_order_request = OrderRequest(
                     symbol=request.symbol,
                     side=request.side,
-                    qty=slice_detail.qty,
+                    qty=request.qty,
                     order_type=request.order_type,
                     limit_price=request.limit_price,
                     stop_price=request.stop_price,
                     time_in_force=request.time_in_force,
                 )
-                db_client.create_child_slice(
-                    client_order_id=slice_detail.client_order_id,
-                    parent_order_id=slicing_plan.parent_order_id,
-                    slice_num=slice_detail.slice_num,
+                db_client.create_parent_order(
+                    client_order_id=slicing_plan.parent_order_id,
                     strategy_id=STRATEGY_ID,
-                    order_request=slice_order_request,
-                    scheduled_time=slice_detail.scheduled_time,
+                    order_request=parent_order_request,
+                    total_slices=slicing_plan.total_slices,
                     conn=conn,  # Use shared transaction connection
                 )
-            # Transaction auto-commits on successful context exit
+
+                # Create child slice orders in database
+                for slice_detail in slicing_plan.slices:
+                    slice_order_request = OrderRequest(
+                        symbol=request.symbol,
+                        side=request.side,
+                        qty=slice_detail.qty,
+                        order_type=request.order_type,
+                        limit_price=request.limit_price,
+                        stop_price=request.stop_price,
+                        time_in_force=request.time_in_force,
+                    )
+                    db_client.create_child_slice(
+                        client_order_id=slice_detail.client_order_id,
+                        parent_order_id=slicing_plan.parent_order_id,
+                        slice_num=slice_detail.slice_num,
+                        strategy_id=STRATEGY_ID,
+                        order_request=slice_order_request,
+                        scheduled_time=slice_detail.scheduled_time,
+                        conn=conn,  # Use shared transaction connection
+                    )
+                # Transaction auto-commits on successful context exit
+        except UniqueViolation:
+            # Concurrent submission detected: Another request created this parent_order_id
+            # between our idempotency check and transaction commit. Fetch and return the
+            # existing plan to provide deterministic, idempotent response without 500 error.
+            logger.info(
+                f"Concurrent TWAP submission detected (UniqueViolation): parent={slicing_plan.parent_order_id}. "
+                f"Returning existing plan.",
+                extra={
+                    "parent_order_id": slicing_plan.parent_order_id,
+                    "symbol": request.symbol,
+                    "side": request.side,
+                    "qty": request.qty,
+                },
+            )
+
+            # Fetch existing parent and slices
+            existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
+            if not existing_parent:
+                # Should never happen: UniqueViolation means the parent exists
+                logger.error(
+                    f"UniqueViolation raised but parent order not found: {slicing_plan.parent_order_id}",
+                    extra={"parent_order_id": slicing_plan.parent_order_id},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Database inconsistency: parent order not found after UniqueViolation",
+                ) from None
+
+            existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
+
+            # Convert to SliceDetail list for response
+            slice_details = []
+            for s in existing_slices:
+                if s.slice_num is None or s.scheduled_time is None:
+                    logger.error(
+                        f"Corrupt slice data for parent {slicing_plan.parent_order_id}: "
+                        f"slice_num or scheduled_time is None for client_order_id={s.client_order_id}",
+                        extra={
+                            "parent_order_id": slicing_plan.parent_order_id,
+                            "client_order_id": s.client_order_id,
+                            "slice_num": s.slice_num,
+                            "scheduled_time": s.scheduled_time,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Corrupt slice data found in database",
+                    ) from None
+
+                slice_details.append(
+                    SliceDetail(
+                        slice_num=s.slice_num,
+                        qty=s.qty,
+                        scheduled_time=s.scheduled_time,
+                        client_order_id=s.client_order_id,
+                        status=s.status,
+                    )
+                )
+
+            # Return existing plan (idempotent response for concurrent submission)
+            return SlicingPlan(
+                parent_order_id=slicing_plan.parent_order_id,
+                symbol=request.symbol,
+                side=request.side,
+                total_qty=request.qty,
+                total_slices=len(slice_details),
+                duration_minutes=request.duration_minutes,
+                slices=slice_details,
+            )
 
         # Schedule slices for execution
         # Note: Scheduling happens AFTER transaction commit, so we must compensate if it fails
