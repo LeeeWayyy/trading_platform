@@ -550,18 +550,10 @@ class SliceScheduler:
             - DB update happens BEFORE job removal to close race condition
             - Returns tuple: (jobs removed from scheduler, rows updated in DB)
             - Safe to call even if no jobs exist (returns (0, 0))
-            - Returns (0, 0) if parent order does not exist in database
+            - Caller must validate parent order existence (API boundary validation)
         """
-        # Check if parent order exists to avoid errors
-        parent_order = self.db.get_order_by_client_id(parent_order_id)
-        if not parent_order:
-            logger.warning(
-                f"Parent order not found, cannot cancel slices: {parent_order_id}",
-                extra={"parent_order_id": parent_order_id},
-            )
-            return (0, 0)
-
         # 🔒 CRITICAL: Update DB FIRST so any jobs that fire during removal see 'canceled' status
+        # Note: Caller (main.py cancel_slices endpoint) validates parent order existence
         db_canceled = self.db.cancel_pending_slices(parent_order_id)
 
         # Now remove scheduled jobs (any that fire during this loop will see 'canceled' in DB)

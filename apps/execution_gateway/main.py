@@ -584,13 +584,33 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-10-17T16:30:00Z"
         }
     """
+    global kill_switch_unavailable
+
     # Check database connection
     db_connected = db_client.check_connection()
 
-    # Check Redis connection
+    # Check Redis connection and attempt kill-switch recovery
     redis_connected = False
     if redis_client:
         redis_connected = redis_client.health_check()
+
+        # Attempt to recover kill-switch if it was previously unavailable
+        if kill_switch_unavailable and redis_connected and kill_switch:
+            try:
+                # Test kill-switch availability by checking its state
+                kill_switch.is_engaged()
+                # If we get here, kill-switch is available again
+                kill_switch_unavailable = False
+                logger.info(
+                    "Kill-switch recovered - resuming normal operations",
+                    extra={"kill_switch_recovered": True},
+                )
+            except Exception as e:
+                # Still unavailable, keep flag set
+                logger.debug(
+                    f"Kill-switch still unavailable during health check: {e}",
+                    extra={"kill_switch_unavailable": True},
+                )
 
     # Check Alpaca connection (if not DRY_RUN)
     alpaca_connected = True
