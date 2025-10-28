@@ -47,6 +47,7 @@ import logging
 from decimal import Decimal
 from typing import Literal
 
+from apscheduler.jobstores.base import JobLookupError  # type: ignore[import-untyped]
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
 from tenacity import (
     retry,
@@ -582,11 +583,23 @@ class SliceScheduler:
         db_canceled = self.db.cancel_pending_slices(parent_order_id)
 
         # Now remove scheduled jobs (any that fire during this loop will see 'canceled' in DB)
+        # Guard against JobLookupError: APScheduler removes jobs immediately after execution,
+        # so a job that fires between get_jobs() and remove_job() will raise JobLookupError.
+        # We swallow this specific error to make cancellation idempotent and prevent 500s when
+        # users cancel near the scheduled fire time.
         canceled_count = 0
         for job in self.scheduler.get_jobs():
             if job.id.startswith(f"{parent_order_id}_slice_"):
-                self.scheduler.remove_job(job.id)
-                canceled_count += 1
+                try:
+                    self.scheduler.remove_job(job.id)
+                    canceled_count += 1
+                except JobLookupError:
+                    # Job already executed and removed - this is expected and safe
+                    # DB was already marked canceled (line 582), so we can safely ignore
+                    logger.debug(
+                        f"Job already removed (likely executed): {job.id}",
+                        extra={"job_id": job.id, "parent_order_id": parent_order_id},
+                    )
 
         logger.info(
             f"Canceled {canceled_count} scheduler jobs and {db_canceled} DB slices for parent: {parent_order_id}",
