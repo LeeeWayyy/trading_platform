@@ -7,9 +7,36 @@ and validation at the API boundary.
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# ============================================================================
+# Type Aliases
+# ============================================================================
+
+# Order status type - used consistently across OrderResponse, OrderDetail, and SliceDetail
+# DRY principle: Define once, use everywhere
+OrderStatus: TypeAlias = Literal[
+    "pending_new",
+    "accepted",
+    "filled",
+    "canceled",
+    "rejected",
+    "expired",
+    "replaced",
+    "done_for_day",
+    "stopped",
+    "suspended",
+    "pending_cancel",
+    "pending_replace",
+    "calculated",
+    "submitted",
+    "dry_run",
+    "failed",
+    "blocked_kill_switch",
+    "blocked_circuit_breaker",
+]
 
 # ============================================================================
 # Order Schemas
@@ -117,26 +144,7 @@ class OrderResponse(BaseModel):
     """
 
     client_order_id: str
-    status: Literal[
-        "pending_new",
-        "accepted",
-        "filled",
-        "canceled",
-        "rejected",
-        "expired",
-        "replaced",
-        "done_for_day",
-        "stopped",
-        "suspended",
-        "pending_cancel",
-        "pending_replace",
-        "calculated",
-        "submitted",
-        "dry_run",
-        "failed",
-        "blocked_kill_switch",
-        "blocked_circuit_breaker",
-    ]
+    status: OrderStatus
     broker_order_id: str | None = None
     symbol: str
     side: Literal["buy", "sell"]
@@ -200,26 +208,7 @@ class OrderDetail(BaseModel):
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
     time_in_force: Literal["day", "gtc", "ioc", "fok"]
-    status: Literal[
-        "pending_new",
-        "accepted",
-        "filled",
-        "canceled",
-        "rejected",
-        "expired",
-        "replaced",
-        "done_for_day",
-        "stopped",
-        "suspended",
-        "pending_cancel",
-        "pending_replace",
-        "calculated",
-        "submitted",
-        "dry_run",
-        "failed",
-        "blocked_kill_switch",
-        "blocked_circuit_breaker",
-    ]
+    status: OrderStatus
     broker_order_id: str | None = None
     error_message: str | None = None
     retry_count: int
@@ -707,26 +696,7 @@ class SliceDetail(BaseModel):
     qty: int = Field(..., gt=0, description="Slice quantity")
     scheduled_time: datetime = Field(..., description="Scheduled execution time (UTC)")
     client_order_id: str = Field(..., description="Deterministic slice order ID")
-    status: Literal[
-        "pending_new",
-        "accepted",
-        "filled",
-        "canceled",
-        "rejected",
-        "expired",
-        "replaced",
-        "done_for_day",
-        "stopped",
-        "suspended",
-        "pending_cancel",
-        "pending_replace",
-        "calculated",
-        "submitted",
-        "dry_run",
-        "failed",
-        "blocked_kill_switch",
-        "blocked_circuit_breaker",
-    ] = Field(default="pending_new", description="Current slice status")
+    status: OrderStatus = Field(default="pending_new", description="Current slice status")
 
     model_config = {
         "json_schema_extra": {
