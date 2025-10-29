@@ -1,0 +1,140 @@
+{
+  "current_task": {
+    "task_id": "P2T1",
+    "title": "Multi-Alpha Allocator",
+    "phase": "P2",
+    "branch": "feature/P2T1-multi-alpha-allocator",
+    "task_file": "docs/TASKS/P2T1_TASK.md",
+    "state": "IN_PROGRESS",
+    "started": "2025-10-29",
+    "estimated_completion": "2025-11-03"
+  },
+  "progress": {
+    "total_components": 5,
+    "completed_components": 1,
+    "current_component": {
+      "number": 2,
+      "name": "Inverse Volatility Weighting",
+      "status": "NOT_STARTED",
+      "description": "Implement inverse volatility weighting allocation method"
+    },
+    "completion_percentage": 20
+  },
+  "completed_work": {
+    "Component 1": {
+      "name": "Core allocator (rank aggregation + equal weight)",
+      "commit": "7ca84ff",
+      "files": [
+        "libs/allocation/__init__.py",
+        "libs/allocation/multi_alpha.py",
+        "tests/libs/allocation/test_multi_alpha.py"
+      ],
+      "tests_added": 26,
+      "review_approved": true,
+      "continuation_id": "272e6449-85d2-4476-8f26-389a3820374f"
+    }
+  },
+  "next_steps": [
+    {
+      "step": 1,
+      "action": "Implement inverse volatility weighting method in libs/allocation/multi_alpha.py",
+      "details": "Update _inverse_vol() to weight strategies inversely to their realized volatility",
+      "estimated_time": "30 min"
+    },
+    {
+      "step": 2,
+      "action": "Add tests for inverse volatility weighting",
+      "details": "Test with valid/missing strategy_stats, zero volatility, weight distribution",
+      "estimated_time": "20 min"
+    },
+    {
+      "step": 3,
+      "action": "Request quick review via clink + codex",
+      "details": "Use continuation_id: 272e6449-85d2-4476-8f26-389a3820374f",
+      "estimated_time": "5 min"
+    },
+    {
+      "step": 4,
+      "action": "Run make ci-local and fix any issues",
+      "details": "Ensure all tests pass and coverage >90%",
+      "estimated_time": "10 min"
+    },
+    {
+      "step": 5,
+      "action": "Commit Component 2 with zen-mcp approval",
+      "details": "Include continuation_id in commit message",
+      "estimated_time": "5 min"
+    }
+  ],
+  "remaining_components": [
+    {
+      "number": 3,
+      "name": "Correlation monitoring + per-strategy caps",
+      "status": "PENDING"
+    },
+    {
+      "number": 4,
+      "name": "Orchestrator integration",
+      "status": "PENDING"
+    },
+    {
+      "number": 5,
+      "name": "Documentation + ADR",
+      "status": "PENDING"
+    }
+  ],
+  "context": {
+    "key_decisions": [
+      "Using reciprocal rank (1/rank) for rank aggregation to ensure all symbols get positive weight",
+      "Placeholder methods for Components 2-3 to enable incremental development",
+      "Single strategy optimization: bypasses allocator for performance"
+    ],
+    "critical_files": [
+      "libs/allocation/multi_alpha.py",
+      "tests/libs/allocation/test_multi_alpha.py",
+      "docs/TASKS/P2T1_TASK.md"
+    ],
+    "continuation_ids": {
+      "task_creation_review": "97dc2fca-b9bc-4f8f-84c9-69aabba33573",
+      "component_1_review": "272e6449-85d2-4476-8f26-389a3820374f"
+    },
+    "important_notes": [
+      "All zen-mcp reviews MUST use clink (not direct zen-mcp tools)",
+      "Component 1 fixed 2 critical bugs: inverted rank normalization + single-symbol NaN",
+      "Test coverage at 92% for multi_alpha.py, 81.58% overall"
+    ]
+  },
+  "acceptance_criteria_status": {
+    "AC1": {"status": "COMPLETE", "description": "Rank aggregation implemented correctly"},
+    "AC2": {"status": "PENDING", "description": "Inverse volatility weighting"},
+    "AC3": {"status": "COMPLETE", "description": "Equal weight baseline implemented"},
+    "AC4": {"status": "PARTIAL", "description": "Per-strategy caps (placeholder)"},
+    "AC5": {"status": "PENDING", "description": "Correlation monitoring"},
+    "AC6": {"status": "COMPLETE", "description": "Total weight sums to 100%"},
+    "AC7": {"status": "PENDING", "description": "Orchestrator integration"},
+    "AC8": {"status": "PENDING", "description": "Supports 3+ strategies"},
+    "AC9": {"status": "PENDING", "description": "Performance <500ms"},
+    "AC10": {"status": "COMPLETE", "description": "All tests pass with >90% coverage"},
+    "AC11": {"status": "PENDING", "description": "ADR created"}
+  },
+  "implementation_guide": {
+    "component_2_plan": {
+      "file": "libs/allocation/multi_alpha.py",
+      "method": "_inverse_vol",
+      "key_logic": "weight_i = (1/vol_i) / sum(1/vol_j)",
+      "fallback": "If strategy_stats missing or vol=0, fall back to equal_weight",
+      "test_scenarios": [
+        "Valid strategy_stats with different volatilities",
+        "Missing strategy_stats (fallback to equal weight)",
+        "Zero/negative volatility (fallback)",
+        "Weight distribution favors low-vol strategies"
+      ]
+    }
+  },
+  "meta": {
+    "last_updated": "2025-10-29T01:30:00Z",
+    "updated_by": "Claude Code (Sonnet 4.5)",
+    "session_id": "current",
+    "auto_resume_enabled": true
+  }
+}

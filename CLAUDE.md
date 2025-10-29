@@ -2,6 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## 🤖 AUTO-RESUME: Check for Incomplete Work
+
+**CRITICAL:** Before proceeding, check if there's incomplete work to resume:
+
+```bash
+# Check for incomplete tasks
+if [ -f .claude/task-state.json ]; then
+  TASK_STATE=$(cat .claude/task-state.json | jq -r '.current_task.state')
+  if [ "$TASK_STATE" = "IN_PROGRESS" ]; then
+    echo "🤖 INCOMPLETE TASK DETECTED"
+    echo "📖 See .claude/AUTO_RESUME.md for automatic context restoration"
+    echo "📋 Run: cat .claude/task-state.json | jq '.'"
+  fi
+fi
+```
+
+**If incomplete work found:**
+- Read [`.claude/AUTO_RESUME.md`](./.claude/AUTO_RESUME.md)
+- Follow [`.claude/workflows/14-task-resume.md`](./.claude/workflows/14-task-resume.md)
+- Load context from `.claude/task-state.json`
+- Continue where previous session left off
+
+**Otherwise:** Proceed with normal workflow below.
+
+---
+
 ## Project Overview
 
 This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. The system produces signals using Qlib-based models and executes trades via Alpaca's API with emphasis on safety, idempotency, and parity between research and production.
