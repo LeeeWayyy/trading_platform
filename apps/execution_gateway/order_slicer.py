@@ -169,13 +169,16 @@ class TWAPSlicer:
         now = datetime.now(UTC)
         _trade_date = trade_date or now.date()
 
+        # Generate parent strategy ID (deterministic, includes duration and interval)
+        parent_strategy_id = f"twap_parent_{duration_minutes}m_{interval_seconds}s"
+
         parent_order_id = reconstruct_order_params_hash(
             symbol=symbol,
             side=side,
             qty=qty,
             limit_price=limit_price,
             stop_price=stop_price,
-            strategy_id=f"twap_parent_{duration_minutes}m_{interval_seconds}s",
+            strategy_id=parent_strategy_id,
             order_date=_trade_date,
         )
 
@@ -185,6 +188,9 @@ class TWAPSlicer:
             # Calculate scheduled time (i minutes from now)
             scheduled_time = now + timedelta(seconds=i * interval_seconds)
 
+            # Generate slice strategy ID (deterministic, includes parent and slice number)
+            slice_strategy_id = f"twap_slice_{parent_order_id}_{i}"
+
             # Generate deterministic child order ID (same trade date as parent)
             child_order_id = reconstruct_order_params_hash(
                 symbol=symbol,
@@ -192,7 +198,7 @@ class TWAPSlicer:
                 qty=slice_qty,
                 limit_price=limit_price,
                 stop_price=stop_price,
-                strategy_id=f"twap_slice_{parent_order_id}_{i}",
+                strategy_id=slice_strategy_id,
                 order_date=_trade_date,
             )
 
@@ -202,6 +208,7 @@ class TWAPSlicer:
                     qty=slice_qty,
                     scheduled_time=scheduled_time,
                     client_order_id=child_order_id,
+                    strategy_id=slice_strategy_id,  # Include strategy_id in slice details
                     status="pending_new",  # Initial status
                 )
             )
@@ -220,6 +227,7 @@ class TWAPSlicer:
 
         return SlicingPlan(
             parent_order_id=parent_order_id,
+            parent_strategy_id=parent_strategy_id,
             symbol=symbol,
             side=side,
             total_qty=qty,

@@ -605,9 +605,7 @@ class SlicingRequest(BaseModel):
     symbol: str = Field(..., description="Stock symbol (e.g., 'AAPL')")
     side: Literal["buy", "sell"] = Field(..., description="Order side")
     qty: int = Field(..., gt=0, description="Total order quantity (must be positive)")
-    duration_minutes: int = Field(
-        ..., gt=0, description="Total slicing duration in minutes"
-    )
+    duration_minutes: int = Field(..., gt=0, description="Total slicing duration in minutes")
     interval_seconds: int = Field(
         default=60,
         gt=0,
@@ -703,6 +701,7 @@ class SliceDetail(BaseModel):
         qty: Slice quantity
         scheduled_time: UTC timestamp for scheduled execution
         client_order_id: Deterministic ID for this slice
+        strategy_id: Strategy identifier used for this slice's order ID generation
         status: Slice status (uses order status vocabulary from orders table)
     """
 
@@ -710,6 +709,9 @@ class SliceDetail(BaseModel):
     qty: int = Field(..., gt=0, description="Slice quantity")
     scheduled_time: datetime = Field(..., description="Scheduled execution time (UTC)")
     client_order_id: str = Field(..., description="Deterministic slice order ID")
+    strategy_id: str = Field(
+        ..., description="Strategy ID for this slice (e.g., 'twap_slice_parent123_0')"
+    )
     status: OrderStatus = Field(default="pending_new", description="Current slice status")
 
     model_config = {
@@ -720,6 +722,7 @@ class SliceDetail(BaseModel):
                     "qty": 20,
                     "scheduled_time": "2025-10-26T14:00:00Z",
                     "client_order_id": "abc123def456...",
+                    "strategy_id": "twap_slice_abc123_0",
                     "status": "pending_new",
                 }
             ]
@@ -736,6 +739,7 @@ class SlicingPlan(BaseModel):
 
     Attributes:
         parent_order_id: Deterministic ID for the parent order
+        parent_strategy_id: Strategy identifier used for parent order ID generation
         symbol: Stock symbol
         side: Order side
         total_qty: Total quantity across all slices
@@ -746,6 +750,9 @@ class SlicingPlan(BaseModel):
     """
 
     parent_order_id: str = Field(..., description="Parent order deterministic ID")
+    parent_strategy_id: str = Field(
+        ..., description="Strategy ID for parent order (e.g., 'twap_parent_5m_60s')"
+    )
     symbol: str = Field(..., description="Stock symbol")
     side: Literal["buy", "sell"] = Field(..., description="Order side")
     total_qty: int = Field(..., gt=0, description="Total quantity")
@@ -759,6 +766,7 @@ class SlicingPlan(BaseModel):
             "examples": [
                 {
                     "parent_order_id": "parent_xyz789...",
+                    "parent_strategy_id": "twap_parent_5m_60s",
                     "symbol": "AAPL",
                     "side": "buy",
                     "total_qty": 100,
@@ -771,6 +779,7 @@ class SlicingPlan(BaseModel):
                             "qty": 20,
                             "scheduled_time": "2025-10-26T14:00:00Z",
                             "client_order_id": "slice_0_abc...",
+                            "strategy_id": "twap_slice_parent_xyz789_0",
                             "status": "pending_new",
                         },
                         {
@@ -778,6 +787,7 @@ class SlicingPlan(BaseModel):
                             "qty": 20,
                             "scheduled_time": "2025-10-26T14:01:00Z",
                             "client_order_id": "slice_1_def...",
+                            "strategy_id": "twap_slice_parent_xyz789_1",
                             "status": "pending_new",
                         },
                     ],

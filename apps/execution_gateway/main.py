@@ -1293,6 +1293,7 @@ def _convert_slices_to_details(
                 qty=s.qty,
                 scheduled_time=s.scheduled_time,
                 client_order_id=s.client_order_id,
+                strategy_id=s.strategy_id,
                 status=s.status,
             )
         )
@@ -1324,7 +1325,10 @@ def _find_existing_twap_plan(
     # First check new hash (with duration), then legacy hash (backward compatibility)
     existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
 
-    if not existing_parent:
+    if existing_parent:
+        # Use the strategy_id from the DB to ensure consistency
+        slicing_plan.parent_strategy_id = existing_parent.strategy_id
+    else:
         # Legacy TWAP plans implicitly used 60-second spacing. If the caller is requesting
         # a different interval we must skip fallback checks to avoid returning an order
         # with mismatched pacing metadata.
@@ -1369,7 +1373,9 @@ def _find_existing_twap_plan(
 
             if legacy_parent.total_slices == requested_total_slices:
                 logger.info(
-                    "Found %s TWAP order: legacy_id=%s", label, legacy_parent_id,
+                    "Found %s TWAP order: legacy_id=%s",
+                    label,
+                    legacy_parent_id,
                     extra={
                         "legacy_parent_id": legacy_parent_id,
                         "new_parent_id": slicing_plan.parent_order_id,
@@ -1378,6 +1384,7 @@ def _find_existing_twap_plan(
                     },
                 )
                 slicing_plan.parent_order_id = legacy_parent_id
+                slicing_plan.parent_strategy_id = legacy_parent.strategy_id
                 existing_parent = legacy_parent
                 break
 
@@ -1414,6 +1421,7 @@ def _find_existing_twap_plan(
     # Return existing slicing plan (idempotent response)
     return SlicingPlan(
         parent_order_id=slicing_plan.parent_order_id,
+        parent_strategy_id=slicing_plan.parent_strategy_id,
         symbol=request.symbol,
         side=request.side,
         total_qty=request.qty,
@@ -1464,7 +1472,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
             )
             db_client.create_parent_order(
                 client_order_id=slicing_plan.parent_order_id,
-                strategy_id=STRATEGY_ID,
+                strategy_id=slicing_plan.parent_strategy_id,  # Use strategy_id from plan
                 order_request=parent_order_request,
                 total_slices=slicing_plan.total_slices,
                 conn=conn,  # Use shared transaction connection
@@ -1485,7 +1493,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
                     client_order_id=slice_detail.client_order_id,
                     parent_order_id=slicing_plan.parent_order_id,
                     slice_num=slice_detail.slice_num,
-                    strategy_id=STRATEGY_ID,
+                    strategy_id=slice_detail.strategy_id,  # Use strategy_id from slice details
                     order_request=slice_order_request,
                     scheduled_time=slice_detail.scheduled_time,
                     conn=conn,  # Use shared transaction connection
@@ -1519,12 +1527,16 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
                 detail="Database inconsistency: parent order not found after UniqueViolation",
             ) from None
 
+        # Use the strategy_id from the DB to ensure consistency
+        slicing_plan.parent_strategy_id = existing_parent.strategy_id
+
         existing_slices = db_client.get_slices_by_parent_id(slicing_plan.parent_order_id)
         slice_details = _convert_slices_to_details(existing_slices, slicing_plan.parent_order_id)
 
         # Return existing plan (idempotent response for concurrent submission)
         return SlicingPlan(
             parent_order_id=slicing_plan.parent_order_id,
+            parent_strategy_id=slicing_plan.parent_strategy_id,
             symbol=request.symbol,
             side=request.side,
             total_qty=request.qty,

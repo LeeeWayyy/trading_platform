@@ -125,6 +125,7 @@ class TestScheduleSlices:
                 qty=20,
                 scheduled_time=now,
                 client_order_id="child0",
+                strategy_id="test_strategy",
                 status="pending_new",
             ),
             SliceDetail(
@@ -132,6 +133,7 @@ class TestScheduleSlices:
                 qty=20,
                 scheduled_time=now + timedelta(minutes=1),
                 client_order_id="child1",
+                strategy_id="test_strategy",
                 status="pending_new",
             ),
         ]
@@ -178,6 +180,7 @@ class TestScheduleSlices:
                 qty=20,
                 scheduled_time=now,
                 client_order_id="child0",
+                strategy_id="test_strategy",
                 status="pending_new",
             ),
         ]
@@ -256,6 +259,7 @@ class TestExecuteSliceKillSwitch:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -309,6 +313,7 @@ class TestExecuteSliceKillSwitch:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -363,6 +368,7 @@ class TestExecuteSliceCircuitBreaker:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -420,6 +426,7 @@ class TestExecuteSliceSuccess:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -484,6 +491,7 @@ class TestExecuteSliceSuccess:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -553,6 +561,7 @@ class TestExecuteSliceDryRun:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -601,6 +610,7 @@ class TestExecuteSliceDryRun:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -651,6 +661,7 @@ class TestExecuteSliceErrors:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -697,6 +708,7 @@ class TestExecuteSliceErrors:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -749,6 +761,7 @@ class TestExecuteSliceErrors:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -804,6 +817,7 @@ class TestExecuteSliceCancellation:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
@@ -860,6 +874,7 @@ class TestExecuteSliceCancellation:
             qty=20,
             scheduled_time=now,
             client_order_id="child0",
+            strategy_id="test_strategy",
             status="pending_new",
         )
 
