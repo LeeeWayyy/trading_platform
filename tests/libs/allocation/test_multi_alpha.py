@@ -554,11 +554,11 @@ class TestWeightNormalization:
         assert abs(total_weight - 1.0) < 1e-9
 
 
-class TestInverseVolPlaceholder:
-    """Test inverse volatility placeholder (Component 2)."""
+class TestInverseVolatilityWeighting:
+    """Test inverse volatility weighting allocation method (Component 2)."""
 
-    def test_inverse_vol_falls_back_to_equal_weight(self):
-        """Test that inverse_vol method currently falls back to equal_weight."""
+    def test_inverse_vol_basic_two_strategies(self):
+        """Test basic inverse volatility weighting with two strategies."""
         signals = {
             "alpha_baseline": pl.DataFrame(
                 {
@@ -569,24 +569,368 @@ class TestInverseVolPlaceholder:
             ),
             "momentum": pl.DataFrame(
                 {
-                    "symbol": ["GOOGL"],
-                    "score": [0.9],
-                    "weight": [1.0],
+                    "symbol": ["GOOGL", "TSLA"],
+                    "score": [0.9, 0.7],
+                    "weight": [0.7, 0.3],
                 }
             ),
         }
 
+        # alpha_baseline has lower vol (0.15) → higher weight
+        # momentum has higher vol (0.30) → lower weight
         strategy_stats = {
             "alpha_baseline": {"vol": 0.15, "sharpe": 1.2},
-            "momentum": {"vol": 0.25, "sharpe": 0.8},
+            "momentum": {"vol": 0.30, "sharpe": 0.8},
         }
 
         allocator = MultiAlphaAllocator(method="inverse_vol")
         result = allocator.allocate(signals, strategy_stats=strategy_stats)
 
-        # Should return result (fallback to equal weight)
-        assert len(result) > 0
+        # Should have all 4 symbols
+        assert len(result) == 4
+        assert set(result["symbol"].to_list()) == {"AAPL", "MSFT", "GOOGL", "TSLA"}
+
+        # Weights should sum to 1.0
         assert abs(result["final_weight"].sum() - 1.0) < 1e-9
+
+        # All weights should be positive
+        assert all(result["final_weight"] > 0)
+
+        # Verify strategy weights are correct
+        # inv_vol_baseline = 1/0.15 = 6.667
+        # inv_vol_momentum = 1/0.30 = 3.333
+        # total_inv_vol = 10.0
+        # weight_baseline = 6.667/10.0 = 0.6667
+        # weight_momentum = 3.333/10.0 = 0.3333
+        # AAPL gets 0.6 * 0.6667 = 0.4
+        # MSFT gets 0.4 * 0.6667 = 0.2667
+        # GOOGL gets 0.7 * 0.3333 = 0.2333
+        # TSLA gets 0.3 * 0.3333 = 0.1
+        # After normalization to sum=1.0: divide by (0.4 + 0.2667 + 0.2333 + 0.1) = 1.0
+
+        aapl_weight = result.filter(pl.col("symbol") == "AAPL")["final_weight"].item()
+
+        # AAPL should have highest weight (from lower-vol strategy)
+        assert aapl_weight == max(result["final_weight"])
+
+    def test_inverse_vol_three_strategies_different_volatilities(self):
+        """Test inverse vol with three strategies having different volatilities."""
+        signals = {
+            "low_vol": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+            "medium_vol": pl.DataFrame({"symbol": ["MSFT"], "score": [0.8], "weight": [1.0]}),
+            "high_vol": pl.DataFrame({"symbol": ["GOOGL"], "score": [0.7], "weight": [1.0]}),
+        }
+
+        strategy_stats = {
+            "low_vol": {"vol": 0.10},  # Lowest vol → highest weight
+            "medium_vol": {"vol": 0.20},
+            "high_vol": {"vol": 0.40},  # Highest vol → lowest weight
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+        result = allocator.allocate(signals, strategy_stats=strategy_stats)
+
+        # Should have 3 symbols
+        assert len(result) == 3
+
+        # Weights should sum to 1.0
+        assert abs(result["final_weight"].sum() - 1.0) < 1e-9
+
+        # Verify ordering: low_vol strategy should contribute most
+        # inv_vol weights: 1/0.10=10, 1/0.20=5, 1/0.40=2.5, total=17.5
+        # strat_weight_low = 10/17.5 = 0.571
+        # strat_weight_med = 5/17.5 = 0.286
+        # strat_weight_high = 2.5/17.5 = 0.143
+        aapl_weight = result.filter(pl.col("symbol") == "AAPL")["final_weight"].item()
+        msft_weight = result.filter(pl.col("symbol") == "MSFT")["final_weight"].item()
+        googl_weight = result.filter(pl.col("symbol") == "GOOGL")["final_weight"].item()
+
+        assert aapl_weight > msft_weight > googl_weight
+
+    def test_inverse_vol_with_overlapping_symbols(self):
+        """Test inverse vol when strategies recommend overlapping symbols."""
+        signals = {
+            "alpha_baseline": pl.DataFrame(
+                {
+                    "symbol": ["AAPL", "MSFT"],
+                    "score": [0.9, 0.7],
+                    "weight": [0.6, 0.4],
+                }
+            ),
+            "momentum": pl.DataFrame(
+                {
+                    "symbol": ["AAPL", "GOOGL"],
+                    "score": [0.8, 0.9],
+                    "weight": [0.5, 0.5],
+                }
+            ),
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": 0.15},
+            "momentum": {"vol": 0.30},
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+        result = allocator.allocate(signals, strategy_stats=strategy_stats)
+
+        # Should have 3 unique symbols
+        assert len(result) == 3
+        assert set(result["symbol"].to_list()) == {"AAPL", "MSFT", "GOOGL"}
+
+        # Weights should sum to 1.0
+        assert abs(result["final_weight"].sum() - 1.0) < 1e-9
+
+        # AAPL should be in contributing_strategies for both
+        aapl_strategies = result.filter(pl.col("symbol") == "AAPL")[
+            "contributing_strategies"
+        ].item()
+        assert len(aapl_strategies) == 2
+
+    def test_inverse_vol_missing_strategy_stats(self):
+        """Test that inverse_vol raises error when strategy_stats is None."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="strategy_stats required for inverse_vol method but got None",
+        ):
+            allocator.allocate(signals, strategy_stats=None)
+
+    def test_inverse_vol_empty_strategy_stats(self):
+        """Test that inverse_vol raises error when strategy_stats is empty dict."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="strategy_stats required for inverse_vol method but got empty dict",
+        ):
+            allocator.allocate(signals, strategy_stats={})
+
+    def test_inverse_vol_missing_strategy_entry(self):
+        """Test that inverse_vol raises error when strategy_stats missing a strategy."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+            "momentum": pl.DataFrame({"symbol": ["MSFT"], "score": [0.8], "weight": [1.0]}),
+        }
+
+        # Missing "momentum" in strategy_stats
+        strategy_stats = {
+            "alpha_baseline": {"vol": 0.15},
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="strategy_stats missing entry for 'momentum'",
+        ):
+            allocator.allocate(signals, strategy_stats=strategy_stats)
+
+    def test_inverse_vol_missing_vol_key(self):
+        """Test that inverse_vol raises error when 'vol' key is missing."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        # Missing "vol" key
+        strategy_stats = {
+            "alpha_baseline": {"sharpe": 1.2},
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="strategy_stats\\['alpha_baseline'\\] missing 'vol' key",
+        ):
+            allocator.allocate(signals, strategy_stats=strategy_stats)
+
+    def test_inverse_vol_invalid_vol_negative(self):
+        """Test that inverse_vol raises error for negative volatility."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": -0.15},  # Negative vol
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="Invalid volatility for 'alpha_baseline': -0.15",
+        ):
+            allocator.allocate(signals, strategy_stats=strategy_stats)
+
+    def test_inverse_vol_invalid_vol_zero(self):
+        """Test that inverse_vol raises error for zero volatility."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": 0.0},  # Zero vol
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="Invalid volatility for 'alpha_baseline': 0.0",
+        ):
+            allocator.allocate(signals, strategy_stats=strategy_stats)
+
+    def test_inverse_vol_invalid_vol_nan(self):
+        """Test that inverse_vol raises error for NaN volatility."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": float("nan")},  # NaN vol
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="Invalid volatility for 'alpha_baseline'",
+        ):
+            allocator.allocate(signals, strategy_stats=strategy_stats)
+
+    def test_inverse_vol_invalid_vol_inf(self):
+        """Test that inverse_vol raises error for infinite volatility."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": float("inf")},  # Inf vol
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="Invalid volatility for 'alpha_baseline'",
+        ):
+            allocator.allocate(signals, strategy_stats=strategy_stats)
+
+    def test_inverse_vol_invalid_vol_string(self):
+        """Test that inverse_vol raises error for non-numeric volatility."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": "0.15"},  # String instead of number
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+
+        with pytest.raises(
+            ValueError,
+            match="Invalid volatility for 'alpha_baseline': 0.15",
+        ):
+            allocator.allocate(signals, strategy_stats=strategy_stats)
+
+    def test_inverse_vol_single_strategy(self):
+        """Test inverse vol with single strategy (should still work)."""
+        signals = {
+            "alpha_baseline": pl.DataFrame(
+                {
+                    "symbol": ["AAPL", "MSFT"],
+                    "score": [0.9, 0.7],
+                    "weight": [0.6, 0.4],
+                }
+            ),
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": 0.15},
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+        result = allocator.allocate(signals, strategy_stats=strategy_stats)
+
+        # Should have 2 symbols
+        assert len(result) == 2
+
+        # Weights should sum to 1.0
+        assert abs(result["final_weight"].sum() - 1.0) < 1e-9
+
+        # Single strategy gets 100% weight, so final weights match original weights
+        aapl_weight = result.filter(pl.col("symbol") == "AAPL")["final_weight"].item()
+        msft_weight = result.filter(pl.col("symbol") == "MSFT")["final_weight"].item()
+        assert abs(aapl_weight - 0.6) < 1e-9
+        assert abs(msft_weight - 0.4) < 1e-9
+
+    def test_inverse_vol_empty_signals_in_one_strategy(self):
+        """Test inverse vol when one strategy has empty signals."""
+        signals = {
+            "alpha_baseline": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+            "momentum": pl.DataFrame(
+                schema={
+                    "symbol": pl.Utf8,
+                    "score": pl.Float64,
+                    "weight": pl.Float64,
+                }
+            ),  # Empty DataFrame
+        }
+
+        strategy_stats = {
+            "alpha_baseline": {"vol": 0.15},
+            "momentum": {"vol": 0.30},
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+        result = allocator.allocate(signals, strategy_stats=strategy_stats)
+
+        # Should only have AAPL from alpha_baseline
+        assert len(result) == 1
+        assert result["symbol"].item() == "AAPL"
+
+        # Weight should be 1.0
+        assert abs(result["final_weight"].item() - 1.0) < 1e-9
+
+    def test_inverse_vol_weight_calculation_correctness(self):
+        """Test that inverse vol weight calculation is mathematically correct."""
+        signals = {
+            "strat_a": pl.DataFrame({"symbol": ["AAPL"], "score": [0.9], "weight": [1.0]}),
+            "strat_b": pl.DataFrame({"symbol": ["MSFT"], "score": [0.8], "weight": [1.0]}),
+        }
+
+        # vol_a = 0.20, vol_b = 0.40
+        # inv_vol_a = 1/0.20 = 5.0
+        # inv_vol_b = 1/0.40 = 2.5
+        # total_inv_vol = 7.5
+        # weight_a = 5.0/7.5 = 0.6667
+        # weight_b = 2.5/7.5 = 0.3333
+        strategy_stats = {
+            "strat_a": {"vol": 0.20},
+            "strat_b": {"vol": 0.40},
+        }
+
+        allocator = MultiAlphaAllocator(method="inverse_vol")
+        result = allocator.allocate(signals, strategy_stats=strategy_stats)
+
+        aapl_weight = result.filter(pl.col("symbol") == "AAPL")["final_weight"].item()
+        msft_weight = result.filter(pl.col("symbol") == "MSFT")["final_weight"].item()
+
+        # Expected: AAPL gets 0.6667, MSFT gets 0.3333
+        assert abs(aapl_weight - 0.6667) < 1e-4
+        assert abs(msft_weight - 0.3333) < 1e-4
+        assert abs(aapl_weight + msft_weight - 1.0) < 1e-9
 
 
 class TestCorrelationMonitoringPlaceholder:

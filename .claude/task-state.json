@@ -11,14 +11,14 @@
   },
   "progress": {
     "total_components": 5,
-    "completed_components": 1,
+    "completed_components": 2,
     "current_component": {
-      "number": 2,
-      "name": "Inverse Volatility Weighting",
+      "number": 3,
+      "name": "Correlation monitoring + per-strategy caps",
       "status": "NOT_STARTED",
-      "description": "Implement inverse volatility weighting allocation method"
+      "description": ""
     },
-    "completion_percentage": 20
+    "completion_percentage": 40
   },
   "completed_work": {
     "Component 1": {
@@ -32,6 +32,18 @@
       "tests_added": 26,
       "review_approved": true,
       "continuation_id": "272e6449-85d2-4476-8f26-389a3820374f"
+    },
+    "Component 2": {
+      "name": "Inverse Volatility Weighting",
+      "commit": "d7f63a0e67ecead55113df7fedeab305cb082ea8",
+      "files": [
+        "libs/allocation/multi_alpha.py",
+        "tests/libs/allocation/test_multi_alpha.py"
+      ],
+      "tests_added": 17,
+      "review_approved": true,
+      "continuation_id": "a06d3bef-776a-47b4-b285-b63ac989a39b",
+      "completed_at": "2025-10-29T19:08:31.226052Z"
     }
   },
   "next_steps": [
@@ -68,11 +80,6 @@
   ],
   "remaining_components": [
     {
-      "number": 3,
-      "name": "Correlation monitoring + per-strategy caps",
-      "status": "PENDING"
-    },
-    {
       "number": 4,
       "name": "Orchestrator integration",
       "status": "PENDING"
@@ -105,17 +112,50 @@
     ]
   },
   "acceptance_criteria_status": {
-    "AC1": {"status": "COMPLETE", "description": "Rank aggregation implemented correctly"},
-    "AC2": {"status": "PENDING", "description": "Inverse volatility weighting"},
-    "AC3": {"status": "COMPLETE", "description": "Equal weight baseline implemented"},
-    "AC4": {"status": "PARTIAL", "description": "Per-strategy caps (placeholder)"},
-    "AC5": {"status": "PENDING", "description": "Correlation monitoring"},
-    "AC6": {"status": "COMPLETE", "description": "Total weight sums to 100%"},
-    "AC7": {"status": "PENDING", "description": "Orchestrator integration"},
-    "AC8": {"status": "PENDING", "description": "Supports 3+ strategies"},
-    "AC9": {"status": "PENDING", "description": "Performance <500ms"},
-    "AC10": {"status": "COMPLETE", "description": "All tests pass with >90% coverage"},
-    "AC11": {"status": "PENDING", "description": "ADR created"}
+    "AC1": {
+      "status": "COMPLETE",
+      "description": "Rank aggregation implemented correctly"
+    },
+    "AC2": {
+      "status": "PENDING",
+      "description": "Inverse volatility weighting"
+    },
+    "AC3": {
+      "status": "COMPLETE",
+      "description": "Equal weight baseline implemented"
+    },
+    "AC4": {
+      "status": "PARTIAL",
+      "description": "Per-strategy caps (placeholder)"
+    },
+    "AC5": {
+      "status": "PENDING",
+      "description": "Correlation monitoring"
+    },
+    "AC6": {
+      "status": "COMPLETE",
+      "description": "Total weight sums to 100%"
+    },
+    "AC7": {
+      "status": "PENDING",
+      "description": "Orchestrator integration"
+    },
+    "AC8": {
+      "status": "PENDING",
+      "description": "Supports 3+ strategies"
+    },
+    "AC9": {
+      "status": "PENDING",
+      "description": "Performance <500ms"
+    },
+    "AC10": {
+      "status": "COMPLETE",
+      "description": "All tests pass with >90% coverage"
+    },
+    "AC11": {
+      "status": "PENDING",
+      "description": "ADR created"
+    }
   },
   "implementation_guide": {
     "component_2_plan": {
@@ -132,7 +172,7 @@
     }
   },
   "meta": {
-    "last_updated": "2025-10-29T01:30:00Z",
+    "last_updated": "2025-10-29T19:08:31.226194Z",
     "updated_by": "Claude Code (Sonnet 4.5)",
     "session_id": "current",
     "auto_resume_enabled": true

@@ -42,6 +42,8 @@ Example:
 """
 
 import logging
+import math
+import numbers
 from typing import Any, Literal
 
 import polars as pl
@@ -154,8 +156,17 @@ class MultiAlphaAllocator:
         if not signals:
             raise ValueError("At least one strategy required (signals dict is empty)")
 
-        # Single strategy optimization: bypass allocator
-        if len(signals) == 1:
+        # Validate strategy_stats for inverse_vol method (BEFORE single-strategy bypass)
+        if self.method == "inverse_vol":
+            if strategy_stats is None:
+                raise ValueError("strategy_stats required for inverse_vol method but got None")
+            if not strategy_stats:
+                raise ValueError(
+                    "strategy_stats required for inverse_vol method but got empty dict"
+                )
+
+        # Single strategy optimization: bypass allocator (except inverse_vol which needs validation)
+        if len(signals) == 1 and self.method != "inverse_vol":
             strategy_id, df = next(iter(signals.items()))
             logger.info(
                 "Single strategy detected, bypassing allocator",
@@ -175,7 +186,9 @@ class MultiAlphaAllocator:
         if self.method == "rank_aggregation":
             return self._rank_aggregation(signals)
         elif self.method == "inverse_vol":
-            return self._inverse_vol(signals, strategy_stats or {})
+            # strategy_stats validated above, assert for mypy
+            assert strategy_stats is not None, "strategy_stats validated above"
+            return self._inverse_vol(signals, strategy_stats)
         elif self.method == "equal_weight":
             return self._equal_weight(signals)
         else:
@@ -382,21 +395,147 @@ class MultiAlphaAllocator:
         self, signals: dict[str, pl.DataFrame], strategy_stats: dict[str, dict[str, Any]]
     ) -> pl.DataFrame:
         """
-        Allocate inversely proportional to strategy volatility (Placeholder for Component 2).
+        Allocate inversely proportional to strategy volatility.
 
-        This method will be implemented in Component 2. For now, falls back to equal weight.
+        Methodology:
+        1. Extract volatility for each strategy from strategy_stats
+        2. Calculate inverse volatility weights: weight_i = (1/vol_i) / Σ(1/vol_j)
+        3. Apply strategy weights to symbol allocations
+        4. Aggregate across symbols and normalize
+
+        Advantages:
+        - Risk-aware allocation (reduces exposure to volatile strategies)
+        - Leverages historical volatility as proxy for risk
+        - Improves risk-adjusted returns (Sharpe ratio)
+
+        Disadvantages:
+        - Requires accurate volatility estimates
+        - Backward-looking (past vol may not predict future)
+        - Penalizes high-conviction volatile strategies
 
         Args:
             signals: Dictionary of strategy_id -> DataFrame with [symbol, score, weight]
             strategy_stats: Dictionary of strategy_id -> {vol, sharpe, ...}
+                           Must contain 'vol' key for each strategy in signals
 
         Returns:
             DataFrame with [symbol, final_weight, contributing_strategies]
+
+        Raises:
+            ValueError: If strategy_stats missing or doesn't contain 'vol' for all strategies
         """
-        logger.warning(
-            "Inverse volatility method not yet implemented (Component 2), falling back to equal weight"
+        logger.info(
+            "Allocating via inverse volatility",
+            extra={"num_strategies": len(signals), "method": "inverse_vol"},
         )
-        return self._equal_weight(signals)
+
+        # Extract and validate volatility for each strategy
+        strategy_vols: dict[str, float] = {}
+        for strategy_id in signals.keys():
+            if strategy_id not in strategy_stats:
+                raise ValueError(
+                    f"strategy_stats missing entry for '{strategy_id}' (required for inverse_vol)"
+                )
+            stats = strategy_stats[strategy_id]
+            if "vol" not in stats:
+                raise ValueError(
+                    f"strategy_stats['{strategy_id}'] missing 'vol' key (required for inverse_vol)"
+                )
+
+            vol = stats["vol"]
+            # Validate volatility is positive and finite (accept any numeric type including numpy)
+            if not isinstance(vol, numbers.Real):
+                raise ValueError(
+                    f"Invalid volatility for '{strategy_id}': {vol} (must be positive finite number)"
+                )
+            vol_float = float(vol)  # Convert to float for type safety
+            if vol_float <= 0 or not math.isfinite(vol_float):
+                raise ValueError(
+                    f"Invalid volatility for '{strategy_id}': {vol} (must be positive finite number)"
+                )
+
+            strategy_vols[strategy_id] = vol_float
+
+        # Calculate inverse volatility weights for strategies
+        # weight_i = (1/vol_i) / Σ(1/vol_j)
+        inv_vols: dict[str, float] = {sid: 1.0 / vol for sid, vol in strategy_vols.items()}
+        total_inv_vol: float = sum(inv_vols.values())
+        strategy_weights: dict[str, float] = {
+            sid: inv_vol / total_inv_vol for sid, inv_vol in inv_vols.items()
+        }
+
+        logger.debug(
+            "Calculated inverse volatility weights",
+            extra={
+                "strategy_vols": strategy_vols,
+                "strategy_weights": strategy_weights,
+            },
+        )
+
+        # Apply strategy weights to signals
+        # For each symbol: weighted_signal = Σ(strategy_weight_i * symbol_weight_i)
+        weighted_dfs = []
+        for strategy_id, df in signals.items():
+            if df.is_empty():
+                logger.debug(f"Skipping empty signals from {strategy_id}")
+                continue
+
+            # Scale symbol weights by strategy weight
+            strat_weight = strategy_weights[strategy_id]
+            weighted = df.select(
+                [
+                    pl.col("symbol"),
+                    (pl.col("weight") * strat_weight).alias("weighted_contribution"),
+                ]
+            ).with_columns(pl.lit(strategy_id).alias("strategy_id"))
+
+            weighted_dfs.append(weighted)
+
+        if not weighted_dfs:
+            logger.warning("All strategies had empty signals, returning empty allocation")
+            return pl.DataFrame(
+                schema={
+                    "symbol": pl.Utf8,
+                    "final_weight": pl.Float64,
+                    "contributing_strategies": pl.List(pl.Utf8),
+                }
+            )
+
+        # Combine weighted contributions
+        all_weighted = pl.concat(weighted_dfs)
+
+        # Aggregate per symbol
+        result = (
+            all_weighted.group_by("symbol")
+            .agg(
+                [
+                    pl.col("weighted_contribution").sum().alias("final_weight"),
+                    pl.col("strategy_id").alias("contributing_strategies"),
+                ]
+            )
+            .sort("final_weight", descending=True)
+        )
+
+        # NOTE: Skipping concentration limits for inverse_vol
+        # Reason: Limits should be applied per-strategy BEFORE aggregation, not after.
+        # Applying limits after aggregation distorts the mathematically correct inverse-vol ratios.
+        # Component 3 will implement per-strategy concentration tracking.
+        # result = self._apply_concentration_limits(result)
+
+        # Final normalization to ensure sum = 1.0
+        final_sum = result["final_weight"].sum()
+        result = result.with_columns((pl.col("final_weight") / final_sum).alias("final_weight"))
+
+        logger.info(
+            "Inverse volatility allocation complete",
+            extra={
+                "num_symbols": len(result),
+                "total_weight": result["final_weight"].sum(),
+                "max_weight": result["final_weight"].max(),
+            },
+        )
+
+        return result
 
     def _apply_concentration_limits(self, df: pl.DataFrame) -> pl.DataFrame:
         """
