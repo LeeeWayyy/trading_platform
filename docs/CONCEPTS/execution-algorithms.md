@@ -357,6 +357,8 @@ Where:
 
 **Example:**
 ```python
+from math import sqrt
+
 symbol = "AAPL"
 sigma = 0.02          # 2% daily volatility
 Q = 10_000           # shares to buy
@@ -566,6 +568,7 @@ except OrderRejected as e:
 
 ```python
 from datetime import time
+from zoneinfo import ZoneInfo
 
 MARKET_OPEN = time(9, 30)   # 9:30 AM ET
 MARKET_CLOSE = time(16, 0)  # 4:00 PM ET

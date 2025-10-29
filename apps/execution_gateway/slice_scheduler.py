@@ -358,63 +358,101 @@ class SliceScheduler:
             - Final failure marking (when all retries exhausted) is handled by _execute_slice_job_wrapper
             - Successful slices update DB status to 'submitted' and clear any prior error_message
         """
-        # 🔒 MANDATORY: Check if slice was already canceled in DB (prevents race condition)
-        current_order = self.db.get_order_by_client_id(slice_detail.client_order_id)
-        if current_order and current_order.status == "canceled":
-            logger.info(
-                f"Slice execution aborted, already canceled in DB: parent={parent_order_id}, "
-                f"slice={slice_detail.slice_num}",
-                extra={
-                    "parent_order_id": parent_order_id,
-                    "slice_num": slice_detail.slice_num,
-                    "client_order_id": slice_detail.client_order_id,
-                    "abort_reason": "already_canceled_in_db",
-                },
-            )
-            return
+        # 🔒 CRITICAL: Wrap pre-submission checks in exception handling to prevent silent job drops
+        # If DB/Redis fails during these checks, we need to mark the slice as failed rather than
+        # letting APScheduler silently drop the job (the @retry decorator only catches AlpacaConnectionError)
+        try:
+            # 🔒 MANDATORY: Check if slice was already canceled in DB (prevents race condition)
+            current_order = self.db.get_order_by_client_id(slice_detail.client_order_id)
+            if current_order and current_order.status == "canceled":
+                logger.info(
+                    f"Slice execution aborted, already canceled in DB: parent={parent_order_id}, "
+                    f"slice={slice_detail.slice_num}",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "slice_num": slice_detail.slice_num,
+                        "client_order_id": slice_detail.client_order_id,
+                        "abort_reason": "already_canceled_in_db",
+                    },
+                )
+                return
 
-        # 🔒 MANDATORY: Kill switch check
-        if self.kill_switch.is_engaged():
-            logger.warning(
-                f"Slice blocked by kill switch: parent={parent_order_id}, "
-                f"slice={slice_detail.slice_num}",
-                extra={
-                    "parent_order_id": parent_order_id,
-                    "slice_num": slice_detail.slice_num,
-                    "client_order_id": slice_detail.client_order_id,
-                    "block_reason": "kill_switch_engaged",
-                },
-            )
-            # Update DB status to 'blocked_kill_switch' with error message for debuggability
-            self.db.update_order_status(
-                client_order_id=slice_detail.client_order_id,
-                status="blocked_kill_switch",
-                error_message="Kill switch is engaged - all new orders blocked",
-            )
-            # Do NOT raise - job should complete silently
-            return
+            # 🔒 MANDATORY: Kill switch check
+            if self.kill_switch.is_engaged():
+                logger.warning(
+                    f"Slice blocked by kill switch: parent={parent_order_id}, "
+                    f"slice={slice_detail.slice_num}",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "slice_num": slice_detail.slice_num,
+                        "client_order_id": slice_detail.client_order_id,
+                        "block_reason": "kill_switch_engaged",
+                    },
+                )
+                # Update DB status to 'blocked_kill_switch' with error message for debuggability
+                self.db.update_order_status(
+                    client_order_id=slice_detail.client_order_id,
+                    status="blocked_kill_switch",
+                    error_message="Kill switch is engaged - all new orders blocked",
+                )
+                # Do NOT raise - job should complete silently
+                return
 
-        # 🔒 MANDATORY: Circuit breaker check
-        if self.breaker.is_tripped():
-            reason = self.breaker.get_trip_reason()
-            logger.warning(
-                f"Slice blocked by circuit breaker: parent={parent_order_id}, "
-                f"slice={slice_detail.slice_num}, reason={reason}",
+            # 🔒 MANDATORY: Circuit breaker check
+            if self.breaker.is_tripped():
+                reason = self.breaker.get_trip_reason()
+                logger.warning(
+                    f"Slice blocked by circuit breaker: parent={parent_order_id}, "
+                    f"slice={slice_detail.slice_num}, reason={reason}",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "slice_num": slice_detail.slice_num,
+                        "client_order_id": slice_detail.client_order_id,
+                        "block_reason": "circuit_breaker_tripped",
+                        "trip_reason": str(reason),
+                    },
+                )
+                # Update DB status to 'blocked_circuit_breaker' with error message for debuggability
+                self.db.update_order_status(
+                    client_order_id=slice_detail.client_order_id,
+                    status="blocked_circuit_breaker",
+                    error_message=f"Circuit breaker is tripped - reason: {reason}",
+                )
+                return
+
+        except Exception as infra_error:
+            # Infrastructure failure (PostgreSQL/Redis outage) during pre-submission checks
+            # Mark slice as failed to prevent silent job drops
+            logger.error(
+                f"Infrastructure failure during pre-submission checks: parent={parent_order_id}, "
+                f"slice={slice_detail.slice_num}, error={infra_error}",
                 extra={
                     "parent_order_id": parent_order_id,
                     "slice_num": slice_detail.slice_num,
                     "client_order_id": slice_detail.client_order_id,
-                    "block_reason": "circuit_breaker_tripped",
-                    "trip_reason": str(reason),
+                    "infrastructure_error": str(infra_error),
                 },
             )
-            # Update DB status to 'blocked_circuit_breaker' with error message for debuggability
-            self.db.update_order_status(
-                client_order_id=slice_detail.client_order_id,
-                status="blocked_circuit_breaker",
-                error_message=f"Circuit breaker is tripped - reason: {reason}",
-            )
-            return
+            # Try to mark slice as failed in DB (best effort)
+            try:
+                self.db.update_order_status(
+                    client_order_id=slice_detail.client_order_id,
+                    status="failed",
+                    error_message=f"Infrastructure failure during pre-submission checks: {infra_error}",
+                )
+            except Exception:
+                # Even marking as failed failed - log and re-raise original error
+                logger.critical(
+                    f"Cannot update DB after infrastructure failure: parent={parent_order_id}, "
+                    f"slice={slice_detail.slice_num}",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "slice_num": slice_detail.slice_num,
+                        "client_order_id": slice_detail.client_order_id,
+                    },
+                )
+            # Re-raise to ensure APScheduler logs the failure
+            raise
 
         # Create order request
         order_request = OrderRequest(
@@ -427,9 +465,10 @@ class SliceScheduler:
             time_in_force=time_in_force,
         )
 
+        # 🔒 DEFENSE IN DEPTH: Double-check DB status immediately before submission
+        # (second guard against race conditions during cancellation)
+        # Wrap in try-catch to handle DB failures (same pattern as pre-submission checks above)
         try:
-            # 🔒 DEFENSE IN DEPTH: Double-check DB status immediately before submission
-            # (second guard against race conditions during cancellation)
             current_order_pre_submit = self.db.get_order_by_client_id(slice_detail.client_order_id)
             if current_order_pre_submit and current_order_pre_submit.status == "canceled":
                 logger.info(
@@ -443,8 +482,38 @@ class SliceScheduler:
                     },
                 )
                 return
+        except Exception as infra_error:
+            # DB failure at pre-submit guard - mark as failed and re-raise
+            logger.error(
+                f"Infrastructure failure at pre-submit guard: parent={parent_order_id}, "
+                f"slice={slice_detail.slice_num}, error={infra_error}",
+                extra={
+                    "parent_order_id": parent_order_id,
+                    "slice_num": slice_detail.slice_num,
+                    "client_order_id": slice_detail.client_order_id,
+                    "infrastructure_error": str(infra_error),
+                },
+            )
+            try:
+                self.db.update_order_status(
+                    client_order_id=slice_detail.client_order_id,
+                    status="failed",
+                    error_message=f"Infrastructure failure at pre-submit guard: {infra_error}",
+                )
+            except Exception:
+                logger.critical(
+                    f"Cannot update DB after pre-submit guard failure: parent={parent_order_id}, "
+                    f"slice={slice_detail.slice_num}",
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "slice_num": slice_detail.slice_num,
+                        "client_order_id": slice_detail.client_order_id,
+                    },
+                )
+            raise
 
-            # Submit to broker (or log as dry-run if executor is None)
+        # Submit to broker (or log as dry-run if executor is None)
+        try:
             if self.executor is None:
                 # DRY_RUN mode: Log order without submitting to broker
                 logger.info(
@@ -635,7 +704,7 @@ class SliceScheduler:
                     canceled_count += 1
                 except JobLookupError:
                     # Job already executed and removed - this is expected and safe
-                    # DB was already marked canceled (line 582), so we can safely ignore
+                    # DB was already marked canceled (line 695), so we can safely ignore
                     logger.debug(
                         f"Job already removed (likely executed): {job.id}",
                         extra={"job_id": job.id, "parent_order_id": parent_order_id},
