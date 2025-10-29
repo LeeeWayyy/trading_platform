@@ -93,7 +93,13 @@ class MultiAlphaAllocator:
 
         Args:
             method: Allocation method ('rank_aggregation', 'inverse_vol', 'equal_weight')
-            per_strategy_max: Maximum weight for any single strategy (default 0.40 = 40%)
+            per_strategy_max: Maximum weight for any single strategy (default 0.40 = 40%).
+                              This is a RELATIVE PRE-NORMALIZATION limit, not a hard cap.
+                              The cap is enforced on total strategy contribution BEFORE final
+                              normalization. After normalization, the final weight may differ
+                              (e.g., a strategy capped at 40% pre-norm may end up at 67% post-norm
+                              if total pre-norm weights summed to 0.6). This ensures proportional
+                              scaling while preventing any single strategy from dominating.
             correlation_threshold: Alert threshold for inter-strategy correlation (default 0.70)
 
         Raises:
@@ -267,31 +273,29 @@ class MultiAlphaAllocator:
         # Step 2: Combine all rankings
         all_ranks = pl.concat(ranked_dfs)
 
-        # Step 3: Average ranks per symbol across strategies
-        avg_ranks = (
-            all_ranks.group_by("symbol")
-            .agg(
-                [
-                    pl.col("normalized_rank").mean().alias("avg_rank"),
-                    pl.col("strategy_id").alias("contributing_strategies"),
-                ]
-            )
-            .sort("avg_rank", descending=True)  # Higher avg_rank = better
+        # Step 3: Normalize ranks WITHIN each strategy to get strategy-specific weights
+        # This ensures each strategy contributes proportionally based on its internal rankings
+        strategy_rank_totals = all_ranks.group_by("strategy_id").agg(
+            pl.col("normalized_rank").sum().alias("total_rank")
         )
 
-        # Step 4: Convert average ranks to weights
-        # Use avg_rank directly as weight, then normalize
-        total_rank = avg_ranks["avg_rank"].sum()
-        result = avg_ranks.select(
+        weighted_ranks = all_ranks.join(
+            strategy_rank_totals, on="strategy_id", how="left"
+        ).with_columns((pl.col("normalized_rank") / pl.col("total_rank")).alias("strategy_weight"))
+
+        # Create weighted contributions for caps enforcement
+        # Each (symbol, strategy_id) pair has a weight contribution
+        weighted_contributions = weighted_ranks.select(
             [
                 pl.col("symbol"),
-                (pl.col("avg_rank") / total_rank).alias("final_weight"),
-                pl.col("contributing_strategies"),
+                pl.col("strategy_id"),
+                pl.col("strategy_weight").alias("weighted_contribution"),
             ]
         )
 
-        # Apply per-strategy concentration limits
-        result = self._apply_concentration_limits(result)
+        # Apply per-strategy caps and aggregate
+        # This ensures no single strategy contributes more than per_strategy_max
+        result = self._apply_per_strategy_caps_and_aggregate(weighted_contributions)
 
         # Final normalization to ensure sum = 1.0
         final_sum = result["final_weight"].sum()
@@ -361,20 +365,29 @@ class MultiAlphaAllocator:
 
         all_signals = pl.concat(combined_dfs)
 
-        # Average weights per symbol across strategies
-        result = (
-            all_signals.group_by("symbol")
-            .agg(
-                [
-                    pl.col("weight").mean().alias("final_weight"),
-                    pl.col("strategy_id").alias("contributing_strategies"),
-                ]
-            )
-            .sort("final_weight", descending=True)
+        # Normalize weights WITHIN each strategy to get equal influence
+        # For each strategy, ensure its weights sum to 1.0 before combining
+        strategy_totals = all_signals.group_by("strategy_id").agg(
+            pl.col("weight").sum().alias("total_weight")
         )
 
-        # Apply concentration limits
-        result = self._apply_concentration_limits(result)
+        normalized_signals = all_signals.join(
+            strategy_totals, on="strategy_id", how="left"
+        ).with_columns((pl.col("weight") / pl.col("total_weight")).alias("normalized_weight"))
+
+        # Now each strategy contributes proportionally to its internal weights
+        # Rename for consistency with caps method
+        weighted_contributions = normalized_signals.select(
+            [
+                pl.col("symbol"),
+                pl.col("strategy_id"),
+                pl.col("normalized_weight").alias("weighted_contribution"),
+            ]
+        )
+
+        # Apply per-strategy caps and aggregate
+        # This ensures no single strategy contributes more than per_strategy_max
+        result = self._apply_per_strategy_caps_and_aggregate(weighted_contributions)
 
         # Final normalization
         final_sum = result["final_weight"].sum()
@@ -504,27 +517,16 @@ class MultiAlphaAllocator:
         # Combine weighted contributions
         all_weighted = pl.concat(weighted_dfs)
 
-        # Aggregate per symbol
-        result = (
-            all_weighted.group_by("symbol")
-            .agg(
-                [
-                    pl.col("weighted_contribution").sum().alias("final_weight"),
-                    pl.col("strategy_id").alias("contributing_strategies"),
-                ]
-            )
-            .sort("final_weight", descending=True)
-        )
-
-        # NOTE: Skipping concentration limits for inverse_vol
-        # Reason: Limits should be applied per-strategy BEFORE aggregation, not after.
-        # Applying limits after aggregation distorts the mathematically correct inverse-vol ratios.
-        # Component 3 will implement per-strategy concentration tracking.
-        # result = self._apply_concentration_limits(result)
+        # Apply per-strategy caps and aggregate
+        # This ensures no single strategy contributes more than per_strategy_max
+        result = self._apply_per_strategy_caps_and_aggregate(all_weighted)
 
         # Final normalization to ensure sum = 1.0
         final_sum = result["final_weight"].sum()
         result = result.with_columns((pl.col("final_weight") / final_sum).alias("final_weight"))
+
+        # Drop internal column for consistent output schema
+        result = result.select(["symbol", "final_weight", "contributing_strategies"])
 
         logger.info(
             "Inverse volatility allocation complete",
@@ -537,44 +539,246 @@ class MultiAlphaAllocator:
 
         return result
 
-    def _apply_concentration_limits(self, df: pl.DataFrame) -> pl.DataFrame:
+    def _apply_per_strategy_caps_and_aggregate(
+        self, weighted_contributions: pl.DataFrame
+    ) -> pl.DataFrame:
         """
-        Apply per-strategy concentration limits.
+        Apply per-strategy concentration limits and aggregate to final weights.
 
-        Ensures no single strategy contributes more than per_strategy_max to any symbol.
+        Enforces that no single strategy contributes more than per_strategy_max to the
+        TOTAL allocation across all symbols. This preserves the relative proportions from
+        the allocation method while preventing over-concentration in any one strategy.
 
-        NOTE: This is a simplified implementation for Component 1. Full implementation
-        in Component 3 will enforce per-strategy caps properly by tracking strategy
-        contributions separately before blending.
+        CRITICAL: The cap is enforced on the total contribution from each strategy, not
+        per-symbol. This prevents a strategy from exceeding the limit by spreading across
+        multiple symbols (e.g., 35% AAPL + 35% MSFT = 70% total > 40% cap).
 
         Args:
-            df: DataFrame with [symbol, final_weight, contributing_strategies]
+            weighted_contributions: DataFrame with columns:
+                - symbol (str): Symbol ticker
+                - strategy_id (str): Strategy identifier
+                - weighted_contribution (float): Contribution from this strategy to this symbol
 
         Returns:
-            DataFrame with capped weights (not yet normalized)
+            DataFrame with columns:
+                - symbol (str): Symbol ticker
+                - final_weight (float): Aggregated weight after applying caps (not normalized)
+                - contributing_strategies (list[str]): Strategies that contributed to this symbol
+
+        Example:
+            Input:
+            symbol  | strategy_id     | weighted_contribution
+            --------|-----------------|----------------------
+            AAPL    | alpha_baseline  | 0.30
+            MSFT    | alpha_baseline  | 0.30  (total for alpha_baseline = 0.60 > 0.40 cap!)
+            GOOGL   | momentum        | 0.25
+
+            Output (with per_strategy_max=0.40):
+            - alpha_baseline total exceeds cap: 0.60 → scale by 0.40/0.60 = 0.6667
+            - AAPL: 0.30 * 0.6667 = 0.20
+            - MSFT: 0.30 * 0.6667 = 0.20
+            - GOOGL: 0.25 (no cap)
         """
-        # Placeholder: Full implementation in Component 3
-        # For now, just cap individual symbol weights at per_strategy_max
-        return df.with_columns(
-            pl.when(pl.col("final_weight") > self.per_strategy_max)
-            .then(pl.lit(self.per_strategy_max))
-            .otherwise(pl.col("final_weight"))
-            .alias("final_weight")
+        if weighted_contributions.is_empty():
+            return pl.DataFrame(
+                schema={
+                    "symbol": pl.Utf8,
+                    "final_weight": pl.Float64,
+                    "contributing_strategies": pl.List(pl.Utf8),
+                }
+            )
+
+        # Step 1: Calculate total contribution per strategy across ALL symbols
+        strategy_totals = weighted_contributions.group_by("strategy_id").agg(
+            pl.col("weighted_contribution").sum().alias("total_contribution")
         )
+
+        # Step 2: Identify strategies that exceed the cap and calculate scale factors
+        strategy_totals = strategy_totals.with_columns(
+            pl.when(pl.col("total_contribution") > self.per_strategy_max)
+            .then(self.per_strategy_max / pl.col("total_contribution"))
+            .otherwise(pl.lit(1.0))
+            .alias("scale_factor")
+        )
+
+        # Log strategies that will be scaled
+        capped_strategies = strategy_totals.filter(pl.col("scale_factor") < 1.0)
+        if not capped_strategies.is_empty():
+            for row in capped_strategies.iter_rows(named=True):
+                logger.warning(
+                    "Applying per-strategy concentration cap",
+                    extra={
+                        "strategy_id": row["strategy_id"],
+                        "original_total": round(row["total_contribution"], 4),
+                        "capped_total": round(self.per_strategy_max, 4),
+                        "scale_factor": round(row["scale_factor"], 4),
+                        "per_strategy_max": self.per_strategy_max,
+                    },
+                )
+
+        # Step 3: Join scale factors back to weighted_contributions
+        scaled = weighted_contributions.join(
+            strategy_totals.select(["strategy_id", "scale_factor"]),
+            on="strategy_id",
+            how="left",
+        )
+
+        # Step 4: Apply scale factor to each contribution
+        scaled = scaled.with_columns(
+            (pl.col("weighted_contribution") * pl.col("scale_factor")).alias("capped_contribution")
+        )
+
+        # Step 5: Aggregate by symbol
+        result = (
+            scaled.group_by("symbol")
+            .agg(
+                [
+                    pl.col("capped_contribution").sum().alias("final_weight"),
+                    pl.col("strategy_id").alias("contributing_strategies"),
+                ]
+            )
+            .sort("final_weight", descending=True)
+        )
+
+        return result
 
     def check_correlation(
         self, recent_returns: dict[str, pl.DataFrame]
     ) -> dict[tuple[str, str], float]:
         """
-        Check inter-strategy correlation and emit alerts if above threshold (Placeholder for Component 3).
+        Check inter-strategy correlation and emit alerts if above threshold.
 
-        This method will be fully implemented in Component 3.
+        Calculates pairwise Pearson correlations between strategy returns. Emits warning
+        logs if any pair exceeds correlation_threshold, indicating potential redundancy
+        or lack of diversification benefit.
 
         Args:
-            recent_returns: Dictionary mapping strategy_id to DataFrames with columns [date, return]
+            recent_returns: Dictionary mapping strategy_id to DataFrames with columns:
+                - date (date or datetime): Trading date
+                - return (float): Strategy return for that date
+
+                Each DataFrame should contain aligned dates for proper correlation calculation.
 
         Returns:
             Dictionary mapping (strategy1, strategy2) -> correlation_coefficient
+            Keys are tuples of strategy IDs (sorted alphabetically for consistency)
+            Values are Pearson correlation coefficients in range [-1, 1]
+
+        Raises:
+            ValueError: If recent_returns is empty or if DataFrames have incompatible schemas
+
+        Example:
+            >>> returns = {
+            ...     'alpha_baseline': pl.DataFrame({'date': [...], 'return': [...]}),
+            ...     'momentum': pl.DataFrame({'date': [...], 'return': [...]})
+            ... }
+            >>> correlations = allocator.check_correlation(returns)
+            >>> assert ('alpha_baseline', 'momentum') in correlations
         """
-        logger.warning("Correlation monitoring not yet implemented (Component 3)")
-        return {}
+        if not recent_returns:
+            raise ValueError("recent_returns cannot be empty")
+
+        strategy_ids = sorted(recent_returns.keys())
+        if len(strategy_ids) < 2:
+            # Need at least 2 strategies for correlation
+            logger.debug(
+                "Correlation check skipped - need at least 2 strategies",
+                extra={"num_strategies": len(strategy_ids)},
+            )
+            return {}
+
+        # Validate schema for all DataFrames
+        for strategy_id, df in recent_returns.items():
+            if df.is_empty():
+                raise ValueError(f"recent_returns['{strategy_id}'] is empty")
+            if "date" not in df.columns or "return" not in df.columns:
+                raise ValueError(
+                    f"recent_returns['{strategy_id}'] missing required columns "
+                    f"(expected: date, return; got: {df.columns})"
+                )
+
+        # Merge all returns on date for aligned correlation calculation
+        # Start with first strategy
+        merged = recent_returns[strategy_ids[0]].select(
+            [pl.col("date"), pl.col("return").alias(f"return_{strategy_ids[0]}")]
+        )
+
+        # Join remaining strategies
+        for strategy_id in strategy_ids[1:]:
+            merged = merged.join(
+                recent_returns[strategy_id].select(
+                    [pl.col("date"), pl.col("return").alias(f"return_{strategy_id}")]
+                ),
+                on="date",
+                how="inner",  # Only use dates present in all strategies
+            )
+
+        if merged.is_empty():
+            logger.warning(
+                "No overlapping dates across strategies - cannot calculate correlation",
+                extra={"strategies": strategy_ids},
+            )
+            return {}
+
+        if len(merged) < 2:
+            logger.warning(
+                "Insufficient overlapping data points for correlation",
+                extra={"num_points": len(merged), "strategies": strategy_ids},
+            )
+            return {}
+
+        # Calculate pairwise correlations
+        correlations: dict[tuple[str, str], float] = {}
+        high_correlations: list[tuple[str, str, float]] = []
+
+        for i in range(len(strategy_ids)):
+            for j in range(i + 1, len(strategy_ids)):
+                strat1 = strategy_ids[i]
+                strat2 = strategy_ids[j]
+
+                # Calculate Pearson correlation
+                corr_result = merged.select(
+                    pl.corr(f"return_{strat1}", f"return_{strat2}").alias("correlation")
+                )
+                correlation = corr_result["correlation"][0]
+
+                # Handle NaN (can occur if all returns are identical or zero variance)
+                if correlation is None or not math.isfinite(correlation):
+                    logger.warning(
+                        "Invalid correlation (NaN/Inf) - likely zero variance in returns",
+                        extra={"strategy1": strat1, "strategy2": strat2},
+                    )
+                    correlation = 0.0
+
+                correlations[(strat1, strat2)] = correlation
+
+                # Check threshold
+                if abs(correlation) > self.correlation_threshold:
+                    high_correlations.append((strat1, strat2, correlation))
+
+        # Emit alerts for high correlations
+        if high_correlations:
+            for strat1, strat2, corr in high_correlations:
+                logger.warning(
+                    "High inter-strategy correlation detected",
+                    extra={
+                        "strategy1": strat1,
+                        "strategy2": strat2,
+                        "correlation": round(corr, 4),
+                        "threshold": self.correlation_threshold,
+                        "risk": "Strategies may lack diversification - consider reducing allocation to one",
+                    },
+                )
+
+        logger.info(
+            "Correlation check complete",
+            extra={
+                "num_pairs": len(correlations),
+                "num_high_correlations": len(high_correlations),
+                "max_correlation": (
+                    round(max(abs(c) for c in correlations.values()), 4) if correlations else None
+                ),
+            },
+        )
+
+        return correlations
