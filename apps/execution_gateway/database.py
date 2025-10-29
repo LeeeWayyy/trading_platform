@@ -99,14 +99,17 @@ class DatabaseClient:
             ...         return cur.fetchone()
             >>> result = db._execute_with_conn(None, insert_order)
         """
-        if conn is None:
-            # Create and manage our own connection
-            # The psycopg context manager auto-commits on successful exit
-            with psycopg.connect(self.db_conn_string) as new_conn:
-                return operation(new_conn)
-        else:
-            # Use provided connection (transactional mode - caller handles commit)
+        # Use provided connection (transactional mode - caller handles commit)
+        if conn is not None:
             return operation(conn)
+
+        # Create and manage our own connection
+        # IMPORTANT: psycopg context manager does NOT auto-commit - it rolls back on exit
+        # We must explicitly commit before the context manager exits
+        with psycopg.connect(self.db_conn_string) as new_conn:
+            result = operation(new_conn)
+            new_conn.commit()
+            return result
 
     @contextmanager
     def transaction(self) -> Generator[psycopg.Connection, None, None]:
@@ -253,13 +256,13 @@ class DatabaseClient:
                     )
 
                     row = cur.fetchone()
-                    # Context manager handles commit automatically - no explicit commit needed
+                    conn.commit()
 
                     if row is None:
                         raise ValueError(f"Failed to create order: {client_order_id}")
 
                     logger.info(
-                        f"Order created in database: {client_order_id}",
+                        "Order created in database",
                         extra={
                             "client_order_id": client_order_id,
                             "symbol": order_request.symbol,
@@ -652,7 +655,7 @@ class DatabaseClient:
                     )
 
                     canceled_count = cur.rowcount
-                    # Context manager handles commit automatically - no explicit commit needed
+                    conn.commit()
 
                     logger.info(
                         f"Canceled {canceled_count} pending slices for parent: {parent_order_id}",
@@ -781,7 +784,7 @@ class DatabaseClient:
                     )
 
                     row = cur.fetchone()
-                    # Context manager handles commit automatically - no explicit commit needed
+                    conn.commit()
 
                     if not row:
                         logger.warning(f"Order not found for update: {client_order_id}")
@@ -943,7 +946,7 @@ class DatabaseClient:
                     )
 
                     row = cur.fetchone()
-                    # Context manager handles commit automatically - no explicit commit needed
+                    conn.commit()
 
                     if row is None:
                         raise ValueError(f"Failed to update position for symbol: {symbol}")

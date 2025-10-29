@@ -238,6 +238,8 @@ class SliceScheduler:
                 trigger="date",
                 run_date=slice_detail.scheduled_time,
                 id=job_id,
+                max_instances=1,  # Prevent duplicate executions of the same slice
+                misfire_grace_time=60,  # Allow 60s delay before considering job missed
                 kwargs={
                     "parent_order_id": parent_order_id,
                     "slice_detail": slice_detail,
@@ -609,8 +611,21 @@ class SliceScheduler:
                                     broker_order_id=broker_response["id"],
                                     error_message=f"DB update failed after broker submission: {db_error}",
                                 )
+                                # Successfully marked as submitted_unconfirmed - allow graceful job termination
+                                # Reconciliation will handle this state, no need to raise and add noise
+                                logger.info(
+                                    f"Slice marked as submitted_unconfirmed for reconciliation: parent={parent_order_id}, "
+                                    f"slice={slice_detail.slice_num}, broker_id={broker_response['id']}",
+                                    extra={
+                                        "parent_order_id": parent_order_id,
+                                        "slice_num": slice_detail.slice_num,
+                                        "client_order_id": slice_detail.client_order_id,
+                                        "broker_order_id": broker_response["id"],
+                                        "awaiting_reconciliation": True,
+                                    },
+                                )
                             except Exception:
-                                # Even this failed - log and rely on reconciliation
+                                # Even this failed - log and re-raise for visibility
                                 logger.critical(
                                     f"CRITICAL: Cannot update DB at all after broker submission. "
                                     f"Manual intervention required: broker_id={broker_response['id']}",
@@ -620,8 +635,8 @@ class SliceScheduler:
                                         "broker_order_id": broker_response["id"],
                                     },
                                 )
-                            # Re-raise to ensure APScheduler logs the failure
-                            raise
+                                # Re-raise to ensure APScheduler logs the failure
+                                raise
 
         except (AlpacaValidationError, AlpacaRejectionError) as e:
             # Non-retryable errors - update DB and log

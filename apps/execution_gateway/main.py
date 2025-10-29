@@ -585,17 +585,17 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-10-17T16:30:00Z"
         }
     """
-    global kill_switch_unavailable, kill_switch
+    global kill_switch_unavailable, kill_switch, circuit_breaker, slice_scheduler
 
     # Check database connection
     db_connected = db_client.check_connection()
 
-    # Check Redis connection and attempt kill-switch recovery
+    # Check Redis connection and attempt infrastructure recovery
     redis_connected = False
     if redis_client:
         redis_connected = redis_client.health_check()
 
-        # Attempt to recover kill-switch if it was previously unavailable
+        # Attempt to recover kill-switch, circuit breaker, and slice scheduler if Redis is back
         if kill_switch_unavailable and redis_connected:
             try:
                 # Re-initialize kill-switch if it was None at startup
@@ -606,18 +606,56 @@ async def health_check() -> HealthResponse:
                         extra={"kill_switch_recovered": True},
                     )
 
+                # Re-initialize circuit breaker if it was None at startup
+                if circuit_breaker is None:
+                    circuit_breaker = CircuitBreaker(redis_client=redis_client)
+                    logger.info(
+                        "Circuit breaker re-initialized after Redis recovery",
+                        extra={"breaker_recovered": True},
+                    )
+
+                # Re-initialize slice scheduler if both kill switch and circuit breaker are now available
+                if (
+                    slice_scheduler is None
+                    and kill_switch is not None
+                    and circuit_breaker is not None
+                ):
+                    slice_scheduler = SliceScheduler(
+                        kill_switch=kill_switch,
+                        breaker=circuit_breaker,
+                        db_client=db_client,
+                        executor=alpaca_client,  # Can be None in DRY_RUN mode
+                    )
+                    # Start the scheduler (same pattern as startup_event)
+                    # Guard against restarting a shutdown scheduler (APScheduler limitation)
+                    if not slice_scheduler.scheduler.running:
+                        slice_scheduler.start()
+                        logger.info(
+                            "Slice scheduler re-initialized and started after Redis recovery",
+                            extra={"scheduler_recovered": True, "scheduler_started": True},
+                        )
+                    else:
+                        logger.info(
+                            "Slice scheduler re-initialized but already running",
+                            extra={"scheduler_recovered": True, "scheduler_already_running": True},
+                        )
+
                 # Test kill-switch availability by checking its state
                 kill_switch.is_engaged()
                 # If we get here, kill-switch is available again
                 kill_switch_unavailable = False
                 logger.info(
-                    "Kill-switch recovered - resuming normal operations",
-                    extra={"kill_switch_recovered": True},
+                    "Infrastructure recovered - resuming normal operations",
+                    extra={
+                        "kill_switch_recovered": True,
+                        "breaker_recovered": True,
+                        "scheduler_recovered": True,
+                    },
                 )
             except Exception as e:
                 # Still unavailable, keep flag set
                 logger.debug(
-                    f"Kill-switch still unavailable during health check: {e}",
+                    f"Infrastructure still unavailable during health check: {e}",
                     extra={"kill_switch_unavailable": True},
                 )
 

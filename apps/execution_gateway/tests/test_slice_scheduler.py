@@ -451,7 +451,6 @@ class TestExecuteSliceSuccess:
 
     def test_execute_slice_db_failure_after_broker_submission_retries_then_fallback(self):
         """Test DB update failure after broker submission retries with backoff then falls back to submitted_unconfirmed."""
-        import pytest
 
         kill_switch = MagicMock(spec=KillSwitch)
         kill_switch.is_engaged.return_value = False
@@ -488,18 +487,18 @@ class TestExecuteSliceSuccess:
             status="pending_new",
         )
 
-        # Execute slice - fallback re-raises exception to let APScheduler log failure
-        with pytest.raises(Exception, match="DB connection lost"):
-            scheduler._execute_slice(
-                parent_order_id="parent123",
-                slice_detail=slice_detail,
-                symbol="AAPL",
-                side="buy",
-                order_type="market",
-                limit_price=None,
-                stop_price=None,
-                time_in_force="day",
-            )
+        # Execute slice - fallback succeeds, allowing graceful job termination
+        # No exception should be raised when submitted_unconfirmed update succeeds
+        scheduler._execute_slice(
+            parent_order_id="parent123",
+            slice_detail=slice_detail,
+            symbol="AAPL",
+            side="buy",
+            order_type="market",
+            limit_price=None,
+            stop_price=None,
+            time_in_force="day",
+        )
 
         # Verify executor called (broker submission succeeded)
         executor.submit_order.assert_called_once()

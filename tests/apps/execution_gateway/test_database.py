@@ -102,7 +102,7 @@ class TestCreateOrder:
 
         # Verify database operations
         mock_cursor.execute.assert_called_once()
-        # Note: Context manager handles commit automatically - no explicit commit needed
+        mock_conn.commit.assert_called_once()
 
     def test_create_order_with_dry_run_status(self, mock_connection):
         """Test order creation with dry_run status (no submitted_at)."""
