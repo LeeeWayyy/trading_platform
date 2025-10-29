@@ -5,10 +5,10 @@ Splits large parent orders into smaller child slices distributed evenly over tim
 to minimize market impact. This is a standard algorithmic execution strategy.
 
 Algorithm:
-    1. Divide total quantity by duration (1 slice per minute)
+    1. Determine slice count from duration and requested interval spacing
     2. Distribute remainder using front-loaded approach (first slices get +1)
     3. Generate deterministic client_order_id for parent and each slice
-    4. Calculate scheduled execution times at regular intervals
+    4. Calculate scheduled execution times at the configured interval spacing
 
 Example:
     >>> slicer = TWAPSlicer()
@@ -30,6 +30,7 @@ See Also:
 """
 
 import logging
+import math
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -67,7 +68,7 @@ class TWAPSlicer:
     Notes:
         - Slice quantity distribution is front-loaded (first slices get remainder)
         - All client_order_ids are deterministic (same inputs = same IDs)
-        - Scheduled times are at 1-minute intervals starting from now
+        - Scheduled times honor configurable slice interval spacing
         - All slices initially have status="pending_new"
     """
 
@@ -78,6 +79,7 @@ class TWAPSlicer:
         qty: int,
         duration_minutes: int,
         order_type: Literal["market", "limit", "stop", "stop_limit"],
+        interval_seconds: int = 60,
         limit_price: Decimal | None = None,
         stop_price: Decimal | None = None,
         time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day",
@@ -90,8 +92,9 @@ class TWAPSlicer:
             symbol: Stock symbol (e.g., "AAPL")
             side: Order side ("buy" or "sell")
             qty: Total order quantity
-            duration_minutes: Slicing duration in minutes (1 slice per minute)
+            duration_minutes: Total slicing duration in minutes
             order_type: Order type ("market", "limit", "stop", "stop_limit")
+            interval_seconds: Interval between slices in seconds
             limit_price: Limit price for limit/stop_limit orders (required if order_type is limit/stop_limit)
             stop_price: Stop price for stop/stop_limit orders (required if order_type is stop/stop_limit)
             time_in_force: Time in force ("day", "gtc", "ioc", "fok")
@@ -101,7 +104,8 @@ class TWAPSlicer:
             SlicingPlan with parent order ID and all child slice details
 
         Raises:
-            ValueError: If qty < 1, duration_minutes < 1, qty < duration_minutes,
+            ValueError: If qty < 1, duration_minutes < 1, interval_seconds < 1,
+                       or qty insufficient for computed slice count,
                        or required prices are missing for limit/stop orders
 
         Example:
@@ -120,7 +124,7 @@ class TWAPSlicer:
 
         Notes:
             - Remainder is distributed front-loaded (first slices get +1)
-            - Parent order ID uses total quantity
+            - Parent order ID uses total quantity + configuration parameters
             - Child order IDs use individual slice quantities
             - All IDs are deterministic (repeatable for same inputs)
         """
@@ -131,13 +135,16 @@ class TWAPSlicer:
         if duration_minutes < 1:
             raise ValueError(f"duration_minutes must be at least 1, got {duration_minutes}")
 
-        # Calculate number of slices (1 per minute)
-        num_slices = duration_minutes
+        if interval_seconds < 1:
+            raise ValueError(f"interval_seconds must be at least 1, got {interval_seconds}")
+
+        total_duration_seconds = duration_minutes * 60
+        num_slices = max(1, math.ceil(total_duration_seconds / interval_seconds))
 
         if qty < num_slices:
             raise ValueError(
-                f"qty ({qty}) must be >= duration_minutes ({num_slices}) "
-                f"to avoid zero-quantity slices (1 slice per minute)"
+                f"qty ({qty}) must be >= number of slices ({num_slices}) derived from duration "
+                f"and interval to avoid zero-quantity slices"
             )
 
         # Validate order type requirements
@@ -168,7 +175,7 @@ class TWAPSlicer:
             qty=qty,
             limit_price=limit_price,
             stop_price=stop_price,
-            strategy_id=f"twap_parent_{duration_minutes}m",
+            strategy_id=f"twap_parent_{duration_minutes}m_{interval_seconds}s",
             order_date=_trade_date,
         )
 
@@ -176,7 +183,7 @@ class TWAPSlicer:
         slices = []
         for i, slice_qty in enumerate(slice_qtys):
             # Calculate scheduled time (i minutes from now)
-            scheduled_time = now + timedelta(minutes=i)
+            scheduled_time = now + timedelta(seconds=i * interval_seconds)
 
             # Generate deterministic child order ID (same trade date as parent)
             child_order_id = reconstruct_order_params_hash(
@@ -200,8 +207,15 @@ class TWAPSlicer:
             )
 
         logger.info(
-            f"Generated TWAP slicing plan: {symbol} {side} {qty} over {duration_minutes}min "
-            f"→ {num_slices} slices, parent_id={parent_order_id[:8]}..."
+            "Generated TWAP slicing plan: %s %s %s over %smin → %s slices (interval=%ss), "
+            "parent_id=%s...",
+            symbol,
+            side,
+            qty,
+            duration_minutes,
+            num_slices,
+            interval_seconds,
+            parent_order_id[:8],
         )
 
         return SlicingPlan(
@@ -211,5 +225,6 @@ class TWAPSlicer:
             total_qty=qty,
             total_slices=num_slices,
             duration_minutes=duration_minutes,
+            interval_seconds=interval_seconds,
             slices=slices,
         )

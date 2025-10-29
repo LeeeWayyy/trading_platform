@@ -5,6 +5,7 @@ Defines request and response models for all endpoints, ensuring type safety
 and validation at the API boundary.
 """
 
+import math
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, TypeAlias
@@ -585,15 +586,17 @@ class SlicingRequest(BaseModel):
         ...     side="buy",
         ...     qty=100,
         ...     duration_minutes=5,
+        ...     interval_seconds=60,
         ...     order_type="market"
         ... )
 
-        Limit order slicing:
+        Custom interval slicing:
         >>> request = SlicingRequest(
         ...     symbol="MSFT",
         ...     side="sell",
-        ...     qty=50,
-        ...     duration_minutes=10,
+        ...     qty=600,
+        ...     duration_minutes=60,
+        ...     interval_seconds=300,
         ...     order_type="limit",
         ...     limit_price=300.50
         ... )
@@ -603,7 +606,12 @@ class SlicingRequest(BaseModel):
     side: Literal["buy", "sell"] = Field(..., description="Order side")
     qty: int = Field(..., gt=0, description="Total order quantity (must be positive)")
     duration_minutes: int = Field(
-        ..., gt=0, description="Slicing duration in minutes (1 slice per minute)"
+        ..., gt=0, description="Total slicing duration in minutes"
+    )
+    interval_seconds: int = Field(
+        default=60,
+        gt=0,
+        description="Interval between slices in seconds (default: 60 = 1 minute)",
     )
     order_type: Literal["market", "limit", "stop", "stop_limit"] = Field(
         default="market", description="Order type for each slice"
@@ -641,18 +649,21 @@ class SlicingRequest(BaseModel):
     @model_validator(mode="after")
     def validate_qty_duration_relationship(self) -> "SlicingRequest":
         """
-        Ensure qty >= duration_minutes.
+        Ensure qty >= required slices.
 
-        With 1 slice per minute, qty must be at least duration_minutes to avoid
-        zero-quantity slices (which would fail downstream validation).
+        Compute required number of slices from duration + interval and ensure
+        qty is sufficient to allocate at least one share to each slice.
 
         Raises:
-            ValueError: If qty < duration_minutes
+            ValueError: If qty < required_slices
         """
-        if self.qty < self.duration_minutes:
+        total_duration_seconds = self.duration_minutes * 60
+        required_slices = max(1, math.ceil(total_duration_seconds / self.interval_seconds))
+
+        if self.qty < required_slices:
             raise ValueError(
-                f"qty ({self.qty}) must be >= duration_minutes ({self.duration_minutes}) "
-                f"to avoid zero-quantity slices (1 slice per minute)"
+                f"qty ({self.qty}) must be >= number of slices ({required_slices}) derived from "
+                f"duration and interval to avoid zero-quantity slices"
             )
         return self
 
@@ -664,6 +675,7 @@ class SlicingRequest(BaseModel):
                     "side": "buy",
                     "qty": 100,
                     "duration_minutes": 5,
+                    "interval_seconds": 60,
                     "order_type": "market",
                     "time_in_force": "day",
                 },
@@ -672,6 +684,7 @@ class SlicingRequest(BaseModel):
                     "side": "sell",
                     "qty": 50,
                     "duration_minutes": 10,
+                    "interval_seconds": 300,
                     "order_type": "limit",
                     "limit_price": "300.50",
                     "time_in_force": "day",
@@ -719,7 +732,7 @@ class SlicingPlan(BaseModel):
     Complete TWAP slicing plan with parent order and all child slices.
 
     The plan includes the parent order metadata and a list of child slices
-    scheduled for execution at regular intervals.
+    scheduled for execution at regular intervals determined by interval_seconds.
 
     Attributes:
         parent_order_id: Deterministic ID for the parent order
@@ -728,6 +741,7 @@ class SlicingPlan(BaseModel):
         total_qty: Total quantity across all slices
         total_slices: Number of child slices
         duration_minutes: Slicing duration
+        interval_seconds: Interval between slices in seconds
         slices: List of child slice details (ordered by slice_num)
     """
 
@@ -737,6 +751,7 @@ class SlicingPlan(BaseModel):
     total_qty: int = Field(..., gt=0, description="Total quantity")
     total_slices: int = Field(..., gt=0, description="Number of slices")
     duration_minutes: int = Field(..., gt=0, description="Slicing duration in minutes")
+    interval_seconds: int = Field(..., gt=0, description="Interval between slices in seconds")
     slices: list[SliceDetail] = Field(..., description="Child slice details (ordered by slice_num)")
 
     model_config = {
@@ -749,6 +764,7 @@ class SlicingPlan(BaseModel):
                     "total_qty": 100,
                     "total_slices": 5,
                     "duration_minutes": 5,
+                    "interval_seconds": 60,
                     "slices": [
                         {
                             "slice_num": 0,

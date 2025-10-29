@@ -1320,54 +1320,61 @@ def _find_existing_twap_plan(
     existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
 
     if not existing_parent:
-        # Backward compatibility: check legacy hash without duration
-        # (for TWAP orders created before this fix was deployed)
+        # Backward compatibility: check prior hash formats (without interval and/or duration)
         # CRITICAL: Use same trade_date for idempotency across midnight
-        legacy_parent_id = reconstruct_order_params_hash(
-            symbol=request.symbol,
-            side=request.side,
-            qty=request.qty,
-            limit_price=request.limit_price,
-            stop_price=request.stop_price,
-            strategy_id="twap_parent",  # Legacy format without duration
-            order_date=trade_date,  # Use consistent trade_date, not current date
-        )
-        existing_parent = db_client.get_order_by_client_id(legacy_parent_id)
+        requested_total_slices = slicing_plan.total_slices
+        fallback_strategies = [
+            (
+                f"twap_parent_{request.duration_minutes}m",
+                "duration-based legacy hash",
+            ),
+            (
+                "twap_parent",
+                "pre-duration legacy hash",
+            ),
+        ]
 
-        if existing_parent:
-            # Found legacy order - validate it matches this request
-            # Only honor legacy match if duration matches (prevent collision)
-            if existing_parent.total_slices == request.duration_minutes:
-                # Same duration - this is a true idempotent retry
+        for strategy_id, label in fallback_strategies:
+            legacy_parent_id = reconstruct_order_params_hash(
+                symbol=request.symbol,
+                side=request.side,
+                qty=request.qty,
+                limit_price=request.limit_price,
+                stop_price=request.stop_price,
+                strategy_id=strategy_id,
+                order_date=trade_date,
+            )
+            legacy_parent = db_client.get_order_by_client_id(legacy_parent_id)
+
+            if not legacy_parent:
+                continue
+
+            if legacy_parent.total_slices == requested_total_slices:
                 logger.info(
-                    f"Found legacy TWAP order (pre-duration hash): legacy_id={legacy_parent_id}",
+                    "Found %s TWAP order: legacy_id=%s", label, legacy_parent_id,
                     extra={
                         "legacy_parent_id": legacy_parent_id,
                         "new_parent_id": slicing_plan.parent_order_id,
-                        "status": existing_parent.status,
-                        "total_slices": existing_parent.total_slices,
+                        "status": legacy_parent.status,
+                        "total_slices": legacy_parent.total_slices,
                     },
                 )
-                # Override parent_order_id to match legacy order
                 slicing_plan.parent_order_id = legacy_parent_id
-            else:
-                # Different duration - this is a new order, skip legacy fallback
-                logger.info(
-                    f"Legacy TWAP order found but duration differs: "
-                    f"legacy_duration={existing_parent.total_slices}min, "
-                    f"request_duration={request.duration_minutes}min. "
-                    f"Creating new order with new hash.",
-                    extra={
-                        "legacy_parent_id": legacy_parent_id,
-                        "new_parent_id": slicing_plan.parent_order_id,
-                        "legacy_duration": existing_parent.total_slices,
-                        "request_duration": request.duration_minutes,
-                    },
-                )
-                # Different duration - this is a new order, not a retry of the legacy one.
-                # Clear the match to proceed with creating a new order using the new hash.
-                # This prevents hash collisions between orders with different durations.
-                existing_parent = None
+                existing_parent = legacy_parent
+                break
+
+            logger.info(
+                "Legacy TWAP order found but slice count differs: legacy_total_slices=%s, "
+                "requested_total_slices=%s. Creating new order with new hash.",
+                legacy_parent.total_slices,
+                requested_total_slices,
+                extra={
+                    "legacy_parent_id": legacy_parent_id,
+                    "new_parent_id": slicing_plan.parent_order_id,
+                    "legacy_total_slices": legacy_parent.total_slices,
+                    "requested_total_slices": requested_total_slices,
+                },
+            )
 
     if not existing_parent:
         return None
@@ -1394,6 +1401,7 @@ def _find_existing_twap_plan(
         total_qty=request.qty,
         total_slices=len(slice_details),
         duration_minutes=request.duration_minutes,
+        interval_seconds=request.interval_seconds,
         slices=slice_details,
     )
 
@@ -1504,6 +1512,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
             total_qty=request.qty,
             total_slices=len(slice_details),
             duration_minutes=request.duration_minutes,
+            interval_seconds=request.interval_seconds,
             slices=slice_details,
         )
 
@@ -1613,9 +1622,9 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
     Submit TWAP order with automatic slicing and scheduled execution.
 
     Creates a parent order and multiple child slice orders distributed evenly
-    over the specified duration. Each slice is scheduled for execution at regular
-    intervals (1 minute apart) with mandatory safety guards (kill switch, circuit
-    breaker checks).
+    over the specified duration. Each slice is scheduled for execution at the
+    requested interval spacing with mandatory safety guards (kill switch,
+    circuit breaker checks).
 
     Args:
         request: TWAP slicing request (symbol, side, qty, duration, etc.)
@@ -1664,6 +1673,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             "side": request.side,
             "qty": request.qty,
             "duration_minutes": request.duration_minutes,
+            "interval_seconds": request.interval_seconds,
         },
     )
 
@@ -1681,6 +1691,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             side=request.side,
             qty=request.qty,
             duration_minutes=request.duration_minutes,
+            interval_seconds=request.interval_seconds,
             order_type=request.order_type,
             limit_price=request.limit_price,
             stop_price=request.stop_price,

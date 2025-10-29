@@ -49,6 +49,7 @@ class TestTWAPSlicer:
         assert plan.total_qty == 100
         assert plan.total_slices == 5
         assert plan.duration_minutes == 5
+        assert plan.interval_seconds == 60
         assert len(plan.slices) == 5
 
         # All slices should have equal quantity (no remainder)
@@ -79,6 +80,7 @@ class TestTWAPSlicer:
 
         assert plan.total_qty == 103
         assert plan.total_slices == 5
+        assert plan.interval_seconds == 60
 
         # Expected: base_qty = 20, remainder = 3
         # First 3 slices get +1 (front-loaded)
@@ -112,6 +114,7 @@ class TestTWAPSlicer:
         actual_qtys = [s.qty for s in plan.slices]
         assert actual_qtys == expected_qtys
         assert sum(actual_qtys) == 109
+        assert plan.interval_seconds == 60
 
     def test_qty_equals_num_slices(self) -> None:
         """
@@ -134,6 +137,7 @@ class TestTWAPSlicer:
         actual_qtys = [s.qty for s in plan.slices]
         assert actual_qtys == expected_qtys
         assert sum(actual_qtys) == 5
+        assert plan.interval_seconds == 60
 
     def test_single_slice(self) -> None:
         """
@@ -156,6 +160,7 @@ class TestTWAPSlicer:
         assert len(plan.slices) == 1
         assert plan.slices[0].qty == 100
         assert plan.slices[0].slice_num == 0
+        assert plan.interval_seconds == 60
 
     def test_scheduled_time_calculation(self) -> None:
         """
@@ -181,16 +186,52 @@ class TestTWAPSlicer:
         first_scheduled = plan.slices[0].scheduled_time
         assert before <= first_scheduled <= after + timedelta(seconds=1)
 
-        # Each subsequent slice should be +1 minute
+        # Each subsequent slice should be spaced by interval_seconds (default 60s)
         for i in range(1, len(plan.slices)):
             prev_time = plan.slices[i - 1].scheduled_time
             curr_time = plan.slices[i].scheduled_time
             delta = curr_time - prev_time
-            assert delta == timedelta(minutes=1)
+            assert delta == timedelta(seconds=plan.interval_seconds)
 
         # Verify slice_num matches index
         for i, slice_detail in enumerate(plan.slices):
             assert slice_detail.slice_num == i
+
+    def test_custom_interval_spacing(self) -> None:
+        """Custom interval produces expected slice count and schedule."""
+
+        slicer = TWAPSlicer()
+        duration_minutes = 60
+        interval_seconds = 360  # 6 minutes
+        qty = 1000
+
+        before = datetime.now(UTC)
+        plan = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=qty,
+            duration_minutes=duration_minutes,
+            interval_seconds=interval_seconds,
+            order_type="market",
+        )
+        after = datetime.now(UTC)
+
+        assert plan.total_slices == 10
+        assert plan.interval_seconds == interval_seconds
+        assert len(plan.slices) == 10
+        assert sum(slice_detail.qty for slice_detail in plan.slices) == qty
+
+        expected_delta = timedelta(seconds=interval_seconds)
+        first_time = plan.slices[0].scheduled_time
+        assert before <= first_time <= after + timedelta(seconds=1)
+
+        for idx in range(1, len(plan.slices)):
+            delta = plan.slices[idx].scheduled_time - plan.slices[idx - 1].scheduled_time
+            assert delta == expected_delta
+
+        # Ensure deterministic slice_num ordering
+        for idx, slice_detail in enumerate(plan.slices):
+            assert slice_detail.slice_num == idx
 
     def test_deterministic_client_order_id(self) -> None:
         """
@@ -403,19 +444,33 @@ class TestTWAPSlicer:
 
     def test_error_qty_less_than_num_slices(self) -> None:
         """
-        Error: qty < duration_minutes → ValueError.
+        Error: qty < required_slices → ValueError.
 
         Validates:
             - Cannot create zero-qty slices
             - Clear error message
         """
         slicer = TWAPSlicer()
-        with pytest.raises(ValueError, match="qty \\(3\\) must be >= duration_minutes \\(5\\)"):
+        with pytest.raises(ValueError, match="number of slices"):
             slicer.plan(
                 symbol="AAPL",
                 side="buy",
                 qty=3,  # Too small
                 duration_minutes=5,
+                order_type="market",
+            )
+
+    def test_error_qty_less_than_required_slices_custom_interval(self) -> None:
+        """Error: qty smaller than computed slices when using custom interval."""
+
+        slicer = TWAPSlicer()
+        with pytest.raises(ValueError, match="number of slices"):
+            slicer.plan(
+                symbol="AAPL",
+                side="buy",
+                qty=2,
+                duration_minutes=10,
+                interval_seconds=120,
                 order_type="market",
             )
 
@@ -468,6 +523,20 @@ class TestTWAPSlicer:
                 side="buy",
                 qty=100,
                 duration_minutes=0,
+                order_type="market",
+            )
+
+    def test_error_invalid_interval(self) -> None:
+        """Error: interval_seconds must be positive."""
+
+        slicer = TWAPSlicer()
+        with pytest.raises(ValueError, match="interval_seconds must be at least 1"):
+            slicer.plan(
+                symbol="AAPL",
+                side="buy",
+                qty=100,
+                duration_minutes=5,
+                interval_seconds=0,
                 order_type="market",
             )
 
