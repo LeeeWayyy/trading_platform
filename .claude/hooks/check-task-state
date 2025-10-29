@@ -1,0 +1,66 @@
+#!/bin/bash
+#
+# Pre-commit hook: Check if task state needs updating
+#
+# This hook runs BEFORE the commit and checks if:
+# 1. Task state file exists and shows IN_PROGRESS
+# 2. Implementation files are being committed (libs/, apps/, strategies/)
+# 3. State file was updated in this commit
+#
+# If implementation files staged but state not updated → Warning + instructions
+
+set -e
+
+STATE_FILE=".claude/task-state.json"
+
+# Skip if no state file
+if [ ! -f "$STATE_FILE" ]; then
+    exit 0
+fi
+
+# Check if task is in progress
+TASK_STATE=$(cat "$STATE_FILE" | jq -r '.current_task.state' 2>/dev/null || echo "UNKNOWN")
+if [ "$TASK_STATE" != "IN_PROGRESS" ]; then
+    exit 0
+fi
+
+# Get staged files
+STAGED_FILES=$(git diff --cached --name-only)
+
+# Check if this looks like a component implementation commit
+# Look for implementation files: libs/, apps/, strategies/, tests/
+if echo "$STAGED_FILES" | grep -qE "^(libs|apps|strategies|tests)/.*\.py$"; then
+    # Check if task-state.json is staged
+    if ! echo "$STAGED_FILES" | grep -q "^\.claude/task-state\.json$"; then
+        echo ""
+        echo "⚠️  WARNING: Implementation files detected without task state update"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "You're committing implementation code, but .claude/task-state.json"
+        echo "was not updated. This may break auto-resume in future sessions."
+        echo ""
+        echo "Current task: $(cat "$STATE_FILE" | jq -r '.current_task.task_id') - $(cat "$STATE_FILE" | jq -r '.current_task.title')"
+        echo "Progress: $(cat "$STATE_FILE" | jq -r '.progress.completion_percentage')%"
+        echo ""
+        echo "📝 To update task state (if component complete):"
+        echo ""
+        echo "   ./scripts/update_task_state.py complete \\"
+        echo "       --component <NUM> \\"
+        echo "       --commit \$(git rev-parse HEAD) \\"
+        echo "       --files file1.py file2.py \\"
+        echo "       --tests <COUNT> \\"
+        echo "       --continuation-id <ID>"
+        echo ""
+        echo "   git add .claude/task-state.json"
+        echo "   git commit --amend --no-edit"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Press ENTER to continue anyway, or Ctrl+C to cancel and update state"
+        read -r
+    else
+        echo "✅ Task state update detected in commit"
+    fi
+fi
+
+exit 0

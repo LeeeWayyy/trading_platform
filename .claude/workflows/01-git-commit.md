@@ -25,48 +25,54 @@
 
 ---
 
-## ⚠️ MANDATORY: 4-Step Todo Pattern for Each Logical Component
+## ⚠️ MANDATORY: 6-Step Todo Pattern for Each Logical Component
 
-**CRITICAL:** To ensure quality and prevent skipped steps, EVERY logical component implementation MUST be broken into these 4 todo tasks:
+**CRITICAL:** To ensure quality and prevent skipped steps, EVERY logical component implementation MUST be broken into these 6 todo tasks:
 
-### The 4-Step Pattern
+### The 6-Step Pattern
 
-For each logical component you implement, create these 4 tasks in order:
+For each logical component you implement, create these 6 tasks in order:
 
 1. **"Implement [component name]"** - Write the implementation code
 2. **"Create test cases for [component name]"** - Write comprehensive tests (TDD)
-3. **"Request zen-mcp review for [component name]"** - MANDATORY quality gate
-4. **"Commit [component name]"** - Commit after review approval
+3. **"Request zen-mcp review for [component name]"** - MANDATORY quality gate (clink + codex)
+4. **"Run make ci-local for [component name]"** - MANDATORY CI gate (prevents remote CI failures)
+5. **"Commit [component name] after approval + CI pass"** - Commit only after gates pass
+6. **"Update task state for [component name]"** - Update .claude/task-state.json (enables auto-resume)
 
 **Example:**
 
-If implementing "position limit validation", create these 4 todos:
+If implementing "position limit validation", create these 6 todos:
 ```markdown
 - [ ] Implement position limit validation logic
 - [ ] Create test cases for position limit validation
 - [ ] Request zen-mcp review for position limit validation
-- [ ] Commit position limit validation
+- [ ] Run make ci-local for position limit validation
+- [ ] Commit position limit validation after approval + CI pass
+- [ ] Update task state for position limit validation
 ```
 
 **Why this pattern is mandatory:**
 
 ❌ **WITHOUT this pattern:**
 ```markdown
-# BAD - Skips testing and review
+# BAD - Skips testing, review, CI, and state update
 - [ ] Implement position limit validation
 - [ ] Commit changes
 ```
-Result: Direct commit without tests or review → bugs slip through
+Result: Direct commit without tests/review → bugs slip through, no auto-resume tracking
 
 ✅ **WITH this pattern:**
 ```markdown
-# GOOD - Forces TDD + review
+# GOOD - Forces TDD + review + CI + state tracking
 - [ ] Implement position limit validation logic
 - [ ] Create test cases for position limit validation (RED → GREEN)
 - [ ] Request zen-mcp review for position limit validation
-- [ ] Commit position limit validation
+- [ ] Run make ci-local for position limit validation
+- [ ] Commit position limit validation after approval + CI pass
+- [ ] Update task state for position limit validation
 ```
-Result: Tested, reviewed, safe code
+Result: Tested, reviewed, CI-validated, tracked code
 
 ### How to Use This Pattern
 
@@ -78,32 +84,42 @@ Component 1: Deterministic ID generation
 - [ ] Implement deterministic ID generation logic
 - [ ] Create test cases for deterministic ID generation
 - [ ] Request zen-mcp review for deterministic ID generation
-- [ ] Commit deterministic ID generation
+- [ ] Run make ci-local for deterministic ID generation
+- [ ] Commit deterministic ID generation after approval + CI pass
+- [ ] Update task state for deterministic ID generation
 
 Component 2: Duplicate detection
 - [ ] Implement duplicate detection logic
 - [ ] Create test cases for duplicate detection
 - [ ] Request zen-mcp review for duplicate detection
-- [ ] Commit duplicate detection
+- [ ] Run make ci-local for duplicate detection
+- [ ] Commit duplicate detection after approval + CI pass
+- [ ] Update task state for duplicate detection
 
 Component 3: Error handling for duplicates
 - [ ] Implement error handling for duplicates
 - [ ] Create test cases for error handling
 - [ ] Request zen-mcp review for error handling
-- [ ] Commit error handling
+- [ ] Run make ci-local for error handling
+- [ ] Commit error handling after approval + CI pass
+- [ ] Update task state for error handling
 ```
 
-**2. Work through each 4-step cycle:**
+**2. Work through each 6-step cycle:**
 - Mark "Implement..." as `in_progress` → code the logic
 - Mark "Create test cases..." as `in_progress` → write tests, run until GREEN
 - Mark "Request zen-mcp review..." as `in_progress` → request review, fix issues
-- Mark "Commit..." as `in_progress` → commit only after approval
+- Mark "Run make ci-local..." as `in_progress` → run full CI locally, fix any failures
+- Mark "Commit..." as `in_progress` → commit only after review + CI pass
+- Mark "Update task state..." as `in_progress` → update .claude/task-state.json
 
 **3. Never skip steps or combine them:**
 - ❌ Don't implement + commit without testing
 - ❌ Don't test + commit without zen review
+- ❌ Don't commit without running make ci-local
+- ❌ Don't commit without updating task state
 - ❌ Don't combine multiple components in one commit
-- ✅ Always complete all 4 steps for each component
+- ✅ Always complete all 6 steps for each component
 
 ### Benefits of This Pattern
 
@@ -131,7 +147,7 @@ Component 3: Error handling for duplicates
 ```markdown
 - [ ] Add position limit validation
 ```
-Problem: Skips testing and review steps
+Problem: Skips testing, review, CI, and state update
 
 ❌ **Skipping test creation:**
 ```markdown
@@ -139,7 +155,7 @@ Problem: Skips testing and review steps
 - [ ] Request zen review
 - [ ] Commit
 ```
-Problem: No test coverage
+Problem: No test coverage, missing CI and state update
 
 ❌ **Combining components:**
 ```markdown
@@ -149,19 +165,23 @@ Problem: No test coverage
 ```
 Problem: Massive commit, hard to review, hard to debug
 
-✅ **CORRECT - 4 steps per component:**
+✅ **CORRECT - 6 steps per component:**
 ```markdown
 Component: Position validation
 - [ ] Implement position validation logic
 - [ ] Create test cases for position validation
 - [ ] Request zen-mcp review for position validation
-- [ ] Commit position validation
+- [ ] Run make ci-local for position validation
+- [ ] Commit position validation after approval + CI pass
+- [ ] Update task state for position validation
 
 Component: Risk checks
 - [ ] Implement risk checks logic
 - [ ] Create test cases for risk checks
 - [ ] Request zen-mcp review for risk checks
-- [ ] Commit risk checks
+- [ ] Run make ci-local for risk checks
+- [ ] Commit risk checks after approval + CI pass
+- [ ] Update task state for risk checks
 ```
 
 ---
@@ -331,7 +351,39 @@ Update quick status table:
 
 **See Also:** [Phase Management Workflow](./12-phase-management.md) for detailed documentation update process.
 
-### 8. Write Commit Message
+### 8. Update Task State (MANDATORY for component completion)
+
+**After completing a component**, update `.claude/task-state.json` to enable auto-resume:
+
+```bash
+# Example: Just completed Component 2
+./scripts/update_task_state.py complete \
+    --component 2 \
+    --commit $(git rev-parse HEAD) \
+    --files libs/allocation/multi_alpha.py tests/libs/allocation/test_multi_alpha.py \
+    --tests 8 \
+    --continuation-id 272e6449-85d2-4476-8f26-389a3820374f
+
+# Stage the updated state
+git add .claude/task-state.json
+
+# Amend the component commit to include state update
+git commit --amend --no-edit
+```
+
+**What this does:**
+- Increments `completed_components` counter
+- Updates `completion_percentage`
+- Adds component to `completed_work` with metadata
+- Advances `current_component` to next component
+- Preserves `continuation_id` for review chain
+- Enables automatic resume in next session
+
+**When to skip:** Only skip if this is NOT a component completion (e.g., minor fix, documentation update).
+
+**See Also:** [Update Task State Workflow](./15-update-task-state.md) for detailed guidance.
+
+### 9. Write Commit Message
 
 **Format:**
 ```bash
@@ -366,7 +418,7 @@ git commit -m "WIP"                      # No description
 
 **What this does:** Creates clear history for debugging and understanding changes later
 
-### 9. Commit the Changes
+### 10. Commit the Changes
 
 ```bash
 git commit
@@ -387,7 +439,7 @@ Zen-review: Approved"
 
 **Expected:** Commit created successfully
 
-### 10. Push Regularly (Optional but Recommended)
+### 11. Push Regularly (Optional but Recommended)
 
 ```bash
 # First time pushing this branch
@@ -401,7 +453,7 @@ git push
 
 **Frequency:** Every 2-3 commits or end of day
 
-### 11. Return to Development
+### 12. Return to Development
 
 Continue coding for another 30-60 minutes, then repeat this workflow!
 
@@ -653,6 +705,7 @@ Zen-review: Critical issue found and fixed"
 
 - [03-zen-review-quick.md](./03-zen-review-quick.md) - Details on quick zen review process
 - [04-zen-review-deep.md](./04-zen-review-deep.md) - Comprehensive review before PR
+- [15-update-task-state.md](./15-update-task-state.md) - Update task state for auto-resume
 - [02-git-pr.md](./02-git-pr.md) - Creating pull request after feature complete
 - [05-testing.md](./05-testing.md) - Running and debugging tests
 - [06-debugging.md](./06-debugging.md) - When tests fail or bugs occur
