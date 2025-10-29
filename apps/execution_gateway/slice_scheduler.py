@@ -719,7 +719,7 @@ class SliceScheduler:
                     canceled_count += 1
                 except JobLookupError:
                     # Job already executed and removed - this is expected and safe
-                    # DB was already marked canceled (line 695), so we can safely ignore
+                    # DB was already marked canceled (line 707), so we can safely ignore
                     logger.debug(
                         f"Job already removed (likely executed): {job.id}",
                         extra={"job_id": job.id, "parent_order_id": parent_order_id},
