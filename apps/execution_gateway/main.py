@@ -97,6 +97,11 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Legacy TWAP slicer interval (seconds). Legacy plans scheduled slices once per minute
+# and did not persist the interval, so backward-compatibility fallbacks must only apply
+# when callers request the same default pacing.
+LEGACY_TWAP_INTERVAL_SECONDS = 60
+
 # Environment variables
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "")
 ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
@@ -1320,6 +1325,19 @@ def _find_existing_twap_plan(
     existing_parent = db_client.get_order_by_client_id(slicing_plan.parent_order_id)
 
     if not existing_parent:
+        # Legacy TWAP plans implicitly used 60-second spacing. If the caller is requesting
+        # a different interval we must skip fallback checks to avoid returning an order
+        # with mismatched pacing metadata.
+        if request.interval_seconds != LEGACY_TWAP_INTERVAL_SECONDS:
+            logger.debug(
+                "Skipping legacy TWAP hash fallback for non-default interval",
+                extra={
+                    "requested_interval_seconds": request.interval_seconds,
+                    "legacy_interval_seconds": LEGACY_TWAP_INTERVAL_SECONDS,
+                },
+            )
+            return None
+
         # Backward compatibility: check prior hash formats (without interval and/or duration)
         # CRITICAL: Use same trade_date for idempotency across midnight
         requested_total_slices = slicing_plan.total_slices
