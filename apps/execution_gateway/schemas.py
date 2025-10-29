@@ -5,11 +5,40 @@ Defines request and response models for all endpoints, ensuring type safety
 and validation at the API boundary.
 """
 
-from datetime import datetime
+import math
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+# ============================================================================
+# Type Aliases
+# ============================================================================
+
+# Order status type - used consistently across OrderResponse, OrderDetail, and SliceDetail
+# DRY principle: Define once, use everywhere
+OrderStatus: TypeAlias = Literal[
+    "pending_new",
+    "accepted",
+    "filled",
+    "canceled",
+    "rejected",
+    "expired",
+    "replaced",
+    "done_for_day",
+    "stopped",
+    "suspended",
+    "pending_cancel",
+    "pending_replace",
+    "calculated",
+    "submitted",
+    "submitted_unconfirmed",  # Broker submitted but DB update failed (reconciliation needed)
+    "dry_run",
+    "failed",
+    "blocked_kill_switch",
+    "blocked_circuit_breaker",
+]
 
 # ============================================================================
 # Order Schemas
@@ -117,12 +146,12 @@ class OrderResponse(BaseModel):
     """
 
     client_order_id: str
-    status: str
+    status: OrderStatus
     broker_order_id: str | None = None
     symbol: str
-    side: str
+    side: Literal["buy", "sell"]
     qty: int
-    order_type: str
+    order_type: Literal["market", "limit", "stop", "stop_limit"]
     limit_price: Decimal | None = None
     created_at: datetime
     message: str
@@ -164,18 +193,24 @@ class OrderDetail(BaseModel):
     Detailed order information including fill details and timestamps.
 
     Used for GET /api/v1/orders/{client_order_id} endpoint.
+
+    Slicing Fields (P2T0 - TWAP Order Slicing):
+        parent_order_id: Links child slice to parent (NULL for parent orders)
+        slice_num: Sequential slice number 0..N-1 (NULL for parent orders)
+        total_slices: Total number of slices planned (set on parent, NULL on children)
+        scheduled_time: UTC timestamp for slice execution (NULL for parent, set on children)
     """
 
     client_order_id: str
     strategy_id: str
     symbol: str
-    side: str
+    side: Literal["buy", "sell"]
     qty: int
-    order_type: str
+    order_type: Literal["market", "limit", "stop", "stop_limit"]
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
-    time_in_force: str
-    status: str
+    time_in_force: Literal["day", "gtc", "ioc", "fok"]
+    status: OrderStatus
     broker_order_id: str | None = None
     error_message: str | None = None
     retry_count: int
@@ -186,6 +221,11 @@ class OrderDetail(BaseModel):
     filled_qty: Decimal
     filled_avg_price: Decimal | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # TWAP slicing fields (P2T0)
+    parent_order_id: str | None = None
+    slice_num: int | None = None
+    total_slices: int | None = None
+    scheduled_time: datetime | None = None
 
 
 # ============================================================================
@@ -521,6 +561,236 @@ class KillSwitchDisengageRequest(BaseModel):
                 {
                     "operator": "ops_team",
                     "notes": "Market conditions normalized, all systems operational",
+                }
+            ]
+        }
+    }
+
+
+# ============================================================================
+# TWAP Order Slicing Schemas (P2T0)
+# ============================================================================
+
+
+class SlicingRequest(BaseModel):
+    """
+    Request to create a TWAP (Time-Weighted Average Price) order slicing plan.
+
+    Large parent orders are split into smaller child slices distributed evenly
+    over a time period to minimize market impact.
+
+    Examples:
+        Market order slicing:
+        >>> request = SlicingRequest(
+        ...     symbol="AAPL",
+        ...     side="buy",
+        ...     qty=100,
+        ...     duration_minutes=5,
+        ...     interval_seconds=60,
+        ...     order_type="market"
+        ... )
+
+        Custom interval slicing:
+        >>> request = SlicingRequest(
+        ...     symbol="MSFT",
+        ...     side="sell",
+        ...     qty=600,
+        ...     duration_minutes=60,
+        ...     interval_seconds=300,
+        ...     order_type="limit",
+        ...     limit_price=300.50
+        ... )
+    """
+
+    symbol: str = Field(..., description="Stock symbol (e.g., 'AAPL')")
+    side: Literal["buy", "sell"] = Field(..., description="Order side")
+    qty: int = Field(..., gt=0, description="Total order quantity (must be positive)")
+    duration_minutes: int = Field(..., gt=0, description="Total slicing duration in minutes")
+    interval_seconds: int = Field(
+        default=60,
+        gt=0,
+        description="Interval between slices in seconds (default: 60 = 1 minute)",
+    )
+    order_type: Literal["market", "limit", "stop", "stop_limit"] = Field(
+        default="market", description="Order type for each slice"
+    )
+    limit_price: Decimal | None = Field(
+        default=None, description="Limit price (required for limit orders)"
+    )
+    stop_price: Decimal | None = Field(
+        default=None, description="Stop price (required for stop orders)"
+    )
+    time_in_force: Literal["day", "gtc", "ioc", "fok"] = Field(
+        default="day", description="Time in force for each slice"
+    )
+    trade_date: date | None = Field(
+        default=None,
+        description="Trading date for order ID generation (defaults to today UTC). "
+        "CRITICAL for idempotency: retries after midnight must pass same trade_date "
+        "to avoid creating duplicate orders.",
+    )
+
+    @field_validator("symbol")
+    @classmethod
+    def symbol_uppercase(cls, v: str) -> str:
+        """Ensure symbol is uppercase."""
+        return v.upper()
+
+    @field_validator("limit_price", "stop_price")
+    @classmethod
+    def price_positive(cls, v: Decimal | None) -> Decimal | None:
+        """Ensure prices are positive if provided."""
+        if v is not None and v <= 0:
+            raise ValueError("Price must be positive")
+        return v
+
+    @model_validator(mode="after")
+    def validate_qty_duration_relationship(self) -> "SlicingRequest":
+        """
+        Ensure qty >= required slices.
+
+        Compute required number of slices from duration + interval and ensure
+        qty is sufficient to allocate at least one share to each slice.
+
+        Raises:
+            ValueError: If qty < required_slices
+        """
+        total_duration_seconds = self.duration_minutes * 60
+        required_slices = max(1, math.ceil(total_duration_seconds / self.interval_seconds))
+
+        if self.qty < required_slices:
+            raise ValueError(
+                f"qty ({self.qty}) must be >= number of slices ({required_slices}) derived from "
+                f"duration and interval to avoid zero-quantity slices"
+            )
+        return self
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "symbol": "AAPL",
+                    "side": "buy",
+                    "qty": 100,
+                    "duration_minutes": 5,
+                    "interval_seconds": 60,
+                    "order_type": "market",
+                    "time_in_force": "day",
+                },
+                {
+                    "symbol": "MSFT",
+                    "side": "sell",
+                    "qty": 50,
+                    "duration_minutes": 10,
+                    "interval_seconds": 300,
+                    "order_type": "limit",
+                    "limit_price": "300.50",
+                    "time_in_force": "day",
+                },
+            ]
+        }
+    }
+
+
+class SliceDetail(BaseModel):
+    """
+    Details for a single TWAP child slice.
+
+    Attributes:
+        slice_num: Sequential slice number (0-indexed)
+        qty: Slice quantity
+        scheduled_time: UTC timestamp for scheduled execution
+        client_order_id: Deterministic ID for this slice
+        strategy_id: Strategy identifier used for this slice's order ID generation
+        status: Slice status (uses order status vocabulary from orders table)
+    """
+
+    slice_num: int = Field(..., ge=0, description="Slice number (0-indexed)")
+    qty: int = Field(..., gt=0, description="Slice quantity")
+    scheduled_time: datetime = Field(..., description="Scheduled execution time (UTC)")
+    client_order_id: str = Field(..., description="Deterministic slice order ID")
+    strategy_id: str = Field(
+        ..., description="Strategy ID for this slice (e.g., 'twap_slice_parent123_0')"
+    )
+    status: OrderStatus = Field(default="pending_new", description="Current slice status")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "slice_num": 0,
+                    "qty": 20,
+                    "scheduled_time": "2025-10-26T14:00:00Z",
+                    "client_order_id": "abc123def456...",
+                    "strategy_id": "twap_slice_abc123_0",
+                    "status": "pending_new",
+                }
+            ]
+        }
+    }
+
+
+class SlicingPlan(BaseModel):
+    """
+    Complete TWAP slicing plan with parent order and all child slices.
+
+    The plan includes the parent order metadata and a list of child slices
+    scheduled for execution at regular intervals determined by interval_seconds.
+
+    Attributes:
+        parent_order_id: Deterministic ID for the parent order
+        parent_strategy_id: Strategy identifier used for parent order ID generation
+        symbol: Stock symbol
+        side: Order side
+        total_qty: Total quantity across all slices
+        total_slices: Number of child slices
+        duration_minutes: Slicing duration
+        interval_seconds: Interval between slices in seconds
+        slices: List of child slice details (ordered by slice_num)
+    """
+
+    parent_order_id: str = Field(..., description="Parent order deterministic ID")
+    parent_strategy_id: str = Field(
+        ..., description="Strategy ID for parent order (e.g., 'twap_parent_5m_60s')"
+    )
+    symbol: str = Field(..., description="Stock symbol")
+    side: Literal["buy", "sell"] = Field(..., description="Order side")
+    total_qty: int = Field(..., gt=0, description="Total quantity")
+    total_slices: int = Field(..., gt=0, description="Number of slices")
+    duration_minutes: int = Field(..., gt=0, description="Slicing duration in minutes")
+    interval_seconds: int = Field(..., gt=0, description="Interval between slices in seconds")
+    slices: list[SliceDetail] = Field(..., description="Child slice details (ordered by slice_num)")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "parent_order_id": "parent_xyz789...",
+                    "parent_strategy_id": "twap_parent_5m_60s",
+                    "symbol": "AAPL",
+                    "side": "buy",
+                    "total_qty": 100,
+                    "total_slices": 5,
+                    "duration_minutes": 5,
+                    "interval_seconds": 60,
+                    "slices": [
+                        {
+                            "slice_num": 0,
+                            "qty": 20,
+                            "scheduled_time": "2025-10-26T14:00:00Z",
+                            "client_order_id": "slice_0_abc...",
+                            "strategy_id": "twap_slice_parent_xyz789_0",
+                            "status": "pending_new",
+                        },
+                        {
+                            "slice_num": 1,
+                            "qty": 20,
+                            "scheduled_time": "2025-10-26T14:01:00Z",
+                            "client_order_id": "slice_1_def...",
+                            "strategy_id": "twap_slice_parent_xyz789_1",
+                            "status": "pending_new",
+                        },
+                    ],
                 }
             ]
         }
