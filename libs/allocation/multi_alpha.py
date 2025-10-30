@@ -833,48 +833,41 @@ class MultiAlphaAllocator:
                     f"(expected: date, return; got: {df.columns})"
                 )
 
-        # Merge all returns on date for aligned correlation calculation
-        # Start with first strategy
-        merged = recent_returns[strategy_ids[0]].select(
-            [pl.col("date"), pl.col("return").alias(f"return_{strategy_ids[0]}")]
-        )
-
-        # Join remaining strategies
-        for strategy_id in strategy_ids[1:]:
-            merged = merged.join(
-                recent_returns[strategy_id].select(
-                    [pl.col("date"), pl.col("return").alias(f"return_{strategy_id}")]
-                ),
-                on="date",
-                how="inner",  # Only use dates present in all strategies
-            )
-
-        if merged.is_empty():
-            logger.warning(
-                "No overlapping dates across strategies - cannot calculate correlation",
-                extra={"strategies": strategy_ids},
-            )
-            return {}
-
-        if len(merged) < 2:
-            logger.warning(
-                "Insufficient overlapping data points for correlation",
-                extra={"num_points": len(merged), "strategies": strategy_ids},
-            )
-            return {}
-
         # Calculate pairwise correlations
         correlations: dict[tuple[str, str], float] = {}
         high_correlations: list[tuple[str, str, float]] = []
+        skipped_pairs: list[tuple[str, str]] = []
 
         for i in range(len(strategy_ids)):
             for j in range(i + 1, len(strategy_ids)):
                 strat1 = strategy_ids[i]
                 strat2 = strategy_ids[j]
 
+                pair_returns = recent_returns[strat1].select(
+                    [pl.col("date"), pl.col("return").alias("return_left")]
+                ).join(
+                    recent_returns[strat2].select(
+                        [pl.col("date"), pl.col("return").alias("return_right")]
+                    ),
+                    on="date",
+                    how="inner",
+                )
+
+                if pair_returns.height < 2:
+                    skipped_pairs.append((strat1, strat2))
+                    logger.warning(
+                        "Insufficient overlapping data points for correlation",
+                        extra={
+                            "strategy1": strat1,
+                            "strategy2": strat2,
+                            "num_points": pair_returns.height,
+                        },
+                    )
+                    continue
+
                 # Calculate Pearson correlation
-                corr_result = merged.select(
-                    pl.corr(f"return_{strat1}", f"return_{strat2}").alias("correlation")
+                corr_result = pair_returns.select(
+                    pl.corr("return_left", "return_right").alias("correlation")
                 )
                 correlation = corr_result["correlation"][0]
 
@@ -891,6 +884,17 @@ class MultiAlphaAllocator:
                 # Check threshold
                 if abs(correlation) > self.correlation_threshold:
                     high_correlations.append((strat1, strat2, correlation))
+
+        if skipped_pairs and not correlations:
+            logger.warning(
+                "No overlapping data across strategy pairs - cannot calculate correlation",
+                extra={"skipped_pairs": skipped_pairs},
+            )
+        elif skipped_pairs:
+            logger.debug(
+                "Skipped correlation calculation for pairs without sufficient overlap",
+                extra={"skipped_pairs": skipped_pairs},
+            )
 
         # Emit alerts for high correlations
         if high_correlations:
