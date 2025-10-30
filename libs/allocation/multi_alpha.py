@@ -9,7 +9,7 @@ Blends signals from multiple trading strategies using risk-aware allocation meth
 Safety Features:
 - Per-strategy concentration limits (default 40% max)
 - Correlation monitoring with alerts (>70% threshold)
-- Weight normalization (always sums to 100%)
+- Weight normalization with cap preservation (respects hard concentration limits)
 
 Example:
     >>> from libs.allocation import MultiAlphaAllocator
@@ -66,7 +66,7 @@ class MultiAlphaAllocator:
     Safety constraints:
     - Per-strategy maximum allocation (prevents over-concentration)
     - Correlation monitoring with alerts (detects redundant strategies)
-    - Weight normalization (always sums to 100%)
+    - Weight normalization that preserves hard strategy caps
 
     Attributes:
         method: Allocation method to use
@@ -95,12 +95,10 @@ class MultiAlphaAllocator:
         Args:
             method: Allocation method ('rank_aggregation', 'inverse_vol', 'equal_weight')
             per_strategy_max: Maximum weight for any single strategy (default 0.40 = 40%).
-                              This is a RELATIVE PRE-NORMALIZATION limit, not a hard cap.
-                              The cap is enforced on total strategy contribution BEFORE final
-                              normalization. After normalization, the final weight may differ
-                              (e.g., a strategy capped at 40% pre-norm may end up at 67% post-norm
-                              if total pre-norm weights summed to 0.6). This ensures proportional
-                              scaling while preventing any single strategy from dominating.
+                              This is a HARD cap on total contribution from a strategy after
+                              aggregation. If caps reduce total allocated weight below 100%, the
+                              remainder is left unallocated or redistributed to strategies with
+                              available headroom without violating their caps.
             correlation_threshold: Alert threshold for inter-strategy correlation (default 0.70)
             allow_short_positions: Enable market-neutral portfolios with long/short positions
                                    (default False). When True:
@@ -318,8 +316,10 @@ class MultiAlphaAllocator:
         # This ensures no single strategy contributes more than per_strategy_max
         result = self._apply_per_strategy_caps_and_aggregate(weighted_contributions)
 
-        # Final normalization to ensure sum = 1.0 (handles market-neutral portfolios safely)
-        result = self._safe_normalize_weights(result, weight_col="final_weight")
+        # Final normalization preserves caps (never scales NET exposure above capped total)
+        result = self._safe_normalize_weights(
+            result, weight_col="final_weight", allow_increase=False
+        )
 
         logger.info(
             "Rank aggregation complete",
@@ -438,8 +438,10 @@ class MultiAlphaAllocator:
         # This ensures no single strategy contributes more than per_strategy_max
         result = self._apply_per_strategy_caps_and_aggregate(weighted_contributions)
 
-        # Final normalization (handles market-neutral portfolios safely)
-        result = self._safe_normalize_weights(result, weight_col="final_weight")
+        # Final normalization preserves caps (never scales NET exposure above capped total)
+        result = self._safe_normalize_weights(
+            result, weight_col="final_weight", allow_increase=False
+        )
 
         logger.info(
             "Equal weight allocation complete",
@@ -569,8 +571,10 @@ class MultiAlphaAllocator:
         # This ensures no single strategy contributes more than per_strategy_max
         result = self._apply_per_strategy_caps_and_aggregate(all_weighted)
 
-        # Final normalization to ensure sum = 1.0 (handles market-neutral portfolios safely)
-        result = self._safe_normalize_weights(result, weight_col="final_weight")
+        # Final normalization preserves caps (never scales NET exposure above capped total)
+        result = self._safe_normalize_weights(
+            result, weight_col="final_weight", allow_increase=False
+        )
 
         # Drop internal column for consistent output schema
         result = result.select(["symbol", "final_weight", "contributing_strategies"])
@@ -587,7 +591,11 @@ class MultiAlphaAllocator:
         return result
 
     def _safe_normalize_weights(
-        self, df: pl.DataFrame, weight_col: str = "final_weight"
+        self,
+        df: pl.DataFrame,
+        weight_col: str = "final_weight",
+        *,
+        allow_increase: bool = True,
     ) -> pl.DataFrame:
         """
         Normalize weights safely, handling zero-sum and market-neutral portfolios.
@@ -603,6 +611,10 @@ class MultiAlphaAllocator:
         Args:
             df: DataFrame containing weights to normalize
             weight_col: Name of the weight column to normalize (default: "final_weight")
+            allow_increase: When False, never scale the NET exposure above its current
+                            magnitude. This is used after per-strategy caps so capped
+                            strategies remain at or below their limits even if the
+                            portfolio no longer sums to 1.0.
 
         Returns:
             DataFrame with normalized weights
@@ -627,10 +639,11 @@ class MultiAlphaAllocator:
         """
         total = df[weight_col].sum()  # NET exposure
         total_abs = df[weight_col].abs().sum()  # GROSS exposure
+        tolerance = 1e-9
 
         # Validation: Check for negative weights when short positions not allowed
         if not self.allow_short_positions:
-            has_negative = (df[weight_col] < -1e-9).any()
+            has_negative = (df[weight_col] < -tolerance).any()
             if has_negative:
                 raise ValueError(
                     "Negative weights detected but allow_short_positions=False. "
@@ -639,7 +652,7 @@ class MultiAlphaAllocator:
 
         # Case 1: Near-zero NET exposure (market-neutral portfolio)
         # Normalize by GROSS exposure to prevent division by zero
-        if abs(total) < 1e-9:
+        if abs(total) < tolerance:
             logger.warning(
                 "Zero-sum portfolio detected (market-neutral), normalizing by GROSS exposure",
                 extra={
@@ -652,7 +665,7 @@ class MultiAlphaAllocator:
             )
 
             # Case 1a: All weights are zero (edge case)
-            if total_abs < 1e-9:
+            if total_abs < tolerance:
                 logger.warning(
                     "All weights are zero, returning zero allocation",
                     extra={"num_symbols": len(df)},
@@ -661,6 +674,15 @@ class MultiAlphaAllocator:
 
             # Case 1b: Normalize by GROSS exposure (preserves signs)
             return df.with_columns((pl.col(weight_col) / total_abs).alias(weight_col))
+
+        # Case 1c: Caps enforced with remaining headroom - optionally avoid scaling up
+        if not allow_increase and total > 0 and total <= 1.0 + tolerance:
+            # For long-only portfolios where caps reduced the total allocation, preserve
+            # the capped weights and leave any remainder unallocated. Minor floating
+            # point error around 1.0 is tolerated without rescaling.
+            if abs(total - 1.0) <= tolerance:
+                return df.with_columns((pl.col(weight_col) / total).alias(weight_col))
+            return df
 
         # Case 2: Non-zero NET exposure (long-only, net-long, or net-short portfolio)
         # Normalize by absolute value of NET exposure to preserve sign direction
@@ -763,6 +785,118 @@ class MultiAlphaAllocator:
         scaled = scaled.with_columns(
             (pl.col("weighted_contribution") * pl.col("scale_factor")).alias("capped_contribution")
         )
+
+        # Step 4b: Redistribute remaining weight to uncapped strategies when possible
+        if not self.allow_short_positions:
+            post_cap_stats = scaled.group_by("strategy_id").agg(
+                [
+                    pl.col("capped_contribution").sum().alias("post_cap_net"),
+                    pl.col("capped_contribution").abs().sum().alias("post_cap_gross"),
+                ]
+            )
+
+            post_cap_stats = post_cap_stats.join(
+                strategy_totals.select(["strategy_id", "scale_factor"]),
+                on="strategy_id",
+                how="left",
+            )
+
+            strategy_rows: list[dict[str, float]] = []
+            for row in post_cap_stats.iter_rows(named=True):
+                net_total = float(row["post_cap_net"])
+                gross_total = float(row["post_cap_gross"])
+                scale_factor = float(row.get("scale_factor") or 1.0)
+                headroom = max(0.0, self.per_strategy_max - gross_total)
+                strategy_rows.append(
+                    {
+                        "strategy_id": row["strategy_id"],
+                        "net_total": net_total,
+                        "gross_total": gross_total,
+                        "scale_factor": scale_factor,
+                        "headroom": headroom,
+                        "extra": 0.0,
+                        "original_net": net_total,
+                    }
+                )
+
+            total_post = sum(row["net_total"] for row in strategy_rows)
+            remaining = max(0.0, 1.0 - total_post)
+            redistribute_tol = 1e-12
+
+            if remaining > redistribute_tol:
+                eligible = [
+                    row
+                    for row in strategy_rows
+                    if row["scale_factor"] >= 1.0 - 1e-9
+                    and row["headroom"] > redistribute_tol
+                    and row["net_total"] > redistribute_tol
+                ]
+
+                while remaining > redistribute_tol and eligible:
+                    distribution_base = sum(row["net_total"] for row in eligible)
+                    if distribution_base <= redistribute_tol:
+                        break
+
+                    allocated_this_round = 0.0
+                    for row in eligible:
+                        proportion = row["net_total"] / distribution_base
+                        proposed = remaining * proportion
+                        allocation = min(proposed, row["headroom"])
+                        if allocation <= redistribute_tol:
+                            continue
+
+                        row["extra"] += allocation
+                        row["net_total"] += allocation
+                        row["gross_total"] += allocation
+                        row["headroom"] = max(0.0, self.per_strategy_max - row["gross_total"])
+                        allocated_this_round += allocation
+
+                    if allocated_this_round <= redistribute_tol:
+                        break
+
+                    remaining = max(0.0, remaining - allocated_this_round)
+                    eligible = [
+                        row
+                        for row in eligible
+                        if row["headroom"] > redistribute_tol and row["net_total"] > redistribute_tol
+                    ]
+
+                redistribution = {
+                    row["strategy_id"]: 1.0 + (row["extra"] / row["original_net"])
+                    for row in strategy_rows
+                    if row["extra"] > redistribute_tol and row["original_net"] > redistribute_tol
+                }
+
+                if redistribution:
+                    redistribution_df = pl.DataFrame(
+                        {
+                            "strategy_id": list(redistribution.keys()),
+                            "scale_up": list(redistribution.values()),
+                        }
+                    )
+                    scaled = (
+                        scaled.join(redistribution_df, on="strategy_id", how="left")
+                        .with_columns(
+                            (
+                                pl.col("capped_contribution")
+                                * pl.col("scale_up").fill_null(1.0)
+                            ).alias("capped_contribution")
+                        )
+                        .drop("scale_up")
+                    )
+
+                if remaining > redistribute_tol:
+                    logger.info(
+                        "Per-strategy caps left residual unallocated weight",
+                        extra={
+                            "remaining_weight": round(remaining, 6),
+                            "num_strategies_without_capacity": sum(
+                                1
+                                for row in strategy_rows
+                                if row["headroom"] <= redistribute_tol
+                            ),
+                        },
+                    )
 
         # Step 5: Aggregate by symbol
         result = (

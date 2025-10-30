@@ -981,12 +981,17 @@ class TestPerStrategyCaps:
         allocator = MultiAlphaAllocator(method="inverse_vol", per_strategy_max=0.40)
         result = allocator.allocate(signals, strategy_stats=strategy_stats)
 
-        # AAPL should be capped: 0.40 (capped) + 0.20 = 0.60 before normalization
-        # After normalization with other symbols, weights sum to 1.0
-        assert abs(result["final_weight"].sum() - 1.0) < 1e-9
+        # Total weight is now below 1.0 because capped strategies are not scaled back up
+        total = result["final_weight"].sum()
+        assert abs(total - 0.8) < 1e-9
 
         # AAPL should still be present
         assert "AAPL" in result["symbol"].to_list()
+
+        weights = {row["symbol"]: row["final_weight"] for row in result.iter_rows(named=True)}
+        assert abs(weights["AAPL"] - 0.52) < 1e-6
+        assert abs(weights["MSFT"] - 0.12) < 1e-6
+        assert abs(weights["GOOGL"] - 0.16) < 1e-6
 
     def test_no_caps_applied_when_all_below_limit(self):
         """Test that no caps are applied when all strategies are below limit."""
@@ -1115,59 +1120,26 @@ class TestPerStrategyCaps:
         allocator = MultiAlphaAllocator(method="inverse_vol", per_strategy_max=0.40)
         result = allocator.allocate(signals, strategy_stats=strategy_stats)
 
-        # Verify weights sum to 1.0
-        assert abs(result["final_weight"].sum() - 1.0) < 1e-9
-
-        # Extract per-strategy totals by manually reconstructing contributions
-        # (In production, these would come from the intermediate weighted_contributions)
-        # For verification: calculate expected totals after normalization
-
-        # Before normalization:
-        # alpha_baseline: 0.40 (capped)
-        # momentum: 0.20
-        # Total: 0.60
-
-        # After normalization to sum=1.0:
-        # alpha_baseline: 0.40 / 0.60 = 0.6667
-        # momentum: 0.20 / 0.60 = 0.3333
-
-        # Verify alpha_baseline's share is ≤ per_strategy_max after normalization
-        # Since normalization scales everything, the ratio is preserved
-        # But we need to verify the final per-strategy total
+        # Verify weights sum to less than or equal to 1.0 (leftover 0.20 is unallocated)
+        total = result["final_weight"].sum()
+        assert abs(total - 0.8) < 1e-9
 
         # Get weights for each symbol
         weights_dict = {row["symbol"]: row["final_weight"] for row in result.iter_rows(named=True)}
 
-        # After normalization, per_strategy_max is NOT a hard cap (it's relative/pre-norm)
-        # e.g., alpha_baseline capped at 0.40 before norm → 0.6667 after norm (0.40/0.60)
-        # This is EXPECTED and CORRECT behavior (relative cap, not hard cap)
-        #
-        # The caps were enforced BEFORE normalization, ensuring no strategy dominated
-        # Final normalization scales everything proportionally to sum to 1.0
-        #
-        # Verification: Check that weights match expected post-normalization values
-
-        # More direct test: check that AAPL + MSFT + GOOGL weights maintain proportions
         aapl_w = weights_dict.get("AAPL", 0.0)
         msft_w = weights_dict.get("MSFT", 0.0)
         googl_w = weights_dict.get("GOOGL", 0.0)
         tsla_w = weights_dict.get("TSLA", 0.0)
 
-        # Expected after all transformations:
-        # Total before norm: 0.40 (alpha capped) + 0.20 (momentum) = 0.60
-        # AAPL: 0.16 / 0.60 = 0.2667
-        # MSFT: 0.16 / 0.60 = 0.2667
-        # GOOGL: 0.08 / 0.60 = 0.1333
-        # TSLA: 0.20 / 0.60 = 0.3333
+        # After capping, alpha_baseline contributes exactly 0.40 across its symbols
+        assert abs(aapl_w - 0.16) < 1e-6
+        assert abs(msft_w - 0.16) < 1e-6
+        assert abs(googl_w - 0.08) < 1e-6
+        assert abs((aapl_w + msft_w + googl_w) - 0.40) < 1e-9
 
-        assert abs(aapl_w - 0.2667) < 1e-3
-        assert abs(msft_w - 0.2667) < 1e-3
-        assert abs(googl_w - 0.1333) < 1e-3
-        assert abs(tsla_w - 0.3333) < 1e-3
-
-        # Most importantly: sum of alpha_baseline symbols should be exactly 2/3
-        # (since 0.40 out of 0.60 total = 2/3)
-        assert abs((aapl_w + msft_w + googl_w) - 0.6667) < 1e-3
+        # Momentum absorbs additional weight until it hits its own cap (0.40)
+        assert abs(tsla_w - 0.40) < 1e-6
 
 
 class TestCorrelationMonitoring:
