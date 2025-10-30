@@ -498,8 +498,11 @@ class TradingOrchestrator:
         )
 
         # Step 3: Allocate across strategies
+        # Enable short positions for multi-strategy runs (market-neutral support)
         allocator = MultiAlphaAllocator(
-            method=self.allocation_method, per_strategy_max=self.per_strategy_max
+            method=self.allocation_method,
+            per_strategy_max=self.per_strategy_max,
+            allow_short_positions=True,
         )
 
         # No strategy_stats for now (inverse_vol would need this)

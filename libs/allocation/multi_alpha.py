@@ -259,10 +259,11 @@ class MultiAlphaAllocator:
             # For shorts: weight < 0, sign = -1
             #
             # Rank by absolute score (magnitude), then apply sign to final weights
+            # Use method="dense" for deterministic ranking when scores are tied
             ranked = df.select(
                 [
                     pl.col("symbol"),
-                    pl.col("score").abs().rank(method="ordinal", descending=True).alias("rank"),
+                    pl.col("score").abs().rank(method="dense", descending=True).alias("rank"),
                     # Preserve sign from original weight for market-neutral support
                     pl.when(pl.col("weight") >= 0)
                     .then(pl.lit(1.0))
@@ -717,17 +718,21 @@ class MultiAlphaAllocator:
                 }
             )
 
-        # Step 1: Calculate total contribution per strategy across ALL symbols
+        # Step 1: Calculate total GROSS contribution per strategy across ALL symbols
+        # CRITICAL: Use abs().sum() to calculate GROSS exposure, not NET exposure
+        # This prevents market-neutral strategies from bypassing caps via offsetting positions
+        # Example: Strategy with +60% long and -60% short has:
+        #   - NET exposure: 0% (would bypass cap incorrectly)
+        #   - GROSS exposure: 120% (correct cap enforcement)
         strategy_totals = weighted_contributions.group_by("strategy_id").agg(
-            pl.col("weighted_contribution").sum().alias("total_contribution")
+            pl.col("weighted_contribution").abs().sum().alias("total_gross_contribution")
         )
 
         # Step 2: Identify strategies that exceed the cap and calculate scale factors
-        # CRITICAL: Use absolute values for cap check to handle short exposures correctly
-        # Example: short strategy with -80% exposure should be capped just like +80%
+        # Cap is applied to GROSS exposure for robust risk management
         strategy_totals = strategy_totals.with_columns(
-            pl.when(pl.col("total_contribution").abs() > self.per_strategy_max)
-            .then(self.per_strategy_max / pl.col("total_contribution").abs())
+            pl.when(pl.col("total_gross_contribution") > self.per_strategy_max)
+            .then(self.per_strategy_max / pl.col("total_gross_contribution"))
             .otherwise(pl.lit(1.0))
             .alias("scale_factor")
         )
@@ -740,7 +745,7 @@ class MultiAlphaAllocator:
                     "Applying per-strategy concentration cap",
                     extra={
                         "strategy_id": row["strategy_id"],
-                        "original_total": round(row["total_contribution"], 4),
+                        "original_gross_total": round(row["total_gross_contribution"], 4),
                         "capped_total": round(self.per_strategy_max, 4),
                         "scale_factor": round(row["scale_factor"], 4),
                         "per_strategy_max": self.per_strategy_max,
