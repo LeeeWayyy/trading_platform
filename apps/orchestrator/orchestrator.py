@@ -498,12 +498,22 @@ class TradingOrchestrator:
             f"total signals = {sum(df.height for df in signal_dfs.values())}"
         )
 
+        # Detect whether any strategy is providing short (negative weight) signals.
+        allow_short_positions = any(
+            df.height > 0 and bool((df["weight"] < 0).any())
+            for df in signal_dfs.values()
+        )
+
+        if allow_short_positions:
+            logger.info("Detected short signals; enabling short-cap allocation support")
+        else:
+            logger.info("No short signals detected; running allocator in long-only mode")
+
         # Step 3: Allocate across strategies
-        # Enable short positions for multi-strategy runs (market-neutral support)
         allocator = MultiAlphaAllocator(
             method=self.allocation_method,
             per_strategy_max=self.per_strategy_max,
-            allow_short_positions=True,
+            allow_short_positions=allow_short_positions,
         )
 
         # No strategy_stats for now (inverse_vol would need this)
