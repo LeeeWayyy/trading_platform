@@ -1625,6 +1625,28 @@ class TestMarketNeutralPortfolios:
         net_exposure = result["final_weight"].sum()
         assert abs(net_exposure) < 1e-2
 
+    def test_zero_sum_preserves_caps_when_allow_increase_disabled(self):
+        """Zero-sum normalization should not scale capped portfolios above their gross exposure."""
+
+        allocator = MultiAlphaAllocator(method="equal_weight", allow_short_positions=True)
+
+        # Simulate capped weights that sum to zero but have gross exposure below 1.0.
+        capped_weights = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "final_weight": [0.4, -0.4],
+                "contributing_strategies": [["strat_a"], ["strat_b"]],
+            }
+        )
+
+        normalized = allocator._safe_normalize_weights(
+            capped_weights, allow_increase=False
+        )
+
+        # Weights should be preserved exactly (no scaling back to ±0.5).
+        assert normalized["final_weight"].to_list() == [0.4, -0.4]
+        assert abs(normalized["final_weight"].abs().sum() - 0.8) < 1e-9
+
     def test_rank_aggregation_market_neutral_mixed_strategies(self):
         """Verify rank aggregation handles mixed long-only and market-neutral strategies."""
         signals = {

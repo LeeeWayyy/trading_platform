@@ -653,12 +653,20 @@ class MultiAlphaAllocator:
         # Case 1: Near-zero NET exposure (market-neutral portfolio)
         # Normalize by GROSS exposure to prevent division by zero
         if abs(total) < tolerance:
+            normalization_method = "gross"
+            if not allow_increase:
+                if total_abs <= 1.0 + tolerance:
+                    normalization_method = "preserve_capped"
+                else:
+                    normalization_method = "gross_scale_down"
+
             logger.warning(
-                "Zero-sum portfolio detected (market-neutral), normalizing by GROSS exposure",
+                "Zero-sum portfolio detected (market-neutral), handling via %s normalization",
+                normalization_method,
                 extra={
                     "net_exposure": float(total),
                     "gross_exposure": float(total_abs),
-                    "normalization_method": "gross",
+                    "normalization_method": normalization_method,
                     "num_symbols": len(df),
                     "allow_short_positions": self.allow_short_positions,
                 },
@@ -672,10 +680,17 @@ class MultiAlphaAllocator:
                 )
                 return df.with_columns(pl.lit(0.0).alias(weight_col))
 
-            # Case 1b: Normalize by GROSS exposure (preserves signs)
+            # Case 1b: Preserve capped weights when increases are disallowed and gross
+            # exposure is already at or below the capped amount.
+            if normalization_method == "preserve_capped":
+                return df
+
+            # Case 1c: Normalize by GROSS exposure (preserves signs). This path covers
+            # both the default behavior and the "scale down" scenario when caps were
+            # exceeded but increases are not permitted.
             return df.with_columns((pl.col(weight_col) / total_abs).alias(weight_col))
 
-        # Case 1c: Caps enforced with remaining headroom - optionally avoid scaling up
+        # Case 1d: Caps enforced with remaining headroom - optionally avoid scaling up
         if not allow_increase and total > 0 and total <= 1.0 + tolerance:
             # For long-only portfolios where caps reduced the total allocation, preserve
             # the capped weights and leave any remainder unallocated. Minor floating
