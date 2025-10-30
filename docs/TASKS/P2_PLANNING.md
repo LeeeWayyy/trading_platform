@@ -301,7 +301,7 @@ GROUP BY parent.client_order_id, parent.symbol, parent.side, parent.qty, parent.
   - **Drift handling:** Each slice uses absolute timestamp (not relative delays)
 - `tests/apps/execution_gateway/test_order_slicer.py`
 - `tests/apps/execution_gateway/test_slice_scheduler.py` (NEW)
-- `docs/ADRs/ADR-XXX-twap-order-slicing.md`
+- `docs/ADRs/0015-twap-order-slicer.md`
 
 **Files to Modify:**
 - `apps/execution_gateway/main.py` (add slicing endpoints + scheduler integration)
@@ -396,7 +396,7 @@ class MultiAlphaAllocator:
 **Files to Create:**
 - `libs/allocation/multi_alpha.py`
 - `tests/libs/allocation/test_multi_alpha.py`
-- `docs/ADRs/ADR-XXX-multi-alpha-allocation.md`
+- `docs/ADRs/0016-multi-alpha-allocation.md`
 
 **Files to Modify:**
 - `apps/orchestrator/orchestrator.py` (integrate allocator)

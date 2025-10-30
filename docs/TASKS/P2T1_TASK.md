@@ -135,7 +135,7 @@ Break this task into components, each following the 4-step pattern:
 - `libs/allocation/__init__.py` - Package initialization
 - `tests/libs/allocation/test_multi_alpha.py` - Comprehensive unit tests
 - `tests/libs/allocation/test_integration.py` - Integration tests with orchestrator
-- `docs/ADRs/ADR-XXX-multi-alpha-allocation.md` - Architecture decision record
+- `docs/ADRs/0016-multi-alpha-allocation.md` - Architecture decision record
 - `docs/CONCEPTS/multi-alpha-allocation.md` - Allocation methodology explanation
 
 ### Files to Modify
@@ -345,7 +345,7 @@ blended_df = pl.DataFrame({
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Multi-Alpha Allocation Methodology](../ADRs/ADR-XXX-multi-alpha-allocation.md) - To be created
+- [ADR-0016: Multi-Alpha Allocation Methodology](../ADRs/0016-multi-alpha-allocation.md) - Created
 
 **Documentation:**
 - [Advanced Strategies](../GETTING_STARTED/REPO_MAP.md#strategies) - P1T6 implementation
@@ -353,8 +353,8 @@ blended_df = pl.DataFrame({
 
 **Tasks:**
 - Depends on: [P1T6: Advanced Strategies](./P1T6_DONE.md)
-- Related to: [P2T0: TWAP Slicer](./P2T0_TASK.md) (can run in parallel)
-- Blocks: [P2T5: Live Rollout Preparation](./P2T5_TASK.md)
+- Related to: [P2T0: TWAP Slicer](./P2T0_DONE.md) (completed)
+- Blocks: P2T5: Live Rollout Preparation (not yet created)
 
 ---
 

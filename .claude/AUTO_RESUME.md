@@ -68,7 +68,7 @@ When this file is detected, Claude should:
 
 ## 📖 Full Resume Workflow
 
-See [`.claude/workflows/14-task-resume.md`](./.claude/workflows/14-task-resume.md) for complete auto-resume workflow.
+See [`.claude/workflows/14-task-resume.md`](./workflows/14-task-resume.md) for complete auto-resume workflow.
 
 ---
 
