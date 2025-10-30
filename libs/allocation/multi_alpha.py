@@ -87,6 +87,7 @@ class MultiAlphaAllocator:
         method: AllocMethod = "rank_aggregation",
         per_strategy_max: float = 0.40,
         correlation_threshold: float = 0.70,
+        allow_short_positions: bool = False,
     ):
         """
         Initialize Multi-Alpha Allocator.
@@ -101,6 +102,15 @@ class MultiAlphaAllocator:
                               if total pre-norm weights summed to 0.6). This ensures proportional
                               scaling while preventing any single strategy from dominating.
             correlation_threshold: Alert threshold for inter-strategy correlation (default 0.70)
+            allow_short_positions: Enable market-neutral portfolios with long/short positions
+                                   (default False). When True:
+                                   - Negative weights are preserved throughout allocation
+                                   - Zero-sum portfolios normalized by GROSS exposure (sum of abs values)
+                                   - NET exposure (sum of weights) may be != 1.0
+                                   When False:
+                                   - Assumes long-only portfolios
+                                   - All weights expected to be positive
+                                   - Normalizes by NET exposure (sum of weights)
 
         Raises:
             ValueError: If per_strategy_max not in [0, 1] or correlation_threshold not in [0, 1]
@@ -115,6 +125,7 @@ class MultiAlphaAllocator:
         self.method = method
         self.per_strategy_max = per_strategy_max
         self.correlation_threshold = correlation_threshold
+        self.allow_short_positions = allow_short_positions
 
         logger.info(
             "Initialized MultiAlphaAllocator",
@@ -122,6 +133,7 @@ class MultiAlphaAllocator:
                 "method": method,
                 "per_strategy_max": per_strategy_max,
                 "correlation_threshold": correlation_threshold,
+                "allow_short_positions": allow_short_positions,
             },
         )
 
@@ -178,15 +190,17 @@ class MultiAlphaAllocator:
                 "Single strategy detected, bypassing allocator",
                 extra={"strategy_id": strategy_id, "num_symbols": len(df)},
             )
-            # Normalize weights to sum to 1.0
-            total_weight = df["weight"].sum()
-            return df.select(
+            # Use safe normalization to handle validation and zero-sum cases
+            result = df.select(
                 [
                     pl.col("symbol"),
-                    (pl.col("weight") / total_weight).alias("final_weight"),
+                    pl.col("weight").alias("final_weight"),
                     pl.lit([strategy_id]).alias("contributing_strategies"),
                 ]
             )
+            # Apply safe normalization (handles validation + division-by-zero)
+            result = self._safe_normalize_weights(result, weight_col="final_weight")
+            return result
 
         # Dispatch to appropriate allocation method
         if self.method == "rank_aggregation":
@@ -238,21 +252,26 @@ class MultiAlphaAllocator:
                 logger.debug(f"Skipping empty signals from {strategy_id}")
                 continue
 
-            # Rank by score descending (higher score = better = rank=1)
-            # Use reciprocal rank: weight = 1/rank
-            # This ensures all symbols get positive weight:
-            #   rank=1 (best) → 1/1 = 1.0
-            #   rank=2 → 1/2 = 0.5
-            #   rank=3 → 1/3 = 0.33
-            # Advantages: Standard rank aggregation method, no zero weights
+            # Rank by |score| descending, preserving direction via weight sign
+            # This allows market-neutral strategies (long/short) to work correctly
+            #
+            # For long-only: weight > 0, sign = +1
+            # For shorts: weight < 0, sign = -1
+            #
+            # Rank by absolute score (magnitude), then apply sign to final weights
             ranked = df.select(
                 [
                     pl.col("symbol"),
-                    pl.col("score").rank(method="ordinal", descending=True).alias("rank"),
+                    pl.col("score").abs().rank(method="ordinal", descending=True).alias("rank"),
+                    # Preserve sign from original weight for market-neutral support
+                    pl.when(pl.col("weight") >= 0)
+                    .then(pl.lit(1.0))
+                    .otherwise(pl.lit(-1.0))
+                    .alias("weight_sign"),
                 ]
             ).with_columns(
                 [
-                    # Reciprocal rank: 1 / rank
+                    # Reciprocal rank: 1 / rank (always positive)
                     (1.0 / pl.col("rank")).alias("normalized_rank"),
                     pl.lit(strategy_id).alias("strategy_id"),
                 ]
@@ -285,11 +304,12 @@ class MultiAlphaAllocator:
 
         # Create weighted contributions for caps enforcement
         # Each (symbol, strategy_id) pair has a weight contribution
+        # CRITICAL: Apply weight_sign to preserve long/short direction
         weighted_contributions = weighted_ranks.select(
             [
                 pl.col("symbol"),
                 pl.col("strategy_id"),
-                pl.col("strategy_weight").alias("weighted_contribution"),
+                (pl.col("strategy_weight") * pl.col("weight_sign")).alias("weighted_contribution"),
             ]
         )
 
@@ -367,13 +387,42 @@ class MultiAlphaAllocator:
 
         # Normalize weights WITHIN each strategy to get equal influence
         # For each strategy, ensure its weights sum to 1.0 before combining
+        # CRITICAL: Handle market-neutral strategies (zero-sum weights) by using absolute sum
         strategy_totals = all_signals.group_by("strategy_id").agg(
-            pl.col("weight").sum().alias("total_weight")
+            [
+                pl.col("weight").sum().alias("total_weight"),
+                pl.col("weight").abs().sum().alias("total_weight_abs"),
+            ]
+        )
+
+        # For market-neutral strategies (total_weight ≈ 0), use absolute sum
+        # For all-zero strategies (both zero), use 1.0 to avoid division by zero
+        # Otherwise, use raw sum (preserves long-only behavior)
+        strategy_totals = strategy_totals.with_columns(
+            pl.when(pl.col("total_weight_abs") < 1e-9)
+            .then(pl.lit(1.0))  # All zeros case - prevent division by zero
+            .when(pl.col("total_weight").abs() < 1e-9)
+            .then(pl.col("total_weight_abs"))  # Market-neutral case
+            .otherwise(pl.col("total_weight"))  # Normal case
+            .alias("normalizer")
         )
 
         normalized_signals = all_signals.join(
-            strategy_totals, on="strategy_id", how="left"
-        ).with_columns((pl.col("weight") / pl.col("total_weight")).alias("normalized_weight"))
+            strategy_totals.select(["strategy_id", "normalizer"]), on="strategy_id", how="left"
+        ).with_columns((pl.col("weight") / pl.col("normalizer")).alias("normalized_weight"))
+
+        # Log market-neutral strategies for visibility
+        market_neutral = strategy_totals.filter(pl.col("total_weight").abs() < 1e-9)
+        if not market_neutral.is_empty():
+            for row in market_neutral.iter_rows(named=True):
+                logger.warning(
+                    "Market-neutral strategy detected (zero-sum weights), normalizing by absolute weights",
+                    extra={
+                        "strategy_id": row["strategy_id"],
+                        "raw_sum": float(row["total_weight"]),
+                        "abs_sum": float(row["total_weight_abs"]),
+                    },
+                )
 
         # Now each strategy contributes proportionally to its internal weights
         # Rename for consistency with caps method
@@ -389,9 +438,8 @@ class MultiAlphaAllocator:
         # This ensures no single strategy contributes more than per_strategy_max
         result = self._apply_per_strategy_caps_and_aggregate(weighted_contributions)
 
-        # Final normalization
-        final_sum = result["final_weight"].sum()
-        result = result.with_columns((pl.col("final_weight") / final_sum).alias("final_weight"))
+        # Final normalization (handles market-neutral portfolios safely)
+        result = self._safe_normalize_weights(result, weight_col="final_weight")
 
         logger.info(
             "Equal weight allocation complete",
@@ -521,9 +569,8 @@ class MultiAlphaAllocator:
         # This ensures no single strategy contributes more than per_strategy_max
         result = self._apply_per_strategy_caps_and_aggregate(all_weighted)
 
-        # Final normalization to ensure sum = 1.0
-        final_sum = result["final_weight"].sum()
-        result = result.with_columns((pl.col("final_weight") / final_sum).alias("final_weight"))
+        # Final normalization to ensure sum = 1.0 (handles market-neutral portfolios safely)
+        result = self._safe_normalize_weights(result, weight_col="final_weight")
 
         # Drop internal column for consistent output schema
         result = result.select(["symbol", "final_weight", "contributing_strategies"])
@@ -538,6 +585,86 @@ class MultiAlphaAllocator:
         )
 
         return result
+
+    def _safe_normalize_weights(
+        self, df: pl.DataFrame, weight_col: str = "final_weight"
+    ) -> pl.DataFrame:
+        """
+        Normalize weights safely, handling zero-sum and market-neutral portfolios.
+
+        This method implements proper NET vs GROSS exposure normalization:
+        - NET exposure = sum of weights (can be 0 for market-neutral)
+        - GROSS exposure = sum of absolute weights (always >= 0)
+
+        For market-neutral portfolios (where long/short positions cancel to zero sum),
+        normalizes by GROSS exposure (sum of absolute weights) instead of NET exposure
+        (raw sum) to prevent division by zero.
+
+        Args:
+            df: DataFrame containing weights to normalize
+            weight_col: Name of the weight column to normalize (default: "final_weight")
+
+        Returns:
+            DataFrame with normalized weights
+
+        Example:
+            Market-neutral portfolio (zero NET exposure):
+            Input:  AAPL +0.5, MSFT -0.5  (NET = 0, GROSS = 1.0)
+            Output: AAPL +0.5, MSFT -0.5  (normalized by GROSS = 1.0)
+
+            Long-only portfolio:
+            Input:  AAPL 0.6, MSFT 0.4  (NET = 1.0, GROSS = 1.0)
+            Output: AAPL 0.6, MSFT 0.4  (normalized by NET = 1.0)
+
+        Note:
+            - Uses 1e-9 threshold to detect near-zero NET exposure
+            - Returns all zeros if both NET and GROSS exposure are near-zero
+            - Preserves sign of original weights (critical for short positions)
+            - Validates that short positions are only used when allow_short_positions=True
+
+        Raises:
+            ValueError: If negative weights detected when allow_short_positions=False
+        """
+        total = df[weight_col].sum()  # NET exposure
+        total_abs = df[weight_col].abs().sum()  # GROSS exposure
+
+        # Validation: Check for negative weights when short positions not allowed
+        if not self.allow_short_positions:
+            has_negative = (df[weight_col] < -1e-9).any()
+            if has_negative:
+                raise ValueError(
+                    "Negative weights detected but allow_short_positions=False. "
+                    "Set allow_short_positions=True to enable market-neutral portfolios."
+                )
+
+        # Case 1: Near-zero NET exposure (market-neutral portfolio)
+        # Normalize by GROSS exposure to prevent division by zero
+        if abs(total) < 1e-9:
+            logger.warning(
+                "Zero-sum portfolio detected (market-neutral), normalizing by GROSS exposure",
+                extra={
+                    "net_exposure": float(total),
+                    "gross_exposure": float(total_abs),
+                    "normalization_method": "gross",
+                    "num_symbols": len(df),
+                    "allow_short_positions": self.allow_short_positions,
+                },
+            )
+
+            # Case 1a: All weights are zero (edge case)
+            if total_abs < 1e-9:
+                logger.warning(
+                    "All weights are zero, returning zero allocation",
+                    extra={"num_symbols": len(df)},
+                )
+                return df.with_columns(pl.lit(0.0).alias(weight_col))
+
+            # Case 1b: Normalize by GROSS exposure (preserves signs)
+            return df.with_columns((pl.col(weight_col) / total_abs).alias(weight_col))
+
+        # Case 2: Non-zero NET exposure (long-only or net-long portfolio)
+        # Normalize by NET exposure (standard approach)
+        return df.with_columns((pl.col(weight_col) / total).alias(weight_col))
 
     def _apply_per_strategy_caps_and_aggregate(
         self, weighted_contributions: pl.DataFrame
@@ -594,9 +721,11 @@ class MultiAlphaAllocator:
         )
 
         # Step 2: Identify strategies that exceed the cap and calculate scale factors
+        # CRITICAL: Use absolute values for cap check to handle short exposures correctly
+        # Example: short strategy with -80% exposure should be capped just like +80%
         strategy_totals = strategy_totals.with_columns(
-            pl.when(pl.col("total_contribution") > self.per_strategy_max)
-            .then(self.per_strategy_max / pl.col("total_contribution"))
+            pl.when(pl.col("total_contribution").abs() > self.per_strategy_max)
+            .then(self.per_strategy_max / pl.col("total_contribution").abs())
             .otherwise(pl.lit(1.0))
             .alias("scale_factor")
         )

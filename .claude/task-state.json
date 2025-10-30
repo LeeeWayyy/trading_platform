@@ -5,20 +5,16 @@
     "phase": "P2",
     "branch": "feature/P2T1-multi-alpha-allocator",
     "task_file": "docs/TASKS/P2T1_TASK.md",
-    "state": "IN_PROGRESS",
+    "state": "COMPLETE",
     "started": "2025-10-29",
-    "estimated_completion": "2025-11-03"
+    "estimated_completion": "2025-11-03",
+    "completed": "2025-10-30T03:31:44.556171Z"
   },
   "progress": {
     "total_components": 5,
-    "completed_components": 4,
-    "current_component": {
-      "number": 5,
-      "name": "Documentation + ADR",
-      "status": "NOT_STARTED",
-      "description": ""
-    },
-    "completion_percentage": 80
+    "completed_components": 5,
+    "current_component": null,
+    "completion_percentage": 100
   },
   "completed_work": {
     "Component 1": {
@@ -68,6 +64,18 @@
       "review_approved": true,
       "continuation_id": "b476446e-9468-4e05-8f87-586384033548",
       "completed_at": "2025-10-29T20:39:29.132413Z"
+    },
+    "Component 5": {
+      "name": "Documentation + ADR",
+      "commit": "bd289ea",
+      "files": [
+        "docs/ADRs/0016-multi-alpha-allocation.md",
+        "docs/CONCEPTS/multi-alpha-allocation.md"
+      ],
+      "tests_added": 0,
+      "review_approved": true,
+      "continuation_id": "f600999f-fad6-490c-b734-3af5b9e1e577",
+      "completed_at": "2025-10-30T03:31:44.556065Z"
     }
   },
   "next_steps": [
@@ -185,7 +193,7 @@
     }
   },
   "meta": {
-    "last_updated": "2025-10-29T20:39:29.132542Z",
+    "last_updated": "2025-10-30T03:31:44.556172Z",
     "updated_by": "Claude Code (Sonnet 4.5)",
     "session_id": "current",
     "auto_resume_enabled": true

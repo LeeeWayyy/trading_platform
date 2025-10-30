@@ -1427,3 +1427,246 @@ class TestCorrelationMonitoring:
         assert any(
             "Insufficient overlapping data points" in record.message for record in caplog.records
         )
+
+
+# ==============================================================================
+# Regression Tests for Division-by-Zero Bug Fixes
+# ==============================================================================
+#
+# Context: Codex comprehensive PR review discovered critical division-by-zero bugs
+# in equal-weight (lines 370-376, 392-394) and inverse-vol (line 524-526) methods.
+#
+# These minimal tests verify the fixes prevent NaN values. Full market-neutral
+# portfolio support (proper NET vs GROSS exposure handling) is deferred to P3.
+
+
+class TestDivisionByZeroRegression:
+    """Regression tests for division-by-zero bug fixes."""
+
+    def test_equal_weight_zero_sum_no_nan(self, caplog):
+        """Verify equal-weight doesn't produce NaN for zero-sum strategy weights."""
+        import logging
+
+        caplog.set_level(logging.WARNING)
+
+        # Mix of long-only and zero-sum strategies
+        signals = {
+            "long_only": pl.DataFrame({"symbol": ["AAPL"], "score": [0.05], "weight": [1.0]}),
+            "zero_sum": pl.DataFrame(
+                {
+                    "symbol": ["MSFT", "GOOGL"],
+                    "score": [0.03, -0.03],
+                    "weight": [0.5, -0.5],  # Sum = 0 (would cause div/0 without fix)
+                }
+            ),
+        }
+
+        # Enable short positions for market-neutral strategies
+        allocator = MultiAlphaAllocator(method="equal_weight", allow_short_positions=True)
+        result = allocator.allocate(signals, strategy_stats={})
+
+        # CRITICAL: No NaN values (primary bug fix verification)
+        assert not result["final_weight"].is_nan().any()
+        assert result["final_weight"].is_finite().all()
+
+        # Warning logged for zero-sum strategy
+        assert any("Market-neutral" in record.message for record in caplog.records)
+
+    def test_inverse_vol_with_offsetting_symbols_no_nan(self, caplog):
+        """
+        Verify inverse-vol doesn't produce NaN when offsetting long/short contributions cancel.
+
+        This test reproduces the division-by-zero condition that would have occurred
+        before the fix:
+        - Strategy A: long-only portfolio (AAPL=0.5, MSFT=0.5)
+        - Strategy B: short-only portfolio (AAPL=-0.5, MSFT=-0.5)
+        - Both strategies have same volatility → equal inverse-vol weights (0.5 each)
+        - Final aggregation: 0.5*0.5 + (-0.5)*0.5 = 0 for each symbol
+        - Total sum = 0 → division by zero without _safe_normalize_weights fix
+        """
+        import logging
+
+        caplog.set_level(logging.WARNING)
+
+        # Strategy A: long-only
+        # Strategy B: short-only (offsetting positions)
+        # Same volatility → equal strategy weights → final sum = 0
+        signals = {
+            "long_strategy": pl.DataFrame(
+                {"symbol": ["AAPL", "MSFT"], "score": [0.05, 0.03], "weight": [0.5, 0.5]}
+            ),
+            "short_strategy": pl.DataFrame(
+                {"symbol": ["AAPL", "MSFT"], "score": [-0.05, -0.03], "weight": [-0.5, -0.5]}
+            ),
+        }
+
+        strategy_stats = {
+            "long_strategy": {"vol": 0.15},
+            "short_strategy": {"vol": 0.15},  # Same vol → equal inverse-vol weights
+        }
+
+        # Enable short positions and disable per-strategy cap for clean zero-sum condition
+        allocator = MultiAlphaAllocator(
+            method="inverse_vol", per_strategy_max=1.0, allow_short_positions=True
+        )
+        result = allocator.allocate(signals, strategy_stats)
+
+        # CRITICAL: No NaN values (primary bug fix verification)
+        # Without the _safe_normalize_weights fix, this would produce NaN
+        assert not result["final_weight"].is_nan().any()
+        assert result["final_weight"].is_finite().all()
+
+        # Warning logged for zero-sum portfolio (from _safe_normalize_weights)
+        assert any("Zero-sum portfolio detected" in record.message for record in caplog.records)
+
+
+# ==============================================================================
+# Market-Neutral Portfolio Tests
+# ==============================================================================
+
+
+class TestMarketNeutralPortfolios:
+    """Test market-neutral portfolio support with proper NET vs GROSS exposure handling."""
+
+    def test_validation_rejects_shorts_when_disabled(self):
+        """Verify allocator rejects negative weights when allow_short_positions=False."""
+        signals = {
+            "strategy_a": pl.DataFrame(
+                {"symbol": ["AAPL", "MSFT"], "score": [0.05, -0.03], "weight": [0.6, -0.4]}
+            )
+        }
+
+        allocator = MultiAlphaAllocator(method="equal_weight", allow_short_positions=False)
+
+        with pytest.raises(ValueError, match="Negative weights detected"):
+            allocator.allocate(signals, strategy_stats={})
+
+    def test_equal_weight_market_neutral_gross_normalization(self):
+        """Verify equal-weight uses GROSS exposure for market-neutral portfolios."""
+        # Perfect market-neutral: NET = 0, GROSS = 2.0
+        signals = {
+            "long_short_strategy": pl.DataFrame(
+                {
+                    "symbol": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+                    "score": [0.05, 0.03, -0.04, -0.04],
+                    "weight": [0.5, 0.5, -0.5, -0.5],  # NET = 0, GROSS = 2.0
+                }
+            )
+        }
+
+        allocator = MultiAlphaAllocator(method="equal_weight", allow_short_positions=True)
+        result = allocator.allocate(signals, strategy_stats={})
+
+        # Weights normalized by GROSS exposure (2.0)
+        # Each symbol gets weight / 2.0
+        aapl = result.filter(pl.col("symbol") == "AAPL")["final_weight"][0]
+        msft = result.filter(pl.col("symbol") == "MSFT")["final_weight"][0]
+        googl = result.filter(pl.col("symbol") == "GOOGL")["final_weight"][0]
+        amzn = result.filter(pl.col("symbol") == "AMZN")["final_weight"][0]
+
+        assert abs(aapl - 0.25) < 1e-9  # 0.5 / 2.0
+        assert abs(msft - 0.25) < 1e-9  # 0.5 / 2.0
+        assert abs(googl - (-0.25)) < 1e-9  # -0.5 / 2.0
+        assert abs(amzn - (-0.25)) < 1e-9  # -0.5 / 2.0
+
+        # NET exposure = 0 (market-neutral)
+        net_exposure = result["final_weight"].sum()
+        assert abs(net_exposure) < 1e-9
+
+        # GROSS exposure = 1.0 (normalized)
+        gross_exposure = result["final_weight"].abs().sum()
+        assert abs(gross_exposure - 1.0) < 1e-9
+
+    def test_inverse_vol_market_neutral_preserves_signs(self):
+        """Verify inverse-vol preserves long/short signs for market-neutral portfolios."""
+        signals = {
+            "long_strategy": pl.DataFrame(
+                {"symbol": ["AAPL", "MSFT"], "score": [0.05, 0.03], "weight": [0.6, 0.4]}
+            ),
+            "short_strategy": pl.DataFrame(
+                {"symbol": ["GOOGL", "AMZN"], "score": [-0.04, -0.06], "weight": [-0.4, -0.6]}
+            ),
+        }
+
+        strategy_stats = {
+            "long_strategy": {"vol": 0.15},
+            "short_strategy": {"vol": 0.15},  # Equal vol → equal weights
+        }
+
+        allocator = MultiAlphaAllocator(
+            method="inverse_vol", per_strategy_max=1.0, allow_short_positions=True
+        )
+        result = allocator.allocate(signals, strategy_stats)
+
+        # Signs should be preserved
+        aapl = result.filter(pl.col("symbol") == "AAPL")["final_weight"][0]
+        msft = result.filter(pl.col("symbol") == "MSFT")["final_weight"][0]
+        googl = result.filter(pl.col("symbol") == "GOOGL")["final_weight"][0]
+        amzn = result.filter(pl.col("symbol") == "AMZN")["final_weight"][0]
+
+        assert aapl > 0  # Long position
+        assert msft > 0  # Long position
+        assert googl < 0  # Short position
+        assert amzn < 0  # Short position
+
+        # NET exposure ≈ 0 (market-neutral)
+        net_exposure = result["final_weight"].sum()
+        assert abs(net_exposure) < 1e-2
+
+    def test_rank_aggregation_market_neutral_mixed_strategies(self):
+        """Verify rank aggregation handles mixed long-only and market-neutral strategies."""
+        signals = {
+            "long_only": pl.DataFrame(
+                {"symbol": ["AAPL", "MSFT"], "score": [0.05, 0.03], "weight": [0.6, 0.4]}
+            ),
+            "market_neutral": pl.DataFrame(
+                {
+                    "symbol": ["GOOGL", "AMZN"],
+                    "score": [0.04, -0.04],
+                    "weight": [0.5, -0.5],  # Zero-sum
+                }
+            ),
+        }
+
+        allocator = MultiAlphaAllocator(method="rank_aggregation", allow_short_positions=True)
+        result = allocator.allocate(signals, strategy_stats={})
+
+        # Should have 4 symbols (2 long-only + 2 market-neutral)
+        assert len(result) == 4
+
+        # AAPL and MSFT should be positive (long-only strategy)
+        aapl = result.filter(pl.col("symbol") == "AAPL")["final_weight"][0]
+        msft = result.filter(pl.col("symbol") == "MSFT")["final_weight"][0]
+        assert aapl > 0
+        assert msft > 0
+
+        # GOOGL should be positive, AMZN negative (market-neutral strategy)
+        googl = result.filter(pl.col("symbol") == "GOOGL")["final_weight"][0]
+        amzn = result.filter(pl.col("symbol") == "AMZN")["final_weight"][0]
+        assert googl > 0
+        assert amzn < 0
+
+    def test_net_vs_gross_exposure_calculation(self):
+        """Verify correct NET and GROSS exposure calculation for market-neutral portfolios."""
+        # Create a 130/30 portfolio (130% long, 30% short, 100% NET)
+        signals = {
+            "long_short_strategy": pl.DataFrame(
+                {
+                    "symbol": ["AAPL", "MSFT", "GOOGL"],
+                    "score": [0.08, 0.05, -0.03],
+                    "weight": [0.65, 0.65, -0.30],  # NET = 1.0, GROSS = 1.6
+                }
+            )
+        }
+
+        allocator = MultiAlphaAllocator(method="equal_weight", allow_short_positions=True)
+        result = allocator.allocate(signals, strategy_stats={})
+
+        # NET exposure should be normalized to match input proportions
+        net_exposure = result["final_weight"].sum()
+        gross_exposure = result["final_weight"].abs().sum()
+
+        # For 130/30 portfolio: NET = 1.0, GROSS = 1.6
+        # After normalization: weights scaled to maintain ratio
+        assert abs(net_exposure - 1.0) < 1e-2  # NET = 100%
+        assert abs(gross_exposure - 1.6) < 1e-2  # GROSS = 160%
