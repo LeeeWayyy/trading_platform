@@ -488,9 +488,10 @@ class TradingOrchestrator:
         signal_responses = dict(zip(strategy_ids, responses, strict=True))
 
         # Step 2: Convert signals to DataFrames
-        signal_dfs: dict[str, pl.DataFrame] = {}
-        for strategy_id, response in signal_responses.items():
-            signal_dfs[strategy_id] = signals_to_dataframe(response.signals)
+        signal_dfs = {
+            strategy_id: signals_to_dataframe(response.signals)
+            for strategy_id, response in signal_responses.items()
+        }
 
         logger.info(
             f"Converted signals to DataFrames: {len(signal_dfs)} strategies, "

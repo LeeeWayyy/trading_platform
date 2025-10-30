@@ -23,7 +23,7 @@
 
 ```bash
 # Check if task state file exists and has incomplete work
-cat .claude/task-state.json | jq '.current_task.state, .progress.completion_percentage'
+jq '.current_task.state, .progress.completion_percentage' .claude/task-state.json
 ```
 
 **If state is "IN_PROGRESS" or "PENDING"**, proceed to Step 2.
@@ -42,7 +42,7 @@ Read the task state file to understand:
 
 ```bash
 # Load full state
-cat .claude/task-state.json | jq '.'
+jq '.' .claude/task-state.json
 ```
 
 ---
@@ -54,7 +54,7 @@ cat .claude/task-state.json | jq '.'
 git branch --show-current
 
 # Verify expected branch (from task-state.json)
-EXPECTED_BRANCH=$(cat .claude/task-state.json | jq -r '.current_task.branch')
+EXPECTED_BRANCH=$(jq -r '.current_task.branch' .claude/task-state.json)
 
 # Switch if needed
 if [ "$(git branch --show-current)" != "$EXPECTED_BRANCH" ]; then
@@ -62,10 +62,10 @@ if [ "$(git branch --show-current)" != "$EXPECTED_BRANCH" ]; then
 fi
 
 # Verify completed work exists
-git log --oneline -5 | grep -i "$(cat .claude/task-state.json | jq -r '.completed_work | to_entries | .[0].value.commit')"
+git log --oneline -5 | grep -i "$(jq -r '.completed_work | to_entries | .[0].value.commit' .claude/task-state.json)"
 
 # Check critical files exist
-ls -la $(cat .claude/task-state.json | jq -r '.context.critical_files[]')
+ls -la $(jq -r '.context.critical_files[]' .claude/task-state.json)
 ```
 
 ---
@@ -74,7 +74,7 @@ ls -la $(cat .claude/task-state.json | jq -r '.context.critical_files[]')
 
 ```bash
 # Read the task document to refresh requirements
-TASK_FILE=$(cat .claude/task-state.json | jq -r '.current_task.task_file')
+TASK_FILE=$(jq -r '.current_task.task_file' .claude/task-state.json)
 cat "$TASK_FILE"
 ```
 
@@ -126,7 +126,7 @@ Ready to continue? I'll proceed with Component 2 implementation.
 
 ```bash
 # Load implementation plan for current component
-cat .claude/task-state.json | jq -r '.implementation_guide.component_2_plan'
+jq -r '.implementation_guide.component_2_plan' .claude/task-state.json
 ```
 
 **Display:**
@@ -161,20 +161,20 @@ cat .claude/task-state.json
 ### 2. Checkout Branch
 
 ```bash
-git checkout $(cat .claude/task-state.json | jq -r '.current_task.branch')
+git checkout $(jq -r '.current_task.branch' .claude/task-state.json)
 ```
 
 ### 3. Read Task Document
 
 ```bash
-cat $(cat .claude/task-state.json | jq -r '.current_task.task_file')
+cat $(jq -r '.current_task.task_file' .claude/task-state.json)
 ```
 
 ### 4. Review Completed Work
 
 ```bash
 git log --oneline -10
-git show $(cat .claude/task-state.json | jq -r '.completed_work | to_entries | .[0].value.commit')
+git show $(jq -r '.completed_work | to_entries | .[0].value.commit' .claude/task-state.json)
 ```
 
 ### 5. Continue with Next Steps
@@ -271,7 +271,7 @@ git log --oneline -10
 
 ```bash
 # Force checkout to task branch
-git checkout -b $(cat .claude/task-state.json | jq -r '.current_task.branch') master
+git checkout -b $(jq -r '.current_task.branch' .claude/task-state.json) master
 ```
 
 ### Lost Continuation ID
@@ -303,10 +303,10 @@ This workflow succeeds when:
 
 **Session Start Detection:**
 ```bash
-$ cat .claude/task-state.json | jq '.current_task.state'
+$ jq '.current_task.state' .claude/task-state.json
 "IN_PROGRESS"
 
-$ cat .claude/task-state.json | jq '.progress.completion_percentage'
+$ jq '.progress.completion_percentage' .claude/task-state.json
 20
 ```
 
@@ -331,6 +331,6 @@ Loading context and continuing...
 ## 🔗 Related Files
 
 - `.claude/task-state.json` - Task state tracking (auto-updated)
-- `docs/TASKS/P2T1_TASK.md` - Full task requirements
+- `docs/TASKS/P2T1_DONE.md` - Example completed task
 - `.claude/workflows/00-template.md` - Task template
 - `.claude/workflows/README.md` - Workflow index

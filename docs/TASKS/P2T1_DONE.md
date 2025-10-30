@@ -5,22 +5,24 @@ phase: P2
 task: T1
 priority: HIGH
 owner: "@development-team"
-state: TASK
+state: DONE
 created: 2025-10-29
+completed: 2025-10-30
 dependencies: ["P1T6"]
 estimated_effort: "5-7 days"
-related_adrs: []
-related_docs: []
+related_adrs: ["ADR-0016"]
+related_docs: ["docs/CONCEPTS/multi-alpha-allocation.md"]
 features: []
 ---
 
 # P2T1: Multi-Alpha Allocator
 
 **Phase:** P2 (Advanced Features, 91-120 days)
-**Status:** TASK (Not Started)
+**Status:** DONE (Completed)
 **Priority:** HIGH
 **Owner:** @development-team
 **Created:** 2025-10-29
+**Completed:** 2025-10-30
 **Estimated Effort:** 5-7 days
 
 ---

@@ -11,11 +11,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Check for incomplete tasks
 if [ -f .claude/task-state.json ]; then
-  TASK_STATE=$(cat .claude/task-state.json | jq -r '.current_task.state')
+  TASK_STATE=$(jq -r '.current_task.state' .claude/task-state.json)
   if [ "$TASK_STATE" = "IN_PROGRESS" ]; then
     echo "🤖 INCOMPLETE TASK DETECTED"
     echo "📖 See .claude/AUTO_RESUME.md for automatic context restoration"
-    echo "📋 Run: cat .claude/task-state.json | jq '.'"
+    echo "📋 Run: jq '.' .claude/task-state.json"
   fi
 fi
 ```

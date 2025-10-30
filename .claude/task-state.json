@@ -4,7 +4,7 @@
     "title": "Multi-Alpha Allocator",
     "phase": "P2",
     "branch": "feature/P2T1-multi-alpha-allocator",
-    "task_file": "docs/TASKS/P2T1_TASK.md",
+    "task_file": "docs/TASKS/P2T1_DONE.md",
     "state": "COMPLETE",
     "started": "2025-10-29",
     "estimated_completion": "2025-11-03",
@@ -120,7 +120,7 @@
     "critical_files": [
       "libs/allocation/multi_alpha.py",
       "tests/libs/allocation/test_multi_alpha.py",
-      "docs/TASKS/P2T1_TASK.md"
+      "docs/TASKS/P2T1_DONE.md"
     ],
     "continuation_ids": {
       "task_creation_review": "97dc2fca-b9bc-4f8f-84c9-69aabba33573",
