@@ -13,7 +13,7 @@
 [ -f .claude/task-state.json ]
 
 # Is there incomplete work?
-TASK_STATE=$(cat .claude/task-state.json | jq -r '.current_task.state')
+TASK_STATE=$(jq -r '.current_task.state' .claude/task-state.json)
 if [ "$TASK_STATE" = "IN_PROGRESS" ] || [ "$TASK_STATE" = "PENDING" ]; then
   echo "🤖 INCOMPLETE TASK DETECTED - AUTO-RESUMING"
   # Trigger resume workflow

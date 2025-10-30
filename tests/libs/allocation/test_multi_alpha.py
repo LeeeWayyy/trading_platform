@@ -1519,6 +1519,46 @@ class TestDivisionByZeroRegression:
         # Warning logged for zero-sum portfolio (from _safe_normalize_weights)
         assert any("Zero-sum portfolio detected" in record.message for record in caplog.records)
 
+    def test_rank_aggregation_mirrored_contributions_no_nan(self, caplog):
+        """
+        Verify rank aggregation doesn't produce NaN when mirrored long/short contributions perfectly offset.
+
+        This test reproduces the division-by-zero condition discovered in final review:
+        - Strategy A: ranks AAPL highly (long)
+        - Strategy B: ranks AAPL highly (short, via negative weight)
+        - Equal ranking strength → offsetting contributions
+        - Final sum = 0 → division by zero without _safe_normalize_weights fix
+        """
+        import logging
+
+        caplog.set_level(logging.WARNING)
+
+        # Strategy A: Long position on AAPL (rank 1)
+        # Strategy B: Short position on AAPL (rank 1, same magnitude)
+        # Perfect mirror → final_sum = 0
+        signals = {
+            "long_strategy": pl.DataFrame(
+                {"symbol": ["AAPL"], "score": [0.08], "weight": [1.0]}  # Rank 1, long
+            ),
+            "short_strategy": pl.DataFrame(
+                {"symbol": ["AAPL"], "score": [0.08], "weight": [-1.0]}  # Rank 1, short
+            ),
+        }
+
+        allocator = MultiAlphaAllocator(
+            method="rank_aggregation", per_strategy_max=1.0, allow_short_positions=True
+        )
+        result = allocator.allocate(signals, strategy_stats={})
+
+        # CRITICAL: No NaN values (primary bug fix verification)
+        # Without the _safe_normalize_weights fix in rank aggregation final step, this would produce NaN
+        assert not result["final_weight"].is_nan().any()
+        assert not result["final_weight"].is_null().any()
+        assert result["final_weight"].is_finite().all()
+
+        # Warning logged for zero-sum portfolio
+        assert any("Zero-sum portfolio detected" in record.message for record in caplog.records)
+
 
 # ==============================================================================
 # Market-Neutral Portfolio Tests
@@ -1670,3 +1710,48 @@ class TestMarketNeutralPortfolios:
         # After normalization: weights scaled to maintain ratio
         assert abs(net_exposure - 1.0) < 1e-2  # NET = 100%
         assert abs(gross_exposure - 1.6) < 1e-2  # GROSS = 160%
+
+    def test_net_short_portfolio_preserves_negative_direction(self):
+        """
+        Regression test for net-short portfolio sign preservation.
+
+        CRITICAL BUG FIX: Previously, net-short portfolios were inverted to positive
+        when dividing by negative NET exposure. Example: [-0.6, -0.4] / -1.0 = [+0.6, +0.4]
+
+        This test verifies that purely short portfolios maintain their negative direction
+        after normalization by using abs(total) instead of total for division.
+        """
+        # Create a purely net-short portfolio (all negative weights)
+        signals = {
+            "short_strategy": pl.DataFrame(
+                {
+                    "symbol": ["AAPL", "MSFT"],
+                    "score": [-0.08, -0.05],
+                    "weight": [-0.6, -0.4],  # NET = -1.0 (100% short)
+                }
+            )
+        }
+
+        allocator = MultiAlphaAllocator(method="equal_weight", allow_short_positions=True)
+        result = allocator.allocate(signals, strategy_stats={})
+
+        # Extract final weights
+        aapl = result.filter(pl.col("symbol") == "AAPL")["final_weight"][0]
+        msft = result.filter(pl.col("symbol") == "MSFT")["final_weight"][0]
+
+        # CRITICAL: Weights must remain negative (not flipped to positive)
+        assert aapl < 0, f"AAPL weight should be negative, got {aapl}"
+        assert msft < 0, f"MSFT weight should be negative, got {msft}"
+
+        # Verify correct proportions preserved
+        # Original ratio: -0.6 / -0.4 = 1.5
+        # After normalization: should maintain same ratio
+        assert abs(aapl / msft - 1.5) < 1e-9
+
+        # NET exposure should be negative (net-short portfolio)
+        net_exposure = result["final_weight"].sum()
+        assert net_exposure < -0.99, f"NET exposure should be ≈ -1.0, got {net_exposure}"
+
+        # GROSS exposure should be normalized to 1.0
+        gross_exposure = result["final_weight"].abs().sum()
+        assert abs(gross_exposure - 1.0) < 1e-9

@@ -18,8 +18,15 @@ if [ ! -f "$STATE_FILE" ]; then
     exit 0
 fi
 
-# Check if task is in progress
-TASK_STATE=$(cat "$STATE_FILE" | jq -r '.current_task.state' 2>/dev/null || echo "UNKNOWN")
+# Parse task state values once (avoid redundant file reads)
+read -r TASK_STATE TASK_ID TASK_TITLE COMPLETION_PCT < <(jq -r '
+    .current_task.state,
+    .current_task.task_id,
+    .current_task.title,
+    .progress.completion_percentage
+' "$STATE_FILE" 2>/dev/null | tr '\n' ' '; echo)
+
+# Exit if task not in progress
 if [ "$TASK_STATE" != "IN_PROGRESS" ]; then
     exit 0
 fi
@@ -39,8 +46,8 @@ if echo "$STAGED_FILES" | grep -qE "^(libs|apps|strategies|tests)/.*\.py$"; then
         echo "You're committing implementation code, but .claude/task-state.json"
         echo "was not updated. This may break auto-resume in future sessions."
         echo ""
-        echo "Current task: $(cat "$STATE_FILE" | jq -r '.current_task.task_id') - $(cat "$STATE_FILE" | jq -r '.current_task.title')"
-        echo "Progress: $(cat "$STATE_FILE" | jq -r '.progress.completion_percentage')%"
+        echo "Current task: $TASK_ID - $TASK_TITLE"
+        echo "Progress: $COMPLETION_PCT%"
         echo ""
         echo "📝 To update task state (if component complete):"
         echo ""

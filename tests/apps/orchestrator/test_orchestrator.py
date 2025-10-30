@@ -60,6 +60,17 @@ class TestTradingOrchestratorInitialization:
 
         assert orchestrator.price_cache == price_cache
 
+    def test_initialization_inverse_vol_not_supported(self):
+        """Test that inverse_vol allocation method raises clear error."""
+        with pytest.raises(ValueError, match="inverse_vol.*not yet supported"):
+            TradingOrchestrator(
+                signal_service_url="http://localhost:8001",
+                execution_gateway_url="http://localhost:8002",
+                capital=Decimal("100000"),
+                max_position_size=Decimal("10000"),
+                allocation_method="inverse_vol",
+            )
+
 
 class TestTradingOrchestratorRun:
     """Tests for main orchestration workflow."""

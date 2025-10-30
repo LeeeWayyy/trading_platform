@@ -9,6 +9,7 @@ Coordinates the complete trading flow:
 5. Track execution and persist results
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import date, datetime
@@ -188,6 +189,16 @@ class TradingOrchestrator:
         self.price_cache = price_cache or {}
         self.allocation_method = allocation_method
         self.per_strategy_max = per_strategy_max
+
+        # Validate allocation method configuration
+        if allocation_method == "inverse_vol":
+            raise ValueError(
+                "allocation_method='inverse_vol' is not yet supported by the orchestrator. "
+                "The orchestrator does not currently fetch or provide strategy_stats "
+                "(volatility, Sharpe ratio, etc.) required for inverse volatility weighting. "
+                "Supported methods: 'rank_aggregation', 'equal_weight'. "
+                "To use inverse_vol, strategy_stats must be implemented in the orchestrator."
+            )
 
     async def close(self) -> None:
         """Close HTTP clients."""
@@ -460,17 +471,21 @@ class TradingOrchestrator:
         # TODO: In production, this would call multiple strategy services
         # For MVP, we assume all strategies share the same signal service
         # and differentiate via strategy_id parameter
-        signal_responses = {}
-        for strategy_id in strategy_ids:
-            logger.info(f"Fetching signals for strategy: {strategy_id}")
-            response = await self._fetch_signals(
+
+        # Fetch signals for all strategies concurrently to reduce latency
+        logger.info(f"Fetching signals for {len(strategy_ids)} strategies concurrently")
+        fetch_tasks = [
+            self._fetch_signals(
                 symbols=symbols,
                 as_of_date=as_of_date,
                 top_n=top_n,
                 bottom_n=bottom_n,
-                strategy_id=strategy_id,  # Pass strategy_id to differentiate signals
+                strategy_id=strategy_id,
             )
-            signal_responses[strategy_id] = response
+            for strategy_id in strategy_ids
+        ]
+        responses = await asyncio.gather(*fetch_tasks)
+        signal_responses = dict(zip(strategy_ids, responses, strict=True))
 
         # Step 2: Convert signals to DataFrames
         signal_dfs: dict[str, pl.DataFrame] = {}

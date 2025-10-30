@@ -317,9 +317,8 @@ class MultiAlphaAllocator:
         # This ensures no single strategy contributes more than per_strategy_max
         result = self._apply_per_strategy_caps_and_aggregate(weighted_contributions)
 
-        # Final normalization to ensure sum = 1.0
-        final_sum = result["final_weight"].sum()
-        result = result.with_columns((pl.col("final_weight") / final_sum).alias("final_weight"))
+        # Final normalization to ensure sum = 1.0 (handles market-neutral portfolios safely)
+        result = self._safe_normalize_weights(result, weight_col="final_weight")
 
         logger.info(
             "Rank aggregation complete",
@@ -662,9 +661,12 @@ class MultiAlphaAllocator:
             # Case 1b: Normalize by GROSS exposure (preserves signs)
             return df.with_columns((pl.col(weight_col) / total_abs).alias(weight_col))
 
-        # Case 2: Non-zero NET exposure (long-only or net-long portfolio)
-        # Normalize by NET exposure (standard approach)
-        return df.with_columns((pl.col(weight_col) / total).alias(weight_col))
+        # Case 2: Non-zero NET exposure (long-only, net-long, or net-short portfolio)
+        # Normalize by absolute value of NET exposure to preserve sign direction
+        # For net-short portfolios, dividing by negative total would flip signs (BUG)
+        # Example: [-0.6, -0.4] / -1.0 = [+0.6, +0.4] (WRONG)
+        # Fixed: [-0.6, -0.4] / abs(-1.0) = [-0.6, -0.4] (CORRECT)
+        return df.with_columns((pl.col(weight_col) / abs(total)).alias(weight_col))
 
     def _apply_per_strategy_caps_and_aggregate(
         self, weighted_contributions: pl.DataFrame
