@@ -251,18 +251,12 @@ class TestTradingOrchestratorRun:
         assert result.num_orders_submitted == 0
         assert "Signal service unavailable" in result.error_message
 
-    @pytest.mark.skip(
-        reason="TODO: Fix test to check result.status instead of pytest.raises. "
-        "The orchestrator.run() method catches exceptions internally and returns "
-        "them in result object rather than re-raising. See test_error_during_signal_fetching "
-        "at line 240 for correct pattern."
-    )
     @pytest.mark.asyncio()
     async def test_run_multi_strategy_raises_error_on_date_mismatch(self, orchestrator):
-        """Test that multi-strategy run raises ValueError when as_of_date mismatches across strategies.
+        """Test that multi-strategy run fails when as_of_date mismatches across strategies.
 
-        TODO: Update this test to check result.status == "failed" and verify error message
-        contains "as_of_date mismatch" instead of using pytest.raises.
+        Verifies that orchestrator catches date mismatch errors and returns them
+        in the result object with status='failed' and appropriate error message.
         """
         # Mock responses with different as_of_date values
         response1 = SignalServiceResponse(
@@ -295,23 +289,22 @@ class TestTradingOrchestratorRun:
             ),
         )
 
-        # Mock fetch_signals to return different responses for different strategy_ids
-        async def mock_fetch_signals(*args, **kwargs):
-            strategy_id = kwargs.get("strategy_id")
-            if strategy_id == "alpha_baseline":
-                return response1
-            elif strategy_id == "momentum":
-                return response2
-            raise ValueError(f"Unexpected strategy_id: {strategy_id}")
+        # Mock fetch_signals to return different responses on sequential calls
+        # Note: strategy_id is not yet passed to signal_client.fetch_signals (TODO in orchestrator),
+        # so we use side_effect list to return different responses in order
+        orchestrator.signal_client.fetch_signals = AsyncMock(side_effect=[response1, response2])
 
-        orchestrator.signal_client.fetch_signals = AsyncMock(side_effect=mock_fetch_signals)
+        # Run with multiple strategies - should fail due to date mismatch
+        result = await orchestrator.run(
+            symbols=["AAPL", "MSFT"],
+            strategy_id=["alpha_baseline", "momentum"],  # Multi-strategy mode
+        )
 
-        # Run with multiple strategies - should raise ValueError
-        with pytest.raises(ValueError, match=r"as_of_date mismatch across strategies"):
-            await orchestrator.run(
-                symbols=["AAPL", "MSFT"],
-                strategy_id=["alpha_baseline", "momentum"],  # Multi-strategy mode
-            )
+        # Verify orchestrator caught the error and returned it in result object
+        assert result.status == "failed"
+        assert result.num_signals == 0
+        assert result.num_orders_submitted == 0
+        assert "as_of_date mismatch across strategies" in result.error_message
 
 
 class TestFetchSignals:
