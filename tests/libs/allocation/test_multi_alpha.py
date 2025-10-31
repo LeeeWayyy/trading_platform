@@ -1647,6 +1647,26 @@ class TestMarketNeutralPortfolios:
         assert normalized["final_weight"].to_list() == [0.4, -0.4]
         assert abs(normalized["final_weight"].abs().sum() - 0.8) < 1e-9
 
+    def test_net_short_preserves_caps_when_allow_increase_disabled(self):
+        """Net-short normalization should not scale capped portfolios back to -1."""
+
+        allocator = MultiAlphaAllocator(method="equal_weight", allow_short_positions=True)
+
+        capped_weights = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "final_weight": [-0.3, -0.2],
+                "contributing_strategies": [["strat_a"], ["strat_b"]],
+            }
+        )
+
+        normalized = allocator._safe_normalize_weights(
+            capped_weights, allow_increase=False
+        )
+
+        assert normalized["final_weight"].to_list() == [-0.3, -0.2]
+        assert abs(normalized["final_weight"].sum() + 0.5) < 1e-9
+
     def test_rank_aggregation_market_neutral_mixed_strategies(self):
         """Verify rank aggregation handles mixed long-only and market-neutral strategies."""
         signals = {

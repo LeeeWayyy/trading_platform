@@ -691,13 +691,25 @@ class MultiAlphaAllocator:
             return df.with_columns((pl.col(weight_col) / total_abs).alias(weight_col))
 
         # Case 1d: Caps enforced with remaining headroom - optionally avoid scaling up
-        if not allow_increase and total > 0 and total <= 1.0 + tolerance:
-            # For long-only portfolios where caps reduced the total allocation, preserve
-            # the capped weights and leave any remainder unallocated. Minor floating
-            # point error around 1.0 is tolerated without rescaling.
-            if abs(total - 1.0) <= tolerance:
-                return df.with_columns((pl.col(weight_col) / total).alias(weight_col))
-            return df
+        if not allow_increase:
+            if total > 0 and total <= 1.0 + tolerance:
+                # For long-only portfolios where caps reduced the total allocation,
+                # preserve the capped weights and leave any remainder unallocated. Minor
+                # floating point error around 1.0 is tolerated without rescaling.
+                if abs(total - 1.0) <= tolerance:
+                    return df.with_columns((pl.col(weight_col) / total).alias(weight_col))
+                return df
+
+            if total < 0 and abs(total) <= 1.0 + tolerance:
+                # For net-short portfolios with caps applied, mirror the long-only
+                # behavior: preserve capped weights instead of scaling them back up to a
+                # larger short exposure. Only adjust for floating point drift when the
+                # total is already ~-1.0.
+                if abs(abs(total) - 1.0) <= tolerance:
+                    return df.with_columns(
+                        (pl.col(weight_col) / abs(total)).alias(weight_col)
+                    )
+                return df
 
         # Case 2: Non-zero NET exposure (long-only, net-long, or net-short portfolio)
         # Normalize by absolute value of NET exposure to preserve sign direction
