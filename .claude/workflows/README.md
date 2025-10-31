@@ -48,6 +48,14 @@
 | [10-ci-triage.md](./10-ci-triage.md) | Handling CI/CD pipeline failures | When CI checks fail |
 | [11-environment-bootstrap.md](./11-environment-bootstrap.md) | Setting up development environment | Onboarding and fresh setup |
 
+### Task Continuity & Session Management (12-14)
+
+| Workflow | Purpose | When to Use |
+|----------|---------|-------------|
+| [12-phase-management.md](./12-phase-management.md) | Managing multi-phase feature development | During complex feature rollouts |
+| [13-task-creation-review.md](./13-task-creation-review.md) | Validate task docs before starting work | Before implementing any complex task |
+| [14-task-resume.md](./14-task-resume.md) | 🤖 **AUTO-RESUME** incomplete tasks | **AUTOMATIC** at session start |
+
 ### Project Management (12-19)
 
 | Workflow | Purpose | When to Use |

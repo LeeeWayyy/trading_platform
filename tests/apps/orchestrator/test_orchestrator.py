@@ -60,6 +60,17 @@ class TestTradingOrchestratorInitialization:
 
         assert orchestrator.price_cache == price_cache
 
+    def test_initialization_inverse_vol_not_supported(self):
+        """Test that inverse_vol allocation method raises clear error."""
+        with pytest.raises(ValueError, match="inverse_vol.*not yet supported"):
+            TradingOrchestrator(
+                signal_service_url="http://localhost:8001",
+                execution_gateway_url="http://localhost:8002",
+                capital=Decimal("100000"),
+                max_position_size=Decimal("10000"),
+                allocation_method="inverse_vol",
+            )
+
 
 class TestTradingOrchestratorRun:
     """Tests for main orchestration workflow."""
@@ -239,6 +250,61 @@ class TestTradingOrchestratorRun:
         assert result.num_signals == 0
         assert result.num_orders_submitted == 0
         assert "Signal service unavailable" in result.error_message
+
+    @pytest.mark.asyncio()
+    async def test_run_multi_strategy_raises_error_on_date_mismatch(self, orchestrator):
+        """Test that multi-strategy run fails when as_of_date mismatches across strategies.
+
+        Verifies that orchestrator catches date mismatch errors and returns them
+        in the result object with status='failed' and appropriate error message.
+        """
+        # Mock responses with different as_of_date values
+        response1 = SignalServiceResponse(
+            signals=[
+                Signal(symbol="AAPL", predicted_return=0.05, rank=1, target_weight=0.5),
+            ],
+            metadata=SignalMetadata(
+                as_of_date="2024-10-19",
+                model_version="v1.0",
+                strategy="alpha_baseline",
+                num_signals=1,
+                generated_at="2024-10-19T12:00:00Z",
+                top_n=1,
+                bottom_n=0,
+            ),
+        )
+
+        response2 = SignalServiceResponse(
+            signals=[
+                Signal(symbol="MSFT", predicted_return=0.03, rank=1, target_weight=0.5),
+            ],
+            metadata=SignalMetadata(
+                as_of_date="2024-10-20",  # Different date!
+                model_version="v1.0",
+                strategy="momentum",
+                num_signals=1,
+                generated_at="2024-10-20T12:00:00Z",
+                top_n=1,
+                bottom_n=0,
+            ),
+        )
+
+        # Mock fetch_signals to return different responses on sequential calls
+        # Note: strategy_id is not yet passed to signal_client.fetch_signals (TODO in orchestrator),
+        # so we use side_effect list to return different responses in order
+        orchestrator.signal_client.fetch_signals = AsyncMock(side_effect=[response1, response2])
+
+        # Run with multiple strategies - should fail due to date mismatch
+        result = await orchestrator.run(
+            symbols=["AAPL", "MSFT"],
+            strategy_id=["alpha_baseline", "momentum"],  # Multi-strategy mode
+        )
+
+        # Verify orchestrator caught the error and returned it in result object
+        assert result.status == "failed"
+        assert result.num_signals == 0
+        assert result.num_orders_submitted == 0
+        assert "as_of_date mismatch across strategies" in result.error_message
 
 
 class TestFetchSignals:

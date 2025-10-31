@@ -2,18 +2,23 @@
 Trading Orchestrator - Core orchestration logic.
 
 Coordinates the complete trading flow:
-1. Fetch signals from Signal Service
-2. Map signals to orders (position sizing)
-3. Submit orders to Execution Gateway
-4. Track execution and persist results
+1. Fetch signals from Signal Service (single or multiple strategies)
+2. Allocate across strategies if multiple (via MultiAlphaAllocator)
+3. Map signals to orders (position sizing)
+4. Submit orders to Execution Gateway
+5. Track execution and persist results
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 import httpx
+import polars as pl
+from prometheus_client import Counter
 
 from apps.orchestrator.clients import ExecutionGatewayClient, SignalServiceClient
 from apps.orchestrator.schemas import (
@@ -23,8 +28,112 @@ from apps.orchestrator.schemas import (
     SignalOrderMapping,
     SignalServiceResponse,
 )
+from libs.allocation import MultiAlphaAllocator
+from libs.allocation.multi_alpha import AllocMethod
 
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics
+DATE_MISMATCH_COUNTER = Counter(
+    "orchestrator_date_mismatch_total",
+    "Counts as_of_date mismatches across strategies in multi-strategy runs",
+)
+
+
+# ==============================================================================
+# Signal Conversion Helpers
+# ==============================================================================
+
+
+def signals_to_dataframe(signals: list[Signal]) -> pl.DataFrame:
+    """
+    Convert Signal objects to Polars DataFrame for allocator.
+
+    Args:
+        signals: List of Signal objects from Signal Service
+
+    Returns:
+        pl.DataFrame with columns [symbol, score, weight]
+            - score: predicted_return (used for ranking)
+            - weight: target_weight (normalized across all signals)
+
+    Example:
+        >>> signals = [
+        ...     Signal(symbol="AAPL", predicted_return=0.05, rank=1, target_weight=0.4),
+        ...     Signal(symbol="MSFT", predicted_return=0.03, rank=2, target_weight=0.3)
+        ... ]
+        >>> df = signals_to_dataframe(signals)
+        >>> df
+        shape: (2, 3)
+        ┌────────┬────────┬────────┐
+        │ symbol ┆ score  ┆ weight │
+        │ ---    ┆ ---    ┆ ---    │
+        │ str    ┆ f64    ┆ f64    │
+        ╞════════╪════════╪════════╡
+        │ AAPL   ┆ 0.05   ┆ 0.4    │
+        │ MSFT   ┆ 0.03   ┆ 0.3    │
+        └────────┴────────┴────────┘
+    """
+    if not signals:
+        return pl.DataFrame(
+            {"symbol": [], "score": [], "weight": []},
+            schema={"symbol": pl.Utf8, "score": pl.Float64, "weight": pl.Float64},
+        )
+
+    return pl.DataFrame(
+        {
+            "symbol": [s.symbol for s in signals],
+            "score": [s.predicted_return for s in signals],
+            "weight": [s.target_weight for s in signals],
+        }
+    )
+
+
+def dataframe_to_signals(df: pl.DataFrame) -> list[Signal]:
+    """
+    Convert Polars DataFrame back to Signal objects.
+
+    Args:
+        df: pl.DataFrame with columns [symbol, final_weight]
+            (or [symbol, final_weight, contributing_strategies])
+
+    Returns:
+        List of Signal objects with normalized weights
+
+    Example:
+        >>> df = pl.DataFrame({
+        ...     "symbol": ["AAPL", "MSFT", "GOOGL"],
+        ...     "final_weight": [0.4, 0.3, 0.3]
+        ... })
+        >>> signals = dataframe_to_signals(df)
+        >>> signals[0].symbol
+        'AAPL'
+        >>> signals[0].target_weight
+        0.4
+
+    Notes:
+        - predicted_return and rank are set to 0 since they're not preserved through allocation
+        - Use final_weight as target_weight for execution
+    """
+    if df.height == 0:
+        return []
+
+    # Extract symbols and weights
+    symbols = df["symbol"].to_list()
+    weights = df["final_weight"].to_list()
+
+    # Create Signal objects
+    # Note: After allocation, we lose individual strategy predictions
+    # So we set predicted_return=0, rank=0 (unused for execution)
+    return [
+        Signal(
+            symbol=symbol,
+            predicted_return=0.0,  # Not preserved through allocation
+            rank=0,  # Not preserved through allocation
+            target_weight=weight,
+        )
+        for symbol, weight in zip(symbols, weights, strict=True)
+    ]
 
 
 # ==============================================================================
@@ -65,6 +174,8 @@ class TradingOrchestrator:
         capital: Decimal,
         max_position_size: Decimal,
         price_cache: dict[str, Decimal] | None = None,
+        allocation_method: AllocMethod = "rank_aggregation",
+        per_strategy_max: float = 0.40,
     ):
         """
         Initialize Trading Orchestrator.
@@ -75,12 +186,26 @@ class TradingOrchestrator:
             capital: Total capital to allocate (e.g., Decimal("100000"))
             max_position_size: Maximum position size per symbol (e.g., Decimal("10000"))
             price_cache: Optional dict of symbol -> price for testing
+            allocation_method: Method for multi-alpha allocation ('rank_aggregation', 'inverse_vol', 'equal_weight')
+            per_strategy_max: Maximum allocation to any single strategy (default 0.40 = 40%)
         """
         self.signal_client = SignalServiceClient(signal_service_url)
         self.execution_client = ExecutionGatewayClient(execution_gateway_url)
         self.capital = capital
         self.max_position_size = max_position_size
         self.price_cache = price_cache or {}
+        self.allocation_method = allocation_method
+        self.per_strategy_max = per_strategy_max
+
+        # Validate allocation method configuration
+        if allocation_method == "inverse_vol":
+            raise ValueError(
+                "allocation_method='inverse_vol' is not yet supported by the orchestrator. "
+                "The orchestrator does not currently fetch or provide strategy_stats "
+                "(volatility, Sharpe ratio, etc.) required for inverse volatility weighting. "
+                "Supported methods: 'rank_aggregation', 'equal_weight'. "
+                "To use inverse_vol, strategy_stats must be implemented in the orchestrator."
+            )
 
     async def close(self) -> None:
         """Close HTTP clients."""
@@ -90,17 +215,25 @@ class TradingOrchestrator:
     async def run(
         self,
         symbols: list[str],
-        strategy_id: str,
+        strategy_id: str | list[str],
         as_of_date: date | None = None,
         top_n: int | None = None,
         bottom_n: int | None = None,
     ) -> OrchestrationResult:
         """
-        Execute complete orchestration workflow.
+        Execute complete orchestration workflow (single or multi-strategy).
+
+        Single strategy mode (backward compatible):
+            - strategy_id is a string
+            - Signals used directly without allocation
+
+        Multi-strategy mode:
+            - strategy_id is a list of strategy IDs
+            - Signals blended via MultiAlphaAllocator
 
         Args:
             symbols: List of symbols to trade
-            strategy_id: Strategy identifier (e.g., "alpha_baseline")
+            strategy_id: Single strategy ID (str) or multiple (list[str])
             as_of_date: Date for signal generation (defaults to today)
             top_n: Override number of long positions
             bottom_n: Override number of short positions
@@ -108,36 +241,61 @@ class TradingOrchestrator:
         Returns:
             OrchestrationResult with complete run details
 
-        Example:
+        Example (single strategy):
             >>> result = await orchestrator.run(
             ...     symbols=["AAPL", "MSFT", "GOOGL"],
             ...     strategy_id="alpha_baseline",
             ...     as_of_date=date(2024, 12, 31)
             ... )
-            >>> print(result.status)
-            'completed'
+
+        Example (multi-strategy):
+            >>> result = await orchestrator.run(
+            ...     symbols=["AAPL", "MSFT", "GOOGL"],
+            ...     strategy_id=["alpha_baseline", "momentum", "mean_reversion"],
+            ...     as_of_date=date(2024, 12, 31)
+            ... )
         """
         run_id = uuid.uuid4()
         started_at = datetime.now()
+
+        # Normalize strategy_id to list for consistent handling
+        strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
+        is_multi_strategy = len(strategy_ids) > 1
 
         logger.info(
             f"Starting orchestration run {run_id}",
             extra={
                 "run_id": str(run_id),
-                "strategy_id": strategy_id,
+                "strategy_ids": strategy_ids,
+                "num_strategies": len(strategy_ids),
+                "multi_strategy": is_multi_strategy,
                 "num_symbols": len(symbols),
                 "capital": float(self.capital),
             },
         )
 
         try:
-            # Phase 1: Fetch signals
-            signal_response = await self._fetch_signals(
-                symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
-            )
+            # Phase 1: Fetch signals (single or multi-strategy)
+            validated_as_of_date: str | None = None
+            if is_multi_strategy:
+                # Multi-strategy: allocate across strategies
+                final_signals, validated_as_of_date = await self._run_multi_strategy(
+                    symbols=symbols,
+                    strategy_ids=strategy_ids,
+                    as_of_date=as_of_date,
+                    top_n=top_n,
+                    bottom_n=bottom_n,
+                )
+            else:
+                # Single strategy: use signals directly (backward compatible)
+                signal_response = await self._fetch_signals(
+                    symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
+                )
+                final_signals = signal_response.signals
+                validated_as_of_date = signal_response.metadata.as_of_date
 
             # Phase 2: Map signals to orders
-            mappings = await self._map_signals_to_orders(signal_response.signals)
+            mappings = await self._map_signals_to_orders(final_signals)
 
             # Phase 3: Submit orders
             await self._submit_orders(mappings)
@@ -169,7 +327,7 @@ class TradingOrchestrator:
                 extra={
                     "run_id": str(run_id),
                     "status": status,
-                    "num_signals": len(signal_response.signals),
+                    "num_signals": len(final_signals),
                     "num_orders_submitted": num_orders_submitted,
                     "num_orders_accepted": num_orders_accepted,
                     "num_orders_rejected": num_orders_rejected,
@@ -180,16 +338,17 @@ class TradingOrchestrator:
             return OrchestrationResult(
                 run_id=run_id,
                 status=status,
-                strategy_id=strategy_id,
-                as_of_date=signal_response.metadata.as_of_date,
+                strategy_id=",".join(strategy_ids),  # Join multiple strategy IDs with comma
+                as_of_date=(
+                    validated_as_of_date if validated_as_of_date else date.today().isoformat()
+                ),
                 symbols=symbols,
                 capital=self.capital,
-                num_signals=len(signal_response.signals),
+                num_signals=len(final_signals),
                 signal_metadata={
-                    "model_version": signal_response.metadata.model_version,
-                    "strategy": signal_response.metadata.strategy,
-                    "top_n": signal_response.metadata.top_n,
-                    "bottom_n": signal_response.metadata.bottom_n,
+                    "strategies": strategy_ids,
+                    "multi_strategy": is_multi_strategy,
+                    "allocation_method": self.allocation_method if is_multi_strategy else None,
                 },
                 num_orders_submitted=num_orders_submitted,
                 num_orders_accepted=num_orders_accepted,
@@ -213,7 +372,7 @@ class TradingOrchestrator:
             return OrchestrationResult(
                 run_id=run_id,
                 status="failed",
-                strategy_id=strategy_id,
+                strategy_id=",".join(strategy_ids),  # Join multiple strategy IDs with comma
                 as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
                 symbols=symbols,
                 capital=self.capital,
@@ -234,6 +393,7 @@ class TradingOrchestrator:
         as_of_date: date | None = None,
         top_n: int | None = None,
         bottom_n: int | None = None,
+        strategy_id: str | None = None,
     ) -> SignalServiceResponse:
         """
         Fetch signals from Signal Service.
@@ -243,15 +403,27 @@ class TradingOrchestrator:
             as_of_date: Date for signal generation
             top_n: Number of long positions
             bottom_n: Number of short positions
+            strategy_id: Strategy identifier for multi-strategy mode (optional)
 
         Returns:
             SignalServiceResponse with signals and metadata
 
         Raises:
             httpx.HTTPError: If Signal Service request fails
-        """
-        logger.info(f"Fetching signals for {len(symbols)} symbols")
 
+        Notes:
+            - In single-strategy mode, strategy_id is None and default model is used
+            - In multi-strategy mode, strategy_id differentiates signal sources
+            - TODO: Pass strategy_id to signal_client once it supports multiple strategies
+        """
+        logger.info(
+            f"Fetching signals for {len(symbols)} symbols"
+            + (f" (strategy: {strategy_id})" if strategy_id else "")
+        )
+
+        # TODO: Once SignalServiceClient supports strategy_id parameter, pass it here
+        # For MVP, all strategies use the same signal service endpoint
+        # In production, this would route to different strategy services or pass strategy_id
         signal_response = await self.signal_client.fetch_signals(
             symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
         )
@@ -267,6 +439,138 @@ class TradingOrchestrator:
         )
 
         return signal_response
+
+    async def _run_multi_strategy(
+        self,
+        symbols: list[str],
+        strategy_ids: list[str],
+        as_of_date: date | None = None,
+        top_n: int | None = None,
+        bottom_n: int | None = None,
+    ) -> tuple[list[Signal], str | None]:
+        """
+        Run multi-strategy allocation workflow.
+
+        Workflow:
+        1. Fetch signals from each strategy
+        2. Convert signals to DataFrames
+        3. Allocate across strategies via MultiAlphaAllocator
+        4. Convert blended DataFrame back to Signal objects
+
+        Args:
+            symbols: List of symbols to trade
+            strategy_ids: List of strategy IDs to blend
+            as_of_date: Date for signal generation
+            top_n: Number of long positions per strategy
+            bottom_n: Number of short positions per strategy
+
+        Returns:
+            Tuple of (blended_signals, validated_as_of_date):
+            - blended_signals: List of blended Signal objects with final target_weight from allocation
+            - validated_as_of_date: The as_of_date string from strategy responses (validated for consistency across strategies)
+
+        Example:
+            >>> # Fetch from alpha_baseline, momentum, mean_reversion
+            >>> signals, validated_date = await self._run_multi_strategy(
+            ...     symbols=["AAPL", "MSFT", "GOOGL"],
+            ...     strategy_ids=["alpha_baseline", "momentum", "mean_reversion"],
+            ...     as_of_date=date(2024, 12, 31)
+            ... )
+            >>> # Returns blended signals with weights from MultiAlphaAllocator
+        """
+        logger.info(f"Running multi-strategy allocation for {len(strategy_ids)} strategies")
+
+        # Step 1: Fetch signals from each strategy
+        # TODO: In production, this would call multiple strategy services
+        # For MVP, we assume all strategies share the same signal service
+        # and differentiate via strategy_id parameter
+
+        # Fetch signals for all strategies concurrently to reduce latency
+        logger.info(f"Fetching signals for {len(strategy_ids)} strategies concurrently")
+        fetch_tasks = [
+            self._fetch_signals(
+                symbols=symbols,
+                as_of_date=as_of_date,
+                top_n=top_n,
+                bottom_n=bottom_n,
+                strategy_id=strategy_id,
+            )
+            for strategy_id in strategy_ids
+        ]
+        responses = await asyncio.gather(*fetch_tasks)
+        signal_responses = dict(zip(strategy_ids, responses, strict=True))
+
+        # Validate as_of_date consistency across all strategies
+        response_dates = {
+            strategy_id: response.metadata.as_of_date
+            for strategy_id, response in signal_responses.items()
+        }
+        unique_dates = set(response_dates.values())
+
+        if len(unique_dates) > 1:
+            # Date mismatch detected - increment metric, log error, and raise
+            DATE_MISMATCH_COUNTER.inc()
+            date_summary = ", ".join(f"{sid}={dt}" for sid, dt in sorted(response_dates.items()))
+            error_msg = (
+                f"as_of_date mismatch across strategies: {date_summary}. "
+                "All strategies must return signals from the same date to prevent "
+                "mixing stale and fresh data in allocation."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # Use the validated as_of_date from strategy responses
+        validated_as_of_date = next(iter(unique_dates)) if unique_dates else None
+        logger.info(
+            f"Validated as_of_date across {len(strategy_ids)} strategies: {validated_as_of_date}"
+        )
+
+        # Step 2: Convert signals to DataFrames
+        signal_dfs = {
+            strategy_id: signals_to_dataframe(response.signals)
+            for strategy_id, response in signal_responses.items()
+        }
+
+        logger.info(
+            f"Converted signals to DataFrames: {len(signal_dfs)} strategies, "
+            f"total signals = {sum(df.height for df in signal_dfs.values())}"
+        )
+
+        # Detect whether any strategy is providing short (negative weight) signals.
+        allow_short_positions = any(
+            df.height > 0 and bool((df["weight"] < 0).any()) for df in signal_dfs.values()
+        )
+
+        if allow_short_positions:
+            logger.info("Detected short signals; enabling short-cap allocation support")
+        else:
+            logger.info("No short signals detected; running allocator in long-only mode")
+
+        # Step 3: Allocate across strategies
+        allocator = MultiAlphaAllocator(
+            method=self.allocation_method,
+            per_strategy_max=self.per_strategy_max,
+            allow_short_positions=allow_short_positions,
+        )
+
+        # No strategy_stats for now (inverse_vol would need this)
+        # Pass empty dict for methods that don't require stats (rank_aggregation, equal_weight)
+        strategy_stats: dict[str, dict[str, Any]] = {}
+
+        blended_df = allocator.allocate(signal_dfs, strategy_stats)
+
+        logger.info(
+            f"Allocation complete: {blended_df.height} symbols, "
+            f"method={self.allocation_method}, "
+            f"per_strategy_max={self.per_strategy_max}"
+        )
+
+        # Step 4: Convert blended DataFrame back to Signal objects
+        blended_signals = dataframe_to_signals(blended_df)
+
+        logger.info(f"Blended {len(blended_signals)} signals across {len(strategy_ids)} strategies")
+
+        return blended_signals, validated_as_of_date
 
     async def _map_signals_to_orders(self, signals: list[Signal]) -> list[SignalOrderMapping]:
         """
