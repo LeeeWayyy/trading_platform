@@ -132,27 +132,9 @@ git checkout -b feature/P1T11-F1-tool-restriction
 
 ### Step 3: Implement Using 4-Step Pattern
 
-**CRITICAL:** Each subfeature must use the 4-step pattern for its logical components.
+**CRITICAL:** Each subfeature must use the [component development cycle](./component-cycle.md) for its logical components.
 
-Example for P1T11-F1 (Tool Access Restriction Documentation):
-
-```markdown
-## P1T11-F1 Implementation Plan
-
-Component 1: Read-only pattern documentation
-- [ ] Implement: Document read-only access patterns
-- [ ] Test: Validate examples are correct
-- [ ] Review: Request zen-mcp quick review
-- [ ] Commit: Commit documentation changes
-
-Component 2: Workflow guide updates
-- [ ] Implement: Update workflow guides with new patterns
-- [ ] Test: Verify all links work
-- [ ] Review: Request zen-mcp quick review
-- [ ] Commit: Commit workflow updates
-```
-
-**See:** [01-git-commit.md](./01-git-commit.md) for 4-step pattern details
+**See:** [component-cycle.md](./component-cycle.md) for complete pattern documentation
 
 ### Step 4: Create Subfeature PR
 

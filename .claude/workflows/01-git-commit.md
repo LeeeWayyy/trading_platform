@@ -25,164 +25,20 @@
 
 ---
 
-## ⚠️ MANDATORY: 6-Step Todo Pattern for Each Logical Component
+## ⚠️ MANDATORY: Component Development Cycle
 
-**CRITICAL:** To ensure quality and prevent skipped steps, EVERY logical component implementation MUST be broken into these 6 todo tasks:
+**CRITICAL:** Before committing, every logical component MUST complete the [4-step component development cycle](./component-cycle.md):
 
-### The 6-Step Pattern
+1. **Implement** the component
+2. **Test** with TDD
+3. **Review** via zen-mcp (clink + codex)
+4. **Commit** after approval
 
-For each logical component you implement, create these 6 tasks in order:
-
-1. **"Implement [component name]"** - Write the implementation code
-2. **"Create test cases for [component name]"** - Write comprehensive tests (TDD)
-3. **"Request zen-mcp review for [component name]"** - MANDATORY quality gate (clink + codex)
-4. **"Run make ci-local for [component name]"** - MANDATORY CI gate (prevents remote CI failures)
-5. **"Commit [component name] after approval + CI pass"** - Commit only after gates pass
-6. **"Update task state for [component name]"** - Update .claude/task-state.json (enables auto-resume)
-
-**Example:**
-
-If implementing "position limit validation", create these 6 todos:
-```markdown
-- [ ] Implement position limit validation logic
-- [ ] Create test cases for position limit validation
-- [ ] Request zen-mcp review for position limit validation
-- [ ] Run make ci-local for position limit validation
-- [ ] Commit position limit validation after approval + CI pass
-- [ ] Update task state for position limit validation
-```
-
-**Why this pattern is mandatory:**
-
-❌ **WITHOUT this pattern:**
-```markdown
-# BAD - Skips testing, review, CI, and state update
-- [ ] Implement position limit validation
-- [ ] Commit changes
-```
-Result: Direct commit without tests/review → bugs slip through, no auto-resume tracking
-
-✅ **WITH this pattern:**
-```markdown
-# GOOD - Forces TDD + review + CI + state tracking
-- [ ] Implement position limit validation logic
-- [ ] Create test cases for position limit validation (RED → GREEN)
-- [ ] Request zen-mcp review for position limit validation
-- [ ] Run make ci-local for position limit validation
-- [ ] Commit position limit validation after approval + CI pass
-- [ ] Update task state for position limit validation
-```
-Result: Tested, reviewed, CI-validated, tracked code
-
-### How to Use This Pattern
-
-**1. At start of feature, break down into logical components:**
-```markdown
-## Feature: Idempotent Order Submission
-
-Component 1: Deterministic ID generation
-- [ ] Implement deterministic ID generation logic
-- [ ] Create test cases for deterministic ID generation
-- [ ] Request zen-mcp review for deterministic ID generation
-- [ ] Run make ci-local for deterministic ID generation
-- [ ] Commit deterministic ID generation after approval + CI pass
-- [ ] Update task state for deterministic ID generation
-
-Component 2: Duplicate detection
-- [ ] Implement duplicate detection logic
-- [ ] Create test cases for duplicate detection
-- [ ] Request zen-mcp review for duplicate detection
-- [ ] Run make ci-local for duplicate detection
-- [ ] Commit duplicate detection after approval + CI pass
-- [ ] Update task state for duplicate detection
-
-Component 3: Error handling for duplicates
-- [ ] Implement error handling for duplicates
-- [ ] Create test cases for error handling
-- [ ] Request zen-mcp review for error handling
-- [ ] Run make ci-local for error handling
-- [ ] Commit error handling after approval + CI pass
-- [ ] Update task state for error handling
-```
-
-**2. Work through each 6-step cycle:**
-- Mark "Implement..." as `in_progress` → code the logic
-- Mark "Create test cases..." as `in_progress` → write tests, run until GREEN
-- Mark "Request zen-mcp review..." as `in_progress` → request review, fix issues
-- Mark "Run make ci-local..." as `in_progress` → run full CI locally, fix any failures
-- Mark "Commit..." as `in_progress` → commit only after review + CI pass
-- Mark "Update task state..." as `in_progress` → update .claude/task-state.json
-
-**3. Never skip steps or combine them:**
-- ❌ Don't implement + commit without testing
-- ❌ Don't test + commit without zen review
-- ❌ Don't commit without running make ci-local
-- ❌ Don't commit without updating task state
-- ❌ Don't combine multiple components in one commit
-- ✅ Always complete all 6 steps for each component
-
-### Benefits of This Pattern
-
-**Quality:**
-- Enforces TDD (test first, then implement)
-- Guarantees zen-mcp review before commit
-- Prevents "forgot to test" situations
-- Catches issues while context is fresh
-
-**Clarity:**
-- Clear what step you're on
-- Easy to resume after interruptions
-- Obvious if a step was skipped
-- Good audit trail
-
-**Safety:**
-- Every commit is tested
-- Every commit is reviewed
-- Trading safety enforced at component level
-- No "commit now, test later" anti-pattern
-
-### Anti-Patterns to Avoid
-
-❌ **Single todo for component:**
-```markdown
-- [ ] Add position limit validation
-```
-Problem: Skips testing, review, CI, and state update
-
-❌ **Skipping test creation:**
-```markdown
-- [ ] Implement logic
-- [ ] Request zen review
-- [ ] Commit
-```
-Problem: No test coverage, missing CI and state update
-
-❌ **Combining components:**
-```markdown
-- [ ] Implement all validation logic
-- [ ] Create all tests
-- [ ] Review and commit everything
-```
-Problem: Massive commit, hard to review, hard to debug
-
-✅ **CORRECT - 6 steps per component:**
-```markdown
-Component: Position validation
-- [ ] Implement position validation logic
-- [ ] Create test cases for position validation
-- [ ] Request zen-mcp review for position validation
-- [ ] Run make ci-local for position validation
-- [ ] Commit position validation after approval + CI pass
-- [ ] Update task state for position validation
-
-Component: Risk checks
-- [ ] Implement risk checks logic
-- [ ] Create test cases for risk checks
-- [ ] Request zen-mcp review for risk checks
-- [ ] Run make ci-local for risk checks
-- [ ] Commit risk checks after approval + CI pass
-- [ ] Update task state for risk checks
-```
+**See [component-cycle.md](./component-cycle.md)** for:
+- Complete 4-step pattern documentation
+- Todo template for each component
+- Usage checklist and anti-patterns
+- Examples and FAQ
 
 ---
 
