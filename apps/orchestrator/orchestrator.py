@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 import polars as pl
+from prometheus_client import Counter
 
 from apps.orchestrator.clients import ExecutionGatewayClient, SignalServiceClient
 from apps.orchestrator.schemas import (
@@ -31,6 +32,12 @@ from libs.allocation import MultiAlphaAllocator
 from libs.allocation.multi_alpha import AllocMethod
 
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics
+DATE_MISMATCH_COUNTER = Counter(
+    "orchestrator_date_mismatch_total",
+    "Counts as_of_date mismatches across strategies in multi-strategy runs",
+)
 
 
 # ==============================================================================
@@ -269,9 +276,10 @@ class TradingOrchestrator:
 
         try:
             # Phase 1: Fetch signals (single or multi-strategy)
+            validated_as_of_date: str | None = None
             if is_multi_strategy:
                 # Multi-strategy: allocate across strategies
-                final_signals = await self._run_multi_strategy(
+                final_signals, validated_as_of_date = await self._run_multi_strategy(
                     symbols=symbols,
                     strategy_ids=strategy_ids,
                     as_of_date=as_of_date,
@@ -284,6 +292,7 @@ class TradingOrchestrator:
                     symbols=symbols, as_of_date=as_of_date, top_n=top_n, bottom_n=bottom_n
                 )
                 final_signals = signal_response.signals
+                validated_as_of_date = signal_response.metadata.as_of_date
 
             # Phase 2: Map signals to orders
             mappings = await self._map_signals_to_orders(final_signals)
@@ -330,7 +339,9 @@ class TradingOrchestrator:
                 run_id=run_id,
                 status=status,
                 strategy_id=",".join(strategy_ids),  # Join multiple strategy IDs with comma
-                as_of_date=as_of_date.isoformat() if as_of_date else date.today().isoformat(),
+                as_of_date=(
+                    validated_as_of_date if validated_as_of_date else date.today().isoformat()
+                ),
                 symbols=symbols,
                 capital=self.capital,
                 num_signals=len(final_signals),
@@ -436,7 +447,7 @@ class TradingOrchestrator:
         as_of_date: date | None = None,
         top_n: int | None = None,
         bottom_n: int | None = None,
-    ) -> list[Signal]:
+    ) -> tuple[list[Signal], str | None]:
         """
         Run multi-strategy allocation workflow.
 
@@ -454,11 +465,13 @@ class TradingOrchestrator:
             bottom_n: Number of short positions per strategy
 
         Returns:
-            List of blended Signal objects with final target_weight from allocation
+            Tuple of (blended_signals, validated_as_of_date):
+            - blended_signals: List of blended Signal objects with final target_weight from allocation
+            - validated_as_of_date: The as_of_date string from strategy responses (validated for consistency across strategies)
 
         Example:
             >>> # Fetch from alpha_baseline, momentum, mean_reversion
-            >>> signals = await self._run_multi_strategy(
+            >>> signals, validated_date = await self._run_multi_strategy(
             ...     symbols=["AAPL", "MSFT", "GOOGL"],
             ...     strategy_ids=["alpha_baseline", "momentum", "mean_reversion"],
             ...     as_of_date=date(2024, 12, 31)
@@ -487,6 +500,31 @@ class TradingOrchestrator:
         responses = await asyncio.gather(*fetch_tasks)
         signal_responses = dict(zip(strategy_ids, responses, strict=True))
 
+        # Validate as_of_date consistency across all strategies
+        response_dates = {
+            strategy_id: response.metadata.as_of_date
+            for strategy_id, response in signal_responses.items()
+        }
+        unique_dates = set(response_dates.values())
+
+        if len(unique_dates) > 1:
+            # Date mismatch detected - increment metric, log error, and raise
+            DATE_MISMATCH_COUNTER.inc()
+            date_summary = ", ".join(f"{sid}={dt}" for sid, dt in sorted(response_dates.items()))
+            error_msg = (
+                f"as_of_date mismatch across strategies: {date_summary}. "
+                "All strategies must return signals from the same date to prevent "
+                "mixing stale and fresh data in allocation."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # Use the validated as_of_date from strategy responses
+        validated_as_of_date = next(iter(unique_dates)) if unique_dates else None
+        logger.info(
+            f"Validated as_of_date across {len(strategy_ids)} strategies: {validated_as_of_date}"
+        )
+
         # Step 2: Convert signals to DataFrames
         signal_dfs = {
             strategy_id: signals_to_dataframe(response.signals)
@@ -500,8 +538,7 @@ class TradingOrchestrator:
 
         # Detect whether any strategy is providing short (negative weight) signals.
         allow_short_positions = any(
-            df.height > 0 and bool((df["weight"] < 0).any())
-            for df in signal_dfs.values()
+            df.height > 0 and bool((df["weight"] < 0).any()) for df in signal_dfs.values()
         )
 
         if allow_short_positions:
@@ -533,7 +570,7 @@ class TradingOrchestrator:
 
         logger.info(f"Blended {len(blended_signals)} signals across {len(strategy_ids)} strategies")
 
-        return blended_signals
+        return blended_signals, validated_as_of_date
 
     async def _map_signals_to_orders(self, signals: list[Signal]) -> list[SignalOrderMapping]:
         """

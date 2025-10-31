@@ -192,9 +192,8 @@ class MultiAlphaAllocator:
 **Implementation:** `check_correlation()` method
 
 **Alerts triggered when:**
-- Pairwise Pearson correlation's absolute value > `correlation_threshold` (default 0.70)
-- **Current implementation:** Uses `abs(correlation) > threshold`, so both high positive correlation (+0.8, redundant strategies) and high negative correlation (-0.8, diversifying strategies) trigger alerts
-- **Known limitation:** Negative correlation indicates diversification (good), not redundancy. Future enhancement should only alert on positive correlation > threshold.
+- Pairwise Pearson correlation > `correlation_threshold` (default 0.70)
+- **Implementation Note:** The check specifically targets high positive correlations, as they indicate strategy redundancy. High negative correlations are desirable for diversification and do not trigger an alert.
 - Logged as WARNING with strategy pair + correlation value
 - **Monitoring:** Currently log-only (no Prometheus metrics). Future enhancement: emit metric to enable dashboard/alerting.
 
