@@ -693,12 +693,9 @@ class MultiAlphaAllocator:
         # Case 1d: Caps enforced with remaining headroom - optionally avoid scaling up
         if not allow_increase:
             if total > 0 and total <= 1.0 + tolerance:
-                # For long-only portfolios where caps reduced the total allocation,
-                # preserve the capped weights and leave any remainder unallocated. Minor
-                # floating point error around 1.0 is tolerated without rescaling.
                 if abs(total - 1.0) <= tolerance:
                     return df.with_columns((pl.col(weight_col) / total).alias(weight_col))
-                return df
+                return df  # <-- Preserve caps, leave remainder unallocated
 
             if total < 0 and abs(total) <= 1.0 + tolerance:
                 # For net-short portfolios with caps applied, mirror the long-only
@@ -706,9 +703,7 @@ class MultiAlphaAllocator:
                 # larger short exposure. Only adjust for floating point drift when the
                 # total is already ~-1.0.
                 if abs(abs(total) - 1.0) <= tolerance:
-                    return df.with_columns(
-                        (pl.col(weight_col) / abs(total)).alias(weight_col)
-                    )
+                    return df.with_columns((pl.col(weight_col) / abs(total)).alias(weight_col))
                 return df
 
         # Case 2: Non-zero NET exposure (long-only, net-long, or net-short portfolio)
@@ -885,7 +880,8 @@ class MultiAlphaAllocator:
                     eligible = [
                         row
                         for row in eligible
-                        if row["headroom"] > redistribute_tol and row["net_total"] > redistribute_tol
+                        if row["headroom"] > redistribute_tol
+                        and row["net_total"] > redistribute_tol
                     ]
 
                 redistribution = {
@@ -905,24 +901,10 @@ class MultiAlphaAllocator:
                         scaled.join(redistribution_df, on="strategy_id", how="left")
                         .with_columns(
                             (
-                                pl.col("capped_contribution")
-                                * pl.col("scale_up").fill_null(1.0)
+                                pl.col("capped_contribution") * pl.col("scale_up").fill_null(1.0)
                             ).alias("capped_contribution")
                         )
                         .drop("scale_up")
-                    )
-
-                if remaining > redistribute_tol:
-                    logger.info(
-                        "Per-strategy caps left residual unallocated weight",
-                        extra={
-                            "remaining_weight": round(remaining, 6),
-                            "num_strategies_without_capacity": sum(
-                                1
-                                for row in strategy_rows
-                                if row["headroom"] <= redistribute_tol
-                            ),
-                        },
                     )
 
         # Step 5: Aggregate by symbol
@@ -1004,14 +986,16 @@ class MultiAlphaAllocator:
                 strat1 = strategy_ids[i]
                 strat2 = strategy_ids[j]
 
-                pair_returns = recent_returns[strat1].select(
-                    [pl.col("date"), pl.col("return").alias("return_left")]
-                ).join(
-                    recent_returns[strat2].select(
-                        [pl.col("date"), pl.col("return").alias("return_right")]
-                    ),
-                    on="date",
-                    how="inner",
+                pair_returns = (
+                    recent_returns[strat1]
+                    .select([pl.col("date"), pl.col("return").alias("return_left")])
+                    .join(
+                        recent_returns[strat2].select(
+                            [pl.col("date"), pl.col("return").alias("return_right")]
+                        ),
+                        on="date",
+                        how="inner",
+                    )
                 )
 
                 if pair_returns.height < 2:
@@ -1042,8 +1026,9 @@ class MultiAlphaAllocator:
 
                 correlations[(strat1, strat2)] = correlation
 
-                # Check threshold
-                if abs(correlation) > self.correlation_threshold:
+                # Check threshold (only alert on positive correlation = redundancy)
+                # Negative correlation is desirable for diversification
+                if correlation > self.correlation_threshold:
                     high_correlations.append((strat1, strat2, correlation))
 
         if skipped_pairs and not correlations:
