@@ -197,6 +197,8 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 
 ### Workflows (see .claude/workflows/ for detailed guides)
 - **🔍 Pre-Implementation Analysis (MANDATORY):** `.claude/workflows/00-analysis-checklist.md`
+- **Task breakdown (for complex tasks >8h):** `.claude/workflows/00-task-breakdown.md`
+- **Component cycle (4-step pattern):** `.claude/workflows/component-cycle.md`
 - **Git commit:** `.claude/workflows/01-git-commit.md`
 - **Create PR:** `.claude/workflows/02-git-pr.md`
 - **Quick review (clink + codex):** `.claude/workflows/03-zen-review-quick.md`
@@ -208,7 +210,10 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 - **Deploy/rollback:** `.claude/workflows/09-deployment-rollback.md`
 - **Fix CI:** `.claude/workflows/10-ci-triage.md`
 - **Bootstrap env:** `.claude/workflows/11-environment-bootstrap.md`
+- **Phase management:** `.claude/workflows/12-phase-management.md`
 - **Task creation review (clink + gemini):** `.claude/workflows/13-task-creation-review.md`
+- **🤖 Auto-resume tasks:** `.claude/workflows/14-task-resume.md`
+- **Update task state:** `.claude/workflows/15-update-task-state.md`
 
 ---
 

@@ -8,6 +8,14 @@
 
 ---
 
+## Quick Reference
+
+**Testing:** See [Test Commands Reference](./_common/test-commands.md)
+**Git:** See [Git Commands Reference](./_common/git-commands.md)
+**Zen Review:** See [Zen-MCP Review Process](./_common/zen-review-process.md)
+
+---
+
 ## When to Use This Workflow
 
 Describe the specific scenarios where this workflow applies:
@@ -28,8 +36,6 @@ Clear, actionable instruction explaining what to do.
 command --with-flags
 ```
 
-**What this does:** Brief explanation of the step's purpose.
-
 ### 2. [Second Action Step]
 
 Continue with numbered steps (aim for ≤10 total steps).
@@ -39,70 +45,25 @@ Continue with numbered steps (aim for ≤10 total steps).
 result = do_something()
 ```
 
-### 3. [Third Action Step]
-
-Keep steps focused and atomic.
-
 ---
 
 ## Decision Points
 
 **If X happens, then:**
 - **Option A:** Choose this when [scenario]
-  - Next step: Go to step N
-  - Example: [concrete example]
-
 - **Option B:** Choose this when [scenario]
-  - Next step: Go to step M
-  - Example: [concrete example]
 
 ---
 
-## Common Issues & Solutions
+## Common Issues
 
 ### Issue: [Problem Description]
-
-**Symptom:** What you see when this problem occurs
-
-**Cause:** Why this happens
 
 **Solution:**
 ```bash
 # Fix command or steps
 fix --the-problem
 ```
-
-### Issue: [Another Problem]
-
-**Symptom:** ...
-
-**Cause:** ...
-
-**Solution:** ...
-
----
-
-## Examples
-
-### Example 1: [Typical Scenario]
-
-```bash
-# Complete example workflow
-step1 --example
-step2 --example
-step3 --example
-```
-
-**Result:** What you should see after completing these steps.
-
-### Example 2: [Edge Case Scenario]
-
-```bash
-# Example handling edge case
-special-case --handling
-```
-
-**Result:** Expected outcome.
 
 ---
 
@@ -112,11 +73,6 @@ special-case --handling
 - [ ] Checklist item 1
 - [ ] Checklist item 2
 - [ ] Checklist item 3
-
-**What to check if something seems wrong:**
-- Check X for Y
-- Verify Z is correct
-- Confirm A matches B
 
 ---
 
@@ -130,20 +86,5 @@ special-case --handling
 
 ## References
 
-**Standards & Policies:**
 - [/docs/STANDARDS/GIT_WORKFLOW.md](/docs/STANDARDS/GIT_WORKFLOW.md)
 - [/docs/STANDARDS/CODING_STANDARDS.md](/docs/STANDARDS/CODING_STANDARDS.md)
-
-**Architecture Decisions:**
-- [ADR-0001: Data Pipeline Architecture](/docs/ADRs/0001-data-pipeline-architecture.md)
-
-**Additional Resources:**
-- [/docs/CONCEPTS/corporate-actions.md](/docs/CONCEPTS/corporate-actions.md)
-- External link if helpful
-
----
-
-**Maintenance Notes:**
-- Update this workflow when [trigger event]
-- Review frequency: Quarterly / After major changes
-- Notify [team/person] if substantial changes needed
