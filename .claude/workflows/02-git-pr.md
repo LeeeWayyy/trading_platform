@@ -147,7 +147,7 @@ gh pr create
 
 **PR description template:**
 
-See [Git Commands Reference](./_common/git-commands.md#create-pull-request) for complete PR template.
+See [PR Body Template](../prompts/pr-body-template.md) for complete PR template.
 
 **Required sections:**
 - Summary & Related Work

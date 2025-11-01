@@ -76,7 +76,30 @@ Concrete scenarios with numbers
 Links to authoritative sources
 ```
 
-### 3. Inline Comments for Complex Logic
+### 3. Create Implementation Guides
+
+**For complex features or workflows, create `/docs/IMPLEMENTATION_GUIDES/{feature-name}.md`:**
+
+```markdown
+# Feature/Component Implementation Guide
+
+## Overview
+What this component does and why it exists
+
+## Architecture
+How it fits into the system
+
+## Step-by-Step Implementation
+Detailed implementation steps with code examples
+
+## Testing
+How to test this feature
+
+## Common Issues
+Known gotchas and solutions
+```
+
+### 4. Inline Comments for Complex Logic
 
 ```python
 # Use comments to explain WHY, not WHAT

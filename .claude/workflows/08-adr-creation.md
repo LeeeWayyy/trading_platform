@@ -103,6 +103,11 @@ git commit -m "ADR-0013: Use Redis for circuit breaker state"
 git commit -m "Implement circuit breaker in Redis (ADR-0013)"
 ```
 
+**Core ADR checklist (MANDATORY):**
+- [ ] ADR created in `docs/ADRs/NNNN-title.md` with all required sections
+- [ ] ADR status updated to "Accepted" before implementation
+- [ ] **ADR committed to git BEFORE implementation code**
+
 ### 7. Update Related Documentation
 
 **Complete this checklist after creating ADR:**

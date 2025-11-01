@@ -97,12 +97,38 @@ continuation_id: abc123-def456
 
 **If NEEDS REVISION:**
 ```
-⚠️ Fix HIGH/CRITICAL findings
+⚠️ Fix HIGH/CRITICAL findings before proceeding
 
-Steps:
-1. Update task document
-2. Re-request review: "I've addressed findings. Verify using continuation_id: abc123"
-3. Wait for APPROVED
+Detailed steps to address feedback and get approval:
+
+1. **Categorize findings by priority:**
+   - HIGH/CRITICAL: Must fix before implementation
+   - MEDIUM: Should fix or document reason for deferral
+   - LOW: Nice to have, can defer
+
+2. **Update task document systematically:**
+   - Open docs/TASKS/P1T15_TASK.md in editor
+   - For each HIGH/CRITICAL finding:
+     * Read the specific line numbers mentioned
+     * Make the requested changes
+     * Verify change addresses the root issue
+   - Save changes
+
+3. **Re-request review with continuation_id:**
+   "I've addressed [N] HIGH/CRITICAL findings from task review.
+   Please verify fixes using continuation_id: abc123-def456"
+
+4. **Review synthesis from codex:**
+   - Codex will verify fixes and provide updated assessment
+   - May identify additional issues or confirm readiness
+
+5. **Iterate until APPROVED:**
+   - If still NEEDS REVISION: repeat steps 2-4
+   - If APPROVED: proceed to implementation
+
+6. **Commit approved task document:**
+   git add docs/TASKS/P1T15_TASK.md
+   git commit -m "Update P1T15 task doc (approved after task review)"
 ```
 
 **If BLOCKED:**

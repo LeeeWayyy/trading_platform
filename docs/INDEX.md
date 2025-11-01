@@ -115,6 +115,10 @@ Step-by-step procedures for development workflows:
 - [CURRENT, 2025-10-29, Workflow] [14-task-resume.md](../.claude/workflows/14-task-resume.md) - Auto-resume from task state
 - [CURRENT, 2025-10-29, Workflow] [15-update-task-state.md](../.claude/workflows/15-update-task-state.md) - Task state tracking
 - [CURRENT, 2025-10-24, Workflow] [component-cycle.md](../.claude/workflows/component-cycle.md) - 4-step component development cycle
+- [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](../.claude/workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
+- [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](../.claude/workflows/_common/git-commands.md) - Git operations and branch naming conventions
+- [CURRENT, 2025-11-01, Reference] [_common/test-commands.md](../.claude/workflows/_common/test-commands.md) - Testing commands and CI workflows
+- [CURRENT, 2025-11-01, Reference] [_common/zen-review-process.md](../.claude/workflows/_common/zen-review-process.md) - Three-tier zen-mcp review system
 - [DRAFT, 2025-10-18, Template] [00-template.md](../.claude/workflows/00-template.md) - Workflow template
 
 **Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities
@@ -313,6 +317,7 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-10-27, Guide] [TROUBLESHOOTING.md](../.claude/TROUBLESHOOTING.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
 - [CURRENT, 2025-10-26, Guide] [commands/zen-review.md](../.claude/commands/zen-review.md) - Zen-mcp review slash command configuration
 - [CURRENT, 2025-10-25, Guide] [state/README.md](../.claude/state/README.md) - Task state tracking system documentation
+- [CURRENT, 2025-11-01, Analysis] [TASKS/P1T13-workflow-simplification-analysis.md](../.claude/TASKS/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis and planning
 
 **.claude/prompts/ (Clink Review Templates):**
 - [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../.claude/prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex

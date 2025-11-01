@@ -46,7 +46,7 @@
 - [ ] **List ALL files that import the module**
 - [ ] **Identify similar patterns elsewhere**
 - [ ] **Check database schema impact** (migrations? backfill data?)
-- [ ] **Check API contract impact** (breaking changes?)
+- [ ] **Check API contract impact** (request/response schemas? breaking changes?)
 
 **Output:** Complete list of ALL files/modules/components that need changes
 
@@ -211,6 +211,7 @@
 - [ ] **For each call site, plan:**
   - What exceptions can be raised?
   - How should each exception be handled?
+  - Should errors propagate or be caught?
   - What should be logged? What should users see?
 
 **Output:** Error handling strategy documented for EVERY call site
