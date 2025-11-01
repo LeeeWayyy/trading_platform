@@ -53,9 +53,11 @@ make test
 
 **Expected output:**
 ```
-===================== 296 passed in 2.14s ======================
-Coverage: 94%
+===================== X passed in Y.YYs ======================
+Coverage: ZZ%
 ```
+
+(Where X = number of tests, Y = time in seconds, ZZ = coverage percentage)
 
 **If failures:** See step 5 for debugging
 
