@@ -72,6 +72,12 @@
 | [14-task-resume.md](./14-task-resume.md) | 🤖 **AUTO-RESUME** incomplete tasks | **AUTOMATIC** at session start |
 | [15-update-task-state.md](./15-update-task-state.md) | Keep task-state.json synchronized | After completing each component |
 
+### PR Review Management (16)
+
+| Workflow | Purpose | When to Use |
+|----------|---------|-------------|
+| [16-pr-review-comment-check.md](./16-pr-review-comment-check.md) | Systematically address all PR review comments | After receiving PR review feedback |
+
 ---
 
 ## 🎯 Workflow Categories
@@ -103,6 +109,7 @@
 - 06-debugging.md (when issues arise)
 - 08-adr-creation.md (for architecture changes)
 - 10-ci-triage.md (when CI fails)
+- 16-pr-review-comment-check.md (when PR feedback received)
 
 **Occasionally:**
 - 09-deployment-rollback.md (releases)
@@ -124,6 +131,7 @@
 - 13-task-creation-review.md
 - 14-task-resume.md (auto-resumes incomplete tasks)
 - 15-update-task-state.md
+- 16-pr-review-comment-check.md (after PR feedback)
 
 **Architecture/Lead Developers:**
 - 00-task-breakdown.md
@@ -253,12 +261,13 @@ All workflows must:
 
 ## 📊 Workflow Metrics
 
-**Total Workflows:** 20 workflows + 3 shared reference docs
+**Total Workflows:** 21 workflows + 3 shared reference docs
 **Shared References:** `_common/` (git-commands, test-commands, zen-review-process)
 **Task Management:** 00-template, 00-analysis-checklist, 00-task-breakdown, component-cycle, 14-15
 **Core Development:** 01-08 (Git, Review, Testing, Debugging, Docs, Architecture)
 **Operations:** 09-11 (Deployment, CI, Bootstrap)
 **Project Management:** 12-13 (Phase Management, Task Creation Review)
+**PR Management:** 16 (PR Review Comment Check)
 
 **Documentation Size:**
 - Baseline (before Phase 2): 8,854 lines
