@@ -440,15 +440,6 @@ GEMINI_RESULT=$(claude_code_api clink gemini codereviewer)
 9. Update root README.md to reference docs/INDEX.md
 
 **Success Criteria:**
-<<<<<<< HEAD
-- [ ] All markdown files indexed in docs/INDEX.md
-- [ ] scripts/validate_doc_index.sh created and working
-- [ ] make validate-docs passes
-- [ ] Multiple navigation paths available
-- [ ] Metadata complete and accurate
-- [ ] Update policy documented
-- [ ] AI_GUIDE.md and README.md updated
-=======
 - [x] All markdown files indexed in docs/INDEX.md (72+ files cataloged)
 - [x] scripts/validate_doc_index.sh created and working
 - [x] make validate-docs passes
@@ -456,7 +447,6 @@ GEMINI_RESULT=$(claude_code_api clink gemini codereviewer)
 - [x] Metadata complete and accurate
 - [x] Update policy documented
 - [x] AI_GUIDE.md and README.md updated
->>>>>>> origin/master
 
 ---
 
