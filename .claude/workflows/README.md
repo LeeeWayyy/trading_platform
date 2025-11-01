@@ -4,13 +4,28 @@
 
 ---
 
+## 📁 Shared Reference Documents
+
+**Common patterns extracted for reuse across workflows:**
+
+| Reference | Purpose | Referenced By |
+|-----------|---------|---------------|
+| [_common/git-commands.md](./_common/git-commands.md) | Git operations and conventions | 01, 02, 09, 11, 12, 13 |
+| [_common/test-commands.md](./_common/test-commands.md) | Testing commands and CI workflows | 05, 06, 09, 10, 11, 12 |
+| [_common/zen-review-process.md](./_common/zen-review-process.md) | Zen-MCP review system (3-tier) | 03, 04, 05, 06, 13 |
+
+---
+
 ## 📋 Workflow Index
 
 ### Task Management & Planning (00)
 
 | Workflow | Purpose | When to Use |
 |----------|---------|-------------|
+| [00-template.md](./00-template.md) | Template for creating new workflows | When creating new workflow documentation |
+| [00-analysis-checklist.md](./00-analysis-checklist.md) | Pre-implementation analysis (MANDATORY) | Before writing ANY code (30-60 min) |
 | [00-task-breakdown.md](./00-task-breakdown.md) | Break down large tasks into PxTy-Fz subfeatures | Before starting complex tasks (>8 hours) |
+| [component-cycle.md](./component-cycle.md) | 4-step pattern for implementing components | Every logical component (Implement → Test → Review → Commit) |
 
 ### Git & Version Control (01-02)
 
@@ -48,19 +63,14 @@
 | [10-ci-triage.md](./10-ci-triage.md) | Handling CI/CD pipeline failures | When CI checks fail |
 | [11-environment-bootstrap.md](./11-environment-bootstrap.md) | Setting up development environment | Onboarding and fresh setup |
 
-### Task Continuity & Session Management (12-14)
+### Task Continuity & Session Management (12-15)
 
 | Workflow | Purpose | When to Use |
 |----------|---------|-------------|
 | [12-phase-management.md](./12-phase-management.md) | Managing multi-phase feature development | During complex feature rollouts |
 | [13-task-creation-review.md](./13-task-creation-review.md) | Validate task docs before starting work | Before implementing any complex task |
 | [14-task-resume.md](./14-task-resume.md) | 🤖 **AUTO-RESUME** incomplete tasks | **AUTOMATIC** at session start |
-
-### Project Management (12-19)
-
-| Workflow | Purpose | When to Use |
-|----------|---------|-------------|
-| [12-phase-management.md](./12-phase-management.md) | Manage project phases and generate tasks | Starting new phase or breaking down work |
+| [15-update-task-state.md](./15-update-task-state.md) | Keep task-state.json synchronized | After completing each component |
 
 ---
 
@@ -68,13 +78,21 @@
 
 ### By Frequency
 
-**Before Starting (for complex tasks):**
-- 00-task-breakdown.md (for tasks >8 hours)
+**Before Starting ANY Implementation:**
+- 00-analysis-checklist.md (MANDATORY pre-implementation analysis, 30-60 min)
+- 13-task-creation-review.md (validate task docs before work)
+
+**Before Starting Complex Tasks:**
+- 00-task-breakdown.md (for tasks >8 hours, decompose into subfeatures)
+
+**Every Logical Component:**
+- component-cycle.md (4-step pattern: Implement → Test → Review → Commit)
 
 **Every Development Session:**
-- 01-git-commit.md (every 30-60 min)
-- 03-zen-review-quick.md (before each commit)
+- 01-git-commit.md (every 30-60 min per component)
+- 03-zen-review-quick.md (before each commit, MANDATORY)
 - 05-testing.md (before commits)
+- 15-update-task-state.md (after completing each component)
 
 **Each Feature/Fix:**
 - 04-zen-review-deep.md (before PR)
@@ -94,15 +112,21 @@
 ### By User Role
 
 **All Developers:**
+- 00-analysis-checklist.md (MANDATORY before coding)
+- component-cycle.md (4-step pattern for all components)
 - 01-git-commit.md
 - 02-git-pr.md
-- 03-zen-review-quick.md
-- 04-zen-review-deep.md
+- 03-zen-review-quick.md (MANDATORY before commits)
+- 04-zen-review-deep.md (MANDATORY before PRs)
 - 05-testing.md
 - 06-debugging.md
 - 07-documentation.md
+- 13-task-creation-review.md
+- 14-task-resume.md (auto-resumes incomplete tasks)
+- 15-update-task-state.md
 
 **Architecture/Lead Developers:**
+- 00-task-breakdown.md
 - 08-adr-creation.md
 - 09-deployment-rollback.md
 - 12-phase-management.md
@@ -116,25 +140,37 @@
 ## 🔄 Typical Development Flow
 
 ```
-Start Feature
+Start New Task
     ↓
-[11-environment-bootstrap.md] ← (if first time)
+[11-environment-bootstrap.md] ← (if first time setup)
+    ↓
+[14-task-resume.md] ← (🤖 AUTOMATIC: auto-resume incomplete tasks)
+    ↓
+[13-task-creation-review.md] ← Validate task document
+    ↓
+[00-analysis-checklist.md] ← MANDATORY 30-60 min analysis BEFORE coding
     ↓
 [00-task-breakdown.md] ← (if complex task >8h, decompose into subfeatures)
     ↓
-Implement Code (30-60 min)
+For Each Logical Component:
     ↓
-[05-testing.md] ← Run tests
+  [component-cycle.md] ← 4-step pattern:
     ↓
-[03-zen-review-quick.md] ← MANDATORY review
+  1. Implement Code (30-60 min)
     ↓
-Fix Issues Found
+  2. [05-testing.md] ← Create tests, run locally
     ↓
-[01-git-commit.md] ← Commit
+  3. [03-zen-review-quick.md] ← MANDATORY quick review (codex, ~30 sec)
     ↓
-Repeat until feature complete
+     Fix Issues Found
     ↓
-[04-zen-review-deep.md] ← MANDATORY comprehensive review
+  4. [01-git-commit.md] ← Commit after review + tests pass
+    ↓
+  [15-update-task-state.md] ← Update task state after component
+    ↓
+Repeat until all components complete
+    ↓
+[04-zen-review-deep.md] ← MANDATORY deep review (gemini + codex, 3-5 min)
     ↓
 Fix Issues Found
     ↓
@@ -144,7 +180,7 @@ Fix Issues Found
     ↓
 Merge & Deploy
     ↓
-[09-deployment-rollback.md] ← (if needed)
+[09-deployment-rollback.md] ← (if deployment issues)
 ```
 
 ---
@@ -217,15 +253,21 @@ All workflows must:
 
 ## 📊 Workflow Metrics
 
-**Total Workflows:** 13 (complete coverage)
-**Task Management:** 00 (Task Breakdown)
+**Total Workflows:** 20 workflows + 3 shared reference docs
+**Shared References:** `_common/` (git-commands, test-commands, zen-review-process)
+**Task Management:** 00-template, 00-analysis-checklist, 00-task-breakdown, component-cycle, 14-15
 **Core Development:** 01-08 (Git, Review, Testing, Debugging, Docs, Architecture)
 **Operations:** 09-11 (Deployment, CI, Bootstrap)
-**Project Management:** 12 (Phase Management)
-**Average Length:** Target ≤10 steps per workflow
-**Review Frequency:** Quarterly or after major process changes
+**Project Management:** 12-13 (Phase Management, Task Creation Review)
 
-**Last Repository-Wide Review:** 2025-10-24
+**Documentation Size:**
+- Baseline (before Phase 2): 8,854 lines
+- Current (after Phase 2): 5,354 lines
+- Reduction: 3,500 lines (39.5%)
+- Target achieved: Exceeded 50% floor (4,427 lines)
+
+**Review Frequency:** Quarterly or after major process changes
+**Last Repository-Wide Review:** 2025-11-01 (P1T13 Phase 2: Workflow Simplification)
 
 ---
 
