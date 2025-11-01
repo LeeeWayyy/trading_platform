@@ -41,32 +41,12 @@
 
   # If changing a class
   grep -rn "ClassName" apps/ libs/ tests/
-
-  # If changing an import
-  grep -rn "from module import" apps/ libs/ tests/
   ```
 
-- [ ] **List ALL files that import the module:**
-  ```bash
-  grep -r "from libs.module import" apps/ libs/ tests/
-  grep -r "import libs.module" apps/ libs/ tests/
-  ```
-
-- [ ] **Identify similar patterns elsewhere:**
-  ```bash
-  # Find similar implementations
-  grep -r "similar_pattern" apps/ libs/
-  ```
-
-- [ ] **Check database schema impact:**
-  - Does this require database migrations?
-  - Which tables/columns are affected?
-  - Do we need to backfill data?
-
-- [ ] **Check API contract impact:**
-  - Which API endpoints are affected?
-  - Do request/response schemas change?
-  - Is this a breaking change?
+- [ ] **List ALL files that import the module**
+- [ ] **Identify similar patterns elsewhere**
+- [ ] **Check database schema impact** (migrations? backfill data?)
+- [ ] **Check API contract impact** (request/response schemas? breaking changes?)
 
 **Output:** Complete list of ALL files/modules/components that need changes
 
@@ -76,10 +56,7 @@
 
 - [ ] **Find existing tests:**
   ```bash
-  # Find test files for the component
   find tests/ -name "*test_component*"
-
-  # Find tests that import the module
   grep -r "from module import" tests/
   ```
 
@@ -93,38 +70,35 @@
   - Failure path tests needed: _______
   - Edge case tests needed: _______
 
-- [ ] **Health endpoint impact:**
-  - Do health checks need updating?
-  - Do failure scenarios need new tests?
-
 **Output:** List of ALL tests that need changes + NEW tests needed
 
 ---
 
 ### 4. Verify Pattern Parity (10 min)
 
-**NEW:** Ensure new code follows established patterns.
-
-- [ ] **Check retry patterns:**
-  - For Redis methods: Do ALL have `@retry` decorator (using Tenacity)?
-  - For HTTP calls: Do ALL use proper timeout/retry logic?
-  - For database calls: Do ALL use proper error handling?
+**Ensure new code follows established patterns:**
 
 - [ ] **Check error handling patterns:**
   - Are exceptions logged with proper context?
   - Are exceptions raised with meaningful messages?
-  - Are error responses consistent with existing APIs?
+  - Are try-except blocks used appropriately?
+  - Are proper exception types used (not bare `except:`)?
+  - Is error context preserved (chaining with `from`)?
+
+- [ ] **Check retry patterns:**
+  - Do ALL Redis methods have `@retry` decorator?
+  - Do HTTP calls have proper timeout/retry logic?
+  - Are retry attempts logged?
 
 - [ ] **Check logging patterns:**
-  - Is structured logging used (JSON)?
-  - Are required fields included (`strategy_id`, `client_order_id`)?
-  - Is log level appropriate?
+  - Structured logging (JSON)?
+  - Required fields (`strategy_id`, `client_order_id`)?
 
 - [ ] **Check decorator patterns:**
-  - Are required decorators present (`@retry`, `@timed`, etc.)?
-  - Are decorators in correct order?
+  - Required decorators present?
+  - Decorators in correct order?
 
-**Output:** List of patterns to follow; confirmation that new code will match
+**Output:** List of patterns to follow; confirmation new code will match
 
 ---
 
@@ -133,19 +107,16 @@
 - [ ] **Python language rules:**
   - If using `global`: Check function doesn't already have global declaration
   - If using async/await: Understand event loop implications
-  - If using decorators: Understand decorator execution order
 
 - [ ] **Library behavior:**
   - Check library documentation for edge cases
   - Verify version compatibility
-  - Test library behavior if uncertain
 
 - [ ] **Framework patterns:**
   - FastAPI: Understand exception handling in endpoints
-  - Pydantic: Understand validation order
   - pytest: Understand marker inheritance and fixture scope
 
-**Output:** List of verified assumptions; any uncertainties flagged for investigation
+**Output:** List of verified assumptions; any uncertainties flagged
 
 ---
 
@@ -175,11 +146,10 @@
 
 ### 7. Process Compliance Verification (5 min)
 
-**NEW:** Ensure required quality gates will be enforced.
+**Ensure required quality gates will be enforced:**
 
 - [ ] **Review gate confirmation:**
   - Will code be reviewed BEFORE commit? (MANDATORY: YES)
-  - Who will review? (zen-mcp or user)
   - When will review happen? (After implementation, before commit)
 
 - [ ] **CI gate confirmation:**
@@ -188,7 +158,6 @@
 
 - [ ] **Approval gate confirmation:**
   - Does this require user approval? (architectural changes, breaking changes)
-  - If yes, when will approval be requested? (After design phase)
 
 **Output:** Confirmation that ALL quality gates will be enforced
 
@@ -223,29 +192,19 @@
 ### 2. Identify ALL Edge Cases
 
 - [ ] **Normal operation edge cases:**
-  - Empty inputs
-  - Null/None values
-  - Very large inputs
-  - Very small inputs
-  - Boundary conditions
+  - Empty inputs, Null/None values
+  - Very large/small inputs, Boundary conditions
 
 - [ ] **Failure scenarios:**
-  - Redis unavailable
-  - Database unavailable
-  - API timeout
-  - Invalid data
+  - Redis/Database unavailable
+  - API timeout, Invalid data
   - State missing/corrupted
 
 - [ ] **Concurrency edge cases:**
-  - Race conditions
-  - Deadlocks
-  - Stale data
+  - Race conditions, Deadlocks, Stale data
 
 - [ ] **Security edge cases:**
-  - SQL injection vectors
-  - XSS vectors
-  - Authentication failures
-  - Authorization bypasses
+  - SQL injection, XSS, Auth failures
 
 **Output:** List of ALL edge cases; confirmation each has test coverage
 
@@ -257,8 +216,7 @@
   - What exceptions can be raised?
   - How should each exception be handled?
   - Should errors propagate or be caught?
-  - What should be logged?
-  - What should users see?
+  - What should be logged? What should users see?
 
 **Output:** Error handling strategy documented for EVERY call site
 
@@ -280,7 +238,6 @@
   - Todo list created with 4-step pattern?
   - All impacted areas identified?
   - Review gates confirmed?
-  - CI gates confirmed?
 
 **Output:** ✅ APPROVED to proceed with implementation
 
@@ -296,7 +253,6 @@
 - ❌ Architectural implications unclear
 - ❌ Breaking changes without user approval
 - ❌ Pattern parity violations cannot be resolved
-- ❌ Review gate cannot be enforced
 
 **Action:** Use AskUserQuestion tool to clarify uncertainties BEFORE coding.
 

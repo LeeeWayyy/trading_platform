@@ -114,7 +114,12 @@ Step-by-step procedures for development workflows:
 - [CURRENT, 2025-10-27, Workflow] [13-task-creation-review.md](../.claude/workflows/13-task-creation-review.md) - Task document review (clink + gemini)
 - [CURRENT, 2025-10-29, Workflow] [14-task-resume.md](../.claude/workflows/14-task-resume.md) - Auto-resume from task state
 - [CURRENT, 2025-10-29, Workflow] [15-update-task-state.md](../.claude/workflows/15-update-task-state.md) - Task state tracking
+- [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](../.claude/workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
 - [CURRENT, 2025-10-24, Workflow] [component-cycle.md](../.claude/workflows/component-cycle.md) - 4-step component development cycle
+- [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](../.claude/workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
+- [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](../.claude/workflows/_common/git-commands.md) - Git operations and branch naming conventions
+- [CURRENT, 2025-11-01, Reference] [_common/test-commands.md](../.claude/workflows/_common/test-commands.md) - Testing commands and CI workflows
+- [CURRENT, 2025-11-01, Reference] [_common/zen-review-process.md](../.claude/workflows/_common/zen-review-process.md) - Three-tier zen-mcp review system
 - [DRAFT, 2025-10-18, Template] [00-template.md](../.claude/workflows/00-template.md) - Workflow template
 
 **Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities

@@ -64,12 +64,6 @@ git add .claude/task-state.json
 git commit -m "chore: Start tracking P2T2 task"
 ```
 
-**What it does:**
-- Creates new task state structure
-- Sets `state: IN_PROGRESS`
-- Initializes progress tracking (0%)
-- Sets current component to Component 1
-
 ---
 
 ### Finishing Entire Task
@@ -81,12 +75,6 @@ git commit -m "chore: Start tracking P2T2 task"
 git add .claude/task-state.json
 git commit -m "chore: Mark P2T1 task complete"
 ```
-
-**What it does:**
-- Sets `state: COMPLETE`
-- Sets `completion_percentage: 100`
-- Clears `current_component`
-- Adds completion timestamp
 
 ---
 
@@ -215,10 +203,6 @@ Progress: 20%
 Press ENTER to continue anyway, or Ctrl+C to cancel
 ```
 
-**You can:**
-- Press Ctrl+C, update state, amend commit
-- Press ENTER to continue (not recommended - breaks auto-resume)
-
 ---
 
 ## 📊 Monitoring Task Progress
@@ -230,57 +214,10 @@ cat .claude/task-state.json | jq '.progress.completion_percentage'
 
 # See current component
 cat .claude/task-state.json | jq '.progress.current_component'
-# Output:
-{
-  "number": 3,
-  "name": "Correlation monitoring + caps",
-  "status": "NOT_STARTED"
-}
 
 # See what's completed
 cat .claude/task-state.json | jq '.completed_work | keys'
 # Output: ["Component 1", "Component 2"]
-
-# See last update time
-cat .claude/task-state.json | jq '.meta.last_updated'
-# Output: "2025-10-29T02:15:00Z"
-```
-
----
-
-## 🔧 Manual State Updates
-
-If the script fails or you need manual control:
-
-```bash
-# Edit state file directly
-vim .claude/task-state.json
-
-# Update these fields:
-{
-  "progress": {
-    "completed_components": 2,  # Increment
-    "completion_percentage": 40,  # Update
-    "current_component": {
-      "number": 3,  # Next component
-      ...
-    }
-  },
-  "completed_work": {
-    "Component 2": {  # Add new entry
-      "name": "...",
-      "commit": "abc1234",
-      "files": [...],
-      "tests_added": 8,
-      "review_approved": true,
-      "continuation_id": "...",
-      "completed_at": "2025-10-29T02:15:00Z"
-    }
-  },
-  "meta": {
-    "last_updated": "2025-10-29T02:15:00Z"  # Update timestamp
-  }
-}
 ```
 
 ---

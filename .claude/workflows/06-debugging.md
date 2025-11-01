@@ -1,19 +1,16 @@
 # Debugging Workflow
 
 **Purpose:** Systematically debug failing tests and production issues
+**When:** Tests failing, bugs in code review, unexpected behavior
 **Prerequisites:** Failing test or bug report
 **Expected Outcome:** Root cause identified and fixed
-**Owner:** @development-team
-**Last Reviewed:** 2025-10-21
 
 ---
 
-## When to Use This Workflow
+## Quick Reference
 
-- Tests failing
-- Bugs reported in code review
-- Production issues in DRY_RUN or paper trading
-- Unexpected behavior
+**Testing:** See [Test Commands Reference](./_common/test-commands.md)
+**Zen Review:** See [Zen-MCP Review Process](./_common/zen-review-process.md)
 
 ---
 
@@ -29,22 +26,7 @@ pytest tests/test_file.py::test_name -v -s
 python scripts/reproduce_issue.py
 ```
 
-### 2. Add Debug Output
-
-```python
-# Add logging
-import logging
-logger = logging.getLogger(__name__)
-logger.debug(f"Variable value: {variable}")
-
-# Or print statements
-print(f"DEBUG: value={value}, expected={expected}")
-
-# Or use debugger
-import pdb; pdb.set_trace()
-```
-
-### 3. Run With Debugger
+### 2. Use Debugger
 
 ```bash
 # Drop into pdb on failure
@@ -62,6 +44,23 @@ python -m pdb script.py
 - `l` - List code around current line
 - `q` - Quit debugger
 
+**Alternative: Add breakpoint in code:**
+```python
+import pdb; pdb.set_trace()
+```
+
+### 3. Add Debug Output
+
+```python
+# Add logging
+import logging
+logger = logging.getLogger(__name__)
+logger.debug(f"Variable value: {variable}")
+
+# Or print statements
+print(f"DEBUG: value={value}, expected={expected}")
+```
+
 ### 4. Identify Root Cause
 
 **Check:**
@@ -72,7 +71,7 @@ python -m pdb script.py
 
 ### 5. Fix and Verify
 
-```python
+```bash
 # Make the fix
 # Add test to prevent regression
 
@@ -87,21 +86,19 @@ make test
 
 ## Decision Points
 
-### Should I use debugger or print statements?
+### Debugger vs Print Statements?
 
 **Use debugger (pdb) when:**
 - Complex flow with many variables
-- Need to step through code line by line
-- Want to inspect state at specific point
+- Need to step through code
 - Issue is reproducible
 
 **Use print/logging when:**
 - Simple quick check
-- Issues in production (can't use debugger)
+- Production issues (can't use debugger)
 - Async code (debugger can be tricky)
-- Want persistent output
 
-### Should I fix the bug or file it for later?
+### Fix Now or File for Later?
 
 **Fix immediately:**
 - Blocks development
@@ -113,7 +110,6 @@ make test
 - Edge case, low priority
 - Requires investigation
 - Not blocking current work
-- Create ticket and document
 
 ---
 
@@ -127,27 +123,18 @@ make test
 E AssertionError: assert 100 == 50
 
 # Debug:
-# 1. Print both values
 print(f"result={result}, expected={expected}")
-
-# 2. Check calculation
 print(f"Steps: base={base}, multiplier={mult}, result={base*mult}")
-
-# 3. Verify test expectations are correct
 ```
 
-### Type Error
+### Type Error (NoneType)
 
 ```python
 # Error: 'NoneType' object has no attribute 'something'
 
-# Debug:
-# 1. Check where None comes from
-# 2. Add None check
+# Fix: Add None check
 if value is not None:
     result = value.something
-
-# 3. Fix upstream to not return None
 ```
 
 ### Race Condition
@@ -161,20 +148,17 @@ import time; time.sleep(0.1)
 
 # 2. Add locks around shared state
 # 3. Use atomic operations
-# 4. Add test to catch races
 ```
 
 ---
 
-## Examples
-
-### Example 1: Debug Failing Test
+## Example: Debug and Fix
 
 ```bash
 $ pytest tests/test_order_placer.py::test_limit_check -v
 FAILED - AssertionError: assert False == True
 
-$ pytest tests/test_order_placer.py::test_limit_check -v -s --pdb
+$ pytest tests/test_order_placer.py::test_limit_check --pdb
 > assert placer.check_limit("AAPL", 100) == True
 (Pdb) placer.max_position
 50  # Found it! Max is 50, test uses 100
@@ -182,24 +166,10 @@ $ pytest tests/test_order_placer.py::test_limit_check -v -s --pdb
 # Fix test to use valid value
 $ pytest tests/test_order_placer.py::test_limit_check -v
 PASSED ✅
-```
 
-### Example 2: Debug Production Issue
-
-```python
-# Issue: Position calculation returns wrong value
-
-# Add debug logging
-logger.debug(f"calc_position: current={current}, fills={fills}, total={current+fills}")
-
-# Run script
-$ python scripts/reproduce_issue.py
-DEBUG: calc_position: current=100, fills=50, total=150  # Expected!
-DEBUG: calc_position: current=None, fills=50, total=error  # Found it!
-
-# Fix: Handle None case
-if current is None:
-    current = 0
+# Run full suite
+$ make test
+==================== 296 passed in 2.18s ====================
 ```
 
 ---
@@ -213,12 +183,6 @@ if current is None:
 - [ ] All tests pass
 - [ ] Issue no longer reproduces
 
-**What to check if issue persists:**
-- Verify you're testing the fix (not cached code)
-- Check if issue is environmental
-- Confirm test actually covers the scenario
-- Review if fix addresses root cause or just symptom
-
 ---
 
 ## Related Workflows
@@ -230,12 +194,6 @@ if current is None:
 
 ## References
 
+- [Test Commands Reference](./_common/test-commands.md) - Testing commands and patterns
 - Python debugger: https://docs.python.org/3/library/pdb.html
 - pytest debugging: https://docs.pytest.org/en/stable/how-to/failures.html
-
----
-
-**Maintenance Notes:**
-- Update when new debugging tools added
-- Review when common issues change
-- Add new debugging patterns as discovered

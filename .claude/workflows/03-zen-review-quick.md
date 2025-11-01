@@ -1,19 +1,16 @@
-# Quick Review Workflow (Clink + Gemini → Codex)
+# Quick Review Workflow
 
 **Purpose:** Two-phase safety check of staged changes before each commit (MANDATORY quality gate)
-**Tool:** clink + gemini codereviewer → codex codereviewer (Tier 1 review, multi-phase)
+**When:** Before EVERY commit (~2-3 minutes)
 **Prerequisites:** Changes staged with `git add`, ready to commit
 **Expected Outcome:** Code validated for trading safety issues, approved for commit or issues identified for fixing
-**Owner:** @development-team
-**Last Reviewed:** 2025-10-26
 
 ---
 
-## 🚨 CRITICAL: Clink-Only Tool Usage
+## Quick Reference
 
-**⚠️ MANDATORY: Use `mcp__zen-mcp__clink` EXCLUSIVELY for all zen-mcp interactions.**
-
-See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#🚨-critical-clink-only-tool-usage-policy) for complete tool usage policy and examples.
+**Clink Policy:** See [Clink-Only Tool Usage Policy](./_common/clink-policy.md)
+**Zen Review:** See [Zen-MCP Review Process](./_common/zen-review-process.md) - Tier 1 (Quick Review)
 
 ---
 
@@ -29,7 +26,9 @@ See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#🚨-critical-clink-onl
 - 🔧 Auto-generated files (package-lock.json, poetry.lock)
 - 🚨 Emergency hotfixes (with explicit user approval + mandatory post-commit review)
 
-**Frequency:** ~2-3 minutes every 30-60 minutes = **~5% of development time** for massive safety benefit (two-phase review: gemini analysis + codex synthesis)
+**Frequency:** ~2-3 minutes every 30-60 minutes = **~5% of development time** for massive safety benefit
+
+**See Also:** [Zen-MCP Review Process](./_common/zen-review-process.md) for complete Tier 1 review details
 
 ---
 
@@ -39,89 +38,41 @@ See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#🚨-critical-clink-onl
 
 ```bash
 git add <files you want to commit>
-
-# Verify what's staged
 git status
 git diff --cached
 ```
 
-**What this does:** Prepares changes for review and commit
+### 2. Request Quick Review
 
-### 2. Request Quick Review (Two-Phase: Gemini → Codex)
-
-**Phase 1: Safety Analysis (Gemini Codereviewer)**
+**Simple request:**
 ```
-"Please review my staged changes using clink + gemini codereviewer.
-Focus on trading safety: circuit breakers, idempotency, position limits, type safety."
+"Review my staged changes with zen-mcp quick review"
 ```
 
-**Alternative (specify files):**
+**Or specify files:**
 ```
-"Review apps/execution_gateway/order_placer.py using clink + gemini codereviewer"
-```
-
-**What happens in Phase 1:**
-- Claude uses clink with gemini CLI codereviewer role (gemini-2.5-flash, fast and efficient)
-- Analyzes staged changes for trading safety, architecture, and quality issues
-- Review takes ~1-2 minutes
-- Returns detailed findings WITH continuation_id
-
-**Phase 2: Recommendations Synthesis (Codex Codereviewer) - REQUIRED**
-```
-"Now use clink + codex codereviewer with continuation_id <continuation_id>
-to synthesize recommendations and provide final approval or action items"
+"Quick review apps/execution_gateway/order_placer.py"
 ```
 
-**What happens in Phase 2:**
-- Claude uses clink with codex CLI (preserves continuation_id context)
-- Codex synthesizes gemini's findings into actionable plan
-- Prioritizes fixes, confirms safety checks passed
-- Takes ~30-60 seconds
-- Total review time: ~2-3 minutes across both phases
-- Final continuation_id provided for follow-up verification
+**Two-phase process (gemini → codex):**
+1. Phase 1: Gemini analyzes safety, architecture, quality (~1-2 min)
+2. Phase 2: Codex synthesizes recommendations (~30-60 sec)
+3. Total: ~2-3 minutes
 
-**⚠️ IMPORTANT: Both Phase 1 (Gemini) and Phase 2 (Codex) are MANDATORY.**
-Skipping either phase invalidates the zen-mcp review approval required by pre-commit hooks.
+See [Zen-MCP Review Process](./_common/zen-review-process.md) for detailed two-phase workflow.
 
 ### 3. Review the Findings
 
-**Codex (via clink) will report issues in this format:**
-
-```
-**Findings**
-
-- MEDIUM – Missing logging (apps/execution_gateway/order_placer.py:42):
-   Issue: Missing logging when position limit exceeded
-   Impact: Harder to debug limit violations in production
-   Fix: Add structured logging:
-   logger.warning(
-       "Position limit exceeded",
-       extra={
-           "symbol": symbol,
-           "current": current_pos,
-           "limit": max_pos,
-           "client_order_id": client_order_id
-       }
-   )
-
-- LOW – Variable naming (apps/execution_gateway/order_placer.py:78):
-   Issue: Variable name 'pos' is unclear
-   Impact: Minor readability issue
-   Fix: Rename to 'current_position'
-
-**Positives**
-- Circuit breaker checks present
-- Idempotent client_order_id implementation
-
-<SUMMARY>Safe to commit after addressing MEDIUM issue.</SUMMARY>
-
-continuation_id: abc123-def456 (for follow-up verification)
-```
-
 **Severity levels:**
-- **HIGH/CRITICAL:** ❌ MUST fix before committing (blocking)
+- **HIGH/CRITICAL:** ❌ MUST fix before committing
 - **MEDIUM:** ⚠️ MUST fix OR document deferral
 - **LOW:** ℹ️ Fix if time permits
+
+**Zen will provide:**
+- Detailed findings with file:line references
+- Impact assessment
+- Concrete fix suggestions
+- continuation_id for follow-up
 
 ### 4. Fix HIGH/CRITICAL Issues Immediately
 
@@ -370,190 +321,43 @@ Zen: "You're correct, breaker is checked at line 35. This is a false positive. S
 
 ## Examples
 
-### Example 1: Clean Approval (Two-Phase)
+### Example: Clean Approval
 
 ```bash
 $ git add apps/execution_gateway/order_placer.py
+$ "Review my staged changes with zen-mcp quick review"
 
-# Phase 1: Gemini Analysis
-$ "Review my staged changes using clink + gemini codereviewer"
-
-Claude: [Uses clink with gemini CLI]
-
-Gemini: "**Findings**
-(none)
-
-**Positives**
-- Circuit breaker integration: ✅ Correct
-- Position limit logic: ✅ Correct
-- Error handling: ✅ Comprehensive
-- Type hints: ✅ Complete
-
-<SUMMARY>Safety checks passed. Proceeding to codex synthesis.</SUMMARY>
-
-continuation_id: abc123-def456"
-
-# Phase 2: Codex Synthesis
-$ "Now use clink + codex codereviewer with continuation_id abc123-def456 to synthesize"
-
-Claude: [Uses clink with codex CLI, preserves context]
-
-Codex: "✅ Verified gemini analysis
-
-**Final Assessment**
-- All safety checks passed
-- No blocking issues
-- Quality standards met
-
-<SUMMARY>Approved - Safe to commit.</SUMMARY>
-
-continuation_id: abc123-def456"
+# Two-phase review (gemini → codex)
+# Result: ✅ Approved - All safety checks passed
 
 $ git commit -m "Add position limit validation
 
-Zen-review (two-phase): Approved
-  Phase 1 (gemini): Safety checks passed
-  Phase 2 (codex): Final approval
-Continuation-id: abc123-def456"
+Zen-review: Approved (continuation_id: abc123-def456)"
 ```
 
-### Example 2: Critical Issue Found and Fixed (Two-Phase)
+### Example: Critical Issue Found and Fixed
 
 ```bash
 $ git add apps/execution_gateway/order_placer.py
+$ "Quick review my staged changes"
 
-# Phase 1: Gemini Analysis
-$ "Review my staged changes using clink + gemini codereviewer"
+# Phase 1: Gemini finds CRITICAL missing circuit breaker
+# Phase 2: Codex confirms - DO NOT commit
 
-Claude: [Uses clink with gemini CLI]
-
-Gemini: "**Findings**
-
-- CRITICAL – Missing circuit breaker (line 42):
-   Missing circuit breaker check before order submission
-   Impact: Could place orders when risk limits breached!
-   Fix: Add before line 45:
-   if self.breaker.is_tripped():
-       raise CircuitBreakerTripped('Cannot place order: breaker TRIPPED')
-
-<SUMMARY>CRITICAL issue found. Awaiting codex synthesis.</SUMMARY>
-
-continuation_id: abc123-def456"
-
-# Phase 2: Codex Synthesis
-$ "Now use clink + codex codereviewer with continuation_id abc123-def456"
-
-Claude: [Uses clink with codex CLI]
-
-Codex: "Confirmed CRITICAL issue from gemini analysis.
-
-**Action Required**
-❌ BLOCKED - Do NOT commit until circuit breaker check added at line 42.
-
-<SUMMARY>Fix CRITICAL issue before committing.</SUMMARY>
-
-continuation_id: abc123-def456"
-
-# Fix immediately!
-# Add circuit breaker check
-
+# Fix the issue
 $ git add apps/execution_gateway/order_placer.py
+$ "I've added the circuit breaker check, please verify"
 
-# Verify fix (codex-only verification is faster - recommended for fix verification)
-$ "I've added the circuit breaker check, please verify using clink + codex codereviewer (continuation_id: abc123-def456)"
-
-Claude: [Uses clink with codex CLI, preserves context]
-
-Codex: "✅ Verified fix
-
-Circuit breaker check added correctly at line 42.
-All safety checks now in place.
-
-<SUMMARY>Safe to commit.</SUMMARY>
-
-continuation_id: abc123-def456"
-
-# Note: For simple fixes, codex-only verification (30-60s) is faster than full two-phase re-review (~2 min).
-# Use full two-phase re-review only if the fix introduces significant new logic.
+# Codex-only verification (faster for simple fixes)
+# Result: ✅ Verified fix - Safe to commit
 
 $ git commit -m "Add position validation with circuit breaker
 
 - Implement check_position_limits()
 - Add circuit breaker check (zen critical fix)
-- Add comprehensive error handling
 
-Zen-review (two-phase): Critical issue found and fixed
-  Phase 1 (gemini): Found missing circuit breaker
-  Phase 2 (codex): Verified fix and approved
+Zen-review: Critical issue found and fixed
 Continuation-id: abc123-def456"
-
-# Note: The detailed commit message above is BEST PRACTICE when critical issues are found
-# and fixed during pre-commit review. It provides valuable audit trail for:
-# - What issue was found (missing circuit breaker)
-# - How it was resolved (added check)
-# - Review verification (two-phase approval)
-# This level of detail helps future debugging and compliance audits.
-```
-
-### Example 3: Medium Issue Deferred (Two-Phase)
-
-```bash
-$ git add apps/execution_gateway/order_placer.py
-
-# Phase 1: Gemini Analysis
-$ "Review my staged changes using clink + gemini codereviewer"
-
-Claude: [Uses clink with gemini CLI]
-
-Gemini: "**Findings**
-
-- MEDIUM – Missing logging (line 67):
-   Missing logging when position limit exceeded
-   Impact: Harder to debug in production
-   Fix: Add structured logging
-
-<SUMMARY>MEDIUM issue found. Proceeding to codex synthesis.</SUMMARY>
-
-continuation_id: xyz789-abc123"
-
-# Phase 2: Codex Synthesis
-$ "Now use clink + codex codereviewer with continuation_id xyz789-abc123"
-
-Claude: [Uses clink with codex CLI]
-
-Codex: "Confirmed MEDIUM logging gap from gemini analysis.
-
-**Recommendation**
-⚠️ Address MEDIUM issue or document deferral with justification.
-
-<SUMMARY>Approved with conditions - fix or defer with docs.</SUMMARY>
-
-continuation_id: xyz789-abc123"
-
-# Decide to defer
-$ "The logging issue is MEDIUM and requires logging infrastructure.
-I'm deferring this to address in next commit after logging setup is complete.
-This is an operational improvement, not a safety issue.
-
-Is this deferral acceptable?"
-
-User: "Yes, that's fine. Create a follow-up task."
-
-Claude: "Deferral accepted. Create follow-up task for logging.
-Safe to commit with deferral documented."
-
-$ git commit -m "Add position validation
-
-- Implement check_position_limits()
-- Add circuit breaker integration
-
-Deferred: Logging for limit violations (requires logging setup first)
-Follow-up: Created task T5.1
-
-Zen-review (two-phase): Approved with deferral
-  Phase 1 (gemini): Found MEDIUM logging gap
-  Phase 2 (codex): Approved deferral with docs
-Continuation-id: xyz789-abc123"
 ```
 
 ---
@@ -586,28 +390,7 @@ Continuation-id: xyz789-abc123"
 
 ## References
 
-**Standards & Policies:**
+- [Zen-MCP Review Process](./_common/zen-review-process.md) - Complete Tier 1 review details
+- [Clink-Only Tool Usage Policy](./_common/clink-policy.md) - Tool usage requirements
 - [/docs/STANDARDS/GIT_WORKFLOW.md](../../docs/STANDARDS/GIT_WORKFLOW.md) - Review policy and requirements
 - [/docs/STANDARDS/CODING_STANDARDS.md](../../docs/STANDARDS/CODING_STANDARDS.md) - Code safety standards
-
-**Implementation Details:**
-- [/CLAUDE.md](../../CLAUDE.md#🤖-zen-mcp--clink-integration) - Clink + zen-mcp integration overview
-- [/docs/CONCEPTS/zen-mcp-clink-optimization-proposal.md](../../docs/CONCEPTS/zen-mcp-clink-optimization-proposal.md) - Clink-based workflow design
-- [.claude/prompts/clink-reviews/quick-safety-review.md](../prompts/clink-reviews/quick-safety-review.md) - Review prompt template
-
-**Focus Areas (What Zen Checks):**
-- Circuit breaker checks before order placement
-- Idempotent order IDs (deterministic, no duplicates)
-- Position limit validation (per-symbol and portfolio)
-- Race conditions in concurrent code
-- Proper error handling (no swallowing exceptions)
-- Structured logging with context (strategy_id, client_order_id)
-- Type hints and documentation
-
----
-
-**Maintenance Notes:**
-- Update when zen-mcp prompts change
-- Review when new safety patterns added
-- Adjust if false positive rate > 10%
-- Notify @development-team + zen-mcp maintainers for substantial changes

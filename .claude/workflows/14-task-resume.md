@@ -27,7 +27,6 @@ jq '.current_task.state, .progress.completion_percentage' .claude/task-state.jso
 ```
 
 **If state is "IN_PROGRESS" or "PENDING"**, proceed to Step 2.
-
 **If state is "COMPLETE" or file doesn't exist**, skip this workflow.
 
 ---
@@ -39,11 +38,6 @@ Read the task state file to understand:
 - How much is complete (completion_percentage, completed_components)
 - What's next (current_component, next_steps)
 - Important context (continuation_ids, key_decisions, critical_files)
-
-```bash
-# Load full state
-jq '.' .claude/task-state.json
-```
 
 ---
 
@@ -60,12 +54,6 @@ EXPECTED_BRANCH=$(jq -r '.current_task.branch' .claude/task-state.json)
 if [ "$(git branch --show-current)" != "$EXPECTED_BRANCH" ]; then
   git checkout $EXPECTED_BRANCH
 fi
-
-# Verify completed work exists
-git log --oneline -5 | grep -i "$(jq -r '.completed_work | to_entries | .[0].value.commit' .claude/task-state.json)"
-
-# Check critical files exist
-ls -la $(jq -r '.context.critical_files[]' .claude/task-state.json)
 ```
 
 ---
@@ -95,14 +83,13 @@ Progress: 20% complete (1/5 components)
 ✅ COMPLETED:
   • Component 1: Core allocator (rank aggregation + equal weight)
     - Commit: 7ca84ff
-    - Files: libs/allocation/multi_alpha.py, tests/libs/allocation/test_multi_alpha.py
     - Tests: 26 added, all passing
-    - Review: Approved (continuation_id: 272e6449-85d2-4476-8f26-389a3820374f)
+    - Review: Approved (continuation_id: 272e6449...)
 
 🔄 CURRENT:
   • Component 2: Inverse Volatility Weighting
     - Status: NOT_STARTED
-    - Next: Implement _inverse_vol() method in multi_alpha.py
+    - Next: Implement _inverse_vol() method
 
 📝 NEXT STEPS:
   1. Implement inverse volatility weighting method (30 min)
@@ -114,7 +101,6 @@ Progress: 20% complete (1/5 components)
 ⚠️  IMPORTANT CONTEXT:
   • Use reciprocal rank (1/rank) - ensures positive weights
   • All reviews use clink (NOT direct zen-mcp tools)
-  • Continuation ID for reviews: 272e6449-85d2-4476-8f26-389a3820374f
 
 Ready to continue? I'll proceed with Component 2 implementation.
 ════════════════════════════════════════════════════════════
@@ -152,34 +138,22 @@ jq -r '.implementation_guide.component_2_plan' .claude/task-state.json
 
 If automated resume fails or you want manual control:
 
-### 1. Read State File
-
 ```bash
+# 1. Read state file
 cat .claude/task-state.json
-```
 
-### 2. Checkout Branch
-
-```bash
+# 2. Checkout branch
 git checkout $(jq -r '.current_task.branch' .claude/task-state.json)
-```
 
-### 3. Read Task Document
-
-```bash
+# 3. Read task document
 cat $(jq -r '.current_task.task_file' .claude/task-state.json)
-```
 
-### 4. Review Completed Work
-
-```bash
+# 4. Review completed work
 git log --oneline -10
-git show $(jq -r '.completed_work | to_entries | .[0].value.commit' .claude/task-state.json)
+
+# 5. Continue with next steps
+# Follow the `next_steps` array in task-state.json
 ```
-
-### 5. Continue with Next Steps
-
-Follow the `next_steps` array in task-state.json.
 
 ---
 
@@ -187,50 +161,7 @@ Follow the `next_steps` array in task-state.json.
 
 **CRITICAL:** Update `.claude/task-state.json` after completing each component!
 
-### After Completing a Component
-
-```json
-{
-  "progress": {
-    "completed_components": 2,  // Increment
-    "current_component": {
-      "number": 3,  // Next component
-      "name": "Correlation monitoring + caps",
-      "status": "NOT_STARTED"
-    },
-    "completion_percentage": 40  // Update
-  },
-  "completed_work": {
-    "Component 2": {  // Add new entry
-      "name": "Inverse volatility weighting",
-      "commit": "abc1234",
-      "files": ["libs/allocation/multi_alpha.py", "..."],
-      "tests_added": 8,
-      "review_approved": true,
-      "continuation_id": "xyz-continuation-id"
-    }
-  },
-  "next_steps": [  // Update to Component 3 steps
-    {...}
-  ]
-}
-```
-
-### When Task Complete
-
-```json
-{
-  "current_task": {
-    "state": "COMPLETE",  // Change from IN_PROGRESS
-    "completed": "2025-11-03"
-  },
-  "progress": {
-    "completed_components": 5,
-    "current_component": null,
-    "completion_percentage": 100
-  }
-}
-```
+See [15-update-task-state.md](./15-update-task-state.md) for detailed update workflow.
 
 ---
 
@@ -271,7 +202,7 @@ git log --oneline -10
 
 ```bash
 # Force checkout to task branch
-git checkout -b $(jq -r '.current_task.branch' .claude/task-state.json) master
+git checkout $(jq -r '.current_task.branch' .claude/task-state.json)
 ```
 
 ### Lost Continuation ID
@@ -299,38 +230,8 @@ This workflow succeeds when:
 
 ---
 
-## 📚 Example: Resuming P2T1
-
-**Session Start Detection:**
-```bash
-$ jq '.current_task.state' .claude/task-state.json
-"IN_PROGRESS"
-
-$ jq '.progress.completion_percentage' .claude/task-state.json
-20
-```
-
-**Auto-Resume Triggered:**
-```
-🤖 Incomplete task detected: P2T1 (20% complete)
-📂 Branch: feature/P2T1-multi-alpha-allocator
-✅ Component 1 complete (commit: 7ca84ff)
-🔄 Component 2 in progress: Inverse Volatility Weighting
-
-Loading context and continuing...
-```
-
-**Work Continues Automatically:**
-- No re-reading entire task document
-- No re-analyzing completed work
-- Jump straight to Component 2 implementation
-- Continuation ID ready for reviews
-
----
-
 ## 🔗 Related Files
 
 - `.claude/task-state.json` - Task state tracking (auto-updated)
-- `docs/TASKS/P2T1_DONE.md` - Example completed task
-- `.claude/workflows/00-template.md` - Task template
+- `15-update-task-state.md` - Update workflow
 - `.claude/workflows/README.md` - Workflow index

@@ -1,85 +1,64 @@
 # Progressive Git Commit Workflow
 
 **Purpose:** Safely commit code changes with mandatory zen-mcp quality gate
-**Prerequisites:** Working in a feature branch (not master), changes implemented and tested
+**When:** Every 30-60 minutes of development, after completing a logical component
+**Prerequisites:** Working in feature branch, changes implemented and tested
 **Expected Outcome:** Code committed with quality validation, ready for next development cycle
-**Owner:** @development-team
-**Last Reviewed:** 2025-10-21
-
----
-
-## When to Use This Workflow
-
-**Commit EVERY 30-60 minutes of active development:**
-- After implementing a logical component
-- After tests pass for that component
-- Before taking a break or ending session
-- Before attempting risky refactoring
-- When switching between different parts of a feature
-
-**Frequency is critical for:**
-- Regular backups of work in progress
-- Easier debugging (bisect to find regressions)
-- Clear development history
-- Ability to resume after interruptions
 
 ---
 
 ## ⚠️ MANDATORY: Component Development Cycle
 
-**CRITICAL:** Before committing, every logical component MUST complete the [4-step component development cycle](./component-cycle.md):
+**Before committing, complete the [4-step component cycle](./component-cycle.md):**
 
 1. **Implement** the component
 2. **Test** with TDD
-3. **Review** via zen-mcp (clink + codex)
+3. **Review** via zen-mcp (clink + codex) — **NEVER skip!**
 4. **Commit** after approval
 
-**See [component-cycle.md](./component-cycle.md)** for:
-- Complete 4-step pattern documentation
-- Todo template for each component
-- Usage checklist and anti-patterns
-- Examples and FAQ
+**See [component-cycle.md](./component-cycle.md)** for complete pattern documentation.
+
+---
+
+## Quick Reference
+
+**Git Commands:** See [Git Commands Reference](./_common/git-commands.md)
+**Testing:** See [Test Commands Reference](./_common/test-commands.md)
+**Zen Review:** See [Zen-MCP Review Process](./_common/zen-review-process.md)
 
 ---
 
 ## Step-by-Step Process
 
-### 1. Verify You're on a Feature Branch
+### 1. Verify Feature Branch
 
 ```bash
 git branch --show-current
+# Expected: feature/your-branch-name, NOT master
 ```
 
-**Expected:** Should show `feature/your-branch-name`, NOT `master`
-
-**What this does:** Ensures you're not committing directly to master (violation of workflow rules)
-
-**If on master:**
+**If on master:** Create feature branch immediately:
 ```bash
-# Create feature branch immediately
-git checkout -b feature/descriptive-name
+git checkout -b feature/<type>/PxTy-description
 ```
 
-### 2. Stage Your Changes
+See [Git Commands Reference](./_common/git-commands.md) for branch naming conventions.
+
+### 2. Stage Changes
 
 ```bash
 # Stage specific files
 git add apps/execution_gateway/order_placer.py tests/test_order_placer.py
 
-# Or stage all modified files (use with caution)
-git add -u
-
 # Check what's staged
 git status
 ```
 
-**What this does:** Prepares changes for commit and review
-
 ### 3. Request Zen-MCP Review (MANDATORY)
 
-**This is the critical quality gate - DO NOT SKIP!**
+**🔒 CRITICAL QUALITY GATE - DO NOT SKIP!**
 
-**Option A: Use slash command (recommended)**
+**Option A: Use slash command**
 ```
 /zen-review quick
 ```
@@ -90,212 +69,89 @@ git status
 ```
 
 **What zen-mcp checks:**
-- 🛡️ Circuit breaker checks before order placement
-- 🔄 Idempotent order IDs (no duplicates)
-- 📊 Position limit validation
-- 🔐 Race conditions and concurrency issues
-- 📝 Proper error handling
-- 🔍 Structured logging with context
+- Circuit breaker enforcement
+- Idempotent order IDs
+- Position limit validation
+- Race conditions
+- Error handling
+- Structured logging
 
-**Wait for review results** (~30 seconds)
+**Wait for review** (~30 seconds)
+
+See [Zen-MCP Review Process](./_common/zen-review-process.md) for complete Tier 1 review details.
 
 ### 4. Address ALL Findings
 
-**Severity levels and required actions:**
+**Severity levels:**
+- **HIGH/CRITICAL:** ❌ MUST fix before committing (safety issues)
+- **MEDIUM:** ⚠️ Fix OR document deferral
+- **LOW:** ℹ️ Fix if time permits
 
-**HIGH/CRITICAL (Blocking):**
-- ❌ MUST fix before committing
-- These are safety issues that could cause:
-  - Duplicate orders
-  - Circuit breaker bypasses
-  - Race conditions
-  - Money-losing bugs
-
-**MEDIUM:**
-- ⚠️ MUST fix OR document deferral reason
-- Examples: Missing logging, unclear variable names, incomplete error handling
-
-**LOW:**
-- ℹ️ Fix if time permits
-- Examples: Code style suggestions, minor optimizations
-
-**Fix the issues immediately** (context is fresh!)
+**Fix issues immediately** while context is fresh!
 
 ### 5. Re-request Review to Verify Fixes
-
-**After fixing issues, verify with zen-mcp:**
 
 ```
 "I've fixed the issues, please verify"
 ```
 
-**Zen-mcp will use continuation_id** to remember the previous review context and verify your fixes.
-
-**Only proceed when zen-mcp approves** (or user explicitly overrides)
+Zen-mcp uses `continuation_id` to verify fixes. **Only proceed when approved.**
 
 ### 6. Run Tests Locally
 
 ```bash
-# Run full test suite
-make test
-
-# Run specific tests if you know what changed
-pytest tests/apps/execution_gateway/test_order_placer.py -v
-
-# Run linting
-make lint
+# Full CI suite (MANDATORY before commit)
+make ci-local
 ```
 
-**Expected:** ✅ All tests pass, no lint errors
+See [Test Commands Reference](./_common/test-commands.md) for all testing options.
 
-**What this does:** Validates code works before committing (prevents CI failures)
+**Expected:** ✅ All tests pass, no lint errors
 
 **If tests fail:**
 - Fix the failures
 - Go back to step 3 (zen-mcp review of fixes)
 - Don't commit until green!
 
-### 7. Update Documentation (If Task State Changed)
+### 7. Update Task State (If Component Complete)
 
-**Check if documentation needs updating:**
-
-#### Task Lifecycle Changes
-If you just completed a subfeature or entire task:
-
-**For subfeature completion (PxTy-Fz):**
-1. Ensure all 4-step components are marked complete in TodoWrite
-2. Create PR for subfeature (see [02-git-pr.md](./02-git-pr.md))
-3. After PR merged, update task progress file (PxTy_PROGRESS.md)
-
-**For entire task completion (PxTy):**
-1. Ensure all subfeatures (if any) are merged
-2. Rename `PxTy_PROGRESS.md` to `PxTy_DONE.md`
-3. Update phase planning document (Px_PLANNING.md)
-
-**See:** [`.claude/workflows/00-task-breakdown.md`](./00-task-breakdown.md) for subfeature workflow details
-
-#### Update Planning Documents (MANDATORY)
-
-**A. Update Phase Planning (Px_PLANNING.md):**
-```markdown
-**Completed:**
-- ✅ P1T5 - Real-Time Market Data (Oct 20, PR#25)
-
-**Status:** 8/11 tasks complete (73%)
-
-**Last Updated:** October 20, 2024
-```
-
-**B. Update Task Index (docs/TASKS/INDEX.md):**
-
-Move completed task from "Remaining" to "Completed" section:
-```markdown
-**Completed Tasks (8):**
-- [P1T5_DONE.md](./P1T5_DONE.md) - Real-Time Market Data
-
-**Remaining Tasks (3 tasks not started):**
-- T6: Advanced Trading Strategies
-```
-
-Update quick status table:
-```markdown
-| Phase | Tasks | TASK | PROGRESS | DONE |
-| P1    | 11    | 3    | 0        | 8    |
-```
-
-**When to skip:** If this is a mid-task commit (component not fully complete), skip this step.
-
-**See Also:** [Phase Management Workflow](./12-phase-management.md) for detailed documentation update process.
-
-### 8. Update Task State (MANDATORY for component completion)
-
-**After completing a component**, update `.claude/task-state.json` to enable auto-resume:
+**After completing a component:**
 
 ```bash
-# Example: Just completed Component 2
 ./scripts/update_task_state.py complete \
     --component 2 \
     --commit $(git rev-parse HEAD) \
-    --files libs/allocation/multi_alpha.py tests/libs/allocation/test_multi_alpha.py \
-    --tests 8 \
-    --continuation-id 272e6449-85d2-4476-8f26-389a3820374f
+    --files <file-list> \
+    --tests <test-count> \
+    --continuation-id <from-zen-review>
 
-# Stage the updated state
 git add .claude/task-state.json
-
-# Amend the component commit to include state update
 git commit --amend --no-edit
 ```
 
-**What this does:**
-- Increments `completed_components` counter
-- Updates `completion_percentage`
-- Adds component to `completed_work` with metadata
-- Advances `current_component` to next component
-- Preserves `continuation_id` for review chain
-- Enables automatic resume in next session
+**See Also:** [Update Task State Workflow](./15-update-task-state.md)
 
-**When to skip:** Only skip if this is NOT a component completion (e.g., minor fix, documentation update).
+### 8. Commit the Changes
 
-**See Also:** [Update Task State Workflow](./15-update-task-state.md) for detailed guidance.
+Use commit message format from [Git Commands Reference](./_common/git-commands.md#commit-message-format).
 
-### 9. Write Commit Message
-
-**Format:**
+**Example:**
 ```bash
-git commit -m "Brief summary (50 chars max)
-
-- Bullet point 1 describing change
-- Bullet point 2 describing change
-- Reference ticket/ADR if applicable
-
-Zen-review: Approved (continuation_id: abc123...)"
-```
-
-**Good commit messages:**
-```bash
-git commit -m "Add position limit validation with circuit breaker check
+git commit -m "Add position limit validation with circuit breaker
 
 - Implement check_position_limits() function
 - Integrate circuit breaker check before validation
 - Add logging for limit violations
 - Handle edge case when position is None
 
-Fixes #T5
-Zen-review: Approved"
+Zen-review: Approved (continuation_id: abc123...)
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
-**Bad commit messages:**
-```bash
-git commit -m "Fixed stuff"              # Too vague
-git commit -m "Updates"                  # No information
-git commit -m "WIP"                      # No description
-```
-
-**What this does:** Creates clear history for debugging and understanding changes later
-
-### 10. Commit the Changes
-
-```bash
-git commit
-# (Your editor opens with the message from step 9)
-# Save and close
-```
-
-**Or use inline message for simple commits:**
-```bash
-git commit -m "Add position limit logging and edge case handling
-
-- Add structured logging when limits exceeded
-- Handle None position gracefully
-- Add test for edge case
-
-Zen-review: Approved"
-```
-
-**Expected:** Commit created successfully
-
-### 11. Push Regularly (Optional but Recommended)
+### 9. Push Regularly (Recommended)
 
 ```bash
 # First time pushing this branch
@@ -305,13 +161,11 @@ git push -u origin feature/your-branch-name
 git push
 ```
 
-**What this does:** Backs up your work to remote repository
-
 **Frequency:** Every 2-3 commits or end of day
 
-### 12. Return to Development
+### 10. Return to Development
 
-Continue coding for another 30-60 minutes, then repeat this workflow!
+Continue coding for another 30-60 minutes, then repeat!
 
 ---
 
@@ -320,147 +174,107 @@ Continue coding for another 30-60 minutes, then repeat this workflow!
 ### Should I commit now?
 
 **Commit if:**
-- ✅ 30-60 minutes have passed since last commit
-- ✅ You've completed a logical unit of work
-- ✅ Tests pass for what you've implemented
-- ✅ About to take a break or end session
+- ✅ 30-60 minutes since last commit
+- ✅ Completed logical unit of work
+- ✅ Tests pass
+- ✅ About to take break
 - ✅ About to start risky refactoring
 
 **Don't commit if:**
 - ❌ Code doesn't compile/run
-- ❌ Tests are failing for your changes
-- ❌ Changes are incomplete mid-thought
-- ❌ You're on master branch (create feature branch first!)
+- ❌ Tests failing
+- ❌ Changes incomplete mid-thought
+- ❌ On master branch (create feature branch first!)
 
 ### Zen-mcp found issues - what now?
 
-**If HIGH/CRITICAL:**
-1. Fix immediately (don't defer)
+**HIGH/CRITICAL:**
+1. Fix immediately
 2. Re-request review
 3. Only commit when approved
 
-**If MEDIUM:**
+**MEDIUM:**
 1. Fix if straightforward (< 5 min)
-2. OR document deferral: "Deferred: Will address in separate commit because..."
-3. Create TODO or follow-up task
+2. OR document deferral with follow-up task
 
-**If LOW:**
+**LOW:**
 1. Fix if trivial
 2. OR note for future cleanup
-3. Don't let LOW issues block progress
 
-### Should I squash commits later?
+### Should I squash commits?
 
 **No - keep progressive commits!**
-- ✅ Clear history shows development process
-- ✅ Easier to debug (git bisect)
-- ✅ Can revert specific changes
-- ✅ PR reviewers see incremental progress
+- Clear history shows development process
+- Easier debugging (git bisect)
+- Can revert specific changes
 
-**Don't squash unless:**
+**Only squash if:**
 - Multiple commits fixing same typo
-- Accidental commits of debug code
+- Accidental debug commits
 - User explicitly requests it
 
 ---
 
-## Common Issues & Solutions
+## Common Issues
 
-### Issue: Forgot to Create Feature Branch
+### Forgot to Create Feature Branch
 
-**Symptom:** You're on `master` and have uncommitted changes
-
-**Solution:**
 ```bash
 # Create feature branch without losing work
 git checkout -b feature/descriptive-name
-
 # Your changes come with you!
-# Now continue with normal commit workflow
 ```
 
-### Issue: Zen-MCP Server Unavailable
+### Zen-MCP Server Unavailable
 
-**Symptom:** Zen review request times out or errors
-
-**Solution (Emergency Only):**
+**Emergency override only** (user approval required):
 ```bash
-# Only use if zen truly unavailable AND user approves
 git commit -m "Add feature X
 
 ZEN_REVIEW_OVERRIDE: Server temporarily unavailable
 Reason: [explain urgency]
-Will perform post-commit review and create follow-up PR if issues found"
+Will perform post-commit review ASAP"
 ```
 
-**Then:**
-- Request zen review of commit ASAP when server returns
-- Create follow-up PR if issues found
-- Document in team chat
+Then request zen review of commit when server returns.
 
-### Issue: Tests Pass Locally But Fail in CI
+### Tests Pass Locally But Fail in CI
 
-**Symptom:** Committed code, pushed, CI fails
-
-**Solution:**
 ```bash
-# Don't panic! Common causes:
-
-# 1. Environment differences
-# Check .env.example vs your .env
-
+# Common causes:
+# 1. Environment differences - check .env.example
 # 2. Missing dependencies
 poetry install
 
 # 3. Database migration needed
 alembic upgrade head
 
-# 4. Tests depend on specific data
-# Check test fixtures and data setup
-
-# Fix the issue, then:
-git add <fixed files>
-# Go through full commit workflow again
+# Fix, then go through full commit workflow again
 ```
 
-### Issue: Staged Wrong Files
+### Staged Wrong Files
 
-**Symptom:** `git status` shows files you don't want to commit
-
-**Solution:**
 ```bash
 # Unstage specific file
 git reset HEAD apps/debug_temp.py
 
-# Unstage all, start over
+# Unstage all
 git reset HEAD
-
-# Then stage only what you want
-git add <correct files>
 ```
 
-### Issue: Commit Message Has Typo
+### Commit Message Has Typo
 
-**Symptom:** Just committed, noticed typo in message
-
-**Solution:**
 ```bash
 # If not pushed yet
 git commit --amend
-
-# Edit message, save, done
-
-# If already pushed - leave it (not worth force push for typo)
 ```
 
 ---
 
-## Examples
-
-### Example 1: Normal Progressive Commit
+## Example: Normal Progressive Commit
 
 ```bash
-# Working on position limits for 45 minutes...
+# After 45 minutes working on position limits...
 
 $ git add apps/execution_gateway/order_placer.py tests/test_order_placer.py
 
@@ -473,18 +287,16 @@ Changes to be committed:
 # Request zen review
 "Review my staged changes with zen-mcp"
 
-# Zen responds: ✅ Approved with minor suggestion to add logging
+# Zen: ✅ Approved with minor suggestion to add logging
 
 # Add logging
 $ git add apps/execution_gateway/order_placer.py
 
-# Verify fix
 "I've added logging, please verify"
-
-# Zen responds: ✅ All issues resolved
+# Zen: ✅ All issues resolved
 
 # Run tests
-$ make test
+$ make ci-local
 ===================== 58 passed in 2.14s ======================
 
 # Commit
@@ -495,92 +307,41 @@ $ git commit -m "Add position limit validation with logging
 - Add structured logging when limits exceeded
 - Add tests for limits and edge cases
 
-Zen-review: Approved"
+Zen-review: Approved
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
 
 [feature/position-limits abc1234] Add position limit validation with logging
  2 files changed, 87 insertions(+), 3 deletions(-)
 
-# Push
 $ git push
-
-# Continue developing...
-```
-
-### Example 2: Zen Review Catches Critical Issue
-
-```bash
-$ git add apps/execution_gateway/order_placer.py
-
-"Review my staged changes with zen-mcp"
-
-# Zen responds: ❌ CRITICAL - Missing circuit breaker check!
-
-# Fix immediately
-# Add: if self.breaker.is_tripped(): raise CircuitBreakerTripped()
-
-$ git add apps/execution_gateway/order_placer.py
-
-"I've added the circuit breaker check, please verify"
-
-# Zen responds: ✅ Fixed correctly, approved
-
-$ make test && make lint
-# All pass
-
-$ git commit -m "Add position validation with circuit breaker
-
-- Add check_position_limits() with breaker check
-- Prevents validation when breaker tripped
-- Add tests
-
-Zen-review: Critical issue found and fixed"
-
-# Issue caught and fixed in 2 minutes, not in PR review days later!
 ```
 
 ---
 
-## Validation
+## Validation Checklist
 
-**How to verify this workflow succeeded:**
 - [ ] Zen-mcp review completed and approved
-- [ ] All tests pass locally (`make test`)
-- [ ] Linting passes (`make lint`)
+- [ ] All tests pass locally (`make ci-local`)
 - [ ] Commit created with clear message
-- [ ] You're ready for next 30-60 min development cycle
-
-**What to check if something seems wrong:**
-- Check `git log` - commit should be visible
-- Check `git status` - should say "nothing to commit, working tree clean"
-- Check `git branch --show-current` - should show your feature branch
-- Verify zen review was actually performed (check continuation_id)
+- [ ] Ready for next 30-60 min development cycle
 
 ---
 
 ## Related Workflows
 
-- [03-zen-review-quick.md](./03-zen-review-quick.md) - Details on quick zen review process
-- [04-zen-review-deep.md](./04-zen-review-deep.md) - Comprehensive review before PR
-- [15-update-task-state.md](./15-update-task-state.md) - Update task state for auto-resume
-- [02-git-pr.md](./02-git-pr.md) - Creating pull request after feature complete
+- [component-cycle.md](./component-cycle.md) - 4-step component development pattern
+- [03-zen-review-quick.md](./03-zen-review-quick.md) - Quick zen review details
+- [15-update-task-state.md](./15-update-task-state.md) - Task state management
+- [02-git-pr.md](./02-git-pr.md) - Creating pull requests
 - [05-testing.md](./05-testing.md) - Running and debugging tests
-- [06-debugging.md](./06-debugging.md) - When tests fail or bugs occur
-
----
 
 ## References
 
-**Standards & Policies:**
+- [Git Commands Reference](./_common/git-commands.md) - Git operations and conventions
+- [Test Commands Reference](./_common/test-commands.md) - Testing commands and patterns
+- [Zen-MCP Review Process](./_common/zen-review-process.md) - Three-tier review system
 - [/docs/STANDARDS/GIT_WORKFLOW.md](../../docs/STANDARDS/GIT_WORKFLOW.md) - Git workflow policies
 - [/docs/STANDARDS/CODING_STANDARDS.md](../../docs/STANDARDS/CODING_STANDARDS.md) - Code quality standards
-- [/docs/STANDARDS/TESTING.md](../../docs/STANDARDS/TESTING.md) - Testing requirements
-
-**Implementation Guides:**
-- [/docs/CONCEPTS/workflow-optimization-zen-mcp.md](../../docs/CONCEPTS/workflow-optimization-zen-mcp.md) - Zen-MCP integration details
-
----
-
-**Maintenance Notes:**
-- Update when zen-mcp review process changes
-- Review quarterly or when git workflow updated
-- Notify @development-team if substantial changes needed
