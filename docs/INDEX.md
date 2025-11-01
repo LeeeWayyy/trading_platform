@@ -6,6 +6,29 @@ This index provides a structured guide to all documentation, organized by purpos
 
 ---
 
+## 📌 Quick Links (AI Navigation)
+
+**Essential First Reads:**
+- [INDEX.md](./INDEX.md) (this file) → Documentation structure and navigation
+- [AI_GUIDE.md](./AI_GUIDE.md) → AI assistant quick-start and discovery patterns
+- [STANDARDS/](./STANDARDS/) → Normative standards directory (MUST follow)
+
+**By Task Type:**
+- **New Feature Implementation** → TASKS/ → ADRs/ → CONCEPTS/ → STANDARDS/
+- **Bug Fix** → RUNBOOKS/ops.md → Relevant implementation guide
+- **Architecture Change** → STANDARDS/ADR_GUIDE.md → ADRs/ → Write new ADR
+- **Documentation** → STANDARDS/DOCUMENTATION_STANDARDS.md → Update relevant docs
+- **Testing** → STANDARDS/TESTING.md → Write tests
+
+**By Document Type:**
+- **Standards** (mandatory rules) → [STANDARDS/](#1-normative-standards-must-follow-️)
+- **Architecture** (decisions and rationale) → [ADRs/](#3-architecture--decisions-adrs)
+- **Concepts** (domain knowledge) → [CONCEPTS/](#4-domain-concepts-trading--ml-knowledge)
+- **Tasks** (work tracking) → [TASKS/](#6-tasks--planning)
+- **Runbooks** (operations) → [RUNBOOKS/](#8-runbooks-operations)
+
+---
+
 ## 🎯 Quick Start for AI Assistants
 
 **When starting a new task, read in this order:**
@@ -20,19 +43,31 @@ This index provides a structured guide to all documentation, organized by purpos
 
 ## 📋 Document Categories
 
+### 0. Project Root Files
+
+**Location:** Project root directory
+
+Essential project-level documentation:
+
+- [CURRENT, 2025-10-31, Guide] [README.md](../README.md) - Project overview and quick start
+- [CURRENT, 2025-10-31, Guide] [CLAUDE.md](../CLAUDE.md) - AI assistant primary guidance and workflow index
+- [CURRENT, 2025-10-19, Guide] [AGENTS.md](../AGENTS.md) - AI agent configuration and usage
+
+**Priority:** 🔴 **CRITICAL** - Read CLAUDE.md first for complete guidance
+
+---
+
 ### 1. Normative Standards (MUST Follow) ⚠️
 
 **Location:** `docs/STANDARDS/`
 
 These documents define **mandatory** practices for all code and contributions:
 
-| Document | Purpose | When to Read |
-|----------|---------|--------------|
-| [CODING_STANDARDS.md](./STANDARDS/CODING_STANDARDS.md) | Python style, type hints, error handling | Before writing code |
-| [DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md) | Docstring format, examples, comments | Before documenting |
-| [GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md) | Commit messages, PR process | Before committing |
-| [TESTING.md](./STANDARDS/TESTING.md) | Test structure, coverage requirements | Before writing tests |
-| [ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md) | When/how to write ADRs | Before making architectural decisions |
+- [CURRENT, 2025-01-17, Standard] [CODING_STANDARDS.md](./STANDARDS/CODING_STANDARDS.md) - Python style, type hints, error handling (read before writing code)
+- [CURRENT, 2025-01-17, Standard] [DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md) - Docstring format, examples, comments (read before documenting)
+- [CURRENT, 2025-10-24, Standard] [GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md) - Commit messages, PR process, PxTy-Fz branching (read before committing)
+- [CURRENT, 2025-01-17, Standard] [TESTING.md](./STANDARDS/TESTING.md) - Test structure, coverage requirements (read before writing tests)
+- [CURRENT, 2025-01-17, Standard] [ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md) - When/how to write ADRs (read before making architectural decisions)
 
 **Priority:** 🔴 **CRITICAL** - AI assistants MUST read these first for any code task
 
@@ -44,15 +79,45 @@ These documents define **mandatory** practices for all code and contributions:
 
 Onboarding and environment setup:
 
-| Document | Purpose | Audience |
-|----------|---------|----------|
-| [SETUP.md](./GETTING_STARTED/SETUP.md) | Development environment setup | New developers |
-| [TESTING_SETUP.md](./GETTING_STARTED/TESTING_SETUP.md) | Test environment configuration | QA, developers |
-| [PROJECT_STATUS.md](./GETTING_STARTED/PROJECT_STATUS.md) | Current implementation status | All stakeholders |
-| [REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md) | Codebase navigation guide | New developers |
-| [GLOSSARY.md](./GETTING_STARTED/GLOSSARY.md) | Trading and ML terminology | All developers |
+- [CURRENT, 2025-01-17, Guide] [GLOSSARY.md](./GETTING_STARTED/GLOSSARY.md) - Trading and ML terminology (all developers)
+- [CURRENT, 2025-10-21, Guide] [LOGGING_GUIDE.md](./GETTING_STARTED/LOGGING_GUIDE.md) - Structured logging patterns and best practices
+- [CURRENT, 2025-10-18, Guide] [PROJECT_STATUS.md](./GETTING_STARTED/PROJECT_STATUS.md) - Current implementation status (all stakeholders)
+- [CURRENT, 2025-01-17, Guide] [REPO_MAP.md](./GETTING_STARTED/REPO_MAP.md) - Codebase navigation guide (new developers)
+- [CURRENT, 2025-01-17, Guide] [SETUP.md](./GETTING_STARTED/SETUP.md) - Development environment setup (new developers)
+- [CURRENT, 2025-01-17, Guide] [TESTING_SETUP.md](./GETTING_STARTED/TESTING_SETUP.md) - Test environment configuration (QA, developers)
 
 **Priority:** 🟡 **HIGH** - Read during onboarding or when confused about structure
+
+---
+
+### 2.5. Workflow Guides (Development Process)
+
+**Location:** `.claude/workflows/`
+
+Step-by-step procedures for development workflows:
+
+- [CURRENT, 2025-10-31, Workflow] [README.md](../.claude/workflows/README.md) - Workflow index and quick reference
+- [CURRENT, 2025-10-31, Workflow] [00-analysis-checklist.md](../.claude/workflows/00-analysis-checklist.md) - Pre-implementation analysis (MANDATORY)
+- [CURRENT, 2025-10-24, Workflow] [00-task-breakdown.md](../.claude/workflows/00-task-breakdown.md) - Task decomposition and subfeature branching
+- [CURRENT, 2025-10-21, Workflow] [01-git-commit.md](../.claude/workflows/01-git-commit.md) - Progressive commit workflow with zen-mcp
+- [CURRENT, 2025-10-18, Workflow] [02-git-pr.md](../.claude/workflows/02-git-pr.md) - Pull request creation
+- [CURRENT, 2025-10-27, Workflow] [03-zen-review-quick.md](../.claude/workflows/03-zen-review-quick.md) - Quick pre-commit review (clink + codex)
+- [CURRENT, 2025-10-27, Workflow] [04-zen-review-deep.md](../.claude/workflows/04-zen-review-deep.md) - Deep pre-PR review (clink + gemini)
+- [CURRENT, 2025-10-21, Workflow] [05-testing.md](../.claude/workflows/05-testing.md) - Test execution and debugging
+- [CURRENT, 2025-10-18, Workflow] [06-debugging.md](../.claude/workflows/06-debugging.md) - Debugging procedures
+- [CURRENT, 2025-10-18, Workflow] [07-documentation.md](../.claude/workflows/07-documentation.md) - Documentation writing
+- [CURRENT, 2025-10-18, Workflow] [08-adr-creation.md](../.claude/workflows/08-adr-creation.md) - Architecture decision records
+- [CURRENT, 2025-10-18, Workflow] [09-deployment-rollback.md](../.claude/workflows/09-deployment-rollback.md) - Deployment and rollback
+- [CURRENT, 2025-10-18, Workflow] [10-ci-triage.md](../.claude/workflows/10-ci-triage.md) - CI failure triage
+- [CURRENT, 2025-10-18, Workflow] [11-environment-bootstrap.md](../.claude/workflows/11-environment-bootstrap.md) - Development environment setup
+- [CURRENT, 2025-10-18, Workflow] [12-phase-management.md](../.claude/workflows/12-phase-management.md) - Phase and task management
+- [CURRENT, 2025-10-27, Workflow] [13-task-creation-review.md](../.claude/workflows/13-task-creation-review.md) - Task document review (clink + gemini)
+- [CURRENT, 2025-10-29, Workflow] [14-task-resume.md](../.claude/workflows/14-task-resume.md) - Auto-resume from task state
+- [CURRENT, 2025-10-29, Workflow] [15-update-task-state.md](../.claude/workflows/15-update-task-state.md) - Task state tracking
+- [CURRENT, 2025-10-24, Workflow] [component-cycle.md](../.claude/workflows/component-cycle.md) - 4-step component development cycle
+- [DRAFT, 2025-10-18, Template] [00-template.md](../.claude/workflows/00-template.md) - Workflow template
+
+**Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities
 
 ---
 
@@ -64,15 +129,23 @@ Architectural Decision Records documenting **why** technical choices were made:
 
 | ADR | Decision | Status |
 |-----|----------|--------|
+| [0000](./ADRs/0000-template.md) | ADR template | 📝 Template |
 | [0001](./ADRs/0001-data-pipeline-architecture.md) | Data pipeline (Polars, Parquet, backward adjustment) | ✅ Accepted |
 | [0002](./ADRs/0002-exception-hierarchy.md) | Exception hierarchy for data quality | ✅ Accepted |
 | [0003](./ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md) | Qlib + MLflow for baseline strategy | ✅ Accepted |
 | [0004](./ADRs/0004-signal-service-architecture.md) | Signal service design (FastAPI, hot reload) | ✅ Accepted |
+| [0005](./ADRs/0005-centralized-logging-architecture.md) | Centralized logging architecture | ✅ Accepted |
 | [0005](./ADRs/0005-execution-gateway-architecture.md) | Execution gateway (idempotency, DRY_RUN) | ✅ Accepted |
 | [0006](./ADRs/0006-orchestrator-service.md) | Orchestrator service (async, position sizing) | ✅ Accepted |
 | [0007](./ADRs/0007-paper-run-automation.md) | Paper run automation (CLI script vs service) | ✅ Accepted |
 | [0008](./ADRs/0008-enhanced-pnl-calculation.md) | Enhanced P&L calculation (realized/unrealized) | ✅ Accepted |
 | [0009](./ADRs/0009-redis-integration.md) | Redis integration (feature cache, event bus) | ✅ Accepted |
+| [0010](./ADRs/0010-realtime-market-data.md) | Real-time market data streaming | 🚧 Proposed |
+| [0011](./ADRs/0011-risk-management-system.md) | Risk management system | 🚧 Proposed |
+| [0012](./ADRs/0012-prometheus-grafana-monitoring.md) | Prometheus and Grafana monitoring | ✅ Accepted |
+| [0013](./ADRs/0013-workflow-automation-gates.md) | Workflow automation gates | ✅ Accepted |
+| [0015](./ADRs/0015-twap-order-slicer.md) | TWAP order slicer with APScheduler | ✅ Accepted |
+| [0016](./ADRs/0016-multi-alpha-allocation.md) | Multi-alpha capital allocation system | ✅ Accepted |
 
 **How to use ADRs:**
 - **Before modifying architecture:** Check if ADR exists, follow its decisions
@@ -97,10 +170,25 @@ Educational explanations of trading and ML concepts:
 | [qlib-data-providers.md](./CONCEPTS/qlib-data-providers.md) | Qlib integration patterns | Intermediate |
 | [lightgbm-training.md](./CONCEPTS/lightgbm-training.md) | Model training pipeline | Intermediate |
 | [model-registry.md](./CONCEPTS/model-registry.md) | Model lifecycle management | Intermediate |
+| [centralized-logging.md](./CONCEPTS/centralized-logging.md) | Centralized logging patterns | Intermediate |
+| [distributed-tracing.md](./CONCEPTS/distributed-tracing.md) | Distributed tracing for microservices | Advanced |
+| [duckdb-basics.md](./CONCEPTS/duckdb-basics.md) | DuckDB embedded analytics | Beginner |
+| [execution-algorithms.md](./CONCEPTS/execution-algorithms.md) | Order execution strategies (TWAP, VWAP) | Intermediate |
 | [hot-reload.md](./CONCEPTS/hot-reload.md) | Zero-downtime model updates | Advanced |
 | [feature-parity.md](./CONCEPTS/feature-parity.md) | Research-production consistency | Advanced |
-| [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |
+| [monitoring-and-observability.md](./CONCEPTS/monitoring-and-observability.md) | Metrics, logs, and traces | Intermediate |
+| [multi-alpha-allocation.md](./CONCEPTS/multi-alpha-allocation.md) | Multi-strategy capital allocation | Advanced |
+| [parquet-format.md](./CONCEPTS/parquet-format.md) | Columnar storage format | Beginner |
+| [python-testing-tools.md](./CONCEPTS/python-testing-tools.md) | pytest and testing frameworks | Beginner |
 | [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |
+| [risk-management.md](./CONCEPTS/risk-management.md) | Position limits and circuit breakers | Intermediate |
+| [sql-analytics-patterns.md](./CONCEPTS/sql-analytics-patterns.md) | SQL window functions and CTEs | Intermediate |
+| [structured-logging.md](./CONCEPTS/structured-logging.md) | JSON logging with context | Intermediate |
+| [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |
+| [websocket-streaming.md](./CONCEPTS/websocket-streaming.md) | Real-time data streaming | Intermediate |
+| [workflow-optimization-zen-mcp.md](./CONCEPTS/workflow-optimization-zen-mcp.md) | Zen-MCP workflow integration | Advanced |
+| [zen-mcp-clink-optimization-proposal.md](./CONCEPTS/zen-mcp-clink-optimization-proposal.md) | Clink optimization proposal | Advanced |
+| [zen-mcp-integration-proposal.md](./CONCEPTS/zen-mcp-integration-proposal.md) | Zen-MCP integration design | Advanced |
 
 **Priority:** 🟢 **LOW** - Read when you need to understand domain-specific concepts
 
@@ -133,14 +221,41 @@ Step-by-step implementation instructions for each major task:
 
 **Location:** `docs/TASKS/`
 
-Current and future work items:
+Current and future work items organized by phase:
 
-| Document | Purpose | Status |
-|----------|---------|--------|
-| [P0_TASKS.md](./TASKS/P0_TASKS.md) | MVP core tasks (P0T1-P0T6) | ✅ 100% Complete |
-| [P1_PLANNING.md](./TASKS/P1_PLANNING.md) | P1 roadmap and priorities | 🔄 73% Complete (8/11 tasks) |
-| [TASKS/INDEX.md](./TASKS/INDEX.md) | Task index and status | 🔄 In Progress |
-| [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) | Original master plan | 📚 Reference |
+**Templates:**
+- [Template, 2025-10-18, Template] [00-TEMPLATE_DONE.md](./TASKS/00-TEMPLATE_DONE.md) - Template for completed task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_FEATURE.md](./TASKS/00-TEMPLATE_FEATURE.md) - Template for feature-level task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_PHASE_PLANNING.md](./TASKS/00-TEMPLATE_PHASE_PLANNING.md) - Template for phase planning documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_PROGRESS.md](./TASKS/00-TEMPLATE_PROGRESS.md) - Template for in-progress task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_TASK.md](./TASKS/00-TEMPLATE_TASK.md) - Template for new task documents
+
+**Phase Planning:**
+- [CURRENT, 2025-10-18, Planning] [P0_TASKS.md](./TASKS/P0_TASKS.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
+- [CURRENT, 2025-10-26, Planning] [P1_PLANNING.md](./TASKS/P1_PLANNING.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
+- [CURRENT, 2025-10-26, Planning] [P2_PLANNING.md](./TASKS/P2_PLANNING.md) - P2 advanced features planning - 📋 0% (0/6 tasks)
+- [CURRENT, 2025-10-18, Planning] [INDEX.md](./TASKS/INDEX.md) - Task index and status tracker
+- [CURRENT, 2025-10-18, Planning] [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) - Original master plan (reference)
+
+**Phase 1 Tasks:**
+- [CURRENT, 2025-10-18, Task] [P1T0_DONE.md](./TASKS/P1T0_DONE.md) - Phase 1 initialization and planning
+- [CURRENT, 2025-10-18, Task] [P1T2_DONE.md](./TASKS/P1T2_DONE.md) - Task tracking and CLI tools
+- [CURRENT, 2025-10-18, Task] [P1T3_DONE.md](./TASKS/P1T3_DONE.md) - DuckDB analytics layer
+- [CURRENT, 2025-10-19, Task] [P1T4_DONE.md](./TASKS/P1T4_DONE.md) - Multi-model code review system
+- [CURRENT, 2025-10-20, Task] [P1T5-F1_DONE.md](./TASKS/P1T5-F1_DONE.md) - Real-time market data subfeature 1
+- [CURRENT, 2025-10-20, Task] [P1T5-F3_DONE.md](./TASKS/P1T5-F3_DONE.md) - Real-time market data subfeature 3
+- [CURRENT, 2025-10-20, Task] [P1T6_DONE.md](./TASKS/P1T6_DONE.md) - Risk management implementation
+- [CURRENT, 2025-10-20, Task] [P1T7_DONE.md](./TASKS/P1T7_DONE.md) - Reconciliation system hardening
+- [CURRENT, 2025-10-21, Task] [P1T8_DONE.md](./TASKS/P1T8_DONE.md) - Monitoring and alerting
+- [CURRENT, 2025-10-21, Task] [P1T9_DONE.md](./TASKS/P1T9_DONE.md) - Centralized logging infrastructure
+- [CURRENT, 2025-10-25, Task] [P1T10_DONE.md](./TASKS/P1T10_DONE.md) - Multi-alpha capital allocation system
+- [CURRENT, 2025-10-27, Task] [P1T11_DONE.md](./TASKS/P1T11_DONE.md) - Workflow automation and testing gates
+- [CURRENT, 2025-10-29, Task] [P1T12_DONE.md](./TASKS/P1T12_DONE.md) - Auto-resume task state tracking
+- [CURRENT, 2025-10-31, Task] [P1T13_TASK.md](./TASKS/P1T13_TASK.md) - Documentation and workflow optimization (current task)
+
+**Phase 2 Tasks:**
+- [CURRENT, 2025-10-26, Task] [P2T0_DONE.md](./TASKS/P2T0_DONE.md) - TWAP order slicer implementation
+- [CURRENT, 2025-10-26, Task] [P2T1_DONE.md](./TASKS/P2T1_DONE.md) - Advanced order types and execution
 
 **Checking Current/Next Task:**
 ```bash
@@ -161,11 +276,13 @@ Current and future work items:
 
 Post-implementation analysis and learnings:
 
-| Document | Task | Key Learnings |
-|----------|------|---------------|
-| [p1-p3-testing-journey.md](./LESSONS_LEARNED/p1-p3-testing-journey.md) | T3 testing evolution | Testing strategy evolution |
-| [t1.2-redis-integration-fixes.md](./LESSONS_LEARNED/t1.2-redis-integration-fixes.md) | T1.2 Redis integration | 5 issues found during testing, graceful degradation |
-| [t6-paper-run-retrospective.md](./LESSONS_LEARNED/t6-paper-run-retrospective.md) | T6 retrospective | Intentional MVP simplifications, P1 action items |
+- [CURRENT, 2025-10-25, Retrospective] [AUDIT_REPORT_2025-10-25.md](./LESSONS_LEARNED/AUDIT_REPORT_2025-10-25.md) - Workflow audit identifying verbose workflows and redundancy (P1T12)
+- [CURRENT, 2025-10-18, Retrospective] [automated-code-review-fixes-p1.1t3.md](./LESSONS_LEARNED/automated-code-review-fixes-p1.1t3.md) - Security vulnerabilities and code quality fixes from automated reviewers (P1.1T3)
+- [CURRENT, 2025-10-19, Retrospective] [mypy-strict-migration.md](./LESSONS_LEARNED/mypy-strict-migration.md) - Comprehensive mypy --strict migration fixing 279 type errors across 67 files
+- [CURRENT, 2025-10-20, Retrospective] [p1.3t1-monitoring-alerting.md](./LESSONS_LEARNED/p1.3t1-monitoring-alerting.md) - Monitoring and alerting implementation with Prometheus and Grafana (P1.3T1)
+- [CURRENT, 2025-10-18, Retrospective] [p1-p3-testing-journey.md](./LESSONS_LEARNED/p1-p3-testing-journey.md) - Testing strategy evolution from P1 to P3
+- [CURRENT, 2025-10-18, Retrospective] [t1.2-redis-integration-fixes.md](./LESSONS_LEARNED/t1.2-redis-integration-fixes.md) - Redis integration fixes and graceful degradation (T1.2)
+- [CURRENT, 2025-10-18, Retrospective] [t6-paper-run-retrospective.md](./LESSONS_LEARNED/t6-paper-run-retrospective.md) - Paper run retrospective with MVP simplifications (T6)
 
 **Priority:** 🟢 **LOW** - Read after completing tasks to learn from past experiences
 
@@ -177,11 +294,57 @@ Post-implementation analysis and learnings:
 
 Operational procedures and troubleshooting:
 
-| Document | Purpose | When to Use |
-|----------|---------|-------------|
-| [ops.md](./RUNBOOKS/ops.md) | Operational procedures | During deployment, troubleshooting |
+- [CURRENT, 2025-10-21, Runbook] [logging-queries.md](./RUNBOOKS/logging-queries.md) - Common LogQL queries for debugging production issues with Loki
+- [CURRENT, 2025-10-20, Runbook] [ops.md](./RUNBOOKS/ops.md) - Core operational procedures for deployment and troubleshooting
+- [CURRENT, 2025-10-20, Runbook] [staging-deployment.md](./RUNBOOKS/staging-deployment.md) - Staging environment deployment, credentials, and rollback procedures
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
+
+---
+
+### 9. Configuration and Tooling
+
+**Location:** `.claude/`, `.github/`, `prompts/`, `strategies/`
+
+Configuration files, templates, prompts, and tooling:
+
+**.claude/ Configuration:**
+- [CURRENT, 2025-10-31, Guide] [AUTO_RESUME.md](../.claude/AUTO_RESUME.md) - Auto-resume task state tracking configuration
+- [CURRENT, 2025-10-27, Guide] [TROUBLESHOOTING.md](../.claude/TROUBLESHOOTING.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
+- [CURRENT, 2025-10-26, Guide] [commands/zen-review.md](../.claude/commands/zen-review.md) - Zen-mcp review slash command configuration
+- [CURRENT, 2025-10-25, Guide] [state/README.md](../.claude/state/README.md) - Task state tracking system documentation
+
+**.claude/prompts/ (Clink Review Templates):**
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../.claude/prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/deep-architecture-review.md](../.claude/prompts/clink-reviews/deep-architecture-review.md) - Deep architecture review prompt template for clink + gemini
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/security-audit.md](../.claude/prompts/clink-reviews/security-audit.md) - Security audit prompt template for clink + gemini
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/task-creation-review.md](../.claude/prompts/clink-reviews/task-creation-review.md) - Task creation review prompt template for clink + gemini
+- [CURRENT, 2025-10-27, Template] [prompts/pr-body-template.md](../.claude/prompts/pr-body-template.md) - Pull request body template
+
+**.claude/examples/ (Usage Examples):**
+- [CURRENT, 2025-10-26, Example] [examples/git-pr/example-standard-pr-creation.md](../.claude/examples/git-pr/example-standard-pr-creation.md) - Standard PR creation example
+- [CURRENT, 2025-10-26, Example] [examples/git-pr/example-review-feedback-loop.md](../.claude/examples/git-pr/example-review-feedback-loop.md) - Review feedback loop example
+- [CURRENT, 2025-10-26, Example] [examples/git-pr/good-pr-description-template.md](../.claude/examples/git-pr/good-pr-description-template.md) - Good PR description template
+
+**.claude/snippets/ (Reusable Snippets):**
+- [CURRENT, 2025-10-27, Snippet] [snippets/clink-only-warning.md](../.claude/snippets/clink-only-warning.md) - Warning snippet about clink-only tool usage policy
+
+**.github/ Templates:**
+- [CURRENT, 2025-10-26, Template] [pull_request_template.md](../.github/pull_request_template.md) - GitHub pull request template
+
+**prompts/ (AI Assistant Prompts):**
+- [CURRENT, 2025-10-18, Guide] [assistant_rules.md](../prompts/assistant_rules.md) - Original AI assistant guidance (superseded by CLAUDE.md and docs/AI_GUIDE.md)
+- [CURRENT, 2025-10-18, Template] [implement_ticket.md](../prompts/implement_ticket.md) - Ticket implementation prompt template
+
+**strategies/ (Strategy Documentation):**
+- [CURRENT, 2025-10-20, Guide] [alpha_baseline/README.md](../strategies/alpha_baseline/README.md) - Alpha baseline strategy documentation
+- [CURRENT, 2025-10-20, Guide] [mean_reversion/README.md](../strategies/mean_reversion/README.md) - Mean reversion strategy documentation (placeholder)
+- [CURRENT, 2025-10-20, Guide] [momentum/README.md](../strategies/momentum/README.md) - Momentum strategy documentation (placeholder)
+
+**tests/strategies/ (Test Documentation):**
+- [CURRENT, 2025-10-20, Guide] [alpha_baseline/README.md](../tests/strategies/alpha_baseline/README.md) - Alpha baseline strategy test documentation
+
+**Priority:** 🟢 **LOW** - Reference as needed for configuration and templates
 
 ---
 
@@ -308,12 +471,39 @@ Documents can have one of these statuses:
 
 ## 🔄 Maintenance
 
+### Update Policy for INDEX.md
+
+**When to update:**
+- **New document added** → Add entry with metadata in relevant category
+- **Document modified** → Update date field in metadata
+- **Document deprecated** → Change status to [OUTDATED], link to replacement
+- **Quarterly review** → Refresh all metadata dates (every 3 months)
+- **Category restructuring** → Update Quick Links and navigation
+
+**Metadata format:**
+```
+- [STATUS, YYYY-MM-DD, TYPE] [Filename.md](path) - Description
+```
+
+**Status values:**
+- `CURRENT` - Active, up-to-date document
+- `OUTDATED` - Superseded or needs refresh
+- `DRAFT` - Work in progress
+
+**Type values:**
+- `Standard` - Normative rules (STANDARDS/)
+- `Guide` - How-to documentation (GETTING_STARTED/, TASKS/)
+- `ADR` - Architecture decisions (ADRs/)
+- `Concept` - Domain knowledge (CONCEPTS/)
+- `Runbook` - Operations (RUNBOOKS/)
+
 ### When to Update This Index
 
-- New document added → Add to relevant category
-- Document moved → Update all references
+- New document added → Add to relevant category with metadata
+- Document moved → Update all references and paths
 - New category needed → Add section with description
-- Document deprecated → Mark with ⏸️ and link to replacement
+- Document deprecated → Mark status as [OUTDATED] and link to replacement
+- Quarterly review → Update metadata dates for all active documents
 
 ### Document Owners
 
@@ -336,6 +526,6 @@ Documents can have one of these statuses:
 
 ---
 
-**Last Updated:** 2025-10-18
+**Last Updated:** 2025-10-31
 **Maintained By:** Development Team
-**Format Version:** 1.1
+**Format Version:** 1.2 (Added metadata, Quick Links, Update Policy - P1T13)

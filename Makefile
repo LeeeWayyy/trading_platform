@@ -1,4 +1,4 @@
-.PHONY: help up down logs fmt lint test test-cov test-watch clean install install-hooks ci-local pre-push
+.PHONY: help up down logs fmt lint validate-docs test test-cov test-watch clean install install-hooks ci-local pre-push
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -32,6 +32,9 @@ lint: ## Run linters (black, ruff, mypy --strict)
 	poetry run black --check .
 	poetry run ruff check .
 	poetry run mypy libs/ apps/ strategies/ --strict
+
+validate-docs: ## Validate that all markdown files are indexed in docs/INDEX.md
+	@./scripts/validate_doc_index.sh
 
 test: ## Run tests
 	PYTHONPATH=. poetry run pytest
