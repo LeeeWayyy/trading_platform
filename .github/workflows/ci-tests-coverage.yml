@@ -2,6 +2,22 @@ name: CI - Tests & Coverage
 
 # Run tests and check coverage on all PRs and pushes to master
 # Ensures code quality and test completeness before merge
+#
+# IMPORTANT: This workflow uses a Personal Access Token (PAT) for coverage comments
+# to authenticate as your user account instead of github-actions[bot].
+#
+# Setup required (one-time):
+# 1. Create a fine-grained PAT at: https://github.com/settings/tokens?type=beta
+#    - Repository access: Select this repository only
+#    - Permissions: "Pull requests" → Read and write, "Contents" → Read
+#    - Expiration: 90 days (set calendar reminder to rotate)
+#
+# 2. Store the PAT as a repository secret:
+#    - Go to: Settings → Secrets and variables → Actions → New repository secret
+#    - Name: USER_PR_TOKEN
+#    - Value: <paste your PAT>
+#
+# 3. Security: Never commit the PAT directly. Rotate every 90 days.
 
 on:
   pull_request:
@@ -116,7 +132,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: py-cov-action/python-coverage-comment-action@v3
         with:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.USER_PR_TOKEN }}
           MINIMUM_GREEN: 90
           MINIMUM_ORANGE: 80
 
