@@ -318,7 +318,6 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-10-27, Guide] [TROUBLESHOOTING.md](../.claude/TROUBLESHOOTING.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
 - [CURRENT, 2025-10-26, Guide] [commands/zen-review.md](../.claude/commands/zen-review.md) - Zen-mcp review slash command configuration
 - [CURRENT, 2025-10-25, Guide] [state/README.md](../.claude/state/README.md) - Task state tracking system documentation
-- [CURRENT, 2025-11-01, Analysis] [TASKS/P1T13-workflow-simplification-analysis.md](../.claude/TASKS/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis and planning
 
 **.claude/prompts/ (Clink Review Templates):**
 - [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../.claude/prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex
