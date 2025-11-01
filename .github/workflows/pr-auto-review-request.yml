@@ -39,7 +39,7 @@ jobs:
 
       - name: Add comment requesting reviews
         env:
-          GH_TOKEN: ${{ secrets.USER_PR_TOKEN }}
+          GH_TOKEN: ${{ secrets.USER_PR_TOKEN || github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           gh pr comment $PR_NUMBER --body "🤖 **Automated Review Request**

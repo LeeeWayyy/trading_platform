@@ -112,6 +112,7 @@ git commit -m "Implement circuit breaker in Redis (ADR-0013)"
 
 **Complete this checklist after creating ADR:**
 
+- [ ] **ADR committed to git BEFORE implementation code** (MANDATORY process step)
 - [ ] **README.md updated** (if new component/service/capability)
 - [ ] **CONCEPTS/ documentation created** (if new architectural concept)
 - [ ] **Workflow updates** (if ADR changes development process)

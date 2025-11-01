@@ -117,7 +117,7 @@ Component X workflow:
 git commit -m "feat: Component 2 - Inverse volatility"
 
 # 2. IMMEDIATELY update state
-./scripts/update_task_state.py complete --component 2 ...
+./scripts/update_task_state.py complete --component 2 --commit $(git rev-parse HEAD) ...
 
 # 3. Stage state file
 git add .claude/task-state.json

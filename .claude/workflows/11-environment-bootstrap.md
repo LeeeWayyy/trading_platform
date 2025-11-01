@@ -38,7 +38,7 @@
 brew install python@3.11 postgresql@15 redis git gh docker
 
 # Ubuntu/Debian
-sudo apt update && sudo apt install python3.11 postgresql-15 redis-server git docker.io
+sudo apt update && sudo apt install python3.11 python3.11-venv postgresql-15 redis-server git docker.io docker-compose
 
 # Install Poetry
 curl -sSL https://install.python-poetry.org | python3.11 -

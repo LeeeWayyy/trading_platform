@@ -78,13 +78,17 @@
 
 **Ensure new code follows established patterns:**
 
-- [ ] **Check retry patterns:**
-  - Redis methods: Do ALL have `@retry` decorator?
-  - HTTP calls: Proper timeout/retry logic?
-
 - [ ] **Check error handling patterns:**
   - Are exceptions logged with proper context?
   - Are exceptions raised with meaningful messages?
+  - Are try-except blocks used appropriately?
+  - Are proper exception types used (not bare `except:`)?
+  - Is error context preserved (chaining with `from`)?
+
+- [ ] **Check retry patterns:**
+  - Do ALL Redis methods have `@retry` decorator?
+  - Do HTTP calls have proper timeout/retry logic?
+  - Are retry attempts logged?
 
 - [ ] **Check logging patterns:**
   - Structured logging (JSON)?
@@ -228,6 +232,7 @@
 - [ ] **Stakeholder approval (if needed):**
   - User approved design?
   - Architectural changes approved?
+  - Breaking changes approved?
 
 - [ ] **Ready to implement:**
   - Todo list created with 4-step pattern?

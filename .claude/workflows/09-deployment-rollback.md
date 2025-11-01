@@ -29,7 +29,7 @@
 - Error rate >5%
 - Circuit breaker tripped after deployment
 - Data integrity issues
-- Performance degradation >50%
+- >50% latency increase
 
 ---
 
