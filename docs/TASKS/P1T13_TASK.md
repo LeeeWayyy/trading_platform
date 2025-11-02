@@ -12,7 +12,7 @@ dependencies: ["P1T11"]
 estimated_effort: "6-8 hours"
 related_adrs: []
 related_docs: ["docs/INDEX.md", "docs/AI_GUIDE.md", ".claude/workflows/"]
-features: []
+features: ["F3_automation"]
 ---
 
 # P1T13: Documentation & Workflow Optimization
