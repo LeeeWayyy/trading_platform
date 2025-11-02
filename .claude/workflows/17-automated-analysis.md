@@ -78,11 +78,11 @@ Constraints: <3000 tokens, timeout 90 seconds
 
 ---
 
-### Step 2: Parallel Component Analysis (3 min total)
+### Step 2: Parallel Component Discovery (3 min total)
 
-**Action:** Launch 4 delegations in parallel
+**Action:** Launch 3 automated discovery delegations in parallel
 ```python
-# All 4 delegations run concurrently (3 min total, not sequential)
+# The following 3 delegations run concurrently (3 min total, not sequential)
 
 # Delegation 1: Impacted Components (2-3 min)
 impacted_components = Task(
@@ -227,24 +227,35 @@ Constraints: <7000 tokens, timeout 2 min
     subagent_type="general-purpose"
 )
 
-# Delegation 4: Language Assumptions - MANUAL REVIEW
-# NOTE: This step requires human judgment with concrete code context
-# DO NOT delegate generic language checks - they miss specific component issues
-# Instead: Human reviews impacted files for:
-# - Python gotchas (global, async/await, mutable defaults)
-# - Library version compatibility
-# - Framework patterns (FastAPI, pytest)
-# - Specific dependencies from impacted_components analysis
-language_checks = "MANUAL_REVIEW_REQUIRED"  # Placeholder - human performs this after seeing component list
-
-# Wait for all 4 delegations to complete (3 min total in parallel)
+# Wait for all 3 delegations to complete (3 min total in parallel)
 ```
 
-**Output:** 4 analysis results (impacted components, tests, patterns, language checks)
+**Output:** 3 analysis results (impacted components, tests, patterns)
 
 ---
 
-### Step 3: Call Site Analysis (4 min, conditional)
+### Step 3: Manual Language Assumption Review (5 min)
+
+**Action:** Based on the discovered impacted components, a human should review the code for language-specific issues.
+
+**⚠️ CRITICAL:** This step requires human judgment with concrete code context.
+
+**Checks to perform:**
+- Python gotchas (e.g., mutable default arguments, `global` statement conflicts, async/await misuse)
+- Library version compatibility issues
+- Framework-specific patterns (e.g., FastAPI dependency injection, pytest fixtures)
+- Review specific dependencies identified in the `impacted_components` analysis
+
+**Why manual review is required:**
+- Generic language checks miss component-specific issues
+- Requires understanding of actual code patterns and dependencies
+- Needs context from Step 2 results to identify relevant files
+
+**Output:** A list of potential language-related issues to consider during implementation.
+
+---
+
+### Step 4: Call Site Analysis (4 min, conditional)
 
 **Only if signature change detected:**
 ```python
@@ -298,20 +309,20 @@ Constraints: <10000 tokens, timeout 3 min
 
 ---
 
-### Step 4: Generate Component Breakdown (10 min) - HUMAN-GUIDED
+### Step 5: Generate Component Breakdown (10 min) - HUMAN-GUIDED
 
 **Action:** Aggregate analysis + manually create component todos **IN MAIN CONTEXT**
 
 **⚠️ CRITICAL:** This is a "HOW to implement" task requiring strategic decomposition - **NEVER delegate** (see delegation-decision-tree.md Category 1).
 
 ```python
-# Orchestrator aggregates all results IN MAIN CONTEXT
+# Orchestrator aggregates all automated results IN MAIN CONTEXT
 aggregated_analysis = {
     "requirement": requirement_summary,
     "impacted_components": impacted_components,
     "tests_to_update": tests_to_update,
     "pattern_parity": pattern_parity,
-    "language_checks": language_checks,
+    "language_review_notes": [],  # Populated from Step 3 manual review
     "call_sites": call_sites if applicable else None
 }
 
@@ -347,7 +358,7 @@ aggregated_analysis = {
 
 ---
 
-### Step 5: Generate Edge Cases (10 min) - HUMAN-GUIDED
+### Step 6: Generate Edge Cases (10 min) - HUMAN-GUIDED
 
 **Action:** Identify comprehensive edge cases **IN MAIN CONTEXT**
 
@@ -394,7 +405,7 @@ edge_cases = {
 
 ---
 
-### Step 6: Final Review & Approval (5 min)
+### Step 7: Final Review & Approval (5 min)
 
 **Action:** Present analysis summary to human for approval
 
@@ -485,7 +496,7 @@ edge_cases = {
 
 ---
 
-### Step 7: Process Compliance Verification (5 min)
+### Step 8: Process Compliance Verification (5 min)
 
 **Action:** Confirm ALL quality gates will be enforced during implementation
 
@@ -563,17 +574,22 @@ Acceptance criteria:
 }
 ```
 
-**Step 2-3: Parallel Discovery (automated, 9 min)**
+**Step 2: Parallel Discovery (automated, 3 min)**
 - Impacted components: 15 files
 - Tests to update: 12 existing, 8 new
 - Call sites: 42 locations
 
-**Step 4-5: Human-Guided Planning (main context, 20 min)**
+**Step 3: Manual Language Review (human, 5 min)**
+- Python gotchas identified
+- Library compatibility checks
+- Framework pattern verification
+
+**Steps 4-6: Analysis & Planning (varies)**
 - Pattern compliance: 3 violations (missing @retry, logging fields)
 - Component breakdown: 4 components
 - Edge cases: 24 cases identified
 
-**Step 6: Review & Approve (human, 3 min)**
+**Steps 7-8: Final Review & Compliance (8 min total)**
 ```markdown
 # Analysis Summary
 
