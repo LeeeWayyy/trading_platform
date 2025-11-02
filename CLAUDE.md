@@ -300,14 +300,13 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 ### Three-Tier Review System
 
 **Tier 1: Quick Review (Pre-Commit)**
-- **Tool:** clink + codex codereviewer
-- **Purpose:** Safety check before every commit (~30 sec)
-- **Example:**
-  ```bash
-  # Use clink with codex codereviewer role
-  # Codex automatically uses gpt-5-codex (configured in CLI)
-  # Review staged changes for trading safety, idempotency, test coverage
-  ```
+- **Tool:** clink + gemini codereviewer → codex codereviewer (two-phase)
+- **Purpose:** Safety check before every commit (~2-3 min)
+- **Process:**
+  - Phase 1: Gemini analyzes safety, architecture, quality (~1-2 min)
+  - Phase 2: Codex synthesizes recommendations and validates (~30-60 sec)
+  - **CRITICAL:** ALL issues from BOTH reviewers must be addressed
+  - **CRITICAL:** BOTH gemini AND codex must approve before commit
 - **See:** `.claude/workflows/03-zen-review-quick.md`
 
 **Tier 2: Deep Review (Pre-PR)**
@@ -324,14 +323,13 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 - **See:** `.claude/workflows/04-zen-review-deep.md`
 
 **Tier 3: Task Creation Review (Pre-Work)**
-- **Tool:** clink + gemini planner
-- **Purpose:** Validate task documents before starting work (2-3 min)
-- **Example:**
-  ```bash
-  # Use clink with gemini planner role
-  # Reviews task scope, requirements completeness, acceptance criteria
-  # Prevents scope creep and unclear requirements
-  ```
+- **Tool:** clink + gemini planner → codex codereviewer (two-phase)
+- **Purpose:** Validate task documents before starting work (3-5 min)
+- **Process:**
+  - Phase 1: Gemini plans scope, validates requirements, checks completeness (~2-3 min)
+  - Phase 2: Codex validates feasibility and implementation approach (~1-2 min)
+  - **CRITICAL:** ALL issues from BOTH reviewers must be addressed
+  - **CRITICAL:** BOTH gemini AND codex must approve before starting work
 - **See:** `.claude/workflows/13-task-creation-review.md`
 
 ### Cost Model (Subscription-Based)
@@ -385,23 +383,25 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 
 1. **Implement** the logic component
 2. **Create test cases** for comprehensive coverage (TDD)
-3. **🔒 MANDATORY: Request zen-mcp review** (NEVER skip) via clink + codex codereviewer (see Tier 1 above)
+3. **🔒 MANDATORY: Request zen-mcp review** (NEVER skip) via clink + gemini → codex (two-phase, see Tier 1 above)
 4. **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
-5. **Commit** ONLY after review approval + CI passes
+5. **Commit** ONLY after BOTH reviewers approve + CI passes
 
 **Example:** When implementing "position limit validation", create these 5 todo tasks:
 ```markdown
 - [ ] Implement position limit validation logic
 - [ ] Create test cases for position limit validation
-- [ ] Request quick review (clink + codex) for position limit validation
+- [ ] Request quick review (clink + gemini → codex) for position limit validation
 - [ ] Run `make ci-local` for position limit validation
-- [ ] Commit position limit validation (after review + CI pass)
+- [ ] Commit position limit validation (after BOTH reviewers approve + CI pass)
 ```
 
 **⚠️ PROCESS VIOLATION WARNING:**
 - Committing without zen-mcp review = PRIMARY root cause of 7 fix commits (10-15 hours wasted)
 - Committing without `make ci-local` = 2-4x slower than running locally first
+- **Using `git commit --no-verify` is ABSOLUTELY FORBIDDEN** — bypasses review approval gates
 - **NEVER skip review gates regardless of urgency**
+- **ALL issues from ALL reviewers must be fixed** — no cherry-picking approvals
 
 **Never skip or combine steps!** See [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md) for detailed guidance and examples.
 
@@ -431,9 +431,11 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
    - See `.claude/workflows/07-documentation.md`
 
 4. **Progressive Commits (every 30-60 min per component)**
-   - **🔒 MANDATORY: zen-mcp review** (NEVER skip): `.claude/workflows/03-zen-review-quick.md`
+   - **🔒 MANDATORY: zen-mcp review** (NEVER skip, gemini → codex two-phase): `.claude/workflows/03-zen-review-quick.md`
+   - **🔒 MANDATORY: ALL reviewers must approve** (gemini AND codex, fix ALL issues)
    - **🔒 MANDATORY: `make ci-local`** (NEVER skip)
-   - Commit workflow: `.claude/workflows/01-git-commit.md` (commit only after review + CI pass)
+   - **🚫 NEVER use `git commit --no-verify`** (bypasses review approval gates)
+   - Commit workflow: `.claude/workflows/01-git-commit.md` (commit only after BOTH reviewers approve + CI pass)
 
 5. **Before PR**
    - **🔒 MANDATORY: deep review** via clink + gemini: `.claude/workflows/04-zen-review-deep.md`
@@ -520,9 +522,11 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 
 ### 🔴 CRITICAL Process Violations (Root Cause of Multiple Fix Commits)
 
+- **🚫 NEVER use `git commit --no-verify`** — **ABSOLUTELY FORBIDDEN**: Bypasses zen-mcp review approval gates and pre-commit hooks (violates quality process)
 - **🚫 No coding without analysis** — **PRIMARY ROOT CAUSE**: Complete [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md) FIRST (saves 3-11 hours)
 - **🚫 No direct zen-mcp tools** — **CRITICAL**: ONLY use `mcp__zen-mcp__clink` (direct tools cause API permission errors and break workflows)
-- **🚫 No skipping review gates** — **CRITICAL**: Skipping zen-mcp review caused 7 fix commits (10-15 hours wasted) (`.claude/workflows/03-zen-review-quick.md`)
+- **🚫 No skipping review gates** — **CRITICAL**: Skipping zen-mcp review caused 7 fix commits (10-15 hours wasted) — ALL reviewers must approve (`.claude/workflows/03-zen-review-quick.md`)
+- **🚫 No skipping reviewer issues** — **CRITICAL**: ALL issues from ALL reviewers (gemini AND codex) must be addressed — no cherry-picking approvals
 - **🚫 No skipping local CI** — Run `make ci-local` BEFORE commit (2-4x faster than remote CI)
 - **🚫 No incremental fixing** — Find ALL issues upfront via analysis, not reactively via reviews
 
@@ -591,9 +595,11 @@ See `/docs/GETTING_STARTED/GLOSSARY.md` for full definitions:
 5. **Break feature into logical components** — Use 4-step pattern per component:
    - Implement logic
    - Create test cases (TDD)
-   - **🔒 MANDATORY: Quick review** via clink + codex (`.claude/workflows/03-zen-review-quick.md`)
+   - **🔒 MANDATORY: Quick review** via clink + gemini → codex (two-phase) (`.claude/workflows/03-zen-review-quick.md`)
+   - **🔒 MANDATORY: Fix ALL issues from ALL reviewers** (gemini AND codex must both approve)
    - **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
-   - Commit ONLY after review approval + CI passes
+   - **🚫 NEVER use `git commit --no-verify`** (absolutely forbidden)
+   - Commit ONLY after BOTH reviewers approve + CI passes
 
 6. Add comprehensive docstrings (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
 
