@@ -183,8 +183,8 @@ pytest tests/test_file.py -v
    - `.claude/workflows/_common/zen-review-process.md` - Review process (~150 lines)
 
 2. **Replace duplicates with references:**
-   - Instead of duplicating git commands → "See [git-commands.md](../_common/git-commands.md)"
-   - Instead of duplicating zen review process → "See [zen-review-process.md](../_common/zen-review-process.md)"
+   - Instead of duplicating git commands → "See [git-commands.md](../workflows/_common/git-commands.md)"
+   - Instead of duplicating zen review process → "See [zen-review-process.md](../workflows/_common/zen-review-process.md)"
 
 **Expected savings:** Additional ~800-1,200 lines
 
@@ -478,12 +478,18 @@ pytest tests/test_file.py -v
 - After 2-week grace period, upgrade warnings to blocking errors
 - Add `--no-verify` escape hatch for emergencies (logged)
 
-**Example Pre-Commit Hook Extension:**
+**Example Pre-Commit Hook Extension (Simplified):**
 ```bash
 # NEW: Step 4 - Check zen-mcp quick review compliance
 echo "Step 4/4: Verifying zen-mcp quick review..."
 
-# Check for continuation_id in commit message or task-state.json
+# NOTE: This is a simplified example showing basic file existence check.
+# A production implementation should include:
+# 1. JSON parsing to extract continuation_id from .claude/task-state.json
+# 2. Timestamp validation (review within last 30 minutes)
+# 3. See description on lines 452-453 for complete requirements
+
+# Simplified check for continuation_id in commit message or task-state.json
 if ! git log -1 --format=%B | grep -q "continuation_id:" && \
    ! test -f .claude/task-state.json; then
     echo "⚠️  WARNING: No zen-mcp review detected"

@@ -11,7 +11,7 @@
 Measure projected context usage reduction from implementing subagent delegation patterns.
 
 **Target:** ≥30% context usage reduction
-**Projected Result:** 38% reduction (exceeds target)
+**Projected Result:** 43.5-60.9% reduction (exceeds target; range accounts for ultra-conservative to conservative task mix assumptions)
 
 ---
 

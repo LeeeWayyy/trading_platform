@@ -132,11 +132,11 @@ Main Context (200k tokens):
 ────────────────────────────────
 Total used: ~88k / 200k = 44% utilization
 Context saved: 90k → 15k = 75k tokens (83% reduction in delegatable tasks)
-Overall optimization: ~38% context usage reduction
+Overall optimization: 43.5-60.9% context usage reduction (accounting for task mix assumptions)
 ```
 
 **Projected Benefits:**
-- ✅ **38%+ context usage reduction** (exceeds 30% target)
+- ✅ **43.5-60.9% context usage reduction** (exceeds 30% target)
 - ✅ **Longer sessions** before context exhaustion
 - ✅ **Better continuity** across implementation
 - ✅ **Isolated failures** (subagent failure doesn't corrupt main context)

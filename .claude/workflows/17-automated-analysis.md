@@ -113,7 +113,7 @@ Deliverable (JSON):
     {{"file": "apps/risk_manager/monitor.py", "line": 8}}
   ],
   "similar_patterns": [
-    {{"file": "apps/reconciler/order_sync.py", "line": 200", "pattern": "place_order_v2", "note": "Legacy pattern to migrate"}}
+    {{"file": "apps/reconciler/order_sync.py", "line": 200, "pattern": "place_order_v2", "note": "Legacy pattern to migrate"}}
   ],
   "schema_impact": {{
     "tables": ["orders", "positions"],

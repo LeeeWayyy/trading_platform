@@ -73,7 +73,7 @@ search_results = Task(
     description="Find circuit breaker call sites",
     prompt="""Search the trading platform codebase for all occurrences of check_circuit_breaker().
 
-Repository: /Users/leeewayyy/Documents/SourceCode/trading_platform
+Repository: $PROJECT_ROOT
 Focus areas: apps/, libs/, tests/
 Exclude: data/, artifacts/, docs/
 

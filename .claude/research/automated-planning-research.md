@@ -22,8 +22,8 @@ Research automation strategy for pre-implementation analysis workflow to reduce 
 ### Medium-Automation Steps (40-50% time savings)
 
 4. **Verify Pattern Parity** (10 min → 5 min) - Task (general-purpose) delegates pattern discovery
-5. **Component Breakdown** (10 min → 5 min) - Human-guided (KEEP in main context, requires understanding "how")
-6. **Edge Case Generation** (10 min → 5 min) - Human-guided (KEEP in main context, requires implementation strategy)
+5. **Component Breakdown** (10 min → 6 min) - Human-guided (KEEP in main context, benefits from automated discovery results)
+6. **Edge Case Generation** (10 min → 7 min) - Human-guided (KEEP in main context, benefits from automated test/call site discovery)
 
 ### Low-Automation Steps (keep manual)
 
@@ -41,6 +41,8 @@ Research automation strategy for pre-implementation analysis workflow to reduce 
 | Design Solution | 30 min | 18 min | 12 min (40%) |
 | Final Checks | 5 min | 5 min | 0 min |
 | **TOTAL** | **100 min** | **55 min** | **45 min (45%)** |
+
+***Design Solution savings breakdown:** Pattern Parity (5 min via Task delegation) + Component Breakdown (4 min from having pre-discovered components) + Edge Case Generation (3 min from having pre-discovered test cases and call sites) = 12 min total. Steps 5-6 remain human-guided but work faster with automated discovery results.
 
 **Target:** ≥40% reduction
 **Achieved:** 45% reduction ✅
