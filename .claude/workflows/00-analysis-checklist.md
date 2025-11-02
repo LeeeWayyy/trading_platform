@@ -35,12 +35,31 @@
 #### Code Impact Analysis
 
 - [ ] **Search for ALL call sites:**
+
+  **Option A: Direct search (simple cases, <5 expected results):**
   ```bash
   # If changing a function/method
   grep -rn "function_name(" apps/ libs/ tests/
 
   # If changing a class
   grep -rn "ClassName" apps/ libs/ tests/
+  ```
+
+  **Option B: Delegate to subagent (complex cases, >10 expected results or uncertain scope):**
+  ```python
+  # See .claude/workflows/16-subagent-delegation.md
+  Task(
+      description="Find all call sites for function_name",
+      prompt="""Search apps/, libs/, tests/ for function_name() usage.
+
+      Deliverable: JSON with categorized file:line references:
+      {"calls": [...], "imports": [...], "tests": [...]}
+
+      Constraints: <5000 tokens
+      """,
+      subagent_type="Explore"
+  )
+  # Benefits: 20-30k token savings, isolated context
   ```
 
 - [ ] **List ALL files that import the module**
@@ -50,14 +69,32 @@
 
 **Output:** Complete list of ALL files/modules/components that need changes
 
+**💡 Context Optimization:** If context usage >50% (100k tokens), prefer Option B (delegation) for all searches. See [16-subagent-delegation.md](./16-subagent-delegation.md).
+
 ---
 
 ### 3. Identify ALL Tests That Need Updating (10 min)
 
 - [ ] **Find existing tests:**
+
+  **Option A: Direct search (simple cases):**
   ```bash
   find tests/ -name "*test_component*"
   grep -r "from module import" tests/
+  ```
+
+  **Option B: Delegate (if context >50% used):**
+  ```python
+  # Delegate test discovery to subagent
+  Task(
+      description="Find tests for component",
+      prompt="""Find all test files related to <component>.
+
+      Deliverable: Categorized test references:
+      {"unit": [...], "integration": [...], "e2e": [...]}
+      """,
+      subagent_type="Explore"
+  )
   ```
 
 - [ ] **Categorize tests:**

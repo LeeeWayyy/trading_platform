@@ -63,11 +63,41 @@ print(f"DEBUG: value={value}, expected={expected}")
 
 ### 4. Identify Root Cause
 
+**Option A: Manual Investigation (simple cases):**
+
 **Check:**
 - Variable values at failure point
 - Function inputs vs expected
 - State changes during execution
 - External dependencies (DB, API, files)
+
+**Option B: Delegate Error Tracing (complex multi-file issues):**
+
+```python
+# If context usage >50% OR error spans multiple files
+# See .claude/workflows/16-subagent-delegation.md
+
+Task(
+    description="Trace error source from stack trace",
+    prompt="""Given stack trace:
+
+    <paste stack trace here>
+
+    Trace call chain backwards to find root cause.
+
+    Deliverable:
+    - Call chain (file:line references)
+    - Likely root cause
+    - Related code patterns
+
+    Constraints: <6000 tokens
+    """,
+    subagent_type="Explore"
+)
+# Benefits: 20k+ token savings, isolated analysis context
+```
+
+**💡 Context Optimization:** For errors spanning >5 files, delegate tracing to save context. See [16-subagent-delegation.md](./16-subagent-delegation.md).
 
 ### 5. Fix and Verify
 
