@@ -37,15 +37,25 @@ Provide clear, actionable criteria for when to delegate tasks to subagents vs. k
             │
             ▼
    ┌────────────────────┐
-   │ Is this SEARCH or  │───YES──→ ┌─────────────────────┐
-   │ ANALYSIS heavy?    │          │ DELEGATE to Task    │
-   └────────┬───────────┘          │ (Explore/general)   │
-            │                      └─────────────────────┘
-           NO                              ▲
-            │                              │
-            ▼                              │
-   ┌────────────────────┐                 │
-   │ Does this need     │───YES───────────┘
+   │ Is this SEARCH or  │───YES──→ ┌───────────────────────┐
+   │ ANALYSIS heavy?    │          │ Understanding WHAT     │
+   └────────┬───────────┘          │ exists or HOW to impl? │
+            │                      └───────┬───────────────┘
+           NO                              │
+            │                      ┌───────┴────────┐
+            │                      │                │
+            ▼                     WHAT             HOW
+   ┌────────────────────┐          │                │
+   │ Does this need     │          ▼                ▼
+   │ MULTI-TURN context?│   ┌──────────┐    ┌──────────┐
+   └────────┬───────────┘   │ DELEGATE │    │   KEEP   │
+            │               │   Task   │    │   MAIN   │
+           NO               └──────────┘    └──────────┘
+            │                      ▲
+            │                      │
+            ▼                      │
+   ┌────────────────────┐         │
+   │ Does this need     │───YES───┘
    │ MULTI-TURN context?│        (Use Zen-MCP Clink)
    └────────┬───────────┘
             │
@@ -58,6 +68,10 @@ Provide clear, actionable criteria for when to delegate tasks to subagents vs. k
    │  side of keeping)  │
    └────────────────────┘
 ```
+
+**Key Decision: WHAT vs HOW?**
+- **WHAT exists** → DELEGATE: "Find all call sites", "List test files", "Search for patterns"
+- **HOW to implement** → KEEP IN MAIN: "Break into components", "Plan error handling", "Identify edge cases"
 
 ---
 
@@ -73,12 +87,18 @@ These tasks are **NEVER delegated** because they require full context continuity
 | **Requirements analysis** | ✅ YES | Understanding "why", not just "what" | Analyzing task acceptance criteria |
 | **Architecture decisions** | ✅ YES | Strategic choices with long-term impact | Choosing hybrid delegation approach |
 | **Core implementation** | ✅ YES | Primary deliverable, needs continuity | Writing `multi_alpha_allocator.py` |
+| **Component breakdown** | ✅ YES | Understanding "how" to implement, strategic decomposition | Breaking feature into 5-step checklist components |
+| **Edge case generation** | ✅ YES | Requires deep understanding of implementation strategy | Identifying failure scenarios for new feature |
 | **Commit creation** | ✅ YES | Critical operation, needs full history | Creating feature commit with zen-review ID |
 | **PR creation** | ✅ YES | Critical operation, full branch context needed | Creating PR with summary |
 | **User interaction** | ✅ YES | Direct communication, clarification | Answering user questions, AskUserQuestion |
 | **Review coordination** | ✅ YES | Orchestrating quality gates | Requesting zen-mcp review, checking status |
 
 **Rule:** If task failure would corrupt session state or lose critical context, **KEEP IN MAIN**.
+
+**CRITICAL DISTINCTION - "WHAT" vs "HOW":**
+- **Delegate "WHAT" tasks** (discovering what exists): Finding call sites, searching for patterns, listing test files
+- **Keep "HOW" tasks** (understanding how to implement): Designing components, planning error handling, identifying edge cases
 
 ---
 
