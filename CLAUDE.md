@@ -214,6 +214,11 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 - **Task creation review (clink + gemini):** `.claude/workflows/13-task-creation-review.md`
 - **🤖 Auto-resume tasks:** `.claude/workflows/14-task-resume.md`
 - **Update task state:** `.claude/workflows/15-update-task-state.md`
+- **🚀 Context optimization (subagent delegation):** `.claude/workflows/16-subagent-delegation.md`
+- **🤖 Automated planning (Phase 2):** `.claude/workflows/17-automated-analysis.md`
+- **🤖 Automated coding (Phase 3):** `.claude/workflows/18-automated-coding.md`
+- **🤖 Automated PR fixes (Phase 4):** `.claude/workflows/19-automated-pr-fixes.md`
+- **🤖 Full automation orchestration (Phase 5):** `.claude/workflows/20-full-automation.md`
 
 ---
 
