@@ -259,7 +259,20 @@ Constraints: <7000 tokens, timeout 2 min
 
 **Only if signature change detected:**
 ```python
-if requirement_summary["change_category"] == "signature_change":
+if requirement_summary.get("change_category") == "signature_change":
+    # Note: The old and new function signatures must be determined before this step.
+    # This might involve reading the source file or having it in the requirement.
+    # Normalize target_components to prevent AttributeError on None
+    target_components = requirement_summary.get("target_components") or {}
+    functions = target_components.get("functions", [])
+    modules = target_components.get("modules", [])
+
+    # Guard against empty lists before indexing
+    function_name = functions[0] if functions else "<undefined>"
+    module_path = modules[0] if modules else "<undefined>"
+    old_signature = "<old_signature_to_be_determined>"
+    new_signature = "<new_signature_to_be_determined>"
+
     call_sites = Task(
         description="Analyze all call sites",
         prompt=f"""Analyze ALL call sites for function signature change.
