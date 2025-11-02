@@ -97,7 +97,7 @@ Task(
 # Benefits: 20k+ token savings, isolated analysis context
 ```
 
-**💡 Context Optimization:** For errors spanning >5 files, delegate tracing to save context. See [16-subagent-delegation.md](./16-subagent-delegation.md).
+**💡 Context Optimization:** For errors spanning >5 files, delegate tracing to save context. See [16-subagent-delegation.md](./16-subagent-delegation.md) for how-to patterns and [delegation-decision-tree.md](../research/delegation-decision-tree.md) for when-to criteria.
 
 ### 5. Fix and Verify
 

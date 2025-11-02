@@ -100,7 +100,7 @@ Tasks:
 4. Check database schema impact (migrations needed?)
 5. Check API contract impact (breaking changes?)
 
-Repository: /Users/leeewayyy/Documents/SourceCode/trading_platform
+Repository: $PROJECT_ROOT
 Focus: apps/, libs/, tests/
 Exclude: data/, artifacts/, docs/
 
@@ -145,7 +145,7 @@ Tasks:
 3. Identify tests that need updating
 4. Identify missing test scenarios
 
-Repository: /Users/leeewayyy/Documents/SourceCode/trading_platform/tests
+Repository: $PROJECT_ROOT/tests
 
 Deliverable (JSON):
 {{
@@ -267,7 +267,7 @@ Tasks:
    - Determine new error handling needed
    - Assess test impact
 
-Repository: /Users/leeewayyy/Documents/SourceCode/trading_platform
+Repository: $PROJECT_ROOT
 
 Deliverable (JSON):
 {{

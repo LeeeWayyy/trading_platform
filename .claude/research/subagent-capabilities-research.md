@@ -101,39 +101,7 @@ Based on research, **delegate to subagent** when:
 
 ### 4. Context Optimization Analysis
 
-**Without Delegation (Current):**
-```
-Main Context (200k tokens):
-├── Task planning (10k) ✅ Core
-├── Requirements analysis (8k) ✅ Core
-├── File searches (25k) ⚠️  Delegatable
-├── Doc lookups (15k) ⚠️  Delegatable
-├── Implementation (50k) ✅ Core
-├── Code review coordination (5k) ✅ Core (zen-mcp does review)
-├── Test logs (20k) ⚠️  Delegatable
-├── CI analysis (18k) ⚠️  Delegatable
-└── PR comments (12k) ⚠️  Delegatable
-────────────────────────────────
-Total delegatable: ~90k / 200k = 45%
-```
-
-**With Delegation (Optimized):**
-```
-Main Context (200k tokens):
-├── Task planning (10k) ✅ Core
-├── Requirements analysis (8k) ✅ Core
-├── File search summaries (3k) ← Delegated result
-├── Doc lookup summaries (2k) ← Delegated result
-├── Implementation (50k) ✅ Core
-├── Code review coordination (5k) ✅ Core
-├── Test result summaries (4k) ← Delegated result
-├── CI analysis summaries (3k) ← Delegated result
-└── PR comment summaries (3k) ← Delegated result
-────────────────────────────────
-Total used: ~88k / 200k = 44% utilization
-Context saved: 90k → 15k = 75k tokens (83% reduction in delegatable tasks)
-Overall optimization: 43.5-60.9% context usage reduction (accounting for task mix assumptions)
-```
+Delegating non-core tasks to subagents is projected to yield significant context savings. A detailed analysis is available in [`context-optimization-measurement.md`](./context-optimization-measurement.md), which projects the following benefits.
 
 **Projected Benefits:**
 - ✅ **43.5-60.9% context usage reduction** (exceeds 30% target)

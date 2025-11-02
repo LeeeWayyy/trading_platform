@@ -58,7 +58,7 @@
 # Main context gets polluted with full search results
 grep_result = Grep(
     pattern="check_circuit_breaker",
-    path="/Users/leeewayyy/Documents/SourceCode/trading_platform",
+    path="$PROJECT_ROOT",
     output_mode="content",
     -n=True
 )
@@ -140,7 +140,7 @@ test_analysis = Task(
     prompt="""Run tests and analyze failures:
 
 Command: make test ARGS='tests/libs/allocation/ -v'
-Working directory: /Users/leeewayyy/Documents/SourceCode/trading_platform
+Working directory: $PROJECT_ROOT
 
 Task: Execute tests and extract failure information.
 
@@ -207,7 +207,7 @@ pr_comments = Task(
     description="Extract PR review comments",
     prompt="""Fetch and categorize all comments for PR #123.
 
-Repository: /Users/leeewayyy/Documents/SourceCode/trading_platform
+Repository: $PROJECT_ROOT
 PR number: 123
 
 Task: Use gh CLI to fetch all comment types and categorize:
@@ -304,11 +304,11 @@ Deliverable:
 - Continuation ID for follow-up
 """,
     absolute_file_paths=[
-        "/Users/leeewayyy/Documents/SourceCode/trading_platform/.claude/research/subagent-capabilities-research.md",
-        "/Users/leeewayyy/Documents/SourceCode/trading_platform/.claude/research/delegation-decision-tree.md",
-        "/Users/leeewayyy/Documents/SourceCode/trading_platform/.claude/workflows/16-subagent-delegation.md"
+        "$PROJECT_ROOT/.claude/research/subagent-capabilities-research.md",
+        "$PROJECT_ROOT/.claude/research/delegation-decision-tree.md",
+        "$PROJECT_ROOT/.claude/workflows/16-subagent-delegation.md"
     ],
-    working_directory_absolute_path="/Users/leeewayyy/Documents/SourceCode/trading_platform"
+    working_directory_absolute_path="$PROJECT_ROOT"
 )
 # Returns: Review results with continuation_id
 # Main context: 5-6k tokens (coordination only)
@@ -369,7 +369,7 @@ Constraints:
 **Without Delegation (Critical Doc):**
 ```python
 # Keep critical project docs in main context
-Read(file_path="/Users/leeewayyy/Documents/SourceCode/trading_platform/CLAUDE.md")
+Read(file_path="$PROJECT_ROOT/CLAUDE.md")
 # Reason: Core workflow guidance, high reference frequency, critical for decisions
 ```
 
@@ -488,7 +488,7 @@ Task(
 
 **Correct:**
 ```python
-Read(file_path="/Users/leeewayyy/Documents/SourceCode/trading_platform/CLAUDE.md")
+Read(file_path="$PROJECT_ROOT/CLAUDE.md")
 ```
 
 ---
