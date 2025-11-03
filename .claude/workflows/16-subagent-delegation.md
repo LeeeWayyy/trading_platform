@@ -78,7 +78,7 @@
 ./scripts/context_checkpoint.py restore --id a1b2c3d4-...
 
 # Or restore from latest delegation checkpoint
-LATEST_ID=$(readlink .claude/checkpoints/latest_delegation.json | sed 's/.json$//')
+LATEST_ID=$(basename $(readlink .claude/checkpoints/latest_delegation.json) .json)
 ./scripts/context_checkpoint.py restore --id $LATEST_ID
 ```
 

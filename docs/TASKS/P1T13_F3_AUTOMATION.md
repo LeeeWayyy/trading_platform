@@ -243,7 +243,13 @@ Instead of relying on AI to follow documentation (soft gates), implement **hard 
 
 **Key Insight:** Existing workflows (`.claude/workflows/01-git-commit.md`, `component-cycle.md`) already define the 4-step pattern correctly. The problem is **enforcement**, not definition.
 
-**Design:**
+> **📝 NOTE: The following "Workflow Enforcement Layer" design is FUTURE WORK (not implemented in Phase 3).**
+>
+> **Phase 3 Status (COMPLETED):** Context checkpointing system only.
+>
+> **Future Work:** The detailed design below describes a future workflow enforcement system. This section serves as research/design documentation for potential Phase 4+ implementation and should be moved to a dedicated design document (e.g., `.claude/research/workflow-enforcement-design.md`) in a future refactoring.
+
+**Design (FUTURE - NOT IMPLEMENTED):**
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -272,6 +278,12 @@ Git Hooks Integration:
     ├─ Record commit hash
     ├─ Reset state to "implement"
     └─ Clear zen_review and ci_passed flags
+
+    NOTE: Post-commit hook modifies .claude/workflow-state.json AFTER commit,
+    leaving working directory dirty. Future implementation should:
+      (a) Instruct user to create follow-up commit for state changes, OR
+      (b) Use git commit --amend to include state change in same commit (if safe), OR
+      (c) Store state in .git/hooks/ directory (untracked) instead of repo
 ```
 
 **Hard Gate Enforcement Points:**
@@ -577,6 +589,9 @@ from pathlib import Path
 
 def get_pr_commits():
     """Get list of commit hashes in current PR/branch."""
+    # NOTE: Use GITHUB_BASE_REF environment variable for dynamic base branch detection
+    # Hardcoding origin/master fails for projects using main/develop/release branches
+    # Future implementation should use: base_branch = os.getenv('GITHUB_BASE_REF', 'master')
     # Get commits between origin/master and HEAD
     result = subprocess.run(
         ["git", "log", "--format=%H", "origin/master..HEAD"],
@@ -605,6 +620,14 @@ def main():
     # Get last commit hash recorded in state
     recorded_hash = state.get("last_commit_hash")
 
+    # NOTE: Current logic only validates most recent commit (pr_commits[0])
+    # An earlier commit in the PR could have been made with --no-verify and this wouldn't detect it
+    # Future implementation should validate EVERY commit in the PR:
+    #   for commit_hash in pr_commits:
+    #       if commit_hash not in state.get("commit_history", []):
+    #           print(f"❌ GATE BYPASS DETECTED: {commit_hash}")
+    #           return 1
+    #
     # Check if ALL commits in PR are accounted for
     # Simple check: last commit in PR should match recorded hash
     if pr_commits and pr_commits[0] != recorded_hash:
