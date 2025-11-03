@@ -29,6 +29,7 @@ import glob
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, Tuple
 
@@ -57,13 +58,41 @@ class WorkflowGate:
             "ci_passed": False,
             "last_commit_hash": None,
             "subagent_delegations": [],
+            "context": {
+                "current_tokens": 0,
+                "max_tokens": 200000,
+                "last_check_timestamp": datetime.utcnow().isoformat(),
+            },
         }
+
+    def _ensure_context_defaults(self, state: dict) -> dict:
+        """
+        Ensure context fields exist for backward compatibility.
+
+        Migrates legacy state files that don't have context monitoring fields.
+        Called immediately after loading state to prevent KeyError.
+
+        Args:
+            state: Loaded state dictionary
+
+        Returns:
+            State with context defaults ensured
+        """
+        if "context" not in state:
+            state["context"] = {
+                "current_tokens": 0,
+                "max_tokens": 200000,
+                "last_check_timestamp": datetime.utcnow().isoformat(),
+            }
+        return state
 
     def load_state(self) -> dict:
         """Load workflow state from JSON file."""
         if not STATE_FILE.exists():
             return self._init_state()
-        return json.loads(STATE_FILE.read_text())
+        state = json.loads(STATE_FILE.read_text())
+        # Ensure backward compatibility with old state files
+        return self._ensure_context_defaults(state)
 
     def save_state(self, state: dict) -> None:
         """Save workflow state to JSON file with atomic write."""
@@ -291,6 +320,11 @@ class WorkflowGate:
         state["step"] = "implement"  # Ready for next component
         state["zen_review"] = {}
         state["ci_passed"] = False
+
+        # Reset context after commit, ready for next component (Component 3)
+        state["context"]["current_tokens"] = 0
+        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
+
         self.save_state(state)
 
         print(f"✅ Recorded commit {commit_hash[:8]}")
@@ -374,6 +408,162 @@ class WorkflowGate:
         print("✅ Workflow state reset to 'implement'")
         print("   Set component name:")
         print("     ./scripts/workflow_gate.py set-component '<component_name>'")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Context Monitoring & Delegation Triggers (Component 3)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def should_delegate(self, state: dict) -> Tuple[bool, str]:
+        """
+        Determine if subagent delegation is needed based on context usage.
+
+        Calculates usage percentage on-demand (never persisted) and compares
+        against thresholds: 70% WARN, 85% CRITICAL.
+
+        Args:
+            state: Workflow state dictionary
+
+        Returns:
+            Tuple of (should_delegate: bool, reason: str)
+                - (False, "OK: ...") if context usage < 70%
+                - (True, "WARNING: ...") if context usage >= 70%
+                - (True, "CRITICAL: ...") if context usage >= 85%
+                - (False, "ERROR: ...") if max_tokens invalid
+        """
+        context = state.get("context", {})
+        current_tokens = context.get("current_tokens", 0)
+        max_tokens = context.get("max_tokens", 200000)
+
+        # Guard against division by zero (MEDIUM priority fix)
+        if max_tokens <= 0:
+            return (False, "ERROR: Invalid max_tokens <= 0")
+
+        # Calculate percentage on-demand, don't persist (MEDIUM priority fix)
+        usage_pct = (current_tokens / max_tokens) * 100
+
+        if usage_pct >= 85:
+            return (True, f"CRITICAL: Context at {usage_pct:.1f}% (≥85%), delegation MANDATORY")
+        elif usage_pct >= 70:
+            return (True, f"WARNING: Context at {usage_pct:.1f}% (≥70%), delegation RECOMMENDED")
+        else:
+            return (False, f"OK: Context at {usage_pct:.1f}%")
+
+    def record_context(self, tokens: int) -> None:
+        """
+        Record current token usage.
+
+        Updates context tracking state with latest token count and timestamp.
+        Manual recording initially; automatic integration as future enhancement.
+
+        Args:
+            tokens: Current token usage count
+        """
+        state = self.load_state()
+        state["context"]["current_tokens"] = tokens
+        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
+        self.save_state(state)
+
+        print(f"✅ Context usage recorded: {tokens:,} tokens")
+
+        # Show delegation recommendation if needed
+        should_del, reason = self.should_delegate(state)
+        if should_del:
+            print(f"   ⚠️  {reason}")
+            print(f"   📖 See: .claude/workflows/16-subagent-delegation.md")
+
+    def check_context(self) -> None:
+        """
+        Check current context status and display delegation recommendation.
+
+        Shows current token usage, percentage, and whether delegation is
+        recommended based on thresholds.
+        """
+        state = self.load_state()
+        context = state.get("context", {})
+
+        current = context.get("current_tokens", 0)
+        max_tokens = context.get("max_tokens", 200000)
+        last_check = context.get("last_check_timestamp", "Never")
+
+        should_del, reason = self.should_delegate(state)
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("📊 Context Status")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"   Current: {current:,} / {max_tokens:,} tokens")
+        print(f"   Last check: {last_check}")
+        print(f"   Status: {reason}")
+
+        if should_del:
+            print()
+            print("📖 Recommendation: Delegate non-core tasks to subagent")
+            print("   See: .claude/workflows/16-subagent-delegation.md")
+            print()
+            print("   After delegating, record it:")
+            print("     ./scripts/workflow_gate.py record-delegation '<task_description>'")
+
+    def suggest_delegation(self) -> None:
+        """
+        Provide actionable guidance for subagent delegation.
+
+        Checks context status and provides detailed delegation instructions
+        if thresholds are exceeded.
+        """
+        state = self.load_state()
+        should_del, reason = self.should_delegate(state)
+
+        if not should_del:
+            print("✅ No delegation needed - context usage is healthy")
+            self.check_context()
+            return
+
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("⚠️  Delegation Recommended")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"   {reason}")
+        print()
+        print("📖 Follow delegation workflow:")
+        print("   .claude/workflows/16-subagent-delegation.md")
+        print()
+        print("   Delegate tasks like:")
+        print("     - File search (Task with Explore agent)")
+        print("     - Code analysis (Task with general-purpose agent)")
+        print("     - Test creation (Task with general-purpose agent)")
+        print()
+        print("   After delegation, record it:")
+        print("     ./scripts/workflow_gate.py record-delegation '<task_description>'")
+
+    def record_delegation(self, task_description: str) -> None:
+        """
+        Record when work is delegated to subagent.
+
+        Appends delegation record to existing subagent_delegations field
+        (MEDIUM priority fix: reuses existing field instead of creating new one).
+        Resets context usage to 0 after delegation.
+
+        Args:
+            task_description: Description of delegated task
+        """
+        state = self.load_state()
+
+        # Reuse existing subagent_delegations field (MEDIUM priority fix)
+        delegation_record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "task_description": task_description,
+            "current_step": state["step"],
+        }
+        state["subagent_delegations"].append(delegation_record)
+
+        # Reset context after delegation (Gemini decision)
+        state["context"]["current_tokens"] = 0
+        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
+
+        self.save_state(state)
+
+        print("✅ Delegation recorded and context reset")
+        print(f"   Task: {task_description}")
+        print(f"   Step: {state['step']}")
+        print(f"   Total delegations: {len(state['subagent_delegations'])}")
 
     def _has_tests(self, component: str) -> bool:
         """
@@ -578,6 +768,27 @@ Examples:
     # Reset
     subparsers.add_parser("reset", help="Reset workflow state (EMERGENCY USE ONLY)")
 
+    # Context monitoring commands (Component 3)
+    subparsers.add_parser("check-context", help="Check current context usage status")
+
+    record_context_parser = subparsers.add_parser(
+        "record-context", help="Record current token usage"
+    )
+    record_context_parser.add_argument(
+        "tokens", type=int, help="Current token count"
+    )
+
+    subparsers.add_parser(
+        "suggest-delegation", help="Get delegation recommendations if thresholds exceeded"
+    )
+
+    record_delegation_parser = subparsers.add_parser(
+        "record-delegation", help="Record subagent delegation"
+    )
+    record_delegation_parser.add_argument(
+        "task_description", help="Description of delegated task"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -603,6 +814,14 @@ Examples:
             gate.show_status()
         elif args.command == "reset":
             gate.reset()
+        elif args.command == "check-context":
+            gate.check_context()
+        elif args.command == "record-context":
+            gate.record_context(args.tokens)
+        elif args.command == "suggest-delegation":
+            gate.suggest_delegation()
+        elif args.command == "record-delegation":
+            gate.record_delegation(args.task_description)
 
         return 0
 

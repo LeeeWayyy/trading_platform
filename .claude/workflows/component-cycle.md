@@ -122,6 +122,86 @@ If commit is blocked, **fix the prerequisites** instead of bypassing.
 
 ---
 
+## Context-Aware Workflow Pattern (Component 3)
+
+**Purpose:** Prevent context exhaustion from interrupting critical work by monitoring context usage and triggering delegation when thresholds are exceeded.
+
+### Context Monitoring During Workflow
+
+**Check context usage at workflow transitions:**
+```bash
+# After implementing (before advancing to test)
+./scripts/workflow_gate.py check-context
+
+# After creating tests (before advancing to review)
+./scripts/workflow_gate.py check-context
+
+# Before committing
+./scripts/workflow_gate.py check-context
+```
+
+**Context thresholds:**
+- **< 70%:** ✅ OK - Continue normal workflow
+- **70-84%:** ⚠️ WARNING - Delegation RECOMMENDED
+- **≥ 85%:** 🚨 CRITICAL - Delegation MANDATORY
+
+### When to Delegate Work
+
+**At 70% threshold (RECOMMENDED):**
+- Consider delegating non-core tasks to subagent
+- Use Task tool for exploratory work (codebase search, pattern analysis)
+- See `.claude/workflows/16-subagent-delegation.md` for delegation workflow
+
+**At 85% threshold (MANDATORY):**
+- MUST delegate before continuing
+- Complete current component commit first
+- Then delegate remaining work to fresh context
+
+**Record delegation:**
+```bash
+# After using Task tool or delegating work
+./scripts/workflow_gate.py record-delegation "Search for API usage patterns"
+
+# Context automatically resets to 0 after delegation
+```
+
+### Manual Context Recording
+
+**If you can estimate token usage:**
+```bash
+# Record current context usage manually
+./scripts/workflow_gate.py record-context 120000
+
+# Check status and get recommendations
+./scripts/workflow_gate.py suggest-delegation
+```
+
+**Context resets after:**
+- Successful delegation (via `record-delegation`)
+- Successful commit (automatic)
+
+### Integration with 4-Step Pattern
+
+**Updated workflow with context monitoring:**
+1. **Before implementing:** Check context, delegate if ≥70%
+2. **Implement** the component
+3. **After implementing:** Check context, delegate if ≥70%
+4. **Test** with TDD
+5. **After testing:** Check context, delegate if ≥70%
+6. **Review** via zen-mcp
+7. **Before commit:** Check context one final time
+8. **Commit** (context resets automatically)
+
+**Why this helps:**
+- Prevents mid-task context compaction interruptions
+- Ensures delegation happens at natural boundaries (workflow transitions)
+- Preserves continuity for complex implementations
+- Automatic context reset after commit keeps tracking accurate
+
+**See also:** `.claude/workflows/16-subagent-delegation.md` for complete delegation workflow
+
+---
+
 ## Usage Checklist
 
 - Track the four todos in your task ticket or working notes.

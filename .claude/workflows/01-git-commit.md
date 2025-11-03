@@ -92,6 +92,51 @@ make ci-local && ./scripts/workflow_gate.py record-ci true
 
 ---
 
+## Context Monitoring (Component 3)
+
+**Before committing, check context usage to prevent mid-task interruptions:**
+
+```bash
+# Check current context status
+./scripts/workflow_gate.py check-context
+```
+
+**Context thresholds:**
+- **< 70%:** ✅ OK - Safe to commit and continue
+- **70-84%:** ⚠️ WARNING - Delegation recommended after commit
+- **≥ 85%:** 🚨 CRITICAL - Delegation mandatory before continuing
+
+**If context ≥ 70% after commit:**
+1. Complete the commit first (finalize current component)
+2. Delegate non-core work to subagent via Task tool
+3. Record delegation: `./scripts/workflow_gate.py record-delegation "<task_description>"`
+4. Context automatically resets to 0 after delegation
+
+**If context ≥ 85% before commit:**
+- **MANDATORY:** Delegate work NOW before continuing
+- Complete current component commit first if almost done
+- Then delegate remaining tasks to fresh context
+- See `.claude/workflows/16-subagent-delegation.md` for delegation workflow
+
+**Why this helps:**
+- Prevents context exhaustion interrupting critical commits
+- Natural delegation points at workflow boundaries
+- Automatic context reset after commit keeps tracking accurate
+- Preserves continuity for complex multi-component work
+
+**Manual context recording (if needed):**
+```bash
+# If you can estimate current token usage
+./scripts/workflow_gate.py record-context 120000
+
+# Get delegation recommendations
+./scripts/workflow_gate.py suggest-delegation
+```
+
+**See:** [component-cycle.md](./component-cycle.md#context-aware-workflow-pattern-component-3) for complete context monitoring integration
+
+---
+
 ## Quick Reference
 
 **Git Commands:** See [Git Commands Reference](./_common/git-commands.md)

@@ -219,6 +219,33 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 - When context loss risk is high (complex multi-step work)
 - See `.claude/checkpoints/README.md` for complete documentation
 
+### Context-Aware Workflow Automation (Component 3: Context Monitoring)
+```bash
+# Check current context usage status
+./scripts/workflow_gate.py check-context
+
+# Record current token usage manually
+./scripts/workflow_gate.py record-context <tokens>
+
+# Get delegation recommendations if thresholds exceeded
+./scripts/workflow_gate.py suggest-delegation
+
+# Record subagent delegation (resets context to 0)
+./scripts/workflow_gate.py record-delegation "<task_description>"
+```
+
+**Context thresholds:**
+- **< 70%:** ✅ OK - Continue normal workflow
+- **70-84%:** ⚠️ WARNING - Delegation RECOMMENDED
+- **≥ 85%:** 🚨 CRITICAL - Delegation MANDATORY
+
+**When to use:**
+- Check context at workflow transitions (implement → test → review → commit)
+- Delegate non-core tasks when context ≥ 70% (see `.claude/workflows/16-subagent-delegation.md`)
+- Mandatory delegation at 85% threshold to prevent mid-task interruptions
+- Context automatically resets after delegation and after commit
+- See `.claude/workflows/component-cycle.md#context-aware-workflow-pattern-component-3` for integration with 4-step pattern
+
 ### Workflows (see .claude/workflows/ for detailed guides)
 - **🔍 Pre-Implementation Analysis (MANDATORY):** `.claude/workflows/00-analysis-checklist.md`
 - **Task breakdown (for complex tasks >8h):** `.claude/workflows/00-task-breakdown.md`
