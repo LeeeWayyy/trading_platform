@@ -30,6 +30,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Tuple
@@ -39,6 +40,11 @@ PROJECT_ROOT = Path(__file__).parent.parent
 STATE_FILE = PROJECT_ROOT / ".claude" / "workflow-state.json"
 
 StepType = Literal["implement", "test", "review"]
+
+# Review status constants
+REVIEW_APPROVED = "APPROVED"
+REVIEW_NEEDS_REVISION = "NEEDS_REVISION"
+REVIEW_NOT_REQUESTED = "NOT_REQUESTED"
 
 
 class WorkflowGate:
@@ -91,14 +97,17 @@ class WorkflowGate:
         """Load workflow state from JSON file."""
         if not STATE_FILE.exists():
             return self._init_state()
-        state = json.loads(STATE_FILE.read_text())
+        try:
+            state = json.loads(STATE_FILE.read_text())
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"⚠️  Warning: Failed to parse workflow state file: {e}")
+            print(f"   Initializing fresh state...")
+            return self._init_state()
         # Ensure backward compatibility with old state files
         return self._ensure_context_defaults(state)
 
     def save_state(self, state: dict) -> None:
         """Save workflow state to JSON file with atomic write."""
-        import tempfile
-
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
         # Atomic write: write to temp file then rename
@@ -197,7 +206,7 @@ class WorkflowGate:
         self.save_state(state)
         print(f"✅ Recorded zen review: {status}")
 
-        if status == "NEEDS_REVISION":
+        if status == REVIEW_NEEDS_REVISION:
             print("⚠️  Review requires changes. Fix issues and re-request review.")
             print("   After fixes:")
             print("     ./scripts/workflow_gate.py advance review")
@@ -249,14 +258,14 @@ class WorkflowGate:
             sys.exit(1)
 
         # Check zen review approval
-        if not state["zen_review"].get("status") == "APPROVED":
+        if not state["zen_review"].get("status") == REVIEW_APPROVED:
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("❌ COMMIT BLOCKED: Zen review not approved")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print(
                 "   Continuation ID:", state["zen_review"].get("continuation_id", "N/A")
             )
-            print("   Status:", state["zen_review"].get("status", "NOT_REQUESTED"))
+            print("   Status:", state["zen_review"].get("status", REVIEW_NOT_REQUESTED))
             print("   Request review:")
             print("     Follow: .claude/workflows/03-zen-review-quick.md")
             print("   After approval:")
@@ -317,6 +326,8 @@ class WorkflowGate:
         if "commit_history" not in state:
             state["commit_history"] = []
         state["commit_history"].append(commit_hash)
+        # Prune history to last 100 commits to prevent file growth
+        state["commit_history"] = state["commit_history"][-100:]
         state["last_commit_hash"] = commit_hash  # Kept for backward compatibility
         state["step"] = "implement"  # Ready for next component
         state["zen_review"] = {}
@@ -595,9 +606,9 @@ class WorkflowGate:
 
         # Try multiple common patterns
         patterns = [
-            str(PROJECT_ROOT / f"tests/**/test_{component_slug}*.py"),  # test_component*.py
-            str(PROJECT_ROOT / f"tests/**/*{component_slug}*_test.py"),  # *component*_test.py
-            str(PROJECT_ROOT / f"tests/**/*{component_slug}*.py"),     # *component*.py (broad)
+            str(PROJECT_ROOT / f"tests/**/test_{component_slug}.py"),      # e.g., tests/test_my_component.py
+            str(PROJECT_ROOT / f"tests/**/{component_slug}_test.py"),      # e.g., tests/my_component_test.py
+            str(PROJECT_ROOT / f"tests/**/test_{component_slug}_*.py"),    # e.g., tests/test_my_component_extra.py
         ]
 
         # Search for matching test files across all patterns
@@ -739,7 +750,7 @@ Examples:
         "continuation_id", help="Zen-MCP continuation ID"
     )
     record_review_parser.add_argument(
-        "status", choices=["APPROVED", "NEEDS_REVISION"], help="Review status"
+        "status", choices=[REVIEW_APPROVED, REVIEW_NEEDS_REVISION], help="Review status"
     )
 
     # Record CI
