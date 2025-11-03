@@ -666,7 +666,7 @@ class WorkflowGate:
 
         # Call update_task_state.py
         cmd = [
-            "python3",
+            sys.executable,
             str(PROJECT_ROOT / "scripts" / "update_task_state.py"),
             "complete",
             "--component",
