@@ -56,6 +56,29 @@ def load_workflow_state():
         return None
 
 
+def get_commit_message(commit_hash):
+    """Get full commit message for a given commit hash."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%B", commit_hash],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def has_review_markers(commit_hash):
+    """Check if commit message contains zen-mcp review approval markers."""
+    message = get_commit_message(commit_hash)
+    # Check for both zen-mcp-review and continuation-id markers
+    has_approval = "zen-mcp-review: approved" in message.lower()
+    has_continuation_id = "continuation-id:" in message.lower()
+    return has_approval and has_continuation_id
+
+
 def main():
     """Main verification logic."""
     pr_commits = get_pr_commits()
@@ -71,19 +94,32 @@ def main():
 
     if not state:
         if is_ci:
-            # In CI: Missing state indicates workflow gate bypass
-            # (workflow-state.json is gitignored, so must be reconstructed)
-            print("❌ GATE COMPLIANCE CHECK FAILED!")
-            print("   No workflow state found in CI environment")
+            # In CI: workflow-state.json is gitignored, so check commit messages instead
+            print("ℹ️  Workflow state file not available in CI (gitignored)")
+            print("   Verifying via commit message markers instead...")
             print()
-            print("   This PR requires manual review to verify:")
-            print("   - All commits followed zen-mcp review process")
-            print("   - All commits passed CI before merge")
-            print("   - No commits used --no-verify bypass")
-            print()
-            print("   Note: .claude/workflow-state.json is gitignored")
-            print("   Developers must track commit hashes via workflow gates")
-            return 1
+
+            # Verify each commit has review markers in its message
+            non_compliant_commits = []
+            for commit_hash in pr_commits:
+                if not has_review_markers(commit_hash):
+                    non_compliant_commits.append(commit_hash)
+
+            if non_compliant_commits:
+                print("❌ GATE BYPASS DETECTED!")
+                print(f"   Found {len(non_compliant_commits)} commit(s) without review markers:")
+                for commit in non_compliant_commits:
+                    print(f"     - {commit[:8]}")
+                print()
+                print("   These commits are missing zen-mcp review markers:")
+                print("   - zen-mcp-review: approved")
+                print("   - continuation-id: <id>")
+                print()
+                print("   All commits must be created via workflow gates (no --no-verify)")
+                return 1
+
+            print(f"✅ All {len(pr_commits)} commit(s) have review approval markers")
+            return 0
         else:
             # Locally: Allow for documentation-only changes
             print("⚠️  Warning: No workflow state file found")

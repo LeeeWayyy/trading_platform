@@ -219,8 +219,8 @@ features: []
 - Related: [P0T2_DONE](./P0T2_DONE.md)
 
 **PRs:**
-- [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/1) - Main implementation PR
-- [PR #124](https://github.com/LeeeWayyy/trading_platform/pull/1) - Follow-up fixes
+- [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/123) - Main implementation PR
+- [PR #124](https://github.com/LeeeWayyy/trading_platform/pull/124) - Follow-up fixes
 
 **Commits:**
 - `abc1234` - Component 1: [Brief description]
