@@ -152,19 +152,24 @@ def restore_checkpoint(checkpoint_id: str) -> dict[str, Any]:
     with open(checkpoint_file) as f:
         checkpoint_data = json.load(f)
 
-    # Create backups of current state files before overwriting
+    # Create timestamped backups to avoid overwriting
+    timestamp_str = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     if TASK_STATE_FILE.exists():
-        backup_path = TASK_STATE_FILE.with_suffix(f"{TASK_STATE_FILE.suffix}.backup")
+        backup_path = TASK_STATE_FILE.parent / f"{TASK_STATE_FILE.name}.{timestamp_str}.backup"
         shutil.copy2(str(TASK_STATE_FILE), str(backup_path))
         print(f"  Created backup: {backup_path}")
 
     if WORKFLOW_STATE_FILE.exists():
-        backup_path = WORKFLOW_STATE_FILE.with_suffix(f"{WORKFLOW_STATE_FILE.suffix}.backup")
+        backup_path = (
+            WORKFLOW_STATE_FILE.parent / f"{WORKFLOW_STATE_FILE.name}.{timestamp_str}.backup"
+        )
         shutil.copy2(str(WORKFLOW_STATE_FILE), str(backup_path))
         print(f"  Created backup: {backup_path}")
 
     # Restore complete task state (preserves all fields: current_task, progress, completed_work, etc.)
-    task_state = checkpoint_data["context_data"].get("task_state", {})
+    # Use safe dictionary access to handle corrupted checkpoint files
+    context_data = checkpoint_data.get("context_data", {})
+    task_state = context_data.get("task_state", {})
     if task_state:
         TASK_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(TASK_STATE_FILE, "w") as f:
@@ -172,7 +177,7 @@ def restore_checkpoint(checkpoint_id: str) -> dict[str, Any]:
         print(f"  Restored task state: {TASK_STATE_FILE}")
 
     # Restore complete workflow state (preserves all fields)
-    workflow_state = checkpoint_data["context_data"].get("workflow_state", {})
+    workflow_state = context_data.get("workflow_state", {})
     if workflow_state:
         WORKFLOW_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(WORKFLOW_STATE_FILE, "w") as f:
@@ -196,13 +201,13 @@ def list_checkpoints(checkpoint_type: str | None = None) -> list[dict[str, Any]]
         checkpoint_type: Filter by checkpoint type (optional)
 
     Returns:
-        checkpoints: List of checkpoint metadata
+        checkpoints: List of checkpoint metadata sorted by timestamp (newest first)
     """
     if not CHECKPOINT_DIR.exists():
         return []
 
     checkpoints = []
-    for checkpoint_file in sorted(CHECKPOINT_DIR.glob("*.json"), reverse=True):
+    for checkpoint_file in CHECKPOINT_DIR.glob("*.json"):
         # Skip symlinks
         if checkpoint_file.is_symlink():
             continue
@@ -215,14 +220,17 @@ def list_checkpoints(checkpoint_type: str | None = None) -> list[dict[str, Any]]
             if checkpoint_type and data.get("type") != checkpoint_type:
                 continue
 
+            # Safe dictionary access for git_state and commit
+            git_state = data.get("git_state", {})
+            git_commit = git_state.get("commit")
+            git_commit_short = git_commit[:8] if git_commit else "N/A"
+
             checkpoints.append(
                 {
                     "id": data["id"],
                     "type": data["type"],
                     "timestamp": data["timestamp"],
-                    "git_commit": (
-                        data["git_state"]["commit"][:8] if data["git_state"]["commit"] else "N/A"
-                    ),
+                    "git_commit": git_commit_short,
                 }
             )
         except (json.JSONDecodeError, KeyError) as e:
@@ -230,6 +238,9 @@ def list_checkpoints(checkpoint_type: str | None = None) -> list[dict[str, Any]]
                 f"Warning: Skipping corrupted checkpoint {checkpoint_file.name}: {e}",
                 file=sys.stderr,
             )
+
+    # Sort by timestamp (newest first) for correct chronological order
+    checkpoints.sort(key=lambda cp: cp.get("timestamp", ""), reverse=True)
 
     return checkpoints
 
@@ -374,7 +385,8 @@ Examples:
                     )
         elif args.command == "cleanup":
             # Parse older_than (e.g., "7d" -> 7 days)
-            older_than_str = args.older_than
+            # Strip whitespace for robustness
+            older_than_str = args.older_than.strip()
             try:
                 if older_than_str.endswith("d"):
                     older_than_days = int(older_than_str[:-1])
