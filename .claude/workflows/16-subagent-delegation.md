@@ -44,6 +44,46 @@
 
 ---
 
+## Context Checkpoint Before Delegation
+
+**⚠️ IMPORTANT:** Before delegating to subagents, create a checkpoint to preserve current context state. This enables restoration if delegation introduces issues or context corruption.
+
+**When to create checkpoints:**
+- Before any Task (Explore) delegation
+- Before any Task (general-purpose) delegation
+- Before zen-mcp clink multi-turn conversations
+- When context usage >50% (100k+ tokens)
+
+**How to create checkpoint:**
+```bash
+# Create delegation checkpoint before using Task tool
+./scripts/context_checkpoint.py create --type delegation
+
+# Output example:
+# ✓ Created delegation checkpoint: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# File: .claude/checkpoints/a1b2c3d4-e5f6-7890-abcd-ef1234567890.json
+# Symlink: .claude/checkpoints/latest_delegation.json
+```
+
+**Checkpoint captures:**
+- Current task state (.claude/task-state.json)
+- Workflow state (.claude/workflow-state.json)
+- Git state (branch, commit, staged files)
+- Token usage estimate (if available)
+- Critical findings and pending decisions
+
+**Restoration (if needed):**
+```bash
+# Restore from specific checkpoint
+./scripts/context_checkpoint.py restore --id a1b2c3d4-...
+
+# Or restore from latest delegation checkpoint
+LATEST_ID=$(basename $(readlink .claude/checkpoints/latest_delegation.json) .json)
+./scripts/context_checkpoint.py restore --id $LATEST_ID
+```
+
+---
+
 ## Pattern 1: File Search Delegation (Task Explore)
 
 **Use When:**
@@ -66,9 +106,14 @@ grep_result = Grep(
 # Context pollution: HIGH
 ```
 
-**After (With Delegation):**
+**After (With Delegation + Checkpoint):**
+```bash
+# Step 1: Create checkpoint before delegation
+./scripts/context_checkpoint.py create --type delegation
+```
+
 ```python
-# Delegate to Explore subagent with isolated 200k context
+# Step 2: Delegate to Explore subagent with isolated 200k context
 search_results = Task(
     description="Find circuit breaker call sites",
     prompt="""Search the trading platform codebase for all occurrences of check_circuit_breaker().
@@ -132,9 +177,14 @@ bash_result = Bash(
 # Context pollution: VERY HIGH
 ```
 
-**After (With Delegation):**
+**After (With Delegation + Checkpoint):**
+```bash
+# Step 1: Create checkpoint before delegation
+./scripts/context_checkpoint.py create --type delegation
+```
+
 ```python
-# Delegate log analysis to subagent
+# Step 2: Delegate log analysis to subagent
 test_analysis = Task(
     description="Analyze pytest failure logs",
     prompt="""Run tests and analyze failures:
@@ -200,9 +250,14 @@ issues = Bash(command="gh api repos/owner/repo/issues/123/comments")  # 8k token
 # Total: 35k tokens
 ```
 
-**With Delegation:**
+**With Delegation + Checkpoint:**
+```bash
+# Step 1: Create checkpoint before delegation
+./scripts/context_checkpoint.py create --type delegation
+```
+
 ```python
-# Delegate comment extraction + parsing
+# Step 2: Delegate comment extraction + parsing
 pr_comments = Task(
     description="Extract PR review comments",
     prompt="""Fetch and categorize all comments for PR #123.

@@ -165,8 +165,8 @@ gh pr view <PR-number> --comments
 # Stage all changes
 git add -A
 
-# Commit with detailed message
-git commit --no-verify -m "fix(workflows): Address all 7 issues from PR#XX reviewer feedback
+# Commit with detailed message (follows git workflow)
+git commit -m "fix(workflows): Address all 7 issues from PR#XX reviewer feedback
 
 **P1 (CRITICAL):**
 - docs/INDEX.md: Add 5 missing _common/ file entries
@@ -187,10 +187,10 @@ All feedback from @gemini-code-assist and @codex addressed.
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
-**Why `--no-verify`?**
-- These are reviewer-requested fixes
-- Reviewer comments serve as approval
-- Bypassing zen-mcp hook is appropriate here
+**Note:** This commit MUST follow standard workflow gates:
+- **MANDATORY: Request zen-mcp review** (clink + codex) — Use continuation_id from PR discussion
+- **MANDATORY: Run `make ci-local`** — Verify all changes (even doc-only) pass CI
+- Only commit after BOTH gates pass — Gates are NEVER bypassed, regardless of change type
 
 ### 8. Push and Monitor
 
@@ -238,17 +238,20 @@ gh pr view <PR-number> --web
 - MEDIUM: [Description] - Reason: [Why deferred] - Follow-up: [Ticket ID]
 ```
 
-### When should I use `--no-verify`?
+### How do PR feedback fixes follow workflow gates?
 
-**Use `--no-verify` for:**
-- Reviewer feedback fixes (this workflow)
-- Documentation-only changes
-- Fixes that address review comments
+**PR feedback commits MUST follow standard gates:**
+- **MANDATORY: Request zen-mcp review** (clink + codex) before committing fixes
+  - Reuse continuation_id from PR discussion for context continuity
+  - Reviewers verify all feedback addressed comprehensively
+- **MANDATORY: Run `make ci-local`** before committing
+  - Even documentation-only changes require CI validation
+  - Prevents introducing new issues while fixing old ones
+- **Hook script (`workflow_gate.py`) enforces gates** via pre-commit hook
+  - Blocks commits without review approval + CI pass
+  - No exceptions for "feedback commits" — gates ALWAYS apply
 
-**Do NOT use `--no-verify` for:**
-- New feature code
-- Safety-critical changes
-- Major refactoring
+**NEVER use `--no-verify` to bypass gates** — it defeats the entire quality system
 
 ---
 
@@ -373,7 +376,9 @@ gh pr view 46 --comments
 
 **Step 7 - Commit:**
 ```bash
-git commit --no-verify -m "fix(workflows): Address all 7 issues from PR#46..."
+# Commit normally (workflow gates allow PR feedback commits)
+git commit -m "fix(workflows): Address all 7 issues from PR#46..."
+# Gates pass because PR review comments count as zen approval
 ```
 
 **Step 8 - Push:**

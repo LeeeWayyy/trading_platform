@@ -113,25 +113,7 @@ See [Test Commands Reference](./_common/test-commands.md) for all testing option
 - Go back to step 3 (zen-mcp review of fixes)
 - Don't commit until green!
 
-### 7. Update Task State (If Component Complete)
-
-**After completing a component:**
-
-```bash
-./scripts/update_task_state.py complete \
-    --component 2 \
-    --commit $(git rev-parse HEAD) \
-    --files <file-list> \
-    --tests <test-count> \
-    --continuation-id <from-zen-review>
-
-git add .claude/task-state.json
-git commit --amend --no-edit
-```
-
-**See Also:** [Update Task State Workflow](./15-update-task-state.md)
-
-### 8. Commit the Changes
+### 7. Commit the Changes
 
 Use commit message format from [Git Commands Reference](./_common/git-commands.md#commit-message-format).
 
@@ -150,6 +132,37 @@ Zen-review: Approved (continuation_id: abc123...)
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
+
+### 8. Update Task State (If Component Complete)
+
+**After making the initial commit, update task state:**
+
+```bash
+# Capture the implementation commit hash
+IMPL_COMMIT=$(git rev-parse HEAD)
+
+# Update task state with the implementation commit hash
+./scripts/update_task_state.py complete \
+    --component 2 \
+    --commit $IMPL_COMMIT \
+    --files <file-list> \
+    --tests <test-count> \
+    --continuation-id <from-zen-review>
+
+# Commit the updated task state separately
+git add .claude/task-state.json
+git commit -m "chore: Update task state for component 2
+
+Component commit: $IMPL_COMMIT
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+**Why separate commits?** Task-state.json tracks the implementation commit. If we amend the implementation commit to include task-state.json, the commit hash changes, creating a chicken-and-egg problem. Separate commits maintain correct traceability.
+
+**See Also:** [Update Task State Workflow](./15-update-task-state.md)
 
 ### 9. Push Regularly (Recommended)
 
