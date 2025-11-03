@@ -59,18 +59,37 @@ def load_workflow_state():
 def main():
     """Main verification logic."""
     pr_commits = get_pr_commits()
-    
+
     if not pr_commits:
         print("✅ No commits to verify (empty PR or single-commit branch)")
         return 0
-    
+
     state = load_workflow_state()
 
+    # Detect CI environment (GitHub Actions, GitLab CI, etc.)
+    is_ci = os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+
     if not state:
-        print("⚠️  Warning: No workflow state file found")
-        print("   This is acceptable for documentation-only changes")
-        print("   or initial repository setup.")
-        return 0
+        if is_ci:
+            # In CI: Missing state indicates workflow gate bypass
+            # (workflow-state.json is gitignored, so must be reconstructed)
+            print("❌ GATE COMPLIANCE CHECK FAILED!")
+            print("   No workflow state found in CI environment")
+            print()
+            print("   This PR requires manual review to verify:")
+            print("   - All commits followed zen-mcp review process")
+            print("   - All commits passed CI before merge")
+            print("   - No commits used --no-verify bypass")
+            print()
+            print("   Note: .claude/workflow-state.json is gitignored")
+            print("   Developers must track commit hashes via workflow gates")
+            return 1
+        else:
+            # Locally: Allow for documentation-only changes
+            print("⚠️  Warning: No workflow state file found")
+            print("   This is acceptable for documentation-only changes")
+            print("   or initial repository setup.")
+            return 0
 
     # Get commit history from state
     commit_history = state.get("commit_history", [])

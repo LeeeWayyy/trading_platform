@@ -27,6 +27,7 @@ Date: 2025-11-02
 import argparse
 import glob
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -60,7 +61,7 @@ class WorkflowGate:
             "subagent_delegations": [],
             "context": {
                 "current_tokens": 0,
-                "max_tokens": 200000,
+                "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", "200000")),
                 "last_check_timestamp": datetime.utcnow().isoformat(),
             },
         }
@@ -81,7 +82,7 @@ class WorkflowGate:
         if "context" not in state:
             state["context"] = {
                 "current_tokens": 0,
-                "max_tokens": 200000,
+                "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", "200000")),
                 "last_check_timestamp": datetime.utcnow().isoformat(),
             }
         return state
@@ -108,7 +109,7 @@ class WorkflowGate:
             suffix=".tmp"
         )
         try:
-            with open(temp_fd, 'w') as f:
+            with os.fdopen(temp_fd, 'w') as f:
                 json.dump(state, f, indent=2)
 
             # Atomic rename
@@ -809,7 +810,7 @@ Examples:
         elif args.command == "check-commit":
             gate.check_commit()
         elif args.command == "record-commit":
-            gate.record_commit()
+            gate.record_commit(args.update_task_state)
         elif args.command == "status":
             gate.show_status()
         elif args.command == "reset":
