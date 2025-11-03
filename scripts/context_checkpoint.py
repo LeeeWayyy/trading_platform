@@ -17,10 +17,12 @@ Date: 2025-11-02
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -97,7 +99,7 @@ def create_checkpoint(checkpoint_type: str) -> str:
     # Create checkpoint data
     checkpoint_data = {
         "id": checkpoint_id,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "type": checkpoint_type,
         "context_data": {
             "task_state": task_state,  # Store complete task state
@@ -116,16 +118,14 @@ def create_checkpoint(checkpoint_type: str) -> str:
     with open(checkpoint_file, "w") as f:
         json.dump(checkpoint_data, f, indent=2)
 
-    # Update symlink for latest checkpoint of this type
+    # Atomically update symlink for latest checkpoint of this type
     symlink_name = f"latest_{checkpoint_type}.json"
     symlink_path = CHECKPOINT_DIR / symlink_name
 
-    # Remove existing symlink if it exists
-    if symlink_path.exists() or symlink_path.is_symlink():
-        symlink_path.unlink()
-
-    # Create new symlink
-    symlink_path.symlink_to(checkpoint_file.name)
+    # Create temporary symlink and atomically rename it to final destination
+    temp_symlink_path = CHECKPOINT_DIR / f"{symlink_name}.tmp.{uuid.uuid4().hex}"
+    temp_symlink_path.symlink_to(checkpoint_file.name)
+    os.rename(temp_symlink_path, symlink_path)
 
     print(f"✓ Created {checkpoint_type} checkpoint: {checkpoint_id}")
     print(f"  File: {checkpoint_file}")
@@ -154,15 +154,13 @@ def restore_checkpoint(checkpoint_id: str) -> dict[str, Any]:
 
     # Create backups of current state files before overwriting
     if TASK_STATE_FILE.exists():
-        backup_path = TASK_STATE_FILE.parent / f"{TASK_STATE_FILE.name}.backup"
-        with open(TASK_STATE_FILE) as src, open(backup_path, "w") as dst:
-            dst.write(src.read())
+        backup_path = TASK_STATE_FILE.with_suffix(f"{TASK_STATE_FILE.suffix}.backup")
+        shutil.copy2(str(TASK_STATE_FILE), str(backup_path))
         print(f"  Created backup: {backup_path}")
 
     if WORKFLOW_STATE_FILE.exists():
-        backup_path = WORKFLOW_STATE_FILE.parent / f"{WORKFLOW_STATE_FILE.name}.backup"
-        with open(WORKFLOW_STATE_FILE) as src, open(backup_path, "w") as dst:
-            dst.write(src.read())
+        backup_path = WORKFLOW_STATE_FILE.with_suffix(f"{WORKFLOW_STATE_FILE.suffix}.backup")
+        shutil.copy2(str(WORKFLOW_STATE_FILE), str(backup_path))
         print(f"  Created backup: {backup_path}")
 
     # Restore complete task state (preserves all fields: current_task, progress, completed_work, etc.)
@@ -250,7 +248,7 @@ def cleanup_checkpoints(older_than_days: int = 7, keep_latest: int = 10) -> int:
     if not CHECKPOINT_DIR.exists():
         return 0
 
-    cutoff_date = datetime.now() - timedelta(days=older_than_days)
+    cutoff_date = datetime.now(UTC) - timedelta(days=older_than_days)
     deleted_count = 0
 
     # Group checkpoints by type
@@ -377,10 +375,17 @@ Examples:
         elif args.command == "cleanup":
             # Parse older_than (e.g., "7d" -> 7 days)
             older_than_str = args.older_than
-            if older_than_str.endswith("d"):
-                older_than_days = int(older_than_str[:-1])
-            else:
-                older_than_days = int(older_than_str)
+            try:
+                if older_than_str.endswith("d"):
+                    older_than_days = int(older_than_str[:-1])
+                else:
+                    older_than_days = int(older_than_str)
+            except ValueError:
+                print(
+                    "Error: Invalid format for --older-than. Expected a number or a number followed by 'd' (e.g., '7' or '7d').",
+                    file=sys.stderr,
+                )
+                return 1
 
             deleted = cleanup_checkpoints(older_than_days, args.keep_latest)
             print(f"✓ Cleaned up {deleted} checkpoint(s)")
