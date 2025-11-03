@@ -426,11 +426,62 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 **⚠️ PROCESS VIOLATION WARNING:**
 - Committing without zen-mcp review = PRIMARY root cause of 7 fix commits (10-15 hours wasted)
 - Committing without `make ci-local` = 2-4x slower than running locally first
-- **Using `git commit --no-verify` is ABSOLUTELY FORBIDDEN** — bypasses review approval gates
+- **Using `git commit --no-verify` is ABSOLUTELY FORBIDDEN** — bypasses review approval gates and pre-commit hooks (detected by CI)
 - **NEVER skip review gates regardless of urgency**
 - **ALL issues from ALL reviewers must be fixed** — no cherry-picking approvals
 
 **Never skip or combine steps!** See [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md) for detailed guidance and examples.
+
+#### 🔒 Workflow Gate Enforcement (AUTOMATIC)
+
+**CRITICAL:** Commits are now automatically enforced via hard gates. The 4-step pattern is enforced programmatically:
+
+**Hard Gate System:**
+- **Pre-commit hook** blocks commits unless prerequisites met
+- **CI verification** detects `--no-verify` bypasses
+- **State machine** tracks progress through workflow steps
+
+**Workflow State Transitions:**
+```
+implement → test → review → (commit succeeds) → implement
+```
+
+**Prerequisites for Commit (enforced by pre-commit hook):**
+1. ✅ Current workflow step must be `review`
+2. ✅ Zen-MCP review status must be `APPROVED`
+3. ✅ CI must have passed (`make ci-local`)
+
+**Workflow Gate CLI Commands:**
+
+```bash
+# Set component name (at start)
+./scripts/workflow_gate.py set-component "Position Limit Validation"
+
+# Check current state
+./scripts/workflow_gate.py status
+
+# Advance workflow steps
+./scripts/workflow_gate.py advance test      # implement → test
+./scripts/workflow_gate.py advance review    # test → review
+
+# Record review approval
+./scripts/workflow_gate.py record-review <continuation_id> APPROVED
+
+# Record CI result
+make ci-local && ./scripts/workflow_gate.py record-ci true
+
+# Now commit (hook checks prerequisites automatically)
+git commit -m "message"
+```
+
+**If commit blocked:**
+```bash
+./scripts/workflow_gate.py status  # Shows what's missing
+```
+
+**⚠️ NEVER use `git commit --no-verify`** — bypasses gates, detected by CI via `verify_gate_compliance.py`
+
+**See:** [`.claude/workflows/component-cycle.md`](./.claude/workflows/component-cycle.md#workflow-gate-enforcement-mandatory) for complete workflow gate documentation.
 
 ### Quick Reference
 

@@ -20,6 +20,78 @@
 
 ---
 
+## 🔒 Hard Gate Enforcement (AUTOMATIC)
+
+**CRITICAL:** Commits are now automatically enforced via workflow gates. You **cannot** commit unless prerequisites are met.
+
+### What Gets Blocked
+
+The pre-commit hook blocks commits unless:
+1. ✅ Current workflow step is `review`
+2. ✅ Zen-MCP review status is `APPROVED`
+3. ✅ CI has passed (`make ci-local`)
+
+### Workflow State Management
+
+**Before starting a component:**
+```bash
+# Set component name
+./scripts/workflow_gate.py set-component "Position Limit Validation"
+
+# Check current state
+./scripts/workflow_gate.py status
+```
+
+**After implementing:**
+```bash
+./scripts/workflow_gate.py advance test
+```
+
+**After creating tests:**
+```bash
+./scripts/workflow_gate.py advance review
+```
+
+**After zen-mcp review completes:**
+```bash
+./scripts/workflow_gate.py record-review <continuation_id> APPROVED
+```
+
+**After CI passes:**
+```bash
+make ci-local && ./scripts/workflow_gate.py record-ci true
+```
+
+**Now you can commit!**
+
+### If Commit is Blocked
+
+```bash
+# Check what's missing
+./scripts/workflow_gate.py status
+
+# Example output:
+#   Current Step: test  (must be 'review')
+#   Zen Review: NOT_REQUESTED
+#   CI: NOT_RUN
+#
+# Required actions shown in output
+```
+
+### ⚠️ WARNING: Never Bypass Gates
+
+**DO NOT use `git commit --no-verify`**
+- Bypasses workflow enforcement
+- Defeats quality system
+- **Detected by CI** via `verify_gate_compliance.py`
+- CI will fail if bypasses detected
+
+**If blocked:** Fix the prerequisites, don't bypass!
+
+**See Also:** [component-cycle.md](./component-cycle.md#workflow-gate-enforcement-mandatory) for complete workflow gate documentation.
+
+---
+
 ## Quick Reference
 
 **Git Commands:** See [Git Commands Reference](./_common/git-commands.md)

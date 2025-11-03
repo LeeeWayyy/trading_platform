@@ -39,6 +39,89 @@ Replace `<component>` with the concrete scope (e.g., "position limit validation"
 
 ---
 
+## Workflow Gate Enforcement (MANDATORY)
+
+**CRITICAL:** Commits are now enforced via workflow gates. The 4-step pattern is enforced programmatically through:
+
+### Hard Gates (Automatic Enforcement)
+- **Pre-commit hook** blocks commits unless prerequisites are met
+- **CI verification** detects `--no-verify` bypasses
+- **State machine** tracks progress through workflow steps
+
+### Workflow State Transitions
+```
+implement → test → review → (commit) → implement
+```
+
+After successful commit, state resets to `implement` for next component.
+
+### CLI Commands
+
+**Set component name (at start of cycle):**
+```bash
+./scripts/workflow_gate.py set-component "Position Limit Validation"
+```
+
+**Advance workflow step:**
+```bash
+# After completing implementation
+./scripts/workflow_gate.py advance test
+
+# After creating tests
+./scripts/workflow_gate.py advance review
+```
+
+**Record review approval:**
+```bash
+# After zen-mcp review completes
+./scripts/workflow_gate.py record-review <continuation_id> APPROVED
+```
+
+**Record CI result:**
+```bash
+# After running make ci-local successfully
+./scripts/workflow_gate.py record-ci true
+```
+
+**Check current state:**
+```bash
+./scripts/workflow_gate.py status
+```
+
+**Commit prerequisites (enforced by pre-commit hook):**
+1. Current step must be `review`
+2. Zen-MCP review status must be `APPROVED`
+3. CI must have passed (`make ci-local`)
+
+**If commit blocked:**
+```bash
+# Check what's missing
+./scripts/workflow_gate.py status
+
+# Example output shows required actions:
+#   Zen Review: NOT_REQUESTED
+#   CI: NOT_RUN
+```
+
+**After successful commit:**
+```bash
+# State automatically resets to 'implement' for next component
+# Set new component name and repeat cycle
+./scripts/workflow_gate.py set-component "Next Component Name"
+```
+
+### ⚠️ WARNING: Never Bypass Gates
+
+**DO NOT use `git commit --no-verify`**
+- Bypasses quality gates
+- Defeats entire workflow system
+- Detected by CI verification (workflow fails)
+- Causes review debt and technical debt
+
+If commit is blocked, **fix the prerequisites** instead of bypassing.
+
+---
+
 ## Usage Checklist
 
 - Track the four todos in your task ticket or working notes.

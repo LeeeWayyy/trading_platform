@@ -45,19 +45,31 @@ test-cov: ## Run tests with coverage report
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
 
-install-hooks: ## Install git pre-commit hooks
-	@echo "Installing pre-commit hooks..."
-	@cp scripts/pre-commit-hook.sh .git/hooks/pre-commit
-	@chmod +x .git/hooks/pre-commit
+install-hooks: ## Install git pre-commit hooks (workflow gate enforcement)
+	@echo "Installing workflow gate pre-commit hooks..."
+	@chmod +x scripts/pre-commit-hook.sh
+	@ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit
 	@echo "✓ Pre-commit hook installed successfully!"
 	@echo ""
-	@echo "The hook will run these checks before each commit:"
-	@echo "  1. mypy type checking"
-	@echo "  2. ruff linting"
-	@echo "  3. unit tests (integration tests skipped)"
+	@echo "The hook enforces the 4-step workflow pattern:"
+	@echo "  implement → test → review → commit"
 	@echo ""
-	@echo "To bypass temporarily: git commit --no-verify"
-	@echo "To test the hook now: make ci-local"
+	@echo "Prerequisites for commit:"
+	@echo "  1. Zen-MCP review approved (clink + gemini → codex)"
+	@echo "  2. CI passing (make ci-local)"
+	@echo "  3. Current step is 'review'"
+	@echo ""
+	@echo "⚠️  WARNING: DO NOT use 'git commit --no-verify'"
+	@echo "   Bypassing gates defeats quality system and will be detected by CI"
+	@echo ""
+	@echo "To test the hook: make ci-local"
+
+check-hooks: ## Verify git hooks are installed
+	@if [ ! -f .git/hooks/pre-commit ]; then \
+		echo "❌ Pre-commit hook not installed. Run: make install-hooks"; \
+		exit 1; \
+	fi
+	@echo "✅ Pre-commit hook installed"
 
 ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "🔍 Running CI checks locally..."
