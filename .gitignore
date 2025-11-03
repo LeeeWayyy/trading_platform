@@ -94,3 +94,4 @@ zen_precommit.changeset
 # Context checkpoints (Phase 3: Context Optimization)
 .claude/checkpoints/*.json
 !.claude/checkpoints/README.md
+.claude/workflow-state.json

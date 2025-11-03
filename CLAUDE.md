@@ -219,6 +219,33 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 - When context loss risk is high (complex multi-step work)
 - See `.claude/checkpoints/README.md` for complete documentation
 
+### Context-Aware Workflow Automation (Component 3: Context Monitoring)
+```bash
+# Check current context usage status
+./scripts/workflow_gate.py check-context
+
+# Record current token usage manually
+./scripts/workflow_gate.py record-context <tokens>
+
+# Get delegation recommendations if thresholds exceeded
+./scripts/workflow_gate.py suggest-delegation
+
+# Record subagent delegation (resets context to 0)
+./scripts/workflow_gate.py record-delegation "<task_description>"
+```
+
+**Context thresholds:**
+- **< 70%:** ✅ OK - Continue normal workflow
+- **70-84%:** ⚠️ WARNING - Delegation RECOMMENDED
+- **≥ 85%:** 🚨 CRITICAL - Delegation MANDATORY
+
+**When to use:**
+- Check context at workflow transitions (implement → test → review → commit)
+- Delegate non-core tasks when context ≥ 70% (see `.claude/workflows/16-subagent-delegation.md`)
+- Mandatory delegation at 85% threshold to prevent mid-task interruptions
+- Context automatically resets after delegation and after commit
+- See `.claude/workflows/component-cycle.md#context-aware-workflow-pattern-component-3` for integration with 4-step pattern
+
 ### Workflows (see .claude/workflows/ for detailed guides)
 - **🔍 Pre-Implementation Analysis (MANDATORY):** `.claude/workflows/00-analysis-checklist.md`
 - **Task breakdown (for complex tasks >8h):** `.claude/workflows/00-task-breakdown.md`
@@ -426,11 +453,62 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 **⚠️ PROCESS VIOLATION WARNING:**
 - Committing without zen-mcp review = PRIMARY root cause of 7 fix commits (10-15 hours wasted)
 - Committing without `make ci-local` = 2-4x slower than running locally first
-- **Using `git commit --no-verify` is ABSOLUTELY FORBIDDEN** — bypasses review approval gates
+- **Using `git commit --no-verify` is ABSOLUTELY FORBIDDEN** — bypasses review approval gates and pre-commit hooks (detected by CI)
 - **NEVER skip review gates regardless of urgency**
 - **ALL issues from ALL reviewers must be fixed** — no cherry-picking approvals
 
 **Never skip or combine steps!** See [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md) for detailed guidance and examples.
+
+#### 🔒 Workflow Gate Enforcement (AUTOMATIC)
+
+**CRITICAL:** Commits are now automatically enforced via hard gates. The 4-step pattern is enforced programmatically:
+
+**Hard Gate System:**
+- **Pre-commit hook** blocks commits unless prerequisites met
+- **CI verification** detects `--no-verify` bypasses
+- **State machine** tracks progress through workflow steps
+
+**Workflow State Transitions:**
+```
+implement → test → review → (commit succeeds) → implement
+```
+
+**Prerequisites for Commit (enforced by pre-commit hook):**
+1. ✅ Current workflow step must be `review`
+2. ✅ Zen-MCP review status must be `APPROVED`
+3. ✅ CI must have passed (`make ci-local`)
+
+**Workflow Gate CLI Commands:**
+
+```bash
+# Set component name (at start)
+./scripts/workflow_gate.py set-component "Position Limit Validation"
+
+# Check current state
+./scripts/workflow_gate.py status
+
+# Advance workflow steps
+./scripts/workflow_gate.py advance test      # implement → test
+./scripts/workflow_gate.py advance review    # test → review
+
+# Record review approval
+./scripts/workflow_gate.py record-review <continuation_id> APPROVED
+
+# Record CI result
+make ci-local && ./scripts/workflow_gate.py record-ci true
+
+# Now commit (hook checks prerequisites automatically)
+git commit -m "message"
+```
+
+**If commit blocked:**
+```bash
+./scripts/workflow_gate.py status  # Shows what's missing
+```
+
+**⚠️ NEVER use `git commit --no-verify`** — bypasses gates, detected by CI via `verify_gate_compliance.py`
+
+**See:** [`.claude/workflows/component-cycle.md`](./.claude/workflows/component-cycle.md#workflow-gate-enforcement-mandatory) for complete workflow gate documentation.
 
 ### Quick Reference
 

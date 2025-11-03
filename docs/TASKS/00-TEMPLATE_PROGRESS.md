@@ -184,7 +184,7 @@ features: []
 - Blocks: [P0T1_DONE](./P0T1_DONE.md)
 
 **PRs:**
-- [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/1) - Description
+- [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/123) - Description
 
 **Commits:**
 - `abc1234` - Component 1 implementation
