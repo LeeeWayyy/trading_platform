@@ -195,6 +195,30 @@ make circuit-trip # Manually trip circuit breaker
 make kill-switch  # Cancel all orders, flatten positions, block new signals
 ```
 
+### Context Management (Phase 3: Checkpointing System)
+```bash
+# Create checkpoint before delegation or session end
+./scripts/context_checkpoint.py create --type delegation    # Before using Task tool
+./scripts/context_checkpoint.py create --type session_end   # Before ending session
+
+# Restore context from checkpoint
+./scripts/context_checkpoint.py restore --id <checkpoint_id>
+
+# List available checkpoints
+./scripts/context_checkpoint.py list                        # All checkpoints
+./scripts/context_checkpoint.py list --type delegation      # Only delegation checkpoints
+
+# Clean up old checkpoints (auto-deletes >7 days, keeps last 10 per type)
+./scripts/context_checkpoint.py cleanup --older-than 7d
+./scripts/context_checkpoint.py cleanup --older-than 14d --keep-latest 20
+```
+
+**When to use:**
+- Before Task tool delegation (see `.claude/workflows/16-subagent-delegation.md`)
+- Before ending long coding sessions (auto-resume workflow)
+- When context loss risk is high (complex multi-step work)
+- See `.claude/checkpoints/README.md` for complete documentation
+
 ### Workflows (see .claude/workflows/ for detailed guides)
 - **🔍 Pre-Implementation Analysis (MANDATORY):** `.claude/workflows/00-analysis-checklist.md`
 - **Task breakdown (for complex tasks >8h):** `.claude/workflows/00-task-breakdown.md`
@@ -214,11 +238,9 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 - **Task creation review (clink + gemini):** `.claude/workflows/13-task-creation-review.md`
 - **🤖 Auto-resume tasks:** `.claude/workflows/14-task-resume.md`
 - **Update task state:** `.claude/workflows/15-update-task-state.md`
-- **🚀 Context optimization (subagent delegation):** `.claude/workflows/16-subagent-delegation.md`
+- **🚀 Context optimization (subagent delegation - Phase 1):** `.claude/workflows/16-subagent-delegation.md`
 - **🤖 Automated planning (Phase 2):** `.claude/workflows/17-automated-analysis.md`
-- **🤖 Automated coding (Phase 3):** `.claude/workflows/18-automated-coding.md`
-- **🤖 Automated PR fixes (Phase 4):** `.claude/workflows/19-automated-pr-fixes.md`
-- **🤖 Full automation orchestration (Phase 5):** `.claude/workflows/20-full-automation.md`
+- **✅ Context checkpointing (Phase 3 - COMPLETE):** See "Context Management" section above
 
 ---
 

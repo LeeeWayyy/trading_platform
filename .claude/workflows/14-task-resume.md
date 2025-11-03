@@ -31,7 +31,40 @@ jq '.current_task.state, .progress.completion_percentage' .claude/task-state.jso
 
 ---
 
-### Step 2: Load Task State
+### Step 2: Check for Context Checkpoint (Optional)
+
+Check if a session-end checkpoint exists from the previous session. Checkpoints preserve critical context that may not be in task-state.json.
+
+```bash
+# Check for latest session-end checkpoint
+if [ -L .claude/checkpoints/latest_session_end.json ]; then
+  echo "📦 Context checkpoint found from previous session"
+  CHECKPOINT_ID=$(basename $(readlink .claude/checkpoints/latest_session_end.json) .json)
+  ./scripts/context_checkpoint.py restore --id $CHECKPOINT_ID
+fi
+```
+
+**What checkpoints provide:**
+- Critical findings discovered during work
+- Pending decisions awaiting user input
+- Delegation history (subagent usage patterns)
+- Token usage estimates (for context management)
+- Continuation IDs from multi-turn reviews
+
+**When to use checkpoint data:**
+- Context >150k tokens used in previous session
+- Session ended mid-delegation or mid-review
+- Complex task with many user decisions
+- Multi-day development needing full context
+
+**When to skip checkpoint:**
+- Simple task continuation
+- Previous session <50k tokens
+- Task state file has all needed info
+
+---
+
+### Step 3: Load Task State
 
 Read the task state file to understand:
 - What task is being worked on (task_id, title, branch)
@@ -41,7 +74,7 @@ Read the task state file to understand:
 
 ---
 
-### Step 3: Verify Branch and Files
+### Step 4: Verify Branch and Files
 
 ```bash
 # Check current branch
@@ -58,7 +91,7 @@ fi
 
 ---
 
-### Step 4: Read Task Document
+### Step 5: Read Task Document
 
 ```bash
 # Read the task document to refresh requirements
@@ -68,7 +101,7 @@ cat "$TASK_FILE"
 
 ---
 
-### Step 5: Display Resume Summary
+### Step 6: Display Resume Summary
 
 **Output a clear summary for the user:**
 
@@ -108,7 +141,7 @@ Ready to continue? I'll proceed with Component 2 implementation.
 
 ---
 
-### Step 6: Auto-Load Implementation Plan
+### Step 7: Auto-Load Implementation Plan
 
 ```bash
 # Load implementation plan for current component
@@ -123,7 +156,7 @@ jq -r '.implementation_guide.component_2_plan' .claude/task-state.json
 
 ---
 
-### Step 7: Proceed with Work
+### Step 8: Proceed with Work
 
 **Automatically continue with next steps:**
 

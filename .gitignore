@@ -90,3 +90,7 @@ zen_precommit.changeset
 
 # Claude Code runtime state
 .claude/state/current-todo.json
+
+# Context checkpoints (Phase 3: Context Optimization)
+.claude/checkpoints/*.json
+!.claude/checkpoints/README.md
