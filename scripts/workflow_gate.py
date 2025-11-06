@@ -124,7 +124,7 @@ class WorkflowGate:
 
             # Atomic rename
             Path(temp_path).replace(STATE_FILE)
-        except Exception:
+        except (IOError, OSError):
             # Clean up temp file on error
             Path(temp_path).unlink(missing_ok=True)
             raise
@@ -841,6 +841,8 @@ Examples:
 
         return 0
 
+    except SystemExit as e:
+        return e.code
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

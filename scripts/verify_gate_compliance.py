@@ -82,7 +82,15 @@ def get_pr_commits():
 
 
 def load_workflow_state():
-    """Load .claude/workflow-state.json if it exists."""
+    """Load .claude/workflow-state.json if it exists.
+
+    Returns None if:
+    - File doesn't exist (acceptable for doc-only changes)
+    - File is malformed (treated as error, falls back to marker verification)
+
+    Note: When None is returned due to malformed JSON, the caller should
+    proceed with commit message marker verification as a fallback.
+    """
     state_file = Path(".claude/workflow-state.json")
     if not state_file.exists():
         return None

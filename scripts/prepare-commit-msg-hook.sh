@@ -29,12 +29,13 @@ fi
 
 # Extract review information using Python (more reliable than jq/grep)
 # Use poetry run python for consistency with project tooling
-REVIEW_INFO=$(poetry run python -c "
+REVIEW_INFO=$(poetry run python - "$WORKFLOW_STATE" <<'EOF'
 import json
 import sys
 
 try:
-    with open('$WORKFLOW_STATE', 'r') as f:
+    workflow_state_file = sys.argv[1]
+    with open(workflow_state_file, 'r') as f:
         state = json.load(f)
 
     zen_review = state.get('zen_review', {})
@@ -47,7 +48,8 @@ try:
         sys.exit(1)
 except Exception:
     sys.exit(1)
-")
+EOF
+)
 
 # If no approved review found, exit silently
 if [ $? -ne 0 ] || [ -z "$REVIEW_INFO" ]; then
@@ -65,12 +67,7 @@ if grep -qi "zen-mcp-review:" "$COMMIT_MSG_FILE" && grep -qi "continuation-id:" 
 fi
 
 # Append review markers to commit message
-# Add a blank line first if the message doesn't end with one
-if [ -s "$COMMIT_MSG_FILE" ] && [ "$(tail -c 1 "$COMMIT_MSG_FILE")" != "" ]; then
-    echo "" >> "$COMMIT_MSG_FILE"
-fi
-
-# Add the review markers
+# Always add a single blank line for proper separation
 echo "" >> "$COMMIT_MSG_FILE"
 echo "zen-mcp-review: approved" >> "$COMMIT_MSG_FILE"
 echo "continuation-id: $CONTINUATION_ID" >> "$COMMIT_MSG_FILE"
