@@ -611,12 +611,10 @@ class WorkflowGate:
             str(PROJECT_ROOT / f"tests/**/test_{component_slug}.py"),      # e.g., tests/test_my_component.py
             str(PROJECT_ROOT / f"tests/**/{component_slug}_test.py"),      # e.g., tests/my_component_test.py
 
-            # Wildcard matches (partial component name)
+            # Wildcard matches (partial component name, allows subdirectories)
             str(PROJECT_ROOT / f"tests/**/test_{component_slug}_*.py"),    # e.g., tests/test_my_component_extra.py
-            str(PROJECT_ROOT / f"tests/**/test_*{component_slug}*.py"),    # e.g., tests/test_feature_my_component.py
-
-            # Contains matches (allow tests in subdirectories)
-            str(PROJECT_ROOT / f"tests/**/*{component_slug}*.py"),         # e.g., tests/unit/my_component_tests.py
+            str(PROJECT_ROOT / f"tests/**/test_*{component_slug}*.py"),    # e.g., tests/test_feature_my_component.py or tests/unit/test_my_component.py
+            str(PROJECT_ROOT / f"tests/**/*{component_slug}*_test.py"),    # e.g., tests/unit/my_component_integration_test.py
         ]
 
         # Search for matching test files across all patterns

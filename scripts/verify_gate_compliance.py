@@ -22,8 +22,45 @@ import sys
 from pathlib import Path
 
 
+def get_pr_commits_from_github():
+    """Get commits from GitHub PR API (most reliable in CI)."""
+    # Check if we're in a PR context
+    # Note: GITHUB_PR_NUMBER and PR_NUMBER are optional convenience variables
+    # that may be set in custom workflow configurations. Standard GitHub Actions
+    # workflows should rely on GITHUB_REF parsing below.
+    pr_number = os.getenv('GITHUB_PR_NUMBER') or os.getenv('PR_NUMBER')
+
+    if not pr_number:
+        # Try to extract from GITHUB_REF (format: refs/pull/123/merge)
+        github_ref = os.getenv('GITHUB_REF', '')
+        if '/pull/' in github_ref:
+            pr_number = github_ref.split('/pull/')[1].split('/')[0]
+
+    if not pr_number:
+        return None  # Not in PR context
+
+    try:
+        # Use GitHub CLI to get actual PR commits (ground truth)
+        result = subprocess.run(
+            ["gh", "pr", "view", pr_number, "--json", "commits", "--jq", ".commits[].oid"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        commits = [c.strip() for c in result.stdout.strip().split("\n") if c.strip()]
+        return commits
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None  # gh CLI not available or command failed
+
+
 def get_pr_commits():
     """Get list of commit hashes in current PR/branch."""
+    # Try GitHub API first (most reliable in CI)
+    github_commits = get_pr_commits_from_github()
+    if github_commits:
+        return github_commits
+
+    # Fallback to git (for local development or non-PR contexts)
     # Use environment variable for dynamic base branch detection
     # Falls back to master if not in CI environment
     base_branch = os.getenv('GITHUB_BASE_REF', 'master')
@@ -52,7 +89,10 @@ def load_workflow_state():
     try:
         return json.loads(state_file.read_text())
     except json.JSONDecodeError as e:
-        print(f"Warning: Failed to parse workflow state: {e}")
+        print(f"⚠️  Warning: Malformed workflow state file (.claude/workflow-state.json)")
+        print(f"   JSON parse error: {e}")
+        print(f"   Falling back to commit message marker verification")
+        print()
         return None
 
 
