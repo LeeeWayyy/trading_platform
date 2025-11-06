@@ -32,6 +32,7 @@ See Also:
     - docs/RUNBOOKS/secret-rotation.md - 90-day rotation procedures
 """
 
+from libs.secrets.env_backend import EnvSecretManager
 from libs.secrets.exceptions import (
     SecretAccessError,
     SecretManagerError,
@@ -44,6 +45,8 @@ from libs.secrets.manager import SecretManager
 __all__ = [
     # Core interface
     "SecretManager",
+    # Backend implementations (local development)
+    "EnvSecretManager",
     # Exceptions (callers should catch these)
     "SecretManagerError",
     "SecretNotFoundError",
@@ -51,4 +54,7 @@ __all__ = [
     "SecretWriteError",
     # Factory will be added in Component 5
     # "create_secret_manager",
+    # Production backends will be added in Components 3-4
+    # "VaultSecretManager",
+    # "AWSSecretsManager",
 ]
