@@ -327,7 +327,13 @@ class WorkflowGate:
         # Record commit hash in history and reset state for next component
         if "commit_history" not in state:
             state["commit_history"] = []
-        state["commit_history"].append(commit_hash)
+            # One-time migration for backward compatibility. If an old state file
+            # only has last_commit_hash, we need to preserve it in the new history.
+            if last_hash := state.get("last_commit_hash"):
+                state["commit_history"].append(last_hash)
+        # Ensure the current commit is in the history, avoiding duplicates.
+        if commit_hash not in state["commit_history"]:
+            state["commit_history"].append(commit_hash)
         # Prune history to last 100 commits to prevent file growth
         state["commit_history"] = state["commit_history"][-100:]
         state["last_commit_hash"] = commit_hash  # Kept for backward compatibility
