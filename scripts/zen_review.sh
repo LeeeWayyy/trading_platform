@@ -57,21 +57,21 @@ elif [ "$MODE" = "deep" ]; then
   fi
 
   # Get branch changes
-  BRANCH_FILES=$(git diff origin/main...HEAD --name-only --diff-filter=ACM 2>&1)
+  BRANCH_FILES=$(git diff origin/master...HEAD --name-only --diff-filter=ACM 2>&1)
   GIT_EXIT=$?
 
   # Check for git command errors
   if [ $GIT_EXIT -ne 0 ]; then
     echo "❌ Git command failed: $BRANCH_FILES"
     echo "   Possible causes:"
-    echo "   - origin/main doesn't exist (try: git fetch origin)"
+    echo "   - origin/master doesn't exist (try: git fetch origin)"
     echo "   - Not in a git repository"
     exit 1
   fi
 
   # Check if any changes exist
   if [ -z "$BRANCH_FILES" ]; then
-    echo "❌ No changes in this branch vs origin/main"
+    echo "❌ No changes in this branch vs origin/master"
     exit 1
   fi
 

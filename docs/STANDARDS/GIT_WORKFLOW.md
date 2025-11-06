@@ -24,9 +24,13 @@
 
 ## 📜 Core Policies
 
+> **ℹ️ Repository Default Branch:**
+> This project uses `master` as the default branch (NOT `main`).
+> All PRs merge to `master`, and all branch comparisons use `origin/master`.
+
 ### Rule #1: Never Work on Master Directly
 
-**POLICY:** ❌ NEVER commit directly to `master` or `main` branch
+**POLICY:** ❌ NEVER commit directly to `master` branch
 
 **REQUIRED:**
 - ✅ ALWAYS create a feature branch for your work

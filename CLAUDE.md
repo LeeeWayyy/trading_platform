@@ -34,6 +34,10 @@ fi
 
 This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. The system produces signals using Qlib-based models and executes trades via Alpaca's API with emphasis on safety, idempotency, and parity between research and production.
 
+> **ℹ️ Repository Default Branch:**
+> This project uses `master` as the default branch (NOT `main`).
+> All PRs merge to `master`, and all branch comparisons use `origin/master`.
+
 **Key principles:**
 - Idempotency first for all order paths
 - Feature parity: research and production feature definitions must share code
