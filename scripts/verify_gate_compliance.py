@@ -67,9 +67,10 @@ def get_pr_commits():
     base_ref = f"origin/{base_branch}"
 
     # Get commits between base branch and HEAD
+    # Use --no-merges to skip merge commits (prevents false positives in CI)
     try:
         result = subprocess.run(
-            ["git", "log", "--format=%H", f"{base_ref}..HEAD"],
+            ["git", "log", "--format=%H", "--no-merges", f"{base_ref}..HEAD"],
             capture_output=True,
             text=True,
             check=True,
@@ -95,8 +96,8 @@ def load_workflow_state():
     if not state_file.exists():
         return None
     try:
-        return json.loads(state_file.read_text())
-    except json.JSONDecodeError as e:
+        return json.loads(state_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, FileNotFoundError) as e:
         print(f"⚠️  Warning: Malformed workflow state file (.claude/workflow-state.json)")
         print(f"   JSON parse error: {e}")
         print(f"   Falling back to commit message marker verification")

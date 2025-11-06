@@ -35,7 +35,7 @@ import sys
 
 try:
     workflow_state_file = sys.argv[1]
-    with open(workflow_state_file, 'r') as f:
+    with open(workflow_state_file, 'r', encoding='utf-8') as f:
         state = json.load(f)
 
     zen_review = state.get('zen_review', {})
@@ -46,7 +46,7 @@ try:
         print(f'{status}|{continuation_id}')
     else:
         sys.exit(1)
-except Exception:
+except (IOError, json.JSONDecodeError, KeyError, UnicodeDecodeError):
     sys.exit(1)
 EOF
 )
@@ -56,9 +56,8 @@ if [ $? -ne 0 ] || [ -z "$REVIEW_INFO" ]; then
     exit 0
 fi
 
-# Parse review info
-STATUS=$(echo "$REVIEW_INFO" | cut -d'|' -f1)
-CONTINUATION_ID=$(echo "$REVIEW_INFO" | cut -d'|' -f2)
+# Parse review info using IFS for better performance
+IFS='|' read -r STATUS CONTINUATION_ID <<< "$REVIEW_INFO"
 
 # Check if markers already exist in commit message
 if grep -qi "zen-mcp-review:" "$COMMIT_MSG_FILE" && grep -qi "continuation-id:" "$COMMIT_MSG_FILE"; then

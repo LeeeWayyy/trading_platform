@@ -99,7 +99,7 @@ class WorkflowGate:
         if not STATE_FILE.exists():
             return self._init_state()
         try:
-            state = json.loads(STATE_FILE.read_text())
+            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, IOError) as e:
             print(f"⚠️  Warning: Failed to parse workflow state file: {e}")
             print(f"   Initializing fresh state...")
@@ -119,8 +119,8 @@ class WorkflowGate:
             suffix=".tmp"
         )
         try:
-            with os.fdopen(temp_fd, 'w') as f:
-                json.dump(state, f, indent=2)
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
 
             # Atomic rename
             Path(temp_path).replace(STATE_FILE)
@@ -643,7 +643,7 @@ class WorkflowGate:
             return
 
         try:
-            with open(task_state_file) as f:
+            with open(task_state_file, 'r', encoding='utf-8') as f:
                 task_state = json.load(f)
         except (json.JSONDecodeError, IOError) as e:
             print(f"⚠️  Warning: Could not load task state: {e}")

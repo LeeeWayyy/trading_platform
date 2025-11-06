@@ -15,6 +15,7 @@ Date: 2025-11-02
 """
 
 import json
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -358,7 +359,6 @@ class TestContextResetOnCommit:
         gate.save_state(state)
 
         # Create a mock git repo for record_commit to work
-        import subprocess
         repo_dir = temp_state_file.parent
         subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True)
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, capture_output=True)
