@@ -64,6 +64,7 @@ class WorkflowGate:
             "zen_review": {},
             "ci_passed": False,
             "last_commit_hash": None,
+            "commit_history": [],
             "subagent_delegations": [],
             "context": {
                 "current_tokens": 0,
@@ -250,9 +251,10 @@ class WorkflowGate:
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print(f"   Component: {state['current_component'] or 'UNKNOWN'}")
             print("   Current workflow state:")
-            print(f"     1. Implement ({'✓' if state['step'] == 'implement' else ' '})")
-            print(f"     2. Test ({'✓' if state['step'] == 'test' else ' '})")
-            print(f"     3. Review ({'✓' if state['step'] == 'review' else ' '})")
+            # Show completed steps with ✓
+            print(f"     1. Implement ({'✓' if state['step'] in ['test', 'review'] else ' '})")
+            print(f"     2. Test ({'✓' if state['step'] == 'review' else ' '})")
+            print(f"     3. Review ( )")
             print("   Progress to next step:")
             print(f"     ./scripts/workflow_gate.py advance <next_step>")
             sys.exit(1)
@@ -635,8 +637,6 @@ class WorkflowGate:
             workflow_state: Current workflow gate state
             commit_hash: Git commit hash
         """
-        import json
-
         task_state_file = PROJECT_ROOT / ".claude" / "task-state.json"
 
         # Check if task state tracking is active

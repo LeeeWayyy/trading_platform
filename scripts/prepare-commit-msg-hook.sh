@@ -47,7 +47,7 @@ try:
         sys.exit(1)
 except Exception:
     sys.exit(1)
-" 2>/dev/null)
+")
 
 # If no approved review found, exit silently
 if [ $? -ne 0 ] || [ -z "$REVIEW_INFO" ]; then
