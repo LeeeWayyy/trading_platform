@@ -63,6 +63,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for workflow gate compliance check
+
+      - name: Verify workflow gate compliance
+        run: |
+          echo "::group::Verifying commits followed workflow gates"
+          python3 scripts/verify_gate_compliance.py
+          echo "::endgroup::"
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5

@@ -77,6 +77,9 @@
     },
     {
       "pattern": "^https://ai.google.dev/pricing"
+    },
+    {
+      "pattern": "^https://github.com/LeeeWayyy/trading_platform/pull/[0-9]+$"
     }
   ],
   "replacementPatterns": [

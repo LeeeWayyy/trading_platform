@@ -947,7 +947,176 @@ Symlinks for quick access:
 
 ---
 
-### Phase 4: Intelligent Context Compacting (3-4 hours) [OPTIONAL]
+### Phase 4: Context-Aware Workflow Automation (Component 3) (3-4 hours)
+
+**Purpose:** Integrate Phase 1/2 subagent delegation infrastructure with workflow enforcement system to prevent context exhaustion mid-task through automatic monitoring and delegation triggers.
+
+**Status:** 🔄 IN PROGRESS (2025-11-02)
+
+**Problem Statement:**
+Current workflow experiences context compaction interrupting critical work mid-task, despite having subagent delegation infrastructure (from Phase 1/2: `.claude/workflows/16-subagent-delegation.md`). No automatic monitoring or triggering of delegation when context usage is high.
+
+**Planning Reviews:**
+- ✅ **Gemini Planner**: APPROVED (continuation_id: `7504c849-37cc-4a2e-9b6b-d6c2e731cf60`)
+- ✅ **Codex Codereviewer**: APPROVED with fixes (1 HIGH + 2 MEDIUM + 2 LOW issues)
+
+**Key Decisions (from Gemini + Codex reviews):**
+1. **Thresholds**: 70% WARN (delegation recommended), 85% CRITICAL (delegation mandatory)
+2. **Delegation Approach**: Strong suggestion with blocking message, NOT fully automatic (preserves user control)
+3. **Token Tracking**: Manual `record-context` command initially, automatic integration as future enhancement
+4. **Reset Strategy**: Reset context after BOTH delegation AND commit (both signify work unit completion)
+5. **Field Reuse**: Leverage existing `subagent_delegations` field (line 59) instead of creating new `delegation_history`
+6. **Derived Values**: Calculate `usage_percentage` on-demand, don't persist (prevents data drift)
+7. **Backward Compatibility**: Implement `_ensure_context_defaults()` migration for old state files
+
+**Implementation Phases (7 phases from Gemini):**
+
+1. **Analysis and Planning** (COMPLETED)
+   - Problem analysis
+   - Planning reviews (gemini → codex)
+   - Address review concerns
+
+2. **Context Monitoring Infrastructure** (1 hour)
+   - Extend state schema with context fields
+   - Implement `record_context()` CLI command
+   - Update status display to show context usage
+
+3. **Delegation Detection** (1 hour)
+   - Implement `should_delegate()` logic with threshold checks
+   - Add `check_context()` CLI command
+   - Add `suggest_delegation()` CLI command
+
+4. **Workflow Integration** (1 hour)
+   - Integrate context checks into `advance()` workflow transitions
+   - Display warnings at 70%, mandate delegation at 85%
+   - Implement `record_delegation()` CLI command
+
+5. **Testing** (30-45 min)
+   - Create `tests/scripts/test_context_monitoring.py`
+   - Unit tests: threshold detection, percentage calculation, division-by-zero guard
+   - Integration tests: workflow transitions, delegation tracking
+   - Regression tests: legacy state file migration
+
+6. **Documentation** (30 min)
+   - Update `.claude/workflows/component-cycle.md` with context monitoring guidance
+   - Update `.claude/workflows/01-git-commit.md` with context checks
+   - Update `CLAUDE.md` with Component 3 overview
+
+7. **Final Review and Rollout** (30 min)
+   - Zen-mcp quick review (gemini → codex)
+   - CI validation (`make ci-local`)
+   - Commit + PR creation
+
+**Critical Fixes to Address (from Codex review):**
+
+**HIGH Priority:**
+- [ ] **Backward Compatibility**: Implement `_ensure_context_defaults()` migration function
+  - **Problem**: Old workflow-state.json files lack "context" fields, will raise KeyError
+  - **Fix**: Call migration immediately after `load_state()`
+  ```python
+  def _ensure_context_defaults(self, state: dict) -> dict:
+      if "context" not in state:
+          state["context"] = {
+              "current_tokens": 0,
+              "max_tokens": 200000,
+              "last_check_timestamp": datetime.utcnow().isoformat()
+          }
+      return state
+  ```
+
+**MEDIUM Priority:**
+- [ ] **Field Reuse**: Use existing `subagent_delegations` instead of new `delegation_history`
+  - **Rationale**: Prevents data divergence and double-bookkeeping
+  - **Location**: Field already exists at `workflow_gate.py:59`
+
+- [ ] **Computed Properties**: Calculate `usage_percentage` on-demand, don't persist
+  - **Rationale**: Prevents drift if token counts updated without recomputing percentage
+  - **Implementation**: In `should_delegate()`, compute `(current_tokens / max_tokens * 100)`
+
+- [ ] **Division-by-Zero Guard**: Add guard in `should_delegate()`
+  ```python
+  if max_tokens <= 0:
+      return (False, "ERROR: Invalid max_tokens")
+  ```
+
+**LOW Priority:**
+- [ ] **Regression Tests**: Add `test_legacy_state_migration()` for backward compatibility
+- [ ] **Refactoring**: Consider code organization improvements for maintainability
+
+**Files to be Modified:**
+
+1. **`scripts/workflow_gate.py`** (~150 new lines)
+   - Extend state schema with context tracking
+   - Add CLI commands: `check-context`, `record-context`, `suggest-delegation`, `record-delegation`
+   - Implement `should_delegate()`, `_ensure_context_defaults()`
+   - Integrate context checks into workflow transitions
+
+2. **`tests/scripts/test_context_monitoring.py`** (NEW, ~100 lines)
+   - Test context percentage calculation accuracy
+   - Test threshold detection (70% WARN, 85% CRITICAL)
+   - Test legacy state migration
+   - Test division-by-zero guard
+   - Test delegation history tracking
+
+3. **`.claude/workflows/component-cycle.md`** (~30 lines)
+   - Add context monitoring guidance
+   - Document `check-context` usage before each step
+   - Reference delegation workflow (16-subagent-delegation.md)
+
+4. **`.claude/workflows/01-git-commit.md`** (~20 lines)
+   - Add context check reminder before commits
+   - Reference delegation mandatory at 85%
+
+5. **`CLAUDE.md`** (~15 lines)
+   - Add Component 3 overview
+   - Document CLI commands
+   - Reference Phase 1/2 integration
+
+**State Schema Extension:**
+```python
+{
+    "component": "string",
+    "step": "implement|test|review|commit",
+    "zen_review": {...},
+    "ci_passed": bool,
+    "commit_history": [],
+    "subagent_delegations": [],  # Existing field (line 59) - REUSE for delegation tracking
+
+    # NEW: Context monitoring fields
+    "context": {
+        "current_tokens": 0,
+        "max_tokens": 200000,
+        # Don't persist usage_percentage - calculate on-demand
+        "last_check_timestamp": "2025-11-02T00:00:00Z"
+    }
+}
+```
+
+**Success Criteria:**
+- [  ] All Codex review fixes implemented (HIGH + MEDIUM + LOW)
+- [  ] Context monitoring integrated into workflow_gate.py
+- [  ] Delegation triggers working at 70% and 85% thresholds
+- [  ] Backward compatibility verified with legacy state files
+- [  ] All tests passing (unit + integration + regression)
+- [  ] Documentation updated (component-cycle, 01-git-commit, CLAUDE.md)
+- [  ] Zen-mcp review approval (gemini → codex)
+- [  ] CI validation passing (`make ci-local`)
+
+**Integration with Existing Infrastructure:**
+- Leverages Phase 1/2 subagent delegation patterns (`.claude/workflows/16-subagent-delegation.md`)
+- Extends Component 2 workflow enforcement (workflow_gate.py state machine)
+- Uses established 4-step pattern (implement → test → review → commit)
+- Reuses existing `subagent_delegations` tracking field
+
+**Deliverables:**
+1. Enhanced `scripts/workflow_gate.py` with context monitoring (~150 new lines)
+2. New test suite: `tests/scripts/test_context_monitoring.py` (~100 lines)
+3. Updated workflow documentation (component-cycle.md, 01-git-commit.md, CLAUDE.md)
+4. Migration strategy for backward compatibility
+
+---
+
+### Phase 5: Intelligent Context Compacting (3-4 hours) [OPTIONAL]
 
 **Purpose:** Extend session duration by identifying and archiving low-priority context when token usage exceeds thresholds.
 
