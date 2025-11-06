@@ -37,6 +37,7 @@ duckdb = "^0.9.0"
 alpaca-py = "^0.15.0"
 # Utilities
 python-dotenv = "^1.0.0"
+hvac = "^2.0.0"
 tenacity = "^8.2.0"
 apscheduler = "^3.10.0"
 # Monitoring
