@@ -33,6 +33,7 @@ See Also:
 """
 
 from libs.secrets.aws_backend import AWSSecretsManager
+from libs.secrets.cache import SecretCache
 from libs.secrets.env_backend import EnvSecretManager
 from libs.secrets.exceptions import (
     SecretAccessError,
@@ -40,6 +41,7 @@ from libs.secrets.exceptions import (
     SecretNotFoundError,
     SecretWriteError,
 )
+from libs.secrets.factory import create_secret_manager
 from libs.secrets.manager import SecretManager
 from libs.secrets.vault_backend import VaultSecretManager
 
@@ -47,16 +49,18 @@ from libs.secrets.vault_backend import VaultSecretManager
 __all__ = [
     # Core interface
     "SecretManager",
+    # Factory (recommended for most use cases)
+    "create_secret_manager",
     # Backend implementations (local development)
     "EnvSecretManager",
     # Backend implementations (production)
     "VaultSecretManager",
     "AWSSecretsManager",
+    # Cache utility (for custom implementations)
+    "SecretCache",
     # Exceptions (callers should catch these)
     "SecretManagerError",
     "SecretNotFoundError",
     "SecretAccessError",
     "SecretWriteError",
-    # Factory will be added in Component 5
-    # "create_secret_manager",
 ]
