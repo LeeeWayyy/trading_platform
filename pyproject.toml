@@ -112,7 +112,7 @@ module = "polars.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*"]
+module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
