@@ -32,6 +32,7 @@ See Also:
     - docs/RUNBOOKS/secret-rotation.md - 90-day rotation procedures
 """
 
+from libs.secrets.aws_backend import AWSSecretsManager
 from libs.secrets.env_backend import EnvSecretManager
 from libs.secrets.exceptions import (
     SecretAccessError,
@@ -40,6 +41,7 @@ from libs.secrets.exceptions import (
     SecretWriteError,
 )
 from libs.secrets.manager import SecretManager
+from libs.secrets.vault_backend import VaultSecretManager
 
 # Package exports (PEP 8: __all__ defines public API)
 __all__ = [
@@ -47,6 +49,9 @@ __all__ = [
     "SecretManager",
     # Backend implementations (local development)
     "EnvSecretManager",
+    # Backend implementations (production)
+    "VaultSecretManager",
+    "AWSSecretsManager",
     # Exceptions (callers should catch these)
     "SecretManagerError",
     "SecretNotFoundError",
@@ -54,7 +59,4 @@ __all__ = [
     "SecretWriteError",
     # Factory will be added in Component 5
     # "create_secret_manager",
-    # Production backends will be added in Components 3-4
-    # "VaultSecretManager",
-    # "AWSSecretsManager",
 ]
