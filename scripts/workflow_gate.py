@@ -704,6 +704,127 @@ class WorkflowGate:
             print(f"   ./scripts/update_task_state.py complete --component {component_num} --commit {commit_hash}")
 
 
+# ============================================================================
+# Component 1: Smart Test Runner
+# ============================================================================
+
+
+class SmartTestRunner:
+    """
+    Intelligent test selection based on git changes.
+
+    Component 1 of P1T13-F4 Workflow Intelligence.
+
+    Implements smart testing strategy:
+    - Targeted tests for commits (only changed modules)
+    - Full CI for PRs and core package changes
+
+    Uses git_utils module for change detection.
+    """
+
+    def __init__(self) -> None:
+        """Initialize SmartTestRunner."""
+        # Import here to avoid circular dependency issues
+        try:
+            from scripts.git_utils import (
+                get_staged_files,
+                requires_full_ci,
+                detect_changed_modules,
+            )
+            self._get_staged_files = get_staged_files
+            self._requires_full_ci = requires_full_ci
+            self._detect_changed_modules = detect_changed_modules
+        except ImportError as e:
+            print(f"⚠️  Warning: Could not import git_utils: {e}")
+            print("   Smart testing features will be disabled. Defaulting to full CI for safety.")
+            # Fail-safe: Return dummy file to force full CI when git_utils unavailable
+            self._get_staged_files = lambda: ["DUMMY_FILE_TO_FORCE_CI"]
+            self._requires_full_ci = lambda files: True
+            self._detect_changed_modules = lambda files: set()
+
+    def should_run_full_ci(self) -> bool:
+        """
+        Determine if full CI should run.
+
+        Full CI runs if:
+        - Any CORE_PACKAGE changed (libs/, config/, infra/, tests/fixtures/, scripts/)
+        - More than 5 modules changed (likely a refactor)
+
+        Returns:
+            True if full CI required, False if targeted tests OK
+        """
+        staged_files = self._get_staged_files()
+        if not staged_files:
+            # No changes = no tests needed (edge case)
+            return False
+
+        return self._requires_full_ci(staged_files)
+
+    def get_test_targets(self) -> list[str]:
+        """
+        Get targeted test paths for changed modules.
+
+        Returns list of pytest paths to run for changed code.
+
+        Returns:
+            List of test paths (e.g., ["tests/libs/allocation/", "tests/apps/cli/"])
+        """
+        staged_files = self._get_staged_files()
+        if not staged_files:
+            return []
+
+        # Detect changed modules
+        modules = self._detect_changed_modules(staged_files)
+
+        # Map modules to test paths
+        test_paths = []
+        for module in modules:
+            # module format: "libs/allocation", "apps/execution_gateway"
+            test_path = f"tests/{module}/"
+            test_paths.append(test_path)
+
+        return sorted(test_paths)
+
+    def get_test_command(self, context: str = "commit") -> str:
+        """
+        Get appropriate test command based on context.
+
+        Args:
+            context: "commit" for progressive commits, "pr" for pull requests
+
+        Returns:
+            Shell command to run tests
+        """
+        if context == "pr" or self.should_run_full_ci():
+            # Full CI for PRs or when core packages changed
+            return "make ci-local"
+
+        # Targeted tests for commits
+        test_targets = self.get_test_targets()
+        if not test_targets:
+            # No test targets = no Python changes
+            return "echo 'No Python tests needed (no code changes detected)'"
+
+        # Run targeted tests
+        targets_str = " ".join(test_targets)
+        return f"make test ARGS='{targets_str}'"
+
+    def print_test_strategy(self) -> None:
+        """Print test strategy recommendation to user."""
+        if self.should_run_full_ci():
+            print("🔍 Full CI Required")
+            print("   Reason: Core package changed OR >5 modules changed")
+            print(f"   Command: make ci-local")
+        else:
+            test_targets = self.get_test_targets()
+            if not test_targets:
+                print("✓ No tests needed (no code changes)")
+            else:
+                print("🎯 Targeted Testing")
+                print(f"   Modules: {', '.join(test_targets)}")
+                print(f"   Command: {self.get_test_command('commit')}")
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
