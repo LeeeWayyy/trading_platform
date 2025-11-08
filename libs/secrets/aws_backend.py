@@ -51,7 +51,7 @@ See Also:
 
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import boto3
@@ -270,7 +270,7 @@ class AWSSecretsManager(SecretManager):
             # Check cache first
             if name in self._cache:
                 value, cached_at = self._cache[name]
-                if datetime.now() - cached_at < self._cache_ttl:
+                if datetime.now(UTC) - cached_at < self._cache_ttl:
                     logger.debug(
                         "Secret cache hit",
                         extra={"secret_name": name, "backend": "aws"},
@@ -300,7 +300,7 @@ class AWSSecretsManager(SecretManager):
                     )
 
                 # Cache the value
-                self._cache[name] = (value, datetime.now())
+                self._cache[name] = (value, datetime.now(UTC))
                 logger.info(
                     "Secret loaded from AWS Secrets Manager",
                     extra={"secret_name": name, "backend": "aws"},
@@ -401,13 +401,22 @@ class AWSSecretsManager(SecretManager):
                 secret_names: list[str] = []
 
                 # AWS Secrets Manager uses pagination for list_secrets
-                # Iterate through all pages to get complete list
+                # Use server-side filtering when prefix provided for better performance
                 paginator = self._client.get_paginator("list_secrets")
-                for page in paginator.paginate():
+
+                # Build pagination kwargs with server-side filtering if prefix provided
+                paginate_kwargs = {}
+                if prefix is not None:
+                    # Server-side filtering via Filters parameter (more efficient)
+                    # AWS Filter API already performs prefix matching, so no need for "*"
+                    paginate_kwargs["Filters"] = [{"Key": "name", "Values": [prefix]}]
+
+                for page in paginator.paginate(**paginate_kwargs):
                     for secret in page.get("SecretList", []):
                         secret_name = secret.get("Name", "")
                         if secret_name:
-                            # Filter by prefix if provided
+                            # Client-side filtering as safety check (defense in depth)
+                            # Server-side filtering should handle most cases, but this ensures correctness
                             if prefix is None or secret_name.startswith(prefix):
                                 secret_names.append(secret_name)
 
@@ -572,17 +581,17 @@ class AWSSecretsManager(SecretManager):
 
     def close(self) -> None:
         """
-        Clean up resources (clear cache, close boto3 client).
+        Clean up resources (clear cache).
 
-        This method clears the in-memory cache and closes the boto3 client
-        connection. Called automatically when used as context manager.
+        This method clears the in-memory cache. Boto3 clients don't require
+        explicit closing. Called automatically when used as context manager.
 
         Example:
             >>> secret_mgr = AWSSecretsManager(region_name="us-east-1")
             >>> try:
             ...     db_password = secret_mgr.get_secret("prod/database/password")
             ... finally:
-            ...     secret_mgr.close()  # Clear cache and close client
+            ...     secret_mgr.close()  # Clear cache
         """
         with self._lock:
             self._cache.clear()

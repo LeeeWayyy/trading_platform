@@ -255,6 +255,12 @@ python -m apps.signal_service.main
 
 For staging and production environments, use Vault or AWS Secrets Manager for encrypted secrets at rest.
 
+**WARNING:** Vault dev server (`vault server -dev`) is for LOCAL DEVELOPMENT ONLY. Do NOT store real production secrets in dev mode:
+- Dev mode stores data in-memory only (lost on restart)
+- Dev mode has no authentication (anyone can access secrets)
+- Dev mode has no audit logging
+- For staging/production, use Vault production mode with proper TLS, authentication, and persistence
+
 **Migration process:**
 1. Provision Vault or AWS Secrets Manager
 2. Populate secrets in backend (encrypted at rest)

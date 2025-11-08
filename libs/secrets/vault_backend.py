@@ -44,7 +44,7 @@ See Also:
 
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import hvac
 from hvac.exceptions import (
@@ -245,11 +245,6 @@ class VaultSecretManager(SecretManager):
                 reason=f"Unexpected error connecting to Vault: {e}",
             ) from e
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type(VaultDown),
-    )
     def get_secret(self, name: str) -> str:
         """
         Retrieve a secret from Vault KV v2 secret engine.
@@ -293,11 +288,31 @@ class VaultSecretManager(SecretManager):
             >>> logger.info(f"Loaded secret: database/password")  # CORRECT: Path only
             >>> # print(db_password)  # WRONG: Exposes secret in logs
         """
+        try:
+            return self._get_secret_with_retry(name)
+        except VaultDown as e:
+            logger.error(
+                "Vault unreachable after retries",
+                extra={"secret_path": name, "backend": "vault"},
+            )
+            raise SecretAccessError(
+                secret_name=name,
+                backend="vault",
+                reason=f"Vault server unreachable: {e}",
+            ) from e
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type(VaultDown),
+        reraise=True,
+    )
+    def _get_secret_with_retry(self, name: str) -> str:
         with self._lock:
             # Check cache first
             if name in self._cache:
                 value, cached_at = self._cache[name]
-                if datetime.now() - cached_at < self._cache_ttl:
+                if datetime.now(UTC) - cached_at < self._cache_ttl:
                     logger.debug(
                         "Secret cache hit",
                         extra={"secret_path": name, "backend": "vault"},
@@ -352,7 +367,7 @@ class VaultSecretManager(SecretManager):
                     )
 
                 # Cache the value
-                self._cache[name] = (value, datetime.now())
+                self._cache[name] = (value, datetime.now(UTC))
                 logger.info(
                     "Secret loaded from Vault",
                     extra={"secret_path": name, "backend": "vault"},
@@ -380,12 +395,10 @@ class VaultSecretManager(SecretManager):
                         f"Verify token has read access to {self._mount_point}/{name}"
                     ),
                 ) from e
-            except VaultDown as e:
-                raise SecretAccessError(
-                    secret_name=name,
-                    backend="vault",
-                    reason=f"Vault server unreachable: {e}",
-                ) from e
+            except VaultDown:
+                # Re-raise VaultDown to allow retry decorator to handle it
+                # (VaultDown is a subclass of VaultError, so must be caught first)
+                raise
             except VaultError as e:
                 raise SecretAccessError(
                     secret_name=name,
@@ -399,11 +412,6 @@ class VaultSecretManager(SecretManager):
                     reason=f"Unexpected error reading '{name}': {e}",
                 ) from e
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type(VaultDown),
-    )
     def list_secrets(self, prefix: str | None = None) -> list[str]:
         """
         List all secret paths in Vault KV v2 engine (optional prefix filter).
@@ -442,36 +450,59 @@ class VaultSecretManager(SecretManager):
             >>> print(db_secrets)
             ['database/password', 'database/host', 'database/port']
         """
+        try:
+            return self._list_secrets_with_retry(prefix)
+        except VaultDown as e:
+            logger.error(
+                "Vault unreachable during list_secrets",
+                extra={"prefix": prefix, "backend": "vault"},
+            )
+            raise SecretAccessError(
+                secret_name=f"list_secrets(prefix={prefix})",
+                backend="vault",
+                reason=f"Vault server unreachable: {e}",
+            ) from e
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type(VaultDown),
+        reraise=True,
+    )
+    def _list_secrets_with_retry(self, prefix: str | None = None) -> list[str]:
         with self._lock:
             try:
-                # KV v2 list API: mount_point/metadata/prefix
-                # Start from root if no prefix provided
-                list_path = prefix.rstrip("/") if prefix else ""
-
-                response = self._client.secrets.kv.v2.list_secrets(
-                    path=list_path,
-                    mount_point=self._mount_point,
-                )
-
-                # Extract keys from response
-                # KV v2 list response structure: {data: {keys: [...]}}
-                keys = response.get("data", {}).get("keys", [])
-
-                # Build full paths by combining prefix with keys
-                if prefix:
-                    full_paths = [f"{prefix}{key}".rstrip("/") for key in keys]
-                else:
-                    full_paths = [key.rstrip("/") for key in keys]
-
-                # Recursively list subdirectories (keys ending with /)
+                # Iterative implementation using stack to prevent stack overflow
+                # with deeply nested secret hierarchies
                 all_paths: list[str] = []
-                for path in full_paths:
-                    if path.endswith("/"):
-                        # Recursively list subdirectory
-                        sub_paths = self.list_secrets(prefix=path)
-                        all_paths.extend(sub_paths)
-                    else:
-                        all_paths.append(path)
+                stack = [prefix.rstrip("/") if prefix else ""]
+
+                while stack:
+                    current_path = stack.pop()
+
+                    # KV v2 list API: mount_point/metadata/path
+                    response = self._client.secrets.kv.v2.list_secrets(
+                        path=current_path,
+                        mount_point=self._mount_point,
+                    )
+
+                    # Extract keys from response
+                    # KV v2 list response structure: {data: {keys: [...]}}
+                    keys = response.get("data", {}).get("keys", [])
+
+                    # Build full paths by combining current path with keys
+                    for key in keys:
+                        if current_path:
+                            full_path = f"{current_path}/{key}".rstrip("/")
+                        else:
+                            full_path = key.rstrip("/")
+
+                        if key.endswith("/"):
+                            # Directory - add to stack for processing
+                            stack.append(full_path)
+                        else:
+                            # Secret - add to results
+                            all_paths.append(full_path)
 
                 logger.info(
                     "Listed Vault secrets",
@@ -499,12 +530,10 @@ class VaultSecretManager(SecretManager):
                         f"Verify token has list capability on {self._mount_point}/metadata/*"
                     ),
                 ) from e
-            except VaultDown as e:
-                raise SecretAccessError(
-                    secret_name=f"list_secrets(prefix={prefix})",
-                    backend="vault",
-                    reason=f"Vault server unreachable: {e}",
-                ) from e
+            except VaultDown:
+                # Re-raise VaultDown to allow retry decorator to handle it
+                # (VaultDown is a subclass of VaultError, so must be caught first)
+                raise
             except VaultError as e:
                 raise SecretAccessError(
                     secret_name=f"list_secrets(prefix={prefix})",
@@ -518,11 +547,6 @@ class VaultSecretManager(SecretManager):
                     reason=f"Unexpected error listing secrets: {e}",
                 ) from e
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type(VaultDown),
-    )
     def set_secret(self, name: str, value: str) -> None:
         """
         Write or update a secret in Vault KV v2 engine (creates new version).
@@ -567,6 +591,26 @@ class VaultSecretManager(SecretManager):
             >>> secret_mgr.set_secret("database/password", new_password)
             >>> # Cache invalidated, next get_secret() fetches new version
         """
+        try:
+            self._set_secret_with_retry(name, value)
+        except VaultDown as e:
+            logger.error(
+                "Vault unreachable during secret write",
+                extra={"secret_path": name, "backend": "vault"},
+            )
+            raise SecretAccessError(
+                secret_name=name,
+                backend="vault",
+                reason=f"Vault server unreachable during write: {e}",
+            ) from e
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type(VaultDown),
+        reraise=True,
+    )
+    def _set_secret_with_retry(self, name: str, value: str) -> None:
         with self._lock:
             try:
                 # KV v2 write API: mount_point/data/path
@@ -601,12 +645,10 @@ class VaultSecretManager(SecretManager):
                     backend="vault",
                     reason=f"Invalid write request for '{name}': {e}",
                 ) from e
-            except VaultDown as e:
-                raise SecretAccessError(
-                    secret_name=name,
-                    backend="vault",
-                    reason=f"Vault server unreachable during write: {e}",
-                ) from e
+            except VaultDown:
+                # Re-raise VaultDown to allow retry decorator to handle it
+                # (VaultDown is a subclass of VaultError, so must be caught first)
+                raise
             except VaultError as e:
                 raise SecretWriteError(
                     secret_name=name,

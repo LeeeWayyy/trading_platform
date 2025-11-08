@@ -25,7 +25,7 @@ See also:
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, Mock, patch
 from botocore.exceptions import ClientError, BotoCoreError
 
@@ -193,7 +193,7 @@ class TestAWSSecretsManagerGetSecret:
         cached_value, _ = secret_mgr._cache[secret_name]
         secret_mgr._cache[secret_name] = (
             cached_value,
-            datetime.now() - timedelta(seconds=2),  # Expired
+            datetime.now(timezone.utc) - timedelta(seconds=2),  # Expired (timezone-aware)
         )
         secret_mgr.get_secret("test/secret")  # Cache expired, fetch again
 
