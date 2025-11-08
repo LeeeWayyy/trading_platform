@@ -31,9 +31,9 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, Tuple
+from typing import Callable, Literal, Tuple
 
 # Constants
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -69,7 +69,7 @@ class WorkflowGate:
             "context": {
                 "current_tokens": 0,
                 "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", "200000")),
-                "last_check_timestamp": datetime.utcnow().isoformat(),
+                "last_check_timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
 
@@ -90,7 +90,7 @@ class WorkflowGate:
             state["context"] = {
                 "current_tokens": 0,
                 "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", "200000")),
-                "last_check_timestamp": datetime.utcnow().isoformat(),
+                "last_check_timestamp": datetime.now(timezone.utc).isoformat(),
             }
         return state
 
@@ -343,7 +343,7 @@ class WorkflowGate:
 
         # Reset context after commit, ready for next component (Component 3)
         state["context"]["current_tokens"] = 0
-        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
+        state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
 
         self.save_state(state)
 
@@ -432,157 +432,6 @@ class WorkflowGate:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Context Monitoring & Delegation Triggers (Component 3)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    def should_delegate(self, state: dict) -> Tuple[bool, str]:
-        """
-        Determine if subagent delegation is needed based on context usage.
-
-        Calculates usage percentage on-demand (never persisted) and compares
-        against thresholds: 70% WARN, 85% CRITICAL.
-
-        Args:
-            state: Workflow state dictionary
-
-        Returns:
-            Tuple of (should_delegate: bool, reason: str)
-                - (False, "OK: ...") if context usage < 70%
-                - (True, "WARNING: ...") if context usage >= 70%
-                - (True, "CRITICAL: ...") if context usage >= 85%
-                - (False, "ERROR: ...") if max_tokens invalid
-        """
-        context = state.get("context", {})
-        current_tokens = context.get("current_tokens", 0)
-        max_tokens = context.get("max_tokens", 200000)
-
-        # Guard against division by zero
-        if max_tokens <= 0:
-            return (False, "ERROR: Invalid max_tokens <= 0")
-
-        # Calculate percentage on-demand, don't persist
-        usage_pct = (current_tokens / max_tokens) * 100
-
-        if usage_pct >= 85:
-            return (True, f"CRITICAL: Context at {usage_pct:.1f}% (≥85%), delegation MANDATORY")
-        elif usage_pct >= 70:
-            return (True, f"WARNING: Context at {usage_pct:.1f}% (≥70%), delegation RECOMMENDED")
-        else:
-            return (False, f"OK: Context at {usage_pct:.1f}%")
-
-    def record_context(self, tokens: int) -> None:
-        """
-        Record current token usage.
-
-        Updates context tracking state with latest token count and timestamp.
-        Manual recording initially; automatic integration as future enhancement.
-
-        Args:
-            tokens: Current token usage count
-        """
-        state = self.load_state()
-        state["context"]["current_tokens"] = tokens
-        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
-        self.save_state(state)
-
-        print(f"✅ Context usage recorded: {tokens:,} tokens")
-
-        # Show delegation recommendation if needed
-        should_del, reason = self.should_delegate(state)
-        if should_del:
-            print(f"   ⚠️  {reason}")
-            print(f"   📖 See: .claude/workflows/16-subagent-delegation.md")
-
-    def check_context(self) -> None:
-        """
-        Check current context status and display delegation recommendation.
-
-        Shows current token usage, percentage, and whether delegation is
-        recommended based on thresholds.
-        """
-        state = self.load_state()
-        context = state.get("context", {})
-
-        current = context.get("current_tokens", 0)
-        max_tokens = context.get("max_tokens", 200000)
-        last_check = context.get("last_check_timestamp", "Never")
-
-        should_del, reason = self.should_delegate(state)
-
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📊 Context Status")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print(f"   Current: {current:,} / {max_tokens:,} tokens")
-        print(f"   Last check: {last_check}")
-        print(f"   Status: {reason}")
-
-        if should_del:
-            print()
-            print("📖 Recommendation: Delegate non-core tasks to subagent")
-            print("   See: .claude/workflows/16-subagent-delegation.md")
-            print()
-            print("   After delegating, record it:")
-            print("     ./scripts/workflow_gate.py record-delegation '<task_description>'")
-
-    def suggest_delegation(self) -> None:
-        """
-        Provide actionable guidance for subagent delegation.
-
-        Checks context status and provides detailed delegation instructions
-        if thresholds are exceeded.
-        """
-        state = self.load_state()
-        should_del, reason = self.should_delegate(state)
-
-        if not should_del:
-            print("✅ No delegation needed - context usage is healthy")
-            self.check_context()
-            return
-
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("⚠️  Delegation Recommended")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print(f"   {reason}")
-        print()
-        print("📖 Follow delegation workflow:")
-        print("   .claude/workflows/16-subagent-delegation.md")
-        print()
-        print("   Delegate tasks like:")
-        print("     - File search (Task with Explore agent)")
-        print("     - Code analysis (Task with general-purpose agent)")
-        print("     - Test creation (Task with general-purpose agent)")
-        print()
-        print("   After delegation, record it:")
-        print("     ./scripts/workflow_gate.py record-delegation '<task_description>'")
-
-    def record_delegation(self, task_description: str) -> None:
-        """
-        Record when work is delegated to subagent.
-
-        Appends delegation record to existing subagent_delegations field.
-        Resets context usage to 0 after delegation.
-
-        Args:
-            task_description: Description of delegated task
-        """
-        state = self.load_state()
-
-        # Reuse existing subagent_delegations field
-        delegation_record = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "task_description": task_description,
-            "current_step": state["step"],
-        }
-        state["subagent_delegations"].append(delegation_record)
-
-        # Reset context after delegation (Gemini decision)
-        state["context"]["current_tokens"] = 0
-        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
-
-        self.save_state(state)
-
-        print("✅ Delegation recorded and context reset")
-        print(f"   Task: {task_description}")
-        print(f"   Step: {state['step']}")
-        print(f"   Total delegations: {len(state['subagent_delegations'])}")
 
     def _has_tests(self, component: str) -> bool:
         """
@@ -825,6 +674,401 @@ class SmartTestRunner:
                 print(f"   Command: {self.get_test_command('commit')}")
 
 
+class DelegationRules:
+    """
+    Context monitoring and delegation recommendations.
+
+    Tracks conversation context usage and recommends delegation to specialized
+    agents when thresholds are exceeded. Supports operation-specific cost
+    projections and provides user-friendly guidance.
+
+    Thresholds (from CLAUDE.md):
+    - < 70%: ✅ OK - Continue normal workflow
+    - 70-84%: ⚠️ WARNING - Delegation RECOMMENDED
+    - ≥ 85%: 🚨 CRITICAL - Delegation MANDATORY
+    """
+
+    # Context thresholds (percentages)
+    CONTEXT_WARN_PCT = 70
+    CONTEXT_CRITICAL_PCT = 85
+
+    # Default max tokens (from environment or Claude Code default)
+    DEFAULT_MAX_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS", "200000"))
+
+    # Operation cost estimates (tokens)
+    # Source: docs/TASKS/P1T13_F4_PROGRESS.md:331-378
+    OPERATION_COSTS = {
+        "full_ci": 50000,  # Full CI suite + output analysis
+        "deep_review": 30000,  # Comprehensive codebase review
+        "multi_file_search": 20000,  # Broad grep/glob operations
+        "test_suite": 15000,  # Targeted test suite run
+        "code_analysis": 10000,  # Analyzing complex code sections
+        "simple_fix": 5000,  # Small targeted fixes
+    }
+
+    def __init__(
+        self,
+        load_state: Callable[[], dict],
+        save_state: Callable[[dict], None],
+    ) -> None:
+        """
+        Initialize DelegationRules with state management callables.
+
+        Args:
+            load_state: Callable that returns current workflow state dict
+            save_state: Callable that persists updated state dict
+
+        This dependency injection pattern enables easy testing with fake
+        state managers, mirroring SmartTestRunner's lazy import pattern.
+        """
+        self._load_state = load_state
+        self._save_state = save_state
+
+    def get_context_snapshot(self, state: dict | None = None) -> dict:
+        """
+        Get current context usage snapshot.
+
+        Args:
+            state: Optional state dict (loads if not provided)
+
+        Returns:
+            Dictionary with:
+            - current_tokens: int - Current token usage
+            - max_tokens: int - Maximum tokens available
+            - usage_pct: float - Usage percentage (0-100)
+            - last_check: str - ISO timestamp of last check
+            - error: str | None - Error message if calculation fails
+
+        Never raises exceptions - returns fail-safe defaults on errors.
+        """
+        if state is None:
+            try:
+                state = self._load_state()
+            except Exception as e:
+                print(f"⚠️  Warning: Could not load state: {e}")
+                print("   Using fail-safe defaults (0 tokens used)")
+                state = {}
+
+        # Get context data with defaults
+        context = state.get("context", {})
+        current_tokens = context.get("current_tokens", 0)
+        max_tokens = context.get("max_tokens", self.DEFAULT_MAX_TOKENS)
+        last_check = context.get("last_check_timestamp", "never")
+
+        # Calculate usage percentage with validation
+        if max_tokens <= 0:
+            return {
+                "current_tokens": current_tokens,
+                "max_tokens": max_tokens,
+                "usage_pct": 0.0,
+                "last_check": last_check,
+                "error": "Invalid max_tokens - please export CLAUDE_MAX_TOKENS",
+            }
+
+        usage_pct = (current_tokens / max_tokens) * 100.0
+
+        return {
+            "current_tokens": current_tokens,
+            "max_tokens": max_tokens,
+            "usage_pct": usage_pct,
+            "last_check": last_check,
+            "error": None,
+        }
+
+    def record_context(self, tokens: int) -> dict:
+        """
+        Record current context usage.
+
+        Args:
+            tokens: Current token count (clamped to >= 0)
+
+        Returns:
+            Updated context snapshot
+
+        Side effects:
+            - Updates .claude/workflow-state.json
+            - Prints warning if tokens exceed max
+        """
+        # Sanitize input
+        tokens = max(0, tokens)
+
+        try:
+            state = self._load_state()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load state: {e}")
+            print("   Context not recorded")
+            return self.get_context_snapshot({})
+
+        # Update context
+        if "context" not in state:
+            state["context"] = {}
+
+        state["context"]["current_tokens"] = tokens
+        state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+
+        # Ensure max_tokens is set
+        if "max_tokens" not in state["context"]:
+            state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
+
+        # Warn if exceeding max
+        if tokens > state["context"]["max_tokens"]:
+            print(f"⚠️  Warning: Token usage ({tokens}) exceeds max ({state['context']['max_tokens']})")
+            print("   Consider resetting context or delegating to subagent")
+
+        # Save state
+        try:
+            self._save_state(state)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save state: {e}")
+            print("   State changes not persisted")
+
+        return self.get_context_snapshot(state)
+
+    def should_delegate_context(
+        self, snapshot: dict | None = None
+    ) -> tuple[bool, str, float]:
+        """
+        Determine if delegation is recommended based on context usage.
+
+        Args:
+            snapshot: Optional context snapshot (fetches if not provided)
+
+        Returns:
+            Tuple of (should_delegate, reason, usage_pct)
+
+        Thresholds:
+            - < 70%: False, "OK - Continue normal workflow"
+            - 70-84%: True, "WARNING - Delegation RECOMMENDED"
+            - ≥ 85%: True, "CRITICAL - Delegation MANDATORY"
+        """
+        if snapshot is None:
+            snapshot = self.get_context_snapshot()
+
+        usage_pct = snapshot["usage_pct"]
+
+        if usage_pct < self.CONTEXT_WARN_PCT:
+            return False, "OK - Continue normal workflow", usage_pct
+        elif usage_pct < self.CONTEXT_CRITICAL_PCT:
+            return True, "WARNING - Delegation RECOMMENDED", usage_pct
+        else:
+            return True, "CRITICAL - Delegation MANDATORY", usage_pct
+
+    def should_delegate_operation(
+        self, operation: str, snapshot: dict | None = None
+    ) -> tuple[bool, str]:
+        """
+        Determine if operation should be delegated based on cost projection.
+
+        Args:
+            operation: Operation key (e.g., "full_ci", "deep_review")
+            snapshot: Optional context snapshot
+
+        Returns:
+            Tuple of (should_delegate, reason)
+
+        Rules:
+            - Always delegate if operation cost ≥ 50k tokens
+            - Delegate if current + operation would exceed 85% threshold
+            - Otherwise OK to proceed
+        """
+        if snapshot is None:
+            snapshot = self.get_context_snapshot()
+
+        # Get operation cost (default to 10k if unknown)
+        cost = self.OPERATION_COSTS.get(operation, 10000)
+
+        # Always delegate very expensive operations
+        if cost >= 50000:
+            return True, f"Operation '{operation}' requires {cost} tokens (always delegate ≥50k)"
+
+        # Project usage after operation
+        current = snapshot["current_tokens"]
+        max_tokens = snapshot["max_tokens"]
+        projected = current + cost
+        projected_pct = (projected / max_tokens) * 100.0 if max_tokens > 0 else 0
+
+        # Check if projection would exceed critical threshold
+        if projected_pct >= self.CONTEXT_CRITICAL_PCT:
+            return (
+                True,
+                f"Operation '{operation}' ({cost} tokens) would push usage to {projected_pct:.1f}% (≥85% critical)",
+            )
+
+        return False, f"Operation '{operation}' OK (projected {projected_pct:.1f}%)"
+
+    def suggest_delegation(
+        self, snapshot: dict | None = None, operation: str | None = None
+    ) -> str:
+        """
+        Build delegation suggestion message with guidance.
+
+        Args:
+            snapshot: Optional context snapshot
+            operation: Optional operation to check
+
+        Returns:
+            Formatted message with delegation guidance
+        """
+        if snapshot is None:
+            snapshot = self.get_context_snapshot()
+
+        should_delegate, reason, usage_pct = self.should_delegate_context(snapshot)
+
+        # Build status block
+        lines = [
+            "",
+            "=" * 60,
+            "  CONTEXT STATUS",
+            "=" * 60,
+        ]
+
+        # Show usage
+        status_emoji = "✅" if usage_pct < 70 else "⚠️" if usage_pct < 85 else "🚨"
+        lines.append(f"{status_emoji} Usage: {usage_pct:.1f}% ({snapshot['current_tokens']:,} / {snapshot['max_tokens']:,} tokens)")
+        lines.append(f"   {reason}")
+        lines.append("")
+
+        # Operation-specific guidance
+        if operation:
+            op_should_delegate, op_reason = self.should_delegate_operation(operation, snapshot)
+            if op_should_delegate:
+                lines.append(f"⚠️  Operation Guidance: {op_reason}")
+                lines.append("")
+
+        # Delegation recommendations
+        if should_delegate:
+            lines.append("RECOMMENDATION: Delegate non-core tasks to specialized agents")
+            lines.append("")
+            lines.append("See: .claude/workflows/16-subagent-delegation.md")
+            lines.append("")
+
+            # Add delegation template if operation specified
+            if operation:
+                template = self.get_delegation_template(operation)
+                if template:
+                    lines.append("Example Task delegation:")
+                    lines.append(template)
+                    lines.append("")
+
+        lines.append("=" * 60)
+
+        return "\n".join(lines)
+
+    def record_delegation(self, task_description: str) -> dict:
+        """
+        Record subagent delegation and reset context counters.
+
+        Args:
+            task_description: Description of delegated task
+
+        Returns:
+            Dictionary with delegation record count
+
+        Side effects:
+            - Appends to state["subagent_delegations"]
+            - Resets context.current_tokens to 0
+            - Updates last_delegation_timestamp
+        """
+        try:
+            state = self._load_state()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load state: {e}")
+            return {"count": 0, "error": str(e)}
+
+        # Initialize delegations list
+        if "subagent_delegations" not in state:
+            state["subagent_delegations"] = []
+
+        # Record delegation
+        delegation_record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "task_description": task_description,
+            "context_before_delegation": state.get("context", {}).get("current_tokens", 0),
+        }
+        state["subagent_delegations"].append(delegation_record)
+
+        # Reset context
+        if "context" not in state:
+            state["context"] = {}
+        state["context"]["current_tokens"] = 0
+        state["context"]["last_delegation_timestamp"] = delegation_record["timestamp"]
+
+        # Save state
+        try:
+            self._save_state(state)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save state: {e}")
+            return {"count": len(state["subagent_delegations"]), "error": str(e)}
+
+        return {
+            "count": len(state["subagent_delegations"]),
+            "reset_tokens": 0,
+            "timestamp": delegation_record["timestamp"],
+        }
+
+    def get_delegation_template(self, operation: str) -> str:
+        """
+        Get Task() delegation template for operation.
+
+        Args:
+            operation: Operation key (e.g., "full_ci", "deep_review")
+
+        Returns:
+            Template string or empty if no template available
+        """
+        templates = {
+            "full_ci": '''Task(
+    subagent_type="general-purpose",
+    description="Run full CI suite",
+    prompt="Run 'make ci-local' and report any failures with file:line references"
+)''',
+            "deep_review": '''Task(
+    subagent_type="general-purpose",
+    description="Deep codebase review",
+    prompt="Perform comprehensive review of [files/modules] for safety, architecture, and quality issues"
+)''',
+            "multi_file_search": '''Task(
+    subagent_type="Explore",
+    description="Multi-file search",
+    prompt="Search codebase for [pattern] and summarize findings with file:line references",
+    thoroughness="medium"
+)''',
+        }
+
+        return templates.get(operation, "")
+
+    def format_status(
+        self, snapshot: dict, reason: str, heading: str = "Context Status"
+    ) -> str:
+        """
+        Format status block for CLI output.
+
+        Args:
+            snapshot: Context snapshot
+            reason: Status reason string
+            heading: Optional heading override
+
+        Returns:
+            Formatted ASCII status block
+        """
+        usage_pct = snapshot["usage_pct"]
+        status_emoji = "✅" if usage_pct < 70 else "⚠️" if usage_pct < 85 else "🚨"
+
+        lines = [
+            "",
+            "=" * 60,
+            f"  {heading.upper()}",
+            "=" * 60,
+            f"{status_emoji} Usage: {usage_pct:.1f}% ({snapshot['current_tokens']:,} / {snapshot['max_tokens']:,} tokens)",
+            f"   {reason}",
+            f"   Last check: {snapshot['last_check']}",
+            "=" * 60,
+            "",
+        ]
+
+        return "\n".join(lines)
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -941,6 +1185,12 @@ Examples:
     try:
         gate = WorkflowGate()
 
+        # Instantiate DelegationRules with dependency injection
+        delegation_rules = DelegationRules(
+            load_state=gate.load_state,
+            save_state=gate.save_state,
+        )
+
         if args.command == "set-component":
             gate.set_component(args.name)
         elif args.command == "advance":
@@ -958,13 +1208,24 @@ Examples:
         elif args.command == "reset":
             gate.reset()
         elif args.command == "check-context":
-            gate.check_context()
+            snapshot = delegation_rules.get_context_snapshot()
+            status = delegation_rules.format_status(snapshot, snapshot.get("usage_pct", 0))
+            print(status)
         elif args.command == "record-context":
-            gate.record_context(args.tokens)
+            result = delegation_rules.record_context(args.tokens)
+            if result.get("error"):
+                print(f"Error: {result['error']}")
+            else:
+                print(f"✅ Context recorded: {result['current_tokens']:,} tokens ({result['usage_pct']:.1f}%)")
         elif args.command == "suggest-delegation":
-            gate.suggest_delegation()
+            suggestion = delegation_rules.suggest_delegation()
+            print(suggestion)
         elif args.command == "record-delegation":
-            gate.record_delegation(args.task_description)
+            result = delegation_rules.record_delegation(args.task_description)
+            if result.get("error"):
+                print(f"Error: {result['error']}")
+            else:
+                print(f"✅ Delegation recorded: {result['task_description']}")
 
         return 0
 
