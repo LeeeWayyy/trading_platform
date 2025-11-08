@@ -32,6 +32,7 @@ This runbook guides operators through migrating credentials from `.env` files to
 - [ ] **Migration script tested** (`python scripts/migrate_secrets.py --dry-run`)
 - [ ] **Rollback plan reviewed** (see "Rollback Procedure" section)
 - [ ] **Services health check passing** (`make test && make ci-local`)
+- [ ] **Emergency override documented** (`SECRET_ALLOW_ENV_IN_NON_LOCAL=1` enables `.env` fallback outside local)
 
 ---
 
@@ -352,6 +353,7 @@ This runbook guides operators through migrating credentials from `.env` files to
 3. **Revert to `EnvSecretManager`:**
    ```bash
    export SECRET_BACKEND=env
+   export SECRET_ALLOW_ENV_IN_NON_LOCAL=1  # Emergency override (required outside local envs)
    ```
 
 4. **Restart services:**

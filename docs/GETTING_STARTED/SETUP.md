@@ -194,6 +194,9 @@ cp .env.template .env
 ```
 
 **Note:** `.env.template` contains placeholders for secrets (commented out) and real configuration values. Only `.env` is gitignored.
+`create_secret_manager()` automatically loads `.env` from the current working directory.
+If you keep secrets in a different file, set `SECRET_DOTENV_PATH=/absolute/path/to/your.env`
+before starting any service.
 
 #### Step 2: Populate Secrets
 

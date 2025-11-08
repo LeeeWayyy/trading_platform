@@ -2,8 +2,8 @@
 
 import threading
 import time
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, Mock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 from hvac.exceptions import (
@@ -26,6 +26,12 @@ from libs.secrets.vault_backend import VaultSecretManager
 # ================================================================================
 # Fixtures
 # ================================================================================
+
+
+@pytest.fixture(autouse=True)
+def fast_retry_sleep(monkeypatch):
+    """Eliminate retry backoff delays in tests to keep the suite fast."""
+    monkeypatch.setattr("tenacity.nap.sleep", lambda *args, **kwargs: None)
 
 
 @pytest.fixture()
@@ -259,6 +265,17 @@ class TestVaultSecretManagerGetSecret:
 
         assert "unreachable" in str(exc_info.value).lower()
 
+    def test_get_secret_retries_before_failing(self, vault_secret_mgr, mock_hvac_client):
+        """Ensure get_secret retries three times on VaultDown."""
+        mock_hvac_client.secrets.kv.v2.read_secret_version.side_effect = VaultDown(
+            "Vault unreachable"
+        )
+
+        with pytest.raises(SecretAccessError):
+            vault_secret_mgr.get_secret("database/password")
+
+        assert mock_hvac_client.secrets.kv.v2.read_secret_version.call_count == 3
+
     def test_get_secret_vault_error(self, vault_secret_mgr, mock_hvac_client):
         """Test secret retrieval when Vault returns an error."""
         mock_hvac_client.secrets.kv.v2.read_secret_version.side_effect = VaultError(
@@ -281,25 +298,27 @@ class TestVaultSecretManagerListSecrets:
 
     def test_list_secrets_no_prefix(self, vault_secret_mgr, mock_hvac_client):
         """Test listing all secrets without prefix filter."""
-        mock_hvac_client.secrets.kv.v2.list_secrets.return_value = {
-            "data": {"keys": ["database/", "alpaca/"]}
-        }
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = [
+            {"data": {"keys": ["database/", "alpaca/"]}},  # root
+            {"data": {"keys": ["api_key", "api_secret"]}},  # alpaca leaf
+            {"data": {"keys": ["password", "archive/"]}},  # database branch
+            {"data": {"keys": ["old_password"]}},  # nested directory
+        ]
 
-        # Mock recursive calls
-        with patch.object(
-            vault_secret_mgr,
-            "list_secrets",
-            side_effect=[
-                # Initial call
-                ["database/password", "alpaca/api_key"],
-                # Recursive calls
-                ["database/password"],
-                ["alpaca/api_key"],
-            ],
-        ):
-            secrets = vault_secret_mgr.list_secrets()
+        secrets = vault_secret_mgr.list_secrets()
 
-        assert secrets == ["database/password", "alpaca/api_key"]
+        assert secrets == [
+            "alpaca/api_key",
+            "alpaca/api_secret",
+            "database/archive/old_password",
+            "database/password",
+        ]
+        assert mock_hvac_client.secrets.kv.v2.list_secrets.call_args_list == [
+            call(path="", mount_point="kv"),
+            call(path="alpaca", mount_point="kv"),
+            call(path="database", mount_point="kv"),
+            call(path="database/archive", mount_point="kv"),
+        ]
 
     def test_list_secrets_with_prefix(self, vault_secret_mgr, mock_hvac_client):
         """Test listing secrets with prefix filter."""
@@ -346,6 +365,17 @@ class TestVaultSecretManagerListSecrets:
             vault_secret_mgr.list_secrets()
 
         assert "unreachable" in str(exc_info.value).lower()
+
+    def test_list_secrets_retries_on_vault_down(self, vault_secret_mgr, mock_hvac_client):
+        """Ensure list_secrets retries three times on VaultDown."""
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = VaultDown(
+            "Vault unreachable"
+        )
+
+        with pytest.raises(SecretAccessError):
+            vault_secret_mgr.list_secrets(prefix="database/")
+
+        assert mock_hvac_client.secrets.kv.v2.list_secrets.call_count == 3
 
 
 # ================================================================================
@@ -657,9 +687,9 @@ class TestVaultSecretManagerCaching:
             "data": {"data": {"value": "cached_value"}}
         }
 
-        before = datetime.now()
+        before = datetime.now(UTC)
         vault_secret_mgr.get_secret("database/password")
-        after = datetime.now()
+        after = datetime.now(UTC)
 
         # Cache entry should have timestamp
         assert "database/password" in vault_secret_mgr._cache
@@ -817,3 +847,14 @@ class TestVaultSecretManagerErrorHandling:
             vault_secret_mgr.set_secret("database/password", "value")
 
         assert "unexpected error" in str(exc_info.value).lower()
+
+    def test_set_secret_retries_on_vault_down(self, vault_secret_mgr, mock_hvac_client):
+        """Ensure set_secret retries three times on VaultDown."""
+        mock_hvac_client.secrets.kv.v2.create_or_update_secret.side_effect = VaultDown(
+            "Vault unreachable"
+        )
+
+        with pytest.raises(SecretAccessError):
+            vault_secret_mgr.set_secret("database/password", "value")
+
+        assert mock_hvac_client.secrets.kv.v2.create_or_update_secret.call_count == 3

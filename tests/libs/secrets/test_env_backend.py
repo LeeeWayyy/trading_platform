@@ -18,7 +18,7 @@ import os
 import tempfile
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -526,9 +526,9 @@ class TestEnvSecretManagerCaching:
         os.environ["TEST_SECRET_1"] = "value1"
         manager = EnvSecretManager()
 
-        before_fetch = datetime.now()
+        before_fetch = datetime.now(UTC)
         manager.get_secret("TEST_SECRET_1")
-        after_fetch = datetime.now()
+        after_fetch = datetime.now(UTC)
 
         # Verify cache entry structure
         assert "TEST_SECRET_1" in manager._cache

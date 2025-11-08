@@ -15,6 +15,7 @@ Test Organization:
 """
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -112,6 +113,50 @@ class TestCreateSecretManagerBackendSelection:
                 create_secret_manager()
                 assert mock_env_backend.called, f"Failed for backend: {backend_name}"
 
+    @pytest.mark.unit()
+    @patch("libs.secrets.factory.EnvSecretManager")
+    def test_env_backend_loads_default_dotenv_when_present(
+        self, mock_env_backend: object, tmp_path: Path, monkeypatch
+    ) -> None:
+        """
+        EnvSecretManager should automatically load .env from the working directory when present.
+        """
+        monkeypatch.chdir(tmp_path)
+        dotenv_file = tmp_path / ".env"
+        dotenv_file.write_text("TEST_SECRET=1\n", encoding="utf-8")
+
+        with patch.dict(os.environ, {"SECRET_BACKEND": "env", "DEPLOYMENT_ENV": "local"}):
+            create_secret_manager()
+
+        assert mock_env_backend.called
+        kwargs = mock_env_backend.call_args.kwargs
+        assert kwargs.get("dotenv_path") == dotenv_file
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.factory.EnvSecretManager")
+    def test_env_backend_uses_secret_dotenv_path_override(
+        self, mock_env_backend: object, tmp_path: Path
+    ) -> None:
+        """
+        SECRET_DOTENV_PATH override should be respected when the file exists.
+        """
+        dotenv_file = tmp_path / "custom.env"
+        dotenv_file.write_text("TEST_SECRET=1\n", encoding="utf-8")
+
+        with patch.dict(
+            os.environ,
+            {
+                "SECRET_BACKEND": "env",
+                "DEPLOYMENT_ENV": "local",
+                "SECRET_DOTENV_PATH": str(dotenv_file),
+            },
+        ):
+            create_secret_manager()
+
+        assert mock_env_backend.called
+        kwargs = mock_env_backend.call_args.kwargs
+        assert kwargs.get("dotenv_path") == dotenv_file.resolve()
+
 
 class TestCreateSecretManagerProductionGuardrail:
     """Test production guardrail preventing EnvSecretManager in staging/production."""
@@ -161,6 +206,24 @@ class TestCreateSecretManagerProductionGuardrail:
             error_msg = str(exc_info.value)
             assert "EnvSecretManager not allowed in production environment" in error_msg
             assert "SECURITY VIOLATION" in error_msg
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.factory.EnvSecretManager")
+    def test_env_backend_allowed_with_override_flag(self, mock_env_backend: object) -> None:
+        """
+        SECRET_ALLOW_ENV_IN_NON_LOCAL overrides the guardrail (emergency-only).
+        """
+        with patch.dict(
+            os.environ,
+            {
+                "SECRET_BACKEND": "env",
+                "DEPLOYMENT_ENV": "staging",
+                "SECRET_ALLOW_ENV_IN_NON_LOCAL": "1",
+            },
+        ):
+            create_secret_manager()
+
+        assert mock_env_backend.called
 
     @pytest.mark.unit()
     def test_deployment_env_override_parameter(self) -> None:
@@ -225,6 +288,24 @@ class TestCreateSecretManagerErrorHandling:
             error_msg = str(exc_info.value)
             assert "Invalid SECRET_BACKEND: 'invalid_backend'" in error_msg
             assert "Valid options: 'vault', 'aws', 'env'" in error_msg
+
+    @pytest.mark.unit()
+    def test_secret_dotenv_path_missing_raises_error(self) -> None:
+        """
+        SECRET_DOTENV_PATH must point to an existing file.
+        """
+        with patch.dict(
+            os.environ,
+            {
+                "SECRET_BACKEND": "env",
+                "DEPLOYMENT_ENV": "local",
+                "SECRET_DOTENV_PATH": "/tmp/does-not-exist.env",
+            },
+        ):
+            with pytest.raises(SecretManagerError) as exc_info:
+                create_secret_manager()
+
+        assert "SECRET_DOTENV_PATH" in str(exc_info.value)
 
     @pytest.mark.unit()
     def test_empty_backend_name_defaults_to_env(self) -> None:
