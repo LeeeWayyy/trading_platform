@@ -38,7 +38,7 @@ See Also:
 import logging
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -194,7 +194,7 @@ class EnvSecretManager(SecretManager):
             # Check cache first
             if name in self._cache:
                 value, cached_at = self._cache[name]
-                if datetime.now() - cached_at < self._cache_ttl:
+                if datetime.now(UTC) - cached_at < self._cache_ttl:
                     logger.debug(
                         "Secret cache hit",
                         extra={"secret_name": name, "backend": "env"},
@@ -222,7 +222,7 @@ class EnvSecretManager(SecretManager):
 
             # Type narrowed: value is str here (None case raises above)
             # Cache the value
-            self._cache[name] = (value, datetime.now())
+            self._cache[name] = (value, datetime.now(UTC))
             logger.info(
                 "Secret loaded from environment",
                 extra={"secret_name": name, "backend": "env"},

@@ -8,7 +8,7 @@ This module implements the Abstract Factory Pattern for selecting secrets backen
 
 Production Guardrails:
     - EnvSecretManager is ONLY allowed when DEPLOYMENT_ENV="local" (default)
-    - Staging/production MUST use Vault or AWS Secrets Manager
+    - Staging/production MUST use Vault or AWS Secrets Manager unless an explicit override flag is set
     - Factory raises SecretManagerError if configuration is invalid
 
 Example Usage:
@@ -20,27 +20,66 @@ Example Usage:
 
     >>> os.environ["SECRET_BACKEND"] = "env"
     >>> os.environ["DEPLOYMENT_ENV"] = "production"
+    >>> os.environ["SECRET_ALLOW_ENV_IN_NON_LOCAL"] = "1"
     >>> secret_mgr = create_secret_manager()
-    SecretManagerError: EnvSecretManager not allowed in production environment
+    EnvSecretManager(...)  # override enabled for emergency rollback
 
 Environment Variables:
     SECRET_BACKEND (str):
         Backend selection: "vault", "aws", or "env" (default: "env")
     DEPLOYMENT_ENV (str):
         Environment name: "local", "staging", or "production" (default: "local")
+    SECRET_DOTENV_PATH (str, optional):
+        Absolute or relative path to a .env file for EnvSecretManager
+    SECRET_ALLOW_ENV_IN_NON_LOCAL (bool, optional):
+        Set to "true"/"1" to allow EnvSecretManager outside local environments (emergency use only)
 
 See Also:
     - docs/ADRs/0017-secrets-management.md - Architecture decisions
     - libs/secrets/manager.py - SecretManager interface
 """
 
+import logging
 import os
+from pathlib import Path
+from typing import Final
 
 from libs.secrets.aws_backend import AWSSecretsManager
 from libs.secrets.env_backend import EnvSecretManager
 from libs.secrets.exceptions import SecretManagerError
 from libs.secrets.manager import SecretManager
 from libs.secrets.vault_backend import VaultSecretManager
+
+logger = logging.getLogger(__name__)
+
+_TRUTHY_VALUES: Final[set[str]] = {"1", "true", "yes", "on"}
+
+
+def _is_truthy(value: str | None) -> bool:
+    """Return True when the provided environment variable looks truthy."""
+    return bool(value and value.strip().lower() in _TRUTHY_VALUES)
+
+
+def _resolve_dotenv_path() -> Path | None:
+    """
+    Resolve the .env file path to load for EnvSecretManager.
+
+    Priority:
+        1. SECRET_DOTENV_PATH (must exist, otherwise raise)
+        2. "./.env" (if present)
+        3. No .env file (EnvSecretManager will use current environment)
+    """
+    override_path = os.getenv("SECRET_DOTENV_PATH")
+    if override_path:
+        candidate = Path(override_path).expanduser().resolve()
+        if not candidate.is_file():
+            raise SecretManagerError(
+                f"SECRET_DOTENV_PATH is set to '{candidate}', but the file does not exist."
+            )
+        return candidate
+
+    default_path = Path.cwd() / ".env"
+    return default_path if default_path.is_file() else None
 
 
 def create_secret_manager(
@@ -111,17 +150,31 @@ def create_secret_manager(
     if not selected_backend:
         selected_backend = "env"
 
-    # Production guardrail: Prevent EnvSecretManager in staging/production
-    if selected_backend == "env" and selected_env != "local":
+    # Production guardrail: Prevent EnvSecretManager in staging/production unless override set
+    allow_env_override = _is_truthy(os.getenv("SECRET_ALLOW_ENV_IN_NON_LOCAL"))
+    if selected_backend == "env" and selected_env != "local" and not allow_env_override:
         raise SecretManagerError(
             f"EnvSecretManager not allowed in {selected_env} environment. "
             f"SECURITY VIOLATION: Plain-text .env files are LOCAL DEVELOPMENT ONLY. "
             f"Use SECRET_BACKEND='vault' or 'aws' for staging/production. "
             f"See docs/ADRs/0017-secrets-management.md for migration guide."
         )
+    if selected_backend == "env" and selected_env != "local" and allow_env_override:
+        logger.warning(
+            "EnvSecretManager override enabled for %s environment. "
+            "Use only for rollback/emergency scenarios.",
+            selected_env,
+        )
 
     # Backend selection with helpful error messages
     if selected_backend == "env":
+        dotenv_path = _resolve_dotenv_path()
+        if dotenv_path:
+            logger.info(
+                "Initializing EnvSecretManager with dotenv file",
+                extra={"dotenv_path": str(dotenv_path)},
+            )
+            return EnvSecretManager(dotenv_path=dotenv_path)
         return EnvSecretManager()
 
     elif selected_backend == "vault":
