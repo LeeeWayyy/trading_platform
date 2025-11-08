@@ -297,6 +297,11 @@ This runbook guides operators through migrating credentials from `.env` files to
 - ✅ No errors in logs
 - ✅ Trading continues without interruption
 
+**CRITICAL: Do NOT delete `.env` file yet!**
+- Keep `.env` as emergency rollback for 30 days minimum
+- Only delete after 30 days of confirmed stability (see Phase 6)
+- Backup `.env` before any changes: `cp .env .env.backup.$(date +%Y%m%d)`
+
 ---
 
 ### Phase 6: Cleanup (After 30 Days)

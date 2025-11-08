@@ -223,7 +223,11 @@ We will implement a **pluggable secrets management system** with the following c
 **Operational Mitigation:**
 - Detailed runbooks for migration, rotation, troubleshooting
 - Vault setup documented in ADR (step-by-step)
-- Rollback strategy: `SECRET_BACKEND=env` escape hatch
+- Rollback strategy: `SECRET_BACKEND=env` escape hatch (LOCAL DEV ONLY)
+  - **PRODUCTION GUARDRAIL**: EnvSecretManager MUST NOT be used in staging/production
+  - Services will fail startup if `SECRET_BACKEND=env` in non-local environments
+  - Enforce via environment variable: `DEPLOYMENT_ENV` (local/staging/production)
+  - Factory validation: Reject `env` backend if `DEPLOYMENT_ENV != local`
 
 **Performance Mitigation:**
 - 1-hour credential cache reduces backend calls to 1 per hour per service
