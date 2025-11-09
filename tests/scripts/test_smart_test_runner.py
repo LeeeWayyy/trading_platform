@@ -76,6 +76,18 @@ class TestShouldRunFullCI:
 
         assert result is False
 
+    def test_git_command_failed(self) -> None:
+        """Test fail-safe when git command fails (returns None)."""
+        runner = SmartTestRunner()
+        runner._get_staged_files = MagicMock(return_value=None)
+
+        result = runner.should_run_full_ci()
+
+        # Should run full CI as fail-safe
+        assert result is True
+        # Should set git_failed flag
+        assert runner._git_failed is True
+
     def test_core_package_changed(self) -> None:
         """Test when core package changed (requires full CI)."""
         runner = SmartTestRunner()
@@ -158,7 +170,7 @@ class TestGetTestTargets:
         assert result == ["tests/libs/allocation/"]
 
     def test_single_module_apps(self) -> None:
-        """Test single apps/ module (returns correct test path)."""
+        """Test single apps/ module (returns correct test path + integration tests)."""
         runner = SmartTestRunner()
         runner._get_staged_files = MagicMock(
             return_value=["apps/execution_gateway/order_placer.py"]
@@ -169,7 +181,8 @@ class TestGetTestTargets:
 
         result = runner.get_test_targets()
 
-        assert result == ["tests/apps/execution_gateway/"]
+        # App changes trigger both module tests and integration tests
+        assert result == ["tests/apps/execution_gateway/", "tests/integration/"]
 
     def test_multiple_modules(self) -> None:
         """Test multiple modules (returns sorted test paths)."""
@@ -190,9 +203,10 @@ class TestGetTestTargets:
 
         result = runner.get_test_targets()
 
-        # Should be sorted
+        # Should be sorted and include integration tests (due to apps/ change)
         assert result == [
             "tests/apps/execution_gateway/",
+            "tests/integration/",
             "tests/libs/allocation/",
             "tests/strategies/alpha_baseline/",
         ]
@@ -243,6 +257,16 @@ class TestGetTestCommand:
 
         result = runner.get_test_command(context="pr")
 
+        assert result == ["make", "ci-local"]
+
+    def test_git_failure_requires_full_ci(self) -> None:
+        """Test git command failure triggers fail-safe full CI."""
+        runner = SmartTestRunner()
+        runner._get_staged_files = MagicMock(return_value=None)
+
+        result = runner.get_test_command(context="commit")
+
+        # Should return full CI command as fail-safe
         assert result == ["make", "ci-local"]
 
     def test_core_package_requires_full_ci(self) -> None:

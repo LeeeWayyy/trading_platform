@@ -626,18 +626,49 @@ class SmartTestRunner:
             self._requires_full_ci = lambda files: True
             self._detect_changed_modules = lambda files: set()
 
+        # Cache git result to avoid multiple calls (prevents race conditions)
+        self._staged_files_cache: list[str] | None | bool = False  # False = not fetched
+        self._git_failed = False  # Track if git command failed
+
+    def _get_cached_staged_files(self) -> list[str] | None:
+        """
+        Get staged files with caching to prevent multiple git calls.
+
+        Returns:
+            List of staged files, or None if git failed.
+            Caches result for subsequent calls.
+        """
+        # Return cached result if already fetched
+        if self._staged_files_cache is not False:
+            return self._staged_files_cache  # type: ignore
+
+        # Fetch from git
+        result = self._get_staged_files()
+
+        # Cache result
+        self._staged_files_cache = result
+        self._git_failed = (result is None)
+
+        return result
+
     def should_run_full_ci(self) -> bool:
         """
         Determine if full CI should run.
 
         Full CI runs if:
+        - Git command failed (fail-safe: can't determine changes)
         - Any CORE_PACKAGE changed (libs/, config/, infra/, tests/fixtures/, scripts/)
         - More than 5 modules changed (likely a refactor)
 
         Returns:
             True if full CI required, False if targeted tests OK
         """
-        staged_files = self._get_staged_files()
+        staged_files = self._get_cached_staged_files()
+
+        # Fail-safe: If git failed (None), run full CI
+        if staged_files is None:
+            return True
+
         if not staged_files:
             # No changes = no tests needed (edge case)
             return False
@@ -654,11 +685,14 @@ class SmartTestRunner:
         1. Test file changes - runs the changed test files directly
         2. Code changes - runs corresponding test directories
         3. Integration tests - runs tests/integration/ for app changes
+        4. Git failures - returns empty list (triggers full CI via should_run_full_ci)
 
         Returns:
             List of test paths (e.g., ["tests/libs/allocation/", "tests/scripts/test_workflow_gate.py"])
+            Empty list if no files staged or if git command failed
         """
-        staged_files = self._get_staged_files()
+        staged_files = self._get_cached_staged_files()
+        # Handle both None (git failed) and empty list (no changes)
         if not staged_files:
             return []
 
@@ -717,7 +751,10 @@ class SmartTestRunner:
         """Print test strategy recommendation to user."""
         if self.should_run_full_ci():
             print("🔍 Full CI Required")
-            print("   Reason: Core package changed OR >5 modules changed")
+            if self._git_failed:
+                print("   Reason: Git command failed (fail-safe: running full CI)")
+            else:
+                print("   Reason: Core package changed OR >5 modules changed")
             print(f"   Command: make ci-local")
         else:
             test_targets = self.get_test_targets()
@@ -1348,8 +1385,8 @@ class PlanningWorkflow:
             if line.strip().startswith("# "):
                 task_title = line.strip()[2:].strip()  # Remove "# " prefix
                 # Remove task ID prefix if present (e.g., "# P1T14: Title" -> "Title")
-                if ":" in task_title:
-                    task_title = task_title.split(":", 1)[1].strip()
+                # Use regex to remove only the task ID prefix, not colons within title
+                task_title = re.sub(r"^[A-Z0-9\-_]+:\s*", "", task_title)
                 break
 
         update_task_state_script = self._project_root / "scripts" / "update_task_state.py"
@@ -1394,6 +1431,7 @@ class PlanningWorkflow:
 
         Creates a new task document in docs/TASKS/ with standardized format.
         Loads template from 00-PLANNING_WORKFLOW_TEMPLATE.md for maintainability.
+        Falls back to embedded template if file not found (e.g., in test environments).
 
         Args:
             task_id: Task identifier
@@ -1407,20 +1445,57 @@ class PlanningWorkflow:
         # Ensure tasks directory exists
         self._tasks_dir.mkdir(parents=True, exist_ok=True)
 
-        # Load template
-        template_file = self._tasks_dir / "00-PLANNING_WORKFLOW_TEMPLATE.md"
-        if not template_file.exists():
-            # Fallback: Generate error if template missing
-            raise FileNotFoundError(
-                f"Task template not found: {template_file}\n"
-                "Expected: docs/TASKS/00-PLANNING_WORKFLOW_TEMPLATE.md"
-            )
-
-        with open(template_file, "r") as f:
-            template_content = f.read()
-
         # Generate task filename
         task_file = self._tasks_dir / f"{task_id}_TASK.md"
+
+        # Load template from file if available, else use embedded fallback
+        template_file = self._tasks_dir / "00-PLANNING_WORKFLOW_TEMPLATE.md"
+        if template_file.exists():
+            with open(template_file, "r") as f:
+                template_content = f.read()
+        else:
+            # Fallback template for test environments or when file missing
+            template_content = """# {task_id}: {title}
+
+**Status:** DRAFT
+**Estimated Hours:** {estimated_hours}h
+**Created:** {created_date}
+
+## Description
+
+{description}
+
+## Components
+
+<!-- List logical components here -->
+<!-- Example: -->
+<!-- - Component 1: Description (Xh) -->
+<!-- - Component 2: Description (Yh) -->
+
+## Acceptance Criteria
+
+<!-- List acceptance criteria here -->
+<!-- Example: -->
+<!-- - [ ] Criterion 1 -->
+<!-- - [ ] Criterion 2 -->
+
+## Implementation Notes
+
+<!-- Add implementation notes here -->
+
+## Testing Strategy
+
+<!-- Describe testing approach -->
+
+## Dependencies
+
+<!-- List dependencies or blockers -->
+
+---
+
+**Note:** This task document was generated by PlanningWorkflow.
+Request task creation review via .claude/workflows/02-planning.md before starting work.
+"""
 
         # Replace placeholders
         content = template_content.format(

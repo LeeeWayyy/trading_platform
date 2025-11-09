@@ -18,7 +18,7 @@ Date: 2025-11-07
 
 import subprocess
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Optional
 
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -34,13 +34,14 @@ CORE_PACKAGES = {
 }
 
 
-def get_staged_files() -> List[str]:
+def get_staged_files() -> Optional[List[str]]:
     """
     Get list of staged files from git.
 
     Returns:
         List of file paths relative to project root.
-        Empty list if no files staged or if not in a git repository.
+        Empty list if no files staged.
+        None if git command failed (fail-safe: triggers full CI).
 
     Example:
         >>> get_staged_files()
@@ -58,8 +59,9 @@ def get_staged_files() -> List[str]:
         files = result.stdout.strip().split("\n")
         return [f for f in files if f]  # Filter empty strings
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        # Not in a git repo, git command failed, or timed out
-        return []
+        # Git command failed or timed out
+        # Return None to trigger fail-safe full CI (not empty list)
+        return None
 
 
 def detect_changed_modules(files: List[str]) -> Set[str]:

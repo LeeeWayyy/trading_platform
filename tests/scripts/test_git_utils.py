@@ -57,12 +57,13 @@ class TestGetStagedFiles:
 
     @patch("scripts.git_utils.subprocess.run")
     def test_get_staged_files_git_error(self, mock_run: MagicMock) -> None:
-        """Test when git command fails (not a git repo)."""
+        """Test when git command fails (returns None to trigger fail-safe full CI)."""
         mock_run.side_effect = subprocess.CalledProcessError(128, "git")
 
         result = get_staged_files()
 
-        assert result == []
+        # Should return None on git error to trigger fail-safe full CI
+        assert result is None
 
     @patch("scripts.git_utils.subprocess.run")
     def test_get_staged_files_filters_empty_lines(self, mock_run: MagicMock) -> None:
