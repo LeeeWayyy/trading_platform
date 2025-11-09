@@ -198,8 +198,8 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 
 ```bash
 # 1. Plan & start task
-./scripts/workflow_gate.py create-task --id P1T14 --title "..." --hours 6
-./scripts/workflow_gate.py start-task P1T14
+./scripts/workflow_gate.py create-task --id P1T14 --title "Feature Title" --description "Detailed description of task" --hours 6
+./scripts/workflow_gate.py start-task P1T14 feature/P1T14-task-branch
 
 # 2. For each component (4-step pattern auto-enforced)
 ./scripts/workflow_gate.py set-component "Component Name"

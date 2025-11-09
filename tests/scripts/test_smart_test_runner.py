@@ -243,7 +243,7 @@ class TestGetTestCommand:
 
         result = runner.get_test_command(context="pr")
 
-        assert result == "make ci-local"
+        assert result == ["make", "ci-local"]
 
     def test_core_package_requires_full_ci(self) -> None:
         """Test core package change requires full CI even on commit."""
@@ -253,7 +253,7 @@ class TestGetTestCommand:
 
         result = runner.get_test_command(context="commit")
 
-        assert result == "make ci-local"
+        assert result == ["make", "ci-local"]
 
     def test_no_changes_returns_echo(self) -> None:
         """Test no changes returns echo message."""
@@ -264,8 +264,7 @@ class TestGetTestCommand:
 
         result = runner.get_test_command(context="commit")
 
-        assert "echo" in result
-        assert "No Python tests needed" in result
+        assert result == ["echo", "No Python tests needed (no code changes detected)"]
 
     def test_targeted_tests_single_module(self) -> None:
         """Test targeted tests for single module."""
@@ -278,7 +277,7 @@ class TestGetTestCommand:
 
         result = runner.get_test_command(context="commit")
 
-        assert result == "make test ARGS='tests/libs/allocation/'"
+        assert result == ["poetry", "run", "pytest", "tests/libs/allocation/"]
 
     def test_targeted_tests_multiple_modules(self) -> None:
         """Test targeted tests for multiple modules."""
@@ -296,7 +295,9 @@ class TestGetTestCommand:
         result = runner.get_test_command(context="commit")
 
         # Should include both paths (order may vary due to set)
-        assert "make test ARGS=" in result
+        assert result[0] == "poetry"
+        assert result[1] == "run"
+        assert result[2] == "pytest"
         assert "tests/libs/allocation/" in result
         assert "tests/apps/execution_gateway/" in result
 
@@ -345,7 +346,7 @@ class TestPrintTestStrategy:
         assert "Modules:" in captured.out
         assert "tests/libs/allocation/" in captured.out
         assert "Command:" in captured.out
-        assert "make test ARGS=" in captured.out
+        assert "pytest" in captured.out
 
 
 class TestSmartTestRunnerEdgeCases:
@@ -361,7 +362,7 @@ class TestSmartTestRunnerEdgeCases:
 
         # Fail-safe: should force full CI when git_utils unavailable
         assert runner.should_run_full_ci() is True
-        assert runner.get_test_command(context="commit") == "make ci-local"
+        assert runner.get_test_command(context="commit") == ["make", "ci-local"]
 
     def test_empty_module_set(self) -> None:
         """Test handling of empty module set from detect_changed_modules."""
@@ -374,8 +375,7 @@ class TestSmartTestRunnerEdgeCases:
         command = runner.get_test_command(context="commit")
 
         assert targets == []
-        assert "echo" in command
-        assert "No Python tests needed" in command
+        assert command == ["echo", "No Python tests needed (no code changes detected)"]
 
     def test_context_default_value(self) -> None:
         """Test get_test_command with default context parameter."""
@@ -389,7 +389,7 @@ class TestSmartTestRunnerEdgeCases:
         # Default context should be "commit"
         result = runner.get_test_command()
 
-        assert "make test ARGS=" in result
+        assert result == ["poetry", "run", "pytest", "tests/libs/allocation/"]
 
 
 class TestSmartTestRunnerIntegration:
@@ -423,4 +423,4 @@ class TestSmartTestRunnerIntegration:
 
         # Should require full CI (libs/ is core package)
         assert runner.should_run_full_ci() is True
-        assert runner.get_test_command(context="commit") == "make ci-local"
+        assert runner.get_test_command(context="commit") == ["make", "ci-local"]

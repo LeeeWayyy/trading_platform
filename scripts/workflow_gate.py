@@ -28,6 +28,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -349,7 +350,8 @@ class WorkflowGate:
             state["commit_history"].append(commit_hash)
         # Prune history to last 100 commits to prevent file growth
         state["commit_history"] = state["commit_history"][-100:]
-        state["last_commit_hash"] = commit_hash  # Kept for backward compatibility
+        # Remove deprecated last_commit_hash field (state file hygiene)
+        state.pop("last_commit_hash", None)
         state["step"] = "implement"  # Ready for next component
         state["zen_review"] = {}
         state["ci_passed"] = False
@@ -403,8 +405,10 @@ class WorkflowGate:
         print(f"  CI: {ci_status}")
         print()
 
-        if state["last_commit_hash"]:
-            print(f"Last Commit: {state['last_commit_hash'][:8]}")
+        # Show latest commit from history (replaces deprecated last_commit_hash)
+        if state.get("commit_history"):
+            latest_commit = state["commit_history"][-1]
+            print(f"Last Commit: {latest_commit[:8]}")
             print()
 
         # Show available actions
@@ -647,7 +651,7 @@ class SmartTestRunner:
 
         return sorted(test_paths)
 
-    def get_test_command(self, context: str = "commit") -> str:
+    def get_test_command(self, context: str = "commit") -> list[str]:
         """
         Get appropriate test command based on context.
 
@@ -655,21 +659,21 @@ class SmartTestRunner:
             context: "commit" for progressive commits, "pr" for pull requests
 
         Returns:
-            Shell command to run tests
+            Command as list of arguments (safe for subprocess.run without shell=True)
         """
         if context == "pr" or self.should_run_full_ci():
             # Full CI for PRs or when core packages changed
-            return "make ci-local"
+            return ["make", "ci-local"]
 
         # Targeted tests for commits
         test_targets = self.get_test_targets()
         if not test_targets:
             # No test targets = no Python changes
-            return "echo 'No Python tests needed (no code changes detected)'"
+            return ["echo", "No Python tests needed (no code changes detected)"]
 
-        # Run targeted tests
-        targets_str = " ".join(test_targets)
-        return f"make test ARGS='{targets_str}'"
+        # Run targeted tests via poetry (ensures correct interpreter and dependencies)
+        # CRITICAL: Must use poetry run to match CI environment and dependency versions
+        return ["poetry", "run", "pytest"] + test_targets
 
     def print_test_strategy(self) -> None:
         """Print test strategy recommendation to user."""
@@ -684,7 +688,8 @@ class SmartTestRunner:
             else:
                 print("🎯 Targeted Testing")
                 print(f"   Modules: {', '.join(test_targets)}")
-                print(f"   Command: {self.get_test_command('commit')}")
+                cmd_list = self.get_test_command('commit')
+                print(f"   Command: {' '.join(cmd_list)}")
 
 
 class DelegationRules:
@@ -1298,18 +1303,31 @@ class PlanningWorkflow:
         task_doc = self._load_task_doc(task_id)
         components = self._extract_components(task_doc)
 
+        # Extract task title from document (first # heading)
+        task_title = "Unknown Task"
+        for line in task_doc.split("\n"):
+            if line.strip().startswith("# "):
+                task_title = line.strip()[2:].strip()  # Remove "# " prefix
+                # Remove task ID prefix if present (e.g., "# P1T14: Title" -> "Title")
+                if ":" in task_title:
+                    task_title = task_title.split(":", 1)[1].strip()
+                break
+
         update_task_state_script = self._project_root / "scripts" / "update_task_state.py"
         if update_task_state_script.exists():
-            try:
-                result = subprocess.run([
-                    sys.executable, str(update_task_state_script), "start",
-                    "--task", task_id,
-                    "--branch", branch_name,
-                    "--components", str(len(components))
-                ], cwd=self._project_root, capture_output=True, text=True, check=True)
-            except subprocess.CalledProcessError as e:
-                print(f"⚠️  Warning: Task state update failed: {e.stderr}")
-                print("   Continuing without task state tracking...")
+            # Calculate task file path
+            task_file = self._tasks_dir / f"{task_id}_TASK.md"
+
+            # Fail loudly if task state update fails (prevents inconsistent state)
+            # CRITICAL: Task tracking and workflow must stay synchronized
+            subprocess.run([
+                sys.executable, str(update_task_state_script), "start",
+                "--task", task_id,
+                "--title", task_title,
+                "--branch", branch_name,
+                "--task-file", str(task_file),
+                "--components", str(len(components))
+            ], cwd=self._project_root, capture_output=True, text=True, check=True)
 
         # Initialize workflow state (delegate to WorkflowGate for atomic writes)
         self._workflow_gate.reset()  # Clean slate
@@ -1465,21 +1483,29 @@ Request task creation review via .claude/workflows/13-task-creation-review.md be
             # Parse component line
             if in_components_section and line.strip().startswith("-"):
                 # Extract component name and hours
-                # Format: - Component name (Xh)
+                # Format: - Component name (Xh) or - Component name (X hours)
                 content = line.strip()[1:].strip()  # Remove leading "- "
 
-                # Extract hours if present
+                # Extract hours using more robust regex pattern
+                # Matches: (2h), (2 h), (2h ), (2 hours), (2.5h), etc.
+                hours_pattern = r'\((\d+(?:\.\d+)?)\s*(?:h|hours?)\s*\)'
+                match = re.search(hours_pattern, content, re.IGNORECASE)
+
                 hours = 0.0
-                if "(" in content and "h)" in content:
-                    hours_str = content[content.rfind("(") + 1:content.rfind("h)")].strip()
+                if match:
+                    hours_str = match.group(1)
                     try:
                         hours = float(hours_str)
+                        # Remove hours from name
+                        name = content[:match.start()].strip()
                     except ValueError:
+                        print(f"⚠️  Warning: Failed to parse hours from '{content}' - defaulting to 0h")
+                        name = content
                         hours = 0.0
-
-                    # Remove hours from name
-                    name = content[:content.rfind("(")].strip()
                 else:
+                    # No hours found - check if it looks like it might have hours
+                    if '(' in content and ('h' in content.lower() or 'hour' in content.lower()):
+                        print(f"⚠️  Warning: Line appears to contain hours but couldn't parse: '{content}'")
                     name = content
 
                 components.append({
@@ -1502,26 +1528,61 @@ class UnifiedReviewSystem:
     Date: 2025-11-08
     """
 
-    def __init__(self, state_file: Path = STATE_FILE):
+    def __init__(
+        self,
+        workflow_gate: "WorkflowGate | None" = None,
+        state_file: Path = STATE_FILE
+    ):
         """
         Initialize unified review system.
 
         Args:
-            state_file: Path to workflow state JSON file
+            workflow_gate: WorkflowGate instance for centralized state management
+                (default: None, creates own state management - deprecated for new code)
+            state_file: Path to workflow state JSON file (only used if workflow_gate is None)
+
+        Note:
+            Dependency injection pattern prevents state race conditions.
+            When workflow_gate is provided, all state operations use atomic writes.
         """
+        self._workflow_gate = workflow_gate
         self._state_file = state_file
         self._project_root = Path(__file__).parent.parent
 
     def _load_state(self) -> dict:
-        """Load workflow state from JSON file."""
+        """
+        Load workflow state from JSON file.
+
+        Delegates to WorkflowGate if available for atomic operations.
+        Falls back to direct file I/O only when workflow_gate is None.
+        """
+        if self._workflow_gate:
+            return self._workflow_gate.load_state()
+
+        # Legacy fallback for tests without workflow_gate
         if not self._state_file.exists():
             return {}
 
-        with open(self._state_file, 'r') as f:
-            return json.load(f)
+        try:
+            with open(self._state_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"⚠️  Warning: Failed to parse review state file: {e}")
+            print(f"   Initializing fresh state...")
+            return {}
 
     def _save_state(self, state: dict) -> None:
-        """Save workflow state to JSON file."""
+        """
+        Save workflow state to JSON file.
+
+        Delegates to WorkflowGate if available for atomic writes.
+        Falls back to direct file I/O only when workflow_gate is None.
+        """
+        if self._workflow_gate:
+            self._workflow_gate.save_state(state)
+            return
+
+        # Legacy fallback for tests without workflow_gate
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self._state_file, 'w') as f:
             json.dump(state, f, indent=2)
@@ -1726,16 +1787,27 @@ class UnifiedReviewSystem:
 
             # Log to PR via gh pr comment
             try:
-                subprocess.run(
+                result = subprocess.run(
                     [
                         "gh", "pr", "comment", "--body",
                         f"⚠️ REVIEW OVERRIDE (LOW severity only):\n{justification}\n\nDeferred LOW issues: {len(low_issues)}"
                     ],
                     check=False,  # Degrade gracefully if gh unavailable
-                    capture_output=True
+                    capture_output=True,
+                    text=True,
+                    cwd=self._project_root
                 )
-            except Exception:
-                pass  # Non-critical if PR comment fails
+                if result.returncode == 0:
+                    print("✅ Override logged to PR comment")
+                else:
+                    print(f"⚠️  Failed to post PR comment: {result.stderr.strip()}")
+                    print("   (Override still recorded locally)")
+            except FileNotFoundError:
+                print("⚠️  gh CLI not found - PR comment not posted")
+                print("   (Override still recorded locally)")
+            except Exception as e:
+                print(f"⚠️  Failed to post PR comment: {e}")
+                print("   (Override still recorded locally)")
 
             # Persist override in state
             review_state["override"] = {
@@ -1782,13 +1854,24 @@ class DebugRescue:
     TIME_LIMIT_MINUTES = 30
     HISTORY_MAX_SIZE = 50
 
-    def __init__(self, state_file: Path = STATE_FILE):
+    def __init__(
+        self,
+        workflow_gate: "WorkflowGate | None" = None,
+        state_file: Path = STATE_FILE
+    ):
         """
         Initialize debug rescue system.
 
         Args:
-            state_file: Path to workflow state JSON file
+            workflow_gate: WorkflowGate instance for centralized state management
+                (default: None, creates own state management - deprecated for new code)
+            state_file: Path to workflow state JSON file (only used if workflow_gate is None)
+
+        Note:
+            Dependency injection pattern prevents state race conditions.
+            When workflow_gate is provided, all state operations use atomic writes.
         """
+        self._workflow_gate = workflow_gate
         self._state_file = state_file
         self._project_root = Path(__file__).parent.parent
 
@@ -1796,9 +1879,16 @@ class DebugRescue:
         """
         Load workflow state from JSON file.
 
+        Delegates to WorkflowGate if available for atomic operations.
+        Falls back to direct file I/O only when workflow_gate is None.
+
         Returns:
             State dict, or empty dict if file doesn't exist or is corrupted
         """
+        if self._workflow_gate:
+            return self._workflow_gate.load_state()
+
+        # Legacy fallback for tests without workflow_gate
         if not self._state_file.exists():
             return {}
 
@@ -1815,9 +1905,17 @@ class DebugRescue:
         """
         Save workflow state to JSON file.
 
+        Delegates to WorkflowGate if available for atomic writes.
+        Falls back to direct file I/O only when workflow_gate is None.
+
         Args:
             state: State dict to save
         """
+        if self._workflow_gate:
+            self._workflow_gate.save_state(state)
+            return
+
+        # Legacy fallback for tests without workflow_gate
         try:
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._state_file, 'w') as f:
@@ -1926,8 +2024,10 @@ class DebugRescue:
                         True,
                         f"Spent {duration:.1f} minutes in debug attempts without progress"
                     )
-            except (ValueError, KeyError):
-                pass  # Timestamp parsing failed, skip this check
+            except (ValueError, KeyError) as e:
+                # Timestamp parsing failed - warn but continue with other checks
+                print(f"⚠️  Warning: Time-based loop detection failed (malformed timestamp): {e}")
+                print("   Continuing with other loop detection checks...")
 
         return (False, "No loop detected")
 
@@ -1951,8 +2051,9 @@ class DebugRescue:
                 timeout=10
             )
             return result.stdout.strip()
-        except Exception:
-            # Catch all exceptions (git errors, timeouts, etc.)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+            # Catch specific exceptions and log a warning
+            print(f"⚠️  Warning: Could not get recent commits: {e}")
             return "(git log unavailable)"
 
     def request_debug_rescue(
@@ -2195,6 +2296,34 @@ Examples:
         help="Test file to debug (optional, auto-detects if omitted)"
     )
 
+    # Component 2: SmartTestRunner
+    run_ci_parser = subparsers.add_parser(
+        "run-ci",
+        help="Run smart CI tests (targeted for commits, full for PRs)"
+    )
+    run_ci_parser.add_argument(
+        "scope",
+        choices=["commit", "pr"],
+        help="CI scope: commit (smart selection) or pr (full suite)"
+    )
+
+    # Component 4: PlanningWorkflow
+    create_task_parser = subparsers.add_parser(
+        "create-task",
+        help="Create new task with zen-mcp review"
+    )
+    create_task_parser.add_argument("--id", required=True, help="Task ID (e.g., P1T14)")
+    create_task_parser.add_argument("--title", required=True, help="Task title")
+    create_task_parser.add_argument("--description", required=True, help="Task description")
+    create_task_parser.add_argument("--hours", type=float, required=True, help="Estimated hours")
+
+    start_task_parser = subparsers.add_parser(
+        "start-task",
+        help="Start task and update state"
+    )
+    start_task_parser.add_argument("task_id", help="Task ID to start")
+    start_task_parser.add_argument("branch_name", help="Git branch name for task")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -2228,7 +2357,8 @@ Examples:
             gate.reset()
         elif args.command == "check-context":
             snapshot = delegation_rules.get_context_snapshot()
-            status = delegation_rules.format_status(snapshot, snapshot.get("usage_pct", 0))
+            should_delegate, reason, _ = delegation_rules.should_delegate_context(snapshot)
+            status = delegation_rules.format_status(snapshot, reason)
             print(status)
         elif args.command == "record-context":
             result = delegation_rules.record_context(args.tokens)
@@ -2246,14 +2376,19 @@ Examples:
             else:
                 print(f"✅ Delegation recorded: {result['task_description']}")
         elif args.command == "request-review":
-            # Instantiate UnifiedReviewSystem
-            review_system = UnifiedReviewSystem()
+            # Instantiate UnifiedReviewSystem with central WorkflowGate
+            # (prevents state race conditions - see iteration 4 HIGH severity fix)
+            review_system = UnifiedReviewSystem(workflow_gate=gate)
 
             # Prepare arguments
             override_justification = None
             if args.override:
                 if not args.justification:
                     print("❌ Error: --override requires --justification")
+                    return 1
+                if args.iteration < 3:
+                    print("❌ Error: --override can only be used with --iteration 3 (final iteration)")
+                    print("   Reason: Overrides only apply after multiple independent review attempts")
                     return 1
                 override_justification = args.justification
 
@@ -2270,8 +2405,9 @@ Examples:
                 return 1
 
         elif args.command == "debug-rescue":
-            # Instantiate DebugRescue
-            debug_rescue = DebugRescue()
+            # Instantiate DebugRescue with central WorkflowGate
+            # (prevents state race conditions - see iteration 4 HIGH severity fix)
+            debug_rescue = DebugRescue(workflow_gate=gate)
 
             # Request rescue
             result = debug_rescue.request_debug_rescue(test_file=args.test_file)
@@ -2282,6 +2418,73 @@ Examples:
                 return 1
 
             # Success - guidance printed by request_debug_rescue()
+            return 0
+
+        elif args.command == "run-ci":
+            # Instantiate SmartTestRunner (no arguments)
+            smart_runner = SmartTestRunner()
+
+            # Get test command based on scope
+            context = args.scope  # "commit" or "pr"
+            command_list = smart_runner.get_test_command(context=context)
+
+            # Execute command from project root (prevents path resolution issues)
+            print(f"📋 Running {context} CI tests...")
+            print(f"▶️  Command: {' '.join(command_list)}\n")
+
+            try:
+                # CRITICAL: Execute from PROJECT_ROOT so pytest/make can resolve paths correctly
+                result = subprocess.run(command_list, cwd=PROJECT_ROOT)
+            except FileNotFoundError:
+                print(f"\n❌ Error: Command not found: '{command_list[0]}'")
+                print(f"   Make sure {command_list[0]} is installed and in PATH")
+                if command_list[0] in ("pytest", "poetry"):
+                    print("   Install with: pip install poetry (then: poetry install)")
+                elif command_list[0] == "make":
+                    print("   Install with: brew install make (macOS) or apt-get install build-essential (Linux)")
+                gate.record_ci(passed=False)
+                return 1
+
+            # Record CI result
+            if result.returncode == 0:
+                gate.record_ci(passed=True)
+                print("\n✅ CI passed")
+                return 0
+            else:
+                gate.record_ci(passed=False)
+                print("\n❌ CI failed")
+                return 1
+
+        elif args.command == "create-task":
+            # Instantiate PlanningWorkflow
+            planning = PlanningWorkflow(workflow_gate=gate)
+
+            # Create task with review
+            task_file_path = planning.create_task_with_review(
+                task_id=args.id,
+                title=args.title,
+                description=args.description,
+                estimated_hours=args.hours
+            )
+
+            print(f"✅ Task created: {args.id}")
+            print(f"📄 Task file: {task_file_path}")
+            if args.hours > 8:
+                print(f"⚠️  Task >8h - consider splitting into subfeatures")
+            return 0
+
+        elif args.command == "start-task":
+            # Instantiate PlanningWorkflow
+            planning = PlanningWorkflow(workflow_gate=gate)
+
+            # Start task with state integration
+            planning.start_task_with_state(
+                task_id=args.task_id,
+                branch_name=args.branch_name
+            )
+
+            print(f"✅ Task started: {args.task_id}")
+            print(f"📂 Branch: {args.branch_name}")
             return 0
 
         return 0

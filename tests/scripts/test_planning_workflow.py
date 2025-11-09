@@ -388,7 +388,7 @@ class TestStartTaskWithState:
 
     @patch("scripts.workflow_gate.subprocess.run")
     def test_start_task_handles_update_state_failure(self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-        """Test task start gracefully handles update_task_state.py failure."""
+        """Test task start FAILS LOUDLY when update_task_state.py fails (prevents inconsistent state)."""
         # Create stub update_task_state.py script
         scripts_dir = tmp_path / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
@@ -418,17 +418,14 @@ class TestStartTaskWithState:
 - Component 1 (2h)
 """)
 
-        # Should not raise exception despite script failure
-        workflow.start_task_with_state("P1T25", "feat/test")
+        # Should RAISE exception (fails loudly to prevent inconsistent state)
+        # CRITICAL: Task tracking and workflow must stay synchronized
+        with pytest.raises(subprocess.CalledProcessError):
+            workflow.start_task_with_state("P1T25", "feat/test")
 
-        # Verify warning message printed
-        captured = capsys.readouterr()
-        assert "Warning: Task state update failed" in captured.out
-        assert "Continuing without task state tracking" in captured.out
-
-        # Verify WorkflowGate methods still called (workflow continues)
-        mock_gate.reset.assert_called_once()
-        mock_gate.set_component.assert_called_once_with("Component 1")
+        # Verify WorkflowGate methods were NOT called (workflow aborted on error)
+        mock_gate.reset.assert_not_called()
+        mock_gate.set_component.assert_not_called()
 
 
 class TestGenerateTaskDoc:

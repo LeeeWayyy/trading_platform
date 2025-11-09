@@ -86,23 +86,31 @@ continuation-id: abc123-def456"
 - Quick reviews catch per-commit issues
 - Deep review catches integration issues, architecture patterns, test coverage gaps
 
-### Deep Review Process
+### Deep Review Process (Multi-Iteration Until Clean)
+
+**CRITICAL: Independent reviews, fresh start after each fix iteration**
 
 ```bash
 # 1. Verify completion
 make ci-local  # All tests pass
 git log master..HEAD --oneline  # Review commits
 
-# 2. Request deep review
-"Review all branch changes with zen-mcp deep review (master..HEAD)"
+# 2. Request INDEPENDENT reviews (both fresh, no cross-contamination)
+"Request independent deep review from Gemini (fresh, no prior context)"
+# → Gemini reviews complete branch independently
 
-# 3. Fix HIGH/CRITICAL immediately
-git add <files>
-"I've fixed [issue], please verify"
+"Request independent deep review from Codex (fresh, no prior context)"
+# → Codex reviews complete branch independently (NOT building on Gemini)
 
-# 4. Get approval
-# Result: ✅ "Approved - Ready for PR"
-# Include continuation_id in PR description
+# 3. If ANY reviewer finds ANY issues (even MEDIUM):
+#    a. Fix ALL issues found
+#    b. Commit fixes
+#    c. RESTART from step 2 with FRESH reviews (no memory of previous iteration)
+
+# 4. Repeat until BOTH reviewers approve with ZERO issues
+# Result: ✅ Both Gemini AND Codex approve with NO issues found
+
+# 5. Create PR with both continuation IDs
 ```
 
 ### Deep Review Scope
@@ -114,7 +122,21 @@ git add <files>
 5. Documentation (docstrings, ADRs)
 6. Integration (API contracts, schemas)
 
-**Fix or defer:** HIGH/CRITICAL must fix; MEDIUM fix if <30 min OR defer with justification; LOW create follow-up task
+**Zero-Tolerance Policy:**
+- CRITICAL: MUST fix
+- HIGH: MUST fix
+- MEDIUM: MUST fix (no deferral)
+- LOW: Fix or create follow-up task
+
+**Why independent reviews?**
+- Gemini → Codex synthesis can miss issues (one reviewer's blind spots carry forward)
+- Independent fresh reviews catch different issue types
+- Example: Fresh Codex review found CLI wiring issues Gemini missed
+
+**Why restart after fixes?**
+- Fresh perspective prevents "fix fatigue"
+- Ensures fixes didn't introduce new issues
+- No memory of "what was already checked" - complete re-validation
 
 ---
 
@@ -275,28 +297,40 @@ zen-mcp-review: approved (critical issue fixed)
 continuation-id: abc123"
 ```
 
-### Example: Deep Review - Issues Found
+### Example: Deep Review - Multi-Iteration Until Clean
 
 ```bash
-$ "Deep review all branch changes (master..HEAD)"
+# === Iteration 1 ===
+$ "Request independent deep review from Gemini (fresh perspective)"
+# Gemini finds: 2 CRITICAL, 1 HIGH, 2 MEDIUM
 
-# Gemini finds: 2 CRITICAL, 3 MEDIUM
-# Codex prioritizes fixes
+$ "Request independent deep review from Codex (fresh perspective)"
+# Codex finds: 1 CRITICAL (CLI wiring), 1 MEDIUM (different than Gemini's)
 
-# Fix CRITICAL
+# Fix ALL issues from BOTH reviewers
 $ git add <files>
-$ "Fixed CRITICAL issues, verify"
+$ git commit -m "fix: Address review findings - iteration 1"
 
-# Fix 2 MEDIUM, defer 1
-$ "Fixed 2 MEDIUM. Deferring logging (needs infrastructure). OK?"
+# === Iteration 2 (FRESH reviews, no memory of iteration 1) ===
+$ "Request independent deep review from Gemini (fresh, complete branch)"
+# Gemini finds: 1 MEDIUM (new issue in fixes)
 
-# User approves
-# Result: ✅ Approved with 1 deferred issue
+$ "Request independent deep review from Codex (fresh, complete branch)"
+# Codex finds: 0 issues
 
-# Include in PR description:
-  Zen deep review: Approved with deferral
-  Deferred: Logging enhancement (requires P1T15)
-  Continuation-id: xyz789
+# Fix Gemini's MEDIUM
+$ git add <files>
+$ git commit -m "fix: Address Gemini MEDIUM finding - iteration 2"
+
+# === Iteration 3 (FRESH reviews again) ===
+$ "Request independent deep review from Gemini (fresh, complete branch)"
+# Gemini: ✅ NO issues found
+
+$ "Request independent deep review from Codex (fresh, complete branch)"
+# Codex: ✅ NO issues found
+
+# Result: ✅ BOTH reviewers approve with ZERO issues
+# Create PR with both continuation IDs
 ```
 
 ---
