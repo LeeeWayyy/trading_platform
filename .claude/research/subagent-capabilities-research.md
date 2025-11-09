@@ -197,8 +197,7 @@ Combine native Task tool + zen-mcp clink + reserve script hooks for future:
 ## References
 
 - Claude Code `Task` tool system documentation
-- `.claude/workflows/03-reviews.md` (clink usage patterns)
-- `.claude/workflows/03-reviews.md` (multi-tier review)
+- `.claude/workflows/03-reviews.md` (clink usage patterns and multi-tier review)
 - `CLAUDE.md` (zen-mcp + clink integration policy)
 
 ---

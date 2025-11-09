@@ -249,17 +249,17 @@ Update `.claude/workflows/README.md` (~100 lines):
 # Workflow Quick Reference
 
 ## Common Patterns (Read First)
-See [CORE_PATTERNS.md](./CORE_PATTERNS.md) for:
+See [CLAUDE.md](../../CLAUDE.md) and [.claude/workflows/README.md](../../.claude/workflows/README.md) for:
 - 4-step component cycle
 - Review tier system
 - Standard clink commands
 - Anti-patterns to avoid
 
 ## By Development Phase
-- **Pre-work:** 13-task-creation-review.md, 00-analysis-checklist.md
+- **Pre-work:** 02-planning.md, 00-analysis-checklist.md
 - **During work:** 01-git.md (every 30-60 min)
 - **Before PR:** 03-reviews.md, 01-git.md
-- **Issues:** 06-debugging.md, 10-ci-triage.md
+- **Issues:** 04-development.md, 05-operations.md
 
 ## Individual Workflows
 [Minimal 1-line descriptions, link to full docs]

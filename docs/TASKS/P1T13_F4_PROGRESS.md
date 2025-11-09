@@ -98,9 +98,9 @@ analyzing 500-line file  # Should delegate to Task(general-purpose)
 **3. Planning Workflow Fragmentation**
 
 **Current:** Task creation and breakdown workflows are separate manual processes
-- `.claude/workflows/00-task-breakdown.md` - Manual subfeature planning
-- `.claude/workflows/12-phase-management.md` - Manual phase planning
-- `.claude/workflows/13-task-creation-review.md` - Manual review request
+- `.claude/workflows/02-planning.md` - Manual subfeature planning
+- `.claude/workflows/05-operations.md` - Manual phase planning
+- `.claude/workflows/02-planning.md` - Manual review request
 - No integration with workflow_gate.py state tracking
 
 **User Experience:**
@@ -502,7 +502,7 @@ class PlanningWorkflow:
         """
         Generate subfeature breakdown and branches.
 
-        Follows 00-task-breakdown.md rules:
+        Follows 02-planning.md rules:
         - Task >8h → MUST split into subfeatures
         - Task 4-8h → CONSIDER splitting
         - Task <4h → DON'T split
@@ -947,9 +947,9 @@ CLAUDE.md: 400 lines (46% reduction)
 
 .claude/workflows/: Consolidate to 12 essential files, 4,000 lines (53% reduction)
   - Merge 03-reviews.md + 03-reviews.md → 03-reviews.md
-  - Merge 00-task-breakdown.md + 12-phase-management.md + 13-task-creation-review.md → 03-planning.md
+  - Merge 02-planning.md + 05-operations.md + 02-planning.md → 03-planning.md
   - Remove redundant "MANDATORY" reminders (workflow_gate enforces)
-  - Keep domain-specific workflows (05-testing.md, 06-debugging.md, 08-adr-creation.md)
+  - Keep domain-specific workflows (04-development.md, 04-development.md, 05-operations.md)
 
 Context cost: 8-12k tokens (60% reduction)
 ```
@@ -960,14 +960,14 @@ Context cost: 8-12k tokens (60% reduction)
 ```markdown
 ## Development Process
 
-**Workflow Index:** [`.claude/workflows/README.md`](./.claude/workflows/README.md)
+**Workflow Index:** [`.claude/workflows/README.md`](../../.claude/workflows/README.md)
 
 ### 🔍 PHASE 0: Pre-Implementation Analysis (MANDATORY - 30-60 min)
 
 **⚠️ CRITICAL:** Complete comprehensive analysis BEFORE writing ANY code.
 
 **Requirements:**
-- Follow [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md)
+- Follow [`.claude/workflows/00-analysis-checklist.md`](../../.claude/workflows/00-analysis-checklist.md)
 - Identify ALL impacted components, call sites, tests
 - Verify pattern parity (retries, error handling, logging)
 - Verify process compliance (review gates, CI gates)
@@ -1047,8 +1047,8 @@ See `.claude/workflows/README.md` for detailed workflow docs.
 | Before | After | Reduction |
 |--------|-------|-----------|
 | 03-reviews.md (390 lines) + 03-reviews.md (270 lines) | 03-reviews.md (200 lines) | 70% |
-| 00-task-breakdown.md (245 lines) + 12-phase-management.md (142 lines) + 13-task-creation-review.md (229 lines) | 03-planning.md (180 lines) | 71% |
-| component-cycle.md (remove redundant enforcement reminders) | component-cycle.md (simplified) | 40% |
+| 02-planning.md (245 lines) + 05-operations.md (142 lines) + 02-planning.md (229 lines) | 03-planning.md (180 lines) | 71% |
+| 12-component-cycle.md (remove redundant enforcement reminders) | 12-component-cycle.md (simplified) | 40% |
 
 **Benefits:**
 - **Context saved:** 20-30k → 8-12k tokens (60% reduction)
@@ -1836,7 +1836,7 @@ def request_pr_review(iteration: int, max_iterations: int = 3) -> dict:
 2. Add `create-task`, `plan-subfeatures`, `start-task` commands
 3. Integrate with task-state.json and workflow-state.json
 4. Connect to clink gemini planner for task review
-5. Consolidate 00-task-breakdown.md + 12-phase-management.md + 13-task-creation-review.md
+5. Consolidate 02-planning.md + 05-operations.md + 02-planning.md
 
 **Deliverables:**
 1. Enhanced `scripts/workflow_gate.py` with planning workflow
@@ -1878,7 +1878,7 @@ def request_pr_review(iteration: int, max_iterations: int = 3) -> dict:
 
 **Deliverables:**
 1. Enhanced `scripts/workflow_gate.py` with debug rescue
-2. Updated `.claude/workflows/06-debugging.md` with rescue workflow
+2. Updated `.claude/workflows/04-development.md` with rescue workflow
 3. Validation: 30-45 min debug loops → 5-10 min rescue
 
 ---
@@ -2039,9 +2039,9 @@ def request_pr_review(iteration: int, max_iterations: int = 3) -> dict:
 - P1T13-F3: Context Optimization & Checkpointing (COMPLETED)
 
 **Workflows:**
-- `.claude/workflows/00-task-breakdown.md` - Task decomposition (to be consolidated)
-- `.claude/workflows/12-phase-management.md` - Phase planning (to be consolidated)
-- `.claude/workflows/13-task-creation-review.md` - Task review (to be consolidated)
+- `.claude/workflows/02-planning.md` - Task decomposition (to be consolidated)
+- `.claude/workflows/05-operations.md` - Phase planning (to be consolidated)
+- `.claude/workflows/02-planning.md` - Task review (to be consolidated)
 - `.claude/workflows/03-reviews.md` - Quick review (to be consolidated)
 - `.claude/workflows/03-reviews.md` - Deep review (to be consolidated)
 - `.claude/workflows/16-subagent-delegation.md` - Delegation patterns (to be enhanced)

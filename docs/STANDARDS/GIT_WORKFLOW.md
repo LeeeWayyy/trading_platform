@@ -128,7 +128,7 @@ make test && make lint
 git commit -m "Add feature X"
 ```
 
-**See:** [`.claude/workflows/05-testing.md`](../../.claude/workflows/05-testing.md) for testing procedures
+**See:** [`.claude/workflows/04-development.md`](../../.claude/workflows/04-development.md) for testing procedures
 
 ---
 
@@ -174,7 +174,7 @@ feature/P1T11-DOCS                   # ❌ BAD - Description must be lowercase
 - Task has multiple independent components
 - Want progressive PRs instead of one large PR
 
-**See:** [`.claude/workflows/00-task-breakdown.md`](../../.claude/workflows/00-task-breakdown.md) for subfeature decomposition strategy
+**See:** [`.claude/workflows/02-planning.md`](../../.claude/workflows/02-planning.md) for subfeature decomposition strategy
 
 **Enforced by:** Pre-commit hook (`scripts/hooks/verify_branch_name.sh`)
 
@@ -543,7 +543,7 @@ Claude Code MUST NOT:
 - [PR creation workflow](../../.claude/workflows/01-git.md)
 - [Zen quick review workflow](../../.claude/workflows/03-reviews.md)
 - [Zen deep review workflow](../../.claude/workflows/03-reviews.md)
-- [Testing workflow](../../.claude/workflows/05-testing.md)
+- [Testing workflow](../../.claude/workflows/04-development.md)
 
 **Other standards:**
 - [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Python style and patterns
@@ -569,7 +569,7 @@ Claude Code MUST NOT:
 - Poetry (package manager)
 
 **Setup procedures:**
-- See [`.claude/workflows/11-environment-bootstrap.md`](../../.claude/workflows/11-environment-bootstrap.md) for complete setup
+- See [`.claude/workflows/05-operations.md`](../../.claude/workflows/05-operations.md) for complete setup
 
 **Authentication:**
 ```bash

@@ -102,7 +102,7 @@ Implement systematic workflow improvements to prevent AI assistant concentration
 **Workflow Documentation:**
 - ✅ 12 comprehensive workflow files (`.claude/workflows/`)
 - ✅ 3-tier review system documented (quick/deep/task reviews)
-- ✅ Task review workflow (`.claude/workflows/13-task-creation-review.md`)
+- ✅ Task review workflow (`.claude/workflows/02-planning.md`)
 - ✅ Two-phase review process: gemini planner → codex planner
 
 ### Critical Problems Identified
@@ -233,7 +233,7 @@ Each component follows the mandatory 4-step pattern:
 
 **Component C: Subfeature Branching Strategy (4-6 hours)**
 1. **Implement:** Documentation and branch naming enforcement
-   - Create .claude/workflows/00-task-breakdown.md
+   - Create .claude/workflows/02-planning.md
    - Update docs/STANDARDS/GIT_WORKFLOW.md with subfeature strategy
    - Update CLAUDE.md references to ./scripts/tasks.py
    - Document PxTy-Fz decomposition examples
@@ -271,7 +271,7 @@ Focus on documentation and training rather than technical restriction.
 - `CLAUDE.md` (update zen-mcp section)
 - `.claude/workflows/03-reviews.md` (add clink reminder)
 - `.claude/workflows/03-reviews.md` (add clink reminder)
-- `.claude/workflows/13-task-creation-review.md` (add clink reminder)
+- `.claude/workflows/02-planning.md` (add clink reminder)
 - `docs/TROUBLESHOOTING.md` (new - tool usage errors guide)
 
 **Exit Criteria:**
@@ -352,12 +352,12 @@ Leverage existing infrastructure, add enforcement and documentation.
    - Integrated in `scripts/hooks/verify_branch_name.sh` (Component B)
 
 2. **Documentation Updates:**
-   - Create `.claude/workflows/00-task-breakdown.md`
+   - Create `.claude/workflows/02-planning.md`
    - Update `docs/STANDARDS/GIT_WORKFLOW.md`
    - Update `CLAUDE.md`
 
 **File Changes:**
-- `.claude/workflows/00-task-breakdown.md` (new workflow guide)
+- `.claude/workflows/02-planning.md` (new workflow guide)
 - `docs/STANDARDS/GIT_WORKFLOW.md` (add subfeature strategy)
 - `CLAUDE.md` (update task creation references to use ./scripts/tasks.py)
 
@@ -442,7 +442,7 @@ None identified - all dependencies available.
 - Review marker workflow design
 
 ### Workflow Updates
-- `.claude/workflows/00-task-breakdown.md` (new - subfeature decomposition guide)
+- `.claude/workflows/02-planning.md` (new - subfeature decomposition guide)
 - `.claude/workflows/01-git.md` (update with review marker workflow)
 - `.claude/workflows/03-reviews.md` (add zen_review.sh reference)
 - `.claude/workflows/README.md` (add new workflow)
@@ -597,7 +597,7 @@ None identified - all dependencies available.
 
 **RECOMMENDED:** Before starting work, request task creation review to validate scope and requirements.
 
-See [`.claude/workflows/13-task-creation-review.md`](../../.claude/workflows/13-task-creation-review.md) for workflow details.
+See [`.claude/workflows/02-planning.md`](../../.claude/workflows/02-planning.md) for workflow details.
 
 **Review validates:**
 - [x] Objective is clear and measurable
