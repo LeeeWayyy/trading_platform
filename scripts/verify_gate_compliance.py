@@ -140,8 +140,15 @@ def has_review_markers(commit_hash):
 
     # Check for continuation ID in either format
     # Format 1: Quick review (single continuation-id without prefix)
-    # Use negative lookbehind to ensure it's not part of gemini- or codex-
-    has_quick_format = bool(re.search(r'(?<!gemini-)(?<!codex-)continuation-id:', message))
+    # Match line start + optional whitespace + continuation-id, but ensure
+    # it's not preceded by gemini- or codex- by checking the full pattern
+    quick_pattern = r'(?:^|\n)\s*continuation-id:'
+    gemini_pattern = r'(?:^|\n)\s*gemini-continuation-id:'
+    codex_pattern = r'(?:^|\n)\s*codex-continuation-id:'
+
+    has_continuation = bool(re.search(quick_pattern, message))
+    has_prefixed = bool(re.search(gemini_pattern, message) or re.search(codex_pattern, message))
+    has_quick_format = has_continuation and not has_prefixed
 
     # Format 2: Deep review (dual phase with gemini + codex)
     # Accept both current and legacy marker names
