@@ -1490,6 +1490,277 @@ Request task creation review via .claude/workflows/13-task-creation-review.md be
         return components
 
 
+class UnifiedReviewSystem:
+    """
+    Consolidated review system with context-aware rigor.
+
+    Merges quick/deep reviews with multi-iteration pre-PR validation.
+    Implements conservative override policy for quality gates.
+
+    Component 4 of P1T13-F4: Workflow Intelligence & Context Efficiency
+    Author: Claude Code
+    Date: 2025-11-08
+    """
+
+    def __init__(self, state_file: Path = STATE_FILE):
+        """
+        Initialize unified review system.
+
+        Args:
+            state_file: Path to workflow state JSON file
+        """
+        self._state_file = state_file
+        self._project_root = Path(__file__).parent.parent
+
+    def _load_state(self) -> dict:
+        """Load workflow state from JSON file."""
+        if not self._state_file.exists():
+            return {}
+
+        with open(self._state_file, 'r') as f:
+            return json.load(f)
+
+    def _save_state(self, state: dict) -> None:
+        """Save workflow state to JSON file."""
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._state_file, 'w') as f:
+            json.dump(state, f, indent=2)
+
+    def request_review(
+        self,
+        scope: str = "commit",
+        iteration: int = 1,
+        override_justification: str | None = None
+    ) -> dict:
+        """
+        Request unified review (gemini codereviewer → codex codereviewer).
+
+        Args:
+            scope: "commit" (lightweight) or "pr" (comprehensive + multi-iteration)
+            iteration: Iteration number for PR reviews (1, 2, 3...)
+            override_justification: Justification for overriding LOW severity issues
+
+        Returns:
+            Review result dict with continuation_id and status
+
+        Example:
+            >>> reviewer = UnifiedReviewSystem()
+            >>> result = reviewer.request_review(scope="commit")
+            >>> print(result["status"])  # "APPROVED" or "NEEDS_REVISION"
+        """
+        if scope == "commit":
+            return self._commit_review()
+        elif scope == "pr":
+            return self._pr_review(iteration, override_justification)
+        else:
+            raise ValueError(f"Invalid scope: {scope}. Must be 'commit' or 'pr'.")
+
+    def _commit_review(self) -> dict:
+        """
+        Lightweight commit review (replaces quick review).
+
+        Focus:
+        - Trading safety (circuit breakers, idempotency)
+        - Critical bugs
+        - Code quality (type safety, error handling)
+
+        Speed: 2-3 minutes (gemini 1-2min, codex 30-60sec)
+
+        Returns:
+            dict with keys: scope, continuation_id, status, issues
+        """
+        print("🔍 Requesting commit review (gemini → codex)...")
+        print("   Focus: Trading safety, critical bugs, code quality")
+        print("   Duration: ~2-3 minutes")
+        print()
+        print("💡 Follow workflow: .claude/workflows/03-zen-review-quick.md")
+        print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
+        print("   Then: mcp__zen__clink with cli_name='codex', role='codereviewer' (reuse continuation_id)")
+        print()
+        print("   After review, record approval:")
+        print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
+        print()
+
+        # Return placeholder - actual review happens via clink
+        return {
+            "scope": "commit",
+            "continuation_id": None,  # Set by user after review
+            "status": "PENDING",
+            "issues": []
+        }
+
+    def _pr_review(self, iteration: int, override_justification: str | None = None) -> dict:
+        """
+        Comprehensive PR review with multi-iteration loop.
+
+        Iteration 1:
+        - Architecture analysis
+        - Integration concerns
+        - Test coverage
+        - All commit-level checks (safety, quality)
+
+        Iteration 2+ (if issues found):
+        - INDEPENDENT review (fresh context, no memory of iteration 1)
+        - Verify fixes from previous iteration
+        - Look for NEW issues introduced by fixes
+        - Continue until BOTH reviewers find NO issues
+
+        Speed: 3-5 minutes per iteration
+        Max iterations: 3 (escalate to user if still failing)
+
+        Args:
+            iteration: Current iteration number (1-3)
+            override_justification: Justification for overriding LOW severity issues
+
+        Returns:
+            dict with keys: scope, iteration, continuation_id, status, issues, override
+        """
+        state = self._load_state()
+        review_state = state.setdefault("unified_review", {})
+        review_history = review_state.setdefault("history", [])
+
+        print(f"🔍 Requesting PR review - Iteration {iteration} (gemini → codex)...")
+        print("   Focus: Architecture, integration, coverage, safety, quality")
+        print("   Duration: ~3-5 minutes per iteration")
+        print()
+
+        if iteration > 1:
+            print(f"   ⚠️  INDEPENDENT REVIEW (no memory of iteration {iteration-1})")
+            print("      Looking for: (1) Verified fixes, (2) New issues from fixes")
+            print()
+
+        print("💡 Follow workflow: .claude/workflows/04-zen-review-deep.md")
+        print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
+        print("   Then: mcp__zen__clink with cli_name='codex', role='codereviewer'")
+        print("   ⚠️  CRITICAL: Do NOT reuse continuation_id from previous iteration")
+        print("      Each iteration must be independent for unbiased review")
+        print()
+
+        # Check for override conditions
+        if override_justification and iteration >= 3:
+            return self._handle_review_override(
+                state, iteration, override_justification
+            )
+
+        if iteration >= 3:
+            print()
+            print("⚠️  Max iterations reached (3)")
+            print("   Options:")
+            print("   1. Fix remaining issues and continue")
+            print("   2. Override LOW issues with --override --justification 'reason'")
+            print("      (CRITICAL/HIGH/MEDIUM cannot be overridden)")
+            print()
+
+        # Return placeholder - actual review happens via clink
+        return {
+            "scope": "pr",
+            "iteration": iteration,
+            "continuation_id": None,  # Set by user after review
+            "status": "PENDING",
+            "issues": [],
+            "max_iterations": 3
+        }
+
+    def _handle_review_override(
+        self, state: dict, iteration: int, justification: str
+    ) -> dict:
+        """
+        Handle review override for LOW severity issues after max iterations.
+
+        Conservative policy (from edge case Q2):
+        - Block CRITICAL/HIGH/MEDIUM entirely
+        - Allow LOW only with justification
+        - Log to PR via gh pr comment
+
+        Args:
+            state: Current workflow state
+            iteration: Current iteration number
+            justification: User-provided justification
+
+        Returns:
+            Override result dict
+        """
+        review_state = state.get("unified_review", {})
+        review_history = review_state.get("history", [])
+
+        if not review_history:
+            return {
+                "error": "No review history found. Cannot override without prior review."
+            }
+
+        # Get latest review issues
+        latest_review = review_history[-1]
+        issues = latest_review.get("issues", [])
+
+        # Categorize issues by severity
+        blocked_issues = []
+        low_issues = []
+
+        for issue in issues:
+            severity = issue.get("severity", "UNKNOWN")
+            if severity in {"CRITICAL", "HIGH", "MEDIUM"}:
+                blocked_issues.append(issue)
+            elif severity == "LOW":
+                low_issues.append(issue)
+
+        # Cannot override if any CRITICAL/HIGH/MEDIUM issues exist
+        if blocked_issues:
+            print(f"❌ Cannot override {len(blocked_issues)} CRITICAL/HIGH/MEDIUM issue(s):")
+            for issue in blocked_issues:
+                print(f"   - [{issue['severity']}] {issue['summary']}")
+            print()
+            print("💡 FIX these issues before proceeding. Override only allowed for LOW severity.")
+            return {
+                "error": "Cannot override CRITICAL/HIGH/MEDIUM issues",
+                "blocked_issues": blocked_issues
+            }
+
+        # Allow LOW only with justification
+        if low_issues:
+            print(f"⚠️ Overriding {len(low_issues)} LOW severity issue(s):")
+            for issue in low_issues:
+                print(f"   - {issue['summary']}")
+            print()
+            print(f"💡 RECOMMENDED: Fix LOW issues if straightforward before override")
+            print()
+
+            # Log to PR via gh pr comment
+            try:
+                subprocess.run(
+                    [
+                        "gh", "pr", "comment", "--body",
+                        f"⚠️ REVIEW OVERRIDE (LOW severity only):\n{justification}\n\nDeferred LOW issues: {len(low_issues)}"
+                    ],
+                    check=False,  # Degrade gracefully if gh unavailable
+                    capture_output=True
+                )
+            except Exception:
+                pass  # Non-critical if PR comment fails
+
+            # Persist override in state
+            review_state["override"] = {
+                "justification": justification,
+                "timestamp": datetime.now().isoformat(),
+                "iteration": iteration,
+                "low_issues_count": len(low_issues),
+                "policy": "block_critical_high_medium_allow_low"
+            }
+            self._save_state(state)
+
+            print("✅ Override recorded. You may proceed with commit/PR.")
+            return {
+                "status": "OVERRIDE_APPROVED",
+                "low_issues": low_issues,
+                "override": review_state["override"]
+            }
+
+        # No issues at all
+        return {
+            "status": "APPROVED",
+            "issues": []
+        }
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -1597,6 +1868,32 @@ Examples:
         "task_description", help="Description of delegated task"
     )
 
+    # Component 4: Unified Review System
+    request_review_parser = subparsers.add_parser(
+        "request-review", help="Request unified review (commit or PR)"
+    )
+    request_review_parser.add_argument(
+        "scope",
+        choices=["commit", "pr"],
+        help="Review scope: commit (lightweight) or pr (comprehensive)"
+    )
+    request_review_parser.add_argument(
+        "--iteration",
+        type=int,
+        default=1,
+        help="PR review iteration number (1-3)"
+    )
+    request_review_parser.add_argument(
+        "--override",
+        action="store_true",
+        help="Override LOW severity issues (requires --justification)"
+    )
+    request_review_parser.add_argument(
+        "--justification",
+        type=str,
+        help="Justification for overriding LOW severity issues"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -1647,6 +1944,29 @@ Examples:
                 print(f"Error: {result['error']}")
             else:
                 print(f"✅ Delegation recorded: {result['task_description']}")
+        elif args.command == "request-review":
+            # Instantiate UnifiedReviewSystem
+            review_system = UnifiedReviewSystem()
+
+            # Prepare arguments
+            override_justification = None
+            if args.override:
+                if not args.justification:
+                    print("❌ Error: --override requires --justification")
+                    return 1
+                override_justification = args.justification
+
+            # Request review
+            result = review_system.request_review(
+                scope=args.scope,
+                iteration=args.iteration,
+                override_justification=override_justification
+            )
+
+            # Handle result
+            if result.get("error"):
+                print(f"❌ Error: {result['error']}")
+                return 1
 
         return 0
 
