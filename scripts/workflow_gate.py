@@ -56,6 +56,19 @@ class WorkflowGate:
         "review": ["implement"],  # Can only go back to fix issues
     }
 
+    def __init__(self, state_file: Path | None = None) -> None:
+        """
+        Initialize WorkflowGate with optional state file path.
+
+        Args:
+            state_file: Path to workflow state JSON file (default: .claude/workflow-state.json)
+
+        Note:
+            Dependency injection pattern allows mocking in tests and supports
+            PlanningWorkflow's need for custom state file paths.
+        """
+        self._state_file = state_file or STATE_FILE
+
     def _init_state(self) -> dict:
         """Initialize default workflow state."""
         return {
@@ -96,10 +109,10 @@ class WorkflowGate:
 
     def load_state(self) -> dict:
         """Load workflow state from JSON file."""
-        if not STATE_FILE.exists():
+        if not self._state_file.exists():
             return self._init_state()
         try:
-            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            state = json.loads(self._state_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, IOError) as e:
             print(f"⚠️  Warning: Failed to parse workflow state file: {e}")
             print(f"   Initializing fresh state...")
@@ -109,12 +122,12 @@ class WorkflowGate:
 
     def save_state(self, state: dict) -> None:
         """Save workflow state to JSON file with atomic write."""
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Atomic write: write to temp file then rename
         # Prevents corruption from partial writes
         temp_fd, temp_path = tempfile.mkstemp(
-            dir=STATE_FILE.parent,
+            dir=self._state_file.parent,
             prefix=".workflow-state-",
             suffix=".tmp"
         )
@@ -123,7 +136,7 @@ class WorkflowGate:
                 json.dump(state, f, indent=2, ensure_ascii=False)
 
             # Atomic rename
-            Path(temp_path).replace(STATE_FILE)
+            Path(temp_path).replace(self._state_file)
         except (IOError, OSError):
             # Clean up temp file on error
             Path(temp_path).unlink(missing_ok=True)
@@ -1067,6 +1080,414 @@ class DelegationRules:
         ]
 
         return "\n".join(lines)
+
+
+class PlanningWorkflow:
+    """
+    Integrated task planning and creation workflow.
+
+    Unifies task creation/breakdown workflows with automatic review integration.
+    Combines task-state.json (Phase 0 auto-resume) with workflow-state.json
+    (Phase 3 workflow gates) for seamless task management.
+
+    This class provides:
+    - create_task_with_review(): Generate task docs with auto-review
+    - plan_subfeatures(): Intelligent task breakdown (>8h → MUST split)
+    - start_task_with_state(): Initialize tracking with state integration
+
+    Author: Claude Code
+    Date: 2025-11-08
+    """
+
+    def __init__(
+        self,
+        project_root: Path | None = None,
+        state_file: Path | None = None,
+        workflow_gate: "WorkflowGate | None" = None,
+    ) -> None:
+        """
+        Initialize planning workflow manager.
+
+        Args:
+            project_root: Project root directory (default: inferred from script location)
+            state_file: Workflow state JSON file (default: .claude/workflow-state.json)
+            workflow_gate: WorkflowGate instance for state management (default: creates new instance)
+
+        Note:
+            Dependency injection pattern allows mocking in tests.
+            WorkflowGate centralizes state management to ensure atomic writes.
+        """
+        self._project_root = project_root or Path(__file__).parent.parent
+        self._state_file = state_file or (self._project_root / ".claude" / "workflow-state.json")
+        self._tasks_dir = self._project_root / "docs" / "TASKS"
+
+        # Inject WorkflowGate for centralized state management (fixes architectural issues)
+        self._workflow_gate = workflow_gate or WorkflowGate(state_file=self._state_file)
+
+    def create_task_with_review(
+        self,
+        task_id: str,
+        title: str,
+        description: str,
+        estimated_hours: float
+    ) -> str:
+        """
+        Create task document and automatically request planning review.
+
+        Flow:
+        1. Generate task document from template
+        2. Auto-request gemini planner review (Tier 3)
+        3. Display review findings
+        4. Guide user through fixes if needed
+        5. Re-request review after fixes
+        6. Mark task as APPROVED when ready
+
+        Args:
+            task_id: Task identifier (e.g., "P1T14")
+            title: Task title (concise description)
+            description: Detailed task description
+            estimated_hours: Estimated effort in hours
+
+        Returns:
+            Task file path (relative to project root)
+
+        Example:
+            >>> planner = PlanningWorkflow()
+            >>> task_file = planner.create_task_with_review(
+            ...     task_id="P1T14",
+            ...     title="Add position limit monitoring",
+            ...     description="Monitor and alert on position limit violations",
+            ...     estimated_hours=6.0
+            ... )
+            >>> print(task_file)
+            docs/TASKS/P1T14_TASK.md
+        """
+        # Generate task document
+        task_file = self._generate_task_doc(task_id, title, description, estimated_hours)
+
+        print(f"✅ Task document created: {task_file}")
+        print()
+        print("📋 Requesting task creation review (gemini planner → codex planner)...")
+        print("   This will validate scope, requirements, and feasibility.")
+        print("   See .claude/workflows/13-task-creation-review.md for review workflow.")
+        print()
+        print("💡 Next steps:")
+        print("   1. Review task document for completeness")
+        print("   2. Request review via: mcp__zen-mcp__clink with cli_name='gemini', role='planner'")
+        print("   3. Address any issues found in review")
+        print("   4. Once approved, use plan_subfeatures() if task >8h")
+        print()
+
+        return str(task_file.relative_to(self._project_root))
+
+    def plan_subfeatures(
+        self,
+        task_id: str,
+        components: list[dict]
+    ) -> list[str]:
+        """
+        Generate subfeature breakdown and branches.
+
+        Follows 00-task-breakdown.md rules:
+        - Task >8h → MUST split into subfeatures
+        - Task 4-8h → CONSIDER splitting
+        - Task <4h → DON'T split
+
+        Args:
+            task_id: Parent task ID (e.g., "P1T13")
+            components: List of component dicts with {name, description, hours}
+
+        Returns:
+            List of subfeature IDs (e.g., ["P1T13-F1", "P1T13-F2"])
+
+        Example:
+            >>> planner = PlanningWorkflow()
+            >>> components = [
+            ...     {"name": "Position monitor service", "description": "...", "hours": 3},
+            ...     {"name": "Alert integration", "description": "...", "hours": 2},
+            ...     {"name": "Dashboard UI", "description": "...", "hours": 3}
+            ... ]
+            >>> subfeatures = planner.plan_subfeatures("P1T14", components)
+            >>> print(subfeatures)
+            ['P1T14-F1', 'P1T14-F2', 'P1T14-F3']
+        """
+        total_hours = sum(c.get("hours", 0) for c in components)
+
+        if total_hours < 4:
+            print(f"ℹ️  Task is simple (<4h), no subfeature split needed")
+            print(f"   Total estimated: {total_hours}h")
+            print(f"   Proceed with single-feature implementation")
+            return []
+
+        if total_hours >= 8 or len(components) >= 3:
+            print(f"✅ Task is complex (≥8h or ≥3 components), splitting into subfeatures...")
+            print(f"   Total estimated: {total_hours}h across {len(components)} components")
+        else:
+            print(f"⚠️  Task is moderate (4-8h), splitting recommended...")
+            print(f"   Total estimated: {total_hours}h across {len(components)} components")
+
+        # Generate subfeature IDs
+        subfeatures = []
+        for idx, component in enumerate(components, start=1):
+            subfeature_id = f"{task_id}-F{idx}"
+            subfeatures.append(subfeature_id)
+
+            comp_name = component.get("name", f"Component {idx}")
+            comp_hours = component.get("hours", 0)
+            print(f"  {subfeature_id}: {comp_name} ({comp_hours}h)")
+
+        print()
+        print(f"💡 Next steps:")
+        print(f"   1. Create task documents for each subfeature using create_task_with_review()")
+        print(f"   2. Start first subfeature with start_task_with_state()")
+        print()
+
+        return subfeatures
+
+    def start_task_with_state(
+        self,
+        task_id: str,
+        branch_name: str
+    ) -> None:
+        """
+        Initialize task tracking with workflow state integration.
+
+        Combines:
+        - .claude/task-state.json (Phase 0 auto-resume)
+        - .claude/workflow-state.json (Phase 3 workflow gates)
+
+        Sets up:
+        1. Git branch
+        2. Task state tracking
+        3. Workflow state initialization
+        4. Component list from task document
+
+        Args:
+            task_id: Task identifier (e.g., "P1T14-F1")
+            branch_name: Git branch name (e.g., "feat/P1T14-F1-position-monitoring")
+
+        Example:
+            >>> planner = PlanningWorkflow()
+            >>> planner.start_task_with_state("P1T14-F1", "feat/P1T14-F1-position-monitoring")
+            ✅ Task P1T14-F1 started
+               Branch: feat/P1T14-F1-position-monitoring
+               Components: 2
+               Current: Position limit validator
+        """
+        # Create branch
+        result = subprocess.run(
+            ["git", "checkout", "-b", branch_name],
+            cwd=self._project_root,
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            # Branch might already exist, try to check it out
+            result = subprocess.run(
+                ["git", "checkout", branch_name],
+                cwd=self._project_root,
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                print(f"❌ Failed to create/checkout branch: {result.stderr}")
+                return
+
+        # Initialize task state (update_task_state.py integration)
+        task_doc = self._load_task_doc(task_id)
+        components = self._extract_components(task_doc)
+
+        update_task_state_script = self._project_root / "scripts" / "update_task_state.py"
+        if update_task_state_script.exists():
+            try:
+                result = subprocess.run([
+                    sys.executable, str(update_task_state_script), "start",
+                    "--task", task_id,
+                    "--branch", branch_name,
+                    "--components", str(len(components))
+                ], cwd=self._project_root, capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"⚠️  Warning: Task state update failed: {e.stderr}")
+                print("   Continuing without task state tracking...")
+
+        # Initialize workflow state (delegate to WorkflowGate for atomic writes)
+        self._workflow_gate.reset()  # Clean slate
+
+        # Set first component (delegate to WorkflowGate for atomic writes)
+        if components:
+            self._workflow_gate.set_component(components[0]["name"])
+
+        print(f"✅ Task {task_id} started")
+        print(f"   Branch: {branch_name}")
+        print(f"   Components: {len(components)}")
+        print(f"   Current: {components[0]['name'] if components else 'N/A'}")
+
+    # ========== Private helper methods ==========
+
+    def _generate_task_doc(
+        self,
+        task_id: str,
+        title: str,
+        description: str,
+        estimated_hours: float
+    ) -> Path:
+        """
+        Generate task document from template.
+
+        Creates a new task document in docs/TASKS/ with standardized format.
+
+        Args:
+            task_id: Task identifier
+            title: Task title
+            description: Task description
+            estimated_hours: Estimated effort
+
+        Returns:
+            Path to created task document
+        """
+        # Ensure tasks directory exists
+        self._tasks_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate task filename
+        task_file = self._tasks_dir / f"{task_id}_TASK.md"
+
+        # Generate task content
+        content = f"""# {task_id}: {title}
+
+**Status:** DRAFT
+**Estimated Hours:** {estimated_hours}h
+**Created:** {datetime.now(timezone.utc).strftime('%Y-%m-%d')}
+
+## Description
+
+{description}
+
+## Components
+
+<!-- List logical components here -->
+<!-- Example: -->
+<!-- - Component 1: Description (Xh) -->
+<!-- - Component 2: Description (Yh) -->
+
+## Acceptance Criteria
+
+<!-- List acceptance criteria here -->
+<!-- Example: -->
+<!-- - [ ] Criterion 1 -->
+<!-- - [ ] Criterion 2 -->
+
+## Implementation Notes
+
+<!-- Add implementation notes here -->
+
+## Testing Strategy
+
+<!-- Describe testing approach -->
+
+## Dependencies
+
+<!-- List dependencies or blockers -->
+
+---
+
+**Note:** This task document was generated by PlanningWorkflow.
+Request task creation review via .claude/workflows/13-task-creation-review.md before starting work.
+"""
+
+        # Write task document
+        with open(task_file, "w") as f:
+            f.write(content)
+
+        return task_file
+
+    def _load_task_doc(self, task_id: str) -> str:
+        """
+        Load task document content.
+
+        Args:
+            task_id: Task identifier
+
+        Returns:
+            Task document content as string
+            Returns empty string if file not found
+        """
+        task_file = self._tasks_dir / f"{task_id}_TASK.md"
+
+        if not task_file.exists():
+            return ""
+
+        with open(task_file, "r") as f:
+            return f.read()
+
+    def _extract_components(self, task_doc: str) -> list[dict]:
+        """
+        Extract component list from task document.
+
+        Parses the "## Components" section to extract component names
+        and estimated hours.
+
+        Args:
+            task_doc: Task document content
+
+        Returns:
+            List of component dicts with {name, hours}
+            Returns empty list if no components found
+
+        Example:
+            Input:
+                ## Components
+                - Component 1: Validator (2h)
+                - Component 2: API endpoint (3h)
+
+            Output:
+                [
+                    {"name": "Component 1: Validator", "hours": 2},
+                    {"name": "Component 2: API endpoint", "hours": 3}
+                ]
+        """
+        components = []
+
+        # Find components section
+        lines = task_doc.split("\n")
+        in_components_section = False
+
+        for line in lines:
+            # Start of components section
+            if line.strip().startswith("## Components"):
+                in_components_section = True
+                continue
+
+            # End of components section (next ## heading)
+            if in_components_section and line.strip().startswith("##"):
+                break
+
+            # Parse component line
+            if in_components_section and line.strip().startswith("-"):
+                # Extract component name and hours
+                # Format: - Component name (Xh)
+                content = line.strip()[1:].strip()  # Remove leading "- "
+
+                # Extract hours if present
+                hours = 0.0
+                if "(" in content and "h)" in content:
+                    hours_str = content[content.rfind("(") + 1:content.rfind("h)")].strip()
+                    try:
+                        hours = float(hours_str)
+                    except ValueError:
+                        hours = 0.0
+
+                    # Remove hours from name
+                    name = content[:content.rfind("(")].strip()
+                else:
+                    name = content
+
+                components.append({
+                    "name": name,
+                    "hours": hours
+                })
+
+        return components
 
 
 def main() -> int:
