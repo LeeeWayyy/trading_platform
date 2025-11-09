@@ -191,7 +191,7 @@ class WorkflowGate:
         # Special logic for review step
         if next == "review":
             print("🔍 Requesting zen-mcp review (clink + gemini → codex)...")
-            print("   Follow: .claude/workflows/03-zen-review-quick.md")
+            print("   Follow: .claude/workflows/03-reviews.md")
             print("   After review, record approval:")
             print(
                 "     ./scripts/workflow_gate.py record-review <continuation_id> <status>"
@@ -282,7 +282,7 @@ class WorkflowGate:
             )
             print("   Status:", state["zen_review"].get("status", REVIEW_NOT_REQUESTED))
             print("   Request review:")
-            print("     Follow: .claude/workflows/03-zen-review-quick.md")
+            print("     Follow: .claude/workflows/03-reviews.md")
             print("   After approval:")
             print(
                 "     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
@@ -416,7 +416,7 @@ class WorkflowGate:
             print("  ./scripts/workflow_gate.py advance review")
         elif current == "review":
             if zen_status != "APPROVED":
-                print("  Follow: .claude/workflows/03-zen-review-quick.md")
+                print("  Follow: .claude/workflows/03-reviews.md")
                 print(
                     "  ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
                 )
@@ -1573,7 +1573,7 @@ class UnifiedReviewSystem:
         print("   Focus: Trading safety, critical bugs, code quality")
         print("   Duration: ~2-3 minutes")
         print()
-        print("💡 Follow workflow: .claude/workflows/03-zen-review-quick.md")
+        print("💡 Follow workflow: .claude/workflows/03-reviews.md")
         print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
         print("   Then: mcp__zen__clink with cli_name='codex', role='codereviewer' (reuse continuation_id)")
         print()
@@ -1629,7 +1629,7 @@ class UnifiedReviewSystem:
             print("      Looking for: (1) Verified fixes, (2) New issues from fixes")
             print()
 
-        print("💡 Follow workflow: .claude/workflows/04-zen-review-deep.md")
+        print("💡 Follow workflow: .claude/workflows/03-reviews.md")
         print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
         print("   Then: mcp__zen__clink with cli_name='codex', role='codereviewer'")
         print("   ⚠️  CRITICAL: Do NOT reuse continuation_id from previous iteration")

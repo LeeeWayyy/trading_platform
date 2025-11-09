@@ -17,11 +17,11 @@
 - **Missing cross-links identified** in 5 workflows (will add during simplification)
 
 **Top Priority for Simplification (Wave-based: Largest First):**
-1. 02-git-pr.md (1,113 lines → target: ~600)
-2. 04-zen-review-deep.md (797 lines → target: ~500)
-3. 01-git-commit.md (677 lines → target: ~450)
+1. 01-git.md (1,113 lines → target: ~600)
+2. 03-reviews.md (797 lines → target: ~500)
+3. 01-git.md (677 lines → target: ~450)
 4. 11-environment-bootstrap.md (677 lines → target: ~400)
-5. DRAFT-pr-review-feedback-rules.md (653 lines) → **Consolidate into 02-git-pr.md**
+5. DRAFT-pr-review-feedback-rules.md (653 lines) → **Consolidate into 01-git.md**
 
 ---
 
@@ -29,11 +29,11 @@
 
 ### Priority 1: Workflows >600 Lines (CRITICAL)
 
-#### 02-git-pr.md (1,113 lines) ⚠️ HIGHEST PRIORITY
+#### 01-git.md (1,113 lines) ⚠️ HIGHEST PRIORITY
 **Purpose:** Create well-documented pull requests with automated quality checks
 
 **Redundancy:**
-- **Lines 34-56:** Deep review workflow details (duplicates 04-zen-review-deep.md)
+- **Lines 34-56:** Deep review workflow details (duplicates 03-reviews.md)
 - **Lines 167-243:** Example PR descriptions (should extract to `.claude/examples/git-pr/`)
 - **Lines 357-502:** Comprehensive troubleshooting (140+ lines, could move to appendix)
 - **Lines 595-653:** DRAFT consolidation content from PR review feedback rules
@@ -42,7 +42,7 @@
 - Extract 4+ examples to `.claude/examples/git-pr/good-pr-description.md`
 - Move troubleshooting to expandable appendix section
 - Consolidate DRAFT-pr-review-feedback-rules.md (Step 9) content
-- Reference 04-zen-review-deep.md instead of duplicating steps
+- Reference 03-reviews.md instead of duplicating steps
 
 **Missing Cross-links:** None (well-linked)
 
@@ -56,7 +56,7 @@
 
 ---
 
-#### 04-zen-review-deep.md (797 lines) ⚠️ HIGH PRIORITY
+#### 03-reviews.md (797 lines) ⚠️ HIGH PRIORITY
 **Purpose:** Comprehensive review before PR creation (MANDATORY quality gate)
 
 **Redundancy:**
@@ -69,7 +69,7 @@
 - Create shared snippet for "Clink-Only Tool Usage" warning (used in 4 workflows)
 - Extract example reviews to `.claude/examples/zen-reviews/deep-review-examples.md`
 - Condense decision trees (use tables instead of long narratives)
-- Reference 03-zen-review-quick.md for common issues
+- Reference 03-reviews.md for common issues
 
 **Missing Cross-links:**
 - Should link to `/docs/STANDARDS/TESTING.md` for test coverage requirements
@@ -86,7 +86,7 @@
 
 ### Priority 2: Workflows 600-700 Lines (HIGH)
 
-#### 01-git-commit.md (677 lines) ⚠️ HIGH PRIORITY
+#### 01-git.md (677 lines) ⚠️ HIGH PRIORITY
 **Purpose:** Progressive git commit workflow with 4-step pattern
 
 **Redundancy:**
@@ -141,18 +141,18 @@
 #### DRAFT-pr-review-feedback-rules.md (653 lines) ⚠️ CONSOLIDATE
 **Purpose:** Systematic PR review feedback handling
 
-**Status:** DRAFT file that should be consolidated into 02-git-pr.md
+**Status:** DRAFT file that should be consolidated into 01-git.md
 
 **Redundancy:** Entire file is redundant - covers Step 9 of PR workflow
 
-**Action:** Consolidate into 02-git-pr.md and DELETE this file
+**Action:** Consolidate into 01-git.md and DELETE this file
 
 **Value to Extract:**
-- Core principles (lines 9-52): Integrate into 02-git-pr.md Step 9
+- Core principles (lines 9-52): Integrate into 01-git.md Step 9
 - Phase 1-3 systematic process (lines 54-320): Main content for Step 9
 - Common patterns section (lines 450-580): Useful, integrate
 
-**Target:** DELETE (consolidate into 02-git-pr.md)
+**Target:** DELETE (consolidate into 01-git.md)
 
 ---
 
@@ -202,7 +202,7 @@
 
 ---
 
-#### 03-zen-review-quick.md (542 lines)
+#### 03-reviews.md (542 lines)
 **Purpose:** Fast safety check before each commit (MANDATORY)
 
 **Redundancy:**
@@ -213,7 +213,7 @@
 **Simplification Opportunities:**
 - Use shared snippet for Clink warning
 - Extract example reviews to `.claude/examples/zen-reviews/quick-review-examples.md`
-- Reference 04-zen-review-deep.md for detailed common issues
+- Reference 03-reviews.md for detailed common issues
 
 **Missing Cross-links:** None (well-linked)
 
@@ -332,8 +332,8 @@
 ### 1. Clink-Only Tool Usage Warning (Shared Snippet)
 
 **Used in 4 workflows:**
-- 03-zen-review-quick.md (lines 12-22)
-- 04-zen-review-deep.md (lines 12-22)
+- 03-reviews.md (lines 12-22)
+- 03-reviews.md (lines 12-22)
 - 13-task-creation-review.md (lines 12-22)
 - (All identical, ~10 lines each)
 
@@ -346,8 +346,8 @@
 ### 2. Common Review Examples
 
 **Multiple workflows have example reviews:**
-- 03-zen-review-quick.md: Quick review examples (lines 220-380)
-- 04-zen-review-deep.md: Deep review examples (lines 154-267)
+- 03-reviews.md: Quick review examples (lines 220-380)
+- 03-reviews.md: Deep review examples (lines 154-267)
 - 13-task-creation-review.md: Task review examples (lines 402-560)
 
 **Action:** Extract to `.claude/examples/zen-reviews/`
@@ -364,8 +364,8 @@
 ### 3. Git Commit Examples
 
 **Found in:**
-- 01-git-commit.md: Multiple commit examples (lines 248-390)
-- 02-git-pr.md: PR description examples (lines 167-243)
+- 01-git.md: Multiple commit examples (lines 248-390)
+- 01-git.md: PR description examples (lines 167-243)
 
 **Action:** Extract to `.claude/examples/git-commits/` and `.claude/examples/git-pr/`
 
@@ -378,8 +378,8 @@
 **All workflows now correctly reference CLAUDE.md** after Phase 1 hierarchy fix.
 
 **Missing links identified:**
-- 04-zen-review-deep.md → Should link to `/docs/STANDARDS/TESTING.md`
-- 01-git-commit.md → Should link to `/docs/STANDARDS/GIT_WORKFLOW.md`
+- 03-reviews.md → Should link to `/docs/STANDARDS/TESTING.md`
+- 01-git.md → Should link to `/docs/STANDARDS/GIT_WORKFLOW.md`
 - 10-ci-triage.md → Should link to `.github/workflows/` CI config files
 - 12-phase-management.md → Should link to `/scripts/tasks.py`
 - 09-deployment-rollback.md → Should link to `/docs/RUNBOOKS/` if exists
@@ -394,11 +394,11 @@
 
 | Workflow | Current Lines | Target Lines | Reduction | Primary Actions |
 |----------|--------------|--------------|-----------|-----------------|
-| 02-git-pr.md | 1,113 | ~600 | -513 | Extract examples, consolidate DRAFT, remove duplication |
-| 04-zen-review-deep.md | 797 | ~500 | -297 | Shared snippets, extract examples, condense decision trees |
-| 01-git-commit.md | 677 | ~450 | -227 | Extract examples, condense 4-step pattern |
+| 01-git.md | 1,113 | ~600 | -513 | Extract examples, consolidate DRAFT, remove duplication |
+| 03-reviews.md | 797 | ~500 | -297 | Shared snippets, extract examples, condense decision trees |
+| 01-git.md | 677 | ~450 | -227 | Extract examples, condense 4-step pattern |
 | 11-environment-bootstrap.md | 677 | ~400 | -277 | Platform details to appendix, extract troubleshooting |
-| DRAFT-pr-review-feedback-rules.md | 653 | 0 (DELETE) | -653 | Consolidate into 02-git-pr.md |
+| DRAFT-pr-review-feedback-rules.md | 653 | 0 (DELETE) | -653 | Consolidate into 01-git.md |
 | **TOTAL** | **3,917** | **~1,950** | **-1,967** | **50% reduction** |
 
 ### Wave 2: Optional Optimization
@@ -407,7 +407,7 @@
 |----------|--------------|--------------|-----------|----------|
 | 13-task-creation-review.md | 623 | ~400 | -223 | MEDIUM |
 | 10-ci-triage.md | 591 | ~400 | -191 | MEDIUM |
-| 03-zen-review-quick.md | 542 | ~350 | -192 | MEDIUM |
+| 03-reviews.md | 542 | ~350 | -192 | MEDIUM |
 | 09-deployment-rollback.md | 495 | ~400 | -95 | LOW |
 
 ---
@@ -417,9 +417,9 @@
 ### Immediate Actions (P1T12 Phase 2)
 
 1. **Wave-based simplification (largest first):**
-   - 02-git-pr.md (1,113 → ~600 lines) **HIGHEST PRIORITY**
-   - 04-zen-review-deep.md (797 → ~500 lines)
-   - 01-git-commit.md (677 → ~450 lines)
+   - 01-git.md (1,113 → ~600 lines) **HIGHEST PRIORITY**
+   - 03-reviews.md (797 → ~500 lines)
+   - 01-git.md (677 → ~450 lines)
    - 11-environment-bootstrap.md (677 → ~400 lines)
    - DRAFT-pr-review-feedback-rules.md → DELETE (consolidate into 02)
 

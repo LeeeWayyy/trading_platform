@@ -193,7 +193,7 @@ cp .env.example .env
 
 - [05-testing.md](./05-testing.md) - Running tests
 - [06-debugging.md](./06-debugging.md) - Debugging issues
-- [01-git-commit.md](./01-git-commit.md) - Git workflow
+- [01-git.md](./01-git.md) - Git workflow
 
 ---
 

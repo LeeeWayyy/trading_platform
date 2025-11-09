@@ -241,7 +241,7 @@ Task(
 
 ### Use Case 3: Zen-MCP Review Coordination
 
-**Context:** Following `.claude/workflows/03-zen-review-quick.md` for pre-commit review.
+**Context:** Following `.claude/workflows/03-reviews.md` for pre-commit review.
 
 **Current (Correct):**
 ```python

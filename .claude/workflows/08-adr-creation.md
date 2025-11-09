@@ -318,7 +318,7 @@ def trip():
 
 ## Related Workflows
 
-- [01-git-commit.md](./01-git-commit.md) - Commit ADR before implementation
+- [01-git.md](./01-git.md) - Commit ADR before implementation
 - [07-documentation.md](./07-documentation.md) - Reference ADR in code docs
 
 ---

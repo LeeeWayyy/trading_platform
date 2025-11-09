@@ -240,8 +240,8 @@ def test_slow_operation():
 
 - [05-testing.md](./05-testing.md) - Running tests locally
 - [06-debugging.md](./06-debugging.md) - Debugging test failures
-- [01-git-commit.md](./01-git-commit.md) - Commit fixes
-- [02-git-pr.md](./02-git-pr.md) - PR creation and checks
+- [01-git.md](./01-git.md) - Commit fixes
+- [01-git.md](./01-git.md) - PR creation and checks
 
 ---
 

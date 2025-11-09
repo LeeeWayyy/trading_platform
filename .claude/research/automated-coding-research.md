@@ -500,5 +500,5 @@ Phase 3 implementation succeeds when:
 - .claude/workflows/17-automated-analysis.md - Automated planning pattern
 - .claude/workflows/16-subagent-delegation.md - Delegation patterns
 - CLAUDE.md - Existing 4-step pattern manual workflow
-- .claude/workflows/03-zen-review-quick.md - Quick review process
-- .claude/workflows/01-git-commit.md - Commit workflow with review gates
+- .claude/workflows/03-reviews.md - Quick review process
+- .claude/workflows/01-git.md - Commit workflow with review gates

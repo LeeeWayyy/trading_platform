@@ -270,8 +270,8 @@ redis-cli SET cb:state OPEN
 
 ## Related Workflows
 
-- [01-git-commit.md](./01-git-commit.md) - Commit before deployment
-- [02-git-pr.md](./02-git-pr.md) - Create PR before merge
+- [01-git.md](./01-git.md) - Commit before deployment
+- [01-git.md](./01-git.md) - Create PR before merge
 - [05-testing.md](./05-testing.md) - Run tests before deployment
 - [10-ci-triage.md](./10-ci-triage.md) - Handle CI failures
 

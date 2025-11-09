@@ -76,7 +76,7 @@ Please perform a quick safety review of the staged changes for this trading plat
 
 4. **Before PR:**
    - Deep review MANDATORY (use clink + gemini codereviewer)
-   - See `.claude/workflows/04-zen-review-deep.md`
+   - See `.claude/workflows/03-reviews.md`
 
 **Do NOT skip these steps after completing fixes!**
 

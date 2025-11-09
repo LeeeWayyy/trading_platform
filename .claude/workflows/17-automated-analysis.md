@@ -521,7 +521,7 @@ edge_cases = {
 - [ ] **Review gate confirmation:**
   - Will code be reviewed BEFORE commit? (MANDATORY: YES)
   - Using zen-mcp clink with codex codereviewer? (MANDATORY: YES)
-  - Review workflow: `.claude/workflows/03-zen-review-quick.md`
+  - Review workflow: `.claude/workflows/03-reviews.md`
 
 - [ ] **CI gate confirmation:**
   - Will `make ci-local` run BEFORE commit? (MANDATORY: YES)
@@ -684,8 +684,8 @@ Automated analysis succeeds when:
 
 - [00-analysis-checklist.md](./00-analysis-checklist.md) - Manual analysis (fallback)
 - [16-subagent-delegation.md](./16-subagent-delegation.md) - Delegation patterns
-- [01-git-commit.md](./01-git-commit.md) - Commit workflow (5-step checklist)
-- [03-zen-review-quick.md](./03-zen-review-quick.md) - Quick review (step 3 of 4)
+- [01-git.md](./01-git.md) - Commit workflow (5-step checklist)
+- [03-reviews.md](./03-reviews.md) - Quick review (step 3 of 4)
 
 ---
 

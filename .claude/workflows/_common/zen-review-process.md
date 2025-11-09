@@ -42,7 +42,7 @@ mcp__zen__clink(
 )
 ```
 
-**See:** [`.claude/workflows/03-zen-review-quick.md`](../03-zen-review-quick.md)
+**See:** [`.claude/workflows/03-reviews.md`](../03-reviews.md)
 
 ### Tier 2: Deep Review (Pre-PR) - MANDATORY
 
@@ -99,7 +99,7 @@ mcp__zen__clink(
 )
 ```
 
-**See:** [`.claude/workflows/04-zen-review-deep.md`](../04-zen-review-deep.md)
+**See:** [`.claude/workflows/03-reviews.md`](../03-reviews.md)
 
 ### Tier 3: Task Creation Review (Pre-Work)
 
@@ -262,8 +262,8 @@ Committing without review gates is the PRIMARY root cause of multiple fix commit
 ## See Also
 
 - [Clink-Only Tool Usage Policy](./clink-policy.md) - Tool restriction details
-- [Quick Review Workflow](../03-zen-review-quick.md) - Tier 1 step-by-step
-- [Deep Review Workflow](../04-zen-review-deep.md) - Tier 2 step-by-step
+- [Quick Review Workflow](../03-reviews.md) - Tier 1 step-by-step
+- [Deep Review Workflow](../03-reviews.md) - Tier 2 step-by-step
 - [Task Creation Review](../13-task-creation-review.md) - Tier 3 step-by-step
 - [CLAUDE.md Zen-MCP Integration](/CLAUDE.md#zen-mcp--clink-integration) - Complete policy
 - [Troubleshooting Guide](/.claude/TROUBLESHOOTING.md) - Error resolution

@@ -185,7 +185,7 @@ def test_docstring_example():
 ## Related Workflows
 
 - [08-adr-creation.md](./08-adr-creation.md) - Creating ADRs for architecture
-- [01-git-commit.md](./01-git-commit.md) - Include docs in commits
+- [01-git.md](./01-git.md) - Include docs in commits
 
 ---
 

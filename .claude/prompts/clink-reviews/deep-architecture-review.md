@@ -127,7 +127,7 @@ Given the architecture review findings above, please synthesize:
    - Only proceed to PR after explicit approval
 
 4. **PR Creation:**
-   - (MANDATORY) STRICTLY Follow `.claude/workflows/02-git-pr.md`
+   - (MANDATORY) STRICTLY Follow `.claude/workflows/01-git.md`
    - Include continuation_id in PR description
    - Link to deep review findings
    - Note any follow-up tasks created

@@ -10,7 +10,7 @@
 ## Quick Reference
 
 **PR Operations:** See [Git Commands Reference](./_common/git-commands.md)
-**Review Process:** See [02-git-pr.md](./02-git-pr.md) (Step 9 - Address Review Feedback)
+**Review Process:** See [01-git.md](./01-git.md) (Step 9 - Address Review Feedback)
 
 ---
 
@@ -103,7 +103,7 @@ gh pr view <PR-number> --web
 2. Fix HIGH: Restore ADR commit check in 08-adr-creation.md
 3. Fix MEDIUM: API contract check in 00-analysis-checklist.md:49
 4. Fix MEDIUM: Error propagation in 00-analysis-checklist.md:214
-5. Fix MEDIUM: PR template ref in 02-git-pr.md:150
+5. Fix MEDIUM: PR template ref in 01-git.md:150
 6. Fix MEDIUM: Implementation Guides in 07-documentation.md
 7. Fix MEDIUM: Process details in 13-task-creation-review.md
 8. Commit all reviewer feedback fixes
@@ -177,7 +177,7 @@ git commit -m "fix(workflows): Address all 7 issues from PR#XX reviewer feedback
 **MEDIUM:**
 - 00-analysis-checklist.md:49: Make API contract check explicit (schemas)
 - 00-analysis-checklist.md:214: Add error propagation question
-- 02-git-pr.md:150: Update PR template reference path
+- 01-git.md:150: Update PR template reference path
 - 07-documentation.md: Re-add Implementation Guides section
 - 13-task-creation-review.md: Add detailed NEEDS REVISION process
 
@@ -393,9 +393,9 @@ git push
 
 ## Related Workflows
 
-- [02-git-pr.md](./02-git-pr.md) - PR creation and review process (Step 9)
+- [01-git.md](./01-git.md) - PR creation and review process (Step 9)
 - [10-ci-triage.md](./10-ci-triage.md) - CI failure handling
-- [01-git-commit.md](./01-git-commit.md) - Commit message standards
+- [01-git.md](./01-git.md) - Commit message standards
 
 ---
 

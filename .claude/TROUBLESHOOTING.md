@@ -114,8 +114,8 @@ This is why we have:
 **1. Always Reference Workflow Files**
 
 Before using zen-mcp, check:
-- `.claude/workflows/03-zen-review-quick.md` - Quick reviews
-- `.claude/workflows/04-zen-review-deep.md` - Deep reviews
+- `.claude/workflows/03-reviews.md` - Quick reviews
+- `.claude/workflows/03-reviews.md` - Deep reviews
 - `.claude/workflows/13-task-creation-review.md` - Task planning
 
 Each has the correct clink usage pattern at the top!

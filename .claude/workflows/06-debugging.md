@@ -218,7 +218,7 @@ $ make test
 ## Related Workflows
 
 - [05-testing.md](./05-testing.md) - Running tests
-- [03-zen-review-quick.md](./03-zen-review-quick.md) - Review fixes before commit
+- [03-reviews.md](./03-reviews.md) - Review fixes before commit
 
 ---
 

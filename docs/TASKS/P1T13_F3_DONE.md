@@ -200,7 +200,7 @@ claude_code_cli --task "$TASK_TYPE" --prompt "$TASK_PROMPT" --return-summary
 
 **Workflow Integration:**
 
-Update `.claude/workflows/00-analysis-checklist.md` and `01-git-commit.md`:
+Update `.claude/workflows/00-analysis-checklist.md` and `01-git.md`:
 
 ```markdown
 ## Phase 1: Comprehensive Analysis (30-60 min)
@@ -241,7 +241,7 @@ Task(description="Find call sites", prompt="Search for all calls to function_nam
 
 Instead of relying on AI to follow documentation (soft gates), implement **hard gates** via Python scripts and git hooks that **programmatically enforce** workflow compliance.
 
-**Key Insight:** Existing workflows (`.claude/workflows/01-git-commit.md`, `component-cycle.md`) already define the 4-step pattern correctly. The problem is **enforcement**, not definition.
+**Key Insight:** Existing workflows (`.claude/workflows/01-git.md`, `component-cycle.md`) already define the 4-step pattern correctly. The problem is **enforcement**, not definition.
 
 > **📝 NOTE: The following "Workflow Enforcement Layer" design is FUTURE WORK (not implemented in Phase 3).**
 >
@@ -377,7 +377,7 @@ class WorkflowGate:
             if not state["zen_review"].get("status") == "APPROVED":
                 return False, (
                     "❌ COMMIT BLOCKED: Zen review not approved\n"
-                    "   Run: Request zen review via .claude/workflows/03-zen-review-quick.md"
+                    "   Run: Request zen review via .claude/workflows/03-reviews.md"
                 )
 
             # HARD GATE: Must have CI pass
@@ -402,7 +402,7 @@ class WorkflowGate:
         # Special logic for review step
         if next == "review":
             print("🔍 Requesting zen-mcp review (clink + codex)...")
-            print("   Follow: .claude/workflows/03-zen-review-quick.md")
+            print("   Follow: .claude/workflows/03-reviews.md")
             print("   After review, record approval:")
             print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
 
@@ -519,7 +519,7 @@ if [ $? -ne 0 ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "This is a HARD GATE. You must:"
-    echo "  1. Request zen review: Follow .claude/workflows/03-zen-review-quick.md"
+    echo "  1. Request zen review: Follow .claude/workflows/03-reviews.md"
     echo "  2. Run CI locally: make ci-local"
     echo "  3. Record results: ./scripts/workflow_gate.py record-review <id> APPROVED"
     echo "                     ./scripts/workflow_gate.py record-ci true"
@@ -673,7 +673,7 @@ For EACH logical component, follow these steps with hard gate enforcement:
 - [ ] Run: ./scripts/workflow_gate.py advance review
 
 ### Step 3: Request Review + Run CI (MANDATORY)
-- [ ] Request zen review: Follow .claude/workflows/03-zen-review-quick.md
+- [ ] Request zen review: Follow .claude/workflows/03-reviews.md
 - [ ] Record review: ./scripts/workflow_gate.py record-review <continuation_id> APPROVED
 - [ ] Run CI: make ci-local
 - [ ] Record CI: ./scripts/workflow_gate.py record-ci true
@@ -684,7 +684,7 @@ For EACH logical component, follow these steps with hard gate enforcement:
 - [ ] ./scripts/workflow_gate.py record-commit (post-commit: record hash, reset to "implement")
 ```
 
-**`.claude/workflows/01-git-commit.md` (Updated)**:
+**`.claude/workflows/01-git.md` (Updated)**:
 
 Add hard gate reference at top:
 
@@ -776,7 +776,7 @@ After hard gates are implemented, simplify existing workflows to reduce context:
 
 **Redundant Content to Remove:**
 1. **Repeated "MANDATORY" warnings** → Gates enforce, no need for warnings
-   - Example: `.claude/workflows/01-git-commit.md` has 12 instances of "MANDATORY"
+   - Example: `.claude/workflows/01-git.md` has 12 instances of "MANDATORY"
    - After gates: Reduce to 1-2 instances with reference to gate enforcement
 
 2. **Process validation checklists** → Gates validate automatically
@@ -785,13 +785,13 @@ After hard gates are implemented, simplify existing workflows to reduce context:
 
 3. **Duplicate commit examples** → Consolidate into single reference
    - Example: Multiple workflows repeat git commit patterns
-   - After gates: Reference `01-git-commit.md` which has gate integration
+   - After gates: Reference `01-git.md` which has gate integration
 
 **Simplification targets:**
 - `00-analysis-checklist.md` - Remove process compliance verification (gates enforce)
 - `component-cycle.md` - Already updated with gate CLI commands
-- `01-git-commit.md` - Remove manual validation steps (gates validate)
-- `03-zen-review-quick.md` - Remove "don't forget to commit after review" (gates enforce)
+- `01-git.md` - Remove manual validation steps (gates validate)
+- `03-reviews.md` - Remove "don't forget to commit after review" (gates enforce)
 - `16-pr-review-comment-check.md` - Already updated (removed `--no-verify`)
 
 **Estimated savings:** ~30-40% reduction in workflow documentation size
@@ -805,7 +805,7 @@ After hard gates are implemented, simplify existing workflows to reduce context:
 2. `scripts/pre-commit-hook.sh` - Git hook (version-controlled, ~25 lines)
 3. `.claude/workflow-state.json` - State tracking file (git-tracked)
 4. Updated `.claude/workflows/component-cycle.md` - Add CLI commands
-5. Updated `.claude/workflows/01-git-commit.md` - Add hard gate reference
+5. Updated `.claude/workflows/01-git.md` - Add hard gate reference
 6. Updated `CLAUDE.md` - Document hard gate enforcement approach
 7. Task state sync integration with existing `update_task_state.py`
 8. Updated `Makefile` - Add `install-hooks`, `check-hooks`, integrate hook check into `test` target
@@ -999,7 +999,7 @@ Current workflow experiences context compaction interrupting critical work mid-t
 
 6. **Documentation** (30 min)
    - Update `.claude/workflows/component-cycle.md` with context monitoring guidance
-   - Update `.claude/workflows/01-git-commit.md` with context checks
+   - Update `.claude/workflows/01-git.md` with context checks
    - Update `CLAUDE.md` with Component 3 overview
 
 7. **Final Review and Rollout** (30 min)
@@ -1063,7 +1063,7 @@ Current workflow experiences context compaction interrupting critical work mid-t
    - Document `check-context` usage before each step
    - Reference delegation workflow (16-subagent-delegation.md)
 
-4. **`.claude/workflows/01-git-commit.md`** (~20 lines)
+4. **`.claude/workflows/01-git.md`** (~20 lines)
    - Add context check reminder before commits
    - Reference delegation mandatory at 85%
 
@@ -1111,7 +1111,7 @@ Current workflow experiences context compaction interrupting critical work mid-t
 **Deliverables:**
 1. Enhanced `scripts/workflow_gate.py` with context monitoring (~150 new lines)
 2. New test suite: `tests/scripts/test_context_monitoring.py` (~100 lines)
-3. Updated workflow documentation (component-cycle.md, 01-git-commit.md, CLAUDE.md)
+3. Updated workflow documentation (component-cycle.md, 01-git.md, CLAUDE.md)
 4. Migration strategy for backward compatibility
 
 ---
@@ -1143,8 +1143,8 @@ Current workflow experiences context compaction interrupting critical work mid-t
 
 **Scope:**
 - Extend `17-automated-analysis.md` to auto-invoke after task assignment
-- Auto-trigger `03-zen-review-quick.md` after component implementation (user confirms before review)
-- Auto-trigger `04-zen-review-deep.md` after all components complete (user confirms before review)
+- Auto-trigger `03-reviews.md` after component implementation (user confirms before review)
+- Auto-trigger `03-reviews.md` after all components complete (user confirms before review)
 - Preserve ALL quality gates (zen-mcp reviews remain MANDATORY, just auto-invoked)
 
 **Rationale for Deferral:**
@@ -1198,7 +1198,7 @@ Current workflow experiences context compaction interrupting critical work mid-t
    - Update todos to include gate commands
    - Document hard gate enforcement
 
-2. **Update 01-git-commit.md** (15 min)
+2. **Update 01-git.md** (15 min)
    - Add hard gate reference at top
    - Document that commits are blocked programmatically
    - Add status check command reference
@@ -1316,7 +1316,7 @@ git checkout -b feature/P1T13-F3-automation
 
 ---
 
-### Component Development Cycle (4-Step Pattern per `.claude/workflows/01-git-commit.md`)
+### Component Development Cycle (4-Step Pattern per `.claude/workflows/01-git.md`)
 
 **Each phase = 1 logical component** → Apply 4-step pattern:
 
@@ -1348,14 +1348,14 @@ git checkout -b feature/P1T13-F3-automation
 - `.claude/workflows/00-task-breakdown.md` - Subfeature branching strategy
 
 **During implementation:**
-- `.claude/workflows/01-git-commit.md` - Progressive commits (4-step pattern)
-- `.claude/workflows/03-zen-review-quick.md` - Quick review per phase
+- `.claude/workflows/01-git.md` - Progressive commits (4-step pattern)
+- `.claude/workflows/03-reviews.md` - Quick review per phase
 - `.claude/workflows/05-testing.md` - Test execution
 - `.claude/workflows/15-update-task-state.md` - Task state tracking
 
 **Pre-PR:**
-- `.claude/workflows/04-zen-review-deep.md` - Deep review before PR
-- `.claude/workflows/02-git-pr.md` - PR creation
+- `.claude/workflows/03-reviews.md` - Deep review before PR
+- `.claude/workflows/01-git.md` - PR creation
 
 **Documentation:**
 - `.claude/workflows/07-documentation.md` - Documentation standards
@@ -1539,9 +1539,9 @@ From **Codex**:
 
 - `.claude/workflows/00-analysis-checklist.md` - Pre-implementation analysis
 - `.claude/workflows/00-task-breakdown.md` - Task decomposition and subfeature branching
-- `.claude/workflows/01-git-commit.md` - Progressive commits with zen review
-- `.claude/workflows/03-zen-review-quick.md` - Quick pre-commit review
-- `.claude/workflows/04-zen-review-deep.md` - Deep pre-PR review
+- `.claude/workflows/01-git.md` - Progressive commits with zen review
+- `.claude/workflows/03-reviews.md` - Quick pre-commit review
+- `.claude/workflows/03-reviews.md` - Deep pre-PR review
 - `.claude/workflows/07-documentation.md` - Documentation writing workflow
 - `.claude/workflows/13-task-creation-review.md` - Task planning review
 - `.claude/workflows/14-task-resume.md` - Auto-resume workflow

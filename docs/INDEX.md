@@ -99,10 +99,10 @@ Step-by-step procedures for development workflows:
 - [CURRENT, 2025-10-31, Workflow] [README.md](../.claude/workflows/README.md) - Workflow index and quick reference
 - [CURRENT, 2025-10-31, Workflow] [00-analysis-checklist.md](../.claude/workflows/00-analysis-checklist.md) - Pre-implementation analysis (MANDATORY)
 - [CURRENT, 2025-10-24, Workflow] [00-task-breakdown.md](../.claude/workflows/00-task-breakdown.md) - Task decomposition and subfeature branching
-- [CURRENT, 2025-10-21, Workflow] [01-git-commit.md](../.claude/workflows/01-git-commit.md) - Progressive commit workflow with zen-mcp
-- [CURRENT, 2025-10-18, Workflow] [02-git-pr.md](../.claude/workflows/02-git-pr.md) - Pull request creation
-- [CURRENT, 2025-10-27, Workflow] [03-zen-review-quick.md](../.claude/workflows/03-zen-review-quick.md) - Quick pre-commit review (clink + codex)
-- [CURRENT, 2025-10-27, Workflow] [04-zen-review-deep.md](../.claude/workflows/04-zen-review-deep.md) - Deep pre-PR review (clink + gemini)
+- [CURRENT, 2025-10-21, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Progressive commit workflow with zen-mcp
+- [CURRENT, 2025-10-18, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Pull request creation
+- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Quick pre-commit review (clink + codex)
+- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Deep pre-PR review (clink + gemini)
 - [CURRENT, 2025-10-21, Workflow] [05-testing.md](../.claude/workflows/05-testing.md) - Test execution and debugging
 - [CURRENT, 2025-10-18, Workflow] [06-debugging.md](../.claude/workflows/06-debugging.md) - Debugging procedures
 - [CURRENT, 2025-10-18, Workflow] [07-documentation.md](../.claude/workflows/07-documentation.md) - Documentation writing

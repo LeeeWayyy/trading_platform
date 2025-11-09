@@ -119,8 +119,8 @@ analyzing 500-line file  # Should delegate to Task(general-purpose)
 **4. Review System Redundancy**
 
 **Current:** Separate quick (Tier 1) and deep (Tier 2) review workflows
-- **Quick review:** 03-zen-review-quick.md (per-commit, gemini → codex, 2-3 min)
-- **Deep review:** 04-zen-review-deep.md (pre-PR, gemini → codex, 3-5 min)
+- **Quick review:** 03-reviews.md (per-commit, gemini → codex, 2-3 min)
+- **Deep review:** 03-reviews.md (pre-PR, gemini → codex, 3-5 min)
 - Both use same two-phase pattern
 - Both check similar concerns (safety, quality, architecture)
 - Both require gemini AND codex approval
@@ -946,7 +946,7 @@ CLAUDE.md: 400 lines (46% reduction)
   - Keep only architecture/domain knowledge
 
 .claude/workflows/: Consolidate to 12 essential files, 4,000 lines (53% reduction)
-  - Merge 03-zen-review-quick.md + 04-zen-review-deep.md → 03-unified-review.md
+  - Merge 03-reviews.md + 03-reviews.md → 03-reviews.md
   - Merge 00-task-breakdown.md + 12-phase-management.md + 13-task-creation-review.md → 03-planning.md
   - Remove redundant "MANDATORY" reminders (workflow_gate enforces)
   - Keep domain-specific workflows (05-testing.md, 06-debugging.md, 08-adr-creation.md)
@@ -1046,7 +1046,7 @@ See `.claude/workflows/README.md` for detailed workflow docs.
 
 | Before | After | Reduction |
 |--------|-------|-----------|
-| 03-zen-review-quick.md (390 lines) + 04-zen-review-deep.md (270 lines) | 03-unified-review.md (200 lines) | 70% |
+| 03-reviews.md (390 lines) + 03-reviews.md (270 lines) | 03-reviews.md (200 lines) | 70% |
 | 00-task-breakdown.md (245 lines) + 12-phase-management.md (142 lines) + 13-task-creation-review.md (229 lines) | 03-planning.md (180 lines) | 71% |
 | component-cycle.md (remove redundant enforcement reminders) | component-cycle.md (simplified) | 40% |
 
@@ -1854,12 +1854,12 @@ def request_pr_review(iteration: int, max_iterations: int = 3) -> dict:
 1. Implement `UnifiedReviewSystem` class in workflow_gate.py
 2. Add `request-review` command with "commit" and "pr" scopes
 3. Implement multi-iteration PR review loop
-4. Consolidate 03-zen-review-quick.md + 04-zen-review-deep.md
+4. Consolidate 03-reviews.md + 03-reviews.md
 5. Update `advance review` to use unified system
 
 **Deliverables:**
 1. Enhanced `scripts/workflow_gate.py` with unified reviews
-2. New `.claude/workflows/03-unified-review.md` (consolidated)
+2. New `.claude/workflows/03-reviews.md` (consolidated)
 3. Removed old review workflows
 4. Validation: Multi-iteration PR review catches all issues
 
@@ -2042,8 +2042,8 @@ def request_pr_review(iteration: int, max_iterations: int = 3) -> dict:
 - `.claude/workflows/00-task-breakdown.md` - Task decomposition (to be consolidated)
 - `.claude/workflows/12-phase-management.md` - Phase planning (to be consolidated)
 - `.claude/workflows/13-task-creation-review.md` - Task review (to be consolidated)
-- `.claude/workflows/03-zen-review-quick.md` - Quick review (to be consolidated)
-- `.claude/workflows/04-zen-review-deep.md` - Deep review (to be consolidated)
+- `.claude/workflows/03-reviews.md` - Quick review (to be consolidated)
+- `.claude/workflows/03-reviews.md` - Deep review (to be consolidated)
 - `.claude/workflows/16-subagent-delegation.md` - Delegation patterns (to be enhanced)
 
 **Implementation:**

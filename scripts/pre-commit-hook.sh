@@ -25,7 +25,7 @@ if [ $? -ne 0 ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "This is a HARD GATE. You must:"
-    echo "  1. Request zen review: Follow .claude/workflows/03-zen-review-quick.md"
+    echo "  1. Request zen review: Follow .claude/workflows/03-reviews.md"
     echo "  2. Run CI locally: make ci-local"
     echo "  3. Record results:"
     echo "       ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"

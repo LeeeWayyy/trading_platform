@@ -218,9 +218,9 @@ Coverage: 95%
 
 ## Related Workflows
 
-- [01-git-commit.md](./01-git-commit.md) - Run tests before committing
+- [01-git.md](./01-git.md) - Run tests before committing
 - [06-debugging.md](./06-debugging.md) - Debug failing tests
-- [03-zen-review-quick.md](./03-zen-review-quick.md) - Run tests before review
+- [03-reviews.md](./03-reviews.md) - Run tests before review
 
 ---
 

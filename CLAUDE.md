@@ -71,15 +71,15 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 4. **For EACH component:**
    - Implement logic
    - Create test cases (TDD)
-   - **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): [`.claude/workflows/03-zen-review-quick.md`](./.claude/workflows/03-zen-review-quick.md)
+   - **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): [`.claude/workflows/03-reviews.md`](./.claude/workflows/03-reviews.md)
    - **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
-   - Commit ONLY after review approval + CI passes: [`.claude/workflows/01-git-commit.md`](./.claude/workflows/01-git-commit.md)
+   - Commit ONLY after review approval + CI passes: [`.claude/workflows/01-git.md`](./.claude/workflows/01-git.md)
 
 5. Repeat until feature complete
 
-6. **🔍 MANDATORY: Deep review** via clink + gemini: [`.claude/workflows/04-zen-review-deep.md`](./.claude/workflows/04-zen-review-deep.md)
+6. **🔍 MANDATORY: Deep review** via clink + gemini: [`.claude/workflows/03-reviews.md`](./.claude/workflows/03-reviews.md)
 
-7. Create PR: [`.claude/workflows/02-git-pr.md`](./.claude/workflows/02-git-pr.md)
+7. Create PR: [`.claude/workflows/01-git.md`](./.claude/workflows/01-git.md)
 
 ---
 
@@ -124,7 +124,7 @@ mcp__zen__clink(
 
 **WHY:** Direct zen-mcp tools bypass CLI authentication and cause API permission errors.
 
-**See:** `.claude/workflows/03-zen-review-quick.md` for review workflow details
+**See:** `.claude/workflows/03-reviews.md` for review workflow details
 
 ---
 
@@ -300,7 +300,7 @@ All reviews automated via `workflow_gate.py`:
 
 **Cost:** $320-370/month (subscription-based, unlimited reviews)
 
-**See:** `.claude/workflows/03-zen-review-quick.md` for review details
+**See:** `.claude/workflows/03-reviews.md` for review details
 
 ---
 

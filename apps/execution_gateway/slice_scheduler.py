@@ -40,7 +40,7 @@ Example:
 See Also:
     - docs/TASKS/P2T0_PLANNING.md#p2t0-twap-order-slicer
     - docs/CONCEPTS/execution-algorithms.md#twap
-    - .claude/workflows/03-zen-review-quick.md
+    - .claude/workflows/03-reviews.md
 """
 
 import logging

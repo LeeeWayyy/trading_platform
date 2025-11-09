@@ -639,8 +639,8 @@ Phase 1 delegation implementation succeeds when:
 
 - [00-analysis-checklist.md](./00-analysis-checklist.md) — Impacted component search → delegate
 - [06-debugging.md](./06-debugging.md) — Error tracing → delegate
-- [03-zen-review-quick.md](./03-zen-review-quick.md) — Use clink for reviews (NOT Task)
-- [04-zen-review-deep.md](./04-zen-review-deep.md) — Deep review delegation
+- [03-reviews.md](./03-reviews.md) — Use clink for reviews (NOT Task)
+- [03-reviews.md](./03-reviews.md) — Deep review delegation
 
 ---
 

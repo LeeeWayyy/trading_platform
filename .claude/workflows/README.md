@@ -31,15 +31,15 @@
 
 | Workflow | Purpose | When to Use |
 |----------|---------|-------------|
-| [01-git-commit.md](./01-git-commit.md) | Progressive commits with zen-mcp review | Every 30-60 minutes during development |
-| [02-git-pr.md](./02-git-pr.md) | Create pull requests with automation | When feature/fix is complete and ready for merge |
+| [01-git.md](./01-git.md) | Progressive commits with zen-mcp review | Every 30-60 minutes during development |
+| [01-git.md](./01-git.md) | Create pull requests with automation | When feature/fix is complete and ready for merge |
 
 ### Code Review & Quality (03-04)
 
 | Workflow | Purpose | When to Use |
 |----------|---------|-------------|
-| [03-zen-review-quick.md](./03-zen-review-quick.md) | Quick safety check before commits | Before every commit (MANDATORY) |
-| [04-zen-review-deep.md](./04-zen-review-deep.md) | Comprehensive review before PR | Before creating any pull request (MANDATORY) |
+| [03-reviews.md](./03-reviews.md) | Quick safety check before commits | Before every commit (MANDATORY) |
+| [03-reviews.md](./03-reviews.md) | Comprehensive review before PR | Before creating any pull request (MANDATORY) |
 
 ### Development & Testing (05-06)
 
@@ -95,14 +95,14 @@
 - component-cycle.md (4-step pattern: Implement → Test → Review → Commit)
 
 **Every Development Session:**
-- 01-git-commit.md (every 30-60 min per component)
-- 03-zen-review-quick.md (before each commit, MANDATORY)
+- 01-git.md (every 30-60 min per component)
+- 03-reviews.md (before each commit, MANDATORY)
 - 05-testing.md (before commits)
 - 15-update-task-state.md (after completing each component)
 
 **Each Feature/Fix:**
-- 04-zen-review-deep.md (before PR)
-- 02-git-pr.md (when complete)
+- 03-reviews.md (before PR)
+- 01-git.md (when complete)
 - 07-documentation.md (during implementation)
 
 **As Needed:**
@@ -121,10 +121,10 @@
 **All Developers:**
 - 00-analysis-checklist.md (MANDATORY before coding)
 - component-cycle.md (4-step pattern for all components)
-- 01-git-commit.md
-- 02-git-pr.md
-- 03-zen-review-quick.md (MANDATORY before commits)
-- 04-zen-review-deep.md (MANDATORY before PRs)
+- 01-git.md
+- 01-git.md
+- 03-reviews.md (MANDATORY before commits)
+- 03-reviews.md (MANDATORY before PRs)
 - 05-testing.md
 - 06-debugging.md
 - 07-documentation.md
@@ -168,21 +168,21 @@ For Each Logical Component:
     ↓
   2. [05-testing.md] ← Create tests, run locally
     ↓
-  3. [03-zen-review-quick.md] ← MANDATORY quick review (codex, ~30 sec)
+  3. [03-reviews.md] ← MANDATORY quick review (codex, ~30 sec)
     ↓
      Fix Issues Found
     ↓
-  4. [01-git-commit.md] ← Commit after review + tests pass
+  4. [01-git.md] ← Commit after review + tests pass
     ↓
   [15-update-task-state.md] ← Update task state after component
     ↓
 Repeat until all components complete
     ↓
-[04-zen-review-deep.md] ← MANDATORY deep review (gemini + codex, 3-5 min)
+[03-reviews.md] ← MANDATORY deep review (gemini + codex, 3-5 min)
     ↓
 Fix Issues Found
     ↓
-[02-git-pr.md] ← Create PR
+[01-git.md] ← Create PR
     ↓
 [10-ci-triage.md] ← (if CI fails)
     ↓

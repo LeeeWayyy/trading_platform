@@ -414,9 +414,9 @@ else:
 
 **Workflows Used:**
 - `.claude/workflows/00-analysis-checklist.md` - Pre-implementation analysis
-- `.claude/workflows/01-git-commit.md` - Progressive commits (4-step pattern)
-- `.claude/workflows/03-zen-review-quick.md` - Per-commit reviews (26 reviews)
-- `.claude/workflows/04-zen-review-deep.md` - Pre-PR comprehensive review
+- `.claude/workflows/01-git.md` - Progressive commits (4-step pattern)
+- `.claude/workflows/03-reviews.md` - Per-commit reviews (26 reviews)
+- `.claude/workflows/03-reviews.md` - Pre-PR comprehensive review
 - `.claude/workflows/08-adr-creation.md` - ADR-0015 creation
 
 **Implementation:**

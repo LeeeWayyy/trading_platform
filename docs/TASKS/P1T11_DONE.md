@@ -269,8 +269,8 @@ Focus on documentation and training rather than technical restriction.
 
 **File Changes:**
 - `CLAUDE.md` (update zen-mcp section)
-- `.claude/workflows/03-zen-review-quick.md` (add clink reminder)
-- `.claude/workflows/04-zen-review-deep.md` (add clink reminder)
+- `.claude/workflows/03-reviews.md` (add clink reminder)
+- `.claude/workflows/03-reviews.md` (add clink reminder)
 - `.claude/workflows/13-task-creation-review.md` (add clink reminder)
 - `docs/TROUBLESHOOTING.md` (new - tool usage errors guide)
 
@@ -323,8 +323,8 @@ Migrate hook logic to pre-commit framework with version-controlled scripts.
 - `.claude/state/current-todo.json` (new template)
 - `logs/zen_hooks_events.jsonl` (new, initially empty)
 - `logs/zen_hooks_overrides.jsonl` (new, initially empty)
-- `.claude/workflows/01-git-commit.md` (update with review marker workflow)
-- `.claude/workflows/03-zen-review-quick.md` (update with zen_review.sh reference)
+- `.claude/workflows/01-git.md` (update with review marker workflow)
+- `.claude/workflows/03-reviews.md` (update with zen_review.sh reference)
 
 **Exit Criteria:**
 - `.pre-commit-config.yaml` has local hook (version-controlled!)
@@ -443,8 +443,8 @@ None identified - all dependencies available.
 
 ### Workflow Updates
 - `.claude/workflows/00-task-breakdown.md` (new - subfeature decomposition guide)
-- `.claude/workflows/01-git-commit.md` (update with review marker workflow)
-- `.claude/workflows/03-zen-review-quick.md` (add zen_review.sh reference)
+- `.claude/workflows/01-git.md` (update with review marker workflow)
+- `.claude/workflows/03-reviews.md` (add zen_review.sh reference)
 - `.claude/workflows/README.md` (add new workflow)
 
 ### Standards Updates

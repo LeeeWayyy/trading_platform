@@ -84,7 +84,7 @@ if [[ "$CURRENT_BRANCH" == feature/* ]] || [[ "$CURRENT_BRANCH" == fix/* ]] || [
         echo ""
         echo "Required workflow:"
         echo "  1. Complete your changes"
-        echo "  2. Run: .claude/workflows/03-zen-review-quick.md (MANDATORY)"
+        echo "  2. Run: .claude/workflows/03-reviews.md (MANDATORY)"
         echo "  3. Fix any issues found in review"
         echo "  4. Add review approval marker to commit message:"
         echo ""
