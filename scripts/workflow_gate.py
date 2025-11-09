@@ -208,6 +208,9 @@ class WorkflowGate:
         """
         Record zen-mcp review result.
 
+        For PR reviews, also updates the unified_review.history to enable
+        the override workflow for LOW severity issues after max iterations.
+
         Args:
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
@@ -218,6 +221,21 @@ class WorkflowGate:
             "continuation_id": continuation_id,
             "status": status,  # "APPROVED" or "NEEDS_REVISION"
         }
+
+        # Check if this is a PR review by looking for pending unified_review history
+        review_state = state.get("unified_review", {})
+        review_history = review_state.get("history", [])
+
+        if review_history and review_history[-1].get("status") == "PENDING":
+            # Update the latest pending entry with review result
+            from datetime import datetime, timezone
+            review_history[-1].update({
+                "continuation_id": continuation_id,
+                "status": status,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            print(f"✅ Updated PR review history (iteration {review_history[-1]['iteration']})")
+
         self.save_state(state)
         print(f"✅ Recorded zen review: {status}")
 
@@ -1712,6 +1730,22 @@ class UnifiedReviewSystem:
             print("   2. Override LOW issues with --override --justification 'reason'")
             print("      (CRITICAL/HIGH/MEDIUM cannot be overridden)")
             print()
+
+        # Create pending history entry for this iteration
+        # This enables override workflow by providing history to check
+        from datetime import datetime, timezone
+        pending_entry = {
+            "iteration": iteration,
+            "scope": "pr",
+            "status": "PENDING",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "issues": [],  # Will be populated if user provides details
+            "continuation_id": None,  # Will be set by record_review
+        }
+
+        # Append to history (record_review will update the latest entry)
+        review_history.append(pending_entry)
+        self._save_state(state)
 
         # Return placeholder - actual review happens via clink
         return {
