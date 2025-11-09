@@ -120,12 +120,31 @@ def get_commit_message(commit_hash):
 
 
 def has_review_markers(commit_hash):
-    """Check if commit message contains zen-mcp review approval markers."""
-    message = get_commit_message(commit_hash)
-    # Check for both zen-mcp-review and continuation-id markers
-    has_approval = "zen-mcp-review: approved" in message.lower()
-    has_continuation_id = "continuation-id:" in message.lower()
-    return has_approval and has_continuation_id
+    """Check if commit message contains zen-mcp review approval markers.
+
+    Accepts two formats:
+    1. Quick review (single continuation): continuation-id: <id>
+    2. Deep review (dual phase): gemini-continuation-id: <id> AND codex-continuation-id: <id>
+    """
+    import re
+    message = get_commit_message(commit_hash).lower()
+
+    # Check for approval marker (required)
+    has_approval = "zen-mcp-review: approved" in message
+    if not has_approval:
+        return False
+
+    # Check for continuation ID in either format
+    # Format 1: Quick review (single continuation-id without prefix)
+    # Use regex to avoid matching gemini-continuation-id or codex-continuation-id
+    has_quick_format = bool(re.search(r'(?:^|\n)continuation-id:', message))
+
+    # Format 2: Deep review (dual phase with gemini + codex)
+    has_gemini = "gemini-continuation-id:" in message
+    has_codex = "codex-continuation-id:" in message
+    has_deep_format = has_gemini and has_codex
+
+    return has_quick_format or has_deep_format
 
 
 def main():
@@ -161,8 +180,10 @@ def main():
                     print(f"     - {commit[:8]}")
                 print()
                 print("   These commits are missing zen-mcp review markers:")
-                print("   - zen-mcp-review: approved")
-                print("   - continuation-id: <id>")
+                print("   Required: zen-mcp-review: approved")
+                print("   Plus ONE of:")
+                print("     Format 1 (quick review): continuation-id: <id>")
+                print("     Format 2 (deep review): gemini-continuation-id: <id> AND codex-continuation-id: <id>")
                 print()
                 print("   All commits must be created via workflow gates (no --no-verify)")
                 return 1

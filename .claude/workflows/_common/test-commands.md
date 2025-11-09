@@ -117,5 +117,5 @@ make test ARGS="--pdb"
 ## See Also
 
 - [Testing Standards](/docs/STANDARDS/TESTING.md) - Test pyramid and requirements
-- [Testing Workflow](../05-testing.md) - Step-by-step testing guide
-- [Debugging Workflow](../06-debugging.md) - Debug test failures
+- [Development Workflow](../04-development.md) - Step-by-step testing guide
+- [Development Workflow](../04-development.md) - Debug test failures

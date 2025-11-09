@@ -358,6 +358,5 @@ $ "Request independent deep review from Codex (fresh, complete branch)"
 
 - [Zen-MCP Review Process](./_common/zen-review-process.md) - Complete tier details
 - [Clink-Only Tool Usage](./_common/clink-policy.md) - Tool policy
-- [01-git.md](./01-git.md) - Progressive commits (uses quick review)
-- [01-git.md](./01-git.md) - Creating PRs (uses deep review)
+- [01-git.md](./01-git.md) - Progressive commits and PRs (uses quick & deep review)
 - [/docs/STANDARDS/GIT_WORKFLOW.md](../../docs/STANDARDS/GIT_WORKFLOW.md) - Review requirements

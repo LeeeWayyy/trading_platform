@@ -109,7 +109,10 @@ EOF
 <body>
 
 zen-mcp-review: approved
-continuation-id: <id>
+continuation-id: <id>        # Quick review (single continuation)
+OR
+gemini-continuation-id: <id> # Deep review (dual phase)
+codex-continuation-id: <id>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
@@ -117,6 +120,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 **Types:** feat, fix, docs, refactor, test, chore
+
+**Review Marker Formats:**
+- **Quick Review:** Single `continuation-id` for combined gemini→codex review
+- **Deep Review:** Separate `gemini-continuation-id` + `codex-continuation-id` for dual-phase review
 **Scope:** component, service, or area
 
 ### Common Scenarios

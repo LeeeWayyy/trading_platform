@@ -215,6 +215,5 @@ mv docs/TASKS/P1T15_PROGRESS.md docs/TASKS/P1T15_DONE.md
 ## See Also
 
 - `.claude/workflows/12-component-cycle.md` - 4-step pattern for each component
-- `.claude/workflows/01-git.md` - Git commits
-- `.claude/workflows/01-git.md` - Creating pull requests
+- `.claude/workflows/01-git.md` - Git commits & pull requests
 - `.claude/workflows/08-session-management.md` - Task state tracking

@@ -394,7 +394,7 @@ git push
 ## Related Workflows
 
 - [01-git.md](./01-git.md) - PR creation and review process (Step 9)
-- [10-ci-triage.md](./10-ci-triage.md) - CI failure handling
+- [05-operations.md](./05-operations.md) - CI failure handling
 - [01-git.md](./01-git.md) - Commit message standards
 
 ---

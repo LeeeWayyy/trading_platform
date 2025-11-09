@@ -676,7 +676,7 @@ set_trace_id(original_trace)  # Restore
 ## Further Reading
 
 - [Logging Queries Runbook](../RUNBOOKS/logging-queries.md) - Common LogQL queries
-- [ADR-0014](../ADRs/0005-centralized-logging-architecture.md) - Architecture decisions
+- [ADR-0005](../ADRs/0005-centralized-logging-architecture.md) - Architecture decisions
 - [Grafana Loki Documentation](https://grafana.com/docs/loki/)
 - [LogQL Language](https://grafana.com/docs/loki/latest/logql/)
 - Implementation: `libs/common/logging/`

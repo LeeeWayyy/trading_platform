@@ -64,7 +64,7 @@ Analyzed 13 of 20 workflow files (8,854 total lines). Identified significant red
 
 #### 2.1 Clink-Only Tool Usage Warning
 
-**Duplicated in:** 03-reviews.md, 03-reviews.md, 02-planning.md
+**Duplicated in:** 03-reviews.md, 02-planning.md
 
 **Content (identical ~15 lines):**
 ```markdown

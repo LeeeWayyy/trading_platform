@@ -135,7 +135,7 @@ mcp__zen__clink(
 )
 ```
 
-**See:** [`.claude/workflows/13-task-creation-review.md`](../13-task-creation-review.md)
+**See:** [`.claude/workflows/02-planning.md`](../02-planning.md)
 
 ## Model Selection Strategy
 
@@ -264,6 +264,6 @@ Committing without review gates is the PRIMARY root cause of multiple fix commit
 - [Clink-Only Tool Usage Policy](./clink-policy.md) - Tool restriction details
 - [Quick Review Workflow](../03-reviews.md) - Tier 1 step-by-step
 - [Deep Review Workflow](../03-reviews.md) - Tier 2 step-by-step
-- [Task Creation Review](../13-task-creation-review.md) - Tier 3 step-by-step
+- [Task Creation Review](../02-planning.md) - Tier 3 step-by-step
 - [CLAUDE.md Zen-MCP Integration](/CLAUDE.md#zen-mcp--clink-integration) - Complete policy
 - [Troubleshooting Guide](/.claude/TROUBLESHOOTING.md) - Error resolution
