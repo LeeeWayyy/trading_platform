@@ -61,7 +61,7 @@ Task(
 
 **Zen-MCP Clink (Already Implemented):**
 - ✅ Used for code review delegation
-- ✅ Uses `mcp__zen-mcp__clink` with CLI authentication
+- ✅ Uses `mcp__zen__clink` with CLI authentication
 - ✅ Supports `continuation_id` for multi-turn conversations
 - ✅ Three-tier review system:
   - Tier 1: Quick review (clink + codex, ~30 sec)
@@ -84,7 +84,7 @@ Based on research, **delegate to subagent** when:
 | **File search (open-ended)** | ✅ YES | `Task` (Explore) | May require multiple search rounds, isolated context |
 | **"Where is X?" questions** | ✅ YES | `Task` (Explore) | Open-ended codebase exploration |
 | **Multi-file pattern search** | ✅ YES | `Task` (Explore) | Search-heavy, tangential to main task |
-| **Code review** | ✅ YES | `mcp__zen-mcp__clink` | Already implemented, multi-turn needed |
+| **Code review** | ✅ YES | `mcp__zen__clink` | Already implemented, multi-turn needed |
 | **Test execution** | ⚠️  MAYBE | Script hook | Logs can pollute context, but test results needed |
 | **CI log analysis** | ✅ YES | `Task` (general-purpose) | Large logs, pattern extraction |
 | **PR comment extraction** | ✅ YES | `Task` (general-purpose) | Structured data extraction |

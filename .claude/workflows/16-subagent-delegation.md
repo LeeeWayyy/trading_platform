@@ -330,7 +330,7 @@ Constraints:
 **Implementation:**
 ```python
 # Use zen-mcp clink (NOT Task tool)
-review_result = mcp__zen-mcp__clink(
+review_result = mcp__zen__clink(
     cli_name="codex",
     role="codereviewer",
     prompt="""Review these staged changes for P1T13-F3 Phase 1:
@@ -561,7 +561,7 @@ Task(
 
 **Why Wrong:** Task tool is stateless, no multi-turn conversation.
 
-**Correct:** Use `mcp__zen-mcp__clink` with `role="codereviewer"`.
+**Correct:** Use `mcp__zen__clink` with `role="codereviewer"`.
 
 ---
 

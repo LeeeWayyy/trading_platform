@@ -1173,7 +1173,7 @@ class PlanningWorkflow:
         print()
         print("💡 Next steps:")
         print("   1. Review task document for completeness")
-        print("   2. Request review via: mcp__zen-mcp__clink with cli_name='gemini', role='planner'")
+        print("   2. Request review via: mcp__zen__clink with cli_name='gemini', role='planner'")
         print("   3. Address any issues found in review")
         print("   4. Once approved, use plan_subfeatures() if task >8h")
         print()

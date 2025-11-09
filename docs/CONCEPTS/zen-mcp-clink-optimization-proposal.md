@@ -65,7 +65,7 @@
 
 **Clink Tool Signature:**
 ```python
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt: str,                          # Required - Task description
     cli_name: "codex" | "gemini",        # Required in our workflows
     role: "default" | "codereviewer" | "planner" = "default",

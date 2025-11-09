@@ -892,7 +892,7 @@ I need a fresh perspective to break out of this loop.
 """
 
         # Delegate to clink codex
-        print("   Using: mcp__zen-mcp__clink(cli_name='codex', role='default')")
+        print("   Using: mcp__zen__clink(cli_name='codex', role='default')")
         print("   → Codex will provide systematic debugging guidance")
         print()
 

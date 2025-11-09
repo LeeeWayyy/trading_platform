@@ -70,7 +70,7 @@ Analyzed 13 of 20 workflow files (8,854 total lines). Identified significant red
 ```markdown
 ## 🚨 CRITICAL: Clink-Only Tool Usage
 
-**⚠️ MANDATORY: Use `mcp__zen-mcp__clink` EXCLUSIVELY for all zen-mcp interactions.**
+**⚠️ MANDATORY: Use `mcp__zen__clink` EXCLUSIVELY for all zen-mcp interactions.**
 
 See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) for complete policy.
 ```

@@ -115,7 +115,7 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 
 ### 🚨 CRITICAL: Clink-Only Tool Usage Policy
 
-**⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen-mcp__clink` exclusively.**
+**⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen__clink` exclusively.**
 
 **WHY THIS MATTERS:**
 - MCP server configuration is **system-level** (not project-level)
@@ -126,7 +126,7 @@ This project uses **zen-mcp** (Model Context Protocol server) with **clink** to 
 **✅ CORRECT Tool Usage:**
 ```python
 # Use clink with appropriate CLI and role
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="Review this implementation for trading safety",
     cli_name="codex",  # or "gemini"
     role="codereviewer"  # or "planner" or "default"
@@ -149,7 +149,7 @@ Tool restriction is **not enforceable at project level** because MCP config is s
 
 **If you catch yourself using direct zen-mcp tools:**
 1. STOP immediately
-2. Use `mcp__zen-mcp__clink` instead with appropriate cli_name and role
+2. Use `mcp__zen__clink` instead with appropriate cli_name and role
 3. Check `.claude/workflows/03-zen-review-quick.md` for correct patterns
 4. See `.claude/TROUBLESHOOTING.md` for detailed error resolution
 
@@ -633,7 +633,7 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 
 - **🚫 NEVER use `git commit --no-verify`** — **ABSOLUTELY FORBIDDEN**: Bypasses zen-mcp review approval gates and pre-commit hooks (violates quality process)
 - **🚫 No coding without analysis** — **PRIMARY ROOT CAUSE**: Complete [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md) FIRST (saves 3-11 hours)
-- **🚫 No direct zen-mcp tools** — **CRITICAL**: ONLY use `mcp__zen-mcp__clink` (direct tools cause API permission errors and break workflows)
+- **🚫 No direct zen-mcp tools** — **CRITICAL**: ONLY use `mcp__zen__clink` (direct tools cause API permission errors and break workflows)
 - **🚫 No skipping review gates** — **CRITICAL**: Skipping zen-mcp review caused 7 fix commits (10-15 hours wasted) — ALL reviewers must approve (`.claude/workflows/03-zen-review-quick.md`)
 - **🚫 No skipping reviewer issues** — **CRITICAL**: ALL issues from ALL reviewers (gemini AND codex) must be addressed — no cherry-picking approvals
 - **🚫 No skipping local CI** — Run `make ci-local` BEFORE commit (2-4x faster than remote CI)

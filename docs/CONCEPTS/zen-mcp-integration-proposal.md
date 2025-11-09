@@ -158,7 +158,7 @@ Clink supports specialized roles that configure Codex behavior:
 **Role Selection:**
 ```python
 # Code review
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="Review this for thread safety",
     cli_name="codex",
     role="codereviewer",  # Optimizes for finding bugs
@@ -166,7 +166,7 @@ mcp__zen-mcp__clink(
 )
 
 # Planning
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="Create implementation plan",
     cli_name="codex",
     role="planner",  # Optimizes for structured breakdown

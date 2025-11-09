@@ -4,7 +4,7 @@
 
 ## Critical: Clink-Only Policy
 
-**⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen-mcp__clink` exclusively.**
+**⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen__clink` exclusively.**
 
 See [Clink-Only Tool Usage Policy](./clink-policy.md) for complete details.
 
@@ -24,7 +24,7 @@ See [Clink-Only Tool Usage Policy](./clink-policy.md) for complete details.
 
 **Usage:**
 ```python
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="""Review staged changes for:
     - Trading safety (idempotency, circuit breakers, risk checks)
     - Test coverage completeness
@@ -59,7 +59,7 @@ mcp__zen-mcp__clink(
 
 **Phase 1 - Gemini Analysis:**
 ```python
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="""Perform deep review of feature branch:
 
     Branch: [branch-name]
@@ -83,7 +83,7 @@ mcp__zen-mcp__clink(
 
 **Phase 2 - Codex Synthesis (reuse continuation_id):**
 ```python
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="""Synthesize recommendations from gemini review:
 
     continuation_id: [from-gemini-response]
@@ -115,7 +115,7 @@ mcp__zen-mcp__clink(
 
 **Usage:**
 ```python
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="""Review task document for implementation readiness:
 
     Task: [task-file-path]
@@ -190,7 +190,7 @@ mcp__zen-mcp__clink(
 **Example:**
 ```python
 # Phase 1: Gemini analysis
-response1 = mcp__zen-mcp__clink(
+response1 = mcp__zen__clink(
     prompt="Analyze this feature...",
     cli_name="gemini",
     role="codereviewer"
@@ -198,7 +198,7 @@ response1 = mcp__zen-mcp__clink(
 # Extract continuation_id from response1
 
 # Phase 2: Codex synthesis (reuses context)
-response2 = mcp__zen-mcp__clink(
+response2 = mcp__zen__clink(
     prompt="Synthesize recommendations...",
     cli_name="codex",
     role="codereviewer",
