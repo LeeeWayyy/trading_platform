@@ -1373,7 +1373,7 @@ class PlanningWorkflow:
             )
             if result.returncode != 0:
                 print(f"❌ Failed to create/checkout branch: {result.stderr}")
-                return
+                raise RuntimeError(f"Failed to create/checkout branch {branch_name}: {result.stderr.strip()}")
 
         # Initialize task state (update_task_state.py integration)
         task_doc = self._load_task_doc(task_id)

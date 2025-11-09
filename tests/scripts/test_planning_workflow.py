@@ -316,7 +316,7 @@ class TestStartTaskWithState:
 
     @patch("scripts.workflow_gate.subprocess.run")
     def test_start_task_branch_failure(self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-        """Test task start handles branch creation failure."""
+        """Test task start raises RuntimeError on branch creation failure."""
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr="branch error"),  # checkout -b fails
             MagicMock(returncode=1, stderr="branch error"),  # checkout fails
@@ -328,8 +328,11 @@ class TestStartTaskWithState:
         task_file.parent.mkdir(parents=True, exist_ok=True)
         task_file.write_text("# P1T23: Test")
 
-        workflow.start_task_with_state("P1T23", "bad-branch")
+        # Should raise RuntimeError with stderr details instead of returning gracefully (P1 fix)
+        with pytest.raises(RuntimeError, match=r"Failed to create/checkout branch bad-branch.*branch error"):
+            workflow.start_task_with_state("P1T23", "bad-branch")
 
+        # Verify error message was printed before raising
         captured = capsys.readouterr()
         assert "Failed to create/checkout branch" in captured.out
 
