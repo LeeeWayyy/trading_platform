@@ -1761,6 +1761,296 @@ class UnifiedReviewSystem:
         }
 
 
+class DebugRescue:
+    """
+    Automated detection and escalation of stuck debug loops.
+
+    Detects when AI is stuck in repetitive test failures and escalates
+    to clink codex for systematic debugging assistance.
+
+    Component 5 of P1T13-F4: Workflow Intelligence & Context Efficiency
+    Author: Claude Code
+    Date: 2025-11-08
+    """
+
+    # Detection thresholds (class constants for configurability)
+    MAX_ATTEMPTS_SAME_TEST = 3
+    LOOP_DETECTION_WINDOW = 10
+    CYCLING_MIN_ATTEMPTS = 6
+    CYCLING_MAX_UNIQUE_ERRORS = 3
+    TIME_LIMIT_MIN_ATTEMPTS = 5
+    TIME_LIMIT_MINUTES = 30
+    HISTORY_MAX_SIZE = 50
+
+    def __init__(self, state_file: Path = STATE_FILE):
+        """
+        Initialize debug rescue system.
+
+        Args:
+            state_file: Path to workflow state JSON file
+        """
+        self._state_file = state_file
+        self._project_root = Path(__file__).parent.parent
+
+    def _load_state(self) -> dict:
+        """
+        Load workflow state from JSON file.
+
+        Returns:
+            State dict, or empty dict if file doesn't exist or is corrupted
+        """
+        if not self._state_file.exists():
+            return {}
+
+        try:
+            with open(self._state_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            # Corrupted or inaccessible state file - return empty dict
+            print(f"⚠️  Warning: Could not load state file: {e}")
+            print(f"   Using empty state")
+            return {}
+
+    def _save_state(self, state: dict) -> None:
+        """
+        Save workflow state to JSON file.
+
+        Args:
+            state: State dict to save
+        """
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+        except (IOError, OSError) as e:
+            print(f"⚠️  Warning: Could not save state file: {e}")
+            # Continue execution - state persistence is non-critical
+
+    def record_test_attempt(
+        self,
+        test_file: str,
+        status: str,
+        error_signature: str
+    ) -> None:
+        """
+        Record test execution attempt for loop detection.
+
+        Args:
+            test_file: Test file path
+            status: Test outcome ("passed" or "failed")
+            error_signature: Hash of error message (for detecting repeats)
+
+        Example:
+            >>> rescue = DebugRescue()
+            >>> rescue.record_test_attempt(
+            ...     "tests/test_foo.py",
+            ...     "failed",
+            ...     "abc123"
+            ... )
+        """
+        state = self._load_state()
+        debug_state = state.setdefault("debug_rescue", {})
+        attempt_history = debug_state.setdefault("attempt_history", [])
+
+        # Add new attempt
+        attempt_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "test_file": test_file,
+            "status": status,
+            "error_signature": error_signature
+        })
+
+        # Prune old history (keep last HISTORY_MAX_SIZE)
+        if len(attempt_history) > self.HISTORY_MAX_SIZE:
+            debug_state["attempt_history"] = attempt_history[-self.HISTORY_MAX_SIZE:]
+
+        self._save_state(state)
+
+    def is_stuck_in_loop(self) -> tuple[bool, str]:
+        """
+        Detect if AI is stuck in debug loop.
+
+        Indicators:
+        1. Same test failing MAX_ATTEMPTS_SAME_TEST+ times in last LOOP_DETECTION_WINDOW attempts
+        2. Error signature cycling (≤CYCLING_MAX_UNIQUE_ERRORS patterns over CYCLING_MIN_ATTEMPTS+)
+        3. >TIME_LIMIT_MINUTES spent in debug attempts (TIME_LIMIT_MIN_ATTEMPTS+ attempts)
+
+        Returns:
+            (is_stuck: bool, reason: str)
+
+        Example:
+            >>> rescue = DebugRescue()
+            >>> is_stuck, reason = rescue.is_stuck_in_loop()
+            >>> if is_stuck:
+            ...     print(f"Stuck: {reason}")
+        """
+        state = self._load_state()
+        debug_state = state.get("debug_rescue", {})
+        attempt_history = debug_state.get("attempt_history", [])
+
+        if len(attempt_history) < self.MAX_ATTEMPTS_SAME_TEST:
+            return (False, "Not enough attempts to detect loop")
+
+        recent = attempt_history[-self.LOOP_DETECTION_WINDOW:]
+
+        # Check 1: Same test failing repeatedly
+        test_files = [a["test_file"] for a in recent if a["status"] == "failed"]
+        if len(test_files) >= self.MAX_ATTEMPTS_SAME_TEST:
+            most_common = max(set(test_files), key=test_files.count)
+            fail_count = test_files.count(most_common)
+            if fail_count >= self.MAX_ATTEMPTS_SAME_TEST:
+                return (
+                    True,
+                    f"Test '{most_common}' failed {fail_count} times in last {len(recent)} attempts"
+                )
+
+        # Check 2: Error signature cycling
+        signatures = [a["error_signature"] for a in recent]
+        unique_sigs = set(signatures)
+        if len(unique_sigs) <= self.CYCLING_MAX_UNIQUE_ERRORS and len(signatures) >= self.CYCLING_MIN_ATTEMPTS:
+            # Limited unique errors cycling
+            return (
+                True,
+                f"Cycling between {len(unique_sigs)} error patterns: {unique_sigs}"
+            )
+
+        # Check 3: Time spent (if timestamps available)
+        if len(recent) >= self.TIME_LIMIT_MIN_ATTEMPTS:
+            try:
+                first_ts = datetime.fromisoformat(recent[0]["timestamp"])
+                last_ts = datetime.fromisoformat(recent[-1]["timestamp"])
+                duration = (last_ts - first_ts).total_seconds() / 60
+
+                if duration > self.TIME_LIMIT_MINUTES:
+                    return (
+                        True,
+                        f"Spent {duration:.1f} minutes in debug attempts without progress"
+                    )
+            except (ValueError, KeyError):
+                pass  # Timestamp parsing failed, skip this check
+
+        return (False, "No loop detected")
+
+    def _get_recent_commits(self, max_commits: int = 5) -> str:
+        """
+        Get recent commits for context.
+
+        Args:
+            max_commits: Number of recent commits to fetch
+
+        Returns:
+            Formatted git log output
+        """
+        try:
+            result = subprocess.run(
+                ["git", "log", f"-{max_commits}", "--oneline"],
+                cwd=self._project_root,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10
+            )
+            return result.stdout.strip()
+        except Exception:
+            # Catch all exceptions (git errors, timeouts, etc.)
+            return "(git log unavailable)"
+
+    def request_debug_rescue(
+        self,
+        test_file: str | None = None
+    ) -> dict:
+        """
+        Request clink codex debugging assistance.
+
+        Provides codex with:
+        1. Test file and recent failure history
+        2. Recent fix attempts (from git log)
+        3. Request systematic debugging approach
+
+        Args:
+            test_file: Specific test file to debug (or None for auto-detect)
+
+        Returns:
+            dict with rescue guidance and continuation_id
+
+        Example:
+            >>> rescue = DebugRescue()
+            >>> result = rescue.request_debug_rescue("tests/test_foo.py")
+            >>> print(result["guidance"])
+        """
+        state = self._load_state()
+        debug_state = state.get("debug_rescue", {})
+        attempt_history = debug_state.get("attempt_history", [])
+
+        # Auto-detect most problematic test if not specified
+        if not test_file and attempt_history:
+            recent = attempt_history[-self.LOOP_DETECTION_WINDOW:]
+            failed_tests = [a["test_file"] for a in recent if a["status"] == "failed"]
+            if failed_tests:
+                test_file = max(set(failed_tests), key=failed_tests.count)
+
+        if not test_file:
+            return {
+                "error": "No test file specified and no recent failures found"
+            }
+
+        # Get recent errors for this test
+        recent_errors = [
+            a["error_signature"]
+            for a in attempt_history
+            if a["test_file"] == test_file and a["status"] == "failed"
+        ]
+
+        print("🆘 DEBUG RESCUE TRIGGERED")
+        print(f"   Test: {test_file}")
+        print(f"   Recent failures: {len([a for a in attempt_history if a['test_file'] == test_file and a['status'] == 'failed'])}")
+        print()
+        print("📞 Requesting clink codex debugging assistance...")
+        print()
+
+        # Build rescue prompt
+        rescue_prompt = f"""
+DEBUG RESCUE REQUEST
+
+I'm stuck in a debug loop on this test:
+- Test file: {test_file}
+- Failed attempts: {len([a for a in attempt_history if a['test_file'] == test_file and a['status'] == 'failed'])}
+- Recent error signatures: {recent_errors[:3]}
+
+Recent fix attempts (git log):
+{self._get_recent_commits()}
+
+Please help with systematic debugging:
+1. Analyze the error pattern (is it cycling?)
+2. Identify root cause (not just symptoms)
+3. Suggest focused debugging approach
+4. Recommend specific diagnostic steps
+
+I need a fresh perspective to break out of this loop.
+"""
+
+        print("💡 Follow workflow: Use mcp__zen__clink with:")
+        print("   - cli_name='codex'")
+        print("   - role='default'")
+        print(f"   - prompt='{rescue_prompt.strip()[:100]}...'")
+        print()
+        print("   Codex will provide:")
+        print("   - Error pattern analysis")
+        print("   - Root cause identification")
+        print("   - Systematic debugging plan")
+        print("   - Specific diagnostic steps")
+        print()
+
+        # Return guidance (actual rescue happens via clink)
+        return {
+            "test_file": test_file,
+            "failed_attempts": len([a for a in attempt_history if a['test_file'] == test_file and a['status'] == 'failed']),
+            "recent_errors": recent_errors[:3],
+            "rescue_prompt": rescue_prompt.strip(),
+            "status": "RESCUE_NEEDED"
+        }
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -1894,6 +2184,17 @@ Examples:
         help="Justification for overriding LOW severity issues"
     )
 
+    # Component 5: Debug Rescue
+    debug_rescue_parser = subparsers.add_parser(
+        "debug-rescue",
+        help="Request debug rescue for stuck test loops"
+    )
+    debug_rescue_parser.add_argument(
+        "test_file",
+        nargs="?",
+        help="Test file to debug (optional, auto-detects if omitted)"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -1967,6 +2268,21 @@ Examples:
             if result.get("error"):
                 print(f"❌ Error: {result['error']}")
                 return 1
+
+        elif args.command == "debug-rescue":
+            # Instantiate DebugRescue
+            debug_rescue = DebugRescue()
+
+            # Request rescue
+            result = debug_rescue.request_debug_rescue(test_file=args.test_file)
+
+            # Handle result
+            if result.get("error"):
+                print(f"❌ Error: {result['error']}")
+                return 1
+
+            # Success - guidance printed by request_debug_rescue()
+            return 0
 
         return 0
 

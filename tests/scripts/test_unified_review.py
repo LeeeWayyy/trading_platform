@@ -457,8 +457,8 @@ class TestEdgeCases:
         assert len(result["low_issues"]) == 3
         assert result["override"]["low_issues_count"] == 3
 
-    def test_unknown_severity_treated_as_blocked(self, temp_state_file):
-        """Test issues with unknown/missing severity are not allowed to override."""
+    def test_unknown_severity_is_not_blocked(self, temp_state_file):
+        """Test issues with unknown/missing severity are allowed to override."""
         reviewer = UnifiedReviewSystem(state_file=temp_state_file)
 
         state = {
@@ -491,6 +491,31 @@ class TestEdgeCases:
         reviewer._pr_review(iteration=3)
         captured_3 = capsys.readouterr()
         assert "Max iterations reached (3)" in captured_3.out
+
+    def test_override_flag_before_max_iterations_ignored(self, temp_state_file):
+        """Test override flag at iteration < 3 does not trigger override logic."""
+        reviewer = UnifiedReviewSystem(state_file=temp_state_file)
+
+        # Pre-populate state with review history
+        state = {
+            "unified_review": {
+                "history": [{
+                    "iteration": 1,
+                    "issues": [{"severity": "LOW", "summary": "Minor issue"}]
+                }]
+            }
+        }
+        reviewer._save_state(state)
+
+        # Request PR review with override at iteration 2 (< 3)
+        result = reviewer._pr_review(
+            iteration=2,
+            override_justification="Attempting early override"
+        )
+
+        # Should NOT trigger override logic (iteration < 3)
+        assert result["status"] == "PENDING"
+        assert "override" not in result
 
 
 # Mark as unit test
