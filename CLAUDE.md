@@ -6,27 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 🤖 AUTO-RESUME: Check for Incomplete Work
 
-**CRITICAL:** Before proceeding, check if there's incomplete work to resume:
-
-```bash
-# Check for incomplete tasks
-if [ -f .claude/task-state.json ]; then
-  TASK_STATE=$(jq -r '.current_task.state' .claude/task-state.json)
-  if [ "$TASK_STATE" = "IN_PROGRESS" ]; then
-    echo "🤖 INCOMPLETE TASK DETECTED"
-    echo "📖 See .claude/AUTO_RESUME.md for automatic context restoration"
-    echo "📋 Run: jq '.' .claude/task-state.json"
-  fi
-fi
-```
-
-**If incomplete work found:**
-- Read [`.claude/AUTO_RESUME.md`](./.claude/AUTO_RESUME.md)
-- Follow [`.claude/workflows/14-task-resume.md`](./.claude/workflows/14-task-resume.md)
-- Load context from `.claude/task-state.json`
-- Continue where previous session left off
-
-**Otherwise:** Proceed with normal workflow below.
+**CRITICAL:** Check `.claude/task-state.json` for incomplete work before starting. If found, follow [`.claude/AUTO_RESUME.md`](./.claude/AUTO_RESUME.md) and [`.claude/workflows/08-session-management.md`](./.claude/workflows/08-session-management.md) to resume.
 
 ---
 
@@ -50,10 +30,7 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 ## 🚀 Quick Start
 
-**New to the project?**
-1. Read this file for overview
-2. Follow [`.claude/workflows/11-environment-bootstrap.md`](./.claude/workflows/11-environment-bootstrap.md) to set up your environment
-3. Review [`.claude/workflows/README.md`](./.claude/workflows/README.md) for development workflow guides
+**New to the project?** Read this file, then see [`.claude/workflows/README.md`](./.claude/workflows/README.md) for setup and workflows.
 
 **Ready to code?**
 1. **🔍 MANDATORY: Complete Pre-Implementation Analysis** (30-60 min)
@@ -63,10 +40,10 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
    - Create comprehensive todo list with 4-step pattern
    - **⚠️ DO NOT write code before completing analysis**
 
-2. **For task documents:** Request task creation review (see `.claude/workflows/13-task-creation-review.md`)
+2. **For task documents:** Request task creation review (see `.claude/workflows/02-planning.md`)
 
 3. **Break feature into logical components** — Use 4-step pattern (see below)
-   - For large tasks (>8h), decompose into subfeatures: [`.claude/workflows/00-task-breakdown.md`](./.claude/workflows/00-task-breakdown.md)
+   - For large tasks (>8h), decompose into subfeatures: [`.claude/workflows/02-planning.md`](./.claude/workflows/02-planning.md)
 
 4. **For EACH component:**
    - Implement logic
@@ -85,46 +62,19 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 ## 📖 Essential Documentation
 
-**📂 Workflow Guides (step-by-step procedures):**
-- This document (CLAUDE.md) is your **PRIMARY guidance** — start here for principles and process
-- [`.claude/workflows/README.md`](./.claude/workflows/README.md) — **Workflow Index** (quick reference to find specific workflows)
-
-**📖 First Time? Documentation Index:**
-1. `/docs/INDEX.md` — Canonical entry point with navigation guide
-2. `/docs/AI_GUIDE.md` — Quick-start for AI assistants
-
-**⚠️ Standards (MUST follow):**
-1. `/docs/STANDARDS/CODING_STANDARDS.md` — Python patterns and standards
-2. `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md` — Docstring requirements
-3. `/docs/STANDARDS/GIT_WORKFLOW.md` — Commit messages and PR policies
-4. `/docs/STANDARDS/TESTING.md` — Test pyramid and requirements
-5. `/docs/STANDARDS/ADR_GUIDE.md` — Architecture Decision Records (MANDATORY for arch changes)
-
-**🔧 Implementation References:**
-- `/docs/API/*.openapi.yaml` — API contracts (strict, require ADR to change)
-- `/docs/DB/*.sql` — Database schemas (strict)
-- `/docs/TASKS/*.md` — Task tracking and implementation guides
-- `/docs/ADRs/*.md` — All architectural decisions
-- `/docs/CONCEPTS/*.md` — Trading concepts explained for beginners
+| Category | Key Files |
+|----------|-----------|
+| **Workflows** | `.claude/workflows/README.md` (index), `00-analysis-checklist.md`, `12-component-cycle.md`, `03-reviews.md`, `01-git.md` |
+| **Standards** | `/docs/STANDARDS/` (CODING, DOCUMENTATION, GIT_WORKFLOW, TESTING, ADR_GUIDE) |
+| **Implementation** | `/docs/TASKS/` (tickets), `/docs/ADRs/` (architecture decisions), `/docs/CONCEPTS/` (trading glossary) |
+| **Schemas** | `/docs/API/*.openapi.yaml` (API contracts), `/docs/DB/*.sql` (database schemas) |
+| **Navigation** | `/docs/INDEX.md` (canonical index), `/docs/AI_GUIDE.md` (AI quick-start) |
 
 ---
 
 ## 🤖 Zen-MCP + Clink Integration
 
-**⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen__clink` exclusively.**
-
-**Correct Usage:**
-```python
-mcp__zen__clink(
-    prompt="Review this implementation",
-    cli_name="codex",  # or "gemini"
-    role="codereviewer"
-)
-```
-
-**WHY:** Direct zen-mcp tools bypass CLI authentication and cause API permission errors.
-
-**See:** `.claude/workflows/03-reviews.md` for review workflow details
+**⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen__clink` exclusively** (direct zen-mcp tools bypass CLI authentication). See `.claude/workflows/03-reviews.md` for review workflow and usage examples.
 
 ---
 
@@ -168,56 +118,21 @@ make circuit-trip # Manually trip circuit breaker
 make kill-switch  # Cancel all orders, flatten positions, block new signals
 ```
 
-### Context Management (Phase 3: Checkpointing System)
+### Context Management
 ```bash
-# Create checkpoint before delegation or session end
-./scripts/context_checkpoint.py create --type delegation    # Before using Task tool
-./scripts/context_checkpoint.py create --type session_end   # Before ending session
-
-# Restore context from checkpoint
+# Checkpointing (before delegation/session end)
+./scripts/context_checkpoint.py create --type {delegation|session_end}
+./scripts/context_checkpoint.py list              # Show available checkpoints
 ./scripts/context_checkpoint.py restore --id <checkpoint_id>
+./scripts/context_checkpoint.py cleanup --older-than 7d  # Clean old checkpoints
 
-# List available checkpoints
-./scripts/context_checkpoint.py list                        # All checkpoints
-./scripts/context_checkpoint.py list --type delegation      # Only delegation checkpoints
-
-# Clean up old checkpoints (auto-deletes >7 days, keeps last 10 per type)
-./scripts/context_checkpoint.py cleanup --older-than 7d
-./scripts/context_checkpoint.py cleanup --older-than 14d --keep-latest 20
+# Context monitoring (auto-delegation at 70%+ usage)
+./scripts/workflow_gate.py check-context         # Check current usage
+./scripts/workflow_gate.py suggest-delegation    # Get recommendations
+./scripts/workflow_gate.py record-delegation "..." # Record delegation (resets context)
 ```
 
-**When to use:**
-- Before Task tool delegation (see `.claude/workflows/16-subagent-delegation.md`)
-- Before ending long coding sessions (auto-resume workflow)
-- When context loss risk is high (complex multi-step work)
-- See `.claude/checkpoints/README.md` for complete documentation
-
-### Context-Aware Workflow Automation (Component 3: Context Monitoring)
-```bash
-# Check current context usage status
-./scripts/workflow_gate.py check-context
-
-# Record current token usage manually
-./scripts/workflow_gate.py record-context <tokens>
-
-# Get delegation recommendations if thresholds exceeded
-./scripts/workflow_gate.py suggest-delegation
-
-# Record subagent delegation (resets context to 0)
-./scripts/workflow_gate.py record-delegation "<task_description>"
-```
-
-**Context thresholds:**
-- **< 70%:** ✅ OK - Continue normal workflow
-- **70-84%:** ⚠️ WARNING - Delegation RECOMMENDED
-- **≥ 85%:** 🚨 CRITICAL - Delegation MANDATORY
-
-**When to use:**
-- Check context at workflow transitions (implement → test → review → commit)
-- Delegate non-core tasks when context ≥ 70% (see `.claude/workflows/16-subagent-delegation.md`)
-- Mandatory delegation at 85% threshold to prevent mid-task interruptions
-- Context automatically resets after delegation and after commit
-- See `.claude/workflows/component-cycle.md#context-aware-workflow-pattern-component-3` for integration with 4-step pattern
+**Thresholds:** <70% OK | 70-84% delegation recommended | ≥85% delegation mandatory. See `.claude/workflows/16-subagent-delegation.md` and `.claude/checkpoints/README.md`.
 
 
 ## 🏗️ Code Architecture
@@ -247,30 +162,12 @@ Post-Trade Monitor → Redis Breaker State → All Services Check Before Action
 
 ### Critical Patterns
 
-**Idempotency (prevents duplicate orders):**
-```python
-client_order_id = hash(symbol + side + qty + price + strategy + date)[:24]
-```
-
-**Circuit Breaker Check (MANDATORY before every order):**
-```python
-if redis.get("cb:state") == b"TRIPPED":
-    raise CircuitBreakerTripped()
-```
-
-**Risk Check (MANDATORY before every order):**
-```python
-if abs(current_pos + order.qty) > limits.max_pos_per_symbol:
-    raise RiskViolation()
-```
-
-**Feature Parity (shared code for research/production):**
-```python
-# strategies/alpha_baseline/features.py
-def compute_features(df: pl.DataFrame) -> pl.DataFrame:
-    """Shared by offline research AND online signal service."""
-    # Never duplicate this logic
-```
+| Pattern | Implementation |
+|---------|----------------|
+| **Idempotency** | `client_order_id = hash(symbol + side + qty + price + strategy + date)[:24]` |
+| **Circuit Breaker** | Check `redis.get("cb:state") != b"TRIPPED"` before every order |
+| **Risk Check** | Validate `abs(current_pos + order.qty) <= limits.max_pos_per_symbol` |
+| **Feature Parity** | Share code between research/production (never duplicate logic) |
 
 ### Reconciliation
 Boot-time and periodic reconciliation:
@@ -284,23 +181,12 @@ Boot-time and periodic reconciliation:
 
 ## 🤖 Zen-MCP Reviews
 
-All reviews automated via `workflow_gate.py`:
-
 ```bash
-# Pre-commit review (Tier 1: gemini → codex, 2-3 min)
-./scripts/workflow_gate.py request-review commit
-
-# Pre-PR review (Tier 2: deep multi-iteration, 3-5 min)
-./scripts/workflow_gate.py request-review pr
+./scripts/workflow_gate.py request-review commit  # Pre-commit (Tier 1: gemini → codex, 2-3 min)
+./scripts/workflow_gate.py request-review pr      # Pre-PR (Tier 2: deep review, 3-5 min)
 ```
 
-**Models:**
-- Codex CLI: `gpt-5-codex` (400K context, ~30s reviews)
-- Gemini CLI: `gemini-2.5-pro` (1M context, planning)
-
-**Cost:** $320-370/month (subscription-based, unlimited reviews)
-
-**See:** `.claude/workflows/03-reviews.md` for review details
+**Models:** Codex CLI (gpt-5-codex), Gemini CLI (gemini-2.5-pro) | **Cost:** $320-370/month | **See:** `.claude/workflows/03-reviews.md`
 
 ---
 
