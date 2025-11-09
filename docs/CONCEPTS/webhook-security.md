@@ -550,7 +550,7 @@ Before deploying webhook endpoints to production:
 
 ### Related Concepts
 - `/docs/CONCEPTS/idempotency.md` - Why webhooks need to be idempotent
-- `/docs/ADRs/0005-execution-gateway-architecture.md` - T4 architecture decisions
+- `/docs/ADRs/0014-execution-gateway-architecture.md` - T4 architecture decisions
 
 ### Python Security
 - [Python hmac module](https://docs.python.org/3/library/hmac.html) - Official documentation

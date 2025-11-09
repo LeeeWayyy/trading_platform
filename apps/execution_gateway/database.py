@@ -7,7 +7,7 @@ Provides database access for orders and positions tables with:
 - Transaction management
 - Connection pooling
 
-See ADR-0005 for architecture decisions.
+See ADR-0014 for architecture decisions.
 """
 
 import logging

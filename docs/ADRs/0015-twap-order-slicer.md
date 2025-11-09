@@ -120,6 +120,6 @@ Implement TWAP order slicing with the following architecture:
 
 ## References
 
-- [ADR-0005: Execution Gateway Architecture](./0005-execution-gateway-architecture.md)
+- [ADR-0014: Execution Gateway Architecture](./0014-execution-gateway-architecture.md)
 - [APScheduler Documentation](https://apscheduler.readthedocs.io/)
 - [Python PEP 8 - Exception Names](https://peps.python.org/pep-0008/#exception-names)

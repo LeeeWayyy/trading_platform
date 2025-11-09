@@ -1,4 +1,4 @@
-# ADR 0005: Execution Gateway Architecture with Alpaca Integration
+# ADR 0014: Execution Gateway Architecture with Alpaca Integration
 
 - Status: Proposed
 - Date: 2025-10-17

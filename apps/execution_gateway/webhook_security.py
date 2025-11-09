@@ -6,7 +6,7 @@ Alpaca signs webhooks with a secret key, and we verify the signature before
 processing the webhook payload.
 
 See: https://docs.alpaca.markets/docs/webhooks#webhook-signature-verification
-See: ADR-0005 for security requirements
+See: ADR-0014 for security requirements
 """
 
 import hashlib

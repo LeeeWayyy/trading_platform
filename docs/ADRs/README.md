@@ -11,7 +11,7 @@ This directory contains all architectural decisions made for the trading platfor
 | [0003](./0003-baseline-strategy-with-qlib-and-mlflow.md) | Baseline strategy with Qlib and MLflow | Accepted |
 | [0004](./0004-signal-service-architecture.md) | Signal service architecture | Accepted |
 | [0005](./0005-centralized-logging-architecture.md) | Centralized logging architecture | Accepted |
-| [0005](./0005-execution-gateway-architecture.md) | Execution gateway architecture | Accepted |
+| [0014](./0014-execution-gateway-architecture.md) | Execution gateway architecture | Accepted |
 | [0006](./0006-orchestrator-service.md) | Orchestrator service | Accepted |
 | [0007](./0007-paper-run-automation.md) | Paper run automation | Accepted |
 | [0008](./0008-enhanced-pnl-calculation.md) | Enhanced P&L calculation | Accepted |

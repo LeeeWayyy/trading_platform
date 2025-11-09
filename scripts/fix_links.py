@@ -40,7 +40,7 @@ OTHER_FIXES = {
     "GETTING_STARTED/P1_PROGRESS.md": "ARCHIVE/P1_PROGRESS_20241021.md",
     "P1_PROGRESS.md": "ARCHIVE/P1_PROGRESS_20241021.md",
     "GIT_WORKFLOW.md": "STANDARDS/GIT_WORKFLOW.md",
-    "ADRs/0005-execution-gateway-design.md": "ADRs/0005-execution-gateway-architecture.md",
+    "ADRs/0005-execution-gateway-design.md": "ADRs/0014-execution-gateway-architecture.md",
     "ADRs/0006-orchestrator-architecture.md": "ADRs/0006-orchestrator-service.md",
 }
 

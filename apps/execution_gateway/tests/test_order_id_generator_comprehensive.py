@@ -13,7 +13,7 @@ Target: Bring order_id_generator.py coverage from 44% to 95%+
 
 See Also:
     - /docs/STANDARDS/TESTING.md - Testing standards
-    - /docs/ADRs/0005-execution-gateway-architecture.md - Idempotency design
+    - /docs/ADRs/0014-execution-gateway-architecture.md - Idempotency design
 """
 
 from datetime import UTC, date, datetime

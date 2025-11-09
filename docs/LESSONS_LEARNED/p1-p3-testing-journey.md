@@ -195,7 +195,7 @@ Two approaches:
 1. **Convert T1 to Qlib format:** Create converter script
 2. **Custom Qlib provider:** Implement Qlib data provider that reads T1 Parquet
 
-We chose approach #1 for production (see ADR-0005).
+We chose approach #1 for production (see ADR-0014).
 
 ---
 

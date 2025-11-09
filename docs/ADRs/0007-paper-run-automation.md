@@ -441,7 +441,7 @@ async def test_paper_run_against_real_services():
 ## Related ADRs
 
 - ADR-0006: Orchestrator Service (T5) - Provides API that `paper_run.py` calls
-- ADR-0005: Execution Gateway (T4) - Source of order execution data
+- ADR-0014: Execution Gateway (T4) - Source of order execution data
 - ADR-0004: Signal Service (T3) - Signal generation
 
 ## References

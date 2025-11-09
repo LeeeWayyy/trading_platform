@@ -64,7 +64,7 @@ Analyzed 13 of 20 workflow files (8,854 total lines). Identified significant red
 
 #### 2.1 Clink-Only Tool Usage Warning
 
-**Duplicated in:** 03-reviews.md, 03-reviews.md, 13-task-creation-review.md
+**Duplicated in:** 03-reviews.md, 03-reviews.md, 02-planning.md
 
 **Content (identical ~15 lines):**
 ```markdown
@@ -346,7 +346,7 @@ pytest tests/test_file.py -v
   - Simplify decision tree (currently ~20 lines, could be 5)
   - Remove "Best Practices" section (redundant with anti-patterns)
 
-**13-task-creation-review.md:**
+**02-planning.md (consolidated from 13-task-creation-review.md):**
 - **Current:** 624 lines
 - **Target:** ~200 lines (68% reduction)
 - **Changes:**
@@ -437,7 +437,7 @@ pytest tests/test_file.py -v
   2. `03-reviews.md` - "MANDATORY before EVERY commit"
   3. `03-reviews.md` - "MANDATORY before ANY PR"
 - 1 workflow marked as **RECOMMENDED**:
-  - `13-task-creation-review.md` - For complex tasks
+  - `02-planning.md` - For complex tasks
 
 **Problem:**
 - MANDATORY workflows rely on documentation discipline, not enforcement

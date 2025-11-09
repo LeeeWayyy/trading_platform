@@ -1812,7 +1812,7 @@ class UnifiedReviewSystem:
             # Persist override in state
             review_state["override"] = {
                 "justification": justification,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "iteration": iteration,
                 "low_issues_count": len(low_issues),
                 "policy": "block_critical_high_medium_allow_low"
@@ -1952,7 +1952,7 @@ class DebugRescue:
 
         # Add new attempt
         attempt_history.append({
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "test_file": test_file,
             "status": status,
             "error_signature": error_signature

@@ -10,6 +10,7 @@
 
 ```bash
 # 1. Install prerequisites (macOS)
+# Note: `brew install docker` installs the CLI. For the Docker Engine, install Docker Desktop.
 brew install python@3.11 postgresql@15 redis git gh docker
 curl -sSL https://install.python-poetry.org | python3.11 -
 export PATH="$HOME/.local/bin:$PATH"

@@ -629,7 +629,7 @@ CREATE INDEX idx_signal_order_mappings_symbol ON signal_order_mappings(symbol);
 ## References
 
 - [T3 Signal Service](./0004-signal-service-architecture.md)
-- [T4 Execution Gateway](./0005-execution-gateway-architecture.md)
+- [T4 Execution Gateway](./0014-execution-gateway-architecture.md)
 - [Microservices Patterns - Chris Richardson](https://microservices.io/patterns/microservices.html)
 - [APScheduler Documentation](https://apscheduler.readthedocs.io/)
 - [Airflow Documentation](https://airflow.apache.org/)
@@ -637,7 +637,7 @@ CREATE INDEX idx_signal_order_mappings_symbol ON signal_order_mappings(symbol);
 ## Related Decisions
 
 - ADR-0004: Signal Service Architecture
-- ADR-0005: Execution Gateway Architecture
+- ADR-0014: Execution Gateway Architecture
 
 ## Notes
 

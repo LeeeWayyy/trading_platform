@@ -624,4 +624,4 @@ async def fetch_current_prices(
 
 - [ADR-0008](../ADRs/0008-enhanced-pnl-calculation.md): Enhanced P&L Calculation (T1.1) - Architecture for realized/unrealized P&L
 - [ADR-0007](../ADRs/0007-paper-run-automation.md): Paper Run Automation - Uses notional P&L for MVP
-- [ADR-0005](../ADRs/0005-execution-gateway-architecture.md): Execution Gateway - Stores position data for P&L calculation
+- [ADR-0014](../ADRs/0014-execution-gateway-architecture.md): Execution Gateway - Stores position data for P&L calculation

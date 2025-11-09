@@ -7,7 +7,7 @@ Provides a high-level interface to the Alpaca Trading API with:
 - Type-safe request/response handling
 - Connection health checking
 
-See ADR-0005 for design rationale.
+See ADR-0014 for design rationale.
 """
 
 import logging
