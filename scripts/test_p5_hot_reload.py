@@ -28,7 +28,7 @@ import sys
 import time
 from pathlib import Path
 
-import psycopg2
+import psycopg
 import requests
 
 # Add project root to path
@@ -72,7 +72,7 @@ def print_info(message):
 
 def get_db_connection():
     """Get database connection."""
-    return psycopg2.connect("postgresql://postgres:postgres@localhost:5432/trading_platform")
+    return psycopg.connect("postgresql://postgres:postgres@localhost:5432/trading_platform")
 
 
 def main():

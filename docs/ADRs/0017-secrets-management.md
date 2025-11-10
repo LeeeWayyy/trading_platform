@@ -106,11 +106,11 @@ We will implement a **pluggable secrets management system** with the following c
 
 1. **Generate new secret** in backend (Vault/AWS)
 2. **Update Alpaca API** with new key (keep old key active - grace period)
-3. **Update backend** with primary/secondary keys
+3. **Update backend** with new secret value (overwrite existing secret)
 4. **Trigger graceful service restart** (services fetch new secret on startup via cache invalidation)
 5. **Verify new secret works** (health checks pass)
-6. **Deprecate old secret** in backend (mark as `rotation_date`)
-7. **Schedule old secret deletion** (30 days)
+6. **Deprecate old secret** in Alpaca API (old key still valid for grace period)
+7. **Schedule old secret deletion** in Alpaca (30 days - manual cleanup)
 
 **Grace Period:** 24 hours (old key valid during rollout, allows rollback)
 

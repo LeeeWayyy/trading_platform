@@ -264,7 +264,7 @@ This runbook guides operators through migrating credentials from `.env` files to
    ```bash
    export SECRET_BACKEND=vault  # or 'aws'
    export VAULT_ADDR=https://vault.prod.example.com:8200
-   export VAULT_TOKEN=<PROD_VAULT_TOKEN>  # Use IAM auth for production
+   export VAULT_TOKEN=<PROD_VAULT_TOKEN>  # Use production-scoped, long-lived token (IAM auth planned for future)
    export SECRET_NAMESPACE=prod
    ```
 

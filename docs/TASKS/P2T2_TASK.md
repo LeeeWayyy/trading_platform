@@ -287,10 +287,12 @@ class Settings(BaseSettings):
     # database_url: REMOVED - load via SecretManager
 
 # Startup (apps/signal_service/main.py)
-def get_database_url(secret_mgr: SecretManager) -> str:
-    """Load database URL from secrets."""
+def get_database_url(secret_mgr: SecretManager, settings: Settings) -> str:
+    """Load database URL from secrets + config (demonstrates dual-mode pattern)."""
     password = secret_mgr.get_secret("database/password")
-    return f"postgresql://trader:{password}@localhost:5432/trader"
+    # Config values (host, port, user, db) from Settings
+    # Secret value (password) from SecretManager
+    return f"postgresql://{settings.db_user}:{password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
 ```
 
 ### 4. Secret Rotation Mechanism

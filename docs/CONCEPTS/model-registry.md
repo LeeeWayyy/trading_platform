@@ -205,9 +205,9 @@ model_path = f"artifacts/models/alpha_baseline_{version}.txt"
 trainer.save_model(model_path)
 
 # 3. Register in database
-import psycopg2
+import psycopg
 
-with psycopg2.connect(DATABASE_URL) as conn:
+with psycopg.connect(DATABASE_URL) as conn:
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO model_registry
@@ -227,7 +227,7 @@ with psycopg2.connect(DATABASE_URL) as conn:
 # ... run for a day or two ...
 
 # 5. If tests pass, activate
-with psycopg2.connect(DATABASE_URL) as conn:
+with psycopg.connect(DATABASE_URL) as conn:
     with conn.cursor() as cur:
         # Deactivate old
         cur.execute("""
@@ -264,7 +264,7 @@ with psycopg2.connect(DATABASE_URL) as conn:
 
 ```python
 # Find currently active model
-with psycopg2.connect(DATABASE_URL) as conn:
+with psycopg.connect(DATABASE_URL) as conn:
     with conn.cursor() as cur:
         cur.execute("""
             SELECT version, activated_at
@@ -293,7 +293,7 @@ from apps.signal_service.model_registry import activate_model
 activate_model('alpha_baseline', 'v20250110')
 
 # Or use SQL directly
-with psycopg2.connect(DATABASE_URL) as conn:
+with psycopg.connect(DATABASE_URL) as conn:
     with conn.cursor() as cur:
         cur.execute("""
             -- Deactivate current (bad) model

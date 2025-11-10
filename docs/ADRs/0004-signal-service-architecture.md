@@ -329,7 +329,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import lightgbm as lgb
-import psycopg2
+import psycopg
 
 @dataclass
 class ModelMetadata:
