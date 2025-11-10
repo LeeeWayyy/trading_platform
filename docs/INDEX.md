@@ -98,29 +98,29 @@ Step-by-step procedures for development workflows:
 
 - [CURRENT, 2025-10-31, Workflow] [README.md](../.claude/workflows/README.md) - Workflow index and quick reference
 - [CURRENT, 2025-10-31, Workflow] [00-analysis-checklist.md](../.claude/workflows/00-analysis-checklist.md) - Pre-implementation analysis (MANDATORY)
-- [CURRENT, 2025-10-24, Workflow] [00-task-breakdown.md](../.claude/workflows/00-task-breakdown.md) - Task decomposition and subfeature branching
-- [CURRENT, 2025-10-21, Workflow] [01-git-commit.md](../.claude/workflows/01-git-commit.md) - Progressive commit workflow with zen-mcp
-- [CURRENT, 2025-10-18, Workflow] [02-git-pr.md](../.claude/workflows/02-git-pr.md) - Pull request creation
-- [CURRENT, 2025-10-27, Workflow] [03-zen-review-quick.md](../.claude/workflows/03-zen-review-quick.md) - Quick pre-commit review (clink + codex)
-- [CURRENT, 2025-10-27, Workflow] [04-zen-review-deep.md](../.claude/workflows/04-zen-review-deep.md) - Deep pre-PR review (clink + gemini)
-- [CURRENT, 2025-10-21, Workflow] [05-testing.md](../.claude/workflows/05-testing.md) - Test execution and debugging
-- [CURRENT, 2025-10-18, Workflow] [06-debugging.md](../.claude/workflows/06-debugging.md) - Debugging procedures
-- [CURRENT, 2025-10-18, Workflow] [07-documentation.md](../.claude/workflows/07-documentation.md) - Documentation writing
-- [CURRENT, 2025-10-18, Workflow] [08-adr-creation.md](../.claude/workflows/08-adr-creation.md) - Architecture decision records
-- [CURRENT, 2025-10-18, Workflow] [09-deployment-rollback.md](../.claude/workflows/09-deployment-rollback.md) - Deployment and rollback
-- [CURRENT, 2025-10-18, Workflow] [10-ci-triage.md](../.claude/workflows/10-ci-triage.md) - CI failure triage
-- [CURRENT, 2025-10-18, Workflow] [11-environment-bootstrap.md](../.claude/workflows/11-environment-bootstrap.md) - Development environment setup
-- [CURRENT, 2025-10-18, Workflow] [12-phase-management.md](../.claude/workflows/12-phase-management.md) - Phase and task management
-- [CURRENT, 2025-10-27, Workflow] [13-task-creation-review.md](../.claude/workflows/13-task-creation-review.md) - Task document review (clink + gemini)
-- [CURRENT, 2025-10-29, Workflow] [14-task-resume.md](../.claude/workflows/14-task-resume.md) - Auto-resume from task state
-- [CURRENT, 2025-10-29, Workflow] [15-update-task-state.md](../.claude/workflows/15-update-task-state.md) - Task state tracking
+- [CURRENT, 2025-10-24, Workflow] [02-planning.md](../.claude/workflows/02-planning.md) - Task decomposition and subfeature branching
+- [CURRENT, 2025-10-21, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Progressive commit workflow with zen-mcp
+- [CURRENT, 2025-10-18, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Pull request creation
+- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Quick pre-commit review (clink + codex)
+- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Deep pre-PR review (clink + gemini)
+- [CURRENT, 2025-10-21, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Test execution and debugging
+- [CURRENT, 2025-10-18, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Debugging procedures
+- [CURRENT, 2025-10-18, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Documentation writing
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Architecture decision records
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Deployment and rollback
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - CI failure triage
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Development environment setup
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Phase and task management
+- [CURRENT, 2025-10-27, Workflow] [02-planning.md](../.claude/workflows/02-planning.md) - Task document review (clink + gemini)
+- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](../.claude/workflows/08-session-management.md) - Auto-resume from task state
+- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](../.claude/workflows/08-session-management.md) - Task state tracking
 - [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](../.claude/workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
-- [CURRENT, 2025-10-24, Workflow] [component-cycle.md](../.claude/workflows/component-cycle.md) - 4-step component development cycle
+- [CURRENT, 2025-10-24, Workflow] [12-component-cycle.md](../.claude/workflows/12-component-cycle.md) - 4-step component development cycle
 - [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](../.claude/workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
 - [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](../.claude/workflows/_common/git-commands.md) - Git operations and branch naming conventions
 - [CURRENT, 2025-11-01, Reference] [_common/test-commands.md](../.claude/workflows/_common/test-commands.md) - Testing commands and CI workflows
 - [CURRENT, 2025-11-01, Reference] [_common/zen-review-process.md](../.claude/workflows/_common/zen-review-process.md) - Three-tier zen-mcp review system
-- [DRAFT, 2025-10-18, Template] [00-template.md](../.claude/workflows/00-template.md) - Workflow template
+- [DRAFT, 2025-10-18, Template] [02-planning.md](../.claude/workflows/02-planning.md) - Workflow template
 
 **Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities
 
@@ -140,7 +140,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0003](./ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md) | Qlib + MLflow for baseline strategy | ✅ Accepted |
 | [0004](./ADRs/0004-signal-service-architecture.md) | Signal service design (FastAPI, hot reload) | ✅ Accepted |
 | [0005](./ADRs/0005-centralized-logging-architecture.md) | Centralized logging architecture | ✅ Accepted |
-| [0005](./ADRs/0005-execution-gateway-architecture.md) | Execution gateway (idempotency, DRY_RUN) | ✅ Accepted |
+| [0014](./ADRs/0014-execution-gateway-architecture.md) | Execution gateway (idempotency, DRY_RUN) | ✅ Accepted |
 | [0006](./ADRs/0006-orchestrator-service.md) | Orchestrator service (async, position sizing) | ✅ Accepted |
 | [0007](./ADRs/0007-paper-run-automation.md) | Paper run automation (CLI script vs service) | ✅ Accepted |
 | [0008](./ADRs/0008-enhanced-pnl-calculation.md) | Enhanced P&L calculation (realized/unrealized) | ✅ Accepted |
@@ -487,8 +487,10 @@ Documents can have one of these statuses:
 
 **Metadata format:**
 ```
-- [STATUS, YYYY-MM-DD, TYPE] [Filename.md](path) - Description
+- [STATUS, YYYY-MM-DD, TYPE] Filename.md - Description with path
 ```
+
+Example: `- [CURRENT, 2025-01-15, Standard] [CODING_STANDARDS.md](./STANDARDS/CODING_STANDARDS.md) - Python style guide`
 
 **Status values:**
 - `CURRENT` - Active, up-to-date document

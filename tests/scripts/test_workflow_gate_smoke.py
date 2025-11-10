@@ -184,9 +184,10 @@ def test_record_commit_resets_state_and_appends_history(temp_state_file):
     assert state["zen_review"] == {}
     assert state["ci_passed"] is False
 
-    # Verify commit was recorded
+    # Verify commit was recorded in history
     assert "abc123def456" in state["commit_history"]
-    assert state["last_commit_hash"] == "abc123def456"
+    # Verify deprecated last_commit_hash field was removed (state hygiene)
+    assert "last_commit_hash" not in state
 
 
 def test_record_commit_prunes_history_beyond_100_commits(temp_state_file):

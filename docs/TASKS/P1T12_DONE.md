@@ -91,15 +91,15 @@ After completing P1T11, we have:
 
 **Tasks:**
 - Simplify top 5 verbose workflows (wave-based: largest first)
-  - 02-git-pr.md (1,114 → ~600 lines)
-  - 04-zen-review-deep.md (798 → ~500 lines)
-  - 01-git-commit.md (678 → ~450 lines)
+  - 01-git.md (1,114 → ~600 lines)
+  - 03-reviews.md (798 → ~500 lines)
+  - 01-git.md (678 → ~450 lines)
   - 11-environment-bootstrap.md (678 → ~400 lines)
   - 13-task-creation-review.md (624 → ~400 lines)
 - Extract examples to `.claude/examples/` directory
 - Use shared snippets for repeated content (reduce duplication)
 - Add expandable appendix sections (don't delete crucial content)
-- Consolidate DRAFT-pr-review-feedback-rules.md into 02-git-pr.md
+- Consolidate DRAFT-pr-review-feedback-rules.md into 01-git.md
 
 **Deliverables:**
 - Simplified workflow guides (≤600 lines or justified)

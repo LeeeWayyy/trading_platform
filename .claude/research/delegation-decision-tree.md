@@ -241,14 +241,14 @@ Task(
 
 ### Use Case 3: Zen-MCP Review Coordination
 
-**Context:** Following `.claude/workflows/03-zen-review-quick.md` for pre-commit review.
+**Context:** Following `.claude/workflows/03-reviews.md` for pre-commit review.
 
 **Current (Correct):**
 ```python
 # DO NOT delegate review execution to Task tool
 # Use zen-mcp clink (already implemented)
 
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     cli_name="codex",
     role="codereviewer",
     prompt="""Review these staged changes for:
@@ -356,7 +356,7 @@ Task(
 ### Template for Zen-MCP Clink
 
 ```python
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     cli_name="codex",  # or "gemini"
     role="codereviewer",  # or "planner" or "default"
     prompt="""<Review request with specific focus areas>
@@ -436,7 +436,7 @@ Task(
 - Task tool is stateless (single message return)
 - Review quality inferior without multi-turn context
 
-**Correct:** Use `mcp__zen-mcp__clink` with appropriate CLI and role.
+**Correct:** Use `mcp__zen__clink` with appropriate CLI and role.
 
 ---
 
@@ -480,7 +480,7 @@ Projected: ~38% (based on research analysis)
 | 🎯 **Core planning, architecture, implementation** | KEEP IN MAIN | (main context) |
 | 🔍 **Open-ended search ("where is X?")** | DELEGATE | `Task` (Explore) |
 | 📊 **CI log analysis, PR comments** | DELEGATE | `Task` (general-purpose) |
-| 🔬 **Code review** | DELEGATE | `mcp__zen-mcp__clink` |
+| 🔬 **Code review** | DELEGATE | `mcp__zen__clink` |
 | 📖 **Known file path** | USE DIRECT TOOL | `Read` |
 | 🔎 **Known pattern** | USE DIRECT TOOL | `Glob` or `Grep` |
 | ❓ **Unsure** | DEFAULT: KEEP IN MAIN | (main context) |

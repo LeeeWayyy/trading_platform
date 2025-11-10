@@ -28,12 +28,13 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, Tuple
+from typing import Callable, Literal, Tuple
 
 # Constants
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -56,6 +57,19 @@ class WorkflowGate:
         "review": ["implement"],  # Can only go back to fix issues
     }
 
+    def __init__(self, state_file: Path | None = None) -> None:
+        """
+        Initialize WorkflowGate with optional state file path.
+
+        Args:
+            state_file: Path to workflow state JSON file (default: .claude/workflow-state.json)
+
+        Note:
+            Dependency injection pattern allows mocking in tests and supports
+            PlanningWorkflow's need for custom state file paths.
+        """
+        self._state_file = state_file or STATE_FILE
+
     def _init_state(self) -> dict:
         """Initialize default workflow state."""
         return {
@@ -69,7 +83,7 @@ class WorkflowGate:
             "context": {
                 "current_tokens": 0,
                 "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", "200000")),
-                "last_check_timestamp": datetime.utcnow().isoformat(),
+                "last_check_timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
 
@@ -90,16 +104,16 @@ class WorkflowGate:
             state["context"] = {
                 "current_tokens": 0,
                 "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", "200000")),
-                "last_check_timestamp": datetime.utcnow().isoformat(),
+                "last_check_timestamp": datetime.now(timezone.utc).isoformat(),
             }
         return state
 
     def load_state(self) -> dict:
         """Load workflow state from JSON file."""
-        if not STATE_FILE.exists():
+        if not self._state_file.exists():
             return self._init_state()
         try:
-            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            state = json.loads(self._state_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, IOError) as e:
             print(f"⚠️  Warning: Failed to parse workflow state file: {e}")
             print(f"   Initializing fresh state...")
@@ -109,12 +123,12 @@ class WorkflowGate:
 
     def save_state(self, state: dict) -> None:
         """Save workflow state to JSON file with atomic write."""
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Atomic write: write to temp file then rename
         # Prevents corruption from partial writes
         temp_fd, temp_path = tempfile.mkstemp(
-            dir=STATE_FILE.parent,
+            dir=self._state_file.parent,
             prefix=".workflow-state-",
             suffix=".tmp"
         )
@@ -123,7 +137,7 @@ class WorkflowGate:
                 json.dump(state, f, indent=2, ensure_ascii=False)
 
             # Atomic rename
-            Path(temp_path).replace(STATE_FILE)
+            Path(temp_path).replace(self._state_file)
         except (IOError, OSError):
             # Clean up temp file on error
             Path(temp_path).unlink(missing_ok=True)
@@ -178,7 +192,7 @@ class WorkflowGate:
         # Special logic for review step
         if next == "review":
             print("🔍 Requesting zen-mcp review (clink + gemini → codex)...")
-            print("   Follow: .claude/workflows/03-zen-review-quick.md")
+            print("   Follow: .claude/workflows/03-reviews.md")
             print("   After review, record approval:")
             print(
                 "     ./scripts/workflow_gate.py record-review <continuation_id> <status>"
@@ -194,6 +208,9 @@ class WorkflowGate:
         """
         Record zen-mcp review result.
 
+        For PR reviews, also updates the unified_review.history to enable
+        the override workflow for LOW severity issues after max iterations.
+
         Args:
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
@@ -204,6 +221,21 @@ class WorkflowGate:
             "continuation_id": continuation_id,
             "status": status,  # "APPROVED" or "NEEDS_REVISION"
         }
+
+        # Check if this is a PR review by looking for pending unified_review history
+        review_state = state.get("unified_review", {})
+        review_history = review_state.get("history", [])
+
+        if review_history and review_history[-1].get("status") == "PENDING":
+            # Update the latest pending entry with review result
+            from datetime import datetime, timezone
+            review_history[-1].update({
+                "continuation_id": continuation_id,
+                "status": status,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            print(f"✅ Updated PR review history (iteration {review_history[-1]['iteration']})")
+
         self.save_state(state)
         print(f"✅ Recorded zen review: {status}")
 
@@ -269,7 +301,7 @@ class WorkflowGate:
             )
             print("   Status:", state["zen_review"].get("status", REVIEW_NOT_REQUESTED))
             print("   Request review:")
-            print("     Follow: .claude/workflows/03-zen-review-quick.md")
+            print("     Follow: .claude/workflows/03-reviews.md")
             print("   After approval:")
             print(
                 "     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
@@ -336,14 +368,15 @@ class WorkflowGate:
             state["commit_history"].append(commit_hash)
         # Prune history to last 100 commits to prevent file growth
         state["commit_history"] = state["commit_history"][-100:]
-        state["last_commit_hash"] = commit_hash  # Kept for backward compatibility
+        # Remove deprecated last_commit_hash field (state file hygiene)
+        state.pop("last_commit_hash", None)
         state["step"] = "implement"  # Ready for next component
         state["zen_review"] = {}
         state["ci_passed"] = False
 
         # Reset context after commit, ready for next component (Component 3)
         state["context"]["current_tokens"] = 0
-        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
+        state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
 
         self.save_state(state)
 
@@ -390,8 +423,10 @@ class WorkflowGate:
         print(f"  CI: {ci_status}")
         print()
 
-        if state["last_commit_hash"]:
-            print(f"Last Commit: {state['last_commit_hash'][:8]}")
+        # Show latest commit from history (replaces deprecated last_commit_hash)
+        if state.get("commit_history"):
+            latest_commit = state["commit_history"][-1]
+            print(f"Last Commit: {latest_commit[:8]}")
             print()
 
         # Show available actions
@@ -403,7 +438,7 @@ class WorkflowGate:
             print("  ./scripts/workflow_gate.py advance review")
         elif current == "review":
             if zen_status != "APPROVED":
-                print("  Follow: .claude/workflows/03-zen-review-quick.md")
+                print("  Follow: .claude/workflows/03-reviews.md")
                 print(
                     "  ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
                 )
@@ -432,157 +467,6 @@ class WorkflowGate:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Context Monitoring & Delegation Triggers (Component 3)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    def should_delegate(self, state: dict) -> Tuple[bool, str]:
-        """
-        Determine if subagent delegation is needed based on context usage.
-
-        Calculates usage percentage on-demand (never persisted) and compares
-        against thresholds: 70% WARN, 85% CRITICAL.
-
-        Args:
-            state: Workflow state dictionary
-
-        Returns:
-            Tuple of (should_delegate: bool, reason: str)
-                - (False, "OK: ...") if context usage < 70%
-                - (True, "WARNING: ...") if context usage >= 70%
-                - (True, "CRITICAL: ...") if context usage >= 85%
-                - (False, "ERROR: ...") if max_tokens invalid
-        """
-        context = state.get("context", {})
-        current_tokens = context.get("current_tokens", 0)
-        max_tokens = context.get("max_tokens", 200000)
-
-        # Guard against division by zero
-        if max_tokens <= 0:
-            return (False, "ERROR: Invalid max_tokens <= 0")
-
-        # Calculate percentage on-demand, don't persist
-        usage_pct = (current_tokens / max_tokens) * 100
-
-        if usage_pct >= 85:
-            return (True, f"CRITICAL: Context at {usage_pct:.1f}% (≥85%), delegation MANDATORY")
-        elif usage_pct >= 70:
-            return (True, f"WARNING: Context at {usage_pct:.1f}% (≥70%), delegation RECOMMENDED")
-        else:
-            return (False, f"OK: Context at {usage_pct:.1f}%")
-
-    def record_context(self, tokens: int) -> None:
-        """
-        Record current token usage.
-
-        Updates context tracking state with latest token count and timestamp.
-        Manual recording initially; automatic integration as future enhancement.
-
-        Args:
-            tokens: Current token usage count
-        """
-        state = self.load_state()
-        state["context"]["current_tokens"] = tokens
-        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
-        self.save_state(state)
-
-        print(f"✅ Context usage recorded: {tokens:,} tokens")
-
-        # Show delegation recommendation if needed
-        should_del, reason = self.should_delegate(state)
-        if should_del:
-            print(f"   ⚠️  {reason}")
-            print(f"   📖 See: .claude/workflows/16-subagent-delegation.md")
-
-    def check_context(self) -> None:
-        """
-        Check current context status and display delegation recommendation.
-
-        Shows current token usage, percentage, and whether delegation is
-        recommended based on thresholds.
-        """
-        state = self.load_state()
-        context = state.get("context", {})
-
-        current = context.get("current_tokens", 0)
-        max_tokens = context.get("max_tokens", 200000)
-        last_check = context.get("last_check_timestamp", "Never")
-
-        should_del, reason = self.should_delegate(state)
-
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("📊 Context Status")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print(f"   Current: {current:,} / {max_tokens:,} tokens")
-        print(f"   Last check: {last_check}")
-        print(f"   Status: {reason}")
-
-        if should_del:
-            print()
-            print("📖 Recommendation: Delegate non-core tasks to subagent")
-            print("   See: .claude/workflows/16-subagent-delegation.md")
-            print()
-            print("   After delegating, record it:")
-            print("     ./scripts/workflow_gate.py record-delegation '<task_description>'")
-
-    def suggest_delegation(self) -> None:
-        """
-        Provide actionable guidance for subagent delegation.
-
-        Checks context status and provides detailed delegation instructions
-        if thresholds are exceeded.
-        """
-        state = self.load_state()
-        should_del, reason = self.should_delegate(state)
-
-        if not should_del:
-            print("✅ No delegation needed - context usage is healthy")
-            self.check_context()
-            return
-
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("⚠️  Delegation Recommended")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print(f"   {reason}")
-        print()
-        print("📖 Follow delegation workflow:")
-        print("   .claude/workflows/16-subagent-delegation.md")
-        print()
-        print("   Delegate tasks like:")
-        print("     - File search (Task with Explore agent)")
-        print("     - Code analysis (Task with general-purpose agent)")
-        print("     - Test creation (Task with general-purpose agent)")
-        print()
-        print("   After delegation, record it:")
-        print("     ./scripts/workflow_gate.py record-delegation '<task_description>'")
-
-    def record_delegation(self, task_description: str) -> None:
-        """
-        Record when work is delegated to subagent.
-
-        Appends delegation record to existing subagent_delegations field.
-        Resets context usage to 0 after delegation.
-
-        Args:
-            task_description: Description of delegated task
-        """
-        state = self.load_state()
-
-        # Reuse existing subagent_delegations field
-        delegation_record = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "task_description": task_description,
-            "current_step": state["step"],
-        }
-        state["subagent_delegations"].append(delegation_record)
-
-        # Reset context after delegation (Gemini decision)
-        state["context"]["current_tokens"] = 0
-        state["context"]["last_check_timestamp"] = datetime.utcnow().isoformat()
-
-        self.save_state(state)
-
-        print("✅ Delegation recorded and context reset")
-        print(f"   Task: {task_description}")
-        print(f"   Step: {state['step']}")
-        print(f"   Total delegations: {len(state['subagent_delegations'])}")
 
     def _has_tests(self, component: str) -> bool:
         """
@@ -704,6 +588,1761 @@ class WorkflowGate:
             print(f"   ./scripts/update_task_state.py complete --component {component_num} --commit {commit_hash}")
 
 
+# ============================================================================
+# Component 1: Smart Test Runner
+# ============================================================================
+
+
+class SmartTestRunner:
+    """
+    Intelligent test selection based on git changes.
+
+    Component 1 of P1T13-F4 Workflow Intelligence.
+
+    Implements smart testing strategy:
+    - Targeted tests for commits (only changed modules)
+    - Full CI for PRs and core package changes
+
+    Uses git_utils module for change detection.
+    """
+
+    def __init__(self) -> None:
+        """Initialize SmartTestRunner."""
+        # Import here to avoid circular dependency issues
+        try:
+            from scripts.git_utils import (
+                get_staged_files,
+                requires_full_ci,
+                detect_changed_modules,
+            )
+            self._get_staged_files = get_staged_files
+            self._requires_full_ci = requires_full_ci
+            self._detect_changed_modules = detect_changed_modules
+        except ImportError as e:
+            print(f"⚠️  Warning: Could not import git_utils: {e}")
+            print("   Smart testing features will be disabled. Defaulting to full CI for safety.")
+            # Fail-safe: Return dummy file to force full CI when git_utils unavailable
+            self._get_staged_files = lambda: ["DUMMY_FILE_TO_FORCE_CI"]
+            self._requires_full_ci = lambda files: True
+            self._detect_changed_modules = lambda files: set()
+
+        # Cache git result to avoid multiple calls (prevents race conditions)
+        self._staged_files_cache: list[str] | None | bool = False  # False = not fetched
+        self._git_failed = False  # Track if git command failed
+
+    def _get_cached_staged_files(self) -> list[str] | None:
+        """
+        Get staged files with caching to prevent multiple git calls.
+
+        Returns:
+            List of staged files, or None if git failed.
+            Caches result for subsequent calls.
+        """
+        # Return cached result if already fetched
+        if self._staged_files_cache is not False:
+            return self._staged_files_cache  # type: ignore
+
+        # Fetch from git
+        result = self._get_staged_files()
+
+        # Cache result
+        self._staged_files_cache = result
+        self._git_failed = (result is None)
+
+        return result
+
+    def should_run_full_ci(self) -> bool:
+        """
+        Determine if full CI should run.
+
+        Full CI runs if:
+        - Git command failed (fail-safe: can't determine changes)
+        - Any CORE_PACKAGE changed (libs/, config/, infra/, tests/fixtures/, scripts/)
+        - More than 5 modules changed (likely a refactor)
+
+        Returns:
+            True if full CI required, False if targeted tests OK
+        """
+        staged_files = self._get_cached_staged_files()
+
+        # Fail-safe: If git failed (None), run full CI
+        if staged_files is None:
+            return True
+
+        if not staged_files:
+            # No changes = no tests needed (edge case)
+            return False
+
+        return self._requires_full_ci(staged_files)
+
+    def get_test_targets(self) -> list[str]:
+        """
+        Get targeted test paths for changed modules and test files.
+
+        Returns list of pytest paths to run for changed code or tests.
+
+        Handles:
+        1. Test file changes - runs the changed test files directly
+        2. Code changes - runs corresponding test directories
+        3. Integration tests - runs tests/integration/ for app changes
+        4. Git failures - returns empty list (triggers full CI via should_run_full_ci)
+
+        Returns:
+            List of test paths (e.g., ["tests/libs/allocation/", "tests/scripts/test_workflow_gate.py"])
+            Empty list if no files staged or if git command failed
+        """
+        staged_files = self._get_cached_staged_files()
+        # Handle both None (git failed) and empty list (no changes)
+        if not staged_files:
+            return []
+
+        test_paths = []
+
+        # 1. Detect direct test file changes
+        # When test files themselves change, we must run them
+        # (Addresses P1: Skip tests when only test files change)
+        for file in staged_files:
+            if file.startswith("tests/") and file.endswith(".py"):
+                # Add test file directly if it's not __init__.py
+                if not file.endswith("__init__.py"):
+                    test_paths.append(file)
+
+        # 2. Detect changed modules and map to test directories
+        modules = self._detect_changed_modules(staged_files)
+        for module in modules:
+            # module format: "libs/allocation", "apps/execution_gateway"
+            test_path = f"tests/{module}/"
+            test_paths.append(test_path)
+
+        # 3. Detect integration test triggers
+        # App changes should also run integration tests
+        # (Addresses HIGH: get_test_targets too simple)
+        app_modules = {m for m in modules if m.startswith("apps/")}
+        if app_modules and "tests/integration/" not in test_paths:
+            test_paths.append("tests/integration/")
+
+        return sorted(set(test_paths))  # Deduplicate while maintaining order
+
+    def get_test_command(self, context: str = "commit") -> list[str]:
+        """
+        Get appropriate test command based on context.
+
+        Args:
+            context: "commit" for progressive commits, "pr" for pull requests
+
+        Returns:
+            Command as list of arguments (safe for subprocess.run without shell=True)
+        """
+        if context == "pr" or self.should_run_full_ci():
+            # Full CI for PRs or when core packages changed
+            return ["make", "ci-local"]
+
+        # Targeted tests for commits
+        test_targets = self.get_test_targets()
+        if not test_targets:
+            # No test targets = no Python changes
+            return ["echo", "No Python tests needed (no code changes detected)"]
+
+        # Run targeted tests via poetry (ensures correct interpreter and dependencies)
+        # CRITICAL: Must use poetry run to match CI environment and dependency versions
+        return ["poetry", "run", "pytest"] + test_targets
+
+    def print_test_strategy(self) -> None:
+        """Print test strategy recommendation to user."""
+        if self.should_run_full_ci():
+            print("🔍 Full CI Required")
+            if self._git_failed:
+                print("   Reason: Git command failed (fail-safe: running full CI)")
+            else:
+                print("   Reason: Core package changed OR >5 modules changed")
+            print(f"   Command: make ci-local")
+        else:
+            test_targets = self.get_test_targets()
+            if not test_targets:
+                print("✓ No tests needed (no code changes)")
+            else:
+                print("🎯 Targeted Testing")
+                print(f"   Modules: {', '.join(test_targets)}")
+                cmd_list = self.get_test_command('commit')
+                print(f"   Command: {' '.join(cmd_list)}")
+
+
+class DelegationRules:
+    """
+    Context monitoring and delegation recommendations.
+
+    Tracks conversation context usage and recommends delegation to specialized
+    agents when thresholds are exceeded. Supports operation-specific cost
+    projections and provides user-friendly guidance.
+
+    Thresholds (from CLAUDE.md):
+    - < 70%: ✅ OK - Continue normal workflow
+    - 70-84%: ⚠️ WARNING - Delegation RECOMMENDED
+    - ≥ 85%: 🚨 CRITICAL - Delegation MANDATORY
+    """
+
+    # Context thresholds (percentages)
+    CONTEXT_WARN_PCT = 70
+    CONTEXT_CRITICAL_PCT = 85
+
+    # Default max tokens (from environment or Claude Code default)
+    DEFAULT_MAX_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS", "200000"))
+
+    # Operation cost estimates (tokens)
+    # Source: docs/TASKS/P1T13_F4_PROGRESS.md:331-378
+    OPERATION_COSTS = {
+        "full_ci": 50000,  # Full CI suite + output analysis
+        "deep_review": 30000,  # Comprehensive codebase review
+        "multi_file_search": 20000,  # Broad grep/glob operations
+        "test_suite": 15000,  # Targeted test suite run
+        "code_analysis": 10000,  # Analyzing complex code sections
+        "simple_fix": 5000,  # Small targeted fixes
+    }
+
+    def __init__(
+        self,
+        load_state: Callable[[], dict],
+        save_state: Callable[[dict], None],
+    ) -> None:
+        """
+        Initialize DelegationRules with state management callables.
+
+        Args:
+            load_state: Callable that returns current workflow state dict
+            save_state: Callable that persists updated state dict
+
+        This dependency injection pattern enables easy testing with fake
+        state managers, mirroring SmartTestRunner's lazy import pattern.
+        """
+        self._load_state = load_state
+        self._save_state = save_state
+
+    def get_context_snapshot(self, state: dict | None = None) -> dict:
+        """
+        Get current context usage snapshot.
+
+        Args:
+            state: Optional state dict (loads if not provided)
+
+        Returns:
+            Dictionary with:
+            - current_tokens: int - Current token usage
+            - max_tokens: int - Maximum tokens available
+            - usage_pct: float - Usage percentage (0-100)
+            - last_check: str - ISO timestamp of last check
+            - error: str | None - Error message if calculation fails
+
+        Never raises exceptions - returns fail-safe defaults on errors.
+        """
+        if state is None:
+            try:
+                state = self._load_state()
+            except Exception as e:
+                print(f"⚠️  Warning: Could not load state: {e}")
+                print("   Using fail-safe defaults (0 tokens used)")
+                state = {}
+
+        # Get context data with defaults
+        context = state.get("context", {})
+        current_tokens = context.get("current_tokens", 0)
+        max_tokens = context.get("max_tokens", self.DEFAULT_MAX_TOKENS)
+        last_check = context.get("last_check_timestamp", "never")
+
+        # Calculate usage percentage with validation
+        if max_tokens <= 0:
+            return {
+                "current_tokens": current_tokens,
+                "max_tokens": max_tokens,
+                "usage_pct": 0.0,
+                "last_check": last_check,
+                "error": "Invalid max_tokens - please export CLAUDE_MAX_TOKENS",
+            }
+
+        usage_pct = (current_tokens / max_tokens) * 100.0
+
+        return {
+            "current_tokens": current_tokens,
+            "max_tokens": max_tokens,
+            "usage_pct": usage_pct,
+            "last_check": last_check,
+            "error": None,
+        }
+
+    def record_context(self, tokens: int) -> dict:
+        """
+        Record current context usage.
+
+        Args:
+            tokens: Current token count (clamped to >= 0)
+
+        Returns:
+            Updated context snapshot
+
+        Side effects:
+            - Updates .claude/workflow-state.json
+            - Prints warning if tokens exceed max
+        """
+        # Sanitize input
+        tokens = max(0, tokens)
+
+        try:
+            state = self._load_state()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load state: {e}")
+            print("   Context not recorded")
+            return self.get_context_snapshot({})
+
+        # Update context
+        if "context" not in state:
+            state["context"] = {}
+
+        state["context"]["current_tokens"] = tokens
+        state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+
+        # Ensure max_tokens is set
+        if "max_tokens" not in state["context"]:
+            state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
+
+        # Warn if exceeding max
+        if tokens > state["context"]["max_tokens"]:
+            print(f"⚠️  Warning: Token usage ({tokens}) exceeds max ({state['context']['max_tokens']})")
+            print("   Consider resetting context or delegating to subagent")
+
+        # Save state
+        try:
+            self._save_state(state)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save state: {e}")
+            print("   State changes not persisted")
+
+        return self.get_context_snapshot(state)
+
+    def should_delegate_context(
+        self, snapshot: dict | None = None
+    ) -> tuple[bool, str, float]:
+        """
+        Determine if delegation is recommended based on context usage.
+
+        Args:
+            snapshot: Optional context snapshot (fetches if not provided)
+
+        Returns:
+            Tuple of (should_delegate, reason, usage_pct)
+
+        Thresholds:
+            - < 70%: False, "OK - Continue normal workflow"
+            - 70-84%: True, "WARNING - Delegation RECOMMENDED"
+            - ≥ 85%: True, "CRITICAL - Delegation MANDATORY"
+        """
+        if snapshot is None:
+            snapshot = self.get_context_snapshot()
+
+        usage_pct = snapshot["usage_pct"]
+
+        if usage_pct < self.CONTEXT_WARN_PCT:
+            return False, "OK - Continue normal workflow", usage_pct
+        elif usage_pct < self.CONTEXT_CRITICAL_PCT:
+            return True, "WARNING - Delegation RECOMMENDED", usage_pct
+        else:
+            return True, "CRITICAL - Delegation MANDATORY", usage_pct
+
+    def should_delegate_operation(
+        self, operation: str, snapshot: dict | None = None
+    ) -> tuple[bool, str]:
+        """
+        Determine if operation should be delegated based on cost projection.
+
+        Args:
+            operation: Operation key (e.g., "full_ci", "deep_review")
+            snapshot: Optional context snapshot
+
+        Returns:
+            Tuple of (should_delegate, reason)
+
+        Rules:
+            - Always delegate if operation cost ≥ 50k tokens
+            - Delegate if current + operation would exceed 85% threshold
+            - Otherwise OK to proceed
+        """
+        if snapshot is None:
+            snapshot = self.get_context_snapshot()
+
+        # Get operation cost (default to 10k if unknown)
+        cost = self.OPERATION_COSTS.get(operation, 10000)
+
+        # Always delegate very expensive operations
+        if cost >= 50000:
+            return True, f"Operation '{operation}' requires {cost} tokens (always delegate ≥50k)"
+
+        # Project usage after operation
+        current = snapshot["current_tokens"]
+        max_tokens = snapshot["max_tokens"]
+        projected = current + cost
+        projected_pct = (projected / max_tokens) * 100.0 if max_tokens > 0 else 0
+
+        # Check if projection would exceed critical threshold
+        if projected_pct >= self.CONTEXT_CRITICAL_PCT:
+            return (
+                True,
+                f"Operation '{operation}' ({cost} tokens) would push usage to {projected_pct:.1f}% (≥85% critical)",
+            )
+
+        return False, f"Operation '{operation}' OK (projected {projected_pct:.1f}%)"
+
+    def suggest_delegation(
+        self, snapshot: dict | None = None, operation: str | None = None
+    ) -> str:
+        """
+        Build delegation suggestion message with guidance.
+
+        Args:
+            snapshot: Optional context snapshot
+            operation: Optional operation to check
+
+        Returns:
+            Formatted message with delegation guidance
+        """
+        if snapshot is None:
+            snapshot = self.get_context_snapshot()
+
+        should_delegate, reason, usage_pct = self.should_delegate_context(snapshot)
+
+        # Build status block
+        lines = [
+            "",
+            "=" * 60,
+            "  CONTEXT STATUS",
+            "=" * 60,
+        ]
+
+        # Show usage
+        status_emoji = "✅" if usage_pct < 70 else "⚠️" if usage_pct < 85 else "🚨"
+        lines.append(f"{status_emoji} Usage: {usage_pct:.1f}% ({snapshot['current_tokens']:,} / {snapshot['max_tokens']:,} tokens)")
+        lines.append(f"   {reason}")
+        lines.append("")
+
+        # Operation-specific guidance
+        if operation:
+            op_should_delegate, op_reason = self.should_delegate_operation(operation, snapshot)
+            if op_should_delegate:
+                lines.append(f"⚠️  Operation Guidance: {op_reason}")
+                lines.append("")
+
+        # Delegation recommendations
+        if should_delegate:
+            lines.append("RECOMMENDATION: Delegate non-core tasks to specialized agents")
+            lines.append("")
+            lines.append("See: .claude/workflows/16-subagent-delegation.md")
+            lines.append("")
+
+            # Add delegation template if operation specified
+            if operation:
+                template = self.get_delegation_template(operation)
+                if template:
+                    lines.append("Example Task delegation:")
+                    lines.append(template)
+                    lines.append("")
+
+        lines.append("=" * 60)
+
+        return "\n".join(lines)
+
+    def record_delegation(self, task_description: str) -> dict:
+        """
+        Record subagent delegation and reset context counters.
+
+        Args:
+            task_description: Description of delegated task
+
+        Returns:
+            Dictionary with delegation record count
+
+        Side effects:
+            - Appends to state["subagent_delegations"]
+            - Resets context.current_tokens to 0
+            - Updates last_delegation_timestamp
+        """
+        try:
+            state = self._load_state()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load state: {e}")
+            return {"count": 0, "error": str(e)}
+
+        # Initialize delegations list
+        if "subagent_delegations" not in state:
+            state["subagent_delegations"] = []
+
+        # Record delegation
+        delegation_record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "task_description": task_description,
+            "context_before_delegation": state.get("context", {}).get("current_tokens", 0),
+        }
+        state["subagent_delegations"].append(delegation_record)
+
+        # Reset context
+        if "context" not in state:
+            state["context"] = {}
+        state["context"]["current_tokens"] = 0
+        state["context"]["last_delegation_timestamp"] = delegation_record["timestamp"]
+
+        # Save state
+        try:
+            self._save_state(state)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save state: {e}")
+            return {"count": len(state["subagent_delegations"]), "error": str(e)}
+
+        return {
+            "count": len(state["subagent_delegations"]),
+            "reset_tokens": 0,
+            "timestamp": delegation_record["timestamp"],
+            "task_description": task_description,
+        }
+
+    def get_delegation_template(self, operation: str) -> str:
+        """
+        Get Task() delegation template for operation.
+
+        Args:
+            operation: Operation key (e.g., "full_ci", "deep_review")
+
+        Returns:
+            Template string or empty if no template available
+        """
+        templates = {
+            "full_ci": '''Task(
+    subagent_type="general-purpose",
+    description="Run full CI suite",
+    prompt="Run 'make ci-local' and report any failures with file:line references"
+)''',
+            "deep_review": '''Task(
+    subagent_type="general-purpose",
+    description="Deep codebase review",
+    prompt="Perform comprehensive review of [files/modules] for safety, architecture, and quality issues"
+)''',
+            "multi_file_search": '''Task(
+    subagent_type="Explore",
+    description="Multi-file search",
+    prompt="Search codebase for [pattern] and summarize findings with file:line references",
+    thoroughness="medium"
+)''',
+        }
+
+        return templates.get(operation, "")
+
+    def format_status(
+        self, snapshot: dict, reason: str, heading: str = "Context Status"
+    ) -> str:
+        """
+        Format status block for CLI output.
+
+        Args:
+            snapshot: Context snapshot
+            reason: Status reason string
+            heading: Optional heading override
+
+        Returns:
+            Formatted ASCII status block
+        """
+        usage_pct = snapshot["usage_pct"]
+        status_emoji = "✅" if usage_pct < 70 else "⚠️" if usage_pct < 85 else "🚨"
+
+        lines = [
+            "",
+            "=" * 60,
+            f"  {heading.upper()}",
+            "=" * 60,
+            f"{status_emoji} Usage: {usage_pct:.1f}% ({snapshot['current_tokens']:,} / {snapshot['max_tokens']:,} tokens)",
+            f"   {reason}",
+            f"   Last check: {snapshot['last_check']}",
+            "=" * 60,
+            "",
+        ]
+
+        return "\n".join(lines)
+
+
+class PlanningWorkflow:
+    """
+    Integrated task planning and creation workflow.
+
+    Unifies task creation/breakdown workflows with automatic review integration.
+    Combines task-state.json (Phase 0 auto-resume) with workflow-state.json
+    (Phase 3 workflow gates) for seamless task management.
+
+    This class provides:
+    - create_task_with_review(): Generate task docs with auto-review
+    - plan_subfeatures(): Intelligent task breakdown (>8h → MUST split)
+    - start_task_with_state(): Initialize tracking with state integration
+
+    Author: Claude Code
+    Date: 2025-11-08
+    """
+
+    def __init__(
+        self,
+        project_root: Path | None = None,
+        state_file: Path | None = None,
+        workflow_gate: "WorkflowGate | None" = None,
+    ) -> None:
+        """
+        Initialize planning workflow manager.
+
+        Args:
+            project_root: Project root directory (default: inferred from script location)
+            state_file: Workflow state JSON file (default: .claude/workflow-state.json)
+            workflow_gate: WorkflowGate instance for state management (default: creates new instance)
+
+        Note:
+            Dependency injection pattern allows mocking in tests.
+            WorkflowGate centralizes state management to ensure atomic writes.
+        """
+        self._project_root = project_root or Path(__file__).parent.parent
+        self._state_file = state_file or (self._project_root / ".claude" / "workflow-state.json")
+        self._tasks_dir = self._project_root / "docs" / "TASKS"
+
+        # Inject WorkflowGate for centralized state management (fixes architectural issues)
+        self._workflow_gate = workflow_gate or WorkflowGate(state_file=self._state_file)
+
+    def create_task_with_review(
+        self,
+        task_id: str,
+        title: str,
+        description: str,
+        estimated_hours: float
+    ) -> str:
+        """
+        Create task document and automatically request planning review.
+
+        Flow:
+        1. Generate task document from template
+        2. Auto-request gemini planner review (Tier 3)
+        3. Display review findings
+        4. Guide user through fixes if needed
+        5. Re-request review after fixes
+        6. Mark task as APPROVED when ready
+
+        Args:
+            task_id: Task identifier (e.g., "P1T14")
+            title: Task title (concise description)
+            description: Detailed task description
+            estimated_hours: Estimated effort in hours
+
+        Returns:
+            Task file path (relative to project root)
+
+        Example:
+            >>> planner = PlanningWorkflow()
+            >>> task_file = planner.create_task_with_review(
+            ...     task_id="P1T14",
+            ...     title="Add position limit monitoring",
+            ...     description="Monitor and alert on position limit violations",
+            ...     estimated_hours=6.0
+            ... )
+            >>> print(task_file)
+            docs/TASKS/P1T14_TASK.md
+        """
+        # Generate task document
+        task_file = self._generate_task_doc(task_id, title, description, estimated_hours)
+
+        print(f"✅ Task document created: {task_file}")
+        print()
+        print("📋 Requesting task creation review (gemini planner → codex planner)...")
+        print("   This will validate scope, requirements, and feasibility.")
+        print("   See .claude/workflows/02-planning.md for review workflow.")
+        print()
+        print("💡 Next steps:")
+        print("   1. Review task document for completeness")
+        print("   2. Request review via: mcp__zen__clink with cli_name='gemini', role='planner'")
+        print("   3. Address any issues found in review")
+        print("   4. Once approved, use plan_subfeatures() if task >8h")
+        print()
+
+        return str(task_file.relative_to(self._project_root))
+
+    def plan_subfeatures(
+        self,
+        task_id: str,
+        components: list[dict]
+    ) -> list[str]:
+        """
+        Generate subfeature breakdown and branches.
+
+        Follows 00-task-breakdown.md rules:
+        - Task >8h → MUST split into subfeatures
+        - Task 4-8h → CONSIDER splitting
+        - Task <4h → DON'T split
+
+        Args:
+            task_id: Parent task ID (e.g., "P1T13")
+            components: List of component dicts with {name, description, hours}
+
+        Returns:
+            List of subfeature IDs (e.g., ["P1T13-F1", "P1T13-F2"])
+
+        Example:
+            >>> planner = PlanningWorkflow()
+            >>> components = [
+            ...     {"name": "Position monitor service", "description": "...", "hours": 3},
+            ...     {"name": "Alert integration", "description": "...", "hours": 2},
+            ...     {"name": "Dashboard UI", "description": "...", "hours": 3}
+            ... ]
+            >>> subfeatures = planner.plan_subfeatures("P1T14", components)
+            >>> print(subfeatures)
+            ['P1T14-F1', 'P1T14-F2', 'P1T14-F3']
+        """
+        total_hours = sum(c.get("hours", 0) for c in components)
+
+        if total_hours < 4:
+            print(f"ℹ️  Task is simple (<4h), no subfeature split needed")
+            print(f"   Total estimated: {total_hours}h")
+            print(f"   Proceed with single-feature implementation")
+            return []
+
+        if total_hours >= 8 or len(components) >= 3:
+            print(f"✅ Task is complex (≥8h or ≥3 components), splitting into subfeatures...")
+            print(f"   Total estimated: {total_hours}h across {len(components)} components")
+        else:
+            print(f"⚠️  Task is moderate (4-8h), splitting recommended...")
+            print(f"   Total estimated: {total_hours}h across {len(components)} components")
+
+        # Generate subfeature IDs
+        subfeatures = []
+        for idx, component in enumerate(components, start=1):
+            subfeature_id = f"{task_id}-F{idx}"
+            subfeatures.append(subfeature_id)
+
+            comp_name = component.get("name", f"Component {idx}")
+            comp_hours = component.get("hours", 0)
+            print(f"  {subfeature_id}: {comp_name} ({comp_hours}h)")
+
+        print()
+        print(f"💡 Next steps:")
+        print(f"   1. Create task documents for each subfeature using create_task_with_review()")
+        print(f"   2. Start first subfeature with start_task_with_state()")
+        print()
+
+        return subfeatures
+
+    def start_task_with_state(
+        self,
+        task_id: str,
+        branch_name: str
+    ) -> None:
+        """
+        Initialize task tracking with workflow state integration.
+
+        Combines:
+        - .claude/task-state.json (Phase 0 auto-resume)
+        - .claude/workflow-state.json (Phase 3 workflow gates)
+
+        Sets up:
+        1. Git branch
+        2. Task state tracking
+        3. Workflow state initialization
+        4. Component list from task document
+
+        Args:
+            task_id: Task identifier (e.g., "P1T14-F1")
+            branch_name: Git branch name (e.g., "feat/P1T14-F1-position-monitoring")
+
+        Example:
+            >>> planner = PlanningWorkflow()
+            >>> planner.start_task_with_state("P1T14-F1", "feat/P1T14-F1-position-monitoring")
+            ✅ Task P1T14-F1 started
+               Branch: feat/P1T14-F1-position-monitoring
+               Components: 2
+               Current: Position limit validator
+        """
+        # Create branch
+        result = subprocess.run(
+            ["git", "checkout", "-b", branch_name],
+            cwd=self._project_root,
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            # Branch might already exist, try to check it out
+            result = subprocess.run(
+                ["git", "checkout", branch_name],
+                cwd=self._project_root,
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                print(f"❌ Failed to create/checkout branch: {result.stderr}")
+                raise RuntimeError(f"Failed to create/checkout branch {branch_name}: {result.stderr.strip()}")
+
+        # Initialize task state (update_task_state.py integration)
+        task_doc = self._load_task_doc(task_id)
+        components = self._extract_components(task_doc)
+
+        # Extract task title from document (first # heading)
+        task_title = "Unknown Task"
+        for line in task_doc.split("\n"):
+            if line.strip().startswith("# "):
+                task_title = line.strip()[2:].strip()  # Remove "# " prefix
+                # Remove task ID prefix if present (e.g., "# P1T14: Title" -> "Title")
+                # Use regex to remove only the task ID prefix, not colons within title
+                task_title = re.sub(r"^[A-Z0-9\-_]+:\s*", "", task_title)
+                break
+
+        update_task_state_script = self._project_root / "scripts" / "update_task_state.py"
+        if update_task_state_script.exists():
+            # Calculate task file path
+            task_file = self._tasks_dir / f"{task_id}_TASK.md"
+
+            # Fail loudly if task state update fails (prevents inconsistent state)
+            # CRITICAL: Task tracking and workflow must stay synchronized
+            subprocess.run([
+                sys.executable, str(update_task_state_script), "start",
+                "--task", task_id,
+                "--title", task_title,
+                "--branch", branch_name,
+                "--task-file", str(task_file),
+                "--components", str(len(components))
+            ], cwd=self._project_root, capture_output=True, text=True, check=True)
+
+        # Initialize workflow state (delegate to WorkflowGate for atomic writes)
+        self._workflow_gate.reset()  # Clean slate
+
+        # Set first component (delegate to WorkflowGate for atomic writes)
+        if components:
+            self._workflow_gate.set_component(components[0]["name"])
+
+        print(f"✅ Task {task_id} started")
+        print(f"   Branch: {branch_name}")
+        print(f"   Components: {len(components)}")
+        print(f"   Current: {components[0]['name'] if components else 'N/A'}")
+
+    # ========== Private helper methods ==========
+
+    def _generate_task_doc(
+        self,
+        task_id: str,
+        title: str,
+        description: str,
+        estimated_hours: float
+    ) -> Path:
+        """
+        Generate task document from template.
+
+        Creates a new task document in docs/TASKS/ with standardized format.
+        Loads template from 00-PLANNING_WORKFLOW_TEMPLATE.md for maintainability.
+        Falls back to embedded template if file not found (e.g., in test environments).
+
+        Args:
+            task_id: Task identifier
+            title: Task title
+            description: Task description
+            estimated_hours: Estimated effort
+
+        Returns:
+            Path to created task document
+        """
+        # Ensure tasks directory exists
+        self._tasks_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate task filename
+        task_file = self._tasks_dir / f"{task_id}_TASK.md"
+
+        # Load template from file if available, else use embedded fallback
+        template_file = self._tasks_dir / "00-PLANNING_WORKFLOW_TEMPLATE.md"
+        if template_file.exists():
+            with open(template_file, "r") as f:
+                template_content = f.read()
+        else:
+            # Fallback template for test environments or when file missing
+            template_content = """# {task_id}: {title}
+
+**Status:** DRAFT
+**Estimated Hours:** {estimated_hours}h
+**Created:** {created_date}
+
+## Description
+
+{description}
+
+## Components
+
+<!-- List logical components here -->
+<!-- Example: -->
+<!-- - Component 1: Description (Xh) -->
+<!-- - Component 2: Description (Yh) -->
+
+## Acceptance Criteria
+
+<!-- List acceptance criteria here -->
+<!-- Example: -->
+<!-- - [ ] Criterion 1 -->
+<!-- - [ ] Criterion 2 -->
+
+## Implementation Notes
+
+<!-- Add implementation notes here -->
+
+## Testing Strategy
+
+<!-- Describe testing approach -->
+
+## Dependencies
+
+<!-- List dependencies or blockers -->
+
+---
+
+**Note:** This task document was generated by PlanningWorkflow.
+Request task creation review via .claude/workflows/02-planning.md before starting work.
+"""
+
+        # Replace placeholders
+        content = template_content.format(
+            task_id=task_id,
+            title=title,
+            description=description,
+            estimated_hours=estimated_hours,
+            created_date=datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        )
+
+        # Write task document
+        with open(task_file, "w") as f:
+            f.write(content)
+
+        return task_file
+
+    def _load_task_doc(self, task_id: str) -> str:
+        """
+        Load task document content.
+
+        Args:
+            task_id: Task identifier
+
+        Returns:
+            Task document content as string
+            Returns empty string if file not found
+        """
+        task_file = self._tasks_dir / f"{task_id}_TASK.md"
+
+        if not task_file.exists():
+            return ""
+
+        with open(task_file, "r") as f:
+            return f.read()
+
+    def _extract_components(self, task_doc: str) -> list[dict]:
+        """
+        Extract component list from task document.
+
+        Parses the "## Components" section to extract component names
+        and estimated hours.
+
+        Args:
+            task_doc: Task document content
+
+        Returns:
+            List of component dicts with {name, hours}
+            Returns empty list if no components found
+
+        Example:
+            Input:
+                ## Components
+                - Component 1: Validator (2h)
+                - Component 2: API endpoint (3h)
+
+            Output:
+                [
+                    {"name": "Component 1: Validator", "hours": 2},
+                    {"name": "Component 2: API endpoint", "hours": 3}
+                ]
+        """
+        components = []
+
+        # Find components section
+        lines = task_doc.split("\n")
+        in_components_section = False
+
+        for line in lines:
+            # Start of components section
+            if line.strip().startswith("## Components"):
+                in_components_section = True
+                continue
+
+            # End of components section (next ## heading)
+            if in_components_section and line.strip().startswith("##"):
+                break
+
+            # Parse component line
+            if in_components_section and line.strip().startswith("-"):
+                # Extract component name and hours
+                # Format: - Component name (Xh) or - Component name (X hours)
+                content = line.strip()[1:].strip()  # Remove leading "- "
+
+                # Extract hours using more robust regex pattern
+                # Matches: (2h), (2 h), (2h ), (2 hours), (2.5h), etc.
+                hours_pattern = r'\((\d+(?:\.\d+)?)\s*(?:h|hours?)\s*\)'
+                match = re.search(hours_pattern, content, re.IGNORECASE)
+
+                hours = 0.0
+                if match:
+                    hours_str = match.group(1)
+                    try:
+                        hours = float(hours_str)
+                        # Remove hours from name
+                        name = content[:match.start()].strip()
+                    except ValueError:
+                        print(f"⚠️  Warning: Failed to parse hours from '{content}' - defaulting to 0h")
+                        name = content
+                        hours = 0.0
+                else:
+                    # No hours found - check if it looks like it might have hours
+                    if '(' in content and ('h' in content.lower() or 'hour' in content.lower()):
+                        print(f"⚠️  Warning: Line appears to contain hours but couldn't parse: '{content}'")
+                    name = content
+
+                components.append({
+                    "name": name,
+                    "hours": hours
+                })
+
+        return components
+
+
+class UnifiedReviewSystem:
+    """
+    Consolidated review system with context-aware rigor.
+
+    Merges quick/deep reviews with multi-iteration pre-PR validation.
+    Implements conservative override policy for quality gates.
+
+    Component 4 of P1T13-F4: Workflow Intelligence & Context Efficiency
+    Author: Claude Code
+    Date: 2025-11-08
+    """
+
+    def __init__(
+        self,
+        workflow_gate: "WorkflowGate | None" = None,
+        state_file: Path = STATE_FILE
+    ):
+        """
+        Initialize unified review system.
+
+        Args:
+            workflow_gate: WorkflowGate instance for centralized state management
+                (default: None, creates own state management - deprecated for new code)
+            state_file: Path to workflow state JSON file (only used if workflow_gate is None)
+
+        Note:
+            Dependency injection pattern prevents state race conditions.
+            When workflow_gate is provided, all state operations use atomic writes.
+        """
+        self._workflow_gate = workflow_gate
+        self._state_file = state_file
+        self._project_root = Path(__file__).parent.parent
+
+    def _load_state(self) -> dict:
+        """
+        Load workflow state from JSON file.
+
+        Delegates to WorkflowGate if available for atomic operations.
+        Falls back to direct file I/O only when workflow_gate is None.
+        """
+        if self._workflow_gate:
+            return self._workflow_gate.load_state()
+
+        # Legacy fallback for tests without workflow_gate
+        if not self._state_file.exists():
+            return {}
+
+        try:
+            with open(self._state_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"⚠️  Warning: Failed to parse review state file: {e}")
+            print(f"   Initializing fresh state...")
+            return {}
+
+    def _save_state(self, state: dict) -> None:
+        """
+        Save workflow state to JSON file.
+
+        Delegates to WorkflowGate if available for atomic writes.
+        Falls back to direct file I/O only when workflow_gate is None.
+        """
+        if self._workflow_gate:
+            self._workflow_gate.save_state(state)
+            return
+
+        # Legacy fallback for tests without workflow_gate
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._state_file, 'w') as f:
+            json.dump(state, f, indent=2)
+
+    def request_review(
+        self,
+        scope: str = "commit",
+        iteration: int = 1,
+        override_justification: str | None = None
+    ) -> dict:
+        """
+        Request unified review (gemini codereviewer → codex codereviewer).
+
+        Args:
+            scope: "commit" (lightweight) or "pr" (comprehensive + multi-iteration)
+            iteration: Iteration number for PR reviews (1, 2, 3...)
+            override_justification: Justification for overriding LOW severity issues
+
+        Returns:
+            Review result dict with continuation_id and status
+
+        Example:
+            >>> reviewer = UnifiedReviewSystem()
+            >>> result = reviewer.request_review(scope="commit")
+            >>> print(result["status"])  # "APPROVED" or "NEEDS_REVISION"
+        """
+        if scope == "commit":
+            return self._commit_review()
+        elif scope == "pr":
+            return self._pr_review(iteration, override_justification)
+        else:
+            raise ValueError(f"Invalid scope: {scope}. Must be 'commit' or 'pr'.")
+
+    def _commit_review(self) -> dict:
+        """
+        Lightweight commit review (replaces quick review).
+
+        Focus:
+        - Trading safety (circuit breakers, idempotency)
+        - Critical bugs
+        - Code quality (type safety, error handling)
+
+        Speed: 2-3 minutes (gemini 1-2min, codex 30-60sec)
+
+        Returns:
+            dict with keys: scope, continuation_id, status, issues
+        """
+        print("🔍 Requesting commit review (gemini → codex)...")
+        print("   Focus: Trading safety, critical bugs, code quality")
+        print("   Duration: ~2-3 minutes")
+        print()
+        print("💡 Follow workflow: .claude/workflows/03-reviews.md")
+        print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
+        print("   Then: mcp__zen__clink with cli_name='codex', role='codereviewer' (reuse continuation_id)")
+        print()
+        print("   After review, record approval:")
+        print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
+        print()
+
+        # Return placeholder - actual review happens via clink
+        return {
+            "scope": "commit",
+            "continuation_id": None,  # Set by user after review
+            "status": "PENDING",
+            "issues": []
+        }
+
+    def _pr_review(self, iteration: int, override_justification: str | None = None) -> dict:
+        """
+        Comprehensive PR review with multi-iteration loop.
+
+        Iteration 1:
+        - Architecture analysis
+        - Integration concerns
+        - Test coverage
+        - All commit-level checks (safety, quality)
+
+        Iteration 2+ (if issues found):
+        - INDEPENDENT review (fresh context, no memory of iteration 1)
+        - Verify fixes from previous iteration
+        - Look for NEW issues introduced by fixes
+        - Continue until BOTH reviewers find NO issues
+
+        Speed: 3-5 minutes per iteration
+        Max iterations: 3 (escalate to user if still failing)
+
+        Args:
+            iteration: Current iteration number (1-3)
+            override_justification: Justification for overriding LOW severity issues
+
+        Returns:
+            dict with keys: scope, iteration, continuation_id, status, issues, override
+        """
+        state = self._load_state()
+        review_state = state.setdefault("unified_review", {})
+        review_history = review_state.setdefault("history", [])
+
+        print(f"🔍 Requesting PR review - Iteration {iteration} (gemini → codex)...")
+        print("   Focus: Architecture, integration, coverage, safety, quality")
+        print("   Duration: ~3-5 minutes per iteration")
+        print()
+
+        if iteration > 1:
+            print(f"   ⚠️  INDEPENDENT REVIEW (no memory of iteration {iteration-1})")
+            print("      Looking for: (1) Verified fixes, (2) New issues from fixes")
+            print()
+
+        print("💡 Follow workflow: .claude/workflows/03-reviews.md")
+        print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
+        print("   Then: mcp__zen__clink with cli_name='codex', role='codereviewer'")
+        print("   ⚠️  CRITICAL: Do NOT reuse continuation_id from previous iteration")
+        print("      Each iteration must be independent for unbiased review")
+        print()
+
+        # Check for override conditions
+        if override_justification and iteration >= 3:
+            return self._handle_review_override(
+                state, iteration, override_justification
+            )
+
+        if iteration >= 3:
+            print()
+            print("⚠️  Max iterations reached (3)")
+            print("   Options:")
+            print("   1. Fix remaining issues and continue")
+            print("   2. Override LOW issues with --override --justification 'reason'")
+            print("      (CRITICAL/HIGH/MEDIUM cannot be overridden)")
+            print()
+
+        # Create pending history entry for this iteration
+        # This enables override workflow by providing history to check
+        from datetime import datetime, timezone
+        pending_entry = {
+            "iteration": iteration,
+            "scope": "pr",
+            "status": "PENDING",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "issues": [],  # Will be populated if user provides details
+            "continuation_id": None,  # Will be set by record_review
+        }
+
+        # Append to history (record_review will update the latest entry)
+        review_history.append(pending_entry)
+        self._save_state(state)
+
+        # Return placeholder - actual review happens via clink
+        return {
+            "scope": "pr",
+            "iteration": iteration,
+            "continuation_id": None,  # Set by user after review
+            "status": "PENDING",
+            "issues": [],
+            "max_iterations": 3
+        }
+
+    def _is_override_allowed(self, state: dict) -> dict:
+        """
+        Check if review override is permissible.
+
+        Determines whether override is allowed based on severity of
+        outstanding issues. Separates decision logic from side effects.
+
+        Conservative policy (from edge case Q2):
+        - Block CRITICAL/HIGH/MEDIUM entirely
+        - Allow LOW only with justification
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Dict with:
+            - allowed: bool - Whether override is permitted
+            - error: str | None - Error message if not allowed
+            - blocked_issues: list - CRITICAL/HIGH/MEDIUM issues
+            - low_issues: list - LOW severity issues
+            - iteration: int - Current iteration number
+        """
+        review_state = state.get("unified_review", {})
+        review_history = review_state.get("history", [])
+
+        if not review_history:
+            return {
+                "allowed": False,
+                "error": "No review history found. Cannot override without prior review.",
+                "blocked_issues": [],
+                "low_issues": [],
+                "iteration": 0
+            }
+
+        # Get latest review issues
+        latest_review = review_history[-1]
+        issues = latest_review.get("issues", [])
+        iteration = latest_review.get("iteration", 0)
+
+        # Categorize issues by severity
+        blocked_issues = []
+        low_issues = []
+
+        for issue in issues:
+            severity = issue.get("severity", "UNKNOWN")
+            if severity in {"CRITICAL", "HIGH", "MEDIUM"}:
+                blocked_issues.append(issue)
+            elif severity == "LOW":
+                low_issues.append(issue)
+
+        # Cannot override if any CRITICAL/HIGH/MEDIUM issues exist
+        if blocked_issues:
+            return {
+                "allowed": False,
+                "error": "Cannot override CRITICAL/HIGH/MEDIUM issues",
+                "blocked_issues": blocked_issues,
+                "low_issues": low_issues,
+                "iteration": iteration
+            }
+
+        # Allow override if only LOW issues (or no issues)
+        return {
+            "allowed": True,
+            "error": None,
+            "blocked_issues": [],
+            "low_issues": low_issues,
+            "iteration": iteration
+        }
+
+    def _execute_override(
+        self, state: dict, justification: str, low_issues: list, iteration: int
+    ) -> dict:
+        """
+        Execute review override by performing side effects.
+
+        Posts comment to PR and persists override record to state.
+        Separated from decision logic for better testability.
+
+        Args:
+            state: Current workflow state
+            justification: User-provided justification for override
+            low_issues: List of LOW severity issues being overridden
+            iteration: Current iteration number
+
+        Returns:
+            Override result dict with status and metadata
+        """
+        review_state = state.get("unified_review", {})
+
+        if low_issues:
+            print(f"⚠️ Overriding {len(low_issues)} LOW severity issue(s):")
+            for issue in low_issues:
+                print(f"   - {issue['summary']}")
+            print()
+            print(f"💡 RECOMMENDED: Fix LOW issues if straightforward before override")
+            print()
+
+            # Log to PR via gh pr comment
+            try:
+                result = subprocess.run(
+                    [
+                        "gh", "pr", "comment", "--body",
+                        f"⚠️ REVIEW OVERRIDE (LOW severity only):\n{justification}\n\nDeferred LOW issues: {len(low_issues)}"
+                    ],
+                    check=False,  # Degrade gracefully if gh unavailable
+                    capture_output=True,
+                    text=True,
+                    cwd=self._project_root
+                )
+                if result.returncode == 0:
+                    print("✅ Override logged to PR comment")
+                else:
+                    print(f"⚠️  Failed to post PR comment: {result.stderr.strip()}")
+                    print("   (Override still recorded locally)")
+            except FileNotFoundError:
+                print("⚠️  gh CLI not found - PR comment not posted")
+                print("   (Override still recorded locally)")
+            except Exception as e:
+                print(f"⚠️  Failed to post PR comment: {e}")
+                print("   (Override still recorded locally)")
+
+            # Persist override in state
+            review_state["override"] = {
+                "justification": justification,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "iteration": iteration,
+                "low_issues_count": len(low_issues),
+                "policy": "block_critical_high_medium_allow_low"
+            }
+            self._save_state(state)
+
+            print("✅ Override recorded. You may proceed with commit/PR.")
+            return {
+                "status": "OVERRIDE_APPROVED",
+                "low_issues": low_issues,
+                "override": review_state["override"]
+            }
+
+        # No issues at all
+        return {
+            "status": "APPROVED",
+            "issues": []
+        }
+
+    def _handle_review_override(
+        self, state: dict, iteration: int, justification: str
+    ) -> dict:
+        """
+        Handle review override for LOW severity issues after max iterations.
+
+        Orchestrates override by checking permission and executing if allowed.
+        Delegates to _is_override_allowed and _execute_override for separation
+        of concerns.
+
+        Conservative policy (from edge case Q2):
+        - Block CRITICAL/HIGH/MEDIUM entirely
+        - Allow LOW only with justification
+        - Log to PR via gh pr comment
+
+        Args:
+            state: Current workflow state
+            iteration: Current iteration number
+            justification: User-provided justification
+
+        Returns:
+            Override result dict
+        """
+        # Check if override is allowed
+        check_result = self._is_override_allowed(state)
+
+        if not check_result["allowed"]:
+            # Override blocked - print diagnostics and return error
+            if check_result["blocked_issues"]:
+                print(f"❌ Cannot override {len(check_result['blocked_issues'])} CRITICAL/HIGH/MEDIUM issue(s):")
+                for issue in check_result["blocked_issues"]:
+                    print(f"   - [{issue['severity']}] {issue['summary']}")
+                print()
+                print("💡 FIX these issues before proceeding. Override only allowed for LOW severity.")
+
+            return {
+                "error": check_result["error"],
+                "blocked_issues": check_result["blocked_issues"]
+            }
+
+        # Override allowed - execute side effects
+        return self._execute_override(
+            state,
+            justification,
+            check_result["low_issues"],
+            check_result["iteration"]
+        )
+
+
+class DebugRescue:
+    """
+    Automated detection and escalation of stuck debug loops.
+
+    Detects when AI is stuck in repetitive test failures and escalates
+    to clink codex for systematic debugging assistance.
+
+    Component 5 of P1T13-F4: Workflow Intelligence & Context Efficiency
+    Author: Claude Code
+    Date: 2025-11-08
+    """
+
+    # Detection thresholds (class constants for configurability)
+    MAX_ATTEMPTS_SAME_TEST = 3
+    LOOP_DETECTION_WINDOW = 10
+    CYCLING_MIN_ATTEMPTS = 6
+    CYCLING_MAX_UNIQUE_ERRORS = 3
+    TIME_LIMIT_MIN_ATTEMPTS = 5
+    TIME_LIMIT_MINUTES = 30
+    HISTORY_MAX_SIZE = 50
+
+    def __init__(
+        self,
+        workflow_gate: "WorkflowGate | None" = None,
+        state_file: Path = STATE_FILE
+    ):
+        """
+        Initialize debug rescue system.
+
+        Args:
+            workflow_gate: WorkflowGate instance for centralized state management
+                (default: None, creates own state management - deprecated for new code)
+            state_file: Path to workflow state JSON file (only used if workflow_gate is None)
+
+        Note:
+            Dependency injection pattern prevents state race conditions.
+            When workflow_gate is provided, all state operations use atomic writes.
+        """
+        self._workflow_gate = workflow_gate
+        self._state_file = state_file
+        self._project_root = Path(__file__).parent.parent
+
+    def _load_state(self) -> dict:
+        """
+        Load workflow state from JSON file.
+
+        Delegates to WorkflowGate if available for atomic operations.
+        Falls back to direct file I/O only when workflow_gate is None.
+
+        Returns:
+            State dict, or empty dict if file doesn't exist or is corrupted
+        """
+        if self._workflow_gate:
+            return self._workflow_gate.load_state()
+
+        # Legacy fallback for tests without workflow_gate
+        if not self._state_file.exists():
+            return {}
+
+        try:
+            with open(self._state_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            # Corrupted or inaccessible state file - return empty dict
+            print(f"⚠️  Warning: Could not load state file: {e}")
+            print(f"   Using empty state")
+            return {}
+
+    def _save_state(self, state: dict) -> None:
+        """
+        Save workflow state to JSON file.
+
+        Delegates to WorkflowGate if available for atomic writes.
+        Falls back to direct file I/O only when workflow_gate is None.
+
+        Args:
+            state: State dict to save
+        """
+        if self._workflow_gate:
+            self._workflow_gate.save_state(state)
+            return
+
+        # Legacy fallback for tests without workflow_gate
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+        except (IOError, OSError) as e:
+            print(f"⚠️  Warning: Could not save state file: {e}")
+            # Continue execution - state persistence is non-critical
+
+    def record_test_attempt(
+        self,
+        test_file: str,
+        status: str,
+        error_signature: str
+    ) -> None:
+        """
+        Record test execution attempt for loop detection.
+
+        Args:
+            test_file: Test file path
+            status: Test outcome ("passed" or "failed")
+            error_signature: Hash of error message (for detecting repeats)
+
+        Example:
+            >>> rescue = DebugRescue()
+            >>> rescue.record_test_attempt(
+            ...     "tests/test_foo.py",
+            ...     "failed",
+            ...     "abc123"
+            ... )
+        """
+        state = self._load_state()
+        debug_state = state.setdefault("debug_rescue", {})
+        attempt_history = debug_state.setdefault("attempt_history", [])
+
+        # Add new attempt
+        attempt_history.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "test_file": test_file,
+            "status": status,
+            "error_signature": error_signature
+        })
+
+        # Prune old history (keep last HISTORY_MAX_SIZE)
+        if len(attempt_history) > self.HISTORY_MAX_SIZE:
+            debug_state["attempt_history"] = attempt_history[-self.HISTORY_MAX_SIZE:]
+
+        self._save_state(state)
+
+    def is_stuck_in_loop(self) -> tuple[bool, str]:
+        """
+        Detect if AI is stuck in debug loop.
+
+        Indicators:
+        1. Same test failing MAX_ATTEMPTS_SAME_TEST+ times in last LOOP_DETECTION_WINDOW attempts
+        2. Error signature cycling (≤CYCLING_MAX_UNIQUE_ERRORS patterns over CYCLING_MIN_ATTEMPTS+)
+        3. >TIME_LIMIT_MINUTES spent in debug attempts (TIME_LIMIT_MIN_ATTEMPTS+ attempts)
+
+        Returns:
+            (is_stuck: bool, reason: str)
+
+        Example:
+            >>> rescue = DebugRescue()
+            >>> is_stuck, reason = rescue.is_stuck_in_loop()
+            >>> if is_stuck:
+            ...     print(f"Stuck: {reason}")
+        """
+        state = self._load_state()
+        debug_state = state.get("debug_rescue", {})
+        attempt_history = debug_state.get("attempt_history", [])
+
+        if len(attempt_history) < self.MAX_ATTEMPTS_SAME_TEST:
+            return (False, "Not enough attempts to detect loop")
+
+        recent = attempt_history[-self.LOOP_DETECTION_WINDOW:]
+
+        # Check 1: Same test failing repeatedly
+        test_files = [a["test_file"] for a in recent if a["status"] == "failed"]
+        if len(test_files) >= self.MAX_ATTEMPTS_SAME_TEST:
+            most_common = max(set(test_files), key=test_files.count)
+            fail_count = test_files.count(most_common)
+            if fail_count >= self.MAX_ATTEMPTS_SAME_TEST:
+                return (
+                    True,
+                    f"Test '{most_common}' failed {fail_count} times in last {len(recent)} attempts"
+                )
+
+        # Check 2: Error signature cycling
+        signatures = [a["error_signature"] for a in recent]
+        unique_sigs = set(signatures)
+        if len(unique_sigs) <= self.CYCLING_MAX_UNIQUE_ERRORS and len(signatures) >= self.CYCLING_MIN_ATTEMPTS:
+            # Limited unique errors cycling
+            return (
+                True,
+                f"Cycling between {len(unique_sigs)} error patterns: {unique_sigs}"
+            )
+
+        # Check 3: Time spent (if timestamps available)
+        if len(recent) >= self.TIME_LIMIT_MIN_ATTEMPTS:
+            try:
+                first_ts = datetime.fromisoformat(recent[0]["timestamp"])
+                last_ts = datetime.fromisoformat(recent[-1]["timestamp"])
+                duration = (last_ts - first_ts).total_seconds() / 60
+
+                if duration > self.TIME_LIMIT_MINUTES:
+                    return (
+                        True,
+                        f"Spent {duration:.1f} minutes in debug attempts without progress"
+                    )
+            except (ValueError, KeyError) as e:
+                # Timestamp parsing failed - warn but continue with other checks
+                print(f"⚠️  Warning: Time-based loop detection failed (malformed timestamp): {e}")
+                print("   Continuing with other loop detection checks...")
+
+        return (False, "No loop detected")
+
+    def _get_recent_commits(self, max_commits: int = 5) -> str:
+        """
+        Get recent commits for context.
+
+        Args:
+            max_commits: Number of recent commits to fetch
+
+        Returns:
+            Formatted git log output
+        """
+        try:
+            result = subprocess.run(
+                ["git", "log", f"-{max_commits}", "--oneline"],
+                cwd=self._project_root,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10
+            )
+            return result.stdout.strip()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            # Catch all exceptions and log a warning for graceful degradation
+            print(f"⚠️  Warning: Could not get recent commits: {e}")
+            return "(git log unavailable)"
+
+    def request_debug_rescue(
+        self,
+        test_file: str | None = None
+    ) -> dict:
+        """
+        Request clink codex debugging assistance.
+
+        Provides codex with:
+        1. Test file and recent failure history
+        2. Recent fix attempts (from git log)
+        3. Request systematic debugging approach
+
+        Args:
+            test_file: Specific test file to debug (or None for auto-detect)
+
+        Returns:
+            dict with rescue guidance and continuation_id
+
+        Example:
+            >>> rescue = DebugRescue()
+            >>> result = rescue.request_debug_rescue("tests/test_foo.py")
+            >>> print(result["guidance"])
+        """
+        state = self._load_state()
+        debug_state = state.get("debug_rescue", {})
+        attempt_history = debug_state.get("attempt_history", [])
+
+        # Auto-detect most problematic test if not specified
+        if not test_file and attempt_history:
+            recent = attempt_history[-self.LOOP_DETECTION_WINDOW:]
+            failed_tests = [a["test_file"] for a in recent if a["status"] == "failed"]
+            if failed_tests:
+                test_file = max(set(failed_tests), key=failed_tests.count)
+
+        if not test_file:
+            return {
+                "error": "No test file specified and no recent failures found"
+            }
+
+        # Get recent errors for this test
+        recent_errors = [
+            a["error_signature"]
+            for a in attempt_history
+            if a["test_file"] == test_file and a["status"] == "failed"
+        ]
+
+        print("🆘 DEBUG RESCUE TRIGGERED")
+        print(f"   Test: {test_file}")
+        print(f"   Recent failures: {len([a for a in attempt_history if a['test_file'] == test_file and a['status'] == 'failed'])}")
+        print()
+        print("📞 Requesting clink codex debugging assistance...")
+        print()
+
+        # Build rescue prompt
+        rescue_prompt = f"""
+DEBUG RESCUE REQUEST
+
+I'm stuck in a debug loop on this test:
+- Test file: {test_file}
+- Failed attempts: {len([a for a in attempt_history if a['test_file'] == test_file and a['status'] == 'failed'])}
+- Recent error signatures: {recent_errors[:3]}
+
+Recent fix attempts (git log):
+{self._get_recent_commits()}
+
+Please help with systematic debugging:
+1. Analyze the error pattern (is it cycling?)
+2. Identify root cause (not just symptoms)
+3. Suggest focused debugging approach
+4. Recommend specific diagnostic steps
+
+I need a fresh perspective to break out of this loop.
+"""
+
+        print("💡 Follow workflow: Use mcp__zen__clink with:")
+        print("   - cli_name='codex'")
+        print("   - role='default'")
+        print(f"   - prompt='{rescue_prompt.strip()[:100]}...'")
+        print()
+        print("   Codex will provide:")
+        print("   - Error pattern analysis")
+        print("   - Root cause identification")
+        print("   - Systematic debugging plan")
+        print("   - Specific diagnostic steps")
+        print()
+
+        # Return guidance (actual rescue happens via clink)
+        return {
+            "test_file": test_file,
+            "failed_attempts": len([a for a in attempt_history if a['test_file'] == test_file and a['status'] == 'failed']),
+            "recent_errors": recent_errors[:3],
+            "rescue_prompt": rescue_prompt.strip(),
+            "status": "RESCUE_NEEDED"
+        }
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -811,6 +2450,71 @@ Examples:
         "task_description", help="Description of delegated task"
     )
 
+    # Component 4: Unified Review System
+    request_review_parser = subparsers.add_parser(
+        "request-review", help="Request unified review (commit or PR)"
+    )
+    request_review_parser.add_argument(
+        "scope",
+        choices=["commit", "pr"],
+        help="Review scope: commit (lightweight) or pr (comprehensive)"
+    )
+    request_review_parser.add_argument(
+        "--iteration",
+        type=int,
+        default=1,
+        help="PR review iteration number (1-3)"
+    )
+    request_review_parser.add_argument(
+        "--override",
+        action="store_true",
+        help="Override LOW severity issues (requires --justification)"
+    )
+    request_review_parser.add_argument(
+        "--justification",
+        type=str,
+        help="Justification for overriding LOW severity issues"
+    )
+
+    # Component 5: Debug Rescue
+    debug_rescue_parser = subparsers.add_parser(
+        "debug-rescue",
+        help="Request debug rescue for stuck test loops"
+    )
+    debug_rescue_parser.add_argument(
+        "test_file",
+        nargs="?",
+        help="Test file to debug (optional, auto-detects if omitted)"
+    )
+
+    # Component 2: SmartTestRunner
+    run_ci_parser = subparsers.add_parser(
+        "run-ci",
+        help="Run smart CI tests (targeted for commits, full for PRs)"
+    )
+    run_ci_parser.add_argument(
+        "scope",
+        choices=["commit", "pr"],
+        help="CI scope: commit (smart selection) or pr (full suite)"
+    )
+
+    # Component 4: PlanningWorkflow
+    create_task_parser = subparsers.add_parser(
+        "create-task",
+        help="Create new task with zen-mcp review"
+    )
+    create_task_parser.add_argument("--id", required=True, help="Task ID (e.g., P1T14)")
+    create_task_parser.add_argument("--title", required=True, help="Task title")
+    create_task_parser.add_argument("--description", required=True, help="Task description")
+    create_task_parser.add_argument("--hours", type=float, required=True, help="Estimated hours")
+
+    start_task_parser = subparsers.add_parser(
+        "start-task",
+        help="Start task and update state"
+    )
+    start_task_parser.add_argument("task_id", help="Task ID to start")
+    start_task_parser.add_argument("branch_name", help="Git branch name for task")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -819,6 +2523,12 @@ Examples:
 
     try:
         gate = WorkflowGate()
+
+        # Instantiate DelegationRules with dependency injection
+        delegation_rules = DelegationRules(
+            load_state=gate.load_state,
+            save_state=gate.save_state,
+        )
 
         if args.command == "set-component":
             gate.set_component(args.name)
@@ -837,13 +2547,136 @@ Examples:
         elif args.command == "reset":
             gate.reset()
         elif args.command == "check-context":
-            gate.check_context()
+            snapshot = delegation_rules.get_context_snapshot()
+            should_delegate, reason, _ = delegation_rules.should_delegate_context(snapshot)
+            status = delegation_rules.format_status(snapshot, reason)
+            print(status)
         elif args.command == "record-context":
-            gate.record_context(args.tokens)
+            result = delegation_rules.record_context(args.tokens)
+            if result.get("error"):
+                print(f"Error: {result['error']}")
+            else:
+                print(f"✅ Context recorded: {result['current_tokens']:,} tokens ({result['usage_pct']:.1f}%)")
         elif args.command == "suggest-delegation":
-            gate.suggest_delegation()
+            suggestion = delegation_rules.suggest_delegation()
+            print(suggestion)
         elif args.command == "record-delegation":
-            gate.record_delegation(args.task_description)
+            result = delegation_rules.record_delegation(args.task_description)
+            if result.get("error"):
+                print(f"Error: {result['error']}")
+            else:
+                print(f"✅ Delegation recorded: {result['task_description']}")
+        elif args.command == "request-review":
+            # Instantiate UnifiedReviewSystem with central WorkflowGate
+            # (prevents state race conditions - see iteration 4 HIGH severity fix)
+            review_system = UnifiedReviewSystem(workflow_gate=gate)
+
+            # Prepare arguments
+            override_justification = None
+            if args.override:
+                if not args.justification:
+                    print("❌ Error: --override requires --justification")
+                    return 1
+                if args.iteration < 3:
+                    print("❌ Error: --override can only be used with --iteration 3 (final iteration)")
+                    print("   Reason: Overrides only apply after multiple independent review attempts")
+                    return 1
+                override_justification = args.justification
+
+            # Request review
+            result = review_system.request_review(
+                scope=args.scope,
+                iteration=args.iteration,
+                override_justification=override_justification
+            )
+
+            # Handle result
+            if result.get("error"):
+                print(f"❌ Error: {result['error']}")
+                return 1
+
+        elif args.command == "debug-rescue":
+            # Instantiate DebugRescue with central WorkflowGate
+            # (prevents state race conditions - see iteration 4 HIGH severity fix)
+            debug_rescue = DebugRescue(workflow_gate=gate)
+
+            # Request rescue
+            result = debug_rescue.request_debug_rescue(test_file=args.test_file)
+
+            # Handle result
+            if result.get("error"):
+                print(f"❌ Error: {result['error']}")
+                return 1
+
+            # Success - guidance printed by request_debug_rescue()
+            return 0
+
+        elif args.command == "run-ci":
+            # Instantiate SmartTestRunner (no arguments)
+            smart_runner = SmartTestRunner()
+
+            # Get test command based on scope
+            context = args.scope  # "commit" or "pr"
+            command_list = smart_runner.get_test_command(context=context)
+
+            # Execute command from project root (prevents path resolution issues)
+            print(f"📋 Running {context} CI tests...")
+            print(f"▶️  Command: {' '.join(command_list)}\n")
+
+            try:
+                # CRITICAL: Execute from PROJECT_ROOT so pytest/make can resolve paths correctly
+                result = subprocess.run(command_list, cwd=PROJECT_ROOT)
+            except FileNotFoundError:
+                print(f"\n❌ Error: Command not found: '{command_list[0]}'")
+                print(f"   Make sure {command_list[0]} is installed and in PATH")
+                if command_list[0] in ("pytest", "poetry"):
+                    print("   Install with: pip install poetry (then: poetry install)")
+                elif command_list[0] == "make":
+                    print("   Install with: brew install make (macOS) or apt-get install build-essential (Linux)")
+                gate.record_ci(passed=False)
+                return 1
+
+            # Record CI result
+            if result.returncode == 0:
+                gate.record_ci(passed=True)
+                print("\n✅ CI passed")
+                return 0
+            else:
+                gate.record_ci(passed=False)
+                print("\n❌ CI failed")
+                return 1
+
+        elif args.command == "create-task":
+            # Instantiate PlanningWorkflow
+            planning = PlanningWorkflow(workflow_gate=gate)
+
+            # Create task with review
+            task_file_path = planning.create_task_with_review(
+                task_id=args.id,
+                title=args.title,
+                description=args.description,
+                estimated_hours=args.hours
+            )
+
+            print(f"✅ Task created: {args.id}")
+            print(f"📄 Task file: {task_file_path}")
+            if args.hours > 8:
+                print(f"⚠️  Task >8h - consider splitting into subfeatures")
+            return 0
+
+        elif args.command == "start-task":
+            # Instantiate PlanningWorkflow
+            planning = PlanningWorkflow(workflow_gate=gate)
+
+            # Start task with state integration
+            planning.start_task_with_state(
+                task_id=args.task_id,
+                branch_name=args.branch_name
+            )
+
+            print(f"✅ Task started: {args.task_id}")
+            print(f"📂 Branch: {args.branch_name}")
+            return 0
 
         return 0
 

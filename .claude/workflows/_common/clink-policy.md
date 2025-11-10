@@ -1,6 +1,6 @@
 # Clink-Only Tool Usage Policy
 
-**⚠️ MANDATORY: Use `mcp__zen-mcp__clink` EXCLUSIVELY for all zen-mcp interactions.**
+**⚠️ MANDATORY: Use `mcp__zen__clink` EXCLUSIVELY for all zen-mcp interactions.**
 
 ## Why This Matters
 
@@ -13,7 +13,7 @@
 
 ```python
 # ✅ CORRECT: Use clink with appropriate CLI and role
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="Review this implementation for trading safety",
     cli_name="codex",  # or "gemini"
     role="codereviewer"  # or "planner" or "default"
@@ -39,12 +39,12 @@ Tool restriction is **not enforceable at project level** because MCP config is s
 ## If You Catch Yourself Using Direct Tools
 
 1. STOP immediately
-2. Use `mcp__zen-mcp__clink` instead with appropriate cli_name and role
-3. Check `.claude/workflows/03-zen-review-quick.md` for correct patterns
+2. Use `mcp__zen__clink` instead with appropriate cli_name and role
+3. Check `.claude/workflows/03-reviews.md` for correct patterns
 4. See `.claude/TROUBLESHOOTING.md` for detailed error resolution
 
 ## See Also
 
 - [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) - Complete policy
-- [Quick Review Workflow](../03-zen-review-quick.md) - Clink usage examples
+- [Quick Review Workflow](../03-reviews.md) - Clink usage examples
 - [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Wrong-tool error fixes

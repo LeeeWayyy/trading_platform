@@ -48,7 +48,7 @@ Analyzed 13 of 20 workflow files (8,854 total lines). Identified significant red
 - Only "Step-by-Step Process" contains workflow-specific logic
 - Same template adds 270-410 lines to EVERY file regardless of actual complexity
 
-**Example (01-git-commit.md):**
+**Example (01-git.md):**
 - Total: 587 lines
 - Core steps: ~50 lines (steps 1-12)
 - Template overhead: ~537 lines (91%)
@@ -64,13 +64,13 @@ Analyzed 13 of 20 workflow files (8,854 total lines). Identified significant red
 
 #### 2.1 Clink-Only Tool Usage Warning
 
-**Duplicated in:** 03-zen-review-quick.md, 04-zen-review-deep.md, 13-task-creation-review.md
+**Duplicated in:** 03-reviews.md, 02-planning.md
 
 **Content (identical ~15 lines):**
 ```markdown
 ## 🚨 CRITICAL: Clink-Only Tool Usage
 
-**⚠️ MANDATORY: Use `mcp__zen-mcp__clink` EXCLUSIVELY for all zen-mcp interactions.**
+**⚠️ MANDATORY: Use `mcp__zen__clink` EXCLUSIVELY for all zen-mcp interactions.**
 
 See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) for complete policy.
 ```
@@ -79,7 +79,7 @@ See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integrat
 
 #### 2.2 Git Command Examples
 
-**Appears in:** 01-git-commit.md, 02-git-pr.md, 00-task-breakdown.md, 08-adr-creation.md
+**Appears in:** 01-git.md, 01-git.md, 00-task-breakdown.md, 08-adr-creation.md
 
 **Duplicate commands:**
 ```bash
@@ -94,7 +94,7 @@ git branch --show-current
 
 #### 2.3 Test Running Commands
 
-**Appears in:** 01-git-commit.md, 02-git-pr.md, 05-testing.md
+**Appears in:** 01-git.md, 01-git.md, 05-testing.md
 
 **Duplicate commands:**
 ```bash
@@ -107,7 +107,7 @@ pytest tests/test_file.py -v
 
 #### 2.4 Zen-MCP Review Process
 
-**Appears in:** 01-git-commit.md (lines 78-141), 03-zen-review-quick.md (lines 36-213), 04-zen-review-deep.md (lines 106-270)
+**Appears in:** 01-git.md (lines 78-141), 03-reviews.md (lines 36-213), 03-reviews.md (lines 106-270)
 
 **Redundant content:**
 - How to request review
@@ -123,9 +123,9 @@ pytest tests/test_file.py -v
 **Problem:** Each workflow lists "Related Workflows" section that creates circular dependencies and maintenance burden.
 
 **Example:**
-- 01-git-commit.md links to 03, 04, 02, 05, 06, 15
-- 03-zen-review-quick.md links to 01, 04, 06, 05
-- 04-zen-review-deep.md links to 02, 03, 01, 05, 08
+- 01-git.md links to 03, 04, 02, 05, 06, 15
+- 03-reviews.md links to 01, 04, 06, 05
+- 03-reviews.md links to 02, 03, 01, 05, 08
 
 **Impact:** ~15-20 lines per file × 20 files = ~300-400 lines; maintenance overhead when renumbering
 
@@ -133,7 +133,7 @@ pytest tests/test_file.py -v
 
 **Problem:** Examples sections are very detailed but could reference common patterns.
 
-**Example (03-zen-review-quick.md lines 373-497):**
+**Example (03-reviews.md lines 373-497):**
 - Example 1: 45 lines (Clean Approval Two-Phase)
 - Example 2: 78 lines (Critical Issue Found and Fixed)
 - Example 3: 62 lines (Medium Issue Deferred)
@@ -251,7 +251,7 @@ pytest tests/test_file.py -v
 
 #### 2.1 Git & Version Control (01-02)
 
-**01-git-commit.md:**
+**01-git.md:**
 - **Current:** 587 lines
 - **Target:** ~200 lines (66% reduction)
 - **Changes:**
@@ -261,7 +261,7 @@ pytest tests/test_file.py -v
   - Replace git commands with link to git-commands.md
   - Remove Validation section (success = commit created)
 
-**02-git-pr.md:**
+**01-git.md:**
 - **Current:** 627 lines
 - **Target:** ~250 lines (60% reduction)
 - **Changes:**
@@ -273,7 +273,7 @@ pytest tests/test_file.py -v
 
 #### 2.2 Code Review & Quality (03-04)
 
-**03-zen-review-quick.md:**
+**03-reviews.md:**
 - **Current:** 614 lines
 - **Target:** ~180 lines (71% reduction)
 - **Changes:**
@@ -283,7 +283,7 @@ pytest tests/test_file.py -v
   - Remove Common Issues section (most are general zen usage, not workflow-specific)
   - Simplify to: "What is quick review" + "How to do it" + "1 example"
 
-**04-zen-review-deep.md:**
+**03-reviews.md:**
 - **Current:** 793 lines
 - **Target:** ~250 lines (68% reduction)
 - **Changes:**
@@ -346,7 +346,7 @@ pytest tests/test_file.py -v
   - Simplify decision tree (currently ~20 lines, could be 5)
   - Remove "Best Practices" section (redundant with anti-patterns)
 
-**13-task-creation-review.md:**
+**02-planning.md (consolidated from 13-task-creation-review.md):**
 - **Current:** 624 lines
 - **Target:** ~200 lines (68% reduction)
 - **Changes:**
@@ -434,10 +434,10 @@ pytest tests/test_file.py -v
 - 40+ explicit workflow references throughout CLAUDE.md
 - 3 workflows marked as **MANDATORY**:
   1. `00-analysis-checklist.md` - "MANDATORY before ANY code"
-  2. `03-zen-review-quick.md` - "MANDATORY before EVERY commit"
-  3. `04-zen-review-deep.md` - "MANDATORY before ANY PR"
+  2. `03-reviews.md` - "MANDATORY before EVERY commit"
+  3. `03-reviews.md` - "MANDATORY before ANY PR"
 - 1 workflow marked as **RECOMMENDED**:
-  - `13-task-creation-review.md` - For complex tasks
+  - `02-planning.md` - For complex tasks
 
 **Problem:**
 - MANDATORY workflows rely on documentation discipline, not enforcement
@@ -494,7 +494,7 @@ if ! git log -1 --format=%B | grep -q "continuation_id:" && \
    ! test -f .claude/task-state.json; then
     echo "⚠️  WARNING: No zen-mcp review detected"
     echo "   MANDATORY: Run zen-mcp quick review before commit"
-    echo "   See .claude/workflows/03-zen-review-quick.md"
+    echo "   See .claude/workflows/03-reviews.md"
     exit 1
 fi
 ```
@@ -513,7 +513,7 @@ fi
 ### Current Workflow References in CLAUDE.md
 
 **Reference Density:**
-- 40+ explicit links to workflow files (e.g., `[.claude/workflows/03-zen-review-quick.md]`)
+- 40+ explicit links to workflow files (e.g., `[.claude/workflows/03-reviews.md]`)
 - References appear in 5 key sections:
   1. "Quick Start" section - 8 references
   2. "Development Process" section - 12 references
@@ -524,12 +524,12 @@ fi
 **Reference Patterns:**
 ```markdown
 # Pattern 1: Inline workflow links
-- **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): `.claude/workflows/03-zen-review-quick.md`
+- **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): `.claude/workflows/03-reviews.md`
 
 # Pattern 2: Step-by-step references
 1. Follow `.claude/workflows/00-analysis-checklist.md`
-2. Request review via `.claude/workflows/03-zen-review-quick.md`
-3. Commit using `.claude/workflows/01-git-commit.md`
+2. Request review via `.claude/workflows/03-reviews.md`
+3. Commit using `.claude/workflows/01-git.md`
 
 # Pattern 3: Workflow index reference
 **Workflow Index:** [`.claude/workflows/README.md`](./.claude/workflows/README.md)
@@ -549,7 +549,7 @@ CLAUDE.md (guidance document)
     ↓ References
 .claude/workflows/README.md (workflow index)
     ↓ Links to
-Individual workflow files (03-zen-review-quick.md, etc.)
+Individual workflow files (03-reviews.md, etc.)
 ```
 
 ### Impact of Simplification on Index

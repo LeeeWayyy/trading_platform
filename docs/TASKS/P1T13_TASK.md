@@ -249,17 +249,17 @@ Update `.claude/workflows/README.md` (~100 lines):
 # Workflow Quick Reference
 
 ## Common Patterns (Read First)
-See [CORE_PATTERNS.md](./CORE_PATTERNS.md) for:
+See [CLAUDE.md](../../CLAUDE.md) and [.claude/workflows/README.md](../../.claude/workflows/README.md) for:
 - 4-step component cycle
 - Review tier system
 - Standard clink commands
 - Anti-patterns to avoid
 
 ## By Development Phase
-- **Pre-work:** 13-task-creation-review.md, 00-analysis-checklist.md
-- **During work:** 01-git-commit.md (every 30-60 min)
-- **Before PR:** 04-zen-review-deep.md, 02-git-pr.md
-- **Issues:** 06-debugging.md, 10-ci-triage.md
+- **Pre-work:** 02-planning.md, 00-analysis-checklist.md
+- **During work:** 01-git.md (every 30-60 min)
+- **Before PR:** 03-reviews.md, 01-git.md
+- **Issues:** 04-development.md, 05-operations.md
 
 ## Individual Workflows
 [Minimal 1-line descriptions, link to full docs]
@@ -302,7 +302,7 @@ wc -l .claude/workflows/*.md > /tmp/workflow_after.txt
 **Goal:** Strengthen quality gates by using both codex AND gemini for commit reviews.
 
 **Current Problem:**
-- Quick review (`.claude/workflows/03-zen-review-quick.md`) only uses codex
+- Quick review (`.claude/workflows/03-reviews.md`) only uses codex
 - Single reviewer may miss issues
 - Gemini provides different perspective (architecture, long-term maintainability)
 - Codex focuses on code quality, safety, idempotency
@@ -347,7 +347,7 @@ wc -l .claude/workflows/*.md > /tmp/workflow_after.txt
 
 **Proposed Implementation: Sequential Dual-Review Process**
 
-Update `.claude/workflows/03-zen-review-quick.md`:
+Update `.claude/workflows/03-reviews.md`:
 
 ```markdown
 ## Quick Review Process (MANDATORY Before Every Commit)
@@ -414,7 +414,7 @@ GEMINI_RESULT=$(claude_code_api clink gemini codereviewer)
 ```
 
 **Deliverables:**
-- `.claude/workflows/03-zen-review-quick.md` updated with dual-review process
+- `.claude/workflows/03-reviews.md` updated with dual-review process
 - Pilot plan documented and executed (1 week)
 - Throughput metrics collected and analyzed
 - Emergency override procedure documented
@@ -473,7 +473,7 @@ GEMINI_RESULT=$(claude_code_api clink gemini codereviewer)
 ### Phase 3: Dual-Reviewer Commit Process (2-3 hours)
 
 **Tasks:**
-1. Update `.claude/workflows/03-zen-review-quick.md` (sequential dual-review)
+1. Update `.claude/workflows/03-reviews.md` (sequential dual-review)
 2. Check existing scripts/pre-commit-hook.sh (integration options)
 3. **Execute 1-week pilot** on feature/P1T13-* branches
 4. Collect throughput metrics (time per commit, issues caught)
@@ -636,6 +636,6 @@ GEMINI_RESULT=$(claude_code_api clink gemini codereviewer)
 - `.claude/workflows/README.md` - Current workflow index
 - `docs/INDEX.md` - Existing documentation index (to be enhanced)
 - `CLAUDE.md` - Primary guidance document
-- `.claude/workflows/03-zen-review-quick.md` - Current quick review workflow
+- `.claude/workflows/03-reviews.md` - Current quick review workflow
 - Gemini review (continuation_id: d9007d48-9142-477a-bb6c-1d70f1b8424f)
 - Codex review (continuation_id: bfecea8c-e496-4b3b-b6ca-986601cb8f8b)

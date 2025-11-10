@@ -12,7 +12,7 @@ Key Properties:
 - Different dates = different IDs (allows resubmission on new days)
 - 24-character hex string (sufficient entropy, Alpaca-compatible)
 
-See ADR-0005 for design rationale.
+See ADR-0014 for design rationale.
 """
 
 import hashlib

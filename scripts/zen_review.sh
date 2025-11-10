@@ -92,7 +92,7 @@ if [ "$MODE" = "quick" ]; then
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "ℹ️  Full quick review workflow: .claude/workflows/03-zen-review-quick.md"
+  echo "ℹ️  Full quick review workflow: .claude/workflows/03-reviews.md"
 elif [ "$MODE" = "deep" ]; then
   echo "📝 Tell Claude Code (Two-Phase Workflow):"
   echo ""
@@ -103,7 +103,7 @@ elif [ "$MODE" = "deep" ]; then
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "ℹ️  Full deep review workflow: .claude/workflows/04-zen-review-deep.md"
+  echo "ℹ️  Full deep review workflow: .claude/workflows/03-reviews.md"
 else
   echo "❌ Invalid mode: $MODE"
   echo "   Usage: ./scripts/zen_review.sh [quick|deep]"

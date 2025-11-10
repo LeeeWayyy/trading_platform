@@ -133,7 +133,7 @@ trading_platform/
 - [docs/ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md](./docs/ADRs/0003-baseline-strategy-with-qlib-and-mlflow.md) - T2: Strategy architecture
 - **[docs/ADRs/0004-signal-service-architecture.md](./docs/ADRs/0004-signal-service-architecture.md)** - T3: Signal service decisions
 - **[docs/ADRs/0005-centralized-logging-architecture.md](./docs/ADRs/0005-centralized-logging-architecture.md)** - P1: Centralized logging with Loki/Promtail/Grafana
-- **[docs/ADRs/0005-execution-gateway-architecture.md](./docs/ADRs/0005-execution-gateway-architecture.md)** - T4: Execution gateway decisions
+- **[docs/ADRs/0014-execution-gateway-architecture.md](./docs/ADRs/0014-execution-gateway-architecture.md)** - T4: Execution gateway decisions
 - **[docs/ADRs/0006-orchestrator-service.md](./docs/ADRs/0006-orchestrator-service.md)** - T5: Orchestrator service decisions
 
 ### Concept Documentation
@@ -301,7 +301,7 @@ trading_platform/
 
 **Documentation:**
 - [docs/TASKS/P0T4_DONE.md](./docs/TASKS/P0T4_DONE.md) - Complete implementation guide
-- [docs/ADRs/0005-execution-gateway-architecture.md](./docs/ADRs/0005-execution-gateway-architecture.md) - Architecture decisions (690 lines)
+- [docs/ADRs/0014-execution-gateway-architecture.md](./docs/ADRs/0014-execution-gateway-architecture.md) - Architecture decisions (690 lines)
 
 **Deployment Scripts:**
 - `scripts/test_t4_execution_gateway.py` - Integration tests (DRY_RUN mode, 6/6 passing)

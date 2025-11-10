@@ -12,7 +12,7 @@ Context:
 
 See Also:
     - Codex review continuation_id: 0bc17f58-dc1d-4bde-a2fd-344e1c1775c8
-    - .claude/workflows/03-zen-review-quick.md (mandatory pre-commit review)
+    - .claude/workflows/03-reviews.md (mandatory pre-commit review)
 """
 
 from datetime import datetime

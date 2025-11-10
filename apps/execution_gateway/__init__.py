@@ -18,7 +18,7 @@ Components:
 - database: Database operations for orders and positions
 - main: FastAPI application with all endpoints
 
-See ADR-0005 for architectural decisions.
+See ADR-0014 for architectural decisions.
 """
 
 __version__ = "0.1.0"

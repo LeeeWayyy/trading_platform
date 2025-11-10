@@ -846,7 +846,7 @@ curl -X POST http://localhost:8002/api/v1/orders -d '{"symbol":"AAPL","side":"bu
 
 ## References
 
-- [ADR-0005: Execution Gateway Architecture](../ADRs/0005-execution-gateway-architecture.md)
+- [ADR-0014: Execution Gateway Architecture](../ADRs/0014-execution-gateway-architecture.md)
 - [Alpaca Trading API Documentation](https://docs.alpaca.markets/docs/trading-api)
 - [Alpaca Webhooks Guide](https://docs.alpaca.markets/docs/webhooks)
 - [HMAC Security](https://en.wikipedia.org/wiki/HMAC)

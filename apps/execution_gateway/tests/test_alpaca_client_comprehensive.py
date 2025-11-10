@@ -17,7 +17,7 @@ Target: Bring alpaca_client.py coverage from 18% to 90%+
 See Also:
     - /docs/STANDARDS/TESTING.md - Testing standards
     - /docs/IMPLEMENTATION_GUIDES/p0t4-execution-gateway.md - Execution gateway design
-    - /docs/ADRs/0005-execution-gateway-architecture.md - Architecture decisions
+    - /docs/ADRs/0014-execution-gateway-architecture.md - Architecture decisions
 """
 
 from datetime import UTC, datetime

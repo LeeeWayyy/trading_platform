@@ -10,10 +10,10 @@
 ## 🎯 Quick Reference
 
 **For step-by-step procedures, see:**
-- **Git commits:** [`.claude/workflows/01-git-commit.md`](../../.claude/workflows/01-git-commit.md)
-- **Pull requests:** [`.claude/workflows/02-git-pr.md`](../../.claude/workflows/02-git-pr.md)
-- **Zen-mcp review (quick):** [`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md)
-- **Zen-mcp review (deep):** [`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md)
+- **Git commits:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md)
+- **Pull requests:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md)
+- **Zen-mcp review (quick):** [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
+- **Zen-mcp review (deep):** [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
 
 **This document defines:**
 - ✅ What you MUST do (policies)
@@ -49,7 +49,7 @@
 - ✅ Each commit should compile and pass basic checks
 - ✅ Push regularly to backup work
 
-**See:** [`.claude/workflows/01-git-commit.md`](../../.claude/workflows/01-git-commit.md) for commit procedures
+**See:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md) for commit procedures
 
 **Benefits:**
 - Regular backups of work in progress
@@ -76,8 +76,8 @@ git commit -m "Add rate limiting with exponential backoff"
 **POLICY:** ALL code commits by AI assistants MUST be reviewed by zen-mcp before committing
 
 **REQUIRED:**
-- ✅ **Quick review** before each progressive commit ([`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md))
-- ✅ **Deep review** before creating PR ([`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md))
+- ✅ **Quick review** before each progressive commit ([`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md))
+- ✅ **Deep review** before creating PR ([`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md))
 - ✅ Fix ALL HIGH/CRITICAL issues before committing (blocking)
 - ✅ Address or document MEDIUM issues
 - ✅ Cannot commit if zen finds blocking issues
@@ -102,8 +102,8 @@ Will perform post-commit review and create follow-up PR if issues found"
 - ✅ CAN commit with user override if zen unavailable (document reason)
 
 **See:**
-- Quick review: [`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md)
-- Deep review: [`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md)
+- Quick review: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
+- Deep review: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
 - Implementation: `/docs/CONCEPTS/workflow-optimization-zen-mcp.md`
 
 ### Rule #4: Mandatory Testing Before Commit
@@ -128,7 +128,7 @@ make test && make lint
 git commit -m "Add feature X"
 ```
 
-**See:** [`.claude/workflows/05-testing.md`](../../.claude/workflows/05-testing.md) for testing procedures
+**See:** [`.claude/workflows/04-development.md`](../../.claude/workflows/04-development.md) for testing procedures
 
 ---
 
@@ -174,7 +174,7 @@ feature/P1T11-DOCS                   # ❌ BAD - Description must be lowercase
 - Task has multiple independent components
 - Want progressive PRs instead of one large PR
 
-**See:** [`.claude/workflows/00-task-breakdown.md`](../../.claude/workflows/00-task-breakdown.md) for subfeature decomposition strategy
+**See:** [`.claude/workflows/02-planning.md`](../../.claude/workflows/02-planning.md) for subfeature decomposition strategy
 
 **Enforced by:** Pre-commit hook (`scripts/hooks/verify_branch_name.sh`)
 
@@ -237,7 +237,7 @@ Closes #T4
 Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
-**See:** [`.claude/workflows/01-git-commit.md`](../../.claude/workflows/01-git-commit.md) for commit procedures
+**See:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md) for commit procedures
 
 ---
 
@@ -282,8 +282,8 @@ Zen-mcp MUST verify these critical patterns:
 4. Include zen review summary in PR description
 
 **See:**
-- Quick review workflow: [`.claude/workflows/03-zen-review-quick.md`](../../.claude/workflows/03-zen-review-quick.md)
-- Deep review workflow: [`.claude/workflows/04-zen-review-deep.md`](../../.claude/workflows/04-zen-review-deep.md)
+- Quick review workflow: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
+- Deep review workflow: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
 
 ---
 
@@ -307,7 +307,7 @@ Zen-mcp MUST verify these critical patterns:
 - Documentation updated checklist
 - Zen-mcp review summary
 
-**See:** [`.claude/workflows/02-git-pr.md`](../../.claude/workflows/02-git-pr.md) for PR creation procedures
+**See:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md) for PR creation procedures
 
 ### PR Size Guidelines
 
@@ -539,11 +539,11 @@ Claude Code MUST NOT:
 ## 📚 Related Documentation
 
 **Workflow procedures (step-by-step how-to):**
-- [Git commit workflow](../../.claude/workflows/01-git-commit.md)
-- [PR creation workflow](../../.claude/workflows/02-git-pr.md)
-- [Zen quick review workflow](../../.claude/workflows/03-zen-review-quick.md)
-- [Zen deep review workflow](../../.claude/workflows/04-zen-review-deep.md)
-- [Testing workflow](../../.claude/workflows/05-testing.md)
+- [Git commit workflow](../../.claude/workflows/01-git.md)
+- [PR creation workflow](../../.claude/workflows/01-git.md)
+- [Zen quick review workflow](../../.claude/workflows/03-reviews.md)
+- [Zen deep review workflow](../../.claude/workflows/03-reviews.md)
+- [Testing workflow](../../.claude/workflows/04-development.md)
 
 **Other standards:**
 - [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Python style and patterns
@@ -569,7 +569,7 @@ Claude Code MUST NOT:
 - Poetry (package manager)
 
 **Setup procedures:**
-- See [`.claude/workflows/11-environment-bootstrap.md`](../../.claude/workflows/11-environment-bootstrap.md) for complete setup
+- See [`.claude/workflows/05-operations.md`](../../.claude/workflows/05-operations.md) for complete setup
 
 **Authentication:**
 ```bash

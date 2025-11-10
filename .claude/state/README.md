@@ -62,4 +62,4 @@ The `current-todo.json` file is runtime state and should NOT be committed to ver
 
 - Pre-commit hook: `scripts/hooks/verify_todo.sh`
 - TodoWrite tool documentation: See Claude Code docs
-- 4-step pattern: `.claude/workflows/01-git-commit.md`
+- 4-step pattern: `.claude/workflows/01-git.md`

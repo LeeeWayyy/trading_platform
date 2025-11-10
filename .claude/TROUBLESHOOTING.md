@@ -29,7 +29,7 @@ Error: Invalid API credentials
 **Why This Happens:**
 - MCP server configuration is system-level (not project-level)
 - Direct zen tools (chat, thinkdeep, debug, codereview, etc.) bypass CLI authentication
-- Only `mcp__zen-mcp__clink` is properly configured with CLI authentication
+- Only `mcp__zen__clink` is properly configured with CLI authentication
 
 **✅ Solution:**
 
@@ -52,7 +52,7 @@ mcp__zen-mcp__analyze(...)
 
 ```python
 # ✅ CORRECT - Use clink with appropriate CLI and role
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="Your request here",
     cli_name="codex",  # or "gemini" depending on use case
     role="codereviewer"  # or "planner" or "default"
@@ -90,10 +90,10 @@ After replacing the tool, you should see:
 
 | ❌ Wrong Pattern | ✅ Correct Replacement |
 |-----------------|----------------------|
-| `mcp__zen-mcp__codereview(step="...", findings="...")` | `mcp__zen-mcp__clink(prompt="Review this code...", cli_name="codex", role="codereviewer")` |
-| `mcp__zen-mcp__planner(step="...", plan="...")` | `mcp__zen-mcp__clink(prompt="Review this plan...", cli_name="gemini", role="planner")` |
-| `mcp__zen-mcp__debug(step="...", hypothesis="...")` | `mcp__zen-mcp__clink(prompt="Help debug this issue...", cli_name="gemini", role="default")` |
-| `mcp__zen-mcp__chat(prompt="...")` | `mcp__zen-mcp__clink(prompt="...", cli_name="codex", role="default")` |
+| `mcp__zen-mcp__codereview(step="...", findings="...")` | `mcp__zen__clink(prompt="Review this code...", cli_name="codex", role="codereviewer")` |
+| `mcp__zen-mcp__planner(step="...", plan="...")` | `mcp__zen__clink(prompt="Review this plan...", cli_name="gemini", role="planner")` |
+| `mcp__zen-mcp__debug(step="...", hypothesis="...")` | `mcp__zen__clink(prompt="Help debug this issue...", cli_name="gemini", role="default")` |
+| `mcp__zen-mcp__chat(prompt="...")` | `mcp__zen__clink(prompt="...", cli_name="codex", role="default")` |
 
 **Why This Limitation Exists:**
 
@@ -114,9 +114,8 @@ This is why we have:
 **1. Always Reference Workflow Files**
 
 Before using zen-mcp, check:
-- `.claude/workflows/03-zen-review-quick.md` - Quick reviews
-- `.claude/workflows/04-zen-review-deep.md` - Deep reviews
-- `.claude/workflows/13-task-creation-review.md` - Task planning
+- `.claude/workflows/03-reviews.md` - Quick and deep reviews
+- `.claude/workflows/02-planning.md` - Task planning
 
 Each has the correct clink usage pattern at the top!
 
@@ -124,7 +123,7 @@ Each has the correct clink usage pattern at the top!
 
 ```python
 # Template to remember
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt="What you want to do",
     cli_name="codex or gemini",
     role="codereviewer or planner or default"

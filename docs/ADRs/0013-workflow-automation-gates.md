@@ -239,7 +239,7 @@ tests/scripts/hooks/gates/
 3. **Workflow updates:**
    - Mark enforced steps with "🔒 ENFORCED (planned):" prefix
    - Link to this ADR in workflow docs
-   - Update 03-zen-review-quick.md to document `DOCS_ONLY=1` usage
+   - Update 03-reviews.md to document `DOCS_ONLY=1` usage
 
 **Effort Estimate:**
 - Gate 1 (Task Review Reminder): 2 hours (simple echo + temp file dedup)
@@ -408,7 +408,7 @@ tests/scripts/hooks/gates/
 
 1. **Immediate (P1T12 completion):**
    - Mark enforced steps in workflows with "🔒 ENFORCED (planned):"
-   - Update 03-zen-review-quick.md with `DOCS_ONLY=1` documentation
+   - Update 03-reviews.md with `DOCS_ONLY=1` documentation
    - Create follow-up tickets (P1.1T1-4)
 
 2. **After Gate Implementation (P1.1T1-4 completion):**

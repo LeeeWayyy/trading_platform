@@ -134,7 +134,7 @@ Given the task validation findings above, please synthesize:
 4. **After All Components Complete:**
    - Request deep review (clink + gemini codereviewer)
    - Address findings from deep review
-   - Create PR following `.claude/workflows/02-git-pr.md`
+   - Create PR following `.claude/workflows/01-git.md`
 
 5. **Do NOT Forget:**
    - Run `make test && make lint` before every commit

@@ -65,7 +65,7 @@
 
 **Clink Tool Signature:**
 ```python
-mcp__zen-mcp__clink(
+mcp__zen__clink(
     prompt: str,                          # Required - Task description
     cli_name: "codex" | "gemini",        # Required in our workflows
     role: "default" | "codereviewer" | "planner" = "default",
@@ -544,7 +544,7 @@ After addressing findings, remember to follow the established workflow:
 
 4. **Before PR:**
    - Deep review MANDATORY (use clink + gemini codereviewer)
-   - See `.claude/workflows/04-zen-review-deep.md`
+   - See `.claude/workflows/03-reviews.md`
 
 **Do NOT skip these steps after completing fixes!**
 ```
@@ -656,7 +656,7 @@ After addressing task review findings, remember to follow the workflow:
 
 3. **Before creating PR:**
    - Deep review MANDATORY (clink + gemini codereviewer)
-   - See `.claude/workflows/04-zen-review-deep.md`
+   - See `.claude/workflows/03-reviews.md`
 
 **Do NOT:**
 - ❌ Skip the 4-step pattern
@@ -807,8 +807,8 @@ Continuation ID: task-review-ghi789
    - **Each prompt includes workflow reminders** (see below)
 
 3. Update workflow guides (`.claude/workflows/`)
-   - `03-zen-review-quick.md` → Use clink + codex
-   - `04-zen-review-deep.md` → Use clink + gemini → codex
+   - `03-reviews.md` → Use clink + codex
+   - `03-reviews.md` → Use clink + gemini → codex
    - `13-task-creation-review.md` (new)
 
 4. Update task templates (`/docs/TASKS/`)

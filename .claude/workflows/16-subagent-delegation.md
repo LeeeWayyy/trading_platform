@@ -330,7 +330,7 @@ Constraints:
 **Implementation:**
 ```python
 # Use zen-mcp clink (NOT Task tool)
-review_result = mcp__zen-mcp__clink(
+review_result = mcp__zen__clink(
     cli_name="codex",
     role="codereviewer",
     prompt="""Review these staged changes for P1T13-F3 Phase 1:
@@ -561,7 +561,7 @@ Task(
 
 **Why Wrong:** Task tool is stateless, no multi-turn conversation.
 
-**Correct:** Use `mcp__zen-mcp__clink` with `role="codereviewer"`.
+**Correct:** Use `mcp__zen__clink` with `role="codereviewer"`.
 
 ---
 
@@ -638,9 +638,9 @@ Phase 1 delegation implementation succeeds when:
 ## Related Workflows
 
 - [00-analysis-checklist.md](./00-analysis-checklist.md) — Impacted component search → delegate
-- [06-debugging.md](./06-debugging.md) — Error tracing → delegate
-- [03-zen-review-quick.md](./03-zen-review-quick.md) — Use clink for reviews (NOT Task)
-- [04-zen-review-deep.md](./04-zen-review-deep.md) — Deep review delegation
+- [04-development.md](./04-development.md) — Error tracing → delegate
+- [03-reviews.md](./03-reviews.md) — Use clink for reviews (NOT Task)
+- [03-reviews.md](./03-reviews.md) — Deep review delegation
 
 ---
 

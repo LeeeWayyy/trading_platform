@@ -62,7 +62,7 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
    ```
    Tell Claude: "Review my staged changes using clink + codex codereviewer"
 
-   (See ../.claude/workflows/03-zen-review-quick.md for full workflow)
+   (See ../.claude/workflows/03-reviews.md for full workflow)
    ```
 
 3. **Fix ALL issues found:**
@@ -91,7 +91,7 @@ All standards are in **[STANDARDS/](./STANDARDS/)** directory:
    Phase 1: "Review all branch changes using clink + gemini planner. Compare master..HEAD."
    Phase 2: "Now use clink + codex planner with continuation_id to synthesize recommendations"
 
-   (See ../.claude/workflows/04-zen-review-deep.md for full workflow)
+   (See ../.claude/workflows/03-reviews.md for full workflow)
    ```
 
 2. **Fix all HIGH/CRITICAL issues** (blocking)

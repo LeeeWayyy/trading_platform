@@ -12,7 +12,7 @@ Target: Bring webhook_security.py coverage from 17% to 95%+
 
 See Also:
     - /docs/STANDARDS/TESTING.md - Testing standards
-    - /docs/ADRs/0005-execution-gateway-architecture.md - Security requirements
+    - /docs/ADRs/0014-execution-gateway-architecture.md - Security requirements
 """
 
 from apps.execution_gateway.webhook_security import (

@@ -31,7 +31,7 @@ Usage:
     # Production (DRY_RUN=false)
     $ uvicorn apps.execution_gateway.main:app --host 0.0.0.0 --port 8002
 
-See ADR-0005 for architecture decisions.
+See ADR-0014 for architecture decisions.
 """
 
 import asyncio
@@ -2135,7 +2135,7 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
     Note:
         Webhook signature verification is not yet implemented.
-        See ADR-0005 for security requirements.
+        See ADR-0014 for security requirements.
 
     Examples:
         Webhook payload from Alpaca:
