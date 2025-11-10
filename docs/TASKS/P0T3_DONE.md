@@ -66,7 +66,7 @@ Before starting, ensure:
 2. **T2 Baseline Strategy is complete** - Trained model in `artifacts/models/`
 3. **MLflow is configured** - Experiments tracked in `artifacts/mlruns/`
 4. **Postgres is installed** - Local instance or Docker container
-5. **Dependencies installed** - `pip install fastapi uvicorn psycopg2-binary pydantic-settings`
+5. **Dependencies installed** - `pip install fastapi uvicorn psycopg[binary] pydantic-settings`
 
 ---
 
@@ -284,8 +284,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 import lightgbm as lgb
-import psycopg2
-import psycopg2.extras
+import psycopg
+import psycopg.rows
 
 logger = logging.getLogger(__name__)
 
@@ -335,8 +335,8 @@ class ModelRegistry:
         Raises:
             ValueError: If no active model found
         """
-        with psycopg2.connect(self.db_conn_string) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with psycopg.connect(self.db_conn_string) as conn:
+            with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                 cur.execute(
                     """
                     SELECT id, strategy_name, version, mlflow_run_id, mlflow_experiment_id,
@@ -455,7 +455,7 @@ import pytest
 import tempfile
 import shutil
 from pathlib import Path
-import psycopg2
+import psycopg
 import lightgbm as lgb
 from sklearn.datasets import make_regression
 from sklearn.model_selection import train_test_split
@@ -497,7 +497,7 @@ def test_db_url():
 @pytest.fixture
 def db_connection(test_db_url):
     """Create test database connection."""
-    conn = psycopg2.connect(test_db_url)
+    conn = psycopg.connect(test_db_url)
     yield conn
     conn.close()
 ```
@@ -1318,7 +1318,7 @@ chmod +x scripts/reload_signal_service.sh
 import pytest
 from datetime import datetime
 from pathlib import Path
-import psycopg2
+import psycopg
 
 from apps.signal_service.model_registry import ModelRegistry
 from apps.signal_service.signal_generator import SignalGenerator
@@ -1685,7 +1685,7 @@ components:
 
 3. **Install Dependencies**
    ```bash
-   pip install fastapi uvicorn psycopg2-binary pydantic-settings
+   pip install fastapi uvicorn psycopg[binary] pydantic-settings
    ```
 
 ## Running Locally

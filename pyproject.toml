@@ -37,6 +37,8 @@ duckdb = "^0.9.0"
 alpaca-py = "^0.15.0"
 # Utilities
 python-dotenv = "^1.0.0"
+hvac = "^2.0.0"
+boto3 = "^1.35.0"
 tenacity = "^8.2.0"
 apscheduler = "^3.10.0"
 # Monitoring
@@ -111,7 +113,7 @@ module = "polars.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*"]
+module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
