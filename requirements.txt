@@ -1,3 +1,58 @@
+# Trading Platform Dependencies - Fully Pinned Lockfile
+#
+# This file contains ALL transitive dependencies with pinned versions
+# to ensure reproducible builds across all environments (dev, CI, prod).
+#
+# ===========================================================================
+# HIGH-LEVEL DEPENDENCIES (intentionally added in this project):
+# ===========================================================================
+#   - fastapi, pydantic, uvicorn (web framework)
+#   - python-dotenv, hvac, boto3, tenacity (secrets management - P2T2)
+#   - polars, duckdb (data processing)
+#   - prometheus-client (metrics)
+#   - redis, psycopg2-binary (storage)
+#   - alpaca-py (trading API client)
+#   - qlib (quantitative research framework)
+#
+# ===========================================================================
+# TRANSITIVE DEPENDENCIES (auto-generated):
+# ===========================================================================
+# All packages below this header are transitive dependencies of the
+# high-level packages listed above. They are auto-generated via pip freeze.
+#
+# ===========================================================================
+# ADDING A NEW DEPENDENCY:
+# ===========================================================================
+#   1. Identify the high-level package needed
+#   2. Install: pip install <package>
+#   3. Regenerate with header preserved:
+#      head -51 requirements.txt > /tmp/req_header.txt
+#      pip freeze > /tmp/req_body.txt
+#      cat /tmp/req_header.txt /tmp/req_body.txt > requirements.txt
+#   4. Update the "HIGH-LEVEL DEPENDENCIES" section above
+#   5. Commit with clear description of what high-level dep was added
+#
+# ===========================================================================
+# RATIONALE FOR LOCKFILE APPROACH:
+# ===========================================================================
+# Pros:
+#   ✅ Reproducible builds (same versions across all environments)
+#   ✅ Security (pin vulnerable packages to patched versions)
+#   ✅ CI cache hits (dependencies don't change between runs)
+#
+# Cons:
+#   ❌ Large diffs for dependency updates (100s of lines)
+#   ❌ Merge conflicts on concurrent PRs touching dependencies
+#   ❌ Harder to see which packages were intentionally added
+#
+# ===========================================================================
+# MIGRATION PATH (LONG-TERM):
+# ===========================================================================
+# Long-term: Migrate to pyproject.toml + poetry.lock (P3 task)
+# See: docs/ADRs/00XX-dependency-management.md (to be created)
+#
+# ===========================================================================
+
 alembic==1.17.0
 alpaca-py==0.15.0
 annotated-types==0.7.0

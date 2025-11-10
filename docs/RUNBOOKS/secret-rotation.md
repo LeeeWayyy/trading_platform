@@ -431,6 +431,6 @@ ORDER BY rotation_date DESC;
 
 - ADR-0017: Secrets Management Architecture (zero-downtime rotation design)
 - secrets-migration.md: Initial migration from `.env` to secrets backend
-- Alpaca API Documentation: https://alpaca.markets/docs/api-references/trading-api/
-- Vault Secret Rotation: https://www.vaultproject.io/docs/secrets/databases/postgresql
+- Alpaca API Documentation: https://docs.alpaca.markets/reference/
+- Vault Secret Rotation: https://developer.hashicorp.com/vault/tutorials/db-credentials/database-secrets
 - AWS Secrets Manager Rotation: https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html

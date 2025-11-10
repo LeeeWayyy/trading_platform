@@ -278,6 +278,20 @@ class EnvSecretManager(SecretManager):
             ['ALPACA_API_KEY_ID', 'ALPACA_API_SECRET_KEY', 'ALPACA_BASE_URL']
         """
         with self._lock:
+            # Runtime warning for list_secrets() without prefix (security best practice)
+            if prefix is None:
+                import warnings
+
+                warnings.warn(
+                    "list_secrets() called without prefix filter. "
+                    "This returns ALL environment variables including system vars "
+                    "(PATH, HOME, AWS credentials, etc.). "
+                    "Recommendation: Use prefix filter (e.g., 'ALPACA_', 'DATABASE_') "
+                    "to limit exposure. See AC12 for secret redaction requirements.",
+                    category=UserWarning,
+                    stacklevel=2,
+                )
+
             try:
                 env_vars = list(os.environ.keys())
 

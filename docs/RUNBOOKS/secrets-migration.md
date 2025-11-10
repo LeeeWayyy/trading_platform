@@ -485,5 +485,5 @@ systemctl restart signal-service
 
 - ADR-0017: Secrets Management Architecture
 - secret-rotation.md: 90-day rotation procedure
-- Vault Documentation: https://www.vaultproject.io/docs
+- Vault Documentation: https://developer.hashicorp.com/vault
 - AWS Secrets Manager Documentation: https://docs.aws.amazon.com/secretsmanager/

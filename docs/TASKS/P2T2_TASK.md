@@ -994,7 +994,7 @@ python apps/signal_service/main.py
 
 **RECOMMENDED:** Before starting work, request task creation review to validate scope and requirements.
 
-See [`.claude/workflows/13-task-creation-review.md`](../../.claude/workflows/13-task-creation-review.md) for workflow details.
+See [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md) for workflow details.
 
 **Review validates:**
 - [x] Objective is clear and measurable

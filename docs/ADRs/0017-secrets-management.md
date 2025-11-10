@@ -424,7 +424,7 @@ This implementation demonstrates several production-grade patterns:
 
 ## References
 
-- HashiCorp Vault Documentation: https://www.vaultproject.io/docs
+- HashiCorp Vault Documentation: https://developer.hashicorp.com/vault
 - AWS Secrets Manager Documentation: https://docs.aws.amazon.com/secretsmanager/
 - OWASP Secrets Management Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
 - ADR-0009: Redis Integration (credential caching patterns)

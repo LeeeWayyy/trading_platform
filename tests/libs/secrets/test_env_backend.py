@@ -272,7 +272,9 @@ class TestEnvSecretManagerListSecrets:
         """Test listing all environment variables."""
         manager = EnvSecretManager(dotenv_path=temp_env_file)
 
-        secrets = manager.list_secrets()
+        # Expect warning when listing without prefix (security best practice)
+        with pytest.warns(UserWarning, match="list_secrets\\(\\) called without prefix filter"):
+            secrets = manager.list_secrets()
 
         # Should include .env variables
         assert "TEST_SECRET_1" in secrets
@@ -289,10 +291,13 @@ class TestEnvSecretManagerListSecrets:
 
         secrets = manager.list_secrets(prefix="DATABASE_")
 
-        assert len(secrets) == 2
+        # CI environments may have additional DATABASE_ vars (e.g., DATABASE_URL)
+        # Validate expected secrets exist, not exact count
         assert "DATABASE_PASSWORD" in secrets
         assert "DATABASE_HOST" in secrets
         assert "ALPACA_API_KEY_ID" not in secrets
+        assert all(s.startswith("DATABASE_") for s in secrets), \
+            f"All secrets should start with 'DATABASE_', got: {secrets}"
 
     def test_list_secrets_with_prefix_no_matches(self, temp_env_file, clean_env):
         """Test listing with prefix that matches no variables."""
@@ -678,7 +683,11 @@ class TestEnvSecretManagerThreadSafety:
 
         def list_all():
             try:
-                secrets = manager.list_secrets()
+                # Suppress expected warning in thread context
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    secrets = manager.list_secrets()
                 results.append(secrets)
             except Exception as e:
                 errors.append(e)
