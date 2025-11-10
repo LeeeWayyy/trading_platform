@@ -77,11 +77,28 @@ class TestCreateSecretManagerBackendSelection:
         Select AWSSecretsManager when SECRET_BACKEND='aws'.
 
         Verifies that create_secret_manager() returns AWSSecretsManager instance
-        when SECRET_BACKEND is set to "aws".
+        when SECRET_BACKEND is set to "aws" and honors AWS_REGION environment variable.
         """
-        with patch.dict(os.environ, {"SECRET_BACKEND": "aws"}):
+        # Test with AWS_REGION set
+        with patch.dict(os.environ, {"SECRET_BACKEND": "aws", "AWS_REGION": "us-west-2"}):
             create_secret_manager()
             assert mock_aws_backend.called
+            # Verify AWS_REGION was passed to constructor
+            mock_aws_backend.assert_called_with(region_name="us-west-2")
+
+        # Test with AWS_DEFAULT_REGION as fallback
+        mock_aws_backend.reset_mock()
+        with patch.dict(
+            os.environ, {"SECRET_BACKEND": "aws", "AWS_DEFAULT_REGION": "eu-west-1"}, clear=True
+        ):
+            create_secret_manager()
+            mock_aws_backend.assert_called_with(region_name="eu-west-1")
+
+        # Test default region when neither is set
+        mock_aws_backend.reset_mock()
+        with patch.dict(os.environ, {"SECRET_BACKEND": "aws"}, clear=True):
+            create_secret_manager()
+            mock_aws_backend.assert_called_with(region_name="us-east-1")
 
     @pytest.mark.unit()
     @patch("libs.secrets.factory.VaultSecretManager")

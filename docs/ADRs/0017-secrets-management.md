@@ -231,7 +231,7 @@ We will implement a **pluggable secrets management system** with the following c
 
 **Performance Mitigation:**
 - 1-hour credential cache reduces backend calls to 1 per hour per service
-- Retry logic with exponential backoff (3 attempts, max 10s wait)
+- Retry logic with exponential backoff (3 attempts, max 5s wait)
 - Connection pooling for Vault HTTP client (keep-alive)
 
 **Developer Friction Mitigation:**

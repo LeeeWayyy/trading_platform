@@ -33,6 +33,11 @@ Environment Variables:
         Absolute or relative path to a .env file for EnvSecretManager
     SECRET_ALLOW_ENV_IN_NON_LOCAL (bool, optional):
         Set to "true"/"1" to allow EnvSecretManager outside local environments (emergency use only)
+    AWS_REGION (str, optional):
+        AWS region for AWSSecretsManager (e.g., "us-west-2", "eu-west-1")
+        Falls back to AWS_DEFAULT_REGION, then "us-east-1" if not set
+    VAULT_ADDR (str, required for Vault backend):
+        Vault server URL (e.g., "https://vault.example.com:8200")
 
 See Also:
     - docs/ADRs/0017-secrets-management.md - Architecture decisions
@@ -189,9 +194,14 @@ def create_secret_manager(
         return VaultSecretManager(vault_url=vault_url)
 
     elif selected_backend == "aws":
-        # AWSSecretsManager constructor reads AWS_REGION (or defaults to us-east-1)
-        # and uses IAM role or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY from env
-        return AWSSecretsManager()
+        # Read AWS region from environment variables
+        # Priority: AWS_REGION > AWS_DEFAULT_REGION > us-east-1 (default)
+        region_name = os.environ.get("AWS_REGION") or os.environ.get(
+            "AWS_DEFAULT_REGION", "us-east-1"
+        )
+
+        # AWSSecretsManager uses IAM role or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY from env
+        return AWSSecretsManager(region_name=region_name)
 
     else:
         # Invalid backend name - provide helpful error with available options
