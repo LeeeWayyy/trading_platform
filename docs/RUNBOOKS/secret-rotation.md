@@ -70,8 +70,9 @@ echo "New password generated (keep secure): $NEW_DB_PASSWORD"
 # Connect to database as admin
 psql -h localhost -U postgres -d trader
 
-# Update password (keep old password valid during grace period - PostgreSQL doesn't support dual passwords)
-ALTER USER trader PASSWORD '<NEW_DB_PASSWORD>';
+# Update password interactively (avoids exposing password in shell history)
+\password trader
+# Enter new password when prompted (twice for confirmation)
 
 # Verify connection with new password
 \q
@@ -113,13 +114,17 @@ curl http://localhost:8001/health | jq '.status'  # Should return "healthy"
 
 #### Step 5: Log Rotation to Database
 
+> **⚠️ Note:** The `scripts/rotate_secrets.py` script is planned for a future PR.
+> For now, manually log rotations in your ops tracking system or skip this step.
+
 ```bash
+# TODO: This script will be added in a future task
 python scripts/rotate_secrets.py log \
   --secret-name database/password \
   --rotated-by $(whoami) \
   --rotation-date $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Inserts row into secret_rotation_log table:
+# Will insert row into secret_rotation_log table:
 # | secret_name         | rotated_by | rotation_date        | status  |
 # |--------------------|------------|----------------------|---------|
 # | database/password | ops-user   | 2025-11-06T14:30:00Z | SUCCESS |

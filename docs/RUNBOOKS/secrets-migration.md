@@ -102,12 +102,39 @@ This runbook guides operators through migrating credentials from `.env` files to
 
 #### Option A: HashiCorp Vault Setup
 
-1. **Start Vault server (development mode for staging):**
+> **⚠️ Production-Like Setup Recommended:**
+> Use Vault in server mode (NOT `-dev` mode) even for staging to mirror production.
+> `-dev` mode is in-memory, unauthenticated by default, and has no persistence.
+
+1. **Start Vault server (server mode with file storage for staging):**
    ```bash
-   vault server -dev -dev-root-token-id="staging-root-token"
-   # In another terminal:
+   # Create Vault config file
+   cat > vault-staging.hcl <<EOF
+   storage "file" {
+     path = "./vault-data"
+   }
+   listener "tcp" {
+     address = "127.0.0.1:8200"
+     tls_disable = 1
+   }
+   EOF
+
+   # Start Vault server
+   vault server -config=vault-staging.hcl &
+
+   # In another terminal, initialize and unseal:
    export VAULT_ADDR='http://127.0.0.1:8200'
-   export VAULT_TOKEN="staging-root-token"
+   vault operator init -key-shares=1 -key-threshold=1
+   # Save the unseal key and root token!
+   vault operator unseal <UNSEAL_KEY>
+   export VAULT_TOKEN=<ROOT_TOKEN>
+   ```
+
+   **For quick local testing ONLY** (NOT staging), you can use `-dev` mode:
+   ```bash
+   vault server -dev -dev-root-token-id="dev-token"
+   export VAULT_ADDR='http://127.0.0.1:8200'
+   export VAULT_TOKEN="dev-token"
    ```
 
 2. **Enable KV v2 secrets engine:**
@@ -164,10 +191,15 @@ This runbook guides operators through migrating credentials from `.env` files to
 
 ### Phase 3: Automated Migration (Use Migration Script)
 
+> **⚠️ Note:** The `scripts/migrate_secrets.py` script is planned for a future PR.
+> For now, manually migrate secrets using the Vault/AWS CLI commands shown in Phase 2,
+> or use the Python code examples in Phase 4 below.
+
 **Goal:** Use `scripts/migrate_secrets.py` to populate backend from `.env`
 
 1. **Dry-run to preview migration:**
    ```bash
+   # TODO: This script will be added in a future task
    python scripts/migrate_secrets.py \
      --env-file .env \
      --backend vault \
@@ -175,18 +207,19 @@ This runbook guides operators through migrating credentials from `.env` files to
      --vault-addr http://127.0.0.1:8200 \
      --vault-token staging-root-token \
      --dry-run
-   # Output: Lists secrets that would be created (no actual writes)
+   # Will output: Lists secrets that would be created (no actual writes)
    ```
 
 2. **Execute migration:**
    ```bash
+   # TODO: This script will be added in a future task
    python scripts/migrate_secrets.py \
      --env-file .env \
      --backend vault \
      --namespace staging \
      --vault-addr http://127.0.0.1:8200 \
      --vault-token staging-root-token
-   # Output: ✓ Migrated 3 secrets to Vault (staging namespace)
+   # Will output: ✓ Migrated 3 secrets to Vault (staging namespace)
    ```
 
 3. **Verify migration:**

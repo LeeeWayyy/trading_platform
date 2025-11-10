@@ -187,14 +187,25 @@ class VaultSecretManager(SecretManager):
             )
 
             # Verify connectivity and authentication
-            if not self._client.is_authenticated():
-                raise SecretAccessError(
-                    secret_name="vault_auth",
-                    backend="vault",
-                    reason=(
-                        f"Vault authentication failed for {vault_url}. "
-                        f"Verify token is valid and not expired."
-                    ),
+            # Note: is_authenticated() requires 'lookup-self' capability.
+            # Some production tokens intentionally omit this, so we handle
+            # Forbidden gracefully by assuming the token is valid.
+            try:
+                if not self._client.is_authenticated():
+                    raise SecretAccessError(
+                        secret_name="vault_auth",
+                        backend="vault",
+                        reason=(
+                            f"Vault authentication failed for {vault_url}. "
+                            f"Verify token is valid and not expired."
+                        ),
+                    )
+            except Forbidden:
+                # Token lacks 'lookup-self' capability but may still work for
+                # secret operations. Defer validation to first secret access.
+                logger.info(
+                    "Vault token lacks 'lookup-self' capability, deferring validation",
+                    extra={"vault_url": vault_url, "backend": "vault"},
                 )
 
             # Check if Vault is sealed (use proper hvac API)
