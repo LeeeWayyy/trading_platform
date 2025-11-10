@@ -91,7 +91,7 @@ class TestEnvSecretManagerInitialization:
         os.environ["TEST_SECRET_1"] = "manual_value"
 
         manager = EnvSecretManager()
-        secret = manager.get_secret("TEST_SECRET_1")
+        secret = manager.get_secret("test/secret/1")
 
         assert secret == "manual_value"
 
@@ -100,15 +100,15 @@ class TestEnvSecretManagerInitialization:
         manager = EnvSecretManager(dotenv_path=temp_env_file)
 
         # Verify .env variables are loaded
-        assert manager.get_secret("TEST_SECRET_1") == "value1"
-        assert manager.get_secret("TEST_SECRET_2") == "value2"
-        assert manager.get_secret("DATABASE_PASSWORD") == "db_pass_123"
+        assert manager.get_secret("test/secret/1") == "value1"
+        assert manager.get_secret("test/secret/2") == "value2"
+        assert manager.get_secret("database/password") == "db_pass_123"
 
     def test_initialization_with_dotenv_file_path_object(self, temp_env_file, clean_env):
         """Test initialization with Path object for .env file."""
         manager = EnvSecretManager(dotenv_path=Path(temp_env_file))
 
-        assert manager.get_secret("TEST_SECRET_1") == "value1"
+        assert manager.get_secret("test/secret/1") == "value1"
 
     def test_initialization_with_custom_cache_ttl(self, clean_env):
         """Test initialization with custom cache TTL."""
@@ -117,13 +117,13 @@ class TestEnvSecretManagerInitialization:
         manager = EnvSecretManager(cache_ttl_seconds=600)
 
         # First call caches the value
-        manager.get_secret("TEST_SECRET_1")
+        manager.get_secret("test/secret/1")
 
         # Change environment variable
         os.environ["TEST_SECRET_1"] = "new_value"
 
         # Should still get cached value (10 minute TTL not expired)
-        assert manager.get_secret("TEST_SECRET_1") == "value1"
+        assert manager.get_secret("test/secret/1") == "value1"
 
     def test_initialization_with_zero_cache_ttl(self, clean_env):
         """Test initialization with cache disabled (TTL=0)."""
@@ -132,13 +132,13 @@ class TestEnvSecretManagerInitialization:
         manager = EnvSecretManager(cache_ttl_seconds=0)
 
         # First call
-        assert manager.get_secret("TEST_SECRET_1") == "value1"
+        assert manager.get_secret("test/secret/1") == "value1"
 
         # Change environment variable
         os.environ["TEST_SECRET_1"] = "new_value"
 
         # Should get new value immediately (cache disabled)
-        assert manager.get_secret("TEST_SECRET_1") == "new_value"
+        assert manager.get_secret("test/secret/1") == "new_value"
 
     def test_initialization_with_nonexistent_dotenv_file(self, clean_env):
         """Test initialization raises error if .env file doesn't exist."""
@@ -157,7 +157,7 @@ class TestEnvSecretManagerInitialization:
         manager = EnvSecretManager(dotenv_path=temp_env_file)
 
         # Should get .env value, not original
-        assert manager.get_secret("TEST_SECRET_1") == "value1"
+        assert manager.get_secret("test/secret/1") == "value1"
 
 
 # ============================================================================
@@ -173,7 +173,7 @@ class TestEnvSecretManagerGetSecret:
         os.environ["TEST_SECRET_1"] = "test_value"
         manager = EnvSecretManager()
 
-        secret = manager.get_secret("TEST_SECRET_1")
+        secret = manager.get_secret("test/secret/1")
 
         assert secret == "test_value"
 
@@ -181,7 +181,7 @@ class TestEnvSecretManagerGetSecret:
         """Test retrieving secret from .env file."""
         manager = EnvSecretManager(dotenv_path=temp_env_file)
 
-        secret = manager.get_secret("DATABASE_PASSWORD")
+        secret = manager.get_secret("database/password")
 
         assert secret == "db_pass_123"
 
@@ -190,11 +190,11 @@ class TestEnvSecretManagerGetSecret:
         manager = EnvSecretManager()
 
         with pytest.raises(SecretNotFoundError) as exc_info:
-            manager.get_secret("NONEXISTENT_VAR")
+            manager.get_secret("nonexistent/var")
 
-        assert exc_info.value.secret_name == "NONEXISTENT_VAR"
+        assert exc_info.value.secret_name == "nonexistent/var"
         assert exc_info.value.backend == "env"
-        assert "NONEXISTENT_VAR" in str(exc_info.value)
+        assert "nonexistent/var" in str(exc_info.value)
         assert "not set" in str(exc_info.value)
 
     def test_get_secret_cache_hit(self, clean_env):
@@ -203,14 +203,14 @@ class TestEnvSecretManagerGetSecret:
         manager = EnvSecretManager()
 
         # First call caches the value
-        secret1 = manager.get_secret("TEST_SECRET_1")
+        secret1 = manager.get_secret("test/secret/1")
         assert secret1 == "original_value"
 
         # Change environment variable
         os.environ["TEST_SECRET_1"] = "new_value"
 
         # Second call should return cached value
-        secret2 = manager.get_secret("TEST_SECRET_1")
+        secret2 = manager.get_secret("test/secret/1")
         assert secret2 == "original_value"
 
     def test_get_secret_cache_miss_after_expiration(self, clean_env):
@@ -219,7 +219,7 @@ class TestEnvSecretManagerGetSecret:
         manager = EnvSecretManager(cache_ttl_seconds=1)
 
         # First call caches the value
-        secret1 = manager.get_secret("TEST_SECRET_1")
+        secret1 = manager.get_secret("test/secret/1")
         assert secret1 == "original_value"
 
         # Change environment variable
@@ -229,7 +229,7 @@ class TestEnvSecretManagerGetSecret:
         time.sleep(1.1)
 
         # Should fetch new value after expiration
-        secret2 = manager.get_secret("TEST_SECRET_1")
+        secret2 = manager.get_secret("test/secret/1")
         assert secret2 == "new_value"
 
     def test_get_secret_empty_string_value(self, clean_env):
@@ -237,7 +237,7 @@ class TestEnvSecretManagerGetSecret:
         os.environ["TEST_SECRET_1"] = ""
         manager = EnvSecretManager()
 
-        secret = manager.get_secret("TEST_SECRET_1")
+        secret = manager.get_secret("test/secret/1")
 
         assert secret == ""
 
@@ -246,7 +246,7 @@ class TestEnvSecretManagerGetSecret:
         os.environ["TEST_SECRET_1"] = "  value with spaces  "
         manager = EnvSecretManager()
 
-        secret = manager.get_secret("TEST_SECRET_1")
+        secret = manager.get_secret("test/secret/1")
 
         assert secret == "  value with spaces  "
 
@@ -255,7 +255,7 @@ class TestEnvSecretManagerGetSecret:
         os.environ["TEST_SECRET_1"] = "p@ssw0rd!#$%^&*()"
         manager = EnvSecretManager()
 
-        secret = manager.get_secret("TEST_SECRET_1")
+        secret = manager.get_secret("test/secret/1")
 
         assert secret == "p@ssw0rd!#$%^&*()"
 
@@ -276,11 +276,11 @@ class TestEnvSecretManagerListSecrets:
         with pytest.warns(UserWarning, match="list_secrets\\(\\) called without prefix filter"):
             secrets = manager.list_secrets()
 
-        # Should include .env variables
-        assert "TEST_SECRET_1" in secrets
-        assert "TEST_SECRET_2" in secrets
-        assert "DATABASE_PASSWORD" in secrets
-        assert "ALPACA_API_KEY_ID" in secrets
+        # Should include .env variables (converted to hierarchical format)
+        assert "test/secret/1" in secrets
+        assert "test/secret/2" in secrets
+        assert "database/password" in secrets
+        assert "alpaca/api/key/id" in secrets
 
         # Should be sorted
         assert secrets == sorted(secrets)
@@ -289,21 +289,21 @@ class TestEnvSecretManagerListSecrets:
         """Test listing environment variables with prefix filter."""
         manager = EnvSecretManager(dotenv_path=temp_env_file)
 
-        secrets = manager.list_secrets(prefix="DATABASE_")
+        secrets = manager.list_secrets(prefix="database/")
 
-        # CI environments may have additional DATABASE_ vars (e.g., DATABASE_URL)
+        # CI environments may have additional DATABASE_ vars (e.g., DATABASE_URL → database/url)
         # Validate expected secrets exist, not exact count
-        assert "DATABASE_PASSWORD" in secrets
-        assert "DATABASE_HOST" in secrets
-        assert "ALPACA_API_KEY_ID" not in secrets
-        assert all(s.startswith("DATABASE_") for s in secrets), \
-            f"All secrets should start with 'DATABASE_', got: {secrets}"
+        assert "database/password" in secrets
+        assert "database/host" in secrets
+        assert "alpaca/api/key/id" not in secrets
+        assert all(s.startswith("database/") for s in secrets), \
+            f"All secrets should start with 'database/', got: {secrets}"
 
     def test_list_secrets_with_prefix_no_matches(self, temp_env_file, clean_env):
         """Test listing with prefix that matches no variables."""
         manager = EnvSecretManager(dotenv_path=temp_env_file)
 
-        secrets = manager.list_secrets(prefix="NONEXISTENT_")
+        secrets = manager.list_secrets(prefix="nonexistent/")
 
         assert secrets == []
 
@@ -314,7 +314,7 @@ class TestEnvSecretManagerListSecrets:
         secrets = manager.list_secrets(prefix="")
 
         # Empty prefix should match all variables
-        assert "TEST_SECRET_1" in secrets
+        assert "test/secret/1" in secrets
         assert len(secrets) > 0
 
     def test_list_secrets_sorted_output(self, clean_env):
@@ -326,9 +326,43 @@ class TestEnvSecretManagerListSecrets:
         manager = EnvSecretManager()
         secrets = manager.list_secrets(prefix="")
 
-        # Find our test variables in the sorted list
-        test_vars = [s for s in secrets if s in ["ZEBRA", "ALPHA", "BETA"]]
-        assert test_vars == ["ALPHA", "BETA", "ZEBRA"]
+        # Find our test variables in the sorted list (converted to hierarchical format)
+        test_vars = [s for s in secrets if s in ["zebra", "alpha", "beta"]]
+        assert test_vars == ["alpha", "beta", "zebra"]
+
+    def test_list_secrets_ambiguous_naming_limitation(self, clean_env):
+        """
+        Test that demonstrates the ambiguous conversion limitation.
+
+        This is a KNOWN LIMITATION of EnvSecretManager: underscores in the
+        original hierarchical name cannot be distinguished from path separators
+        when converting back from environment variables.
+
+        This test documents the expected behavior to prevent regressions.
+        """
+        manager = EnvSecretManager()
+
+        # Set a secret with underscore in hierarchical name
+        manager.set_secret("api/key_id", "secret_value")
+
+        # Verify it was set correctly in environment (forward conversion works)
+        assert os.environ["API_KEY_ID"] == "secret_value"
+
+        # Verify get_secret works with original name (forward conversion works)
+        assert manager.get_secret("api/key_id") == "secret_value"
+
+        # BUT: list_secrets returns different name due to ambiguous reverse conversion
+        secrets = manager.list_secrets(prefix="api/")
+
+        # EXPECTED LIMITATION: "api/key_id" becomes "api/key/id" in list output
+        assert "api/key/id" in secrets
+        # Original name is NOT in the list (information lost in reverse conversion)
+        assert "api/key_id" not in secrets
+
+        # IMPORTANT: Despite list_secrets ambiguity, get_secret still works
+        # with BOTH the original name AND the converted name (same env var)
+        assert manager.get_secret("api/key_id") == "secret_value"
+        assert manager.get_secret("api/key/id") == "secret_value"
 
 
 # ============================================================================
@@ -343,7 +377,7 @@ class TestEnvSecretManagerSetSecret:
         """Test set_secret() creates new environment variable."""
         manager = EnvSecretManager()
 
-        manager.set_secret("NEW_SECRET", "new_value")
+        manager.set_secret("new/secret", "new_value")
 
         assert os.environ["NEW_SECRET"] == "new_value"
 
@@ -352,7 +386,7 @@ class TestEnvSecretManagerSetSecret:
         os.environ["TEST_SECRET_1"] = "original_value"
         manager = EnvSecretManager()
 
-        manager.set_secret("TEST_SECRET_1", "updated_value")
+        manager.set_secret("test/secret/1", "updated_value")
 
         assert os.environ["TEST_SECRET_1"] == "updated_value"
 
@@ -362,21 +396,21 @@ class TestEnvSecretManagerSetSecret:
         manager = EnvSecretManager()
 
         # First call caches the value
-        secret1 = manager.get_secret("TEST_SECRET_1")
+        secret1 = manager.get_secret("test/secret/1")
         assert secret1 == "original_value"
 
         # Update via set_secret (should invalidate cache)
-        manager.set_secret("TEST_SECRET_1", "new_value")
+        manager.set_secret("test/secret/1", "new_value")
 
         # Next get_secret should fetch updated value
-        secret2 = manager.get_secret("TEST_SECRET_1")
+        secret2 = manager.get_secret("test/secret/1")
         assert secret2 == "new_value"
 
     def test_set_secret_empty_string(self, clean_env):
         """Test set_secret() with empty string value."""
         manager = EnvSecretManager()
 
-        manager.set_secret("TEST_SECRET_1", "")
+        manager.set_secret("test/secret/1", "")
 
         assert os.environ["TEST_SECRET_1"] == ""
 
@@ -384,7 +418,7 @@ class TestEnvSecretManagerSetSecret:
         """Test set_secret() with special characters."""
         manager = EnvSecretManager()
 
-        manager.set_secret("TEST_SECRET_1", "p@ssw0rd!#$%^&*()")
+        manager.set_secret("test/secret/1", "p@ssw0rd!#$%^&*()")
 
         assert os.environ["TEST_SECRET_1"] == "p@ssw0rd!#$%^&*()"
 
@@ -393,7 +427,7 @@ class TestEnvSecretManagerSetSecret:
         manager = EnvSecretManager(dotenv_path=temp_env_file)
 
         # Update secret
-        manager.set_secret("RUNTIME_SECRET", "runtime_value")
+        manager.set_secret("runtime/secret", "runtime_value")
 
         # Verify in environment
         assert os.environ["RUNTIME_SECRET"] == "runtime_value"
@@ -418,7 +452,7 @@ class TestEnvSecretManagerClose:
         manager = EnvSecretManager()
 
         # Cache a value
-        manager.get_secret("TEST_SECRET_1")
+        manager.get_secret("test/secret/1")
 
         # Verify cache is populated
         assert len(manager._cache) > 0
@@ -442,11 +476,11 @@ class TestEnvSecretManagerClose:
         manager = EnvSecretManager()
 
         # Cache and close
-        manager.get_secret("TEST_SECRET_1")
+        manager.get_secret("test/secret/1")
         manager.close()
 
         # Should still work (fresh fetch)
-        secret = manager.get_secret("TEST_SECRET_1")
+        secret = manager.get_secret("test/secret/1")
         assert secret == "value1"
 
 
@@ -471,7 +505,7 @@ class TestEnvSecretManagerContextManager:
         manager = EnvSecretManager()
 
         with manager:
-            manager.get_secret("TEST_SECRET_1")
+            manager.get_secret("test/secret/1")
             # Verify cache is populated
             assert len(manager._cache) > 0
 
@@ -485,7 +519,7 @@ class TestEnvSecretManagerContextManager:
 
         try:
             with manager:
-                manager.get_secret("TEST_SECRET_1")
+                manager.get_secret("test/secret/1")
                 assert len(manager._cache) > 0
                 raise ValueError("Test exception")
         except ValueError:
@@ -497,8 +531,8 @@ class TestEnvSecretManagerContextManager:
     def test_context_manager_usage_pattern(self, temp_env_file, clean_env):
         """Test typical context manager usage pattern."""
         with EnvSecretManager(dotenv_path=temp_env_file) as secret_mgr:
-            db_password = secret_mgr.get_secret("DATABASE_PASSWORD")
-            alpaca_key = secret_mgr.get_secret("ALPACA_API_KEY_ID")
+            db_password = secret_mgr.get_secret("database/password")
+            alpaca_key = secret_mgr.get_secret("alpaca/api/key/id")
 
             assert db_password == "db_pass_123"
             assert alpaca_key == "alpaca_key_123"
@@ -534,14 +568,14 @@ class TestEnvSecretManagerCaching:
         manager = EnvSecretManager()
 
         # First call caches value
-        result1 = manager.get_secret("TEST_SECRET_1")
+        result1 = manager.get_secret("test/secret/1")
         assert result1 == "value1"
 
         # Verify cache contains entry (check via len)
         assert len(manager._cache) == 1
 
         # Second call should use cache (same value)
-        result2 = manager.get_secret("TEST_SECRET_1")
+        result2 = manager.get_secret("test/secret/1")
         assert result2 == "value1"
 
     def test_cache_expiration_removes_entry(self, clean_env):
@@ -550,14 +584,14 @@ class TestEnvSecretManagerCaching:
         manager = EnvSecretManager(cache_ttl_seconds=1)
 
         # Cache the value
-        manager.get_secret("TEST_SECRET_1")
+        manager.get_secret("test/secret/1")
         assert len(manager._cache) == 1
 
         # Wait for expiration
         time.sleep(1.1)
 
         # Next get should remove expired entry and create new one
-        result = manager.get_secret("TEST_SECRET_1")
+        result = manager.get_secret("test/secret/1")
         assert result == "value1"
         # Cache should still have entry (re-cached after expiration)
         assert len(manager._cache) == 1
@@ -568,17 +602,17 @@ class TestEnvSecretManagerCaching:
         manager = EnvSecretManager()
 
         # Cache the value
-        manager.get_secret("TEST_SECRET_1")
+        manager.get_secret("test/secret/1")
         assert len(manager._cache) == 1
 
         # Update via set_secret
-        manager.set_secret("TEST_SECRET_1", "new_value")
+        manager.set_secret("test/secret/1", "new_value")
 
         # Cache should be invalidated (empty)
         assert len(manager._cache) == 0
 
         # Next get should return new value and re-cache
-        result = manager.get_secret("TEST_SECRET_1")
+        result = manager.get_secret("test/secret/1")
         assert result == "new_value"
         assert len(manager._cache) == 1
 
@@ -589,23 +623,23 @@ class TestEnvSecretManagerCaching:
         manager = EnvSecretManager()
 
         # Cache both secrets
-        manager.get_secret("TEST_SECRET_1")
-        manager.get_secret("TEST_SECRET_2")
+        manager.get_secret("test/secret/1")
+        manager.get_secret("test/secret/2")
 
         assert len(manager._cache) == 2
 
         # Invalidate one
-        manager.set_secret("TEST_SECRET_1", "new_value")
+        manager.set_secret("test/secret/1", "new_value")
 
-        # Cache should have one entry (TEST_SECRET_2)
+        # Cache should have one entry (test/secret/2)
         assert len(manager._cache) == 1
 
-        # Verify TEST_SECRET_2 still cached
-        result2 = manager.get_secret("TEST_SECRET_2")
+        # Verify test/secret/2 still cached
+        result2 = manager.get_secret("test/secret/2")
         assert result2 == "value2"
 
-        # Verify TEST_SECRET_1 returns new value
-        result1 = manager.get_secret("TEST_SECRET_1")
+        # Verify test/secret/1 returns new value
+        result1 = manager.get_secret("test/secret/1")
         assert result1 == "new_value"
 
 
@@ -627,7 +661,7 @@ class TestEnvSecretManagerThreadSafety:
 
         def fetch_secret():
             try:
-                secret = manager.get_secret("TEST_SECRET_1")
+                secret = manager.get_secret("test/secret/1")
                 results.append(secret)
             except Exception as e:
                 errors.append(e)
@@ -652,7 +686,7 @@ class TestEnvSecretManagerThreadSafety:
 
         def update_secret(thread_id):
             try:
-                manager.set_secret(f"SECRET_{thread_id}", f"value_{thread_id}")
+                manager.set_secret(f"secret/{thread_id}", f"value_{thread_id}")
             except Exception as e:
                 errors.append(e)
 
@@ -713,9 +747,9 @@ class TestEnvSecretManagerThreadSafety:
         def mixed_operations(thread_id):
             try:
                 # Mix of get, set, list operations
-                manager.get_secret("TEST_SECRET_1")
-                manager.set_secret(f"THREAD_{thread_id}", f"value_{thread_id}")
-                manager.list_secrets(prefix="THREAD_")
+                manager.get_secret("test/secret/1")
+                manager.set_secret(f"thread/{thread_id}", f"value_{thread_id}")
+                manager.list_secrets(prefix="thread/")
             except Exception as e:
                 errors.append(e)
 
@@ -754,9 +788,9 @@ class TestEnvSecretManagerErrorHandling:
         manager = EnvSecretManager()
 
         with pytest.raises(SecretNotFoundError) as exc_info:
-            manager.get_secret("MISSING_VAR")
+            manager.get_secret("missing/var")
 
-        assert exc_info.value.secret_name == "MISSING_VAR"
+        assert exc_info.value.secret_name == "missing/var"
         assert exc_info.value.backend == "env"
         assert "not set" in str(exc_info.value)
         assert "Verify .env file" in str(exc_info.value)
@@ -768,10 +802,10 @@ class TestEnvSecretManagerErrorHandling:
 
         # Force an error by trying to get non-existent secret
         try:
-            manager.get_secret("NONEXISTENT_SECRET")
+            manager.get_secret("nonexistent/secret")
         except SecretNotFoundError as e:
             error_msg = str(e)
             # Should contain secret name
-            assert "NONEXISTENT_SECRET" in error_msg
+            assert "nonexistent/secret" in error_msg
             # Should NOT contain any actual secret values
             assert "sensitive_password_123" not in error_msg

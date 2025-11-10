@@ -162,8 +162,8 @@ class EnvSecretManager(SecretManager):
         1 hour (configurable via cache_ttl_seconds).
 
         Args:
-            name: Environment variable name (UPPERCASE convention)
-                 Examples: "DATABASE_PASSWORD", "ALPACA_API_KEY_ID"
+            name: Hierarchical secret name (e.g., "database/password", "alpaca/api_key_id")
+                 Converted to environment variable format (e.g., "DATABASE_PASSWORD", "ALPACA_API_KEY_ID")
 
         Returns:
             Secret value as string
@@ -186,8 +186,8 @@ class EnvSecretManager(SecretManager):
             - Cache TTL: 1 hour (default)
 
         Example:
-            >>> db_password = secret_mgr.get_secret("DATABASE_PASSWORD")
-            >>> logger.info(f"Loaded secret: DATABASE_PASSWORD")  # CORRECT: Name only
+            >>> db_password = secret_mgr.get_secret("database/password")
+            >>> logger.info(f"Loaded secret: database/password")  # CORRECT: Name only
             >>> # print(db_password)  # WRONG: Exposes secret in logs
         """
         with self._lock:
@@ -200,14 +200,18 @@ class EnvSecretManager(SecretManager):
                 )
                 return cached_value
 
+            # Convert hierarchical name to environment variable format
+            # "database/password" -> "DATABASE_PASSWORD"
+            env_var_name = name.upper().replace("/", "_")
+
             # Cache miss - fetch from environment
-            value = os.environ.get(name)
+            value = os.environ.get(env_var_name)
             if value is None:
                 raise SecretNotFoundError(
                     secret_name=name,
                     backend="env",
                     additional_context=(
-                        f"Environment variable '{name}' not set. "
+                        f"Environment variable '{env_var_name}' not set. "
                         f"Verify .env file contains this variable or set it manually."
                     ),
                 )
@@ -244,6 +248,27 @@ class EnvSecretManager(SecretManager):
         Exposing system environment variables in logs or monitoring dashboards
         can leak sensitive infrastructure details that aid attackers in
         reconnaissance and privilege escalation attacks.
+
+        ⚠️ **NAMING AMBIGUITY LIMITATION** ⚠️
+        ======================================
+        The reverse conversion from environment variables to hierarchical names
+        is LOSSY and AMBIGUOUS. Underscores in the original hierarchical name
+        cannot be distinguished from path separators:
+
+        - `ALPACA_API_KEY_ID` could be `alpaca/api_key_id` OR `alpaca/api/key/id`
+        - This method always converts to `alpaca/api/key/id` (all underscores → slashes)
+
+        **IMPACT**: list_secrets() may return different names than originally used
+        in set_secret(). However, get_secret() and set_secret() work correctly
+        because they only convert hierarchical → env var (unambiguous direction).
+
+        **WORKAROUND**: Avoid underscores in hierarchical secret names when using
+        EnvSecretManager, OR accept that list_secrets() output may differ from input.
+
+        This limitation is acceptable because:
+        - EnvSecretManager is for LOCAL DEVELOPMENT ONLY (AC7)
+        - Production uses Vault/AWS which don't have this ambiguity
+        - get_secret() and set_secret() are unaffected
 
         Args:
             prefix: Optional filter prefix (e.g., "DATABASE_" returns only DB vars)
@@ -295,18 +320,27 @@ class EnvSecretManager(SecretManager):
             try:
                 env_vars = list(os.environ.keys())
 
+                # Convert hierarchical prefix to env var format for filtering
+                # "database/" -> "DATABASE_"
                 if prefix is not None:
-                    env_vars = [var for var in env_vars if var.startswith(prefix)]
+                    env_prefix = prefix.upper().replace("/", "_")
+                    env_vars = [var for var in env_vars if var.startswith(env_prefix)]
+
+                # Convert env var names back to hierarchical format
+                # DATABASE_PASSWORD -> database/password
+                # Note: This conversion is ambiguous (API_KEY_ID could be api/key/id or api_key/id)
+                # but provides consistency with other backends
+                hierarchical_names = [var.lower().replace("_", "/") for var in env_vars]
 
                 logger.info(
                     "Listed environment variables",
                     extra={
-                        "count": len(env_vars),
+                        "count": len(hierarchical_names),
                         "prefix": prefix,
                         "backend": "env",
                     },
                 )
-                return sorted(env_vars)
+                return sorted(hierarchical_names)
 
             except Exception as e:
                 raise SecretAccessError(
@@ -327,7 +361,8 @@ class EnvSecretManager(SecretManager):
         permanent changes.
 
         Args:
-            name: Environment variable name (UPPERCASE convention)
+            name: Hierarchical secret name (e.g., "database/password", "alpaca/api_key_id")
+                 Converted to environment variable format (e.g., "DATABASE_PASSWORD", "ALPACA_API_KEY_ID")
             value: Secret value to set
 
         Returns:
@@ -349,13 +384,17 @@ class EnvSecretManager(SecretManager):
 
         Example:
             >>> # Update secret (runtime only)
-            >>> secret_mgr.set_secret("DATABASE_PASSWORD", "new_password")
+            >>> secret_mgr.set_secret("database/password", "new_password")
             >>> # Restart service to lose changes (edit .env for persistence)
         """
         with self._lock:
             try:
+                # Convert hierarchical name to environment variable format
+                # "database/password" -> "DATABASE_PASSWORD"
+                env_var_name = name.upper().replace("/", "_")
+
                 # Update environment variable
-                os.environ[name] = value
+                os.environ[env_var_name] = value
 
                 # Invalidate cache (force fresh fetch on next get)
                 self._cache.invalidate(name)

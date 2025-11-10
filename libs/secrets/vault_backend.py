@@ -197,8 +197,8 @@ class VaultSecretManager(SecretManager):
                     ),
                 )
 
-            # Check if Vault is sealed
-            if self._client.seal_status["sealed"]:
+            # Check if Vault is sealed (use proper hvac API)
+            if self._client.sys.is_sealed():
                 raise SecretAccessError(
                     secret_name="vault_status",
                     backend="vault",

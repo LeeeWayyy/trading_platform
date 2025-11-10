@@ -92,11 +92,13 @@ class SecretManager(ABC):
         4. Log access (timestamp, service, secret name) but NEVER the value
 
         Args:
-            name: Secret name/path (e.g., "database/password", "alpaca/api_key_id")
-                 Format varies by backend:
-                 - Vault: "namespace/category/key" → "prod/alpaca/api_key_id"
-                 - AWS: "namespace/category/key" → "prod/alpaca/api_key_id"
-                 - Env: "CATEGORY_KEY" → "ALPACA_API_KEY_ID"
+            name: Secret name in hierarchical path format (e.g., "database/password", "alpaca/api_key_id")
+                 This convention is used by ALL backends, ensuring client code
+                 doesn't need to know which backend is in use. Each backend is
+                 responsible for mapping the hierarchical name to its internal format:
+                 - Vault: "database/password" → "kv/data/database" (path) + "password" (key)
+                 - AWS: "database/password" → "database/password" (secret ID in AWS)
+                 - Env: "database/password" → "DATABASE_PASSWORD" (environment variable)
 
         Returns:
             Secret value as string (e.g., "sk-abc123xyz" for Alpaca secret key)
