@@ -171,6 +171,169 @@ ALPACA_BASE_URL=https://paper-api.alpaca.markets
 LOG_LEVEL=INFO
 ```
 
+## Secrets Management Setup
+
+### Overview
+
+This project uses a **pluggable secrets management system** to securely handle sensitive credentials (Alpaca API keys, database passwords). Secrets are kept separate from configuration and never committed to git.
+
+**Backends supported:**
+- **EnvSecretManager** (local development) - Reads from `.env` file
+- **VaultSecretManager** (production) - HashiCorp Vault integration
+- **AWSSecretsManager** (production) - AWS Secrets Manager integration
+
+### Local Development (EnvSecretManager)
+
+For local development, use `EnvSecretManager` which reads secrets from your `.env` file (gitignored).
+
+#### Step 1: Copy Environment Template
+
+```bash
+# Create .env file from template
+cp .env.template .env
+```
+
+**Note:** `.env.template` contains placeholders for secrets (commented out) and real configuration values. Only `.env` is gitignored.
+`create_secret_manager()` automatically loads `.env` from the current working directory.
+If you keep secrets in a different file, set `SECRET_DOTENV_PATH=/absolute/path/to/your.env`
+before starting any service.
+
+#### Step 2: Populate Secrets
+
+Edit `.env` and uncomment/populate secret values:
+
+```bash
+vim .env
+```
+
+**Secrets to populate (uncomment and fill in):**
+
+```bash
+# Secrets Management Configuration
+SECRET_BACKEND=env  # Use EnvSecretManager for local dev
+
+# Alpaca API Credentials (SECRETS - populate with your paper trading keys)
+ALPACA_API_KEY_ID=PK...                # Get from https://app.alpaca.markets/paper/dashboard/overview
+ALPACA_API_SECRET_KEY=...              # Your paper trading secret key
+
+# Database Credentials (SECRETS - populate with local DB password)
+DATABASE_PASSWORD=trader               # Default for local dev (docker-compose)
+
+# Configuration (ENV VARS - keep these values as-is)
+ALPACA_BASE_URL=https://paper-api.alpaca.markets/v2
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=trader
+DATABASE_USER=trader
+REDIS_URL=redis://localhost:6379/0
+DRY_RUN=true
+LOG_LEVEL=INFO
+STRATEGY_ID=alpha_baseline
+```
+
+**Important distinctions:**
+- **Secrets** (via SecretManager): `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `DATABASE_PASSWORD`
+- **Configuration** (via env vars): `ALPACA_BASE_URL`, `DATABASE_HOST`, `DRY_RUN`, `LOG_LEVEL`
+
+#### Step 3: Verify Secret Loading
+
+```bash
+# Ensure venv is activated
+source .venv/bin/activate
+
+# Start a service to verify secrets load correctly
+python -m apps.signal_service.main
+
+# Expected logs:
+# INFO: Initialized EnvSecretManager
+# INFO: Loaded secret: database/password
+# INFO: Database connection established
+```
+
+**If you see errors:**
+- `SecretNotFoundError: Secret 'database/password' not found` → Check `.env` file has `DATABASE_PASSWORD` uncommented
+- `FileNotFoundError: .env file not found` → Run `cp .env.template .env` and populate secrets
+
+### Staging/Production (Vault or AWS)
+
+For staging and production environments, use Vault or AWS Secrets Manager for encrypted secrets at rest.
+
+**WARNING:** Vault dev server (`vault server -dev`) is for LOCAL DEVELOPMENT ONLY. Do NOT store real production secrets in dev mode:
+- Dev mode stores data in-memory only (lost on restart)
+- Dev mode has no authentication (anyone can access secrets)
+- Dev mode has no audit logging
+- For staging/production, use Vault production mode with proper TLS, authentication, and persistence
+
+**Migration process:**
+1. Provision Vault or AWS Secrets Manager
+2. Populate secrets in backend (encrypted at rest)
+3. Update service environment variables:
+   ```bash
+   export SECRET_BACKEND=vault  # or 'aws'
+   export VAULT_ADDR=https://vault.prod.example.com:8200
+   export VAULT_TOKEN=<prod-token>
+   export SECRET_NAMESPACE=prod
+   ```
+4. Services will automatically load secrets from backend on startup
+
+**See detailed migration guide:**
+- `docs/RUNBOOKS/secrets-migration.md` - Step-by-step migration from `.env` to Vault/AWS
+- `docs/RUNBOOKS/secret-rotation.md` - 90-day secret rotation procedure (compliance)
+- `docs/ADRs/0017-secrets-management.md` - Architecture decisions and rationale
+
+### Security Best Practices
+
+**DO:**
+- ✅ Use `.env.template` as reference (commit to git)
+- ✅ Keep real secrets in `.env` (gitignored)
+- ✅ Use `EnvSecretManager` for local development
+- ✅ Use Vault/AWS for staging and production
+- ✅ Rotate secrets every 90 days (compliance requirement)
+
+**DON'T:**
+- ❌ Never commit `.env` file to git
+- ❌ Never put secrets in `pyproject.toml`, `docker-compose.yml`, or code
+- ❌ Never share `.env` file via email or Slack
+- ❌ Never use production secrets in local development
+
+### Troubleshooting Secrets
+
+**Issue: `SecretNotFoundError: Secret 'alpaca/api_key_id' not found in EnvSecretManager`**
+
+**Cause:** Missing or commented secret in `.env` file
+
+**Solution:**
+```bash
+# Check .env file exists
+ls -la .env
+
+# Verify secret is present and uncommented
+grep ALPACA_API_KEY_ID .env
+# Should show: ALPACA_API_KEY_ID=PK...
+
+# If missing, copy from template and populate
+cp .env.template .env
+vim .env  # Uncomment and fill in ALPACA_API_KEY_ID
+```
+
+**Issue: Service starts but Alpaca API returns 401 Unauthorized**
+
+**Cause:** Invalid API credentials or wrong API key type (live vs paper)
+
+**Solution:**
+```bash
+# Verify credentials in Alpaca dashboard:
+# https://app.alpaca.markets/paper/dashboard/overview → API Keys
+
+# Test credentials manually
+curl -X GET https://paper-api.alpaca.markets/v2/account \
+  -H "APCA-API-KEY-ID: <your_key_id>" \
+  -H "APCA-API-SECRET-KEY: <your_secret_key>"
+
+# Should return account details (not 401 Unauthorized)
+# If 401: regenerate keys in dashboard and update .env
+```
+
 ## Running Tests
 
 ### Run All Tests
