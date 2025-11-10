@@ -115,7 +115,7 @@ All credentials are stored in a single `.env` file at repository root:
 # .env (current state)
 ALPACA_API_KEY_ID=
 ALPACA_API_SECRET_KEY=
-ALPACA_BASE_URL=https://paper-api.alpaca.markets/v2
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
 DATABASE_URL=postgresql+psycopg://trader:trader@localhost:5432/trader
 REDIS_URL=redis://localhost:6379/0
 WEBHOOK_SECRET=

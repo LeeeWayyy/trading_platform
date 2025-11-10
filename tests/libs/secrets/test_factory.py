@@ -377,7 +377,7 @@ class TestCreateSecretManagerIntegration:
         """
         # Configure mock to simulate authenticated, unsealed Vault
         mock_hvac_client.return_value.is_authenticated.return_value = True
-        mock_hvac_client.return_value.seal_status = {"sealed": False}
+        mock_hvac_client.return_value.sys.is_sealed.return_value = False  # Use proper hvac v2 API
 
         # Mock hvac.Client to avoid actual Vault connection
         with patch.dict(

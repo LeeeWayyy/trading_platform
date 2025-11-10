@@ -96,7 +96,7 @@ class SecretManager(ABC):
                  This convention is used by ALL backends, ensuring client code
                  doesn't need to know which backend is in use. Each backend is
                  responsible for mapping the hierarchical name to its internal format:
-                 - Vault: "database/password" → "kv/data/database" (path) + "password" (key)
+                 - Vault: "database/password" → reads secret at path "database/password" within mount point
                  - AWS: "database/password" → "database/password" (secret ID in AWS)
                  - Env: "database/password" → "DATABASE_PASSWORD" (environment variable)
 

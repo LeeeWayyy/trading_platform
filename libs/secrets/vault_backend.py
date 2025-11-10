@@ -209,14 +209,25 @@ class VaultSecretManager(SecretManager):
                 )
 
             # Check if Vault is sealed (use proper hvac API)
-            if self._client.sys.is_sealed():
-                raise SecretAccessError(
-                    secret_name="vault_status",
-                    backend="vault",
-                    reason=(
-                        f"Vault is sealed at {vault_url}. "
-                        f"Unseal Vault before accessing secrets (vault operator unseal)."
-                    ),
+            # Note: sys.is_sealed() requires 'sys/seal-status' capability.
+            # Some production tokens intentionally omit this, so we handle
+            # Forbidden gracefully by skipping the seal check.
+            try:
+                if self._client.sys.is_sealed():
+                    raise SecretAccessError(
+                        secret_name="vault_status",
+                        backend="vault",
+                        reason=(
+                            f"Vault is sealed at {vault_url}. "
+                            f"Unseal Vault before accessing secrets (vault operator unseal)."
+                        ),
+                    )
+            except Forbidden:
+                # Token lacks 'sys/seal-status' capability but may still work for
+                # secret operations. Skip seal check and defer validation to first secret access.
+                logger.info(
+                    "Vault token lacks 'sys/seal-status' capability, skipping seal check",
+                    extra={"vault_url": vault_url, "backend": "vault"},
                 )
 
             logger.info(

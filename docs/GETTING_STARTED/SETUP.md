@@ -220,7 +220,7 @@ ALPACA_API_SECRET_KEY=...              # Your paper trading secret key
 DATABASE_PASSWORD=trader               # Default for local dev (docker-compose)
 
 # Configuration (ENV VARS - keep these values as-is)
-ALPACA_BASE_URL=https://paper-api.alpaca.markets/v2
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
 DATABASE_NAME=trader
@@ -327,8 +327,8 @@ vim .env  # Uncomment and fill in ALPACA_API_KEY_ID
 
 # Test credentials manually
 curl -X GET https://paper-api.alpaca.markets/v2/account \
-  -H "APCA-API-KEY-ID: <your_key_id>" \
-  -H "APCA-API-SECRET-KEY: <your_secret_key>"
+  -H "APCA-API-KEY-ID: REPLACE_WITH_YOUR_KEY_ID" \
+  -H "APCA-API-SECRET-KEY: REPLACE_WITH_YOUR_SECRET_KEY"
 
 # Should return account details (not 401 Unauthorized)
 # If 401: regenerate keys in dashboard and update .env

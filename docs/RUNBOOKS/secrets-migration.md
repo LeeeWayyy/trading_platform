@@ -61,7 +61,7 @@ This runbook guides operators through migrating credentials from `.env` files to
    # REDIS_PASSWORD=<YOUR_REDIS_PASSWORD>
 
    # Configuration (ENV VARS - keep in .env)
-   ALPACA_BASE_URL=https://paper-api.alpaca.markets/v2
+   ALPACA_BASE_URL=https://paper-api.alpaca.markets
    DATABASE_HOST=localhost
    DATABASE_PORT=5432
    DATABASE_NAME=trader
@@ -297,7 +297,7 @@ This runbook guides operators through migrating credentials from `.env` files to
    ```bash
    export SECRET_BACKEND=vault  # or 'aws'
    export VAULT_ADDR=https://vault.prod.example.com:8200
-   export VAULT_TOKEN=<PROD_VAULT_TOKEN>  # Use production-scoped, long-lived token (IAM auth planned for future)
+   export VAULT_TOKEN=<PROD_VAULT_TOKEN>  # Token-based auth (current implementation); IAM auth is a future enhancement
    export SECRET_NAMESPACE=prod
    ```
 

@@ -38,7 +38,7 @@ def mock_hvac_client():
     """Create a mock hvac client for testing."""
     client = MagicMock()
     client.is_authenticated.return_value = True
-    client.seal_status = {"sealed": False}
+    client.sys.is_sealed.return_value = False  # Use proper hvac v2 API
     client.secrets.kv.v2 = MagicMock()
     return client
 
