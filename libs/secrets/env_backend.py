@@ -21,8 +21,8 @@ Security Considerations:
 Usage Example:
     >>> from libs.secrets.env_backend import EnvSecretManager
     >>> secret_mgr = EnvSecretManager(dotenv_path=".env")
-    >>> db_password = secret_mgr.get_secret("DATABASE_PASSWORD")
-    >>> alpaca_key = secret_mgr.get_secret("ALPACA_API_KEY_ID")
+    >>> db_password = secret_mgr.get_secret("database/password")
+    >>> alpaca_key = secret_mgr.get_secret("alpaca/api_key_id")
 
 Migration Path:
     1. Local development: Use EnvSecretManager with .env file
@@ -191,18 +191,19 @@ class EnvSecretManager(SecretManager):
             >>> # print(db_password)  # WRONG: Exposes secret in logs
         """
         with self._lock:
-            # Check cache first
-            cached_value = self._cache.get(name)
+            # Convert hierarchical name to environment variable format first
+            # This normalized form is used as the cache key to ensure consistency
+            # "database/password" -> "DATABASE_PASSWORD"
+            env_var_name = name.upper().replace("/", "_")
+
+            # Check cache using normalized key
+            cached_value = self._cache.get(env_var_name)
             if cached_value is not None:
                 logger.debug(
                     "Secret cache hit",
                     extra={"secret_name": name, "backend": "env"},
                 )
                 return cached_value
-
-            # Convert hierarchical name to environment variable format
-            # "database/password" -> "DATABASE_PASSWORD"
-            env_var_name = name.upper().replace("/", "_")
 
             # Cache miss - fetch from environment
             value = os.environ.get(env_var_name)
@@ -217,8 +218,8 @@ class EnvSecretManager(SecretManager):
                 )
 
             # Type narrowed: value is str here (None case raises above)
-            # Cache the value
-            self._cache.set(name, value)
+            # Cache the value using normalized key
+            self._cache.set(env_var_name, value)
             logger.info(
                 "Secret loaded from environment",
                 extra={"secret_name": name, "backend": "env"},
@@ -396,8 +397,8 @@ class EnvSecretManager(SecretManager):
                 # Update environment variable
                 os.environ[env_var_name] = value
 
-                # Invalidate cache (force fresh fetch on next get)
-                self._cache.invalidate(name)
+                # Invalidate cache using normalized key (force fresh fetch on next get)
+                self._cache.invalidate(env_var_name)
 
                 logger.info(
                     "Secret updated in environment",

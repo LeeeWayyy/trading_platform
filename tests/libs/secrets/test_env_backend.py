@@ -18,7 +18,6 @@ import os
 import tempfile
 import threading
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -641,6 +640,54 @@ class TestEnvSecretManagerCaching:
         # Verify test/secret/1 returns new value
         result1 = manager.get_secret("test/secret/1")
         assert result1 == "new_value"
+
+    def test_cache_key_normalization_prevents_stale_values(self, clean_env):
+        """Test cache key normalization prevents stale values during rotation (P1 regression test).
+
+        This test verifies the fix for the P1 bug where calling get_secret() with hierarchical names
+        and set_secret() with env var names (or vice versa) would leave stale cached values.
+
+        Example failure scenario (before fix):
+        1. get_secret("database/password") caches with key "database/password"
+        2. set_secret("DATABASE_PASSWORD", "new") invalidates key "DATABASE_PASSWORD"
+        3. Result: Stale "database/password" cache entry persists for 1 hour!
+
+        After fix: Cache keys are normalized to env var format (DATABASE_PASSWORD) so
+        both calls operate on the same cache entry.
+        """
+        os.environ["DATABASE_PASSWORD"] = "old_password"
+        manager = EnvSecretManager()
+
+        # Scenario 1: get with hierarchical name, set with env var name
+        result1 = manager.get_secret("database/password")
+        assert result1 == "old_password"
+        assert len(manager._cache) == 1
+
+        # Update using env var format (should invalidate the cache)
+        manager.set_secret("DATABASE_PASSWORD", "new_password")
+        assert len(manager._cache) == 0  # Cache invalidated
+
+        # Next get should return new value (not stale cached old value)
+        result2 = manager.get_secret("database/password")
+        assert result2 == "new_password"
+
+        # Scenario 2: get with env var name, set with hierarchical name
+        result3 = manager.get_secret("DATABASE_PASSWORD")
+        assert result3 == "new_password"
+        assert len(manager._cache) == 1
+
+        # Update using hierarchical format (should invalidate the cache)
+        manager.set_secret("database/password", "newest_password")
+        assert len(manager._cache) == 0  # Cache invalidated
+
+        # Next get should return newest value (not cached old value)
+        result4 = manager.get_secret("DATABASE_PASSWORD")
+        assert result4 == "newest_password"
+
+        # Scenario 3: Verify both naming conventions access same cache entry
+        result5 = manager.get_secret("database/password")
+        assert result5 == "newest_password"
+        assert len(manager._cache) == 1  # Only one cache entry for both name formats
 
 
 # ============================================================================
