@@ -38,11 +38,12 @@ See Also:
 import logging
 import os
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+from libs.secrets.cache import SecretCache
 from libs.secrets.exceptions import (
     SecretAccessError,
     SecretNotFoundError,
@@ -127,8 +128,7 @@ class EnvSecretManager(SecretManager):
             >>> secret_mgr = EnvSecretManager(dotenv_path=".env", cache_ttl_seconds=600)
         """
         self._lock = threading.Lock()
-        self._cache: dict[str, tuple[str, datetime]] = {}
-        self._cache_ttl = timedelta(seconds=cache_ttl_seconds)
+        self._cache = SecretCache(ttl=timedelta(seconds=cache_ttl_seconds))
         self._dotenv_path = dotenv_path
 
         # Load .env file if provided
@@ -192,24 +192,16 @@ class EnvSecretManager(SecretManager):
         """
         with self._lock:
             # Check cache first
-            if name in self._cache:
-                value, cached_at = self._cache[name]
-                if datetime.now(UTC) - cached_at < self._cache_ttl:
-                    logger.debug(
-                        "Secret cache hit",
-                        extra={"secret_name": name, "backend": "env"},
-                    )
-                    return value
-                else:
-                    # Cache expired
-                    logger.debug(
-                        "Secret cache expired",
-                        extra={"secret_name": name, "backend": "env"},
-                    )
-                    del self._cache[name]
+            cached_value = self._cache.get(name)
+            if cached_value is not None:
+                logger.debug(
+                    "Secret cache hit",
+                    extra={"secret_name": name, "backend": "env"},
+                )
+                return cached_value
 
             # Cache miss - fetch from environment
-            value = os.environ.get(name)  # type: ignore[assignment]  # mypy doesn't recognize type narrowing below
+            value = os.environ.get(name)
             if value is None:
                 raise SecretNotFoundError(
                     secret_name=name,
@@ -222,7 +214,7 @@ class EnvSecretManager(SecretManager):
 
             # Type narrowed: value is str here (None case raises above)
             # Cache the value
-            self._cache[name] = (value, datetime.now(UTC))
+            self._cache.set(name, value)
             logger.info(
                 "Secret loaded from environment",
                 extra={"secret_name": name, "backend": "env"},
@@ -236,12 +228,26 @@ class EnvSecretManager(SecretManager):
         This method returns a list of environment variable names, optionally
         filtered by prefix. Useful for verification and debugging.
 
-        **WARNING**: Returns ALL environment variables if no prefix provided.
-        This may include system variables (PATH, HOME, etc.).
+        ⚠️ **CRITICAL SECURITY WARNING** ⚠️
+        ========================================
+        Calling list_secrets() WITHOUT a prefix will return ALL environment
+        variables in the current process, including:
+
+        - System variables (PATH, HOME, USER, SHELL, etc.)
+        - Infrastructure secrets (AWS credentials, DB passwords, API keys)
+        - Application config (URLs, ports, feature flags)
+        - CI/CD variables (build metadata, deployment tokens)
+
+        **RECOMMENDATION**: ALWAYS provide a prefix filter to scope the results
+        to application-specific secrets only (e.g., "ALPACA_", "DATABASE_").
+
+        Exposing system environment variables in logs or monitoring dashboards
+        can leak sensitive infrastructure details that aid attackers in
+        reconnaissance and privilege escalation attacks.
 
         Args:
             prefix: Optional filter prefix (e.g., "DATABASE_" returns only DB vars)
-                   If None, returns ALL environment variables
+                   If None, returns ALL environment variables (⚠️ USE WITH CAUTION)
 
         Returns:
             List of environment variable names (e.g., ["DATABASE_PASSWORD", "DATABASE_HOST"])
@@ -252,18 +258,24 @@ class EnvSecretManager(SecretManager):
 
         Security:
             - Returns secret NAMES only, NEVER values
-            - Use prefix to avoid exposing system environment variables
+            - ALWAYS use prefix filter in production to limit exposure
+            - Only use prefix=None for debugging in isolated environments
 
         Example:
-            >>> # List all environment variables
+            >>> # ⚠️ DANGEROUS: Lists ALL environment variables (system + application)
             >>> all_secrets = secret_mgr.list_secrets()
             >>> print(all_secrets)
-            ['PATH', 'HOME', 'DATABASE_PASSWORD', 'ALPACA_API_KEY_ID']
+            ['PATH', 'HOME', 'AWS_ACCESS_KEY_ID', 'DATABASE_PASSWORD', 'ALPACA_API_KEY_ID']
             >>>
-            >>> # List only database secrets
+            >>> # ✓ SAFE: Lists only database secrets (scoped by prefix)
             >>> db_secrets = secret_mgr.list_secrets(prefix="DATABASE_")
             >>> print(db_secrets)
             ['DATABASE_PASSWORD', 'DATABASE_HOST', 'DATABASE_PORT']
+            >>>
+            >>> # ✓ SAFE: Lists only Alpaca trading secrets (scoped by prefix)
+            >>> alpaca_secrets = secret_mgr.list_secrets(prefix="ALPACA_")
+            >>> print(alpaca_secrets)
+            ['ALPACA_API_KEY_ID', 'ALPACA_API_SECRET_KEY', 'ALPACA_BASE_URL']
         """
         with self._lock:
             try:
@@ -332,8 +344,7 @@ class EnvSecretManager(SecretManager):
                 os.environ[name] = value
 
                 # Invalidate cache (force fresh fetch on next get)
-                if name in self._cache:
-                    del self._cache[name]
+                self._cache.invalidate(name)
 
                 logger.info(
                     "Secret updated in environment",
@@ -361,9 +372,8 @@ class EnvSecretManager(SecretManager):
             ... finally:
             ...     secret_mgr.close()  # Clear cache
         """
-        with self._lock:
-            self._cache.clear()
-            logger.info(
-                "EnvSecretManager closed, cache cleared",
-                extra={"backend": "env"},
-            )
+        self._cache.clear()
+        logger.info(
+            "EnvSecretManager closed, cache cleared",
+            extra={"backend": "env"},
+        )

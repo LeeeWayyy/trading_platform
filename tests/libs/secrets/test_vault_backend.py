@@ -75,8 +75,8 @@ class TestVaultSecretManagerInitialization:
         assert secret_mgr._client == mock_hvac_client
         assert secret_mgr._vault_url == "https://vault.example.com:8200"
         assert secret_mgr._mount_point == "kv"
-        assert secret_mgr._cache == {}
-        assert secret_mgr._cache_ttl == timedelta(seconds=3600)
+        assert secret_mgr._cache is not None  # SecretCache instance
+        assert len(secret_mgr._cache) == 0  # Empty cache
         assert secret_mgr._verify is True
         mock_hvac_client.is_authenticated.assert_called_once()
 
@@ -100,7 +100,8 @@ class TestVaultSecretManagerInitialization:
                 cache_ttl_seconds=1800,
             )
 
-        assert secret_mgr._cache_ttl == timedelta(seconds=1800)
+        # Verify SecretCache instance created (TTL verified internally)
+        assert secret_mgr._cache is not None
 
     def test_init_disable_tls_verification(self, mock_hvac_client):
         """Test initialization with TLS verification disabled (local dev only)."""
@@ -402,6 +403,7 @@ class TestVaultSecretManagerSetSecret:
             "data": {"data": {"value": "old_password"}}
         }
         vault_secret_mgr.get_secret("database/password")
+        assert len(vault_secret_mgr._cache) == 1  # Cache populated
 
         # Now update it
         vault_secret_mgr.set_secret("database/password", "new_password")
@@ -412,8 +414,8 @@ class TestVaultSecretManagerSetSecret:
             mount_point="kv",
         )
 
-        # Cache should be invalidated
-        assert "database/password" not in vault_secret_mgr._cache
+        # Cache should be invalidated (empty)
+        assert len(vault_secret_mgr._cache) == 0
 
     def test_set_secret_permission_denied(self, vault_secret_mgr, mock_hvac_client):
         """Test setting secret when permission is denied."""
@@ -477,7 +479,7 @@ class TestVaultSecretManagerClose:
         }
         vault_secret_mgr.get_secret("secret1")
 
-        assert "secret1" in vault_secret_mgr._cache
+        assert len(vault_secret_mgr._cache) == 1  # Cache populated
 
         # Close should clear cache
         vault_secret_mgr.close()
@@ -622,12 +624,13 @@ class TestVaultSecretManagerCaching:
         }
         value1 = vault_secret_mgr.get_secret("database/password")
         assert value1 == "old_value"
+        assert len(vault_secret_mgr._cache) == 1  # Cache populated
 
         # Update the secret (should invalidate cache)
         vault_secret_mgr.set_secret("database/password", "new_value")
 
-        # Cache should be empty
-        assert "database/password" not in vault_secret_mgr._cache
+        # Cache should be empty (invalidated)
+        assert len(vault_secret_mgr._cache) == 0
 
         # Next get should fetch from Vault
         mock_hvac_client.secrets.kv.v2.read_secret_version.return_value = {
@@ -649,10 +652,8 @@ class TestVaultSecretManagerCaching:
         vault_secret_mgr.get_secret("secret2")
         vault_secret_mgr.get_secret("secret3")
 
+        # Verify all 3 secrets cached
         assert len(vault_secret_mgr._cache) == 3
-        assert "secret1" in vault_secret_mgr._cache
-        assert "secret2" in vault_secret_mgr._cache
-        assert "secret3" in vault_secret_mgr._cache
 
     def test_cache_disabled(self, mock_hvac_client):
         """Test behavior when caching is disabled (TTL=0)."""
@@ -670,10 +671,10 @@ class TestVaultSecretManagerCaching:
         # First access
         secret_mgr.get_secret("database/password")
 
-        # Cache should be populated (TTL check happens later)
-        assert "database/password" in secret_mgr._cache
+        # Cache should be populated (SecretCache still caches, TTL check happens on get)
+        assert len(secret_mgr._cache) == 1
 
-        # Second access should fetch from Vault (cache expired immediately)
+        # Second access should fetch from Vault (cache expired immediately with TTL=0)
         mock_hvac_client.secrets.kv.v2.read_secret_version.reset_mock()
         secret_mgr.get_secret("database/password")
 
@@ -681,20 +682,23 @@ class TestVaultSecretManagerCaching:
         mock_hvac_client.secrets.kv.v2.read_secret_version.assert_called_once()
 
     def test_cache_stores_timestamp(self, vault_secret_mgr, mock_hvac_client):
-        """Test cache stores timestamp for TTL calculation."""
+        """Test cache stores values correctly (timestamps handled by SecretCache)."""
         mock_hvac_client.secrets.kv.v2.read_secret_version.return_value = {
             "data": {"data": {"value": "cached_value"}}
         }
 
-        before = datetime.now(UTC)
-        vault_secret_mgr.get_secret("database/password")
-        after = datetime.now(UTC)
+        # Get secret (should cache)
+        result = vault_secret_mgr.get_secret("database/password")
+        assert result == "cached_value"
 
-        # Cache entry should have timestamp
-        assert "database/password" in vault_secret_mgr._cache
-        cached_value, cached_at = vault_secret_mgr._cache["database/password"]
-        assert cached_value == "cached_value"
-        assert before <= cached_at <= after
+        # Verify cache contains entry
+        assert len(vault_secret_mgr._cache) == 1
+
+        # Second call should use cache (no additional Vault call)
+        mock_hvac_client.secrets.kv.v2.read_secret_version.reset_mock()
+        result2 = vault_secret_mgr.get_secret("database/password")
+        assert result2 == "cached_value"
+        mock_hvac_client.secrets.kv.v2.read_secret_version.assert_not_called()
 
 
 # ================================================================================

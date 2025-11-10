@@ -44,7 +44,7 @@ See Also:
 
 import logging
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import hvac
 from hvac.exceptions import (
@@ -57,6 +57,7 @@ from hvac.exceptions import (
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from libs.secrets.cache import SecretCache
 from libs.secrets.exceptions import (
     SecretAccessError,
     SecretManagerError,
@@ -172,8 +173,7 @@ class VaultSecretManager(SecretManager):
             ... )
         """
         self._lock = threading.Lock()
-        self._cache: dict[str, tuple[str, datetime]] = {}
-        self._cache_ttl = timedelta(seconds=cache_ttl_seconds)
+        self._cache = SecretCache(ttl=timedelta(seconds=cache_ttl_seconds))
         self._vault_url = vault_url
         self._mount_point = mount_point
         self._verify = verify
@@ -273,6 +273,29 @@ class VaultSecretManager(SecretManager):
                 - Vault sealed (vault operator unseal)
                 - Token expired (renew token)
 
+        Multi-Key Secrets:
+            Vault KV v2 secrets can contain multiple key-value pairs.
+            This method uses the following fallback logic:
+
+            1. If "value" key exists: Returns secret_data["value"]
+            2. Otherwise: Returns first key alphabetically (deterministic)
+
+            **Recommendation**: Always use "value" key for single-value secrets
+            to ensure consistent behavior across all backends (AWS, Vault, Env).
+
+            Example Vault secret with multiple keys:
+                {
+                    "value": "secret123",      # ✓ Preferred: This will be returned
+                    "username": "admin",
+                    "api_key": "xyz789"
+                }
+
+            Example Vault secret without "value" key:
+                {
+                    "api_key": "xyz789",       # ✓ Will be returned (first alphabetically)
+                    "username": "admin"
+                }
+
         Security:
             - NEVER log the returned secret value (AC12)
             - Log secret path for audit trail
@@ -310,21 +333,13 @@ class VaultSecretManager(SecretManager):
     def _get_secret_with_retry(self, name: str) -> str:
         with self._lock:
             # Check cache first
-            if name in self._cache:
-                value, cached_at = self._cache[name]
-                if datetime.now(UTC) - cached_at < self._cache_ttl:
-                    logger.debug(
-                        "Secret cache hit",
-                        extra={"secret_path": name, "backend": "vault"},
-                    )
-                    return value
-                else:
-                    # Cache expired
-                    logger.debug(
-                        "Secret cache expired",
-                        extra={"secret_path": name, "backend": "vault"},
-                    )
-                    del self._cache[name]
+            cached_value = self._cache.get(name)
+            if cached_value is not None:
+                logger.debug(
+                    "Secret cache hit",
+                    extra={"secret_path": name, "backend": "vault"},
+                )
+                return cached_value
 
             # Cache miss - fetch from Vault
             try:
@@ -367,7 +382,7 @@ class VaultSecretManager(SecretManager):
                     )
 
                 # Cache the value
-                self._cache[name] = (value, datetime.now(UTC))
+                self._cache.set(name, value)
                 logger.info(
                     "Secret loaded from Vault",
                     extra={"secret_path": name, "backend": "vault"},
@@ -622,8 +637,7 @@ class VaultSecretManager(SecretManager):
                 )
 
                 # Invalidate cache (force fresh fetch on next get)
-                if name in self._cache:
-                    del self._cache[name]
+                self._cache.invalidate(name)
 
                 logger.info(
                     "Secret written to Vault",
@@ -677,13 +691,13 @@ class VaultSecretManager(SecretManager):
             ... finally:
             ...     secret_mgr.close()  # Clear cache and close connections
         """
+        self._cache.clear()
+        # Close hvac client's HTTP adapter (connection pool)
         with self._lock:
-            self._cache.clear()
-            # Close hvac client's HTTP adapter (connection pool)
             adapter = getattr(self._client, "adapter", None)
             if adapter and hasattr(adapter, "close"):
                 adapter.close()
-            logger.info(
-                "VaultSecretManager closed, cache cleared",
-                extra={"backend": "vault"},
-            )
+        logger.info(
+            "VaultSecretManager closed, cache cleared",
+            extra={"backend": "vault"},
+        )

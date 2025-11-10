@@ -24,6 +24,8 @@ See also:
     - docs/ADRs/0017-secrets-management.md - Architecture decisions
 """
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
 
@@ -47,7 +49,6 @@ class TestAWSSecretsManagerInitialization:
         """Test successful initialization with IAM role authentication (no explicit credentials)."""
         # Arrange
         mock_client = MagicMock()
-        mock_client.list_secrets.return_value = {"SecretList": []}
         mock_boto_client.return_value = mock_client
 
         # Act
@@ -55,12 +56,13 @@ class TestAWSSecretsManagerInitialization:
 
         # Assert
         assert secret_mgr._region_name == "us-east-1"
-        assert secret_mgr._cache == {}
+        assert secret_mgr._cache is not None  # SecretCache instance
+        assert len(secret_mgr._cache) == 0  # Empty cache
         mock_boto_client.assert_called_once_with(
             "secretsmanager",
             region_name="us-east-1",
         )
-        mock_client.list_secrets.assert_called_once_with(MaxResults=1)
+        # Note: list_secrets() no longer called during __init__ to support read-only roles
 
     @pytest.mark.unit()
     @patch("libs.secrets.aws_backend.boto3.client")
@@ -87,35 +89,10 @@ class TestAWSSecretsManagerInitialization:
             aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         )
 
-    @pytest.mark.unit()
-    @patch("libs.secrets.aws_backend.boto3.client")
-    def test_init_auth_failure(self, mock_boto_client: Mock) -> None:
-        """Test initialization failure due to invalid credentials."""
-        # Arrange
-        mock_boto_client.return_value.list_secrets.side_effect = ClientError(
-            {"Error": {"Code": "UnrecognizedClientException"}},
-            "ListSecrets",
-        )
-
-        # Act & Assert
-        with pytest.raises(SecretAccessError) as exc_info:
-            AWSSecretsManager(region_name="us-east-1")
-
-        assert "AWS authentication failed" in str(exc_info.value)
-        assert "UnrecognizedClientException" in str(exc_info.value)
-
-    @pytest.mark.unit()
-    @patch("libs.secrets.aws_backend.boto3.client")
-    def test_init_network_error(self, mock_boto_client: Mock) -> None:
-        """Test initialization failure due to network error."""
-        # Arrange
-        mock_boto_client.return_value.list_secrets.side_effect = BotoCoreError()
-
-        # Act & Assert
-        with pytest.raises(SecretAccessError) as exc_info:
-            AWSSecretsManager(region_name="us-east-1")
-
-        assert "AWS SDK error" in str(exc_info.value)
+    # Note: test_init_auth_failure and test_init_network_error removed
+    # Rationale: __init__ no longer calls list_secrets() to support read-only IAM roles
+    # Validation now happens lazily on first get_secret() call
+    # Auth/network failure tests covered by get_secret test suite
 
 
 class TestAWSSecretsManagerGetSecret:
@@ -143,8 +120,8 @@ class TestAWSSecretsManagerGetSecret:
         mock_client.get_secret_value.assert_called_once_with(
             SecretId="prod/database/password"
         )
-        # Verify caching
-        assert "prod/database/password" in secret_mgr._cache
+        # Verify caching (cache has 1 entry)
+        assert len(secret_mgr._cache) == 1
 
     @pytest.mark.unit()
     @patch("libs.secrets.aws_backend.boto3.client")
@@ -189,16 +166,14 @@ class TestAWSSecretsManagerGetSecret:
 
         # Act
         secret_mgr.get_secret("test/secret")  # Cache miss
-        # Manually expire cache
-        secret_name = "test/secret"
-        cached_value, _ = secret_mgr._cache[secret_name]
-        secret_mgr._cache[secret_name] = (
-            cached_value,
-            datetime.now(UTC) - timedelta(seconds=2),  # Expired (timezone-aware)
-        )
+        assert len(secret_mgr._cache) == 1  # Cached
+
+        # Wait for cache to expire
+        time.sleep(1.1)  # TTL=1 second, wait 1.1 seconds
+
         secret_mgr.get_secret("test/secret")  # Cache expired, fetch again
 
-        # Assert
+        # Assert - should have called AWS twice (initial + after expiry)
         assert mock_client.get_secret_value.call_count == 2
 
     @pytest.mark.unit()
@@ -473,12 +448,12 @@ class TestAWSSecretsManagerSetSecret:
 
         # Act
         secret_mgr.get_secret("test/secret")  # Cache "old_value"
-        assert "test/secret" in secret_mgr._cache
+        assert len(secret_mgr._cache) == 1  # Cached
 
         secret_mgr.set_secret("test/secret", "new_value")  # Invalidate cache
 
-        # Assert
-        assert "test/secret" not in secret_mgr._cache
+        # Assert - cache should be empty (invalidated)
+        assert len(secret_mgr._cache) == 0
 
     @pytest.mark.unit()
     @patch("libs.secrets.aws_backend.boto3.client")
@@ -541,12 +516,13 @@ class TestAWSSecretsManagerClose:
 
         secret_mgr = AWSSecretsManager(region_name="us-east-1")
         secret_mgr.get_secret("test/secret")  # Populate cache
+        assert len(secret_mgr._cache) == 1  # Cached
 
         # Act
         secret_mgr.close()
 
-        # Assert
-        assert secret_mgr._cache == {}
+        # Assert - cache should be cleared
+        assert len(secret_mgr._cache) == 0
 
     @pytest.mark.unit()
     @patch("libs.secrets.aws_backend.boto3.client")
@@ -563,7 +539,267 @@ class TestAWSSecretsManagerClose:
         # Act
         with AWSSecretsManager(region_name="us-east-1") as secret_mgr:
             secret_mgr.get_secret("test/secret")
-            assert "test/secret" in secret_mgr._cache
+            assert len(secret_mgr._cache) == 1  # Cached
 
         # Assert (context manager called close())
-        assert secret_mgr._cache == {}
+        assert len(secret_mgr._cache) == 0  # Cache cleared
+
+
+# ================================================================================
+# Retry Logic Tests
+# ================================================================================
+
+
+class TestAWSSecretsManagerRetryLogic:
+    """Test suite for retry logic on transient vs. permanent errors."""
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_get_secret_retries_on_transient_error(self, mock_boto_client: Mock) -> None:
+        """Test get_secret retries on transient errors (e.g., ThrottlingException)."""
+        # Arrange
+        mock_client = MagicMock()
+        throttling_error = ClientError(
+            {"Error": {"Code": "ThrottlingException"}}, "GetSecretValue"
+        )
+        mock_client.get_secret_value.side_effect = [
+            throttling_error,
+            {"SecretString": "successful_value"},
+        ]
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act
+        value = secret_mgr.get_secret("test/secret")
+
+        # Assert
+        assert value == "successful_value"
+        # Should be called twice: once for the failure, once for the success
+        assert mock_client.get_secret_value.call_count == 2
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_get_secret_does_not_retry_on_permanent_error(
+        self, mock_boto_client: Mock
+    ) -> None:
+        """Test get_secret does NOT retry on permanent errors (e.g., AccessDeniedException)."""
+        # Arrange
+        mock_client = MagicMock()
+        access_denied_error = ClientError(
+            {"Error": {"Code": "AccessDeniedException"}}, "GetSecretValue"
+        )
+        mock_client.get_secret_value.side_effect = access_denied_error
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        with pytest.raises(SecretAccessError):
+            secret_mgr.get_secret("test/secret")
+
+        # Should be called only once, as permanent errors are not retried
+        assert mock_client.get_secret_value.call_count == 1
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_get_secret_exhausts_retries_raises_original_exception(
+        self, mock_boto_client: Mock
+    ) -> None:
+        """Test get_secret raises original exception (not RetryError) when retries exhausted."""
+        # Arrange
+        mock_client = MagicMock()
+        throttling_error = ClientError(
+            {"Error": {"Code": "ThrottlingException"}}, "GetSecretValue"
+        )
+        # Always fail with transient error to exhaust retries
+        mock_client.get_secret_value.side_effect = throttling_error
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        # Should raise SecretAccessError (NOT RetryError)
+        with pytest.raises(SecretAccessError) as exc_info:
+            secret_mgr.get_secret("test/secret")
+
+        # Verify it's the expected domain exception with context
+        assert "AWS API error" in str(exc_info.value)
+        assert "ThrottlingException" in str(exc_info.value)
+
+        # Should be called 3 times (initial + 2 retries)
+        assert mock_client.get_secret_value.call_count == 3
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_list_secrets_exhausts_retries_raises_original_exception(
+        self, mock_boto_client: Mock
+    ) -> None:
+        """Test list_secrets raises original exception (not RetryError) when retries exhausted."""
+        # Arrange
+        mock_client = MagicMock()
+        throttling_error = ClientError(
+            {"Error": {"Code": "ServiceUnavailable"}}, "ListSecrets"
+        )
+
+        # Mock paginator to always fail with transient error
+        mock_paginator = MagicMock()
+        mock_paginator.paginate.side_effect = throttling_error
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Act & Assert
+        # Should raise SecretAccessError (NOT RetryError)
+        with pytest.raises(SecretAccessError) as exc_info:
+            secret_mgr.list_secrets()
+
+        # Verify it's the expected domain exception with context
+        assert "AWS API error" in str(exc_info.value)
+        assert "ServiceUnavailable" in str(exc_info.value)
+
+        # Should be called 3 times (initial + 2 retries)
+        assert mock_paginator.paginate.call_count == 3
+
+
+# ================================================================================
+# Thread Safety Tests
+# ================================================================================
+
+
+class TestAWSSecretsManagerThreadSafety:
+    """Test AWSSecretsManager thread safety."""
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_concurrent_get_secret(self, mock_boto_client: Mock) -> None:
+        """Test concurrent get_secret calls are thread-safe."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_client.get_secret_value.return_value = {
+            "SecretString": "concurrent_value",
+        }
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+        results: list[str] = []
+
+        def get_secret_worker() -> None:
+            value = secret_mgr.get_secret("test/secret")
+            results.append(value)
+
+        # Act - 10 concurrent get_secret calls
+        threads = [threading.Thread(target=get_secret_worker) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Assert - All threads should get the same value
+        assert len(results) == 10
+        assert all(r == "concurrent_value" for r in results)
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_concurrent_set_secret(self, mock_boto_client: Mock) -> None:
+        """Test concurrent set_secret calls are thread-safe."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+        set_count = [0]
+        lock = threading.Lock()
+
+        def set_secret_worker(value: str) -> None:
+            secret_mgr.set_secret("test/secret", value)
+            with lock:
+                set_count[0] += 1
+
+        # Act - 10 concurrent set_secret calls
+        threads = [
+            threading.Thread(target=set_secret_worker, args=(f"value{i}",))
+            for i in range(10)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Assert - All writes should have completed
+        assert set_count[0] == 10
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_concurrent_get_and_set(self, mock_boto_client: Mock) -> None:
+        """Test concurrent get and set operations are thread-safe."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_client.get_secret_value.return_value = {
+            "SecretString": "initial_value",
+        }
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+        results: list[tuple[str, str]] = []
+        lock = threading.Lock()
+
+        def get_worker() -> None:
+            value = secret_mgr.get_secret("test/secret")
+            with lock:
+                results.append(("get", value))
+
+        def set_worker(value: str) -> None:
+            secret_mgr.set_secret("test/secret", value)
+            with lock:
+                results.append(("set", value))
+
+        # Act - Mix of get and set operations
+        threads = []
+        for i in range(5):
+            threads.append(threading.Thread(target=get_worker))
+            threads.append(threading.Thread(target=set_worker, args=(f"value{i}",)))
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Assert - All operations should have completed
+        assert len(results) == 10
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.aws_backend.boto3.client")
+    def test_concurrent_cache_access(self, mock_boto_client: Mock) -> None:
+        """Test concurrent cache access is thread-safe."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_client.get_secret_value.return_value = {
+            "SecretString": "cached_value",
+        }
+        mock_boto_client.return_value = mock_client
+
+        secret_mgr = AWSSecretsManager(region_name="us-east-1")
+
+        # Populate cache first
+        secret_mgr.get_secret("test/secret")
+        results: list[str] = []
+
+        def cache_access_worker() -> None:
+            # Access cached value (should not call AWS)
+            value = secret_mgr.get_secret("test/secret")
+            results.append(value)
+
+        # Act - 20 concurrent cache accesses
+        threads = [threading.Thread(target=cache_access_worker) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Assert - All threads should get cached value
+        assert len(results) == 20
+        assert all(r == "cached_value" for r in results)
+        # AWS should have been called only once (during cache population)
+        assert mock_client.get_secret_value.call_count == 1

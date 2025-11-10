@@ -51,13 +51,14 @@ See Also:
 
 import logging
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import cast
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from libs.secrets.cache import SecretCache
 from libs.secrets.exceptions import (
     SecretAccessError,
     SecretNotFoundError,
@@ -66,6 +67,52 @@ from libs.secrets.exceptions import (
 from libs.secrets.manager import SecretManager
 
 logger = logging.getLogger(__name__)
+
+
+def _is_transient_aws_error(exception: BaseException) -> bool:
+    """
+    Check if an AWS exception is transient and should be retried.
+
+    Transient errors (should retry):
+        - Throttling errors
+        - ServiceUnavailable
+        - InternalServiceError
+        - Network errors (BotoCoreError)
+
+    Permanent errors (should NOT retry):
+        - AccessDeniedException (permission denied)
+        - InvalidRequestException (bad request)
+        - ResourceNotFoundException (secret doesn't exist)
+        - InvalidParameterException (invalid input)
+        - etc.
+
+    Args:
+        exception: Exception to check
+
+    Returns:
+        True if exception is transient and should be retried, False otherwise
+    """
+    # Always retry network/SDK errors (BotoCoreError)
+    if isinstance(exception, BotoCoreError):
+        return True
+
+    # Check if it's a ClientError with a transient error code
+    if isinstance(exception, ClientError):
+        error_code = exception.response.get("Error", {}).get("Code", "")
+
+        # Transient AWS error codes that should be retried
+        transient_codes = {
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailable",
+            "InternalServiceError",
+            "InternalFailure",
+        }
+
+        return error_code in transient_codes
+
+    # Don't retry other exception types
+    return False
 
 
 class AWSSecretsManager(SecretManager):
@@ -162,8 +209,7 @@ class AWSSecretsManager(SecretManager):
             ... )
         """
         self._lock = threading.Lock()
-        self._cache: dict[str, tuple[str, datetime]] = {}
-        self._cache_ttl = timedelta(seconds=cache_ttl_seconds)
+        self._cache = SecretCache(ttl=timedelta(seconds=cache_ttl_seconds))
         self._region_name = region_name
 
         # Initialize AWS Secrets Manager client
@@ -185,9 +231,9 @@ class AWSSecretsManager(SecretManager):
 
             self._client = boto3.client("secretsmanager", **client_kwargs)
 
-            # Test connection by listing secrets (validates auth + permissions)
-            self._client.list_secrets(MaxResults=1)
-
+            # Connection validated on first get_secret() call (lazy validation)
+            # Note: Intentionally NOT calling list_secrets() here to support
+            # read-only IAM roles that only have GetSecretValue permission
             logger.info(
                 "AWS Secrets Manager initialized successfully",
                 extra={"region": region_name, "backend": "aws"},
@@ -216,11 +262,6 @@ class AWSSecretsManager(SecretManager):
                 reason=f"Unexpected error during AWS Secrets Manager initialization: {e}",
             ) from e
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ClientError, BotoCoreError)),
-    )
     def get_secret(self, name: str) -> str:
         """
         Retrieve a secret from AWS Secrets Manager.
@@ -229,8 +270,9 @@ class AWSSecretsManager(SecretManager):
         AWS Secrets Manager API if cache miss or expired. Secret values are
         cached for 1 hour (configurable via cache_ttl_seconds).
 
-        Retries: 3 attempts with exponential backoff (1-5 seconds) for transient
-        AWS API failures (throttling, network errors).
+        Retries: 3 attempts with exponential backoff (1-5 seconds) for TRANSIENT
+        AWS API failures (throttling, network errors). Permanent errors like
+        ResourceNotFoundException are NOT retried.
 
         Args:
             name: Secret name/path (e.g., "prod/database/password", "prod/alpaca/api_key_id")
@@ -266,89 +308,107 @@ class AWSSecretsManager(SecretManager):
             >>> logger.info(f"Loaded secret: prod/database/password")  # CORRECT: Name only
             >>> # print(db_password)  # WRONG: Exposes secret in logs
         """
-        with self._lock:
-            # Check cache first
-            if name in self._cache:
-                value, cached_at = self._cache[name]
-                if datetime.now(UTC) - cached_at < self._cache_ttl:
-                    logger.debug(
-                        "Secret cache hit",
-                        extra={"secret_name": name, "backend": "aws"},
-                    )
-                    return value
-                else:
-                    # Cache expired
-                    logger.debug(
-                        "Secret cache expired",
-                        extra={"secret_name": name, "backend": "aws"},
-                    )
-                    del self._cache[name]
+        try:
+            return self._get_secret_with_retry(name)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
 
-            # Cache miss - fetch from AWS Secrets Manager
-            try:
-                response = self._client.get_secret_value(SecretId=name)
-
-                # AWS Secrets Manager stores secrets in either SecretString or SecretBinary
-                # For this application, we expect SecretString (text secrets)
-                if "SecretString" in response:
-                    value = cast(str, response["SecretString"])
-                else:
-                    raise SecretAccessError(
-                        secret_name=name,
-                        backend="aws",
-                        reason="Secret is binary, expected text (SecretString)",
-                    )
-
-                # Cache the value
-                self._cache[name] = (value, datetime.now(UTC))
-                logger.info(
-                    "Secret loaded from AWS Secrets Manager",
-                    extra={"secret_name": name, "backend": "aws"},
-                )
-                return value
-
-            except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code", "Unknown")
-
-                if error_code == "ResourceNotFoundException":
-                    raise SecretNotFoundError(
-                        secret_name=name,
-                        backend="aws",
-                        additional_context=(
-                            f"Secret '{name}' not found in AWS Secrets Manager "
-                            f"(region: {self._region_name}). "
-                            f"Verify secret exists with: aws secretsmanager describe-secret "
-                            f"--secret-id {name}"
-                        ),
-                    ) from e
-                elif error_code == "InvalidRequestException":
-                    raise SecretAccessError(
-                        secret_name=name,
-                        backend="aws",
-                        reason=f"Invalid request for secret '{name}': Secret marked for deletion",
-                    ) from e
-                elif error_code == "AccessDeniedException":
-                    raise SecretAccessError(
-                        secret_name=name,
-                        backend="aws",
-                        reason=(
-                            f"Access denied for secret '{name}'. "
-                            f"Verify IAM role has secretsmanager:GetSecretValue permission."
-                        ),
-                    ) from e
-                else:
-                    # Generic AWS error (throttling, network, etc.) - will retry
-                    raise
-
-            except BotoCoreError:
-                # BotoCore errors (network, SDK issues) - will retry
-                raise
+            if error_code == "ResourceNotFoundException":
+                raise SecretNotFoundError(
+                    secret_name=name,
+                    backend="aws",
+                    additional_context=(
+                        f"Secret '{name}' not found in AWS Secrets Manager "
+                        f"(region: {self._region_name}). "
+                        f"Verify secret exists with: aws secretsmanager describe-secret "
+                        f"--secret-id {name}"
+                    ),
+                ) from e
+            elif error_code == "InvalidRequestException":
+                raise SecretAccessError(
+                    secret_name=name,
+                    backend="aws",
+                    reason=f"Invalid request for secret '{name}': Secret marked for deletion",
+                ) from e
+            elif error_code == "AccessDeniedException":
+                raise SecretAccessError(
+                    secret_name=name,
+                    backend="aws",
+                    reason=(
+                        f"Access denied for secret '{name}'. "
+                        f"Verify IAM role has secretsmanager:GetSecretValue permission."
+                    ),
+                ) from e
+            else:
+                raise SecretAccessError(
+                    secret_name=name,
+                    backend="aws",
+                    reason=f"AWS API error: {error_code}",
+                ) from e
+        except BotoCoreError as e:
+            raise SecretAccessError(
+                secret_name=name,
+                backend="aws",
+                reason=f"AWS SDK error retrieving secret: {e}",
+            ) from e
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ClientError, BotoCoreError)),
+        retry=retry_if_exception(_is_transient_aws_error),
+        reraise=True,
     )
+    def _get_secret_with_retry(self, name: str) -> str:
+        """
+        Internal method: Retrieve secret with retry logic.
+
+        This method contains the actual AWS API calls and allows TRANSIENT
+        exceptions to propagate for retry (throttling, network errors, etc.).
+        Permanent errors (ResourceNotFoundException, AccessDeniedException) are
+        NOT retried and propagate immediately to the outer get_secret() method.
+
+        Args:
+            name: Secret name/path
+
+        Returns:
+            Secret value as string
+
+        Raises:
+            ClientError: AWS API error (transient errors retried, permanent errors propagate)
+            BotoCoreError: AWS SDK error (always retried)
+        """
+        with self._lock:
+            # Check cache first
+            cached_value = self._cache.get(name)
+            if cached_value is not None:
+                logger.debug(
+                    "Secret cache hit",
+                    extra={"secret_name": name, "backend": "aws"},
+                )
+                return cached_value
+
+            # Cache miss - fetch from AWS Secrets Manager
+            response = self._client.get_secret_value(SecretId=name)
+
+            # AWS Secrets Manager stores secrets in either SecretString or SecretBinary
+            # For this application, we expect SecretString (text secrets)
+            if "SecretString" in response:
+                value = cast(str, response["SecretString"])
+            else:
+                raise SecretAccessError(
+                    secret_name=name,
+                    backend="aws",
+                    reason="Secret is binary, expected text (SecretString)",
+                )
+
+            # Cache the value
+            self._cache.set(name, value)
+            logger.info(
+                "Secret loaded from AWS Secrets Manager",
+                extra={"secret_name": name, "backend": "aws"},
+            )
+            return value
+
     def list_secrets(self, prefix: str | None = None) -> list[str]:
         """
         List all secret names in AWS Secrets Manager (optional prefix filter).
@@ -356,8 +416,9 @@ class AWSSecretsManager(SecretManager):
         This method returns a list of secret names/paths, optionally filtered
         by prefix. Useful for verification and debugging.
 
-        Retries: 3 attempts with exponential backoff (1-5 seconds) for transient
-        AWS API failures.
+        Retries: 3 attempts with exponential backoff (1-5 seconds) for TRANSIENT
+        AWS API failures (throttling, network errors). Permanent errors like
+        AccessDeniedException are NOT retried.
 
         **Performance Note**: This method paginates through ALL secrets in the
         region to filter by prefix. For accounts with many secrets (>1000),
@@ -396,64 +457,83 @@ class AWSSecretsManager(SecretManager):
             >>> print(prod_secrets)
             ['prod/database/password', 'prod/alpaca/api_key_id']
         """
-        with self._lock:
-            try:
-                secret_names: list[str] = []
-
-                # AWS Secrets Manager uses pagination for list_secrets
-                # Use server-side filtering when prefix provided for better performance
-                paginator = self._client.get_paginator("list_secrets")
-
-                # Build pagination kwargs with server-side filtering if prefix provided
-                paginate_kwargs = {}
-                if prefix is not None:
-                    # Server-side filtering via Filters parameter (more efficient)
-                    # AWS Filter API already performs prefix matching, so no need for "*"
-                    paginate_kwargs["Filters"] = [{"Key": "name", "Values": [prefix]}]
-
-                for page in paginator.paginate(**paginate_kwargs):
-                    for secret in page.get("SecretList", []):
-                        secret_name = secret.get("Name", "")
-                        if secret_name:
-                            # Client-side filtering as safety check (defense in depth)
-                            # Server-side filtering should handle most cases, but this ensures correctness
-                            if prefix is None or secret_name.startswith(prefix):
-                                secret_names.append(secret_name)
-
-                logger.info(
-                    "Listed secrets from AWS Secrets Manager",
-                    extra={
-                        "count": len(secret_names),
-                        "prefix": prefix,
-                        "backend": "aws",
-                    },
-                )
-                return sorted(secret_names)
-
-            except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code", "Unknown")
-                if error_code == "AccessDeniedException":
-                    raise SecretAccessError(
-                        secret_name=f"list_secrets(prefix={prefix})",
-                        backend="aws",
-                        reason=(
-                            "Access denied for listing secrets. "
-                            "Verify IAM role has secretsmanager:ListSecrets permission."
-                        ),
-                    ) from e
-                else:
-                    # Generic AWS error (throttling, network, etc.) - will retry
-                    raise
-
-            except BotoCoreError:
-                # BotoCore errors (network, SDK issues) - will retry
-                raise
+        try:
+            return self._list_secrets_with_retry(prefix)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            if error_code == "AccessDeniedException":
+                raise SecretAccessError(
+                    secret_name=f"list_secrets(prefix={prefix})",
+                    backend="aws",
+                    reason=(
+                        "Access denied for listing secrets. "
+                        "Verify IAM role has secretsmanager:ListSecrets permission."
+                    ),
+                ) from e
+            else:
+                raise SecretAccessError(
+                    secret_name=f"list_secrets(prefix={prefix})",
+                    backend="aws",
+                    reason=f"AWS API error: {error_code}",
+                ) from e
+        except BotoCoreError as e:
+            raise SecretAccessError(
+                secret_name=f"list_secrets(prefix={prefix})",
+                backend="aws",
+                reason=f"AWS SDK error listing secrets: {e}",
+            ) from e
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type((ClientError, BotoCoreError)),
+        retry=retry_if_exception(_is_transient_aws_error),
+        reraise=True,
     )
+    def _list_secrets_with_retry(self, prefix: str | None = None) -> list[str]:
+        """
+        Internal method: List secrets with retry logic.
+
+        This method contains the actual AWS API calls and allows TRANSIENT
+        exceptions to propagate for retry (throttling, network errors, etc.).
+        Permanent errors (AccessDeniedException) are NOT retried and propagate
+        immediately to the outer list_secrets() method.
+
+        Args:
+            prefix: Optional filter prefix
+
+        Returns:
+            List of secret names
+
+        Raises:
+            ClientError: AWS API error (transient errors retried, permanent errors propagate)
+            BotoCoreError: AWS SDK error (always retried)
+        """
+        with self._lock:
+            secret_names: list[str] = []
+
+            # AWS Secrets Manager uses pagination for list_secrets
+            paginator = self._client.get_paginator("list_secrets")
+
+            # Note: AWS Filters API uses exact name matching, not prefix matching
+            # Therefore we use client-side filtering for all prefix queries
+            for page in paginator.paginate():
+                for secret in page.get("SecretList", []):
+                    secret_name = secret.get("Name", "")
+                    if secret_name:
+                        # Client-side prefix filtering
+                        if prefix is None or secret_name.startswith(prefix):
+                            secret_names.append(secret_name)
+
+            logger.info(
+                "Listed secrets from AWS Secrets Manager",
+                extra={
+                    "count": len(secret_names),
+                    "prefix": prefix,
+                    "backend": "aws",
+                },
+            )
+            return sorted(secret_names)
+
     def set_secret(self, name: str, value: str) -> None:
         """
         Create or update a secret in AWS Secrets Manager.
@@ -505,79 +585,104 @@ class AWSSecretsManager(SecretManager):
             >>> # Create new secret
             >>> secret_mgr.set_secret("prod/new_service/api_key", "sk-abc123")
         """
+        try:
+            # Call internal retry method (retries transient errors)
+            self._set_secret_with_retry(name, value)
+
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+
+            if error_code == "AccessDeniedException":
+                raise SecretWriteError(
+                    secret_name=name,
+                    backend="aws",
+                    reason=(
+                        "Access denied for writing secret. "
+                        "Verify IAM role has secretsmanager:PutSecretValue "
+                        "and secretsmanager:CreateSecret permissions."
+                    ),
+                ) from e
+            elif error_code == "InvalidRequestException":
+                raise SecretWriteError(
+                    secret_name=name,
+                    backend="aws",
+                    reason=f"Invalid request for secret '{name}': Secret marked for deletion",
+                ) from e
+            else:
+                raise SecretWriteError(
+                    secret_name=name,
+                    backend="aws",
+                    reason=f"AWS error writing secret: {error_code}",
+                ) from e
+
+        except BotoCoreError as e:
+            raise SecretWriteError(
+                secret_name=name,
+                backend="aws",
+                reason=f"AWS SDK error writing secret: {e}",
+            ) from e
+
+        except Exception as e:
+            raise SecretWriteError(
+                secret_name=name,
+                backend="aws",
+                reason=f"Unexpected error writing secret: {e}",
+            ) from e
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception(_is_transient_aws_error),
+        reraise=True,
+    )
+    def _set_secret_with_retry(self, name: str, value: str) -> None:
+        """
+        Internal method: Create or update secret with retry logic.
+
+        This method contains the actual AWS API calls and allows TRANSIENT
+        exceptions to propagate for retry (throttling, network errors, etc.).
+        Permanent errors (AccessDeniedException, InvalidRequestException) are
+        NOT retried and propagate immediately to the outer set_secret() method.
+
+        Args:
+            name: Secret name/path
+            value: Secret value to store
+
+        Raises:
+            ClientError: AWS API error (transient errors retried, permanent errors propagate)
+            BotoCoreError: AWS SDK error (always retried)
+        """
         with self._lock:
+            # Try to update existing secret first (PutSecretValue)
             try:
-                # Try to update existing secret first (PutSecretValue)
-                try:
-                    self._client.put_secret_value(
-                        SecretId=name,
-                        SecretString=value,
-                    )
-                    logger.info(
-                        "Secret updated in AWS Secrets Manager",
-                        extra={"secret_name": name, "backend": "aws"},
-                    )
-
-                except ClientError as e:
-                    error_code = e.response.get("Error", {}).get("Code", "Unknown")
-
-                    if error_code == "ResourceNotFoundException":
-                        # Secret doesn't exist, create it (CreateSecret)
-                        self._client.create_secret(
-                            Name=name,
-                            SecretString=value,
-                        )
-                        logger.info(
-                            "Secret created in AWS Secrets Manager",
-                            extra={"secret_name": name, "backend": "aws"},
-                        )
-                    else:
-                        # Re-raise other ClientErrors
-                        raise
-
-                # Invalidate cache (force fresh fetch on next get)
-                if name in self._cache:
-                    del self._cache[name]
+                self._client.put_secret_value(
+                    SecretId=name,
+                    SecretString=value,
+                )
+                logger.info(
+                    "Secret updated in AWS Secrets Manager",
+                    extra={"secret_name": name, "backend": "aws"},
+                )
 
             except ClientError as e:
                 error_code = e.response.get("Error", {}).get("Code", "Unknown")
 
-                if error_code == "AccessDeniedException":
-                    raise SecretWriteError(
-                        secret_name=name,
-                        backend="aws",
-                        reason=(
-                            "Access denied for writing secret. "
-                            "Verify IAM role has secretsmanager:PutSecretValue "
-                            "and secretsmanager:CreateSecret permissions."
-                        ),
-                    ) from e
-                elif error_code == "InvalidRequestException":
-                    raise SecretWriteError(
-                        secret_name=name,
-                        backend="aws",
-                        reason=f"Invalid request for secret '{name}': Secret marked for deletion",
-                    ) from e
+                if error_code == "ResourceNotFoundException":
+                    # Secret doesn't exist, create it (CreateSecret)
+                    self._client.create_secret(
+                        Name=name,
+                        SecretString=value,
+                    )
+                    logger.info(
+                        "Secret created in AWS Secrets Manager",
+                        extra={"secret_name": name, "backend": "aws"},
+                    )
                 else:
-                    raise SecretWriteError(
-                        secret_name=name,
-                        backend="aws",
-                        reason=f"AWS error writing secret: {error_code}",
-                    ) from e
+                    # Re-raise other ClientErrors for retry or error handling
+                    raise
 
-            except BotoCoreError as e:
-                raise SecretWriteError(
-                    secret_name=name,
-                    backend="aws",
-                    reason=f"AWS SDK error writing secret: {e}",
-                ) from e
-
-            except Exception as e:
-                raise SecretWriteError(
-                    secret_name=name,
-                    backend="aws",
-                    reason=f"Unexpected error writing secret: {e}",
-                ) from e
+            # Invalidate cache (force fresh fetch on next get)
+            self._cache.invalidate(name)
 
     def close(self) -> None:
         """
@@ -593,10 +698,9 @@ class AWSSecretsManager(SecretManager):
             ... finally:
             ...     secret_mgr.close()  # Clear cache
         """
-        with self._lock:
-            self._cache.clear()
-            # Boto3 clients don't need explicit close, but we clear cache
-            logger.info(
-                "AWSSecretsManager closed, cache cleared",
-                extra={"backend": "aws"},
-            )
+        self._cache.clear()
+        # Boto3 clients don't need explicit close, but we clear cache
+        logger.info(
+            "AWSSecretsManager closed, cache cleared",
+            extra={"backend": "aws"},
+        )

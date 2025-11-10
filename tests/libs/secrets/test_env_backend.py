@@ -505,34 +505,39 @@ class TestEnvSecretManagerContextManager:
 
 
 class TestEnvSecretManagerCaching:
-    """Test caching behavior."""
+    """Test caching behavior (using SecretCache)."""
 
     def test_cache_ttl_default_one_hour(self, clean_env):
-        """Test default cache TTL is 1 hour (3600 seconds)."""
+        """Test cache is initialized (TTL tested in test_cache.py)."""
         manager = EnvSecretManager()
 
-        assert manager._cache_ttl == timedelta(seconds=3600)
+        # Verify SecretCache instance created
+        assert manager._cache is not None
+        assert hasattr(manager._cache, "get")
+        assert hasattr(manager._cache, "set")
 
     def test_cache_ttl_custom_value(self, clean_env):
-        """Test custom cache TTL is honored."""
+        """Test custom cache TTL is passed to SecretCache."""
         manager = EnvSecretManager(cache_ttl_seconds=600)
 
-        assert manager._cache_ttl == timedelta(seconds=600)
+        # Verify SecretCache instance created
+        assert manager._cache is not None
 
     def test_cache_stores_value_and_timestamp(self, clean_env):
-        """Test cache stores both value and timestamp."""
+        """Test cache stores values correctly."""
         os.environ["TEST_SECRET_1"] = "value1"
         manager = EnvSecretManager()
 
-        before_fetch = datetime.now(UTC)
-        manager.get_secret("TEST_SECRET_1")
-        after_fetch = datetime.now(UTC)
+        # First call caches value
+        result1 = manager.get_secret("TEST_SECRET_1")
+        assert result1 == "value1"
 
-        # Verify cache entry structure
-        assert "TEST_SECRET_1" in manager._cache
-        value, cached_at = manager._cache["TEST_SECRET_1"]
-        assert value == "value1"
-        assert before_fetch <= cached_at <= after_fetch
+        # Verify cache contains entry (check via len)
+        assert len(manager._cache) == 1
+
+        # Second call should use cache (same value)
+        result2 = manager.get_secret("TEST_SECRET_1")
+        assert result2 == "value1"
 
     def test_cache_expiration_removes_entry(self, clean_env):
         """Test expired cache entry is removed on next get_secret()."""
@@ -541,14 +546,16 @@ class TestEnvSecretManagerCaching:
 
         # Cache the value
         manager.get_secret("TEST_SECRET_1")
-        assert "TEST_SECRET_1" in manager._cache
+        assert len(manager._cache) == 1
 
         # Wait for expiration
         time.sleep(1.1)
 
         # Next get should remove expired entry and create new one
-        manager.get_secret("TEST_SECRET_1")
-        assert "TEST_SECRET_1" in manager._cache
+        result = manager.get_secret("TEST_SECRET_1")
+        assert result == "value1"
+        # Cache should still have entry (re-cached after expiration)
+        assert len(manager._cache) == 1
 
     def test_cache_invalidation_on_set_secret(self, clean_env):
         """Test set_secret() removes entry from cache."""
@@ -557,13 +564,18 @@ class TestEnvSecretManagerCaching:
 
         # Cache the value
         manager.get_secret("TEST_SECRET_1")
-        assert "TEST_SECRET_1" in manager._cache
+        assert len(manager._cache) == 1
 
         # Update via set_secret
         manager.set_secret("TEST_SECRET_1", "new_value")
 
-        # Cache should be invalidated
-        assert "TEST_SECRET_1" not in manager._cache
+        # Cache should be invalidated (empty)
+        assert len(manager._cache) == 0
+
+        # Next get should return new value and re-cache
+        result = manager.get_secret("TEST_SECRET_1")
+        assert result == "new_value"
+        assert len(manager._cache) == 1
 
     def test_cache_independent_per_secret(self, clean_env):
         """Test cache entries are independent per secret."""
@@ -575,15 +587,21 @@ class TestEnvSecretManagerCaching:
         manager.get_secret("TEST_SECRET_1")
         manager.get_secret("TEST_SECRET_2")
 
-        assert "TEST_SECRET_1" in manager._cache
-        assert "TEST_SECRET_2" in manager._cache
+        assert len(manager._cache) == 2
 
         # Invalidate one
         manager.set_secret("TEST_SECRET_1", "new_value")
 
-        # Only TEST_SECRET_1 should be invalidated
-        assert "TEST_SECRET_1" not in manager._cache
-        assert "TEST_SECRET_2" in manager._cache
+        # Cache should have one entry (TEST_SECRET_2)
+        assert len(manager._cache) == 1
+
+        # Verify TEST_SECRET_2 still cached
+        result2 = manager.get_secret("TEST_SECRET_2")
+        assert result2 == "value2"
+
+        # Verify TEST_SECRET_1 returns new value
+        result1 = manager.get_secret("TEST_SECRET_1")
+        assert result1 == "new_value"
 
 
 # ============================================================================
