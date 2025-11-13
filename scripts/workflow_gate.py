@@ -1012,11 +1012,17 @@ class WorkflowGate:
         print(f"Current Step: {state['step']}")
         print()
         print("Workflow Progress:")
-        print(f"  1. Implement {'✓' if state['step'] != 'implement' else '← YOU ARE HERE'}")
-        print(
-            f"  2. Test {'✓' if state['step'] in ['review'] else '← YOU ARE HERE' if state['step'] == 'test' else ''}"
-        )
-        print(f"  3. Review {'← YOU ARE HERE' if state['step'] == 'review' else ''}")
+        # P2 fix: Include all 4 steps (plan → implement → test → review)
+        current = state["step"]
+        steps = ["plan", "implement", "test", "review"]
+        for i, step in enumerate(steps, 1):
+            if step == current:
+                marker = "← YOU ARE HERE"
+            elif steps.index(current) > steps.index(step):
+                marker = "✓"
+            else:
+                marker = ""
+            print(f"  {i}. {step.capitalize()} {marker}")
         print()
         print("Gate Status:")
         zen_status = state["zen_review"].get("status", "NOT_REQUESTED")
@@ -1035,8 +1041,9 @@ class WorkflowGate:
 
         # Show available actions
         print("Available Actions:")
-        current = state["step"]
-        if current == "implement":
+        if current == "plan":
+            print("  ./scripts/workflow_gate.py advance implement")
+        elif current == "implement":
             print("  ./scripts/workflow_gate.py advance test")
         elif current == "test":
             print("  ./scripts/workflow_gate.py advance review")
