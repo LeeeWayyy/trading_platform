@@ -27,6 +27,7 @@ Date: 2025-11-02
 import argparse
 import fcntl
 import glob
+import hashlib
 import json
 import os
 import re
@@ -418,6 +419,47 @@ class WorkflowGate:
 
         print(f"✅ Advanced to '{next}' step")
 
+    def _compute_staged_hash(self) -> str:
+        """
+        Compute SHA256 hash of staged changes (Component 1: Code State Fingerprinting).
+
+        Uses git diff with flags to ensure consistent, machine-readable output across
+        environments. Addresses Gemini CRITICAL and HIGH findings.
+
+        Returns:
+            str: Hex digest of staged changes, or empty string if no changes
+
+        Raises:
+            subprocess.CalledProcessError: If git command fails
+        """
+        try:
+            # Gemini HIGH fix: Add flags for consistent output across environments
+            # --no-pager: Prevents hanging on large diffs
+            # --binary: Include binary file content correctly
+            # --no-color: Disable color escape codes
+            # --no-ext-diff: Ignore external diff helpers
+            # Codex MEDIUM fix: Add cwd=PROJECT_ROOT to work from any directory
+            result = subprocess.run(
+                ["git", "--no-pager", "diff", "--staged", "--binary", "--no-color", "--no-ext-diff"],
+                capture_output=True,
+                check=True,
+                cwd=PROJECT_ROOT,
+            )
+
+            if not result.stdout:
+                return ""  # No staged changes
+
+            # Gemini CRITICAL fix: Use Python's hashlib instead of sha256sum (portability)
+            hasher = hashlib.sha256()
+            hasher.update(result.stdout)
+            return hasher.hexdigest()
+
+        except subprocess.CalledProcessError as e:
+            # Propagate error with context
+            stderr = e.stderr.decode() if e.stderr else "Unknown error"
+            print(f"❌ Error computing staged hash: {stderr}")
+            raise
+
     def record_review(self, continuation_id: str, status: str) -> None:
         """
         Record zen-mcp review result.
@@ -425,15 +467,38 @@ class WorkflowGate:
         For PR reviews, also updates the unified_review.history to enable
         the override workflow for LOW severity issues after max iterations.
 
+        Component 1 (P1T13-F5a): Computes and stores staged hash BEFORE persisting
+        approval to prevent approval without fingerprint (Codex HIGH fix).
+
         Args:
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
         """
+        # Codex HIGH fix: Compute hash BEFORE persisting approval
+        # If hashing fails, approval is never persisted (fail-safe)
+        staged_hash = ""
+        try:
+            staged_hash = self._compute_staged_hash()
+        except Exception as e:
+            print(f"❌ Failed to compute staged hash: {e}")
+            print("   Cannot record review without code fingerprint")
+            sys.exit(1)
+
+        # Codex HIGH fix: Block empty hash approvals (no staged files bypass)
+        if not staged_hash:
+            print("❌ Cannot record review with no staged changes")
+            print("   Stage your changes first:")
+            print("     git add <files>")
+            print("   Then re-request review:")
+            print("     ./scripts/workflow_gate.py request-review commit")
+            sys.exit(1)
+
         with self._locked_state() as state:
             state["zen_review"] = {
                 "requested": True,
                 "continuation_id": continuation_id,
                 "status": status,  # "APPROVED" or "NEEDS_REVISION"
+                "staged_hash": staged_hash,  # Component 1: Store fingerprint
             }
 
             # Check if this is a PR review by looking for pending unified_review history
@@ -868,11 +933,81 @@ class WorkflowGate:
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
             sys.exit(1)
 
+        # Gate 0.4 (Component 1 - P1T13-F5a): Code state fingerprinting
+        # Verify that staged changes haven't been modified since review approval
+        stored_hash = state["zen_review"].get("staged_hash")
+
+        # Codex HIGH fix: Defensive check - reject approvals with empty hash
+        if stored_hash is not None and not stored_hash:
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("❌ COMMIT BLOCKED: Review has empty code fingerprint")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("   This review was recorded with no staged changes.")
+            print("   You must stage your changes and re-request review:")
+            print("     git add <files>")
+            print("     ./scripts/workflow_gate.py request-review commit")
+            print()
+            print("   Emergency override (production outage only):")
+            print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            sys.exit(1)
+
+        if stored_hash:  # Only verify if hash was stored (backwards compatibility)
+            try:
+                current_hash = self._compute_staged_hash()
+
+                if current_hash != stored_hash:
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("❌ COMMIT BLOCKED: Code changed after review approval")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("   Staged changes have been modified since zen-mcp review.")
+                    print()
+                    print("   Stored hash (at review):  ", stored_hash[:16], "...")
+                    print("   Current hash (now):       ", current_hash[:16], "...")
+                    print()
+                    print("   Changes detected:")
+                    # Show diff summary
+                    try:
+                        diff_summary = subprocess.run(
+                            ["git", "diff", "--staged", "--stat"],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                            cwd=PROJECT_ROOT,
+                        )
+                        if diff_summary.stdout:
+                            for line in diff_summary.stdout.splitlines()[:10]:  # Show first 10 lines
+                                print(f"     {line}")
+                    except Exception as e:
+                        # Gemini LOW fix: Log exception instead of silently ignoring
+                        print(f"     (Could not generate diff summary: {e})")
+                    print()
+                    print("   You must re-request review for the modified code:")
+                    print("     ./scripts/workflow_gate.py request-review commit")
+                    print()
+                    print("   Emergency override (production outage only):")
+                    print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    sys.exit(1)
+
+            except Exception as e:
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("❌ COMMIT BLOCKED: Failed to verify code fingerprint")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"   Error: {e}")
+                print()
+                print("   Emergency override (production outage only):")
+                print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                sys.exit(1)
+
         # All gates passed
         print("✅ Commit prerequisites satisfied")
         print(f"   Component: {state['current_component']}")
         print(f"   Zen review: {state['zen_review']['continuation_id'][:8]}...")
         print("   CI: PASSED")
+        if stored_hash:
+            print(f"   Code fingerprint: {stored_hash[:16]}... (verified)")
 
         # Phase 1: Performance instrumentation (report hook duration)
         end_time = time.time()
