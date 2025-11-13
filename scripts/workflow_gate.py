@@ -163,11 +163,18 @@ class WorkflowGate:
         lock_file.parent.mkdir(parents=True, exist_ok=True)
 
         for attempt in range(max_retries):
+            lock_fd = None
             try:
                 lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY, 0o644)
                 fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 return lock_fd
             except OSError as e:
+                # Close file descriptor before retry to prevent leak
+                if lock_fd is not None:
+                    try:
+                        os.close(lock_fd)
+                    except OSError:
+                        pass  # Ignore close errors
                 if attempt < max_retries - 1:
                     # Exponential backoff: 0.1s, 0.2s, 0.4s
                     time.sleep(0.1 * (2**attempt))
@@ -236,6 +243,50 @@ class WorkflowGate:
         finally:
             # Always release lock, even if exception occurred
             self._release_lock(lock_fd)
+
+    @contextmanager
+    def locked_state_context(self) -> Generator[dict, None, None]:
+        """
+        Public API for atomic locked state modifications.
+
+        MEDIUM fix from Gemini review: Provide public API instead of exposing
+        internal _locked_state() method to external classes like PlanningWorkflow.
+
+        Yields:
+            state: Workflow state dict that will be automatically saved on exit
+
+        Example:
+            with gate.locked_state_context() as state:
+                state["field"] = new_value
+                # State automatically saved with lock held
+        """
+        with self._locked_state() as state:
+            yield state
+
+    def _refresh_context_cache(self, state: dict) -> None:
+        """
+        Refresh context cache with current git index hash.
+
+        MEDIUM fix from Gemini review: Extract duplicated cache refresh logic
+        to avoid code duplication in record_context() and record_delegation().
+
+        Updates state["context_cache"] with:
+        - tokens: Current context token count
+        - timestamp: Current time (for 5-minute timeout)
+        - git_index_hash: Hash of staged changes (for invalidation on new changes)
+        """
+        try:
+            git_index_hash = subprocess.check_output(
+                ["git", "write-tree"], cwd=PROJECT_ROOT, text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except subprocess.CalledProcessError:
+            git_index_hash = "unknown"
+
+        state["context_cache"] = {
+            "tokens": state["context"]["current_tokens"],
+            "timestamp": time.time(),
+            "git_index_hash": git_index_hash,
+        }
 
     def load_state(self) -> dict:
         """Load workflow state from JSON file."""
@@ -711,9 +762,12 @@ class WorkflowGate:
             sys.exit(1)
 
         # Phase 1 Gate 0.6: Context delegation threshold (every commit)
+        # P1 fix: Load state to access configured max_tokens (Codex review)
+        state = self.load_state()
         current_tokens = self._get_cached_context_tokens()
-        max_tokens = 200_000
-        usage_percent = (current_tokens / max_tokens) * 100
+        context = state.get("context", {})
+        max_tokens = context.get("max_tokens", 200_000)  # Use configured limit
+        usage_percent = (current_tokens / max_tokens) * 100 if max_tokens > 0 else 0
 
         if usage_percent >= 85:  # MANDATORY threshold
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -860,6 +914,12 @@ class WorkflowGate:
             # Reset context after commit, ready for next component (Component 3)
             state["context"]["current_tokens"] = 0
             state["context"]["last_check_timestamp"] = datetime.now(UTC).isoformat()
+            # Invalidate context cache after reset (P1 fix from Codex review)
+            state["context_cache"] = {
+                "tokens": 0,
+                "timestamp": 0,
+                "git_index_hash": "",
+            }
             # State automatically saved when exiting context
 
         print(f"✅ Recorded commit {commit_hash[:8]}")
@@ -1476,6 +1536,7 @@ class DelegationRules:
 
                 # Phase 1 CRITICAL fix: Refresh context_cache to reflect new token count
                 # Without this, check_commit() continues blocking for up to 5 minutes after delegation
+                # Note: Cannot use WorkflowGate._refresh_context_cache - DelegationRules is separate class
                 import subprocess
                 import time
 
@@ -1528,6 +1589,7 @@ class DelegationRules:
             state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
 
         # Phase 1 CRITICAL fix: Refresh context_cache to reflect new token count
+        # Note: Cannot use WorkflowGate._refresh_context_cache - DelegationRules is separate class
         import subprocess
         import time
 
@@ -1732,6 +1794,7 @@ class DelegationRules:
 
                 # Phase 1 CRITICAL fix: Clear context_cache after delegation
                 # Without this, check_commit() continues blocking for up to 5 minutes
+                # Note: Cannot use WorkflowGate._refresh_context_cache - DelegationRules is separate class
                 import subprocess
                 import time
 
@@ -1789,6 +1852,7 @@ class DelegationRules:
         state["context"]["last_delegation_timestamp"] = delegation_record["timestamp"]
 
         # Phase 1 CRITICAL fix: Clear context_cache after delegation
+        # Note: Cannot use WorkflowGate._refresh_context_cache - DelegationRules is separate class
         import subprocess
         import time
 
@@ -2129,7 +2193,8 @@ class PlanningWorkflow:
         self._workflow_gate.reset()  # Clean slate (starts with step="plan")
 
         # Phase 1: Populate planning metadata
-        with self._workflow_gate._locked_state() as state:
+        # MEDIUM fix: Use public API instead of internal _locked_state() (Gemini review)
+        with self._workflow_gate.locked_state_context() as state:
             # Calculate task file path
             task_file_path = self._tasks_dir / f"{task_id}_TASK.md"
             state["task_file"] = str(task_file_path)

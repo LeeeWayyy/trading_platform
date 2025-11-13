@@ -94,11 +94,11 @@
 - Fixed in update_task_state.py (2 occurrences)
 
 **Files Changed:**
-- `scripts/update_task_state.py` (lines 23, 134, 167)
+- `scripts/update_task_state.py` (lines 23, 252, 261, 298, 303)
 
-**Note:** Still 2 more occurrences in line 170 and finish_task() - will fix in next commit
+**Note:** All 7 occurrences have been updated to `datetime.now(UTC)`.
 
-**Test Status:** Code review sufficient
+**Test Status:** Code review sufficient - all instances verified fixed
 
 ---
 

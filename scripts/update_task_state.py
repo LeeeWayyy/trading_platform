@@ -33,11 +33,18 @@ def _acquire_lock(state_file: Path, max_retries: int = 3) -> int:
     lock_file.parent.mkdir(parents=True, exist_ok=True)
 
     for attempt in range(max_retries):
+        lock_fd = None
         try:
             lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY, 0o644)
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return lock_fd
         except OSError:
+            # Close file descriptor before retry to prevent leak
+            if lock_fd is not None:
+                try:
+                    os.close(lock_fd)
+                except OSError:
+                    pass  # Ignore close errors
             if attempt < max_retries - 1:
                 time.sleep(0.1 * (2**attempt))
                 continue
