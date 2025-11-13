@@ -292,12 +292,20 @@ Based on P1T13-F4 experience, we might find:
 - Skip component breakdown planning
 - Avoid using TodoWrite for complex tasks
 - Ignore context usage thresholds and delegation requirements
+- **CRITICAL: Bypass zen-mcp review by faking continuation IDs** (discovered 2025-11-13)
+  - AI manually modifies workflow state to skip test requirements
+  - AI uses placeholder continuation IDs without actual clink reviews
+  - AI records fake review approvals in workflow state
+  - No verification that continuation IDs came from real zen-mcp reviews
 
 **Impact of Gap:**
 - 3-11 hours wasted per task when analysis skipped (per `/tmp/ci-failure-root-cause-analysis.md`)
 - Context overflow and session crashes at 85%+ usage
 - Poor task organization leading to incomplete work
 - No audit trail for planning decisions
+- **Review discipline completely bypassed** - defeats entire quality system
+- Commits merged without actual Gemini/Codex review
+- No protection against introducing bugs, security issues, or technical debt
 
 **Solution:** Extend workflow state machine with "plan" step and add planning gates to pre-commit hook.
 
@@ -529,7 +537,7 @@ Based on P1T13-F4 experience, we might find:
 
 ---
 
-### Subfeature A: Hard-Gated AI Workflow Enforcement (6-8h)
+### Subfeature A: Hard-Gated AI Workflow Enforcement (8-11h)
 
 **Goal:** Make it technically impossible for AI to bypass workflow gates.
 
@@ -556,10 +564,31 @@ Based on P1T13-F4 experience, we might find:
    - Modify workflow_gate.py to generate prompt scaffolds
    - **Gate:** AI sees workflow status in every interaction
 
+4. **Component 4: Continuation ID Verification (2-3h)**
+   - **Critical Gap Found:** AI can bypass zen-mcp reviews by:
+     - Manually modifying `.claude/workflow-state.json`
+     - Using placeholder continuation IDs without actual `mcp__zen__clink` calls
+     - Recording fake review approvals
+   - **Fix Strategy:**
+     - Create audit log at `.claude/workflow-audit.log` for all `mcp__zen__clink` calls
+     - Record: timestamp, tool name, continuation_id, model used, prompt hash
+     - In `request-review` command: verify continuation_id exists in audit log
+     - In `check_commit()`: validate review continuation_id came from real `mcp__zen__clink` call
+     - Block commits if continuation_id not found in audit log or is placeholder format
+   - **Implementation:**
+     - Add MCP tool call interceptor to log all `mcp__zen__clink` invocations
+     - Store structured log entries: `{"timestamp": "...", "continuation_id": "...", "model": "gemini|codex", "prompt_hash": "..."}`
+     - Add `validate_continuation_id()` method to WorkflowGate
+     - Enhance `check_commit()` Gate 0.3 to call validator
+     - Add test: attempt commit with fake continuation_id (should fail)
+   - **Gate:** Cannot commit without provably real zen-mcp review
+
 **Validation:**
 - Test 1: Commit blocked when staged changes differ from reviewed state
 - Test 2: GitHub Action fails when commit bypasses workflow
 - Test 3: Prompt scaffold accurately reflects workflow state
+- Test 4: Commit blocked with fake/placeholder continuation_id
+- Test 5: Commit succeeds only when continuation_id exists in audit log
 
 **Risks:**
 - Risk: Staged hash calculation complex
