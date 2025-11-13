@@ -12,36 +12,41 @@ Author: Claude Code
 Date: 2025-11-02
 """
 
-import json
+# Import the WorkflowGate class
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-# Import the WorkflowGate class
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.workflow_gate import WorkflowGate
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_state_file():
     """Create temporary state file for testing."""
     with tempfile.TemporaryDirectory() as tmpdir:
         state_file = Path(tmpdir) / "workflow-state.json"
-        with patch('scripts.workflow_gate.STATE_FILE', state_file):
+        with patch("scripts.workflow_gate.STATE_FILE", state_file):
             yield state_file
 
 
 def test_initial_state(temp_state_file):
-    """Verify the initial state is 'implement'."""
+    """Verify the initial state is 'plan' (Phase 1)."""
     gate = WorkflowGate()
     state = gate.load_state()
-    assert state["step"] == "implement"
+    assert state["step"] == "plan"  # Phase 1: starts with planning step
     assert state["current_component"] == ""
     assert state["ci_passed"] is False
     assert not state["zen_review"]
+    # Phase 1: Verify planning fields exist
+    assert "task_file" in state
+    assert "analysis_completed" in state
+    assert "components" in state
+    assert "first_commit_made" in state
+    assert "context_cache" in state
 
 
 def test_set_component(temp_state_file):
@@ -57,8 +62,13 @@ def test_valid_state_transitions(temp_state_file):
     gate = WorkflowGate()
     gate.set_component("Test Component")
 
+    # Phase 1: Start from "plan" step, transition to "implement"
+    gate.advance("implement")
+    state = gate.load_state()
+    assert state["step"] == "implement"
+
     # Mock _has_tests to allow transition to review
-    with patch.object(WorkflowGate, '_has_tests', return_value=True):
+    with patch.object(WorkflowGate, "_has_tests", return_value=True):
         # implement → test
         gate.advance("test")
         state = gate.load_state()
@@ -71,16 +81,17 @@ def test_valid_state_transitions(temp_state_file):
 
 
 def test_invalid_state_transition_is_blocked(temp_state_file):
-    """Verify that an invalid transition (e.g., implement to review) is blocked."""
+    """Verify that an invalid transition (e.g., plan to review) is blocked."""
     gate = WorkflowGate()
     gate.set_component("Test Component")
 
+    # Phase 1: Initial state is "plan"
     with pytest.raises(SystemExit) as excinfo:
-        gate.advance("review")  # Invalid transition
+        gate.advance("review")  # Invalid transition from "plan"
 
     assert excinfo.value.code == 1
     state = gate.load_state()
-    assert state["step"] == "implement"  # State should not have changed
+    assert state["step"] == "plan"  # State should not have changed
 
 
 def test_record_review_and_ci(temp_state_file):
@@ -99,7 +110,7 @@ def test_check_commit_blocks_when_wrong_step(temp_state_file):
     """Verify check_commit blocks when not in review step."""
     gate = WorkflowGate()
     gate.set_component("Test Component")
-    # Still in "implement" step
+    # Phase 1: Still in "plan" step
 
     with pytest.raises(SystemExit) as excinfo:
         gate.check_commit()
@@ -112,8 +123,16 @@ def test_check_commit_blocks_when_review_not_approved(temp_state_file):
     gate = WorkflowGate()
     gate.set_component("Test Component")
 
+    # Phase 1: Set first_commit_made to bypass planning gate
+    state = gate.load_state()
+    state["first_commit_made"] = True
+    gate.save_state(state)
+
+    # Phase 1: Transition from "plan" to "implement" first
+    gate.advance("implement")
+
     # Mock _has_tests to allow transition to review
-    with patch.object(WorkflowGate, '_has_tests', return_value=True):
+    with patch.object(WorkflowGate, "_has_tests", return_value=True):
         gate.advance("test")
         gate.advance("review")
 
@@ -132,8 +151,16 @@ def test_check_commit_blocks_when_ci_failed(temp_state_file):
     gate = WorkflowGate()
     gate.set_component("Test Component")
 
+    # Phase 1: Set first_commit_made to bypass planning gate
+    state = gate.load_state()
+    state["first_commit_made"] = True
+    gate.save_state(state)
+
+    # Phase 1: Transition from "plan" to "implement" first
+    gate.advance("implement")
+
     # Mock _has_tests to allow transition to review
-    with patch.object(WorkflowGate, '_has_tests', return_value=True):
+    with patch.object(WorkflowGate, "_has_tests", return_value=True):
         gate.advance("test")
         gate.advance("review")
 
@@ -151,8 +178,16 @@ def test_check_commit_success_when_all_prerequisites_met(temp_state_file):
     gate = WorkflowGate()
     gate.set_component("Test Component")
 
+    # Phase 1: Set first_commit_made to bypass planning gate
+    state = gate.load_state()
+    state["first_commit_made"] = True
+    gate.save_state(state)
+
+    # Phase 1: Transition from "plan" to "implement" first
+    gate.advance("implement")
+
     # Mock _has_tests to allow transition to review
-    with patch.object(WorkflowGate, '_has_tests', return_value=True):
+    with patch.object(WorkflowGate, "_has_tests", return_value=True):
         gate.advance("test")
         gate.advance("review")
 
@@ -171,7 +206,7 @@ def test_record_commit_resets_state_and_appends_history(temp_state_file):
     gate.set_component("Test Component")
 
     # Mock git rev-parse to return a fake commit hash
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         mock_run.return_value.stdout = "abc123def456\n"
         mock_run.return_value.returncode = 0
 
@@ -200,7 +235,7 @@ def test_record_commit_prunes_history_beyond_100_commits(temp_state_file):
     gate.save_state(state)
 
     # Record one more commit
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         mock_run.return_value.stdout = "newest_commit\n"
         mock_run.return_value.returncode = 0
 

@@ -66,7 +66,9 @@ class TestCreateSecretManagerBackendSelection:
         Verifies that create_secret_manager() returns VaultSecretManager instance
         when SECRET_BACKEND is set to "vault".
         """
-        with patch.dict(os.environ, {"SECRET_BACKEND": "vault", "VAULT_ADDR": "http://localhost:8200"}):
+        with patch.dict(
+            os.environ, {"SECRET_BACKEND": "vault", "VAULT_ADDR": "http://localhost:8200"}
+        ):
             create_secret_manager()
             assert mock_vault_backend.called
 
@@ -109,7 +111,9 @@ class TestCreateSecretManagerBackendSelection:
         Verifies that the backend parameter overrides SECRET_BACKEND environment
         variable (useful for testing and explicit backend selection).
         """
-        with patch.dict(os.environ, {"SECRET_BACKEND": "env", "VAULT_ADDR": "http://localhost:8200"}):
+        with patch.dict(
+            os.environ, {"SECRET_BACKEND": "env", "VAULT_ADDR": "http://localhost:8200"}
+        ):
             # Override env var with backend parameter
             create_secret_manager(backend="vault")
             assert mock_vault_backend.called
@@ -268,7 +272,11 @@ class TestCreateSecretManagerProductionGuardrail:
         """
         with patch.dict(
             os.environ,
-            {"SECRET_BACKEND": "vault", "DEPLOYMENT_ENV": "production", "VAULT_ADDR": "http://localhost:8200"},
+            {
+                "SECRET_BACKEND": "vault",
+                "DEPLOYMENT_ENV": "production",
+                "VAULT_ADDR": "http://localhost:8200",
+            },
         ):
             create_secret_manager()
             assert mock_vault_backend.called
@@ -382,7 +390,11 @@ class TestCreateSecretManagerIntegration:
         # Mock hvac.Client to avoid actual Vault connection
         with patch.dict(
             os.environ,
-            {"SECRET_BACKEND": "vault", "VAULT_ADDR": "http://localhost:8200", "VAULT_TOKEN": "test-token"},
+            {
+                "SECRET_BACKEND": "vault",
+                "VAULT_ADDR": "http://localhost:8200",
+                "VAULT_TOKEN": "test-token",
+            },
         ):
             secret_mgr = create_secret_manager()
             assert isinstance(secret_mgr, VaultSecretManager)

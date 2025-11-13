@@ -11,6 +11,8 @@ Author: Claude Code
 Date: 2025-11-08
 """
 
+# Import class under test
+import sys
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,13 +20,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Import class under test
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.workflow_gate import DebugRescue
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_state_file():
     """Create temporary state file for testing."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -58,9 +58,7 @@ class TestDebugRescueInit:
         rescue = DebugRescue(state_file=temp_state_file)
 
         test_state = {
-            "debug_rescue": {
-                "attempt_history": [{"test_file": "foo.py", "status": "failed"}]
-            }
+            "debug_rescue": {"attempt_history": [{"test_file": "foo.py", "status": "failed"}]}
         }
 
         rescue._save_state(test_state)
@@ -77,9 +75,7 @@ class TestRecordTestAttempt:
         rescue = DebugRescue(state_file=temp_state_file)
 
         rescue.record_test_attempt(
-            test_file="tests/test_foo.py",
-            status="failed",
-            error_signature="abc123"
+            test_file="tests/test_foo.py", status="failed", error_signature="abc123"
         )
 
         state = rescue._load_state()
@@ -111,11 +107,7 @@ class TestRecordTestAttempt:
 
         # Record HISTORY_MAX_SIZE + 5 attempts
         for i in range(max_size + 5):
-            rescue.record_test_attempt(
-                f"tests/test_{i}.py",
-                "failed",
-                f"error_{i}"
-            )
+            rescue.record_test_attempt(f"tests/test_{i}.py", "failed", f"error_{i}")
 
         state = rescue._load_state()
         history = state["debug_rescue"]["attempt_history"]
@@ -123,7 +115,7 @@ class TestRecordTestAttempt:
         # Should keep only last HISTORY_MAX_SIZE
         assert len(history) == max_size
         # Oldest (0-4) should be pruned, newest (5 to max_size+4) kept
-        assert history[0]["test_file"] == f"tests/test_5.py"
+        assert history[0]["test_file"] == "tests/test_5.py"
         assert history[-1]["test_file"] == f"tests/test_{max_size + 4}.py"
 
 
@@ -179,7 +171,7 @@ class TestIsStuckInLoop:
             rescue.record_test_attempt(
                 f"tests/test_file_{i}.py",  # Unique file each time
                 "failed",
-                errors[i % 2]  # Cycles between error_a and error_b
+                errors[i % 2],  # Cycles between error_a and error_b
             )
 
         is_stuck, reason = rescue.is_stuck_in_loop()
@@ -203,32 +195,32 @@ class TestIsStuckInLoop:
                         "timestamp": (now - timedelta(minutes=40)).isoformat(),
                         "test_file": test_files[0],
                         "status": "failed",
-                        "error_signature": "error_1"
+                        "error_signature": "error_1",
                     },
                     {
                         "timestamp": (now - timedelta(minutes=30)).isoformat(),
                         "test_file": test_files[1],
                         "status": "failed",
-                        "error_signature": "error_2"
+                        "error_signature": "error_2",
                     },
                     {
                         "timestamp": (now - timedelta(minutes=20)).isoformat(),
                         "test_file": test_files[2],
                         "status": "failed",
-                        "error_signature": "error_3"
+                        "error_signature": "error_3",
                     },
                     {
                         "timestamp": (now - timedelta(minutes=10)).isoformat(),
                         "test_file": test_files[0],
                         "status": "failed",
-                        "error_signature": "error_4"
+                        "error_signature": "error_4",
                     },
                     {
                         "timestamp": now.isoformat(),
                         "test_file": test_files[1],
                         "status": "failed",
-                        "error_signature": "error_5"
-                    }
+                        "error_signature": "error_5",
+                    },
                 ]
             }
         }
@@ -251,9 +243,10 @@ class TestIsStuckInLoop:
                         "timestamp": "invalid_timestamp",
                         "test_file": "tests/test_foo.py",
                         "status": "failed",
-                        "error_signature": "error_1"
+                        "error_signature": "error_1",
                     }
-                ] * 5
+                ]
+                * 5
             }
         }
         rescue._save_state(state)
@@ -268,12 +261,10 @@ class TestIsStuckInLoop:
 class TestGetRecentCommits:
     """Test _get_recent_commits() git integration."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_get_recent_commits_success(self, mock_run, temp_state_file):
         """Test successful retrieval of recent commits."""
-        mock_run.return_value = MagicMock(
-            stdout="abc123 fix: bug fix\ndef456 feat: new feature\n"
-        )
+        mock_run.return_value = MagicMock(stdout="abc123 fix: bug fix\ndef456 feat: new feature\n")
 
         rescue = DebugRescue(state_file=temp_state_file)
         commits = rescue._get_recent_commits(max_commits=2)
@@ -282,7 +273,7 @@ class TestGetRecentCommits:
         assert "def456" in commits
         mock_run.assert_called_once()
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_get_recent_commits_git_error(self, mock_run, temp_state_file):
         """Test graceful handling of git errors."""
         mock_run.side_effect = Exception("git error")
@@ -343,7 +334,7 @@ class TestRequestDebugRescue:
         rescue.record_test_attempt("tests/test_foo.py", "failed", "error_abc")
         rescue.record_test_attempt("tests/test_foo.py", "failed", "error_def")
 
-        with patch.object(rescue, '_get_recent_commits', return_value="commit_log"):
+        with patch.object(rescue, "_get_recent_commits", return_value="commit_log"):
             result = rescue.request_debug_rescue(test_file="tests/test_foo.py")
 
         prompt = result["rescue_prompt"]

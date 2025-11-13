@@ -26,11 +26,10 @@ See also:
 
 import threading
 import time
-from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import ClientError
 
 from libs.secrets.aws_backend import AWSSecretsManager
 from libs.secrets.exceptions import (
@@ -117,9 +116,7 @@ class TestAWSSecretsManagerGetSecret:
 
         # Assert
         assert value == "my_password_123"
-        mock_client.get_secret_value.assert_called_once_with(
-            SecretId="prod/database/password"
-        )
+        mock_client.get_secret_value.assert_called_once_with(SecretId="prod/database/password")
         # Verify caching (cache has 1 entry)
         assert len(secret_mgr._cache) == 1
 
@@ -559,9 +556,7 @@ class TestAWSSecretsManagerRetryLogic:
         """Test get_secret retries on transient errors (e.g., ThrottlingException)."""
         # Arrange
         mock_client = MagicMock()
-        throttling_error = ClientError(
-            {"Error": {"Code": "ThrottlingException"}}, "GetSecretValue"
-        )
+        throttling_error = ClientError({"Error": {"Code": "ThrottlingException"}}, "GetSecretValue")
         mock_client.get_secret_value.side_effect = [
             throttling_error,
             {"SecretString": "successful_value"},
@@ -580,9 +575,7 @@ class TestAWSSecretsManagerRetryLogic:
 
     @pytest.mark.unit()
     @patch("libs.secrets.aws_backend.boto3.client")
-    def test_get_secret_does_not_retry_on_permanent_error(
-        self, mock_boto_client: Mock
-    ) -> None:
+    def test_get_secret_does_not_retry_on_permanent_error(self, mock_boto_client: Mock) -> None:
         """Test get_secret does NOT retry on permanent errors (e.g., AccessDeniedException)."""
         # Arrange
         mock_client = MagicMock()
@@ -609,9 +602,7 @@ class TestAWSSecretsManagerRetryLogic:
         """Test get_secret raises original exception (not RetryError) when retries exhausted."""
         # Arrange
         mock_client = MagicMock()
-        throttling_error = ClientError(
-            {"Error": {"Code": "ThrottlingException"}}, "GetSecretValue"
-        )
+        throttling_error = ClientError({"Error": {"Code": "ThrottlingException"}}, "GetSecretValue")
         # Always fail with transient error to exhaust retries
         mock_client.get_secret_value.side_effect = throttling_error
         mock_boto_client.return_value = mock_client
@@ -638,9 +629,7 @@ class TestAWSSecretsManagerRetryLogic:
         """Test list_secrets raises original exception (not RetryError) when retries exhausted."""
         # Arrange
         mock_client = MagicMock()
-        throttling_error = ClientError(
-            {"Error": {"Code": "ServiceUnavailable"}}, "ListSecrets"
-        )
+        throttling_error = ClientError({"Error": {"Code": "ServiceUnavailable"}}, "ListSecrets")
 
         # Mock paginator to always fail with transient error
         mock_paginator = MagicMock()
@@ -719,8 +708,7 @@ class TestAWSSecretsManagerThreadSafety:
 
         # Act - 10 concurrent set_secret calls
         threads = [
-            threading.Thread(target=set_secret_worker, args=(f"value{i}",))
-            for i in range(10)
+            threading.Thread(target=set_secret_worker, args=(f"value{i}",)) for i in range(10)
         ]
         for t in threads:
             t.start()

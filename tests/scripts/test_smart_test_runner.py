@@ -10,7 +10,6 @@ Date: 2025-11-08
 
 import builtins
 import sys
-from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -160,9 +159,7 @@ class TestGetTestTargets:
     def test_single_module_libs(self) -> None:
         """Test single libs/ module (returns correct test path)."""
         runner = SmartTestRunner()
-        runner._get_staged_files = MagicMock(
-            return_value=["libs/allocation/multi_alpha.py"]
-        )
+        runner._get_staged_files = MagicMock(return_value=["libs/allocation/multi_alpha.py"])
         runner._detect_changed_modules = MagicMock(return_value={"libs/allocation"})
 
         result = runner.get_test_targets()
@@ -175,9 +172,7 @@ class TestGetTestTargets:
         runner._get_staged_files = MagicMock(
             return_value=["apps/execution_gateway/order_placer.py"]
         )
-        runner._detect_changed_modules = MagicMock(
-            return_value={"apps/execution_gateway"}
-        )
+        runner._detect_changed_modules = MagicMock(return_value={"apps/execution_gateway"})
 
         result = runner.get_test_targets()
 
@@ -293,9 +288,7 @@ class TestGetTestCommand:
     def test_targeted_tests_single_module(self) -> None:
         """Test targeted tests for single module."""
         runner = SmartTestRunner()
-        runner._get_staged_files = MagicMock(
-            return_value=["libs/allocation/multi_alpha.py"]
-        )
+        runner._get_staged_files = MagicMock(return_value=["libs/allocation/multi_alpha.py"])
         runner._requires_full_ci = MagicMock(return_value=False)
         runner._detect_changed_modules = MagicMock(return_value={"libs/allocation"})
 
@@ -357,9 +350,7 @@ class TestPrintTestStrategy:
     def test_targeted_testing_message(self, capsys: pytest.CaptureFixture) -> None:
         """Test targeted testing message."""
         runner = SmartTestRunner()
-        runner._get_staged_files = MagicMock(
-            return_value=["libs/allocation/multi_alpha.py"]
-        )
+        runner._get_staged_files = MagicMock(return_value=["libs/allocation/multi_alpha.py"])
         runner._requires_full_ci = MagicMock(return_value=False)
         runner._detect_changed_modules = MagicMock(return_value={"libs/allocation"})
 
@@ -404,9 +395,7 @@ class TestSmartTestRunnerEdgeCases:
     def test_context_default_value(self) -> None:
         """Test get_test_command with default context parameter."""
         runner = SmartTestRunner()
-        runner._get_staged_files = MagicMock(
-            return_value=["libs/allocation/multi_alpha.py"]
-        )
+        runner._get_staged_files = MagicMock(return_value=["libs/allocation/multi_alpha.py"])
         runner._requires_full_ci = MagicMock(return_value=False)
         runner._detect_changed_modules = MagicMock(return_value={"libs/allocation"})
 

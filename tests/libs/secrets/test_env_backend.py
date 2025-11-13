@@ -295,8 +295,9 @@ class TestEnvSecretManagerListSecrets:
         assert "database/password" in secrets
         assert "database/host" in secrets
         assert "alpaca/api/key/id" not in secrets
-        assert all(s.startswith("database/") for s in secrets), \
-            f"All secrets should start with 'database/', got: {secrets}"
+        assert all(
+            s.startswith("database/") for s in secrets
+        ), f"All secrets should start with 'database/', got: {secrets}"
 
     def test_list_secrets_with_prefix_no_matches(self, temp_env_file, clean_env):
         """Test listing with prefix that matches no variables."""
@@ -738,9 +739,7 @@ class TestEnvSecretManagerThreadSafety:
                 errors.append(e)
 
         # Launch 10 threads
-        threads = [
-            threading.Thread(target=update_secret, args=(i,)) for i in range(10)
-        ]
+        threads = [threading.Thread(target=update_secret, args=(i,)) for i in range(10)]
         for t in threads:
             t.start()
         for t in threads:
@@ -766,6 +765,7 @@ class TestEnvSecretManagerThreadSafety:
             try:
                 # Suppress expected warning in thread context
                 import warnings
+
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", UserWarning)
                     secrets = manager.list_secrets()
@@ -801,9 +801,7 @@ class TestEnvSecretManagerThreadSafety:
                 errors.append(e)
 
         # Launch 20 threads doing mixed operations
-        threads = [
-            threading.Thread(target=mixed_operations, args=(i,)) for i in range(20)
-        ]
+        threads = [threading.Thread(target=mixed_operations, args=(i,)) for i in range(20)]
         for t in threads:
             t.start()
         for t in threads:

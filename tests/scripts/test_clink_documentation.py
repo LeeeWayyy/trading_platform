@@ -10,6 +10,7 @@ Date: 2025-11-08
 """
 
 from pathlib import Path
+
 import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -59,7 +60,9 @@ def test_correct_clink_tool_name_in_documentation():
         if "mcp__zen-mcp__clink" in content:
             # Count occurrences for detailed reporting
             count = content.count("mcp__zen-mcp__clink")
-            errors.append(f"{doc_file.relative_to(PROJECT_ROOT)}: Found {count} instance(s) of incorrect 'mcp__zen-mcp__clink' (should be 'mcp__zen__clink')")
+            errors.append(
+                f"{doc_file.relative_to(PROJECT_ROOT)}: Found {count} instance(s) of incorrect 'mcp__zen-mcp__clink' (should be 'mcp__zen__clink')"
+            )
 
     if errors:
         pytest.fail("\n".join(["❌ Clink tool name typo found:"] + errors))
@@ -88,25 +91,36 @@ def test_no_direct_zen_mcp_tool_references():
         for pattern in forbidden_patterns:
             if pattern in content:
                 # Check if it's in a "WRONG" or "INCORRECT" context
-                lines = content.split('\n')
+                lines = content.split("\n")
                 for i, line in enumerate(lines):
                     if pattern in line:
                         # Check broader surrounding context (10 lines before/after to catch section headers)
-                        start_idx = max(0, i-10)
-                        end_idx = min(len(lines), i+11)
-                        context = '\n'.join(lines[start_idx:end_idx])
+                        start_idx = max(0, i - 10)
+                        end_idx = min(len(lines), i + 11)
+                        context = "\n".join(lines[start_idx:end_idx])
 
                         # Keywords that indicate this is a warning/example of what NOT to do
                         warning_keywords = [
-                            'wrong', 'incorrect', 'never', 'do not', "don't",
-                            'forbidden', '❌', 'bad example', 'avoid',
-                            'anti-pattern', 'not recommended', 'deprecated'
+                            "wrong",
+                            "incorrect",
+                            "never",
+                            "do not",
+                            "don't",
+                            "forbidden",
+                            "❌",
+                            "bad example",
+                            "avoid",
+                            "anti-pattern",
+                            "not recommended",
+                            "deprecated",
                         ]
 
                         # Only flag if NOT in a warning context
                         if not any(keyword in context.lower() for keyword in warning_keywords):
                             rel_path = doc_file.relative_to(PROJECT_ROOT)
-                            errors.append(f"{rel_path}: Found forbidden direct tool '{pattern}' outside warning context (use mcp__zen__clink instead)")
+                            errors.append(
+                                f"{rel_path}: Found forbidden direct tool '{pattern}' outside warning context (use mcp__zen__clink instead)"
+                            )
 
     if errors:
         pytest.fail("\n".join(["❌ Direct zen-mcp tool references found:"] + errors))

@@ -9,12 +9,10 @@ Author: Claude Code
 Date: 2025-11-08
 """
 
-import json
 import subprocess
 import sys
-from io import StringIO
 from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -58,15 +56,14 @@ class TestPlanningWorkflowInitialization:
 class TestCreateTaskWithReview:
     """Test PlanningWorkflow.create_task_with_review() method."""
 
-    def test_create_task_generates_file(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_create_task_generates_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
         """Test task document creation."""
         workflow = PlanningWorkflow(project_root=tmp_path)
 
         result = workflow.create_task_with_review(
-            task_id="P1T99",
-            title="Test Task",
-            description="Test description",
-            estimated_hours=4.0
+            task_id="P1T99", title="Test Task", description="Test description", estimated_hours=4.0
         )
 
         # Verify file was created
@@ -93,10 +90,7 @@ class TestCreateTaskWithReview:
         workflow = PlanningWorkflow(project_root=tmp_path)
 
         result = workflow.create_task_with_review(
-            task_id="P1T100",
-            title="Quick fix",
-            description="Minor fix",
-            estimated_hours=0.0
+            task_id="P1T100", title="Quick fix", description="Minor fix", estimated_hours=0.0
         )
 
         task_file = tmp_path / "docs" / "TASKS" / "P1T100_TASK.md"
@@ -114,10 +108,7 @@ class TestCreateTaskWithReview:
         assert not tasks_dir.exists()
 
         workflow.create_task_with_review(
-            task_id="P1T101",
-            title="Test",
-            description="Test",
-            estimated_hours=1.0
+            task_id="P1T101", title="Test", description="Test", estimated_hours=1.0
         )
 
         # Directory should be created
@@ -132,10 +123,7 @@ class TestPlanSubfeatures:
         """Test task <4h returns no subfeatures."""
         workflow = PlanningWorkflow()
 
-        components = [
-            {"name": "Component 1", "hours": 2},
-            {"name": "Component 2", "hours": 1}
-        ]
+        components = [{"name": "Component 1", "hours": 2}, {"name": "Component 2", "hours": 1}]
 
         result = workflow.plan_subfeatures("P1T14", components)
 
@@ -151,7 +139,7 @@ class TestPlanSubfeatures:
         components = [
             {"name": "Component 1", "hours": 3},
             {"name": "Component 2", "hours": 3},
-            {"name": "Component 3", "hours": 3}
+            {"name": "Component 3", "hours": 3},
         ]
 
         result = workflow.plan_subfeatures("P1T14", components)
@@ -167,10 +155,7 @@ class TestPlanSubfeatures:
         """Test task 4-8h recommends split."""
         workflow = PlanningWorkflow()
 
-        components = [
-            {"name": "Component 1", "hours": 3},
-            {"name": "Component 2", "hours": 2}
-        ]
+        components = [{"name": "Component 1", "hours": 3}, {"name": "Component 2", "hours": 2}]
 
         result = workflow.plan_subfeatures("P1T15", components)
 
@@ -183,10 +168,7 @@ class TestPlanSubfeatures:
         """Test exactly 8h triggers split."""
         workflow = PlanningWorkflow()
 
-        components = [
-            {"name": "Component 1", "hours": 4},
-            {"name": "Component 2", "hours": 4}
-        ]
+        components = [{"name": "Component 1", "hours": 4}, {"name": "Component 2", "hours": 4}]
 
         result = workflow.plan_subfeatures("P1T16", components)
 
@@ -201,7 +183,7 @@ class TestPlanSubfeatures:
         components = [
             {"name": "Component 1", "hours": 2},
             {"name": "Component 2", "hours": 2},
-            {"name": "Component 3", "hours": 2}
+            {"name": "Component 3", "hours": 2},
         ]
 
         result = workflow.plan_subfeatures("P1T17", components)
@@ -214,10 +196,7 @@ class TestPlanSubfeatures:
         """Test components missing 'hours' key default to 0."""
         workflow = PlanningWorkflow()
 
-        components = [
-            {"name": "Component 1"},  # Missing 'hours'
-            {"name": "Component 2"}
-        ]
+        components = [{"name": "Component 1"}, {"name": "Component 2"}]  # Missing 'hours'
 
         result = workflow.plan_subfeatures("P1T18", components)
 
@@ -301,10 +280,12 @@ class TestStartTaskWithState:
 
         task_file = tmp_path / "docs" / "TASKS" / "P1T22_TASK.md"
         task_file.parent.mkdir(parents=True, exist_ok=True)
-        task_file.write_text("""# P1T22: Test
+        task_file.write_text(
+            """# P1T22: Test
 ## Components
 - Component 1 (2h)
-""")
+"""
+        )
 
         workflow.start_task_with_state("P1T22", "feat/test")
 
@@ -315,7 +296,9 @@ class TestStartTaskWithState:
         mock_gate.set_component.assert_called_once_with("Component 1")
 
     @patch("scripts.workflow_gate.subprocess.run")
-    def test_start_task_branch_failure(self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_start_task_branch_failure(
+        self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
         """Test task start raises RuntimeError on branch creation failure."""
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr="branch error"),  # checkout -b fails
@@ -329,7 +312,9 @@ class TestStartTaskWithState:
         task_file.write_text("# P1T23: Test")
 
         # Should raise RuntimeError with stderr details instead of returning gracefully (P1 fix)
-        with pytest.raises(RuntimeError, match=r"Failed to create/checkout branch bad-branch.*branch error"):
+        with pytest.raises(
+            RuntimeError, match=r"Failed to create/checkout branch bad-branch.*branch error"
+        ):
             workflow.start_task_with_state("P1T23", "bad-branch")
 
         # Verify error message was printed before raising
@@ -337,7 +322,9 @@ class TestStartTaskWithState:
         assert "Failed to create/checkout branch" in captured.out
 
     @patch("scripts.workflow_gate.subprocess.run")
-    def test_start_task_invokes_update_state_script(self, mock_run: MagicMock, tmp_path: Path) -> None:
+    def test_start_task_invokes_update_state_script(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
         """Test task start invokes update_task_state.py with correct arguments."""
         # Create stub update_task_state.py script
         scripts_dir = tmp_path / "scripts"
@@ -353,11 +340,13 @@ class TestStartTaskWithState:
 
         task_file = tmp_path / "docs" / "TASKS" / "P1T24_TASK.md"
         task_file.parent.mkdir(parents=True, exist_ok=True)
-        task_file.write_text("""# P1T24: Test
+        task_file.write_text(
+            """# P1T24: Test
 ## Components
 - Component 1 (2h)
 - Component 2 (3h)
-""")
+"""
+        )
 
         workflow.start_task_with_state("P1T24", "feat/test")
 
@@ -390,7 +379,9 @@ class TestStartTaskWithState:
         assert update_call[1]["check"] is True, "Should use check=True for error handling"
 
     @patch("scripts.workflow_gate.subprocess.run")
-    def test_start_task_handles_update_state_failure(self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_start_task_handles_update_state_failure(
+        self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
         """Test task start FAILS LOUDLY when update_task_state.py fails (prevents inconsistent state)."""
         # Create stub update_task_state.py script
         scripts_dir = tmp_path / "scripts"
@@ -403,9 +394,7 @@ class TestStartTaskWithState:
             cmd = args[0]
             if "update_task_state.py" in str(cmd):
                 raise subprocess.CalledProcessError(
-                    returncode=1,
-                    cmd=cmd,
-                    stderr="update_task_state.py failed"
+                    returncode=1, cmd=cmd, stderr="update_task_state.py failed"
                 )
             return MagicMock(returncode=0)
 
@@ -416,10 +405,12 @@ class TestStartTaskWithState:
 
         task_file = tmp_path / "docs" / "TASKS" / "P1T25_TASK.md"
         task_file.parent.mkdir(parents=True, exist_ok=True)
-        task_file.write_text("""# P1T25: Test
+        task_file.write_text(
+            """# P1T25: Test
 ## Components
 - Component 1 (2h)
-""")
+"""
+        )
 
         # Should RAISE exception (fails loudly to prevent inconsistent state)
         # CRITICAL: Task tracking and workflow must stay synchronized
@@ -442,7 +433,7 @@ class TestGenerateTaskDoc:
             task_id="P1T50",
             title="Test Feature",
             description="Feature description here",
-            estimated_hours=5.5
+            estimated_hours=5.5,
         )
 
         assert result.exists()
@@ -456,7 +447,7 @@ class TestGenerateTaskDoc:
             task_id="P1T51",
             title="Position Monitoring",
             description="Monitor position limits",
-            estimated_hours=8.0
+            estimated_hours=8.0,
         )
 
         content = task_file.read_text()
@@ -482,10 +473,7 @@ description with
 several lines."""
 
         task_file = workflow._generate_task_doc(
-            task_id="P1T52",
-            title="Test",
-            description=description,
-            estimated_hours=1.0
+            task_id="P1T52", title="Test", description=description, estimated_hours=1.0
         )
 
         content = task_file.read_text()
@@ -638,7 +626,7 @@ class TestEdgeCases:
             task_id="P1T_SPECIAL",
             title="Test: Feature (v2.0)",
             description="Description with \"quotes\" and 'apostrophes'",
-            estimated_hours=1.0
+            estimated_hours=1.0,
         )
 
         task_file = tmp_path / "docs" / "TASKS" / "P1T_SPECIAL_TASK.md"
@@ -662,7 +650,9 @@ class TestEdgeCases:
         assert result[-1] == "P1T_BIG-F20"
 
     @patch("scripts.workflow_gate.subprocess.run")
-    def test_start_task_with_empty_task_doc(self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_start_task_with_empty_task_doc(
+        self, mock_run: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
         """Test task start with empty task document."""
         mock_run.return_value = MagicMock(returncode=0)
 
@@ -693,7 +683,7 @@ class TestIntegration:
             task_id="P1T99",
             title="Full Integration Test",
             description="End-to-end test",
-            estimated_hours=10.0
+            estimated_hours=10.0,
         )
 
         assert Path(tmp_path / task_file).exists()
@@ -702,7 +692,7 @@ class TestIntegration:
         components = [
             {"name": "Component 1", "hours": 4},
             {"name": "Component 2", "hours": 3},
-            {"name": "Component 3", "hours": 3}
+            {"name": "Component 3", "hours": 3},
         ]
 
         subfeatures = workflow.plan_subfeatures("P1T99", components)
@@ -715,7 +705,7 @@ class TestIntegration:
         content = task_path.read_text()
         content = content.replace(
             "<!-- List logical components here -->",
-            "- Component 1 (4h)\n- Component 2 (3h)\n- Component 3 (3h)"
+            "- Component 1 (4h)\n- Component 2 (3h)\n- Component 3 (3h)",
         )
         task_path.write_text(content)
 

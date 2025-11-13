@@ -11,21 +11,19 @@ Author: Claude Code
 Date: 2025-11-08
 """
 
-import json
+# Import class under test
+import sys
 import tempfile
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-# Import class under test
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.workflow_gate import UnifiedReviewSystem
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_state_file():
     """Create temporary state file for testing."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -58,11 +56,7 @@ class TestUnifiedReviewSystemInit:
         """Test saving and loading state persists data correctly."""
         reviewer = UnifiedReviewSystem(state_file=temp_state_file)
 
-        test_state = {
-            "unified_review": {
-                "history": [{"iteration": 1, "status": "APPROVED"}]
-            }
-        }
+        test_state = {"unified_review": {"history": [{"iteration": 1, "status": "APPROVED"}]}}
 
         reviewer._save_state(test_state)
         loaded = reviewer._load_state()
@@ -148,20 +142,19 @@ class TestPRReview:
         # Pre-populate state with review history containing only LOW issues
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 2,
-                    "status": "NEEDS_REVISION",
-                    "issues": [
-                        {"severity": "LOW", "summary": "Minor naming issue"}
-                    ]
-                }]
+                "history": [
+                    {
+                        "iteration": 2,
+                        "status": "NEEDS_REVISION",
+                        "issues": [{"severity": "LOW", "summary": "Minor naming issue"}],
+                    }
+                ]
             }
         }
         reviewer._save_state(state)
 
         result = reviewer._pr_review(
-            iteration=3,
-            override_justification="Low priority naming change, deferring to post-PR"
+            iteration=3, override_justification="Low priority naming change, deferring to post-PR"
         )
 
         # Should invoke override logic
@@ -178,12 +171,12 @@ class TestReviewOverride:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "CRITICAL", "summary": "Security vulnerability"}
-                    ]
-                }]
+                "history": [
+                    {
+                        "iteration": 3,
+                        "issues": [{"severity": "CRITICAL", "summary": "Security vulnerability"}],
+                    }
+                ]
             }
         }
 
@@ -200,12 +193,9 @@ class TestReviewOverride:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "HIGH", "summary": "Major bug"}
-                    ]
-                }]
+                "history": [
+                    {"iteration": 3, "issues": [{"severity": "HIGH", "summary": "Major bug"}]}
+                ]
             }
         }
 
@@ -220,12 +210,12 @@ class TestReviewOverride:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "MEDIUM", "summary": "Moderate concern"}
-                    ]
-                }]
+                "history": [
+                    {
+                        "iteration": 3,
+                        "issues": [{"severity": "MEDIUM", "summary": "Moderate concern"}],
+                    }
+                ]
             }
         }
 
@@ -240,16 +230,16 @@ class TestReviewOverride:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "LOW", "summary": "Minor naming suggestion"}
-                    ]
-                }]
+                "history": [
+                    {
+                        "iteration": 3,
+                        "issues": [{"severity": "LOW", "summary": "Minor naming suggestion"}],
+                    }
+                ]
             }
         }
 
-        with patch('subprocess.run'):  # Mock gh pr comment
+        with patch("subprocess.run"):  # Mock gh pr comment
             result = reviewer._handle_review_override(
                 state, 3, "Deferring minor naming changes to post-PR"
             )
@@ -265,20 +255,15 @@ class TestReviewOverride:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "LOW", "summary": "Minor issue"}
-                    ]
-                }]
+                "history": [
+                    {"iteration": 3, "issues": [{"severity": "LOW", "summary": "Minor issue"}]}
+                ]
             }
         }
         reviewer._save_state(state)
 
-        with patch('subprocess.run'):
-            reviewer._handle_review_override(
-                state, 3, "Test justification"
-            )
+        with patch("subprocess.run"):
+            reviewer._handle_review_override(state, 3, "Test justification")
 
         # Reload state and verify persistence
         loaded_state = reviewer._load_state()
@@ -293,14 +278,16 @@ class TestReviewOverride:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "LOW", "summary": "Minor issue"},
-                        {"severity": "MEDIUM", "summary": "Moderate concern"},
-                        {"severity": "LOW", "summary": "Another minor issue"}
-                    ]
-                }]
+                "history": [
+                    {
+                        "iteration": 3,
+                        "issues": [
+                            {"severity": "LOW", "summary": "Minor issue"},
+                            {"severity": "MEDIUM", "summary": "Moderate concern"},
+                            {"severity": "LOW", "summary": "Another minor issue"},
+                        ],
+                    }
+                ]
             }
         }
 
@@ -326,14 +313,7 @@ class TestReviewOverride:
         """Test override with no issues returns APPROVED."""
         reviewer = UnifiedReviewSystem(state_file=temp_state_file)
 
-        state = {
-            "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": []
-                }]
-            }
-        }
+        state = {"unified_review": {"history": [{"iteration": 3, "issues": []}]}}
 
         result = reviewer._handle_review_override(state, 3, "N/A")
 
@@ -346,16 +326,13 @@ class TestReviewOverride:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "LOW", "summary": "Minor issue"}
-                    ]
-                }]
+                "history": [
+                    {"iteration": 3, "issues": [{"severity": "LOW", "summary": "Minor issue"}]}
+                ]
             }
         }
 
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             reviewer._handle_review_override(state, 3, "Test justification")
 
             # Verify gh pr comment was called
@@ -405,19 +382,14 @@ class TestRequestReview:
         # Pre-populate state
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 2,
-                    "issues": [{"severity": "LOW", "summary": "Minor"}]
-                }]
+                "history": [{"iteration": 2, "issues": [{"severity": "LOW", "summary": "Minor"}]}]
             }
         }
         reviewer._save_state(state)
 
-        with patch('subprocess.run'):
+        with patch("subprocess.run"):
             result = reviewer.request_review(
-                scope="pr",
-                iteration=3,
-                override_justification="Test override"
+                scope="pr", iteration=3, override_justification="Test override"
             )
 
         assert result["status"] == "OVERRIDE_APPROVED"
@@ -439,18 +411,20 @@ class TestEdgeCases:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"severity": "LOW", "summary": "Issue 1"},
-                        {"severity": "LOW", "summary": "Issue 2"},
-                        {"severity": "LOW", "summary": "Issue 3"}
-                    ]
-                }]
+                "history": [
+                    {
+                        "iteration": 3,
+                        "issues": [
+                            {"severity": "LOW", "summary": "Issue 1"},
+                            {"severity": "LOW", "summary": "Issue 2"},
+                            {"severity": "LOW", "summary": "Issue 3"},
+                        ],
+                    }
+                ]
             }
         }
 
-        with patch('subprocess.run'):
+        with patch("subprocess.run"):
             result = reviewer._handle_review_override(state, 3, "Defer all")
 
         assert result["status"] == "OVERRIDE_APPROVED"
@@ -463,12 +437,12 @@ class TestEdgeCases:
 
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 3,
-                    "issues": [
-                        {"summary": "Issue without severity"}  # Missing severity field
-                    ]
-                }]
+                "history": [
+                    {
+                        "iteration": 3,
+                        "issues": [{"summary": "Issue without severity"}],  # Missing severity field
+                    }
+                ]
             }
         }
 
@@ -499,18 +473,16 @@ class TestEdgeCases:
         # Pre-populate state with review history
         state = {
             "unified_review": {
-                "history": [{
-                    "iteration": 1,
-                    "issues": [{"severity": "LOW", "summary": "Minor issue"}]
-                }]
+                "history": [
+                    {"iteration": 1, "issues": [{"severity": "LOW", "summary": "Minor issue"}]}
+                ]
             }
         }
         reviewer._save_state(state)
 
         # Request PR review with override at iteration 2 (< 3)
         result = reviewer._pr_review(
-            iteration=2,
-            override_justification="Attempting early override"
+            iteration=2, override_justification="Attempting early override"
         )
 
         # Should NOT trigger override logic (iteration < 3)

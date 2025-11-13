@@ -29,13 +29,13 @@ def get_pr_commits_from_github():
     # Note: GITHUB_PR_NUMBER and PR_NUMBER are optional convenience variables
     # that may be set in custom workflow configurations. Standard GitHub Actions
     # workflows should rely on GITHUB_REF parsing below.
-    pr_number = os.getenv('GITHUB_PR_NUMBER') or os.getenv('PR_NUMBER')
+    pr_number = os.getenv("GITHUB_PR_NUMBER") or os.getenv("PR_NUMBER")
 
     if not pr_number:
         # Try to extract from GITHUB_REF (format: refs/pull/123/merge)
-        github_ref = os.getenv('GITHUB_REF', '')
-        if '/pull/' in github_ref:
-            pr_number = github_ref.split('/pull/')[1].split('/')[0]
+        github_ref = os.getenv("GITHUB_REF", "")
+        if "/pull/" in github_ref:
+            pr_number = github_ref.split("/pull/")[1].split("/")[0]
 
     if not pr_number:
         return None  # Not in PR context
@@ -64,7 +64,7 @@ def get_pr_commits():
     # Fallback to git (for local development or non-PR contexts)
     # Use environment variable for dynamic base branch detection
     # Falls back to master if not in CI environment
-    base_branch = os.getenv('GITHUB_BASE_REF', 'master')
+    base_branch = os.getenv("GITHUB_BASE_REF", "master")
     base_ref = f"origin/{base_branch}"
 
     # Get commits between base branch and HEAD
@@ -99,9 +99,9 @@ def load_workflow_state():
     try:
         return json.loads(state_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"⚠️  Warning: Malformed workflow state file (.claude/workflow-state.json)")
+        print("⚠️  Warning: Malformed workflow state file (.claude/workflow-state.json)")
         print(f"   JSON parse error: {e}")
-        print(f"   Falling back to commit message marker verification")
+        print("   Falling back to commit message marker verification")
         print()
         return None
 
@@ -142,9 +142,9 @@ def has_review_markers(commit_hash):
     # Format 1: Quick review (single continuation-id without prefix)
     # Match line start + optional whitespace + continuation-id, but ensure
     # it's not preceded by gemini- or codex- by checking the full pattern
-    quick_pattern = r'(?:^|\n)\s*continuation-id:'
-    gemini_pattern = r'(?:^|\n)\s*gemini-continuation-id:'
-    codex_pattern = r'(?:^|\n)\s*codex-continuation-id:'
+    quick_pattern = r"(?:^|\n)\s*continuation-id:"
+    gemini_pattern = r"(?:^|\n)\s*gemini-continuation-id:"
+    codex_pattern = r"(?:^|\n)\s*codex-continuation-id:"
 
     has_continuation = bool(re.search(quick_pattern, message))
     has_prefixed = bool(re.search(gemini_pattern, message) or re.search(codex_pattern, message))
@@ -152,8 +152,8 @@ def has_review_markers(commit_hash):
 
     # Format 2: Deep review (dual phase with gemini + codex)
     # Accept both current and legacy marker names
-    has_gemini = ("gemini-continuation-id:" in message or "gemini-review:" in message)
-    has_codex = ("codex-continuation-id:" in message or "codex-review:" in message)
+    has_gemini = "gemini-continuation-id:" in message or "gemini-review:" in message
+    has_codex = "codex-continuation-id:" in message or "codex-review:" in message
     has_deep_format = has_gemini and has_codex
 
     return has_quick_format or has_deep_format
@@ -170,7 +170,7 @@ def main():
     state = load_workflow_state()
 
     # Detect CI environment (GitHub Actions, GitLab CI, etc.)
-    is_ci = os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+    is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
 
     if not state:
         if is_ci:
@@ -195,7 +195,9 @@ def main():
                 print("   Required: zen-mcp-review: approved")
                 print("   Plus ONE of:")
                 print("     Format 1 (quick review): continuation-id: <id>")
-                print("     Format 2 (deep review): gemini-continuation-id: <id> AND codex-continuation-id: <id>")
+                print(
+                    "     Format 2 (deep review): gemini-continuation-id: <id> AND codex-continuation-id: <id>"
+                )
                 print("     Legacy (deep review): gemini-review: <id> AND codex-review: <id>")
                 print()
                 print("   All commits must be created via workflow gates (no --no-verify)")

@@ -59,6 +59,89 @@ zen-mcp-review: approved
 continuation-id: abc123-def456"
 ```
 
+### Commit Message Marker Standard
+
+**⚠️ CRITICAL: All commits MUST include machine-readable review markers**
+
+CI verification (`scripts/verify_gate_compliance.py`) requires these markers in commit messages:
+
+#### Format 1: Quick Review (Tier 1)
+```
+zen-mcp-review: approved
+continuation-id: <uuid>
+```
+
+**Example:**
+```bash
+git commit -m "feat: Add position validation
+
+zen-mcp-review: approved
+continuation-id: 8b0c8bcf-622a-4bbf-aad2-d06f2ae06344"
+```
+
+#### Format 2: Deep Review (Tier 2)
+```
+zen-mcp-review: approved
+gemini-continuation-id: <uuid>
+codex-continuation-id: <uuid>
+```
+
+**Example:**
+```bash
+git commit -m "fix(workflow): Complete Phase 0 audit
+
+zen-mcp-review: approved
+gemini-continuation-id: ae512f21-f9fe-4c3a-9e7e-bfaa8b07e5fd
+codex-continuation-id: fa10318a-2b4b-4b22-b79d-9b379dff5033"
+```
+
+#### Requirements
+
+**ALL three fields required:**
+1. `zen-mcp-review: approved` (approval marker)
+2. **Quick review:** `continuation-id: <uuid>` (single reviewer)
+3. **Deep review:** BOTH `gemini-continuation-id:` AND `codex-continuation-id:` (dual reviewers)
+
+**Legacy format supported (deep review):**
+- `gemini-review: <id>` (alias for `gemini-continuation-id:`)
+- `codex-review: <id>` (alias for `codex-continuation-id:`)
+
+#### Getting Continuation IDs
+
+**From workflow_gate.py:**
+```bash
+./scripts/workflow_gate.py request-review commit
+# Output includes: continuation_id: abc123...
+
+./scripts/workflow_gate.py request-review pr
+# Output includes: gemini_continuation_id: xyz... and codex_continuation_id: def...
+```
+
+**From zen-mcp review output:**
+```
+# Look for in response:
+"Continuation ID: abc123-def456-..."
+"Gemini continuation: xyz..."
+"Codex continuation: def..."
+```
+
+#### What Happens If Missing?
+
+**Local development:**
+- Pre-commit hook checks workflow-state.json commit history
+- Blocks commits made with `--no-verify`
+
+**CI (GitHub Actions):**
+- `verify_gate_compliance.py` checks commit message markers
+- **Fails PR if markers missing** (workflow-state.json is gitignored in CI)
+- Exit code 1 → CI test failure
+
+**⚠️ If you rewrite commit history (git rebase, git commit --amend, git filter-branch):**
+- Commit hashes change
+- Local workflow-state.json has old hashes → verification fails locally
+- CI still passes (uses markers, not workflow-state.json)
+- **Solution:** Update workflow-state.json commit_history with new hashes
+
 ### Severity Handling
 
 | Severity | Action |

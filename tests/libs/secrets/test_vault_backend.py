@@ -2,7 +2,6 @@
 
 import threading
 import time
-from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
@@ -232,9 +231,7 @@ class TestVaultSecretManagerGetSecret:
 
     def test_get_secret_empty_data(self, vault_secret_mgr, mock_hvac_client):
         """Test secret retrieval when secret exists but has no data."""
-        mock_hvac_client.secrets.kv.v2.read_secret_version.return_value = {
-            "data": {"data": {}}
-        }
+        mock_hvac_client.secrets.kv.v2.read_secret_version.return_value = {"data": {"data": {}}}
 
         with pytest.raises(SecretNotFoundError) as exc_info:
             vault_secret_mgr.get_secret("database/password")
@@ -336,9 +333,7 @@ class TestVaultSecretManagerListSecrets:
 
     def test_list_secrets_empty_directory(self, vault_secret_mgr, mock_hvac_client):
         """Test listing secrets from empty directory."""
-        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = InvalidPath(
-            "Path not found"
-        )
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = InvalidPath("Path not found")
 
         secrets = vault_secret_mgr.list_secrets(prefix="empty/")
 
@@ -346,9 +341,7 @@ class TestVaultSecretManagerListSecrets:
 
     def test_list_secrets_permission_denied(self, vault_secret_mgr, mock_hvac_client):
         """Test listing secrets when permission is denied."""
-        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = Forbidden(
-            "Permission denied"
-        )
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = Forbidden("Permission denied")
 
         with pytest.raises(SecretAccessError) as exc_info:
             vault_secret_mgr.list_secrets(prefix="restricted/")
@@ -357,9 +350,7 @@ class TestVaultSecretManagerListSecrets:
 
     def test_list_secrets_vault_down(self, vault_secret_mgr, mock_hvac_client):
         """Test listing secrets when Vault is down."""
-        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = VaultDown(
-            "Vault unreachable"
-        )
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = VaultDown("Vault unreachable")
 
         with pytest.raises(SecretAccessError) as exc_info:
             vault_secret_mgr.list_secrets()
@@ -368,9 +359,7 @@ class TestVaultSecretManagerListSecrets:
 
     def test_list_secrets_retries_on_vault_down(self, vault_secret_mgr, mock_hvac_client):
         """Ensure list_secrets retries three times on VaultDown."""
-        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = VaultDown(
-            "Vault unreachable"
-        )
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = VaultDown("Vault unreachable")
 
         with pytest.raises(SecretAccessError):
             vault_secret_mgr.list_secrets(prefix="database/")
@@ -544,7 +533,9 @@ class TestVaultSecretManagerContextManager:
     def test_context_manager_exception_handling(self, mock_hvac_client):
         """Test context manager properly closes on exception."""
         with patch("libs.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
-            with pytest.raises(ValueError, match="Test exception"):  # noqa: PT012 - Complex test intentionally tests cleanup on exception
+            with pytest.raises(
+                ValueError, match="Test exception"
+            ):  # noqa: PT012 - Complex test intentionally tests cleanup on exception
                 with VaultSecretManager(
                     vault_url="https://vault.example.com:8200",
                     token="s.test_token",
@@ -831,9 +822,7 @@ class TestVaultSecretManagerErrorHandling:
 
     def test_unexpected_exception_on_list(self, vault_secret_mgr, mock_hvac_client):
         """Test handling of unexpected exception during list_secrets."""
-        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = RuntimeError(
-            "Unexpected error"
-        )
+        mock_hvac_client.secrets.kv.v2.list_secrets.side_effect = RuntimeError("Unexpected error")
 
         with pytest.raises(SecretAccessError) as exc_info:
             vault_secret_mgr.list_secrets()

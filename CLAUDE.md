@@ -37,26 +37,30 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
    - Follow [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md)
    - Identify ALL impacted components, call sites, tests
    - Verify pattern parity and process compliance
-   - Create comprehensive todo list with 4-step pattern
+   - Create comprehensive todo list with 5-step pattern (plan → implement → test → review → commit)
    - **⚠️ DO NOT write code before completing analysis**
 
 2. **For task documents:** Request task creation review (see `.claude/workflows/02-planning.md`)
 
-3. **Break feature into logical components** — Use 4-step pattern (see below)
+3. **Record planning artifacts** (Phase 1: enforced by hard gates)
+   - Record analysis completion: `./scripts/workflow_gate.py record-analysis-complete`
+   - Set component breakdown (≥2): `./scripts/workflow_gate.py set-components "Name 1" "Name 2" ...`
+
+4. **Break feature into logical components** — Use 5-step pattern (see below)
    - For large tasks (>8h), decompose into subfeatures: [`.claude/workflows/02-planning.md`](./.claude/workflows/02-planning.md)
 
-4. **For EACH component:**
-   - Implement logic
-   - Create test cases (TDD)
+5. **For EACH component:**
+   - Transition to implement: `./scripts/workflow_gate.py advance implement`
+   - Implement logic + create test cases (TDD)
    - **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): [`.claude/workflows/03-reviews.md`](./.claude/workflows/03-reviews.md)
    - **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
    - Commit ONLY after review approval + CI passes: [`.claude/workflows/01-git.md`](./.claude/workflows/01-git.md)
 
-5. Repeat until feature complete
+6. Repeat until feature complete
 
-6. **🔍 MANDATORY: Deep review** via clink + gemini: [`.claude/workflows/03-reviews.md`](./.claude/workflows/03-reviews.md)
+7. **🔍 MANDATORY: Deep review** via clink + gemini: [`.claude/workflows/03-reviews.md`](./.claude/workflows/03-reviews.md)
 
-7. Create PR: [`.claude/workflows/01-git.md`](./.claude/workflows/01-git.md)
+8. Create PR: [`.claude/workflows/01-git.md`](./.claude/workflows/01-git.md)
 
 ---
 
@@ -201,25 +205,32 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 ./scripts/workflow_gate.py create-task --id P1T14 --title "Feature Title" --description "Detailed description of task" --hours 6
 ./scripts/workflow_gate.py start-task P1T14 feature/P1T14-task-branch
 
-# 2. For each component (4-step pattern auto-enforced)
+# 2. Complete planning steps (Phase 1: enforced by hard gates)
+./scripts/workflow_gate.py record-analysis-complete  # After completing analysis checklist
+./scripts/workflow_gate.py set-components "Component 1" "Component 2" ...  # ≥2 components required
+
+# 3. For each component (5-step pattern: plan → implement → test → review → commit)
 ./scripts/workflow_gate.py set-component "Component Name"
+./scripts/workflow_gate.py advance implement  # Phase 1: explicit transition from "plan" to "implement"
 # → Implement + test (TDD)
 ./scripts/workflow_gate.py advance test
 ./scripts/workflow_gate.py advance review
 ./scripts/workflow_gate.py request-review commit  # Auto-delegates review if context ≥70%
 ./scripts/workflow_gate.py run-ci commit          # Smart test selection
 git commit -m "message"                          # Pre-commit hook enforces gates
+# → Post-commit hook automatically resets state to "implement" for next component
 
-# 3. Before PR
+# 4. Before PR
 ./scripts/workflow_gate.py request-review pr  # Multi-iteration deep review
 ```
 
 ### Key Principles
 
 - **Analysis first:** Complete `.claude/workflows/00-analysis-checklist.md` before coding (saves 3-11 hours)
+- **Planning discipline (Phase 1):** Hard gates enforce task file, analysis completion, and component breakdown before first commit
 - **TDD:** Write tests before implementation
-- **4-step pattern:** Implement → Test → Review → CI → Commit (enforced by workflow_gate)
-- **Context monitoring:** Auto-delegation at 70%+ context usage
+- **5-step pattern:** Plan → Implement → Test → Review → Commit (enforced by workflow_gate)
+- **Context monitoring:** Auto-delegation at 70%+ context usage (≥85% blocks commits)
 - **No bypasses:** NEVER use `git commit --no-verify` (detected by CI)
 
 **See:** [`.claude/workflows/README.md`](./.claude/workflows/README.md) for detailed workflows
