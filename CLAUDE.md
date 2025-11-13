@@ -37,20 +37,21 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
    - Follow [`.claude/workflows/00-analysis-checklist.md`](./.claude/workflows/00-analysis-checklist.md)
    - Identify ALL impacted components, call sites, tests
    - Verify pattern parity and process compliance
-   - Create comprehensive todo list with 5-step pattern (plan → implement → test → review → commit)
+   - Create comprehensive todo list with 6-step pattern (plan → plan-review → implement → test → review → commit)
    - **⚠️ DO NOT write code before completing analysis**
 
 2. **For task documents:** Request task creation review (see `.claude/workflows/02-planning.md`)
 
-3. **Record planning artifacts** (Phase 1: enforced by hard gates)
+3. **Record planning artifacts** (Phase 1.5: enforced by hard gates)
    - Record analysis completion: `./scripts/workflow_gate.py record-analysis-complete`
    - Set component breakdown (≥2): `./scripts/workflow_gate.py set-components "Name 1" "Name 2" ...`
 
-4. **Break feature into logical components** — Use 5-step pattern (see below)
+4. **Break feature into logical components** — Use 6-step pattern (see below)
    - For large tasks (>8h), decompose into subfeatures: [`.claude/workflows/02-planning.md`](./.claude/workflows/02-planning.md)
 
 5. **For EACH component:**
-   - Transition to implement: `./scripts/workflow_gate.py advance implement`
+   - Request plan review: `./scripts/workflow_gate.py advance plan-review`
+   - After plan approval, transition to implement: `./scripts/workflow_gate.py advance implement`
    - Implement logic + create test cases (TDD)
    - **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): [`.claude/workflows/03-reviews.md`](./.claude/workflows/03-reviews.md)
    - **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
@@ -209,16 +210,18 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 ./scripts/workflow_gate.py record-analysis-complete  # After completing analysis checklist
 ./scripts/workflow_gate.py set-components "Component 1" "Component 2" ...  # ≥2 components required
 
-# 3. For each component (5-step pattern: plan → implement → test → review → commit)
+# 3. For each component (6-step pattern: plan → plan-review → implement → test → review → commit)
 ./scripts/workflow_gate.py set-component "Component Name"
-./scripts/workflow_gate.py advance implement  # Phase 1: explicit transition from "plan" to "implement"
+./scripts/workflow_gate.py advance plan-review  # Phase 1.5: Request plan review
+# → After plan approval:
+./scripts/workflow_gate.py advance implement  # Phase 1.5: explicit transition from "plan-review" to "implement"
 # → Implement + test (TDD)
 ./scripts/workflow_gate.py advance test
 ./scripts/workflow_gate.py advance review
 ./scripts/workflow_gate.py request-review commit  # Auto-delegates review if context ≥70%
 ./scripts/workflow_gate.py run-ci commit          # Smart test selection
 git commit -m "message"                          # Pre-commit hook enforces gates
-# → Post-commit hook automatically resets state to "implement" for next component
+# → Post-commit hook automatically resets state to "plan" for next component
 
 # 4. Before PR
 ./scripts/workflow_gate.py request-review pr  # Multi-iteration deep review
@@ -227,9 +230,9 @@ git commit -m "message"                          # Pre-commit hook enforces gate
 ### Key Principles
 
 - **Analysis first:** Complete `.claude/workflows/00-analysis-checklist.md` before coding (saves 3-11 hours)
-- **Planning discipline (Phase 1):** Hard gates enforce task file, analysis completion, and component breakdown before first commit
+- **Planning discipline (Phase 1.5):** Hard gates enforce task file, analysis completion, component breakdown, and plan review before first commit
 - **TDD:** Write tests before implementation
-- **5-step pattern:** Plan → Implement → Test → Review → Commit (enforced by workflow_gate)
+- **6-step pattern:** Plan → Plan Review → Implement → Test → Code Review → Commit (enforced by workflow_gate)
 - **Context monitoring:** Auto-delegation at 70%+ context usage (≥85% blocks commits)
 - **No bypasses:** NEVER use `git commit --no-verify` (detected by CI)
 

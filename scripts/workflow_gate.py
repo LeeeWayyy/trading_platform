@@ -44,7 +44,7 @@ from typing import Literal
 PROJECT_ROOT = Path(__file__).parent.parent
 STATE_FILE = PROJECT_ROOT / ".claude" / "workflow-state.json"
 
-StepType = Literal["implement", "test", "review"]
+StepType = Literal["plan", "plan-review", "implement", "test", "review"]
 
 # Review status constants
 REVIEW_APPROVED = "APPROVED"
@@ -53,10 +53,11 @@ REVIEW_NOT_REQUESTED = "NOT_REQUESTED"
 
 
 class WorkflowGate:
-    """Enforces 4-step workflow pattern with hard gates."""
+    """Enforces 6-step workflow pattern with hard gates."""
 
     VALID_TRANSITIONS = {
-        "plan": ["implement"],  # Phase 1: Planning step before implementation
+        "plan": ["plan-review"],  # Phase 1.5: Must review plan before implementation
+        "plan-review": ["implement", "plan"],  # Can implement if approved, or go back to plan
         "implement": ["test"],
         "test": ["review"],
         "review": ["implement"],  # HIGH-001 fix: Can go back to implement after review failure
@@ -80,7 +81,7 @@ class WorkflowGate:
         return {
             "current_component": "",
             "step": "plan",  # Phase 1: Start with planning step
-            "zen_review": {},
+            "zen_review": {},  # Used for both plan-review and code review steps
             "ci_passed": False,
             "last_commit_hash": None,
             "commit_history": [],
@@ -383,9 +384,30 @@ class WorkflowGate:
                 print(error_msg)
                 sys.exit(1)
 
-            # Special logic for review step
+            # Gate: Check plan review approval before advancing to implement
+            if current == "plan-review" and next == "implement":
+                zen_status = state["zen_review"].get("status", "NOT_REQUESTED")
+                if zen_status != REVIEW_APPROVED:
+                    print("❌ Cannot advance to implement: Plan review not approved")
+                    print("   Current plan review status:", zen_status)
+                    print("   Request plan review:")
+                    print("     ./scripts/workflow_gate.py request-review plan")
+                    print("   After approval, record:")
+                    print("     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED")
+                    sys.exit(1)
+                # Clear zen_review for code review later
+                state["zen_review"] = {}
+
+            # Special logic for plan-review step
+            if next == "plan-review":
+                print("🔍 Requesting plan review (clink + gemini → codex)...")
+                print("   Follow: .claude/workflows/03-reviews.md")
+                print("   After review, record approval:")
+                print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
+
+            # Special logic for code review step
             if next == "review":
-                print("🔍 Requesting zen-mcp review (clink + gemini → codex)...")
+                print("🔍 Requesting code review (clink + gemini → codex)...")
                 print("   Follow: .claude/workflows/03-reviews.md")
                 print("   After review, record approval:")
                 print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
@@ -904,7 +926,8 @@ class WorkflowGate:
             state["commit_history"] = state["commit_history"][-100:]
             # Remove deprecated last_commit_hash field (state file hygiene)
             state.pop("last_commit_hash", None)
-            state["step"] = "implement"  # Ready for next component
+            # Phase 1.5: Reset to plan step for next component (enforces plan-review gate)
+            state["step"] = "plan"
             state["zen_review"] = {}
             state["ci_passed"] = False
 
@@ -923,7 +946,7 @@ class WorkflowGate:
             # State automatically saved when exiting context
 
         print(f"✅ Recorded commit {commit_hash[:8]}")
-        print("✅ Ready for next component (step: implement)")
+        print("✅ Ready for next component (step: plan)")
         print("   Set new component:")
         print("     ./scripts/workflow_gate.py set-component '<component_name>'")
 
@@ -1012,17 +1035,25 @@ class WorkflowGate:
         print(f"Current Step: {state['step']}")
         print()
         print("Workflow Progress:")
-        # P2 fix: Include all 4 steps (plan → implement → test → review)
+        # Phase 1.5: Include all 6 steps (plan → plan-review → implement → test → review → commit)
         current = state["step"]
-        steps = ["plan", "implement", "test", "review"]
+        steps = ["plan", "plan-review", "implement", "test", "review"]
+        step_labels = {
+            "plan": "Plan",
+            "plan-review": "Plan Review",
+            "implement": "Implement",
+            "test": "Test",
+            "review": "Code Review"
+        }
         for i, step in enumerate(steps, 1):
+            label = step_labels.get(step, step.capitalize())
             if step == current:
                 marker = "← YOU ARE HERE"
             elif steps.index(current) > steps.index(step):
                 marker = "✓"
             else:
                 marker = ""
-            print(f"  {i}. {step.capitalize()} {marker}")
+            print(f"  {i}. {label} {marker}")
         print()
         print("Gate Status:")
         zen_status = state["zen_review"].get("status", "NOT_REQUESTED")
@@ -1042,7 +1073,12 @@ class WorkflowGate:
         # Show available actions
         print("Available Actions:")
         if current == "plan":
+            print("  ./scripts/workflow_gate.py advance plan-review")
+        elif current == "plan-review":
+            print("  # After plan review approval:")
             print("  ./scripts/workflow_gate.py advance implement")
+            print("  # If plan needs revision:")
+            print("  ./scripts/workflow_gate.py advance plan")
         elif current == "implement":
             print("  ./scripts/workflow_gate.py advance test")
         elif current == "test":
@@ -2481,7 +2517,7 @@ class UnifiedReviewSystem:
         Request unified review (gemini codereviewer → codex codereviewer).
 
         Args:
-            scope: "commit" (lightweight) or "pr" (comprehensive + multi-iteration)
+            scope: "plan" (plan review), "commit" (lightweight), or "pr" (comprehensive + multi-iteration)
             iteration: Iteration number for PR reviews (1, 2, 3...)
             override_justification: Justification for overriding LOW severity issues
 
@@ -2493,12 +2529,14 @@ class UnifiedReviewSystem:
             >>> result = reviewer.request_review(scope="commit")
             >>> print(result["status"])  # "APPROVED" or "NEEDS_REVISION"
         """
-        if scope == "commit":
+        if scope == "plan":
+            return self._plan_review()
+        elif scope == "commit":
             return self._commit_review()
         elif scope == "pr":
             return self._pr_review(iteration, override_justification)
         else:
-            raise ValueError(f"Invalid scope: {scope}. Must be 'commit' or 'pr'.")
+            raise ValueError(f"Invalid scope: {scope}. Must be 'plan', 'commit', or 'pr'.")
 
     def _commit_review(self) -> dict:
         """
@@ -2532,6 +2570,70 @@ class UnifiedReviewSystem:
         return {
             "scope": "commit",
             "continuation_id": None,  # Set by user after review
+            "status": "PENDING",
+            "issues": [],
+        }
+
+    def _plan_review(self) -> dict:
+        """
+        Deep plan review via INDEPENDENT Gemini + Codex reviews (Phase 1.5).
+
+        CRITICAL: This is a DEEP REVIEW with INDEPENDENT reviews (Tier 2 pattern)
+        - Gemini reviews plan independently (fresh perspective)
+        - Codex reviews plan independently (NOT building on Gemini)
+        - Multi-iteration until BOTH approve with ZERO issues
+
+        Focus:
+        - Implementation approach feasibility
+        - Risk assessment completeness
+        - Component breakdown clarity
+        - Test strategy adequacy
+        - Time estimates realistic
+        - Integration concerns
+        - Missing edge cases
+
+        Speed: ~3-5 minutes (similar to PR deep review)
+
+        Returns:
+            dict with keys: scope, continuation_id, status, issues
+        """
+        print("🔍 Requesting DEEP REVIEW of plan (INDEPENDENT reviews: Gemini + Codex)...")
+        print("   ⚠️  CRITICAL: Both reviewers work INDEPENDENTLY (not sequential)")
+        print("   Focus: Feasibility, risk assessment, breakdown, integration")
+        print("   Duration: ~3-5 minutes (deep review)")
+        print()
+        print("💡 Follow Tier 2 (Deep Review) workflow: .claude/workflows/03-reviews.md")
+        print()
+        print("   === Step 1: Request INDEPENDENT Gemini review ===")
+        print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
+        print("   Prompt: 'Request independent deep review of plan (fresh, no prior context)'")
+        print("   Materials to review:")
+        print("     - Pre-implementation analysis document")
+        print("     - Component breakdown and estimates")
+        print("     - Risk assessment and mitigation strategies")
+        print()
+        print("   === Step 2: Request INDEPENDENT Codex review ===")
+        print("   Use: mcp__zen__clink with cli_name='codex', role='codereviewer'")
+        print("   Prompt: 'Request independent deep review of plan (fresh, no prior context)'")
+        print("   ⚠️  DO NOT reuse Gemini's continuation_id - Codex reviews independently")
+        print()
+        print("   === Step 3: If ANY issues found by EITHER reviewer ===")
+        print("   - Fix ALL issues")
+        print("   - Update plan documents")
+        print("   - RESTART from Step 1 with FRESH reviews (no memory)")
+        print()
+        print("   === Step 4: Repeat until BOTH approve with ZERO issues ===")
+        print("   Result: ✅ Both Gemini AND Codex approve with NO issues")
+        print()
+        print("   === Step 5: Record approval ===")
+        print("   After BOTH approve, record with EITHER continuation_id:")
+        print("     ./scripts/workflow_gate.py record-review <gemini-or-codex-continuation-id> APPROVED")
+        print()
+
+        # Return placeholder - actual review happens via clink
+        return {
+            "scope": "plan",
+            "continuation_id": None,  # Set by user after BOTH reviews approve
             "status": "PENDING",
             "issues": [],
         }
@@ -3179,8 +3281,8 @@ Examples:
     advance_parser = subparsers.add_parser("advance", help="Advance to next step")
     advance_parser.add_argument(
         "next_step",
-        choices=["implement", "test", "review"],
-        help="Next workflow step (plan→implement, implement→test, test→review, review→implement for rework)",
+        choices=["plan", "plan-review", "implement", "test", "review"],
+        help="Next workflow step (plan→plan-review→implement→test→review, plan-review→plan for rework, review→implement for rework)",
     )
 
     # Record review
@@ -3238,12 +3340,12 @@ Examples:
 
     # Component 4: Unified Review System
     request_review_parser = subparsers.add_parser(
-        "request-review", help="Request unified review (commit or PR)"
+        "request-review", help="Request unified review (plan, commit, or PR)"
     )
     request_review_parser.add_argument(
         "scope",
-        choices=["commit", "pr"],
-        help="Review scope: commit (lightweight) or pr (comprehensive)",
+        choices=["plan", "commit", "pr"],
+        help="Review scope: plan (deep review of implementation plan), commit (lightweight), or pr (comprehensive)",
     )
     request_review_parser.add_argument(
         "--iteration", type=int, default=1, help="PR review iteration number (1-3)"
