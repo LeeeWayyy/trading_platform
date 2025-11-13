@@ -18,7 +18,7 @@ Date: 2025-11-07
 
 import subprocess
 from pathlib import Path
-from typing import List, Set, Optional
+from typing import Optional
 
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -26,15 +26,15 @@ PROJECT_ROOT = Path(__file__).parent.parent
 # Core packages that always trigger full CI
 # These are foundational components where changes may have cross-cutting impact
 CORE_PACKAGES = {
-    "libs/",          # Shared libraries used across apps
-    "config/",        # Configuration files
-    "infra/",         # Infrastructure configs (docker, prometheus, etc.)
+    "libs/",  # Shared libraries used across apps
+    "config/",  # Configuration files
+    "infra/",  # Infrastructure configs (docker, prometheus, etc.)
     "tests/fixtures/",  # Shared test fixtures
-    "scripts/",       # Build and automation scripts
+    "scripts/",  # Build and automation scripts
 }
 
 
-def get_staged_files() -> Optional[List[str]]:
+def get_staged_files() -> Optional[list[str]]:
     """
     Get list of staged files from git.
 
@@ -64,7 +64,7 @@ def get_staged_files() -> Optional[List[str]]:
         return None
 
 
-def detect_changed_modules(files: List[str]) -> Set[str]:
+def detect_changed_modules(files: list[str]) -> set[str]:
     """
     Analyze files to determine impacted modules.
 
@@ -131,7 +131,7 @@ def is_core_package(file: str) -> bool:
     return posix_path.startswith(tuple(CORE_PACKAGES))
 
 
-def requires_full_ci(staged_files: List[str]) -> bool:
+def requires_full_ci(staged_files: list[str]) -> bool:
     """
     Check if any staged file requires full CI.
 

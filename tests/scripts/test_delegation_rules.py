@@ -9,7 +9,6 @@ Date: 2025-11-08
 """
 
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -173,9 +172,7 @@ class TestRecordContext:
         assert snapshot["current_tokens"] == 0
         assert state["context"]["current_tokens"] == 0
 
-    def test_record_context_exceeds_max(
-        self, capsys: pytest.CaptureFixture
-    ) -> None:
+    def test_record_context_exceeds_max(self, capsys: pytest.CaptureFixture) -> None:
         """Test warning when tokens exceed max."""
         state = {"context": {"max_tokens": 200000}}
         load_state = MagicMock(return_value=state)
@@ -201,9 +198,7 @@ class TestRecordContext:
         assert state["context"]["current_tokens"] == 10000
         assert state["context"]["max_tokens"] == 200000  # DEFAULT
 
-    def test_record_context_save_error(
-        self, capsys: pytest.CaptureFixture
-    ) -> None:
+    def test_record_context_save_error(self, capsys: pytest.CaptureFixture) -> None:
         """Test graceful handling when save_state fails."""
         state = {"context": {"max_tokens": 200000}}
         load_state = MagicMock(return_value=state)
@@ -226,9 +221,7 @@ class TestShouldDelegateContext:
 
     def test_below_warning_threshold(self) -> None:
         """Test usage < 70% (OK, no delegation needed)."""
-        state = {
-            "context": {"current_tokens": 50000, "max_tokens": 200000}  # 25%
-        }
+        state = {"context": {"current_tokens": 50000, "max_tokens": 200000}}  # 25%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -241,9 +234,7 @@ class TestShouldDelegateContext:
 
     def test_warning_threshold(self) -> None:
         """Test usage 70-84% (WARNING - delegation recommended)."""
-        state = {
-            "context": {"current_tokens": 150000, "max_tokens": 200000}  # 75%
-        }
+        state = {"context": {"current_tokens": 150000, "max_tokens": 200000}}  # 75%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -256,9 +247,7 @@ class TestShouldDelegateContext:
 
     def test_critical_threshold(self) -> None:
         """Test usage >= 85% (CRITICAL - delegation mandatory)."""
-        state = {
-            "context": {"current_tokens": 180000, "max_tokens": 200000}  # 90%
-        }
+        state = {"context": {"current_tokens": 180000, "max_tokens": 200000}}  # 90%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -271,9 +260,7 @@ class TestShouldDelegateContext:
 
     def test_exact_warning_boundary(self) -> None:
         """Test exact 70% boundary."""
-        state = {
-            "context": {"current_tokens": 140000, "max_tokens": 200000}  # 70%
-        }
+        state = {"context": {"current_tokens": 140000, "max_tokens": 200000}}  # 70%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -287,9 +274,7 @@ class TestShouldDelegateContext:
 
     def test_exact_critical_boundary(self) -> None:
         """Test exact 85% boundary."""
-        state = {
-            "context": {"current_tokens": 170000, "max_tokens": 200000}  # 85%
-        }
+        state = {"context": {"current_tokens": 170000, "max_tokens": 200000}}  # 85%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -307,9 +292,7 @@ class TestShouldDelegateOperation:
 
     def test_always_delegate_expensive_operation(self) -> None:
         """Test that >= 50k token operations are always delegated."""
-        state = {
-            "context": {"current_tokens": 10000, "max_tokens": 200000}  # 5%
-        }
+        state = {"context": {"current_tokens": 10000, "max_tokens": 200000}}  # 5%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -382,9 +365,7 @@ class TestSuggestDelegation:
 
     def test_suggest_delegation_below_threshold(self) -> None:
         """Test suggestion when usage is below 70% (no delegation needed)."""
-        state = {
-            "context": {"current_tokens": 50000, "max_tokens": 200000}  # 25%
-        }
+        state = {"context": {"current_tokens": 50000, "max_tokens": 200000}}  # 25%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -399,9 +380,7 @@ class TestSuggestDelegation:
 
     def test_suggest_delegation_above_threshold(self) -> None:
         """Test suggestion when usage is >= 70% (delegation recommended)."""
-        state = {
-            "context": {"current_tokens": 150000, "max_tokens": 200000}  # 75%
-        }
+        state = {"context": {"current_tokens": 150000, "max_tokens": 200000}}  # 75%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -416,9 +395,7 @@ class TestSuggestDelegation:
 
     def test_suggest_delegation_with_operation(self) -> None:
         """Test suggestion with specific operation."""
-        state = {
-            "context": {"current_tokens": 150000, "max_tokens": 200000}  # 75%
-        }
+        state = {"context": {"current_tokens": 150000, "max_tokens": 200000}}  # 75%
         load_state = MagicMock(return_value=state)
         save_state = MagicMock()
 
@@ -631,9 +608,7 @@ class TestFormatStatus:
         }
 
         rules = DelegationRules(load_state=load_state, save_state=save_state)
-        message = rules.format_status(
-            snapshot, "OK", heading="Custom Heading"
-        )
+        message = rules.format_status(snapshot, "OK", heading="Custom Heading")
 
         assert "CUSTOM HEADING" in message
         assert "CONTEXT STATUS" not in message
@@ -680,9 +655,7 @@ class TestDelegationRulesIntegration:
         assert reason == "WARNING - Delegation RECOMMENDED"
 
         # 3. Check operation projection
-        should_delegate_op, reason_op = rules.should_delegate_operation(
-            "deep_review", snapshot
-        )
+        should_delegate_op, reason_op = rules.should_delegate_operation("deep_review", snapshot)
         assert should_delegate_op is True  # 75% + 15% = 90% > 85%
 
         # 4. Record delegation

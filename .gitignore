@@ -95,3 +95,6 @@ zen_precommit.changeset
 .claude/checkpoints/*.json
 !.claude/checkpoints/README.md
 .claude/workflow-state.json
+
+# Workflow lock files (runtime only)
+.claude/*.lock

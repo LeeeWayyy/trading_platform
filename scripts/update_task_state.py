@@ -20,10 +20,11 @@ import os
 import sys
 import tempfile
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 
 def _acquire_lock(state_file: Path, max_retries: int = 3) -> int:
@@ -36,9 +37,9 @@ def _acquire_lock(state_file: Path, max_retries: int = 3) -> int:
             lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY, 0o644)
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return lock_fd
-        except (IOError, OSError):
+        except OSError:
             if attempt < max_retries - 1:
-                time.sleep(0.1 * (2 ** attempt))
+                time.sleep(0.1 * (2**attempt))
                 continue
             raise RuntimeError(f"Failed to acquire lock after {max_retries} attempts")
     raise RuntimeError("Lock acquisition failed")
@@ -49,7 +50,7 @@ def _release_lock(lock_fd: int) -> None:
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
-    except (IOError, OSError) as e:
+    except OSError as e:
         print(f"⚠️  Warning: Failed to release lock: {e}")
 
 
@@ -64,15 +65,13 @@ def _save_state_unlocked(state_file: Path, state: dict[str, Any]) -> None:
 
     # Atomic write: write to temp file then rename
     temp_fd, temp_path = tempfile.mkstemp(
-        dir=state_file.parent,
-        prefix=".task-state-",
-        suffix=".tmp"
+        dir=state_file.parent, prefix=".task-state-", suffix=".tmp"
     )
     try:
-        with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2, ensure_ascii=False)
         Path(temp_path).replace(state_file)
-    except (IOError, OSError):
+    except OSError:
         Path(temp_path).unlink(missing_ok=True)
         raise
 
@@ -116,11 +115,11 @@ def load_state(state_file: Path) -> dict[str, Any]:
     try:
         with open(state_file) as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         print(f"⚠️  Warning: Failed to parse task state file: {e}")
-        print(f"   Backing up corrupt file and starting fresh...")
+        print("   Backing up corrupt file and starting fresh...")
         # Backup corrupt file
-        backup = state_file.with_suffix('.json.corrupt')
+        backup = state_file.with_suffix(".json.corrupt")
         state_file.rename(backup)
         print(f"   Corrupt file saved to: {backup}")
         return {}
@@ -163,7 +162,7 @@ def complete_component(
         current_comp_num = state["progress"]["current_component"]["number"]
         if component_num != current_comp_num:
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print(f"❌ ERROR: Component number mismatch")
+            print("❌ ERROR: Component number mismatch")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print(f"   You specified: Component {component_num}")
             print(f"   Current component: Component {current_comp_num}")
@@ -190,7 +189,7 @@ def complete_component(
             "tests_added": tests_added,
             "review_approved": True,
             "continuation_id": continuation_id or "N/A",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
 
         # Update current component
@@ -223,10 +222,10 @@ def complete_component(
             # All components complete
             state["progress"]["current_component"] = None
             state["current_task"]["state"] = "COMPLETE"
-            state["current_task"]["completed"] = datetime.now(timezone.utc).isoformat()
+            state["current_task"]["completed"] = datetime.now(UTC).isoformat()
 
         # Update metadata (LOW-001 fix: use timezone-aware datetime)
-        state["meta"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+        state["meta"]["last_updated"] = datetime.now(UTC).isoformat()
         # State automatically saved when exiting context
 
     # Display summary (outside lock to reduce lock hold time)
@@ -250,7 +249,7 @@ def start_task(
 ) -> None:
     """Start tracking a new task."""
     # LOW-001 fix: use timezone-aware datetime
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     state = {
         "current_task": {
             "task_id": task_id,
@@ -259,7 +258,7 @@ def start_task(
             "branch": branch,
             "task_file": task_file,
             "state": "IN_PROGRESS",
-            "started": datetime.now(timezone.utc).date().isoformat(),
+            "started": datetime.now(UTC).date().isoformat(),
         },
         "progress": {
             "total_components": total_components,
@@ -296,7 +295,7 @@ def finish_task(state_file: Path) -> None:
             sys.exit(1)
 
         # LOW-001 fix: use timezone-aware datetime
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         state["current_task"]["state"] = "COMPLETE"
         state["current_task"]["completed"] = now_iso
         state["progress"]["completion_percentage"] = 100

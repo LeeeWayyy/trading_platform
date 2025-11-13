@@ -302,9 +302,7 @@ class TestSecretManagerInterface:
         with pytest.raises(TypeError) as exc_info:
             IncompleteManager()
 
-        assert "get_secret" in str(exc_info.value) or "abstract" in str(
-            exc_info.value
-        ).lower()
+        assert "get_secret" in str(exc_info.value) or "abstract" in str(exc_info.value).lower()
 
     def test_subclass_must_implement_list_secrets(self):
         """Test subclass must implement list_secrets()."""
@@ -319,9 +317,7 @@ class TestSecretManagerInterface:
         with pytest.raises(TypeError) as exc_info:
             IncompleteManager()
 
-        assert "list_secrets" in str(exc_info.value) or "abstract" in str(
-            exc_info.value
-        ).lower()
+        assert "list_secrets" in str(exc_info.value) or "abstract" in str(exc_info.value).lower()
 
     def test_subclass_must_implement_set_secret(self):
         """Test subclass must implement set_secret()."""
@@ -336,9 +332,7 @@ class TestSecretManagerInterface:
         with pytest.raises(TypeError) as exc_info:
             IncompleteManager()
 
-        assert "set_secret" in str(exc_info.value) or "abstract" in str(
-            exc_info.value
-        ).lower()
+        assert "set_secret" in str(exc_info.value) or "abstract" in str(exc_info.value).lower()
 
     def test_complete_implementation_works(self):
         """Test complete implementation can be instantiated."""

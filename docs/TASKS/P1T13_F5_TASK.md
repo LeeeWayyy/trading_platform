@@ -162,15 +162,20 @@ This is a "meta" task: improving the tools that improve our workflow.
 
 ## Proposed Solution
 
-### Architecture Decision: Phase 0 + 3 Subfeatures
+### Architecture Decision: Phase 0 + Phase 1 + 3 Subfeatures
 
-Given 24-32h estimate, **RECOMMENDED** to split into:
-- **Phase 0 (Prerequisite):** Current Workflow Audit & Remediation (4-6h)
+Given 32-42h estimate, **RECOMMENDED** to split into:
+- **Phase 0 (Prerequisite):** Current Workflow Audit & Remediation (4-6h) ✅ **COMPLETE**
+- **Phase 1 (NEW):** Planning Discipline Enforcement (6-8h) 🔄 **NEXT**
 - **P1T13-F5a:** Hard-Gated AI Workflow Enforcement (6-8h)
 - **P1T13-F5b:** PR Review Webhook Automation (10-12h)
 - **P1T13-F5c:** Hierarchical Subtask Management (4-6h)
 
 **Rationale for Phase 0:** Before building new workflow features, we must audit and fix existing workflow system issues. This ensures we build on a solid foundation and don't propagate existing bugs into new components.
+
+**Rationale for Phase 1:** The current hard gates only enforce the **commit workflow** (test → review → CI → commit) but do NOT enforce the **planning workflow** (analysis → task doc → component breakdown → todos → delegation). Phase 0 fixed the commit gates, but AI can still skip planning steps. Phase 1 adds hard gates for planning discipline to ensure comprehensive workflow compliance.
+
+**Critical Insight:** Planning enforcement is MORE important than commit enforcement because skipping planning causes 3-11 hours of wasted work (per CLAUDE.md anti-patterns), while commit gate bypasses cause 2-4 hours of fix work. Planning gates prevent problems before they happen.
 
 Each phase/subfeature can be developed, reviewed, and merged independently.
 
@@ -265,10 +270,262 @@ Based on P1T13-F4 experience, we might find:
 - No tests for workflow_gate.py state transitions
 
 **Deliverables:**
-- Audit report document (`.claude/audits/P1T13-F5-phase0-audit.md`)
-- Fixed issues (commits with tests)
-- Updated tests for workflow_gate.py and update_task_state.py
-- Known issues log (`.claude/known-issues.md`)
+- Audit report document (`.claude/audits/P1T13-F5-phase0-findings.md`)
+- Fixes summary document (`.claude/audits/P1T13-F5-phase0-fixes-summary.md`)
+- Fixed issues (10 critical/high issues resolved in commit 9c0dec5e)
+- Updated workflow_gate.py with context managers and file locking
+- Updated update_task_state.py with atomic operations
+- Post-commit hook with fail-hard error handling
+- Emergency override via ZEN_REVIEW_OVERRIDE environment variable
+
+**Status:** ✅ **COMPLETE** (2025-11-12, commit 9c0dec5e on branch feature/P1T13-F5-phase0-audit)
+
+---
+
+### Phase 1: Planning Discipline Enforcement (6-8h) 🔄 **NEXT PHASE**
+
+**Goal:** Add hard gates to enforce pre-implementation planning, ensuring AI cannot skip analysis, task documentation, component breakdown, todo tracking, or delegation thresholds.
+
+**Current Gap:** Phase 0 fixed commit workflow enforcement, but AI can still:
+- Skip pre-implementation analysis (saves 3-11h according to CLAUDE.md)
+- Bypass task document creation
+- Skip component breakdown planning
+- Avoid using TodoWrite for complex tasks
+- Ignore context usage thresholds and delegation requirements
+
+**Impact of Gap:**
+- 3-11 hours wasted per task when analysis skipped (per `/tmp/ci-failure-root-cause-analysis.md`)
+- Context overflow and session crashes at 85%+ usage
+- Poor task organization leading to incomplete work
+- No audit trail for planning decisions
+
+**Solution:** Extend workflow state machine with "plan" step and add planning gates to pre-commit hook.
+
+**Components:**
+
+1. **Component 1: Planning Step in Workflow State Machine (2h)**
+   - Extend workflow_gate.py with "plan" step before "implement"
+   - New state transitions:
+     ```python
+     VALID_TRANSITIONS = {
+         "plan": ["implement"],           # Must complete planning before coding
+         "implement": ["test"],
+         "test": ["review", "implement"],
+         "review": ["implement"],
+     }
+     ```
+   - Add commands to record planning artifacts:
+     ```bash
+     # Initialize task with planning step
+     ./scripts/workflow_gate.py start-task \
+       --id P1T14 \
+       --title "Feature Title" \
+       --task-file docs/TASKS/P1T14_TASK.md \
+       --components 5
+     # → Sets workflow step to "plan"
+
+     # Record analysis completion
+     ./scripts/workflow_gate.py record-analysis-complete \
+       --checklist-file .claude/analysis/P1T14-checklist.md
+
+     # Record component breakdown
+     ./scripts/workflow_gate.py set-components \
+       "Component 1: Core logic" \
+       "Component 2: API endpoints" \
+       "Component 3: Tests"
+
+     # Advance to implement (only allowed after planning complete)
+     ./scripts/workflow_gate.py advance implement
+     ```
+   - **Gate:** Cannot advance to "implement" until planning artifacts exist
+
+2. **Component 2: Planning Artifact Validation Gates (2-3h)**
+   - Add `_has_planning_artifacts()` method to check_commit():
+     ```python
+     def check_commit(self) -> None:
+         # NEW Gate 0: Planning artifacts must exist (first commit only)
+         if self._is_first_commit() and not self._has_planning_artifacts():
+             print("❌ COMMIT BLOCKED: Missing planning artifacts")
+             print("   Required before first commit:")
+             print("     1. Task document: docs/TASKS/<task_id>_TASK.md")
+             print("     2. Analysis checklist: .claude/analysis/<task_id>-checklist.md")
+             print("     3. Component breakdown: ≥2 components defined")
+             sys.exit(1)
+
+         # Existing gates for test, review, CI...
+     ```
+   - Validation logic:
+     ```python
+     def _has_planning_artifacts(self) -> bool:
+         state = self.load_state()
+
+         # Check 1: Task document exists
+         task_file = state.get("task_file")
+         if not task_file or not Path(task_file).exists():
+             return False
+
+         # Check 2: Analysis checklist completed
+         if not state.get("analysis_completed", False):
+             return False
+
+         # Check 3: Component breakdown exists (≥2 components)
+         components = state.get("components", [])
+         if len(components) < 2:
+             return False
+
+         return True
+     ```
+   - **Gate:** First commit blocked until all planning artifacts validated
+
+3. **Component 3: TodoWrite Enforcement for Complex Tasks (1-2h)**
+   - Add validation for tasks with 3+ components:
+     ```python
+     def check_commit(self) -> None:
+         # ... existing gates ...
+
+         # NEW Gate: Complex tasks require todo tracking
+         if self._is_complex_task() and not self._has_active_todos():
+             print("❌ COMMIT BLOCKED: Complex task requires todo tracking")
+             print("   This task has 3+ components but no active todos")
+             print("   Use TodoWrite tool to create task list")
+             sys.exit(1)
+
+     def _is_complex_task(self) -> bool:
+         state = self.load_state()
+         components = state.get("components", [])
+         return len(components) >= 3
+
+     def _has_active_todos(self) -> bool:
+         # Check for .claude/session-todos.json
+         return Path(".claude/session-todos.json").exists()
+     ```
+   - **Gate:** Cannot commit on complex tasks without TodoWrite usage
+
+4. **Component 4: Context & Delegation Threshold Enforcement (1-2h)**
+   - Add mandatory delegation gate at 85% context:
+     ```python
+     def check_commit(self) -> None:
+         # ... existing gates ...
+
+         # NEW Gate: Mandatory delegation at 85% context
+         delegation_rules = DelegationRules(...)
+         should_delegate, reason = delegation_rules.should_delegate()
+
+         if should_delegate and "MANDATORY" in reason:
+             print("❌ COMMIT BLOCKED: Context usage ≥85%")
+             current_tokens = delegation_rules.get_current_tokens()
+             print(f"   Current: {current_tokens}/200000 tokens")
+             print("   You MUST delegate before committing:")
+             print("     ./scripts/workflow_gate.py suggest-delegation")
+             print("     ./scripts/workflow_gate.py record-delegation '<task>'")
+             sys.exit(1)
+     ```
+   - Auto-check context on every commit attempt
+   - **Gate:** Cannot commit when context ≥85% without delegation recorded
+
+**Validation:**
+- Test 1: Cannot advance from "plan" to "implement" without artifacts
+- Test 2: First commit blocked when task document missing
+- Test 3: First commit blocked when analysis not completed
+- Test 4: First commit blocked when <2 components defined
+- Test 5: Complex task (3+ components) blocked without TodoWrite usage
+- Test 6: Commit blocked at 85%+ context without delegation
+
+**Risks:**
+- Risk: Task document requirement too strict for small fixes
+  - Mitigation: Allow --skip-planning flag for hotfixes (must include "hotfix:" in commit message, logged for audit)
+- Risk: Analysis checklist too rigid for different task types
+  - Mitigation: Support multiple checklist templates (.claude/analysis/templates/)
+- Risk: TodoWrite integration brittle (Claude Code internal API changes)
+  - Mitigation: Fallback to manual .claude/session-todos.json file creation
+- Risk: Context calculation expensive on every commit
+  - Mitigation: Cache context calculation, recalculate only on file changes
+
+**Expected Impact:**
+- **Planning bypass rate:** 0% (down from ~30% observed)
+- **Wasted hours from skipped analysis:** 0h (down from 3-11h per incident)
+- **Context overflow incidents:** 0 (down from ~2 per month)
+- **Task organization quality:** Measurably improved (todos completed rate >90%)
+
+**Deliverables:**
+- Extended workflow_gate.py with planning step and gates
+- New commands: start-task, record-analysis-complete, set-components
+- Planning artifact validation in check_commit()
+- TodoWrite enforcement for complex tasks
+- Context threshold enforcement with mandatory delegation
+- Tests for all planning gates
+- Documentation update in CLAUDE.md
+
+**Review Status:**
+- ✅ **Gemini:** APPROVED (continuation: a448f171-e0a1-40e5-ba41-faeb860c426e)
+  - Estimate: Realistic (6-8h)
+  - Key recommendations: Prioritize context caching, document TodoWrite fallback, log --skip-planning usage
+  - Critical blockers: None
+
+- ⚠️ **Codex:** APPROVED WITH FINDINGS (continuation: a4815075-e0c7-498c-911d-99f4806c7c2c)
+  - Estimate: Realistic but adjust to 8-10h based on findings
+  - **6 technical findings identified** (2 HIGH, 3 MEDIUM, 1 LOW)
+  - See "Phase 1 Technical Findings" section below for details
+
+**Revised Estimate:** 8-10h (up from 6-8h based on Codex findings)
+
+---
+
+### Phase 1 Technical Findings (Codex Deep Review)
+
+**HIGH Severity:**
+
+1. **F1-plan-step: State machine lacks planning phase**
+   - **Issue:** VALID_TRANSITIONS only covers implement/test/review (workflow_gate.py:55-61)
+   - **Impact:** Nothing prevents coding before analysis
+   - **Fix:** Add 'plan' to VALID_TRANSITIONS, default new tasks to plan step
+   - **Validation:** Unit tests for transition matrix, start-task flow
+
+2. **F2-planning-metadata: Workflow state lacks planning fields**
+   - **Issue:** No `task_file`, `analysis_completed`, `components` in state schema
+   - **Impact:** Planning gates cannot validate anything
+   - **Fix:** Extend state schema, add CLI commands (record-analysis-complete, set-components)
+   - **Validation:** Schema migration tests, file existence checks
+
+**MEDIUM Severity:**
+
+3. **F3-first-commit-detection: No concept of "first commit"**
+   - **Issue:** check_commit() never inspects git history or state flag
+   - **Impact:** Gates either permanently block or never enforce
+   - **Fix:** Track `first_commit_made` boolean in state, flip in record_commit()
+   - **Validation:** Tests for first/second commit, reset, branch switch scenarios
+
+4. **F4-todowrite-enforcement: No TodoWrite usage detection**
+   - **Issue:** No references to 'session-todos' in workflow_gate.py
+   - **Impact:** Component-count gate can never fire
+   - **Fix:** Implement `_is_complex_task()` + `_has_active_todos()`, verify JSON schema
+   - **Validation:** Test matrix for component counts (2 vs 3+), file presence/absence
+
+5. **F5-context-delegation-gate: DelegationRules exists but unused**
+   - **Issue:** DelegationRules class not invoked in check_commit()
+   - **Impact:** 85% mandatory delegation unenforced, O(n) token scan risk
+   - **Fix:** Instantiate DelegationRules in check_commit(), cache context snapshot
+   - **Validation:** Benchmarks ensuring cached snapshot prevents expensive recalculation
+
+**LOW Severity:**
+
+6. **F6-hotfix-bypass-alignment: Inconsistent bypass mechanisms**
+   - **Issue:** Only ZEN_REVIEW_OVERRIDE exists, spec calls for --skip-planning
+   - **Impact:** Risk of policy drift with two separate bypasses
+   - **Fix:** Reuse ZEN_REVIEW_OVERRIDE with planning context OR dedicated flag
+   - **Validation:** Unit test for override path, audit procedure docs
+
+**Open Questions (Require User Decision):**
+1. First-commit detection: State flag vs git rev-list vs task-state integration?
+2. TodoWrite in subtasks: Shared session-todos.json or per-subtask files?
+3. Merge/amend behavior: Bypass planning gates or revalidate artifacts?
+4. Context cache invalidation: Time-based vs change-based?
+
+**Component Time Adjustments:**
+- Component 1: 2h → 2.5h (state machine + CLI + schema changes)
+- Component 2: 2-3h → 3-3.5h (artifact validation + first-commit detection)
+- Component 3: 1-2h → 1.5-2h (TodoWrite with schema validation)
+- Component 4: 1-2h → 2h (context delegation with caching)
 
 ---
 
@@ -526,14 +783,29 @@ git checkout -b feature/P1T13-F5c-subtask-hierarchy
 
 ## Acceptance Criteria
 
-### Phase 0: Current Workflow Audit
-- [ ] Gemini and Codex scanned all workflow files and git hooks
-- [ ] Findings categorized by severity (CRITICAL/HIGH/MEDIUM/LOW)
-- [ ] All CRITICAL issues fixed with tests
-- [ ] All HIGH issues fixed with tests
-- [ ] Audit report delivered documenting findings and fixes
-- [ ] Known issues log created for deferred MEDIUM/LOW items
-- [ ] CI passing after all fixes
+### Phase 0: Current Workflow Audit ✅ **COMPLETE**
+- [x] Gemini and Codex scanned all workflow files and git hooks
+- [x] Findings categorized by severity (CRITICAL/HIGH/MEDIUM/LOW) - 20 issues total
+- [x] All CRITICAL issues fixed with tests (2 issues: state corruption, post-commit bypass)
+- [x] All HIGH issues fixed with tests (5 issues: override, rework flow, validation, sync, guidance)
+- [x] Audit report delivered documenting findings and fixes
+- [x] Fixes summary document created with review history
+- [x] CI passing after all fixes (1731 tests, 81.47% coverage)
+
+**Commit:** 9c0dec5e on branch feature/P1T13-F5-phase0-audit
+**Review:** Gemini APPROVED (iteration 4), Codex APPROVED (iteration 5)
+
+### Phase 1: Planning Discipline Enforcement 🔄 **NEXT**
+- [ ] Planning step added to workflow state machine before "implement"
+- [ ] Cannot advance from "plan" to "implement" without planning artifacts
+- [ ] First commit blocked if task document missing (docs/TASKS/)
+- [ ] First commit blocked if analysis checklist not completed
+- [ ] First commit blocked if <2 components defined
+- [ ] Complex tasks (3+ components) blocked without TodoWrite usage
+- [ ] Commit blocked at 85%+ context usage without delegation recorded
+- [ ] All planning gates have test coverage
+- [ ] CLAUDE.md updated with new planning workflow requirements
+- [ ] Emergency bypass flag (--skip-planning) for hotfixes (audited)
 
 ### Subfeature A: Hard-Gated Enforcement
 - [ ] Commit blocked if staged changes differ from reviewed state
@@ -630,21 +902,28 @@ git checkout -b feature/P1T13-F5c-subtask-hierarchy
 
 ---
 
-## Timeline Estimate (Updated with Phase 0)
+## Timeline Estimate (Updated with Phase 0 + Phase 1)
 
-**Total: 24-32 hours**
+**Total: 34-44 hours** (revised from 32-42h based on Codex findings)
 
-| Phase/Subfeature | Components | Est. Hours | Dependencies |
-|-----------------|-----------|-----------|--------------|
-| **Phase 0: Audit** | 4 | 4-6h | **PREREQUISITE (must complete first)** |
-| A: Hard Gates | 3 | 6-8h | Phase 0 complete |
-| B: PR Webhook | 3 | 10-12h | Phase 0 complete, Infrastructure setup |
-| C: Subtask Hierarchy | 3 | 4-6h | Phase 0 complete |
+| Phase/Subfeature | Components | Est. Hours | Status | Dependencies |
+|-----------------|-----------|-----------|--------|--------------|
+| **Phase 0: Audit** | 4 | 4-6h | ✅ **COMPLETE** | **PREREQUISITE (must complete first)** |
+| **Phase 1: Planning** | 4 | **8-10h** | 🔄 **NEXT** | Phase 0 complete |
+| A: Hard Gates | 3 | 6-8h | ⏳ Pending | Phase 0 + Phase 1 complete |
+| B: PR Webhook | 3 | 10-12h | ⏳ Pending | Phase 0 complete, Infrastructure setup |
+| C: Subtask Hierarchy | 3 | 4-6h | ⏳ Pending | Phase 0 complete |
 
-**Critical Path:** Phase 0 → A → B (B benefits from A's enforcement)
-**Parallel Path:** C can start after Phase 0, doesn't depend on A or B
+**Critical Path:** Phase 0 ✅ → Phase 1 (NEXT) → A → B (B benefits from A's enforcement)
+**Parallel Path:** C can start after Phase 0, doesn't depend on Phase 1, A or B
 
-**Phase 0 is MANDATORY:** Must fix foundation before building new features
+**Phase 0 is MANDATORY:** Must fix foundation before building new features ✅ **DONE**
+**Phase 1 is CRITICAL:** Planning enforcement MORE important than commit enforcement (prevents 3-11h wasted work)
+
+**Phase 1 Estimate Adjustment:** Originally 6-8h, revised to 8-10h based on Codex findings:
+- Schema changes more extensive than initially scoped (F2-planning-metadata)
+- First-commit detection adds complexity (F3-first-commit-detection)
+- Context caching implementation critical for performance (F5-context-delegation-gate)
 
 ---
 

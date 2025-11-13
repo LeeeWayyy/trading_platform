@@ -9,10 +9,7 @@ Date: 2025-11-07
 """
 
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Import functions under test
 from scripts.git_utils import (
@@ -68,9 +65,7 @@ class TestGetStagedFiles:
     @patch("scripts.git_utils.subprocess.run")
     def test_get_staged_files_filters_empty_lines(self, mock_run: MagicMock) -> None:
         """Test that empty lines are filtered out."""
-        mock_run.return_value = MagicMock(
-            stdout="libs/common/types.py\n\n\napps/cli/main.py\n"
-        )
+        mock_run.return_value = MagicMock(stdout="libs/common/types.py\n\n\napps/cli/main.py\n")
 
         result = get_staged_files()
 
