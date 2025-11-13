@@ -373,7 +373,7 @@ class TestRequestReview:
             reviewer.request_review(scope="invalid")
 
         assert "Invalid scope: invalid" in str(excinfo.value)
-        assert "Must be 'commit' or 'pr'" in str(excinfo.value)
+        assert "Must be 'plan', 'commit', or 'pr'" in str(excinfo.value)
 
     def test_request_review_pr_with_override(self, temp_state_file):
         """Test request_review passes override to PR review."""

@@ -62,7 +62,13 @@ def test_valid_state_transitions(temp_state_file):
     gate = WorkflowGate()
     gate.set_component("Test Component")
 
-    # Phase 1: Start from "plan" step, transition to "implement"
+    # Phase 1.5: Start from "plan" step, advance to "plan-review"
+    gate.advance("plan-review")
+    state = gate.load_state()
+    assert state["step"] == "plan-review"
+
+    # Approve plan review to allow advancement to implement
+    gate.record_review("test-plan-cont-id", "APPROVED")
     gate.advance("implement")
     state = gate.load_state()
     assert state["step"] == "implement"
@@ -128,7 +134,9 @@ def test_check_commit_blocks_when_review_not_approved(temp_state_file):
     state["first_commit_made"] = True
     gate.save_state(state)
 
-    # Phase 1: Transition from "plan" to "implement" first
+    # Phase 1.5: Transition through plan-review to implement
+    gate.advance("plan-review")
+    gate.record_review("test-plan-cont-id", "APPROVED")
     gate.advance("implement")
 
     # Mock _has_tests to allow transition to review
@@ -156,7 +164,9 @@ def test_check_commit_blocks_when_ci_failed(temp_state_file):
     state["first_commit_made"] = True
     gate.save_state(state)
 
-    # Phase 1: Transition from "plan" to "implement" first
+    # Phase 1.5: Transition through plan-review to implement
+    gate.advance("plan-review")
+    gate.record_review("test-plan-cont-id", "APPROVED")
     gate.advance("implement")
 
     # Mock _has_tests to allow transition to review
@@ -183,7 +193,9 @@ def test_check_commit_success_when_all_prerequisites_met(temp_state_file):
     state["first_commit_made"] = True
     gate.save_state(state)
 
-    # Phase 1: Transition from "plan" to "implement" first
+    # Phase 1.5: Transition through plan-review to implement
+    gate.advance("plan-review")
+    gate.record_review("test-plan-cont-id", "APPROVED")
     gate.advance("implement")
 
     # Mock _has_tests to allow transition to review
@@ -214,8 +226,8 @@ def test_record_commit_resets_state_and_appends_history(temp_state_file):
 
     state = gate.load_state()
 
-    # Verify state was reset
-    assert state["step"] == "implement"
+    # Verify state was reset (Phase 1.5: resets to "plan" not "implement")
+    assert state["step"] == "plan"
     assert state["zen_review"] == {}
     assert state["ci_passed"] is False
 
