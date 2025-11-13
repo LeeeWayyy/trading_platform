@@ -48,8 +48,9 @@ def _acquire_lock(state_file: Path, max_retries: int = 3) -> int:
             if attempt < max_retries - 1:
                 time.sleep(0.1 * (2**attempt))
                 continue
+            # MEDIUM fix: Remove unreachable code (Gemini review)
+            # Last attempt failed, raise error
             raise RuntimeError(f"Failed to acquire lock after {max_retries} attempts")
-    raise RuntimeError("Lock acquisition failed")
 
 
 def _release_lock(lock_fd: int) -> None:
@@ -185,7 +186,8 @@ def complete_component(
         next_component_num = component_num + 1
 
         state["progress"]["completed_components"] = completed
-        state["progress"]["completion_percentage"] = int((completed / total) * 100)
+        # HIGH fix: Guard against ZeroDivisionError (Gemini review)
+        state["progress"]["completion_percentage"] = int((completed / total) * 100) if total > 0 else 0
 
         # Add to completed work
         component_name = state["progress"]["current_component"]["name"]
