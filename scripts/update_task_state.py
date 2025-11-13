@@ -14,25 +14,134 @@ Usage:
 """
 
 import argparse
+import fcntl
 import json
+import os
 import sys
-from datetime import datetime
+import tempfile
+import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
+
+
+def _acquire_lock(state_file: Path, max_retries: int = 3) -> int:
+    """Acquire exclusive file lock."""
+    lock_file = state_file.parent / ".task-state.lock"
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+
+    for attempt in range(max_retries):
+        try:
+            lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY, 0o644)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return lock_fd
+        except (IOError, OSError):
+            if attempt < max_retries - 1:
+                time.sleep(0.1 * (2 ** attempt))
+                continue
+            raise RuntimeError(f"Failed to acquire lock after {max_retries} attempts")
+    raise RuntimeError("Lock acquisition failed")
+
+
+def _release_lock(lock_fd: int) -> None:
+    """Release file lock."""
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
+    except (IOError, OSError) as e:
+        print(f"⚠️  Warning: Failed to release lock: {e}")
+
+
+def _save_state_unlocked(state_file: Path, state: dict[str, Any]) -> None:
+    """
+    Save task state without acquiring lock (internal use only).
+
+    Used by _locked_state context manager where lock is already held.
+    For external use, call save_state() which includes locking.
+    """
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Atomic write: write to temp file then rename
+    temp_fd, temp_path = tempfile.mkstemp(
+        dir=state_file.parent,
+        prefix=".task-state-",
+        suffix=".tmp"
+    )
+    try:
+        with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        Path(temp_path).replace(state_file)
+    except (IOError, OSError):
+        Path(temp_path).unlink(missing_ok=True)
+        raise
+
+
+@contextmanager
+def _locked_state(state_file: Path) -> Generator[dict[str, Any], None, None]:
+    """
+    Context manager for atomic read-modify-write operations.
+
+    CRITICAL (CRIT-002 fix): Ensures entire read-modify-write cycle is wrapped
+    in a file lock, preventing race conditions from concurrent processes.
+
+    Usage:
+        with _locked_state(state_file) as state:
+            state["field"] = new_value
+            # state automatically saved on exit with lock held
+
+    The lock is held for the entire duration of:
+    1. Load state
+    2. Yield to caller for modifications
+    3. Save modified state
+    4. Release lock (in finally)
+    """
+    lock_fd = _acquire_lock(state_file)
+    try:
+        # Load state with lock held
+        state = load_state(state_file)
+        # Yield to caller for modifications
+        yield state
+        # Save modified state with lock still held
+        _save_state_unlocked(state_file, state)
+    finally:
+        # Always release lock, even if exception occurred
+        _release_lock(lock_fd)
 
 
 def load_state(state_file: Path) -> dict[str, Any]:
-    """Load current task state."""
+    """Load current task state with error handling (MED-001 fix)."""
     if not state_file.exists():
         return {}
-    with open(state_file) as f:
-        return json.load(f)
+    try:
+        with open(state_file) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"⚠️  Warning: Failed to parse task state file: {e}")
+        print(f"   Backing up corrupt file and starting fresh...")
+        # Backup corrupt file
+        backup = state_file.with_suffix('.json.corrupt')
+        state_file.rename(backup)
+        print(f"   Corrupt file saved to: {backup}")
+        return {}
 
 
 def save_state(state_file: Path, state: dict[str, Any]) -> None:
-    """Save task state with pretty formatting."""
-    with open(state_file, "w") as f:
-        json.dump(state, f, indent=2)
+    """
+    Save task state with atomic write and file locking (CRIT-002 fix).
+
+    Also fixes MED-001 by handling corrupt JSON gracefully.
+
+    Note: For read-modify-write operations, use _locked_state() context manager
+    instead to ensure the entire cycle is atomic.
+    """
+    # Acquire lock for standalone save
+    lock_fd = _acquire_lock(state_file)
+    try:
+        _save_state_unlocked(state_file, state)
+    finally:
+        _release_lock(lock_fd)
+
     print(f"✅ Task state updated: {state_file}")
 
 
@@ -45,70 +154,82 @@ def complete_component(
     continuation_id: str | None = None,
 ) -> None:
     """Mark a component as complete and advance to next."""
-    state = load_state(state_file)
+    with _locked_state(state_file) as state:
+        if not state.get("current_task"):
+            print("❌ No active task found. Start a task first.")
+            sys.exit(1)
 
-    if not state.get("current_task"):
-        print("❌ No active task found. Start a task first.")
-        sys.exit(1)
+        # HIGH-003 fix: Validate component number matches current component
+        current_comp_num = state["progress"]["current_component"]["number"]
+        if component_num != current_comp_num:
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"❌ ERROR: Component number mismatch")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   You specified: Component {component_num}")
+            print(f"   Current component: Component {current_comp_num}")
+            print(f"   Current name: {state['progress']['current_component']['name']}")
+            print()
+            print("   Complete components in order. Current component must finish first.")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            sys.exit(1)
 
-    # Update progress
-    completed = state["progress"]["completed_components"] + 1
-    total = state["progress"]["total_components"]
-    next_component_num = component_num + 1
+        # Update progress
+        completed = state["progress"]["completed_components"] + 1
+        total = state["progress"]["total_components"]
+        next_component_num = component_num + 1
 
-    state["progress"]["completed_components"] = completed
-    state["progress"]["completion_percentage"] = int((completed / total) * 100)
+        state["progress"]["completed_components"] = completed
+        state["progress"]["completion_percentage"] = int((completed / total) * 100)
 
-    # Add to completed work
-    component_name = state["progress"]["current_component"]["name"]
-    state["completed_work"][f"Component {component_num}"] = {
-        "name": component_name,
-        "commit": commit_hash,
-        "files": files or [],
-        "tests_added": tests_added,
-        "review_approved": True,
-        "continuation_id": continuation_id or "N/A",
-        "completed_at": datetime.utcnow().isoformat() + "Z",
-    }
+        # Add to completed work
+        component_name = state["progress"]["current_component"]["name"]
+        state["completed_work"][f"Component {component_num}"] = {
+            "name": component_name,
+            "commit": commit_hash,
+            "files": files or [],
+            "tests_added": tests_added,
+            "review_approved": True,
+            "continuation_id": continuation_id or "N/A",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
 
-    # Update current component
-    if next_component_num <= total:
-        # Get next component from remaining_components
-        remaining = state.get("remaining_components", [])
-        next_comp = next((c for c in remaining if c["number"] == next_component_num), None)
-        if next_comp:
-            # Found in remaining_components - use rich metadata
-            state["progress"]["current_component"] = {
-                "number": next_component_num,
-                "name": next_comp["name"],
-                "status": "NOT_STARTED",
-                "description": next_comp.get("description", ""),
-            }
-            # Remove from remaining
-            state["remaining_components"] = [
-                c for c in remaining if c["number"] != next_component_num
-            ]
+        # Update current component
+        if next_component_num <= total:
+            # Get next component from remaining_components
+            remaining = state.get("remaining_components", [])
+            next_comp = next((c for c in remaining if c["number"] == next_component_num), None)
+            if next_comp:
+                # Found in remaining_components - use rich metadata
+                state["progress"]["current_component"] = {
+                    "number": next_component_num,
+                    "name": next_comp["name"],
+                    "status": "NOT_STARTED",
+                    "description": next_comp.get("description", ""),
+                }
+                # Remove from remaining
+                state["remaining_components"] = [
+                    c for c in remaining if c["number"] != next_component_num
+                ]
+            else:
+                # Not in remaining_components - use default
+                # This happens when remaining_components is empty (initialized as [])
+                state["progress"]["current_component"] = {
+                    "number": next_component_num,
+                    "name": f"Component {next_component_num}",
+                    "status": "NOT_STARTED",
+                    "description": "",
+                }
         else:
-            # Not in remaining_components - use default
-            # This happens when remaining_components is empty (initialized as [])
-            state["progress"]["current_component"] = {
-                "number": next_component_num,
-                "name": f"Component {next_component_num}",
-                "status": "NOT_STARTED",
-                "description": "",
-            }
-    else:
-        # All components complete
-        state["progress"]["current_component"] = None
-        state["current_task"]["state"] = "COMPLETE"
-        state["current_task"]["completed"] = datetime.utcnow().isoformat() + "Z"
+            # All components complete
+            state["progress"]["current_component"] = None
+            state["current_task"]["state"] = "COMPLETE"
+            state["current_task"]["completed"] = datetime.now(timezone.utc).isoformat()
 
-    # Update metadata
-    state["meta"]["last_updated"] = datetime.utcnow().isoformat() + "Z"
+        # Update metadata (LOW-001 fix: use timezone-aware datetime)
+        state["meta"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+        # State automatically saved when exiting context
 
-    save_state(state_file, state)
-
-    # Display summary
+    # Display summary (outside lock to reduce lock hold time)
     print(f"\n📊 Task Progress: {state['progress']['completion_percentage']}%")
     print(f"   Completed: {completed}/{total} components")
     if state["progress"]["current_component"]:
@@ -128,6 +249,8 @@ def start_task(
     total_components: int,
 ) -> None:
     """Start tracking a new task."""
+    # LOW-001 fix: use timezone-aware datetime
+    now_iso = datetime.now(timezone.utc).isoformat()
     state = {
         "current_task": {
             "task_id": task_id,
@@ -136,7 +259,7 @@ def start_task(
             "branch": branch,
             "task_file": task_file,
             "state": "IN_PROGRESS",
-            "started": datetime.utcnow().date().isoformat(),
+            "started": datetime.now(timezone.utc).date().isoformat(),
         },
         "progress": {
             "total_components": total_components,
@@ -153,7 +276,7 @@ def start_task(
         "next_steps": [],
         "context": {"continuation_ids": {}, "key_decisions": [], "important_notes": []},
         "meta": {
-            "last_updated": datetime.utcnow().isoformat() + "Z",
+            "last_updated": now_iso,
             "updated_by": "update_task_state.py",
             "auto_resume_enabled": True,
         },
@@ -167,19 +290,20 @@ def start_task(
 
 def finish_task(state_file: Path) -> None:
     """Mark entire task as complete."""
-    state = load_state(state_file)
+    with _locked_state(state_file) as state:
+        if not state.get("current_task"):
+            print("❌ No active task found.")
+            sys.exit(1)
 
-    if not state.get("current_task"):
-        print("❌ No active task found.")
-        sys.exit(1)
+        # LOW-001 fix: use timezone-aware datetime
+        now_iso = datetime.now(timezone.utc).isoformat()
+        state["current_task"]["state"] = "COMPLETE"
+        state["current_task"]["completed"] = now_iso
+        state["progress"]["completion_percentage"] = 100
+        state["progress"]["current_component"] = None
+        state["meta"]["last_updated"] = now_iso
+        # State automatically saved when exiting context
 
-    state["current_task"]["state"] = "COMPLETE"
-    state["current_task"]["completed"] = datetime.utcnow().isoformat() + "Z"
-    state["progress"]["completion_percentage"] = 100
-    state["progress"]["current_component"] = None
-    state["meta"]["last_updated"] = datetime.utcnow().isoformat() + "Z"
-
-    save_state(state_file, state)
     print(f"🎉 Task complete: {state['current_task']['task_id']}")
 
 

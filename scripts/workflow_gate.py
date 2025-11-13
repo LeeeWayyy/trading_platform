@@ -25,6 +25,7 @@ Date: 2025-11-02
 """
 
 import argparse
+import fcntl
 import glob
 import json
 import os
@@ -32,9 +33,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Literal, Tuple
+from typing import Callable, Generator, Literal, Tuple
 
 # Constants
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -54,7 +57,7 @@ class WorkflowGate:
     VALID_TRANSITIONS = {
         "implement": ["test"],
         "test": ["review"],
-        "review": ["implement"],  # Can only go back to fix issues
+        "review": ["implement"],  # HIGH-001 fix: Can go back to implement after review failure
     }
 
     def __init__(self, state_file: Path | None = None) -> None:
@@ -108,6 +111,93 @@ class WorkflowGate:
             }
         return state
 
+    def _acquire_lock(self, max_retries: int = 3) -> int:
+        """
+        Acquire exclusive file lock for state file.
+
+        Returns file descriptor for lock file.
+        Lock must be released by caller using _release_lock().
+        """
+        lock_file = self._state_file.parent / ".workflow-state.lock"
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+
+        for attempt in range(max_retries):
+            try:
+                lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY, 0o644)
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return lock_fd
+            except (IOError, OSError) as e:
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 0.1s, 0.2s, 0.4s
+                    time.sleep(0.1 * (2 ** attempt))
+                    continue
+                raise RuntimeError(f"Failed to acquire lock after {max_retries} attempts") from e
+        raise RuntimeError("Lock acquisition failed")
+
+    def _release_lock(self, lock_fd: int) -> None:
+        """Release file lock."""
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+        except (IOError, OSError) as e:
+            print(f"⚠️  Warning: Failed to release lock: {e}")
+
+    def _save_state_unlocked(self, state: dict) -> None:
+        """
+        Save workflow state without acquiring lock (internal use only).
+
+        Used by _locked_state context manager where lock is already held.
+        For external use, call save_state() which includes locking.
+        """
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Atomic write: write to temp file then rename
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=self._state_file.parent,
+            prefix=".workflow-state-",
+            suffix=".tmp"
+        )
+        try:
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+            # Atomic rename
+            Path(temp_path).replace(self._state_file)
+        except (IOError, OSError):
+            # Clean up temp file on error
+            Path(temp_path).unlink(missing_ok=True)
+            raise
+
+    @contextmanager
+    def _locked_state(self) -> Generator[dict, None, None]:
+        """
+        Context manager for atomic read-modify-write operations.
+
+        CRITICAL (CRIT-002 fix): Ensures entire read-modify-write cycle is wrapped
+        in a file lock, preventing race conditions from concurrent processes.
+
+        Usage:
+            with self._locked_state() as state:
+                state["field"] = new_value
+                # state automatically saved on exit with lock held
+
+        The lock is held for the entire duration of:
+        1. Load state
+        2. Yield to caller for modifications
+        3. Save modified state
+        4. Release lock (in finally)
+        """
+        lock_fd = self._acquire_lock()
+        try:
+            # Load state with lock held
+            state = self.load_state()
+            # Yield to caller for modifications
+            yield state
+            # Save modified state with lock still held
+            self._save_state_unlocked(state)
+        finally:
+            # Always release lock, even if exception occurred
+            self._release_lock(lock_fd)
+
     def load_state(self) -> dict:
         """Load workflow state from JSON file."""
         if not self._state_file.exists():
@@ -122,26 +212,39 @@ class WorkflowGate:
         return self._ensure_context_defaults(state)
 
     def save_state(self, state: dict) -> None:
-        """Save workflow state to JSON file with atomic write."""
-        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+        """
+        Save workflow state to JSON file with atomic write and file locking.
 
-        # Atomic write: write to temp file then rename
-        # Prevents corruption from partial writes
-        temp_fd, temp_path = tempfile.mkstemp(
-            dir=self._state_file.parent,
-            prefix=".workflow-state-",
-            suffix=".tmp"
-        )
+        CRITICAL (CRIT-002 fix): Acquires exclusive lock before write to prevent
+        race conditions when multiple processes modify state concurrently.
+
+        Note: For read-modify-write operations, use _locked_state() context manager
+        instead to ensure the entire cycle is atomic.
+        """
+        # Acquire lock for standalone save
+        lock_fd = self._acquire_lock()
         try:
-            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
-                json.dump(state, f, indent=2, ensure_ascii=False)
+            self._save_state_unlocked(state)
+        finally:
+            self._release_lock(lock_fd)
 
-            # Atomic rename
-            Path(temp_path).replace(self._state_file)
-        except (IOError, OSError):
-            # Clean up temp file on error
-            Path(temp_path).unlink(missing_ok=True)
-            raise
+    def locked_modify_state(self, modifier: Callable[[dict], None]) -> dict:
+        """
+        Perform locked read-modify-write operation (FIX-7).
+
+        For use by DelegationRules to ensure atomic operations.
+        The modifier callback receives state dict and modifies it in-place.
+        State is saved automatically after modification.
+
+        Args:
+            modifier: Callback that modifies state dict in-place
+
+        Returns:
+            Modified state dict
+        """
+        with self._locked_state() as state:
+            modifier(state)
+            return state
 
     def can_transition(self, current: StepType, next: StepType) -> Tuple[bool, str]:
         """
@@ -181,26 +284,26 @@ class WorkflowGate:
         Raises:
             SystemExit: If transition is invalid
         """
-        state = self.load_state()
-        current = state["step"]
+        with self._locked_state() as state:
+            current = state["step"]
 
-        can, error_msg = self.can_transition(current, next)
-        if not can:
-            print(error_msg)
-            sys.exit(1)
+            can, error_msg = self.can_transition(current, next)
+            if not can:
+                print(error_msg)
+                sys.exit(1)
 
-        # Special logic for review step
-        if next == "review":
-            print("🔍 Requesting zen-mcp review (clink + gemini → codex)...")
-            print("   Follow: .claude/workflows/03-reviews.md")
-            print("   After review, record approval:")
-            print(
-                "     ./scripts/workflow_gate.py record-review <continuation_id> <status>"
-            )
+            # Special logic for review step
+            if next == "review":
+                print("🔍 Requesting zen-mcp review (clink + gemini → codex)...")
+                print("   Follow: .claude/workflows/03-reviews.md")
+                print("   After review, record approval:")
+                print(
+                    "     ./scripts/workflow_gate.py record-review <continuation_id> <status>"
+                )
 
-        # Update state
-        state["step"] = next
-        self.save_state(state)
+            # Update state
+            state["step"] = next
+            # State automatically saved when exiting context
 
         print(f"✅ Advanced to '{next}' step")
 
@@ -215,34 +318,33 @@ class WorkflowGate:
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
         """
-        state = self.load_state()
-        state["zen_review"] = {
-            "requested": True,
-            "continuation_id": continuation_id,
-            "status": status,  # "APPROVED" or "NEEDS_REVISION"
-        }
-
-        # Check if this is a PR review by looking for pending unified_review history
-        review_state = state.get("unified_review", {})
-        review_history = review_state.get("history", [])
-
-        if review_history and review_history[-1].get("status") == "PENDING":
-            # Update the latest pending entry with review result
-            from datetime import datetime, timezone
-            review_history[-1].update({
+        with self._locked_state() as state:
+            state["zen_review"] = {
+                "requested": True,
                 "continuation_id": continuation_id,
-                "status": status,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            })
-            print(f"✅ Updated PR review history (iteration {review_history[-1]['iteration']})")
+                "status": status,  # "APPROVED" or "NEEDS_REVISION"
+            }
 
-        self.save_state(state)
+            # Check if this is a PR review by looking for pending unified_review history
+            review_state = state.get("unified_review", {})
+            review_history = review_state.get("history", [])
+
+            if review_history and review_history[-1].get("status") == "PENDING":
+                # Update the latest pending entry with review result
+                review_history[-1].update({
+                    "continuation_id": continuation_id,
+                    "status": status,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                })
+                print(f"✅ Updated PR review history (iteration {review_history[-1]['iteration']})")
+            # State automatically saved when exiting context
+
         print(f"✅ Recorded zen review: {status}")
 
         if status == REVIEW_NEEDS_REVISION:
             print("⚠️  Review requires changes. Fix issues and re-request review.")
             print("   After fixes:")
-            print("     ./scripts/workflow_gate.py advance review")
+            print("     ./scripts/workflow_gate.py advance implement  # FIX-8: Return to implement for rework")
 
     def record_ci(self, passed: bool) -> None:
         """
@@ -251,9 +353,10 @@ class WorkflowGate:
         Args:
             passed: True if CI passed, False otherwise
         """
-        state = self.load_state()
-        state["ci_passed"] = passed
-        self.save_state(state)
+        with self._locked_state() as state:
+            state["ci_passed"] = passed
+            # State automatically saved when exiting context
+
         print(f"✅ Recorded CI: {'PASSED' if passed else 'FAILED'}")
 
         if not passed:
@@ -269,9 +372,57 @@ class WorkflowGate:
         - Zen-MCP review must be APPROVED
         - CI must be passing
 
+        HIGH-002 / FIX-10b (CRITICAL): Supports emergency override via ZEN_REVIEW_OVERRIDE
+        environment variable. This approach works because environment variables are set
+        BEFORE Git runs any hooks (including pre-commit).
+
+        Usage:
+            ZEN_REVIEW_OVERRIDE=1 git commit -m "emergency: fix production outage"
+
+        Why environment variable approach:
+        - Git hook order is: pre-commit → prepare-commit-msg → commit-msg → post-commit
+        - No hook runs before pre-commit, so commit message can't be inspected reliably
+        - Environment variables are set before Git starts, so available in pre-commit
+        - No stale flag files to clean up
+
         Raises:
             SystemExit: If prerequisites are not met
         """
+        # FIX-10b: Check for override environment variable
+        override_env = os.environ.get("ZEN_REVIEW_OVERRIDE", "").strip()
+        if override_env in ("1", "true", "TRUE", "True", "yes", "YES"):
+            # Read commit message for audit logging (best effort)
+            commit_msg_file = PROJECT_ROOT / ".git" / "COMMIT_EDITMSG"
+            commit_msg = ""
+            try:
+                if commit_msg_file.exists():
+                    commit_msg = commit_msg_file.read_text(encoding="utf-8")
+            except (IOError, OSError):
+                pass
+
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("⚠️  EMERGENCY OVERRIDE DETECTED")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   ZEN_REVIEW_OVERRIDE={override_env}")
+            print("   Bypassing workflow gates for emergency hotfix")
+            print("   ⚠️  This override is logged and auditable")
+            print("   ⚠️  DO NOT SET override_env without user approval ")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            # Log override for audit
+            import logging
+            override_log = PROJECT_ROOT / ".claude" / "workflow-overrides.log"
+            override_log.parent.mkdir(parents=True, exist_ok=True)
+            logging.basicConfig(
+                filename=str(override_log),
+                level=logging.WARNING,
+                format='%(asctime)s - %(message)s'
+            )
+            logging.warning(f"ZEN_REVIEW_OVERRIDE={override_env} - bypassing workflow gates")
+            logging.warning(f"  Message: {commit_msg.splitlines()[0] if commit_msg else 'N/A'}")
+
+            sys.exit(0)  # Allow commit
+
         state = self.load_state()
 
         # Check current step
@@ -289,6 +440,9 @@ class WorkflowGate:
             print(f"     3. Review ( )")
             print("   Progress to next step:")
             print(f"     ./scripts/workflow_gate.py advance <next_step>")
+            print()
+            print("   Emergency override (production outage only):")
+            print("     ZEN_REVIEW_OVERRIDE=1 git commit -m \"...\"")
             sys.exit(1)
 
         # Check zen review approval
@@ -306,6 +460,9 @@ class WorkflowGate:
             print(
                 "     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
             )
+            print()
+            print("   Emergency override (production outage only):")
+            print("     ZEN_REVIEW_OVERRIDE=1 git commit -m \"...\"")
             sys.exit(1)
 
         # Check CI pass
@@ -317,6 +474,9 @@ class WorkflowGate:
             print("     make ci-local")
             print("   Record result:")
             print("     ./scripts/workflow_gate.py record-ci true")
+            print()
+            print("   Emergency override (production outage only):")
+            print("     ZEN_REVIEW_OVERRIDE=1 git commit -m \"...\"")
             sys.exit(1)
 
         # All gates passed
@@ -336,9 +496,7 @@ class WorkflowGate:
         Args:
             update_task_state: If True, also update .claude/task-state.json
         """
-        state = self.load_state()
-
-        # Get the commit hash
+        # Get the commit hash (outside lock - doesn't need state)
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
@@ -352,33 +510,33 @@ class WorkflowGate:
             print("❌ Failed to get commit hash")
             sys.exit(1)
 
-        # Optionally update task state
-        if update_task_state:
-            self._update_task_state(state, commit_hash)
+        with self._locked_state() as state:
+            # Optionally update task state
+            if update_task_state:
+                self._update_task_state(state, commit_hash)
 
-        # Record commit hash in history and reset state for next component
-        if "commit_history" not in state:
-            state["commit_history"] = []
-            # One-time migration for backward compatibility. If an old state file
-            # only has last_commit_hash, we need to preserve it in the new history.
-            if last_hash := state.get("last_commit_hash"):
-                state["commit_history"].append(last_hash)
-        # Ensure the current commit is in the history, avoiding duplicates.
-        if commit_hash not in state["commit_history"]:
-            state["commit_history"].append(commit_hash)
-        # Prune history to last 100 commits to prevent file growth
-        state["commit_history"] = state["commit_history"][-100:]
-        # Remove deprecated last_commit_hash field (state file hygiene)
-        state.pop("last_commit_hash", None)
-        state["step"] = "implement"  # Ready for next component
-        state["zen_review"] = {}
-        state["ci_passed"] = False
+            # Record commit hash in history and reset state for next component
+            if "commit_history" not in state:
+                state["commit_history"] = []
+                # One-time migration for backward compatibility. If an old state file
+                # only has last_commit_hash, we need to preserve it in the new history.
+                if last_hash := state.get("last_commit_hash"):
+                    state["commit_history"].append(last_hash)
+            # Ensure the current commit is in the history, avoiding duplicates.
+            if commit_hash not in state["commit_history"]:
+                state["commit_history"].append(commit_hash)
+            # Prune history to last 100 commits to prevent file growth
+            state["commit_history"] = state["commit_history"][-100:]
+            # Remove deprecated last_commit_hash field (state file hygiene)
+            state.pop("last_commit_hash", None)
+            state["step"] = "implement"  # Ready for next component
+            state["zen_review"] = {}
+            state["ci_passed"] = False
 
-        # Reset context after commit, ready for next component (Component 3)
-        state["context"]["current_tokens"] = 0
-        state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
-
-        self.save_state(state)
+            # Reset context after commit, ready for next component (Component 3)
+            state["context"]["current_tokens"] = 0
+            state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+            # State automatically saved when exiting context
 
         print(f"✅ Recorded commit {commit_hash[:8]}")
         print("✅ Ready for next component (step: implement)")
@@ -392,9 +550,10 @@ class WorkflowGate:
         Args:
             component_name: Name of the component being developed
         """
-        state = self.load_state()
-        state["current_component"] = component_name
-        self.save_state(state)
+        with self._locked_state() as state:
+            state["current_component"] = component_name
+            # State automatically saved when exiting context
+
         print(f"✅ Set current component: {component_name}")
 
     def show_status(self) -> None:
@@ -457,8 +616,13 @@ class WorkflowGate:
         print("   - CI pass status")
         print()
 
-        state = self._init_state()
-        self.save_state(state)
+        # Use context manager for atomic reset
+        lock_fd = self._acquire_lock()
+        try:
+            state = self._init_state()
+            self._save_state_unlocked(state)
+        finally:
+            self._release_lock(lock_fd)
 
         print("✅ Workflow state reset to 'implement'")
         print("   Set component name:")
@@ -583,9 +747,21 @@ class WorkflowGate:
             print("\n📊 Task State Updated:")
             print(result.stdout)
         except subprocess.CalledProcessError as e:
-            print(f"⚠️  Warning: Failed to update task state: {e}")
-            print(f"   You can manually update with:")
+            # HIGH-004 fix: Fail hard on subprocess error to prevent state divergence
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"❌ CRITICAL ERROR: Failed to update task state")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   Error: {e}")
+            print(f"   Stderr: {e.stderr if e.stderr else 'N/A'}")
+            print()
+            print("   This is a critical failure. Task state and workflow state")
+            print("   are now out of sync. Manual intervention required.")
+            print()
+            print("   To fix manually:")
             print(f"   ./scripts/update_task_state.py complete --component {component_num} --commit {commit_hash}")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            # Raise exception to halt workflow
+            raise RuntimeError(f"Task state update failed: {e}") from e
 
 
 # ============================================================================
@@ -803,6 +979,7 @@ class DelegationRules:
         self,
         load_state: Callable[[], dict],
         save_state: Callable[[dict], None],
+        locked_modify_state: Callable[[Callable[[dict], None]], dict] | None = None,
     ) -> None:
         """
         Initialize DelegationRules with state management callables.
@@ -810,12 +987,14 @@ class DelegationRules:
         Args:
             load_state: Callable that returns current workflow state dict
             save_state: Callable that persists updated state dict
+            locked_modify_state: FIX-7 - Callable for atomic read-modify-write operations
 
         This dependency injection pattern enables easy testing with fake
         state managers, mirroring SmartTestRunner's lazy import pattern.
         """
         self._load_state = load_state
         self._save_state = save_state
+        self._locked_modify_state = locked_modify_state
 
     def get_context_snapshot(self, state: dict | None = None) -> dict:
         """
@@ -881,10 +1060,37 @@ class DelegationRules:
         Side effects:
             - Updates .claude/workflow-state.json
             - Prints warning if tokens exceed max
+
+        FIX-7: Uses locked_modify_state if available for atomic operation.
         """
         # Sanitize input
         tokens = max(0, tokens)
 
+        # FIX-7: Use locked operation if available
+        if self._locked_modify_state:
+            def modifier(state: dict) -> None:
+                # Update context
+                if "context" not in state:
+                    state["context"] = {}
+                state["context"]["current_tokens"] = tokens
+                state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+                # Ensure max_tokens is set
+                if "max_tokens" not in state["context"]:
+                    state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
+                # Warn if exceeding max
+                if tokens > state["context"]["max_tokens"]:
+                    print(f"⚠️  Warning: Token usage ({tokens}) exceeds max ({state['context']['max_tokens']})")
+                    print("   Consider resetting context or delegating to subagent")
+
+            try:
+                state = self._locked_modify_state(modifier)
+                return self.get_context_snapshot(state)
+            except Exception as e:
+                print(f"⚠️  Warning: Could not update state: {e}")
+                print("   Context not recorded")
+                return self.get_context_snapshot({})
+
+        # Fallback to unlocked (for backward compatibility / testing)
         try:
             state = self._load_state()
         except Exception as e:
@@ -895,14 +1101,11 @@ class DelegationRules:
         # Update context
         if "context" not in state:
             state["context"] = {}
-
         state["context"]["current_tokens"] = tokens
         state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
-
         # Ensure max_tokens is set
         if "max_tokens" not in state["context"]:
             state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
-
         # Warn if exceeding max
         if tokens > state["context"]["max_tokens"]:
             print(f"⚠️  Warning: Token usage ({tokens}) exceeds max ({state['context']['max_tokens']})")
@@ -1061,7 +1264,45 @@ class DelegationRules:
             - Appends to state["subagent_delegations"]
             - Resets context.current_tokens to 0
             - Updates last_delegation_timestamp
+
+        FIX-9 (Gemini): Use locked_modify_state if available to prevent race conditions.
         """
+        # FIX-9: Use locked operation if available (same pattern as record_context)
+        if self._locked_modify_state:
+            delegation_record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "task_description": task_description,
+                "context_before_delegation": 0,  # Will be set in modifier
+            }
+
+            def modifier(state: dict) -> None:
+                # Initialize delegations list
+                if "subagent_delegations" not in state:
+                    state["subagent_delegations"] = []
+
+                # Capture context before delegation
+                delegation_record["context_before_delegation"] = state.get("context", {}).get("current_tokens", 0)
+                state["subagent_delegations"].append(delegation_record)
+
+                # Reset context
+                if "context" not in state:
+                    state["context"] = {}
+                state["context"]["current_tokens"] = 0
+                state["context"]["last_delegation_timestamp"] = delegation_record["timestamp"]
+
+            try:
+                state = self._locked_modify_state(modifier)
+                return {
+                    "count": len(state["subagent_delegations"]),
+                    "reset_tokens": 0,
+                    "timestamp": delegation_record["timestamp"],
+                    "task_description": task_description,
+                }
+            except Exception as e:
+                print(f"⚠️  Warning: Could not update state: {e}")
+                return {"count": 0, "error": str(e)}
+
+        # Fallback to unlocked (for backward compatibility / testing)
         try:
             state = self._load_state()
         except Exception as e:
@@ -2388,7 +2629,9 @@ Examples:
     # Advance workflow
     advance_parser = subparsers.add_parser("advance", help="Advance to next step")
     advance_parser.add_argument(
-        "next_step", choices=["test", "review"], help="Next workflow step"
+        "next_step",
+        choices=["test", "review", "implement"],
+        help="Next workflow step (implement for review rework)"
     )
 
     # Record review
@@ -2528,6 +2771,7 @@ Examples:
         delegation_rules = DelegationRules(
             load_state=gate.load_state,
             save_state=gate.save_state,
+            locked_modify_state=gate.locked_modify_state,  # FIX-7
         )
 
         if args.command == "set-component":

@@ -209,6 +209,7 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 ./scripts/workflow_gate.py request-review commit  # Auto-delegates review if context ≥70%
 ./scripts/workflow_gate.py run-ci commit          # Smart test selection
 git commit -m "message"                          # Pre-commit hook enforces gates
+# → Post-commit hook automatically resets state for next component
 
 # 3. Before PR
 ./scripts/workflow_gate.py request-review pr  # Multi-iteration deep review
