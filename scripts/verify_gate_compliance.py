@@ -130,6 +130,8 @@ def has_review_markers(commit_hash):
     Also accepts legacy marker names:
     - gemini-review: (alias for gemini-continuation-id:)
     - codex-review: (alias for codex-continuation-id:)
+
+    Component 2 (P1T13-F5a): Also checks for Review-Hash trailer.
     """
     message = get_commit_message(commit_hash).lower()
 
@@ -156,7 +158,13 @@ def has_review_markers(commit_hash):
     has_codex = "codex-continuation-id:" in message or "codex-review:" in message
     has_deep_format = has_gemini and has_codex
 
-    return has_quick_format or has_deep_format
+    # Component 2 (P1T13-F5a): Check for Review-Hash trailer (presence only)
+    # Note: We only check presence, not correctness (can't reconstruct staging area post-commit)
+    # Codex LOW fix: Anchor pattern and require hex value to prevent false positives
+    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*[0-9a-f]{8,}"
+    has_review_hash = bool(re.search(review_hash_pattern, message))
+
+    return (has_quick_format or has_deep_format) and has_review_hash
 
 
 def main():
@@ -199,6 +207,7 @@ def main():
                     "     Format 2 (deep review): gemini-continuation-id: <id> AND codex-continuation-id: <id>"
                 )
                 print("     Legacy (deep review): gemini-review: <id> AND codex-review: <id>")
+                print("   PLUS: Review-Hash: <hash> (Component 2 - P1T13-F5a)")
                 print()
                 print("   All commits must be created via workflow gates (no --no-verify)")
                 return 1
@@ -211,6 +220,27 @@ def main():
             print("   This is acceptable for documentation-only changes")
             print("   or initial repository setup.")
             return 0
+
+    # Component 2 (P1T13-F5a) - Codex MEDIUM fix: Always check Review-Hash in CI
+    # Even when state exists, verify commit messages have Review-Hash trailer
+    if is_ci:
+        print("ℹ️  Verifying Review-Hash trailers in CI...")
+        marker_non_compliant = []
+        for commit_hash in pr_commits:
+            if not has_review_markers(commit_hash):
+                marker_non_compliant.append(commit_hash)
+
+        if marker_non_compliant:
+            print("❌ GATE BYPASS DETECTED!")
+            print(f"   Found {len(marker_non_compliant)} commit(s) without Review-Hash:")
+            for commit in marker_non_compliant:
+                print(f"     - {commit[:8]}")
+            print()
+            print("   All commits must include Review-Hash trailer:")
+            print("   Review-Hash: $(./scripts/compute_review_hash.py)")
+            print()
+            print("   See Component 2 (P1T13-F5a) for details")
+            return 1
 
     # Get commit history from state
     commit_history = state.get("commit_history", [])

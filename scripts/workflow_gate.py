@@ -1028,6 +1028,11 @@ class WorkflowGate:
         print("   CI: PASSED")
         if stored_hash:
             print(f"   Code fingerprint: {stored_hash[:16]}... (verified)")
+        print()
+        print("📝 REMINDER: Include Review-Hash trailer in commit message:")
+        print("   Review-Hash: $(./scripts/compute_review_hash.py)")
+        print()
+        print("   This proves code was fingerprinted at review time.")
 
         # Phase 1: Performance instrumentation (report hook duration)
         end_time = time.time()
