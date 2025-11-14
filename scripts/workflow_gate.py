@@ -490,8 +490,10 @@ class WorkflowGate:
             with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
         except Exception as e:
-            print(f"⚠️  Warning: Failed to write audit log: {e}")
-            # Don't fail the workflow if audit logging fails
+            # Gemini HIGH fix: Fail hard to prevent inconsistent state
+            print(f"❌ CRITICAL: Failed to write to audit log: {e}")
+            print("   Commit will be blocked if audit log is not updated. Aborting review record.")
+            raise
 
     def _is_placeholder_id(self, continuation_id: str) -> bool:
         """
@@ -1054,6 +1056,24 @@ class WorkflowGate:
 
         # Gate 0.4 (Component 3 - P1T13-F5a): Verify continuation ID in audit log
         # Codex P1 fix: Cross-reference audit log to prevent fabricated UUIDs
+        # Gemini HIGH fix: Block commit if audit log missing when it should exist
+
+        # The audit log MUST exist for any commit after the first one
+        if state.get("first_commit_made") and not AUDIT_LOG_FILE.exists():
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("❌ COMMIT BLOCKED: Audit log file is missing")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   The audit log file is required for all commits after the first one.")
+            print(f"   Expected location: {AUDIT_LOG_FILE}")
+            print()
+            print("   This may indicate tampering or an inconsistent state.")
+            print("   If this is unexpected, please report it.")
+            print()
+            print("   Emergency override (production outage only):")
+            print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            sys.exit(1)
+
         # Gemini MEDIUM fix: Fail-closed on I/O errors (exception bubbles up)
         if AUDIT_LOG_FILE.exists():
             try:

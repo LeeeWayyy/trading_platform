@@ -20,6 +20,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.workflow_gate import WorkflowGate
 
 
+@pytest.fixture()
+def temp_state_file():
+    """Create temporary state file for testing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state_file = Path(tmpdir) / "workflow-state.json"
+        with patch("scripts.workflow_gate.STATE_FILE", state_file):
+            yield state_file
+
+
 class TestPlaceholderDetection:
     """Test placeholder continuation ID detection."""
 
@@ -176,6 +185,58 @@ class TestAuditLogVerification:
             assert gate._is_continuation_id_in_audit_log("second-id") is True
             assert gate._is_continuation_id_in_audit_log("third-id") is True
             assert gate._is_continuation_id_in_audit_log("fourth-id") is False
+
+
+class TestAuditLogFailClosed:
+    """Test fail-closed behavior for audit log (Gemini HIGH + Codex P1 fixes)."""
+
+    def test_audit_log_write_failure_raises_exception(self, tmp_path):
+        """Test that audit log write failures raise exception (Gemini HIGH fix)."""
+        # Create a read-only directory to force write failure
+        audit_dir = tmp_path / "readonly"
+        audit_dir.mkdir()
+        audit_file = audit_dir / "workflow-audit.log"
+
+        # Make directory read-only
+        audit_dir.chmod(0o444)
+
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
+
+            # Should raise exception, not warn
+            with pytest.raises(Exception):
+                gate._log_to_audit("test-id")
+
+        # Cleanup
+        audit_dir.chmod(0o755)
+
+    def test_missing_audit_log_blocks_commit_after_first(self, temp_state_file):
+        """Test that missing audit log blocks commit after first commit (Codex P1 fix)."""
+        gate = WorkflowGate()
+
+        # Setup state with first_commit_made=True
+        state = gate.load_state()
+        state["step"] = "review"
+        state["first_commit_made"] = True  # This means audit log MUST exist
+        state["zen_review"] = {
+            "requested": True,
+            "continuation_id": "test-id",
+            "status": "APPROVED",
+            "staged_hash": "dummy_hash",
+        }
+        state["ci_passed"] = True
+        gate.save_state(state)
+
+        # Ensure audit log does NOT exist
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE") as mock_audit_path:
+            mock_audit_path.exists.return_value = False
+            mock_audit_path.__str__.return_value = "/path/to/audit.log"
+
+            # check_commit should block
+            with pytest.raises(SystemExit) as exc_info:
+                gate.check_commit()
+
+            assert exc_info.value.code == 1
 
 
 # Mark as unit test
