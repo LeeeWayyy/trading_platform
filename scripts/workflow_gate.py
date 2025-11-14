@@ -44,6 +44,7 @@ from typing import Literal
 # Constants
 PROJECT_ROOT = Path(__file__).parent.parent
 STATE_FILE = PROJECT_ROOT / ".claude" / "workflow-state.json"
+AUDIT_LOG_FILE = PROJECT_ROOT / ".claude" / "workflow-audit.log"  # Component 3 (P1T13-F5a)
 
 StepType = Literal["plan", "plan-review", "implement", "test", "review"]
 
@@ -470,6 +471,56 @@ class WorkflowGate:
             print(f"❌ Error computing staged hash: {stderr}")
             raise
 
+    def _log_to_audit(self, continuation_id: str) -> None:
+        """
+        Log continuation ID to audit log (Component 3 - P1T13-F5a).
+
+        Creates append-only JSONL log of all review continuation IDs.
+        Used to detect fake/placeholder IDs during commit validation.
+
+        Args:
+            continuation_id: Zen-MCP continuation ID to log
+        """
+        try:
+            AUDIT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "continuation_id": continuation_id,
+            }
+            with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to write audit log: {e}")
+            # Don't fail the workflow if audit logging fails
+
+    def _is_placeholder_id(self, continuation_id: str) -> bool:
+        """
+        Detect placeholder/fake continuation IDs (Component 3 - P1T13-F5a).
+
+        Args:
+            continuation_id: Continuation ID to check
+
+        Returns:
+            True if ID appears to be a placeholder
+        """
+        if not continuation_id:
+            return True
+
+        # Detect common placeholder patterns
+        placeholder_patterns = [
+            r"^test-",
+            r"^placeholder-",
+            r"^fake-",
+            r"^dummy-",
+            r"^mock-",
+        ]
+
+        for pattern in placeholder_patterns:
+            if re.match(pattern, continuation_id.lower()):
+                return True
+
+        return False
+
     def record_review(self, continuation_id: str, status: str) -> None:
         """
         Record zen-mcp review result.
@@ -510,6 +561,9 @@ class WorkflowGate:
                 print("   Then re-request review:")
                 print("     ./scripts/workflow_gate.py request-review commit")
                 sys.exit(1)
+
+        # Component 3 (P1T13-F5a): Log continuation ID to audit trail
+        self._log_to_audit(continuation_id)
 
         with self._locked_state() as state:
             state["zen_review"] = {
@@ -935,6 +989,30 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            sys.exit(1)
+
+        # Gate 0.3 (Component 3 - P1T13-F5a): Continuation ID verification
+        # Block placeholder/fake continuation IDs
+        continuation_id = state["zen_review"].get("continuation_id", "")
+        if self._is_placeholder_id(continuation_id):
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("❌ COMMIT BLOCKED: Placeholder continuation ID detected")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   Detected ID: {continuation_id}")
+            print()
+            print("   Placeholder patterns blocked:")
+            print("     - test-*")
+            print("     - placeholder-*")
+            print("     - fake-*")
+            print("     - dummy-*")
+            print("     - mock-*")
+            print()
+            print("   Request a real zen-mcp review:")
+            print("     ./scripts/workflow_gate.py request-review commit")
+            print()
+            print("   Emergency override (production outage only):")
+            print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
         # Check CI pass
