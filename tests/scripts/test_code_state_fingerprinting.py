@@ -131,6 +131,11 @@ class TestRecordReviewFingerprinting:
         """Test that hash is stored in zen_review on record_review()."""
         gate = WorkflowGate()
 
+        # Set step to 'review' so fingerprinting is required
+        state = gate.load_state()
+        state["step"] = "review"
+        gate.save_state(state)
+
         # Mock _compute_staged_hash to return a known hash
         with patch.object(gate, "_compute_staged_hash", return_value="abc123def456"):
             gate.record_review("test-cont-id", "APPROVED")
@@ -142,6 +147,11 @@ class TestRecordReviewFingerprinting:
     def test_hash_computed_before_persisting_approval(self, temp_state_file):
         """Test that hash failure prevents approval (Codex HIGH fix)."""
         gate = WorkflowGate()
+
+        # Set step to 'review' so fingerprinting is required
+        state = gate.load_state()
+        state["step"] = "review"
+        gate.save_state(state)
 
         # Mock _compute_staged_hash to fail
         with patch.object(gate, "_compute_staged_hash", side_effect=Exception("Git error")):
@@ -158,6 +168,11 @@ class TestRecordReviewFingerprinting:
         """Test that empty hash (no staged files) blocks approval (Codex HIGH fix)."""
         gate = WorkflowGate()
 
+        # Set step to 'review' so fingerprinting is required
+        state = gate.load_state()
+        state["step"] = "review"
+        gate.save_state(state)
+
         # Mock _compute_staged_hash to return empty string
         with patch.object(gate, "_compute_staged_hash", return_value=""):
             with pytest.raises(SystemExit) as exc_info:
@@ -168,6 +183,24 @@ class TestRecordReviewFingerprinting:
             # Approval should NOT be persisted
             state = gate.load_state()
             assert "zen_review" not in state or state["zen_review"].get("status") != "APPROVED"
+
+    def test_plan_review_allowed_without_staged_changes(self, temp_state_file):
+        """Test that plan reviews don't require staged changes (bug fix)."""
+        gate = WorkflowGate()
+
+        # Set step to 'plan-review' - no fingerprinting required
+        state = gate.load_state()
+        state["step"] = "plan-review"
+        gate.save_state(state)
+
+        # Should succeed even with no staged changes (no mock needed)
+        gate.record_review("plan-review-cont-id", "APPROVED")
+
+        # Approval should be persisted without hash
+        state = gate.load_state()
+        assert state["zen_review"]["status"] == "APPROVED"
+        assert state["zen_review"]["continuation_id"] == "plan-review-cont-id"
+        assert state["zen_review"]["staged_hash"] == ""  # Empty hash is OK for plan reviews
 
 
 class TestCheckCommitFingerprinting:

@@ -394,7 +394,9 @@ class WorkflowGate:
                     print("   Request plan review:")
                     print("     ./scripts/workflow_gate.py request-review plan")
                     print("   After approval, record:")
-                    print("     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED")
+                    print(
+                        "     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
+                    )
                     sys.exit(1)
                 # Clear zen_review for code review later
                 state["zen_review"] = {}
@@ -440,7 +442,15 @@ class WorkflowGate:
             # --no-ext-diff: Ignore external diff helpers
             # Codex MEDIUM fix: Add cwd=PROJECT_ROOT to work from any directory
             result = subprocess.run(
-                ["git", "--no-pager", "diff", "--staged", "--binary", "--no-color", "--no-ext-diff"],
+                [
+                    "git",
+                    "--no-pager",
+                    "diff",
+                    "--staged",
+                    "--binary",
+                    "--no-color",
+                    "--no-ext-diff",
+                ],
                 capture_output=True,
                 check=True,
                 cwd=PROJECT_ROOT,
@@ -470,28 +480,36 @@ class WorkflowGate:
         Component 1 (P1T13-F5a): Computes and stores staged hash BEFORE persisting
         approval to prevent approval without fingerprint (Codex HIGH fix).
 
+        Note: Plan reviews (step=plan-review) don't require staged changes since
+        there's no code yet. Only code reviews (step=review) require fingerprinting.
+
         Args:
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
         """
-        # Codex HIGH fix: Compute hash BEFORE persisting approval
-        # If hashing fails, approval is never persisted (fail-safe)
-        staged_hash = ""
-        try:
-            staged_hash = self._compute_staged_hash()
-        except Exception as e:
-            print(f"❌ Failed to compute staged hash: {e}")
-            print("   Cannot record review without code fingerprint")
-            sys.exit(1)
+        state = self.load_state()
+        current_step = state.get("step", "plan")
 
-        # Codex HIGH fix: Block empty hash approvals (no staged files bypass)
-        if not staged_hash:
-            print("❌ Cannot record review with no staged changes")
-            print("   Stage your changes first:")
-            print("     git add <files>")
-            print("   Then re-request review:")
-            print("     ./scripts/workflow_gate.py request-review commit")
-            sys.exit(1)
+        # Only require fingerprinting for code reviews (step=review), not plan reviews
+        staged_hash = ""
+        if current_step == "review":
+            # Codex HIGH fix: Compute hash BEFORE persisting approval
+            # If hashing fails, approval is never persisted (fail-safe)
+            try:
+                staged_hash = self._compute_staged_hash()
+            except Exception as e:
+                print(f"❌ Failed to compute staged hash: {e}")
+                print("   Cannot record review without code fingerprint")
+                sys.exit(1)
+
+            # Codex HIGH fix: Block empty hash approvals (no staged files bypass)
+            if not staged_hash:
+                print("❌ Cannot record review with no staged changes")
+                print("   Stage your changes first:")
+                print("     git add <files>")
+                print("   Then re-request review:")
+                print("     ./scripts/workflow_gate.py request-review commit")
+                sys.exit(1)
 
         with self._locked_state() as state:
             state["zen_review"] = {
@@ -976,7 +994,9 @@ class WorkflowGate:
                             cwd=PROJECT_ROOT,
                         )
                         if diff_summary.stdout:
-                            for line in diff_summary.stdout.splitlines()[:10]:  # Show first 10 lines
+                            for line in diff_summary.stdout.splitlines()[
+                                :10
+                            ]:  # Show first 10 lines
                                 print(f"     {line}")
                     except Exception as e:
                         # Gemini LOW fix: Log exception instead of silently ignoring
@@ -1178,7 +1198,7 @@ class WorkflowGate:
             "plan-review": "Plan Review",
             "implement": "Implement",
             "test": "Test",
-            "review": "Code Review"
+            "review": "Code Review",
         }
         for i, step in enumerate(steps, 1):
             label = step_labels.get(step, step.capitalize())
@@ -2762,7 +2782,9 @@ class UnifiedReviewSystem:
         print()
         print("   === Step 5: Record approval ===")
         print("   After BOTH approve, record with EITHER continuation_id:")
-        print("     ./scripts/workflow_gate.py record-review <gemini-or-codex-continuation-id> APPROVED")
+        print(
+            "     ./scripts/workflow_gate.py record-review <gemini-or-codex-continuation-id> APPROVED"
+        )
         print()
 
         # Return placeholder - actual review happens via clink
