@@ -154,8 +154,11 @@ def has_review_markers(commit_hash):
 
     # Format 2: Deep review (dual phase with gemini + codex)
     # Accept both current and legacy marker names
-    has_gemini = "gemini-continuation-id:" in message or "gemini-review:" in message
-    has_codex = "codex-continuation-id:" in message or "codex-review:" in message
+    # Gemini MEDIUM fix: Use regex patterns to avoid false positives
+    gemini_trailer_pattern = r"(?:^|\n)\s*(?:gemini-continuation-id|gemini-review):"
+    codex_trailer_pattern = r"(?:^|\n)\s*(?:codex-continuation-id|codex-review):"
+    has_gemini = bool(re.search(gemini_trailer_pattern, message))
+    has_codex = bool(re.search(codex_trailer_pattern, message))
     has_deep_format = has_gemini and has_codex
 
     # Component 2 (P1T13-F5a): Check for Review-Hash trailer (presence only)

@@ -229,52 +229,67 @@ class TestCheckCommitFingerprinting:
 
             assert exc_info.value.code == 1
 
-    def test_commit_allowed_when_hash_matches(self, temp_state_file):
+    def test_commit_allowed_when_hash_matches(self, temp_state_file, tmp_path):
         """Test that commit is allowed when hash matches."""
-        gate = WorkflowGate()
+        # Mock audit log file with the test continuation ID
+        # Use a UUID-like ID to avoid placeholder detection
+        audit_file = tmp_path / "audit.log"
+        audit_file.write_text(
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "abc123-cont-id"}\n'
+        )
 
-        # Setup state with stored hash and planning artifacts
-        state = gate.load_state()
-        state["step"] = "review"
-        state["first_commit_made"] = True  # Bypass planning artifact gate
-        state["zen_review"] = {
-            "requested": True,
-            "continuation_id": "test-cont-id",
-            "status": "APPROVED",
-            "staged_hash": "matching_hash_abc123",
-        }
-        state["ci_passed"] = True
-        gate.save_state(state)
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
 
-        # Mock current hash to match
-        with patch.object(gate, "_compute_staged_hash", return_value="matching_hash_abc123"):
+            # Setup state with stored hash and planning artifacts
+            state = gate.load_state()
+            state["step"] = "review"
+            state["first_commit_made"] = True  # Bypass planning artifact gate
+            state["zen_review"] = {
+                "requested": True,
+                "continuation_id": "abc123-cont-id",
+                "status": "APPROVED",
+                "staged_hash": "matching_hash_abc123",
+            }
+            state["ci_passed"] = True
+            gate.save_state(state)
+
+            # Mock current hash to match
+            with patch.object(gate, "_compute_staged_hash", return_value="matching_hash_abc123"):
+                with pytest.raises(SystemExit) as exc_info:
+                    gate.check_commit()
+
+                assert exc_info.value.code == 0
+
+    def test_backwards_compatibility_no_stored_hash(self, temp_state_file, tmp_path):
+        """Test backwards compatibility: allow commit if no hash stored (Gemini LOW)."""
+        # Mock audit log file with the test continuation ID
+        audit_file = tmp_path / "audit.log"
+        audit_file.write_text(
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "old-review-id"}\n'
+        )
+
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
+
+            # Setup state without staged_hash (old review)
+            state = gate.load_state()
+            state["step"] = "review"
+            state["first_commit_made"] = True  # Bypass planning artifact gate
+            state["zen_review"] = {
+                "requested": True,
+                "continuation_id": "old-review-id",
+                "status": "APPROVED",
+                # No staged_hash field
+            }
+            state["ci_passed"] = True
+            gate.save_state(state)
+
+            # check_commit should succeed (backwards compat)
             with pytest.raises(SystemExit) as exc_info:
                 gate.check_commit()
 
             assert exc_info.value.code == 0
-
-    def test_backwards_compatibility_no_stored_hash(self, temp_state_file):
-        """Test backwards compatibility: allow commit if no hash stored (Gemini LOW)."""
-        gate = WorkflowGate()
-
-        # Setup state without staged_hash (old review)
-        state = gate.load_state()
-        state["step"] = "review"
-        state["first_commit_made"] = True  # Bypass planning artifact gate
-        state["zen_review"] = {
-            "requested": True,
-            "continuation_id": "old-review-id",
-            "status": "APPROVED",
-            # No staged_hash field
-        }
-        state["ci_passed"] = True
-        gate.save_state(state)
-
-        # check_commit should succeed (backwards compat)
-        with pytest.raises(SystemExit) as exc_info:
-            gate.check_commit()
-
-        assert exc_info.value.code == 0
 
     def test_git_command_failure_handled(self, temp_state_file):
         """Test that git command failure is handled gracefully (Gemini LOW)."""

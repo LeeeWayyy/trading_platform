@@ -62,7 +62,9 @@ class TestPlaceholderDetection:
         """Test that alphanumeric real IDs are not flagged."""
         gate = WorkflowGate()
         assert gate._is_placeholder_id("abc123def456") is False
-        assert gate._is_placeholder_id("review-abc123") is False  # Doesn't start with blocked prefix
+        assert (
+            gate._is_placeholder_id("review-abc123") is False
+        )  # Doesn't start with blocked prefix
 
 
 class TestAuditLogging:
@@ -110,6 +112,70 @@ class TestAuditLogging:
 
             assert entry1["continuation_id"] == "first-id"
             assert entry2["continuation_id"] == "second-id"
+
+
+class TestAuditLogVerification:
+    """Test audit log verification (Codex P1 fix)."""
+
+    def test_continuation_id_found_in_audit_log(self, tmp_path):
+        """Test that continuation ID in audit log is verified."""
+        audit_file = tmp_path / "workflow-audit.log"
+        audit_file.write_text(
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "abc-123"}\n'
+        )
+
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
+            assert gate._is_continuation_id_in_audit_log("abc-123") is True
+
+    def test_continuation_id_not_found_in_audit_log(self, tmp_path):
+        """Test that missing continuation ID returns False."""
+        audit_file = tmp_path / "workflow-audit.log"
+        audit_file.write_text(
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "abc-123"}\n'
+        )
+
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
+            assert gate._is_continuation_id_in_audit_log("different-id") is False
+
+    def test_no_audit_log_returns_false(self, tmp_path):
+        """Test that missing audit log file returns False (not error)."""
+        audit_file = tmp_path / "workflow-audit.log"
+
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
+            assert gate._is_continuation_id_in_audit_log("any-id") is False
+
+    def test_malformed_audit_log_lines_skipped(self, tmp_path):
+        """Test that malformed JSON lines are gracefully skipped."""
+        audit_file = tmp_path / "workflow-audit.log"
+        audit_file.write_text(
+            "invalid json line\n"
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "valid-id"}\n'
+            "another bad line\n"
+        )
+
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
+            assert gate._is_continuation_id_in_audit_log("valid-id") is True
+            assert gate._is_continuation_id_in_audit_log("invalid") is False
+
+    def test_multiple_entries_searched(self, tmp_path):
+        """Test that all audit log entries are searched."""
+        audit_file = tmp_path / "workflow-audit.log"
+        audit_file.write_text(
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "first-id"}\n'
+            '{"timestamp": "2025-11-14T00:01:00Z", "continuation_id": "second-id"}\n'
+            '{"timestamp": "2025-11-14T00:02:00Z", "continuation_id": "third-id"}\n'
+        )
+
+        with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+            gate = WorkflowGate()
+            assert gate._is_continuation_id_in_audit_log("first-id") is True
+            assert gate._is_continuation_id_in_audit_log("second-id") is True
+            assert gate._is_continuation_id_in_audit_log("third-id") is True
+            assert gate._is_continuation_id_in_audit_log("fourth-id") is False
 
 
 # Mark as unit test

@@ -521,6 +521,41 @@ class WorkflowGate:
 
         return False
 
+    def _is_continuation_id_in_audit_log(self, continuation_id: str) -> bool:
+        """
+        Verify continuation ID exists in audit log (Component 3 - P1T13-F5a).
+
+        Codex P1 fix: Cross-reference audit log to prevent fabricated UUIDs.
+
+        Args:
+            continuation_id: Continuation ID to verify
+
+        Returns:
+            True if ID found in audit log, False if not found or file doesn't exist
+
+        Raises:
+            Exception: If audit log exists but is unreadable (fail-closed for security)
+        """
+        if not AUDIT_LOG_FILE.exists():
+            # No audit log yet - this is acceptable for first review
+            return False
+
+        # Gemini MEDIUM fix: Fail closed on I/O errors
+        # If audit log exists but is unreadable, raise exception to block commit
+        with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    if entry.get("continuation_id") == continuation_id:
+                        return True
+                except json.JSONDecodeError:
+                    # Skip malformed lines
+                    continue
+        return False
+
     def record_review(self, continuation_id: str, status: str) -> None:
         """
         Record zen-mcp review result.
@@ -562,10 +597,12 @@ class WorkflowGate:
                 print("     ./scripts/workflow_gate.py request-review commit")
                 sys.exit(1)
 
-        # Component 3 (P1T13-F5a): Log continuation ID to audit trail
-        self._log_to_audit(continuation_id)
-
         with self._locked_state() as state:
+            # Component 3 (P1T13-F5a): Log continuation ID to audit trail
+            # Gemini MEDIUM fix: Move inside lock to prevent race conditions
+            # Gemini LOW fix: Note that serialization is via workflow-state.json lock
+            self._log_to_audit(continuation_id)
+
             state["zen_review"] = {
                 "requested": True,
                 "continuation_id": continuation_id,
@@ -1014,6 +1051,41 @@ class WorkflowGate:
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
+
+        # Gate 0.4 (Component 3 - P1T13-F5a): Verify continuation ID in audit log
+        # Codex P1 fix: Cross-reference audit log to prevent fabricated UUIDs
+        # Gemini MEDIUM fix: Fail-closed on I/O errors (exception bubbles up)
+        if AUDIT_LOG_FILE.exists():
+            try:
+                if not self._is_continuation_id_in_audit_log(continuation_id):
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("❌ COMMIT BLOCKED: Continuation ID not found in audit log")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print(f"   Continuation ID: {continuation_id}")
+                    print(f"   Audit log: {AUDIT_LOG_FILE}")
+                    print()
+                    print("   This indicates the state file may have been manually edited.")
+                    print("   Request a real zen-mcp review to log the continuation ID:")
+                    print("     ./scripts/workflow_gate.py request-review commit")
+                    print()
+                    print("   Emergency override (production outage only):")
+                    print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    sys.exit(1)
+            except Exception as e:
+                # Fail closed: If we can't read the audit log, block the commit
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("❌ COMMIT BLOCKED: Cannot read audit log")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"   Error: {e}")
+                print(f"   Audit log: {AUDIT_LOG_FILE}")
+                print()
+                print("   Check file permissions or report this issue.")
+                print()
+                print("   Emergency override (production outage only):")
+                print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                sys.exit(1)
 
         # Check CI pass
         if not state["ci_passed"]:
