@@ -575,31 +575,36 @@ class WorkflowGate:
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
         """
-        state = self.load_state()
-        current_step = state.get("step", "plan")
-
-        # Only require fingerprinting for code reviews (step=review), not plan reviews
+        # Gemini HIGH fix: Read step inside locked context to prevent race condition
+        # Precompute hash outside lock (expensive operation), but check step inside lock
         staged_hash = ""
-        if current_step == "review":
-            # Codex HIGH fix: Compute hash BEFORE persisting approval
-            # If hashing fails, approval is never persisted (fail-safe)
-            try:
-                staged_hash = self._compute_staged_hash()
-            except Exception as e:
-                print(f"❌ Failed to compute staged hash: {e}")
-                print("   Cannot record review without code fingerprint")
-                sys.exit(1)
-
-            # Codex HIGH fix: Block empty hash approvals (no staged files bypass)
-            if not staged_hash:
-                print("❌ Cannot record review with no staged changes")
-                print("   Stage your changes first:")
-                print("     git add <files>")
-                print("   Then re-request review:")
-                print("     ./scripts/workflow_gate.py request-review commit")
-                sys.exit(1)
+        try:
+            # Compute hash speculatively (will only be used if step=review)
+            # If this fails, we want to fail early before acquiring the lock
+            staged_hash = self._compute_staged_hash()
+        except Exception as e:
+            # Hash computation failed - check if this is expected (no staged changes)
+            # If step=review, this is an error; if step=plan-review, it's OK
+            # We'll verify inside the lock
+            pass
 
         with self._locked_state() as state:
+            current_step = state.get("step", "plan")
+
+            # Only require fingerprinting for code reviews (step=review), not plan reviews
+            if current_step == "review":
+                # Codex HIGH fix: Compute hash BEFORE persisting approval
+                # If hashing fails, approval is never persisted (fail-safe)
+                if not staged_hash:
+                    print("❌ Cannot record review with no staged changes")
+                    print("   Stage your changes first:")
+                    print("     git add <files>")
+                    print("   Then re-request review:")
+                    print("     ./scripts/workflow_gate.py request-review commit")
+                    sys.exit(1)
+            else:
+                # Plan reviews don't need hash
+                staged_hash = ""
             # Component 3 (P1T13-F5a): Log continuation ID to audit trail
             # Gemini MEDIUM fix: Move inside lock to prevent race conditions
             # Gemini LOW fix: Note that serialization is via workflow-state.json lock
