@@ -326,7 +326,9 @@ class TestZenReviewReusePattern:
         gate.save_state(state)
 
         # 3. Record code review approval
-        gate.record_review("code-review-cont-id", "APPROVED")
+        # P1T13-F5a: Mock hash computation for unit test
+        with patch.object(gate, "_compute_staged_hash", return_value="fake_hash_123"):
+            gate.record_review("code-review-cont-id", "APPROVED")
 
         # Verify zen_review now has code review data
         state = gate.load_state()

@@ -27,6 +27,7 @@ Date: 2025-11-02
 import argparse
 import fcntl
 import glob
+import hashlib
 import json
 import os
 import re
@@ -43,6 +44,7 @@ from typing import Literal
 # Constants
 PROJECT_ROOT = Path(__file__).parent.parent
 STATE_FILE = PROJECT_ROOT / ".claude" / "workflow-state.json"
+AUDIT_LOG_FILE = PROJECT_ROOT / ".claude" / "workflow-audit.log"  # Component 3 (P1T13-F5a)
 
 StepType = Literal["plan", "plan-review", "implement", "test", "review"]
 
@@ -393,7 +395,9 @@ class WorkflowGate:
                     print("   Request plan review:")
                     print("     ./scripts/workflow_gate.py request-review plan")
                     print("   After approval, record:")
-                    print("     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED")
+                    print(
+                        "     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
+                    )
                     sys.exit(1)
                 # Clear zen_review for code review later
                 state["zen_review"] = {}
@@ -418,6 +422,142 @@ class WorkflowGate:
 
         print(f"✅ Advanced to '{next}' step")
 
+    def _compute_staged_hash(self) -> str:
+        """
+        Compute SHA256 hash of staged changes (Component 1: Code State Fingerprinting).
+
+        Uses git diff with flags to ensure consistent, machine-readable output across
+        environments. Addresses Gemini CRITICAL and HIGH findings.
+
+        Returns:
+            str: Hex digest of staged changes, or empty string if no changes
+
+        Raises:
+            subprocess.CalledProcessError: If git command fails
+        """
+        try:
+            # Gemini HIGH fix: Add flags for consistent output across environments
+            # --no-pager: Prevents hanging on large diffs
+            # --binary: Include binary file content correctly
+            # --no-color: Disable color escape codes
+            # --no-ext-diff: Ignore external diff helpers
+            # Codex MEDIUM fix: Add cwd=PROJECT_ROOT to work from any directory
+            result = subprocess.run(
+                [
+                    "git",
+                    "--no-pager",
+                    "diff",
+                    "--staged",
+                    "--binary",
+                    "--no-color",
+                    "--no-ext-diff",
+                ],
+                capture_output=True,
+                check=True,
+                cwd=PROJECT_ROOT,
+            )
+
+            if not result.stdout:
+                return ""  # No staged changes
+
+            # Gemini CRITICAL fix: Use Python's hashlib instead of sha256sum (portability)
+            hasher = hashlib.sha256()
+            hasher.update(result.stdout)
+            return hasher.hexdigest()
+
+        except subprocess.CalledProcessError as e:
+            # Propagate error with context
+            stderr = e.stderr.decode() if e.stderr else "Unknown error"
+            print(f"❌ Error computing staged hash: {stderr}")
+            raise
+
+    def _log_to_audit(self, continuation_id: str) -> None:
+        """
+        Log continuation ID to audit log (Component 3 - P1T13-F5a).
+
+        Creates append-only JSONL log of all review continuation IDs.
+        Used to detect fake/placeholder IDs during commit validation.
+
+        Args:
+            continuation_id: Zen-MCP continuation ID to log
+        """
+        try:
+            AUDIT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "continuation_id": continuation_id,
+            }
+            with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            # Gemini HIGH fix: Fail hard to prevent inconsistent state
+            print(f"❌ CRITICAL: Failed to write to audit log: {e}")
+            print("   Commit will be blocked if audit log is not updated. Aborting review record.")
+            raise
+
+    def _is_placeholder_id(self, continuation_id: str) -> bool:
+        """
+        Detect placeholder/fake continuation IDs (Component 3 - P1T13-F5a).
+
+        Args:
+            continuation_id: Continuation ID to check
+
+        Returns:
+            True if ID appears to be a placeholder
+        """
+        if not continuation_id:
+            return True
+
+        # Detect common placeholder patterns
+        placeholder_patterns = [
+            r"^test-",
+            r"^placeholder-",
+            r"^fake-",
+            r"^dummy-",
+            r"^mock-",
+        ]
+
+        for pattern in placeholder_patterns:
+            if re.match(pattern, continuation_id.lower()):
+                return True
+
+        return False
+
+    def _is_continuation_id_in_audit_log(self, continuation_id: str) -> bool:
+        """
+        Verify continuation ID exists in audit log (Component 3 - P1T13-F5a).
+
+        Codex P1 fix: Cross-reference audit log to prevent fabricated UUIDs.
+
+        Args:
+            continuation_id: Continuation ID to verify
+
+        Returns:
+            True if ID found in audit log, False if not found or file doesn't exist
+
+        Raises:
+            Exception: If audit log exists but is unreadable (fail-closed for security)
+        """
+        if not AUDIT_LOG_FILE.exists():
+            # No audit log yet - this is acceptable for first review
+            return False
+
+        # Gemini MEDIUM fix: Fail closed on I/O errors
+        # If audit log exists but is unreadable, raise exception to block commit
+        with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    if entry.get("continuation_id") == continuation_id:
+                        return True
+                except json.JSONDecodeError:
+                    # Skip malformed lines
+                    continue
+        return False
+
     def record_review(self, continuation_id: str, status: str) -> None:
         """
         Record zen-mcp review result.
@@ -425,15 +565,56 @@ class WorkflowGate:
         For PR reviews, also updates the unified_review.history to enable
         the override workflow for LOW severity issues after max iterations.
 
+        Component 1 (P1T13-F5a): Computes and stores staged hash BEFORE persisting
+        approval to prevent approval without fingerprint (Codex HIGH fix).
+
+        Note: Plan reviews (step=plan-review) don't require staged changes since
+        there's no code yet. Only code reviews (step=review) require fingerprinting.
+
         Args:
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
         """
+        # Gemini HIGH fix: Read step inside locked context to prevent race condition
+        # Precompute hash outside lock (expensive operation), but check step inside lock
+        staged_hash = ""
+        try:
+            # Compute hash speculatively (will only be used if step=review)
+            # If this fails, we want to fail early before acquiring the lock
+            staged_hash = self._compute_staged_hash()
+        except Exception as e:
+            # Hash computation failed - check if this is expected (no staged changes)
+            # If step=review, this is an error; if step=plan-review, it's OK
+            # We'll verify inside the lock
+            pass
+
         with self._locked_state() as state:
+            current_step = state.get("step", "plan")
+
+            # Only require fingerprinting for code reviews (step=review), not plan reviews
+            if current_step == "review":
+                # Codex HIGH fix: Compute hash BEFORE persisting approval
+                # If hashing fails, approval is never persisted (fail-safe)
+                if not staged_hash:
+                    print("❌ Cannot record review with no staged changes")
+                    print("   Stage your changes first:")
+                    print("     git add <files>")
+                    print("   Then re-request review:")
+                    print("     ./scripts/workflow_gate.py request-review commit")
+                    sys.exit(1)
+            else:
+                # Plan reviews don't need hash
+                staged_hash = ""
+            # Component 3 (P1T13-F5a): Log continuation ID to audit trail
+            # Gemini MEDIUM fix: Move inside lock to prevent race conditions
+            # Gemini LOW fix: Note that serialization is via workflow-state.json lock
+            self._log_to_audit(continuation_id)
+
             state["zen_review"] = {
                 "requested": True,
                 "continuation_id": continuation_id,
                 "status": status,  # "APPROVED" or "NEEDS_REVISION"
+                "staged_hash": staged_hash,  # Component 1: Store fingerprint
             }
 
             # Check if this is a PR review by looking for pending unified_review history
@@ -854,6 +1035,83 @@ class WorkflowGate:
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
             sys.exit(1)
 
+        # Gate 0.3 (Component 3 - P1T13-F5a): Continuation ID verification
+        # Block placeholder/fake continuation IDs
+        continuation_id = state["zen_review"].get("continuation_id", "")
+        if self._is_placeholder_id(continuation_id):
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("❌ COMMIT BLOCKED: Placeholder continuation ID detected")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   Detected ID: {continuation_id}")
+            print()
+            print("   Placeholder patterns blocked:")
+            print("     - test-*")
+            print("     - placeholder-*")
+            print("     - fake-*")
+            print("     - dummy-*")
+            print("     - mock-*")
+            print()
+            print("   Request a real zen-mcp review:")
+            print("     ./scripts/workflow_gate.py request-review commit")
+            print()
+            print("   Emergency override (production outage only):")
+            print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            sys.exit(1)
+
+        # Gate 0.4 (Component 3 - P1T13-F5a): Verify continuation ID in audit log
+        # Codex P1 fix: Cross-reference audit log to prevent fabricated UUIDs
+        # Gemini HIGH fix: Block commit if audit log missing when it should exist
+
+        # The audit log MUST exist for any commit after the first one
+        if state.get("first_commit_made") and not AUDIT_LOG_FILE.exists():
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("❌ COMMIT BLOCKED: Audit log file is missing")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   The audit log file is required for all commits after the first one.")
+            print(f"   Expected location: {AUDIT_LOG_FILE}")
+            print()
+            print("   This may indicate tampering or an inconsistent state.")
+            print("   If this is unexpected, please report it.")
+            print()
+            print("   Emergency override (production outage only):")
+            print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            sys.exit(1)
+
+        # Gemini MEDIUM fix: Fail-closed on I/O errors (exception bubbles up)
+        if AUDIT_LOG_FILE.exists():
+            try:
+                if not self._is_continuation_id_in_audit_log(continuation_id):
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("❌ COMMIT BLOCKED: Continuation ID not found in audit log")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print(f"   Continuation ID: {continuation_id}")
+                    print(f"   Audit log: {AUDIT_LOG_FILE}")
+                    print()
+                    print("   This indicates the state file may have been manually edited.")
+                    print("   Request a real zen-mcp review to log the continuation ID:")
+                    print("     ./scripts/workflow_gate.py request-review commit")
+                    print()
+                    print("   Emergency override (production outage only):")
+                    print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    sys.exit(1)
+            except Exception as e:
+                # Fail closed: If we can't read the audit log, block the commit
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("❌ COMMIT BLOCKED: Cannot read audit log")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"   Error: {e}")
+                print(f"   Audit log: {AUDIT_LOG_FILE}")
+                print()
+                print("   Check file permissions or report this issue.")
+                print()
+                print("   Emergency override (production outage only):")
+                print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                sys.exit(1)
+
         # Check CI pass
         if not state["ci_passed"]:
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -868,11 +1126,88 @@ class WorkflowGate:
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
             sys.exit(1)
 
+        # Gate 0.4 (Component 1 - P1T13-F5a): Code state fingerprinting
+        # Verify that staged changes haven't been modified since review approval
+        stored_hash = state["zen_review"].get("staged_hash")
+
+        # Codex HIGH fix: Defensive check - reject approvals with empty hash
+        if stored_hash is not None and not stored_hash:
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("❌ COMMIT BLOCKED: Review has empty code fingerprint")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("   This review was recorded with no staged changes.")
+            print("   You must stage your changes and re-request review:")
+            print("     git add <files>")
+            print("     ./scripts/workflow_gate.py request-review commit")
+            print()
+            print("   Emergency override (production outage only):")
+            print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            sys.exit(1)
+
+        if stored_hash:  # Only verify if hash was stored (backwards compatibility)
+            try:
+                current_hash = self._compute_staged_hash()
+
+                if current_hash != stored_hash:
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("❌ COMMIT BLOCKED: Code changed after review approval")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("   Staged changes have been modified since zen-mcp review.")
+                    print()
+                    print("   Stored hash (at review):  ", stored_hash[:16], "...")
+                    print("   Current hash (now):       ", current_hash[:16], "...")
+                    print()
+                    print("   Changes detected:")
+                    # Show diff summary
+                    try:
+                        diff_summary = subprocess.run(
+                            ["git", "diff", "--staged", "--stat"],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                            cwd=PROJECT_ROOT,
+                        )
+                        if diff_summary.stdout:
+                            for line in diff_summary.stdout.splitlines()[
+                                :10
+                            ]:  # Show first 10 lines
+                                print(f"     {line}")
+                    except Exception as e:
+                        # Gemini LOW fix: Log exception instead of silently ignoring
+                        print(f"     (Could not generate diff summary: {e})")
+                    print()
+                    print("   You must re-request review for the modified code:")
+                    print("     ./scripts/workflow_gate.py request-review commit")
+                    print()
+                    print("   Emergency override (production outage only):")
+                    print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    sys.exit(1)
+
+            except Exception as e:
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("❌ COMMIT BLOCKED: Failed to verify code fingerprint")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"   Error: {e}")
+                print()
+                print("   Emergency override (production outage only):")
+                print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                sys.exit(1)
+
         # All gates passed
         print("✅ Commit prerequisites satisfied")
         print(f"   Component: {state['current_component']}")
         print(f"   Zen review: {state['zen_review']['continuation_id'][:8]}...")
         print("   CI: PASSED")
+        if stored_hash:
+            print(f"   Code fingerprint: {stored_hash[:16]}... (verified)")
+        print()
+        print("📝 REMINDER: Include Review-Hash trailer in commit message:")
+        print("   Review-Hash: $(./scripts/compute_review_hash.py)")
+        print()
+        print("   This proves code was fingerprinted at review time.")
 
         # Phase 1: Performance instrumentation (report hook duration)
         end_time = time.time()
@@ -1043,7 +1378,7 @@ class WorkflowGate:
             "plan-review": "Plan Review",
             "implement": "Implement",
             "test": "Test",
-            "review": "Code Review"
+            "review": "Code Review",
         }
         for i, step in enumerate(steps, 1):
             label = step_labels.get(step, step.capitalize())
@@ -2627,7 +2962,9 @@ class UnifiedReviewSystem:
         print()
         print("   === Step 5: Record approval ===")
         print("   After BOTH approve, record with EITHER continuation_id:")
-        print("     ./scripts/workflow_gate.py record-review <gemini-or-codex-continuation-id> APPROVED")
+        print(
+            "     ./scripts/workflow_gate.py record-review <gemini-or-codex-continuation-id> APPROVED"
+        )
         print()
 
         # Return placeholder - actual review happens via clink

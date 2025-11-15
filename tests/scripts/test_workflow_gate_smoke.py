@@ -145,7 +145,9 @@ def test_check_commit_blocks_when_review_not_approved(temp_state_file):
         gate.advance("review")
 
     # Record review as NEEDS_REVISION
-    gate.record_review("test-id-123", "NEEDS_REVISION")
+    # P1T13-F5a: Mock hash computation for unit test
+    with patch.object(gate, "_compute_staged_hash", return_value="fake_hash_123"):
+        gate.record_review("test-id-123", "NEEDS_REVISION")
     gate.record_ci(True)
 
     with pytest.raises(SystemExit) as excinfo:
@@ -174,7 +176,9 @@ def test_check_commit_blocks_when_ci_failed(temp_state_file):
         gate.advance("test")
         gate.advance("review")
 
-    gate.record_review("test-id-123", "APPROVED")
+    # P1T13-F5a: Mock hash computation for unit test
+    with patch.object(gate, "_compute_staged_hash", return_value="fake_hash_123"):
+        gate.record_review("test-id-123", "APPROVED")
     gate.record_ci(False)
 
     with pytest.raises(SystemExit) as excinfo:
@@ -183,33 +187,44 @@ def test_check_commit_blocks_when_ci_failed(temp_state_file):
     assert excinfo.value.code == 1
 
 
-def test_check_commit_success_when_all_prerequisites_met(temp_state_file):
+def test_check_commit_success_when_all_prerequisites_met(temp_state_file, tmp_path):
     """Verify check_commit succeeds when all prerequisites are met."""
-    gate = WorkflowGate()
-    gate.set_component("Test Component")
+    # P1T13-F5a: Mock audit log for continuation ID verification
+    audit_file = tmp_path / "audit.log"
+    audit_file.write_text(
+        '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "smoke-test-123"}\n'
+    )
 
-    # Phase 1: Set first_commit_made to bypass planning gate
-    state = gate.load_state()
-    state["first_commit_made"] = True
-    gate.save_state(state)
+    with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
+        gate = WorkflowGate()
+        gate.set_component("Test Component")
 
-    # Phase 1.5: Transition through plan-review to implement
-    gate.advance("plan-review")
-    gate.record_review("test-plan-cont-id", "APPROVED")
-    gate.advance("implement")
+        # Phase 1: Set first_commit_made to bypass planning gate
+        state = gate.load_state()
+        state["first_commit_made"] = True
+        gate.save_state(state)
 
-    # Mock _has_tests to allow transition to review
-    with patch.object(WorkflowGate, "_has_tests", return_value=True):
-        gate.advance("test")
-        gate.advance("review")
+        # Phase 1.5: Transition through plan-review to implement
+        gate.advance("plan-review")
+        gate.record_review("test-plan-cont-id", "APPROVED")
+        gate.advance("implement")
 
-    gate.record_review("test-id-123", "APPROVED")
-    gate.record_ci(True)
+        # Mock _has_tests to allow transition to review
+        with patch.object(WorkflowGate, "_has_tests", return_value=True):
+            gate.advance("test")
+            gate.advance("review")
 
-    with pytest.raises(SystemExit) as excinfo:
-        gate.check_commit()
+        # P1T13-F5a: Mock hash computation for unit test
+        with patch.object(gate, "_compute_staged_hash", return_value="fake_hash_123"):
+            gate.record_review("smoke-test-123", "APPROVED")
+        gate.record_ci(True)
 
-    assert excinfo.value.code == 0
+        # P1T13-F5a: Mock hash computation for check_commit too
+        with patch.object(gate, "_compute_staged_hash", return_value="fake_hash_123"):
+            with pytest.raises(SystemExit) as excinfo:
+                gate.check_commit()
+
+        assert excinfo.value.code == 0
 
 
 def test_record_commit_resets_state_and_appends_history(temp_state_file):
