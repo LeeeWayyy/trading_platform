@@ -444,8 +444,8 @@ class WorkflowGate:
             # Component A2.1 (P1T13-F5): Use shared hash_utils for consistency
             # This ensures byte-for-byte parity between local hooks and CI validation
             # Supports both regular commits and merge commits
-            staged_hash = compute_git_diff_hash(commit_sha=None)
-            return staged_hash if staged_hash else ""
+            # Pass cwd=PROJECT_ROOT to ensure location-independent behavior
+            return compute_git_diff_hash(commit_sha=None, cwd=PROJECT_ROOT)
 
         except subprocess.CalledProcessError as e:
             # Propagate error with context

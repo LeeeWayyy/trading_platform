@@ -334,9 +334,6 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-10-25, Guide] [state/README.md](../.claude/state/README.md) - Task state tracking system documentation
 - [CURRENT, 2025-11-15, Guide] [checkpoints/README.md](../.claude/checkpoints/README.md) - Context checkpointing system for session delegation
 
-**.claude/analysis/ (Analysis Artifacts):**
-- [CURRENT, 2025-11-15, Analysis] [analysis/P1T13-F5a-checklist.md](../.claude/analysis/P1T13-F5a-checklist.md) - P1T13-F5 Phase A.2 pre-implementation analysis
-
 **.claude/audits/ (Code Audits):**
 - [CURRENT, 2025-11-15, Audit] [audits/P1T13-F5-phase0-findings.md](../.claude/audits/P1T13-F5-phase0-findings.md) - P1T13-F5 Phase 0 audit findings
 - [CURRENT, 2025-11-15, Audit] [audits/P1T13-F5-phase0-fixes-summary.md](../.claude/audits/P1T13-F5-phase0-fixes-summary.md) - P1T13-F5 Phase 0 fixes summary
