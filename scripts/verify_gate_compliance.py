@@ -169,9 +169,10 @@ def has_review_markers(commit_hash):
 
     # Component 2 (P1T13-F5a): Check for Review-Hash trailer (presence only)
     # Note: We only check presence, not correctness (can't reconstruct staging area post-commit)
-    # Allow both hex hashes (non-empty commits) and empty hashes (empty commits)
-    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{8,}|$)"
-    has_review_hash = bool(re.search(review_hash_pattern, message))
+    # Must match exactly 64-char hex hash OR empty string (for empty commits)
+    # Use same pattern as extract_review_hash() for consistency
+    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*$"
+    has_review_hash = bool(re.search(review_hash_pattern, message, re.IGNORECASE | re.MULTILINE))
 
     return (has_quick_format or has_deep_format) and has_review_hash
 
@@ -196,11 +197,13 @@ def extract_review_hash(commit_sha: str) -> str | None:
 
     # Match Review-Hash: <hash_value>
     # Case-insensitive, allows whitespace
-    pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64})"
+    # Allow 64-char hex hash OR empty string (for empty commits)
+    pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*$"
     match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
 
     if match:
-        return match.group(1).lower()  # Return hash in lowercase
+        hash_value = match.group(1).strip().lower()
+        return hash_value if hash_value else ""  # Return hash or empty string
     return None
 
 
@@ -260,9 +263,16 @@ def validate_review_hash(commit_sha: str) -> bool:
     # Extract claimed hash from commit message
     claimed_hash = extract_review_hash(commit_sha)
 
-    # Handle empty commits - allow empty claimed hash for empty actual hash
+    # Review-Hash trailer is REQUIRED for all commits (even empty ones)
+    # For empty commits, the hash value itself can be empty, but trailer must exist
+    if claimed_hash is None:
+        print(f"  ❌ Missing Review-Hash trailer in {commit_type} commit {commit_sha[:8]}")
+        print(f"     All commits must include 'Review-Hash:' trailer (even empty commits)")
+        return False
+
+    # Handle empty commits - require empty hash value
     if actual_hash == "":
-        if claimed_hash == "" or claimed_hash is None:
+        if claimed_hash == "":
             print(f"  ✅ Empty {commit_type} commit {commit_sha[:8]} (correct empty hash)")
             return True
         else:
@@ -271,9 +281,9 @@ def validate_review_hash(commit_sha: str) -> bool:
             print(f"     Expected: (empty)")
             return False
 
-    # For non-empty commits, hash is required
-    if not claimed_hash:
-        print(f"  ❌ Missing Review-Hash in {commit_type} commit {commit_sha[:8]}")
+    # For non-empty commits, hash value must not be empty
+    if claimed_hash == "":
+        print(f"  ❌ Empty Review-Hash in non-empty {commit_type} commit {commit_sha[:8]}")
         return False
 
     # Validate hash

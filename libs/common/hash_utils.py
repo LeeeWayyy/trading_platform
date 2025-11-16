@@ -24,9 +24,6 @@ import hashlib
 import subprocess
 from pathlib import Path
 
-# Project root for git operations (libs/common -> trading_platform)
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-
 
 def is_merge_commit(commit_sha: str, cwd: Path | None = None) -> bool:
     """
@@ -173,14 +170,15 @@ def compute_git_diff_hash(
 
 
 if __name__ == "__main__":
-    # CLI usage: ./scripts/hash_utils.py [commit_sha]
+    # CLI usage: python3 libs/common/hash_utils.py [commit_sha]
+    # Returns raw hash value for scripting (no descriptive text)
     import sys
 
     if len(sys.argv) > 1:
         # Hash specific commit
         commit = sys.argv[1]
         hash_value = compute_git_diff_hash(commit_sha=commit)
-        print(f"Hash for commit {commit[:8]}: {hash_value}")
+        print(hash_value)  # Just the hash, for scripting
     else:
         # Hash staged changes
         hash_value = compute_git_diff_hash()

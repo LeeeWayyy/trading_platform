@@ -70,7 +70,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 zen-mcp-review: approved
 gemini-continuation-id: aaaa-bbbb-cccc
 codex-continuation-id: dddd-eeee-ffff
-Review-Hash: abc123def456
+Review-Hash: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 """
@@ -138,7 +138,7 @@ REVIEW-HASH: 530744c33ff1687e6de14733414a7dd23afd1c28ca4cc3e37f7136f994599943
 zen-mcp-review: approved
 gemini-review: aaaa-bbbb
 codex-review: cccc-dddd
-Review-Hash: abc12345def67890
+Review-Hash: 9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 """

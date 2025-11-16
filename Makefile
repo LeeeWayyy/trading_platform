@@ -122,7 +122,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Step 5/5: Verifying workflow gate compliance (Review-Hash validation)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
+	@CI=true PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
 		echo ""; \
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo "❌ Workflow gate compliance failed!"; \
@@ -133,7 +133,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		echo "  • Zen-MCP review approval markers"; \
 		echo ""; \
 		echo "To fix missing Review-Hash trailers:"; \
-		echo "  1. Compute hash: python3 -c 'from libs.common.hash_utils import compute_git_diff_hash; print(compute_git_diff_hash(\"COMMIT_SHA\"))'"; \
+		echo "  1. Compute hash: python3 libs/common/hash_utils.py COMMIT_SHA"; \
 		echo "  2. Amend commit: git commit --amend --no-verify --trailer \"Review-Hash: <hash>\""; \
 		echo ""; \
 		echo "See Component A2.1 (P1T13-F5) for details"; \
