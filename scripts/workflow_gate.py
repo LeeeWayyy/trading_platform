@@ -40,9 +40,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-# Add project root to path to enable imports from libs/
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from libs.common.hash_utils import compute_git_diff_hash
 
 # Constants
