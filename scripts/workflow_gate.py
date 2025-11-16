@@ -40,6 +40,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+# Add project root to path to enable imports from libs/
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from libs.common.hash_utils import compute_git_diff_hash
+
 # Constants
 PROJECT_ROOT = Path(__file__).parent.parent
 STATE_FILE = PROJECT_ROOT / ".claude" / "workflow-state.json"
@@ -439,8 +444,6 @@ class WorkflowGate:
             # Component A2.1 (P1T13-F5): Use shared hash_utils for consistency
             # This ensures byte-for-byte parity between local hooks and CI validation
             # Supports both regular commits and merge commits
-            from libs.common.hash_utils import compute_git_diff_hash
-
             staged_hash = compute_git_diff_hash(commit_sha=None)
             return staged_hash if staged_hash else ""
 

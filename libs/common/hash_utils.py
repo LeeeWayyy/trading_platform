@@ -18,22 +18,23 @@ Date: 2025-11-15
 Task: P1T13-F5 Phase A.2 Component 1
 """
 
+from __future__ import annotations
+
 import hashlib
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 # Project root for git operations (libs/common -> trading_platform)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
-def is_merge_commit(commit_sha: str, cwd: Optional[Path] = None) -> bool:
+def is_merge_commit(commit_sha: str, cwd: Path | None = None) -> bool:
     """
     Detect if a commit is a merge (has 2+ parents).
 
     Args:
         commit_sha: Git commit SHA to check
-        cwd: Working directory (defaults to PROJECT_ROOT)
+        cwd: Working directory (defaults to current directory)
 
     Returns:
         True if commit has 2 or more parents (is a merge)
@@ -52,7 +53,7 @@ def is_merge_commit(commit_sha: str, cwd: Optional[Path] = None) -> bool:
         capture_output=True,
         text=True,
         check=True,
-        cwd=cwd or PROJECT_ROOT,
+        cwd=cwd or Path.cwd(),
     )
 
     # Output format: "<commit_sha> <parent1_sha> [<parent2_sha> ...]"
@@ -64,9 +65,9 @@ def is_merge_commit(commit_sha: str, cwd: Optional[Path] = None) -> bool:
 
 
 def compute_git_diff_hash(
-    commit_sha: Optional[str] = None,
-    is_merge: Optional[bool] = None,
-    cwd: Optional[Path] = None
+    commit_sha: str | None = None,
+    is_merge: bool | None = None,
+    cwd: Path | None = None
 ) -> str:
     """
     Compute SHA256 hash of git diff with exact WorkflowGate parity.
@@ -85,7 +86,7 @@ def compute_git_diff_hash(
                    If None, hash currently staged changes.
         is_merge: If True, treat as merge commit (diff against first parent).
                  If None, auto-detect from commit.
-        cwd: Working directory (defaults to PROJECT_ROOT)
+        cwd: Working directory (defaults to current directory)
 
     Returns:
         SHA256 hexdigest of git diff output (raw bytes).
@@ -157,7 +158,7 @@ def compute_git_diff_hash(
         cmd,
         capture_output=True,  # capture stdout as bytes
         check=True,
-        cwd=cwd or PROJECT_ROOT,
+        cwd=cwd or Path.cwd(),
     )
 
     if not result.stdout:

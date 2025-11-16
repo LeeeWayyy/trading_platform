@@ -187,7 +187,7 @@ git commit -m "Add feature X"
 ```
 
 **Implementation:**
-- `scripts/hash_utils.py` — Shared hash computation (single source of truth)
+- `libs/common/hash_utils.py` — Shared hash computation (single source of truth)
 - `scripts/workflow_gate.py` — Pre-commit hash embedding
 - `scripts/verify_gate_compliance.py` — CI validation
 - `tests/scripts/test_hash_utils.py` — Hash parity tests

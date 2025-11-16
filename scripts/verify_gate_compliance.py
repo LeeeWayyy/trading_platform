@@ -22,6 +22,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Add project root to path to enable imports from libs/
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from libs.common.hash_utils import compute_git_diff_hash, is_merge_commit
+
 
 def get_pr_commits_from_github():
     """Get commits from GitHub PR API (most reliable in CI)."""
@@ -164,8 +169,8 @@ def has_review_markers(commit_hash):
 
     # Component 2 (P1T13-F5a): Check for Review-Hash trailer (presence only)
     # Note: We only check presence, not correctness (can't reconstruct staging area post-commit)
-    # Codex LOW fix: Anchor pattern and require hex value to prevent false positives
-    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*[0-9a-f]{8,}"
+    # Allow both hex hashes (non-empty commits) and empty hashes (empty commits)
+    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{8,}|$)"
     has_review_hash = bool(re.search(review_hash_pattern, message))
 
     return (has_quick_format or has_deep_format) and has_review_hash
@@ -219,8 +224,6 @@ def validate_review_hash(commit_sha: str) -> bool:
         True if Review-Hash is valid or commit is exempt
         False if Review-Hash is missing or mismatched
     """
-    from libs.common.hash_utils import compute_git_diff_hash, is_merge_commit
-
     # Check for initial commit (no parents)
     try:
         parents_result = subprocess.run(
@@ -247,30 +250,31 @@ def validate_review_hash(commit_sha: str) -> bool:
         print(f"  ❌ Error detecting merge status for {commit_sha[:8]}: {e}")
         return False
 
-    # Extract claimed hash from commit message
-    claimed_hash = extract_review_hash(commit_sha)
-    if not claimed_hash:
-        print(f"  ❌ Missing Review-Hash in {commit_type} commit {commit_sha[:8]}")
-        return False
-
-    # Compute actual hash from commit
+    # Compute actual hash from commit FIRST
     try:
         actual_hash = compute_git_diff_hash(commit_sha=commit_sha, is_merge=merge)
     except Exception as e:
         print(f"  ❌ Error computing hash for {commit_sha[:8]}: {e}")
         return False
 
-    # Handle empty commits
-    # compute_git_diff_hash() returns "" for empty commits (no diff output)
+    # Extract claimed hash from commit message
+    claimed_hash = extract_review_hash(commit_sha)
+
+    # Handle empty commits - allow empty claimed hash for empty actual hash
     if actual_hash == "":
-        if claimed_hash == "":
+        if claimed_hash == "" or claimed_hash is None:
             print(f"  ✅ Empty {commit_type} commit {commit_sha[:8]} (correct empty hash)")
             return True
         else:
             print(f"  ❌ Empty {commit_type} commit but hash mismatch")
-            print(f"     Claimed: {claimed_hash[:16] if claimed_hash else '(none)'}...")
+            print(f"     Claimed: {claimed_hash[:16]}...")
             print(f"     Expected: (empty)")
             return False
+
+    # For non-empty commits, hash is required
+    if not claimed_hash:
+        print(f"  ❌ Missing Review-Hash in {commit_type} commit {commit_sha[:8]}")
+        return False
 
     # Validate hash
     if claimed_hash != actual_hash:

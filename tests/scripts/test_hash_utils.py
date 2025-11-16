@@ -12,12 +12,9 @@ Task: P1T13-F5 Phase A.2 Component 1
 import hashlib
 import os
 import subprocess
-import pytest
 from pathlib import Path
 
-# Import the module under test
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import pytest
 
 from libs.common.hash_utils import is_merge_commit, compute_git_diff_hash
 
