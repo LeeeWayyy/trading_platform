@@ -24,7 +24,8 @@ if [ ! -f "$WORKFLOW_STATE" ]; then
 fi
 
 # Record the commit and reset state for next component
-./scripts/workflow_gate.py record-commit
+# Set PYTHONPATH to allow imports from libs/
+PYTHONPATH=. ./scripts/workflow_gate.py record-commit
 
 # Exit successfully (don't block the commit)
 exit 0

@@ -17,7 +17,8 @@
 # Date: 2025-11-02
 
 # Run workflow gate check
-./scripts/workflow_gate.py check-commit
+# Set PYTHONPATH to allow imports from libs/
+PYTHONPATH=. ./scripts/workflow_gate.py check-commit
 if [ $? -ne 0 ]; then
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

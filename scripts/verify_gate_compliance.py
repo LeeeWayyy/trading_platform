@@ -22,9 +22,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Add project root to path to enable imports from libs/
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from libs.common.hash_utils import compute_git_diff_hash, is_merge_commit
 
 
