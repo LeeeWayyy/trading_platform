@@ -68,10 +68,11 @@ def get_pr_commits():
     base_ref = f"origin/{base_branch}"
 
     # Get commits between base branch and HEAD
-    # Use --no-merges to skip merge commits (prevents false positives in CI)
+    # Component A2.1 (P1T13-F5): Include merge commits for Review-Hash validation
+    # Previously used --no-merges, but we need to validate ALL commits including merges
     try:
         result = subprocess.run(
-            ["git", "log", "--format=%H", "--no-merges", f"{base_ref}..HEAD"],
+            ["git", "log", "--format=%H", f"{base_ref}..HEAD"],
             capture_output=True,
             text=True,
             check=True,
@@ -170,6 +171,124 @@ def has_review_markers(commit_hash):
     return (has_quick_format or has_deep_format) and has_review_hash
 
 
+def extract_review_hash(commit_sha: str) -> str | None:
+    """
+    Extract Review-Hash trailer from commit message.
+
+    Component A2.1 (P1T13-F5): Server-side hash validation.
+
+    Args:
+        commit_sha: Git commit SHA
+
+    Returns:
+        Hash value if found, None otherwise
+
+    Example:
+        >>> extract_review_hash("abc123")
+        'a1b2c3d4e5f6...'
+    """
+    message = get_commit_message(commit_sha)
+
+    # Match Review-Hash: <hash_value>
+    # Case-insensitive, allows whitespace
+    pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64})"
+    match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
+
+    if match:
+        return match.group(1).lower()  # Return hash in lowercase
+    return None
+
+
+def validate_review_hash(commit_sha: str) -> bool:
+    """
+    Validate Review-Hash trailer against actual commit changes.
+
+    Component A2.1 (P1T13-F5): Server-side validation with merge support.
+    This ensures commits can't bypass Review-Hash requirement via --no-verify.
+
+    Handles:
+    - Regular commits: Hash of git show output
+    - Merge commits: Hash of merge result (diff against first parent)
+    - Empty commits: Hash of empty string
+    - Initial commits: Exempt (no parent)
+
+    Args:
+        commit_sha: Git commit SHA to validate
+
+    Returns:
+        True if Review-Hash is valid or commit is exempt
+        False if Review-Hash is missing or mismatched
+    """
+    from libs.common.hash_utils import compute_git_diff_hash, is_merge_commit
+
+    # Check for initial commit (no parents)
+    try:
+        parents_result = subprocess.run(
+            ["git", "rev-list", "--parents", "-n", "1", commit_sha],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        parents = parents_result.stdout.strip().split()
+
+        if len(parents) == 1:
+            # Initial commit - exempt
+            print(f"  ℹ️  Skipping initial commit {commit_sha[:8]} (no parent)")
+            return True
+    except subprocess.CalledProcessError as e:
+        print(f"  ❌ Error checking commit parents for {commit_sha[:8]}: {e}")
+        return False
+
+    # Determine if merge commit
+    try:
+        merge = is_merge_commit(commit_sha)
+        commit_type = "merge" if merge else "regular"
+    except Exception as e:
+        print(f"  ❌ Error detecting merge status for {commit_sha[:8]}: {e}")
+        return False
+
+    # Extract claimed hash from commit message
+    claimed_hash = extract_review_hash(commit_sha)
+    if not claimed_hash:
+        print(f"  ❌ Missing Review-Hash in {commit_type} commit {commit_sha[:8]}")
+        return False
+
+    # Compute actual hash from commit
+    try:
+        actual_hash = compute_git_diff_hash(commit_sha=commit_sha, is_merge=merge)
+    except Exception as e:
+        print(f"  ❌ Error computing hash for {commit_sha[:8]}: {e}")
+        return False
+
+    # Handle empty commits
+    # compute_git_diff_hash() returns "" for empty commits (no diff output)
+    if actual_hash == "":
+        if claimed_hash == "":
+            print(f"  ✅ Empty {commit_type} commit {commit_sha[:8]} (correct empty hash)")
+            return True
+        else:
+            print(f"  ❌ Empty {commit_type} commit but hash mismatch")
+            print(f"     Claimed: {claimed_hash[:16] if claimed_hash else '(none)'}...")
+            print(f"     Expected: (empty)")
+            return False
+
+    # Validate hash
+    if claimed_hash != actual_hash:
+        print(f"  ❌ HASH MISMATCH in {commit_type} commit {commit_sha[:8]}")
+        print(f"     Claimed: {claimed_hash[:16]}...")
+        print(f"     Actual:  {actual_hash[:16]}...")
+        if merge:
+            print(f"     Note: Merge validated with diff against first parent")
+        return False
+
+    # Success
+    if merge:
+        print(f"  ✅ Valid Review-Hash in merge commit {commit_sha[:8]} (merge result verified)")
+    else:
+        print(f"  ✅ Valid Review-Hash in commit {commit_sha[:8]}")
+    return True
+
+
 def main():
     """Main verification logic."""
     pr_commits = get_pr_commits()
@@ -178,10 +297,45 @@ def main():
         print("✅ No commits to verify (empty PR or single-commit branch)")
         return 0
 
-    state = load_workflow_state()
-
     # Detect CI environment (GitHub Actions, GitLab CI, etc.)
     is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+
+    # Component A2.1 (P1T13-F5) - Server-side Review-Hash validation
+    # CRITICAL: This runs FIRST, before any early returns
+    # Validate Review-Hash correctness (not just presence)
+    # Supports merge commits via first-parent diff strategy
+    if is_ci:
+        print("ℹ️  Validating Review-Hash correctness in CI...")
+        print("   (Component A2.1: Server-side hash validation with merge support)")
+        print()
+
+        invalid_hashes = []
+        for commit_hash in pr_commits:
+            if not validate_review_hash(commit_hash):
+                invalid_hashes.append(commit_hash)
+
+        if invalid_hashes:
+            print()
+            print("❌ REVIEW-HASH VALIDATION FAILED!")
+            print(f"   Found {len(invalid_hashes)} commit(s) with invalid Review-Hash")
+            print()
+            print("   Possible causes:")
+            print("   - Commit made with --no-verify (bypassed pre-commit hook)")
+            print("   - Post-review tampering (amended commit after review)")
+            print("   - Manual commit message editing")
+            print()
+            print("   All commits must have valid Review-Hash trailer:")
+            print("   Review-Hash: <sha256_hash_of_changes>")
+            print()
+            print("   See Component A2.1 (P1T13-F5) for details")
+            return 1
+
+        print()
+        print(f"✅ All {len(pr_commits)} commit(s) have valid Review-Hash")
+        print()
+
+    # Load workflow state (may be missing in CI, that's OK)
+    state = load_workflow_state()
 
     if not state:
         if is_ci:
@@ -223,27 +377,6 @@ def main():
             print("   This is acceptable for documentation-only changes")
             print("   or initial repository setup.")
             return 0
-
-    # Component 2 (P1T13-F5a) - Codex MEDIUM fix: Always check Review-Hash in CI
-    # Even when state exists, verify commit messages have Review-Hash trailer
-    if is_ci:
-        print("ℹ️  Verifying Review-Hash trailers in CI...")
-        marker_non_compliant = []
-        for commit_hash in pr_commits:
-            if not has_review_markers(commit_hash):
-                marker_non_compliant.append(commit_hash)
-
-        if marker_non_compliant:
-            print("❌ GATE BYPASS DETECTED!")
-            print(f"   Found {len(marker_non_compliant)} commit(s) without Review-Hash:")
-            for commit in marker_non_compliant:
-                print(f"     - {commit[:8]}")
-            print()
-            print("   All commits must include Review-Hash trailer:")
-            print("   Review-Hash: $(./scripts/compute_review_hash.py)")
-            print()
-            print("   See Component 2 (P1T13-F5a) for details")
-            return 1
 
     # Get commit history from state
     commit_history = state.get("commit_history", [])
