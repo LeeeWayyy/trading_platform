@@ -321,7 +321,14 @@ def main():
         print()
 
         invalid_hashes = []
+        skipped_merges = []
         for commit_hash in pr_commits:
+            # Skip GitHub-created merge commits (they're auto-generated, can't have Review-Hash)
+            if is_merge_commit(commit_hash):
+                skipped_merges.append(commit_hash)
+                print(f"  ⏭️  Skipping GitHub merge commit {commit_hash[:8]} (auto-generated)")
+                continue
+
             if not validate_review_hash(commit_hash):
                 invalid_hashes.append(commit_hash)
 
@@ -342,7 +349,10 @@ def main():
             return 1
 
         print()
-        print(f"✅ All {len(pr_commits)} commit(s) have valid Review-Hash")
+        validated_count = len(pr_commits) - len(skipped_merges)
+        print(f"✅ All {validated_count} commit(s) have valid Review-Hash")
+        if skipped_merges:
+            print(f"   ({len(skipped_merges)} GitHub merge commit(s) skipped)")
         print()
 
     # Load workflow state (may be missing in CI, that's OK)
