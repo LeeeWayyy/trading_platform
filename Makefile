@@ -86,24 +86,59 @@ check-hooks: ## Verify git hooks are installed
 ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "🔍 Running CI checks locally..."
 	@echo ""
-	@echo "This mirrors the GitHub Actions CI workflow (mypy, ruff, pytest)."
+	@echo "This mirrors the GitHub Actions CI workflow (docs, mypy, ruff, pytest, workflow gates)."
 	@echo "Note: CI also runs DB migrations - run those separately if needed."
 	@echo "If this passes, CI should pass too."
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 1/3: Type checking with mypy --strict"
+	@echo "Step 1/5: Validating documentation index"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@./scripts/validate_doc_index.sh || { \
+		echo ""; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "❌ Documentation index validation failed!"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "All markdown files must be indexed in docs/INDEX.md"; \
+		echo "See error output above for missing files"; \
+		exit 1; \
+	}
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 2/5: Type checking with mypy --strict"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run mypy libs/ apps/ strategies/ --strict
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 2/3: Linting with ruff"
+	@echo "Step 3/5: Linting with ruff"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run ruff check libs/ apps/ strategies/
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 3/3: Running tests (integration and e2e tests skipped)"
+	@echo "Step 4/5: Running tests (integration and e2e tests skipped)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	PYTHONPATH=. poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=80
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 5/5: Verifying workflow gate compliance (Review-Hash validation)"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
+		echo ""; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "❌ Workflow gate compliance failed!"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "This check validates that all commits have:"; \
+		echo "  • Valid Review-Hash trailers (cryptographic proof of review)"; \
+		echo "  • Zen-MCP review approval markers"; \
+		echo ""; \
+		echo "To fix missing Review-Hash trailers:"; \
+		echo "  1. Compute hash: python3 -c 'from libs.common.hash_utils import compute_git_diff_hash; print(compute_git_diff_hash(\"COMMIT_SHA\"))'"; \
+		echo "  2. Amend commit: git commit --amend --no-verify --trailer \"Review-Hash: <hash>\""; \
+		echo ""; \
+		echo "See Component A2.1 (P1T13-F5) for details"; \
+		exit 1; \
+	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "✓ All CI checks passed!"
