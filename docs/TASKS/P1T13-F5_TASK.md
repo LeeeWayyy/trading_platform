@@ -77,7 +77,7 @@ def check_commit(self) -> None:
 
 **Evidence:** Commit 9c0dec5e on `feature/P1T13-F5-phase0-audit`
 
-**Status:** COMPLETE (per P1T13_F5_TASK.md lines 815-826)
+**Status:** COMPLETE (per P1T13-F5_TASK.md lines 815-826)
 
 ---
 
@@ -333,8 +333,8 @@ def check_commit(self) -> None:
 
 | Old ID | Old Name | New Status | New Task File | Priority |
 |--------|----------|------------|---------------|----------|
-| P1T13-F5 | Workflow Meta-Optimization | Parent (IN_PROGRESS) | P1T13_F5_TASK.md (update) | - |
-| Phase 0 | Workflow Audit | COMPLETE | P1T13_F5_TASK.md lines 815-826 | ✅ Done |
+| P1T13-F5 | Workflow Meta-Optimization | Parent (IN_PROGRESS) | P1T13-F5_TASK.md (update) | - |
+| Phase 0 | Workflow Audit | COMPLETE | P1T13-F5_TASK.md lines 815-826 | ✅ Done |
 | P1T13-F5a | Hard-Gated Workflow | IN_PROGRESS (77%) | P1T13-F5a_TASK.md (update status) | HIGH |
 | (new) | Tooling Completion | NOT_STARTED | P1T13-F5a2_TASK.md (create) | HIGH |
 | P1T13-F5c | Hierarchical Subtasks | NOT_STARTED | P1T13-F5c_TASK.md (create) | MEDIUM |
@@ -342,7 +342,7 @@ def check_commit(self) -> None:
 
 ### Required Document Updates
 
-**1. P1T13_F5_TASK.md (Parent Task)**
+**1. P1T13-F5_TASK.md (Parent Task)**
 - Add "What's Done vs TODO" summary table
 - Update workflow diagram from 4-step to 6-step
 - Mark Phase 0 as COMPLETE
@@ -368,7 +368,7 @@ def check_commit(self) -> None:
 
 **4. P1T13-F5c_TASK.md (NEW - Hierarchical Subtasks)**
 - Create new task document
-- Copy content from P1T13_F5_TASK.md lines 685-765
+- Copy content from P1T13-F5_TASK.md lines 685-765
 - 3 components: Schema, Workflow Integration, Rollup Logic
 - 4-6h estimate
 - Independent of Phase A
