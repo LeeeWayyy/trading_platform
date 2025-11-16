@@ -98,23 +98,15 @@ Step-by-step procedures for development workflows:
 
 - [CURRENT, 2025-10-31, Workflow] [README.md](../.claude/workflows/README.md) - Workflow index and quick reference
 - [CURRENT, 2025-10-31, Workflow] [00-analysis-checklist.md](../.claude/workflows/00-analysis-checklist.md) - Pre-implementation analysis (MANDATORY)
-- [CURRENT, 2025-10-24, Workflow] [02-planning.md](../.claude/workflows/02-planning.md) - Task decomposition and subfeature branching
-- [CURRENT, 2025-10-21, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Progressive commit workflow with zen-mcp
-- [CURRENT, 2025-10-18, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Pull request creation
-- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Quick pre-commit review (clink + codex)
-- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Deep pre-PR review (clink + gemini)
-- [CURRENT, 2025-10-21, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Test execution and debugging
-- [CURRENT, 2025-10-18, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Debugging procedures
-- [CURRENT, 2025-10-18, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Documentation writing
-- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Architecture decision records
-- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Deployment and rollback
-- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - CI failure triage
-- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Development environment setup
-- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Phase and task management
-- [CURRENT, 2025-10-27, Workflow] [02-planning.md](../.claude/workflows/02-planning.md) - Task document review (clink + gemini)
-- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](../.claude/workflows/08-session-management.md) - Auto-resume from task state
-- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](../.claude/workflows/08-session-management.md) - Task state tracking
+- [CURRENT, 2025-10-21, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Git workflow: progressive commits and pull request creation
+- [CURRENT, 2025-10-24, Workflow] [02-planning.md](../.claude/workflows/02-planning.md) - Task decomposition, subfeature branching, and task document review
+- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Zen-mcp reviews: quick pre-commit (codex) and deep pre-PR (gemini)
+- [CURRENT, 2025-10-21, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Test execution, debugging procedures, and documentation writing
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Operations: ADRs, deployment, CI triage, environment setup, phase/task management
+- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](../.claude/workflows/08-session-management.md) - Auto-resume from task state and task state tracking
 - [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](../.claude/workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
+- [CURRENT, 2025-11-15, Workflow] [16-subagent-delegation.md](../.claude/workflows/16-subagent-delegation.md) - Context monitoring and subagent delegation at 70%+ usage
+- [CURRENT, 2025-11-15, Workflow] [17-automated-analysis.md](../.claude/workflows/17-automated-analysis.md) - Automated pre-implementation analysis checklist execution
 - [CURRENT, 2025-10-24, Workflow] [12-component-cycle.md](../.claude/workflows/12-component-cycle.md) - 4-step component development cycle
 - [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](../.claude/workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
 - [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](../.claude/workflows/_common/git-commands.md) - Git operations and branch naming conventions
@@ -131,6 +123,8 @@ Step-by-step procedures for development workflows:
 **Location:** `docs/ADRs/`
 
 Architectural Decision Records documenting **why** technical choices were made:
+
+- [CURRENT, 2025-11-15, Index] [README.md](./ADRs/README.md) - ADR index and overview
 
 | ADR | Decision | Status |
 |-----|----------|--------|
@@ -151,6 +145,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0013](./ADRs/0013-workflow-automation-gates.md) | Workflow automation gates | ✅ Accepted |
 | [0015](./ADRs/0015-twap-order-slicer.md) | TWAP order slicer with APScheduler | ✅ Accepted |
 | [0016](./ADRs/0016-multi-alpha-allocation.md) | Multi-alpha capital allocation system | ✅ Accepted |
+| [0017](./ADRs/0017-secrets-management.md) | Secrets management with Google Cloud Secret Manager | ✅ Accepted |
 
 **How to use ADRs:**
 - **Before modifying architecture:** Check if ADR exists, follow its decisions
@@ -234,6 +229,7 @@ Current and future work items organized by phase:
 - [Template, 2025-10-18, Template] [00-TEMPLATE_PHASE_PLANNING.md](./TASKS/00-TEMPLATE_PHASE_PLANNING.md) - Template for phase planning documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_PROGRESS.md](./TASKS/00-TEMPLATE_PROGRESS.md) - Template for in-progress task documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_TASK.md](./TASKS/00-TEMPLATE_TASK.md) - Template for new task documents
+- [Template, 2025-11-15, Template] [00-PLANNING_WORKFLOW_TEMPLATE.md](./TASKS/00-PLANNING_WORKFLOW_TEMPLATE.md) - Template for planning workflow documentation
 
 **Phase Planning:**
 - [CURRENT, 2025-10-18, Planning] [P0_TASKS.md](./TASKS/P0_TASKS.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
@@ -257,10 +253,14 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-10-27, Task] [P1T11_DONE.md](./TASKS/P1T11_DONE.md) - Workflow automation and testing gates
 - [CURRENT, 2025-10-29, Task] [P1T12_DONE.md](./TASKS/P1T12_DONE.md) - Auto-resume task state tracking
 - [CURRENT, 2025-10-31, Task] [P1T13_TASK.md](./TASKS/P1T13_TASK.md) - Documentation and workflow optimization (current task)
+- [CURRENT, 2025-11-15, Task] [P1T13_F3_DONE.md](./TASKS/P1T13_F3_DONE.md) - P1T13 Feature 3: Systematic PR review comment addressing workflow
+- [CURRENT, 2025-11-15, Task] [P1T13_F4_PROGRESS.md](./TASKS/P1T13_F4_PROGRESS.md) - P1T13 Feature 4: Dependency validation and auto-update system (in progress)
+- [CURRENT, 2025-11-15, Task] [P1T13-F5_TASK.md](./TASKS/P1T13-F5_TASK.md) - P1T13 Feature 5: Workflow refinement phase 1 (Phase 0-A2 in progress)
 
 **Phase 2 Tasks:**
 - [CURRENT, 2025-10-26, Task] [P2T0_DONE.md](./TASKS/P2T0_DONE.md) - TWAP order slicer implementation
 - [CURRENT, 2025-10-26, Task] [P2T1_DONE.md](./TASKS/P2T1_DONE.md) - Advanced order types and execution
+- [CURRENT, 2025-11-15, Task] [P2T2_TASK.md](./TASKS/P2T2_TASK.md) - Secrets management with Google Cloud Secret Manager
 
 **Checking Current/Next Task:**
 ```bash
@@ -301,9 +301,23 @@ Operational procedures and troubleshooting:
 
 - [CURRENT, 2025-10-21, Runbook] [logging-queries.md](./RUNBOOKS/logging-queries.md) - Common LogQL queries for debugging production issues with Loki
 - [CURRENT, 2025-10-20, Runbook] [ops.md](./RUNBOOKS/ops.md) - Core operational procedures for deployment and troubleshooting
+- [CURRENT, 2025-11-15, Runbook] [secret-rotation.md](./RUNBOOKS/secret-rotation.md) - Secret rotation procedures for Google Cloud Secret Manager
+- [CURRENT, 2025-11-15, Runbook] [secrets-migration.md](./RUNBOOKS/secrets-migration.md) - Migration from .env to Google Cloud Secret Manager
 - [CURRENT, 2025-10-20, Runbook] [staging-deployment.md](./RUNBOOKS/staging-deployment.md) - Staging environment deployment, credentials, and rollback procedures
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
+
+---
+
+### 8.5. Incidents (Post-Mortems)
+
+**Location:** `docs/INCIDENTS/`
+
+Incident reports and post-mortem analysis:
+
+- [CURRENT, 2025-11-15, Index] [README.md](./INCIDENTS/README.md) - Incident index and post-mortem template
+
+**Priority:** 🟢 **LOW** - Read after incidents to learn from failures
 
 ---
 
@@ -318,6 +332,25 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-10-27, Guide] [TROUBLESHOOTING.md](../.claude/TROUBLESHOOTING.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
 - [CURRENT, 2025-10-26, Guide] [commands/zen-review.md](../.claude/commands/zen-review.md) - Zen-mcp review slash command configuration
 - [CURRENT, 2025-10-25, Guide] [state/README.md](../.claude/state/README.md) - Task state tracking system documentation
+- [CURRENT, 2025-11-15, Guide] [checkpoints/README.md](../.claude/checkpoints/README.md) - Context checkpointing system for session delegation
+
+**.claude/analysis/ (Analysis Artifacts):**
+- [CURRENT, 2025-11-15, Analysis] [analysis/P1T13-F5a-checklist.md](../.claude/analysis/P1T13-F5a-checklist.md) - P1T13-F5 Phase A.2 pre-implementation analysis
+
+**.claude/audits/ (Code Audits):**
+- [CURRENT, 2025-11-15, Audit] [audits/P1T13-F5-phase0-findings.md](../.claude/audits/P1T13-F5-phase0-findings.md) - P1T13-F5 Phase 0 audit findings
+- [CURRENT, 2025-11-15, Audit] [audits/P1T13-F5-phase0-fixes-summary.md](../.claude/audits/P1T13-F5-phase0-fixes-summary.md) - P1T13-F5 Phase 0 fixes summary
+
+**.claude/implementation-plans/ (Implementation Plans):**
+- [CURRENT, 2025-11-15, Plan] [implementation-plans/P1T13-F5-phase1-implementation-plan.md](../.claude/implementation-plans/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
+
+**.claude/research/ (Research Documents):**
+- [CURRENT, 2025-11-15, Research] [research/automated-coding-research.md](../.claude/research/automated-coding-research.md) - Automated coding workflow research
+- [CURRENT, 2025-11-15, Research] [research/automated-planning-research.md](../.claude/research/automated-planning-research.md) - Automated planning system research
+- [CURRENT, 2025-11-15, Research] [research/context-optimization-measurement.md](../.claude/research/context-optimization-measurement.md) - Context optimization and measurement techniques
+- [CURRENT, 2025-11-15, Research] [research/delegation-decision-tree.md](../.claude/research/delegation-decision-tree.md) - Subagent delegation decision framework
+- [CURRENT, 2025-11-15, Research] [research/P1T13-workflow-simplification-analysis.md](../.claude/research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
+- [CURRENT, 2025-11-15, Research] [research/subagent-capabilities-research.md](../.claude/research/subagent-capabilities-research.md) - Subagent capabilities and limitations
 
 **.claude/prompts/ (Clink Review Templates):**
 - [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../.claude/prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex
