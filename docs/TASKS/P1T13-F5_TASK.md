@@ -207,13 +207,13 @@ def check_commit(self) -> None:
 - **Status:** NOT_STARTED
 - **Priority:** HIGH (closes Phase A acceptance criteria)
 
-**Phase C (F5c): Hierarchical Subtask Management** 📦 NOT_STARTED
-- Subtask state isolation
-- Auto-detection of task context
-- Progress rollup with locking
-- **Duration:** 4-6h
-- **Status:** NOT_STARTED
-- **Priority:** MEDIUM (independent, can run in parallel)
+**Phase C (F5c): Hierarchical Subtask Management** 🚫 **DESCOPED** → Enhanced Delegation
+- **DECISION (2025-11-17):** Full hierarchical task management is over-engineered for the actual need
+- **Actual Need:** Better delegation tracking for non-core work (searches, PR checks) to prevent context pollution
+- **Solution:** Enhance existing `.claude/workflows/16-subagent-delegation.md` workflow with summary capture
+- **Original Duration:** 4-6h → **New Duration:** 1-2h (simpler approach)
+- **Status:** REDESIGNED (see "Phase C Redesign" section below)
+- **Priority:** LOW (existing delegation workflow works, enhancement is optional)
 
 **Phase D (F5b): PR Webhook Automation** 🚫 BLOCKED → REDESIGNED
 - Original design had 6 critical flaws (see below)
@@ -296,30 +296,84 @@ def check_commit(self) -> None:
 **Gate:** Core Phase A enforcement complete (A2.1 ✅, A2.2 descoped, A2.3 pending)
 **Enforcement:** GitHub Action prevents bypass + Manual audit logging proves compliance
 
-### Immediate Priority 2: Start Phase C (F5c) - 4-6h
+### Phase C Redesign: Enhanced Delegation Tracking - 3.5h (APPROVED after Gemini+Codex review)
 
-**Why:** Enables AI to manage complex multi-subtask work autonomously (state pollution prevention)
+**Why:** Proactive delegation to prevent context pollution from non-core work (searches, PR checks)
 
-**Tasks:**
-1. **Hierarchical state schema** (Component 1 - 2h)
-   - Update `.claude/task-state.json` for subtask tracking
-   - Each subtask gets own directory: `.claude/subtasks/<task_id>/`
-   - Add `create-subtask` command to update_task_state.py
+**Problem:** AI does searches/fetches directly → pollutes context. Reactive detection (wait for high context) is too late.
 
-2. **Subtask-aware workflow_gate.py** (Component 2 - 1-2h)
-   - Add `--task-id` argument
-   - Auto-detect task from branch name or env var
-   - Load state from appropriate directory
-   - **✅ Codex enforcement:** Add gate that blocks commits when subtask lacks `.claude/subtasks/<id>` artifacts
+**Solution:** Proactive delegation with enforcement gates (reviewed by Gemini+Codex on 2025-11-17)
 
-3. **Progress rollup with locking** (Component 3 - 1-2h)
-   - Extend update_task_state.py with `rollup` command
-   - Use file locking to prevent race conditions
-   - Update parent progress without state pollution
+**Review Summary:**
+- ✅ **Gemini:** "Strong plan, proactive model is significant improvement. Top risk: usability."
+- ✅ **Codex:** "Sound architecture. Scope larger than 2h, slice feature set."
+- 🔑 **Key Recommendations:** Automate execution (interactive prompt), add cancellation, provide auditable escape hatch
 
-**Codex Finding Addressed:** Added enforcement test - AI cannot commit for subtask without proper isolated state
+**Implementation (3 Phases):**
 
-**Can run in parallel with Phase A.2**
+#### Phase 1: Core Commands - 1.5h (MVP)
+**Goal:** Basic delegation lifecycle
+
+1. **Schema + CLI Commands** (45min)
+   - Add `planned_delegations` to workflow-state.json
+   - Commands: `plan-delegation`, `cancel-delegation`, `capture-summary`
+   - Integrate with existing `DelegationRules` class (workflow_gate.py:2110)
+
+2. **Commit Gate** (30min)
+   - Block if planned delegations have status!="completed|cancelled"
+   - Hook into `check_commit()` after context gates (workflow_gate.py:833)
+
+3. **Basic Tests** (15min)
+   - Unit tests for new commands
+   - Commit gate regression test
+
+#### Phase 2: Automation + Detection - 1.5h (Usability)
+**Goal:** Make delegation frictionless (Gemini HIGH priority)
+
+4. **Interactive Detection** (45min)
+   - Pattern detection: grep -r, find, WebFetch, gh pr commands
+   - Interactive prompt: "🤖 Delegation detected. Create? [Y/n]"
+   - Auto-launches Task tool if accepted
+
+5. **Direct Search Approval** (30min)
+   - Command: `approve-direct-search <reason>` (auditable escape hatch)
+   - Logs to audit trail, allows commit
+   - Doesn't conflict with ZEN_REVIEW_OVERRIDE
+
+6. **Enhanced Tests** (15min)
+   - Test detection automation
+   - Test approval workflow
+
+#### Phase 3: Documentation - 30min (Adoption)
+
+7. **Documentation Updates**
+   - Update CLAUDE.md with delegation planning guidance
+   - Update `.claude/workflows/16-subagent-delegation.md` with new workflow
+   - Add examples to workflow docs
+
+**Schema Design:**
+```json
+{
+  "planned_delegations": [
+    {
+      "id": "del-20251117-abc",
+      "description": "Search for retry patterns",
+      "reason": "Large codebase search",
+      "status": "completed|cancelled|pending",
+      "created_at": "2025-11-17T10:00:00Z",
+      "summary": "Found exponential backoff in 12 files"
+    }
+  ]
+}
+```
+
+**Enforcement Strategy (Proactive):**
+- **Planning Gate (Soft):** "Identify delegation candidates or say 'none'"
+- **Detection Gate (Interactive):** Auto-offers delegation creation
+- **Commit Gate (Hard):** Blocks if planned delegations incomplete
+
+**Total Duration:** 3.5h (revised from 1-2h based on reviews)
+**Priority:** MEDIUM (valuable but not blocking other work)
 
 ### Deferred: Phase D (F5b) Redesign
 
