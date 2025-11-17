@@ -340,11 +340,16 @@ def main():
                 except subprocess.CalledProcessError:
                     committer_email = ""  # Could not get email, proceed to validation
 
-                # GitHub web UI merge commits have committer: web-flow@users.noreply.github.com
-                # Trust this email for GitHub-generated merges (allows custom merge messages)
+                # GitHub merge commits use different committer emails:
+                # - web-flow@users.noreply.github.com (UI merges)
+                # - noreply@github.com (PR testing merge commits)
+                # Trust these emails for GitHub-generated merges (allows custom merge messages)
                 # Note: Email spoofing is theoretically possible but requires local commit +
                 # force push, which is immediately visible in PR history and caught by branch protection
-                is_github_merge = committer_email == "web-flow@users.noreply.github.com"
+                is_github_merge = committer_email in (
+                    "web-flow@users.noreply.github.com",
+                    "noreply@github.com",
+                )
 
                 if is_github_merge:
                     skipped_merges.append(commit_hash)
