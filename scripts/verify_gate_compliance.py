@@ -168,7 +168,8 @@ def has_review_markers(commit_hash):
     # Note: We only check presence, not correctness (can't reconstruct staging area post-commit)
     # Must match exactly 64-char hex hash OR empty string (for empty commits)
     # Use same pattern as extract_review_hash() for consistency
-    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*$"
+    # Pattern allows trailers after Review-Hash (e.g., Co-authored-by, Signed-off-by)
+    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*(?:\n|$)"
     has_review_hash = bool(re.search(review_hash_pattern, message, re.IGNORECASE | re.MULTILINE))
 
     return (has_quick_format or has_deep_format) and has_review_hash
@@ -195,12 +196,13 @@ def extract_review_hash(commit_sha: str) -> str | None:
     # Match Review-Hash: <hash_value>
     # Case-insensitive, allows whitespace
     # Allow 64-char hex hash OR empty string (for empty commits)
-    pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*$"
+    # Pattern allows trailers after Review-Hash (e.g., Co-authored-by, Signed-off-by)
+    pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*(?:\n|$)"
     match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
 
     if match:
         hash_value = match.group(1).strip().lower()
-        return hash_value if hash_value else ""  # Return hash or empty string
+        return hash_value  # Returns hash string or empty string ""
     return None
 
 
@@ -246,14 +248,14 @@ def validate_review_hash(commit_sha: str) -> bool:
     try:
         merge = is_merge_commit(commit_sha)
         commit_type = "merge" if merge else "regular"
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         print(f"  ❌ Error detecting merge status for {commit_sha[:8]}: {e}")
         return False
 
     # Compute actual hash from commit FIRST
     try:
         actual_hash = compute_git_diff_hash(commit_sha=commit_sha, is_merge=merge)
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         print(f"  ❌ Error computing hash for {commit_sha[:8]}: {e}")
         return False
 
