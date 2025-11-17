@@ -250,6 +250,43 @@ def complete_component(
         print("   🎉 All components complete!")
 
 
+def normalize_task_file_path(task_file: str) -> str:
+    """Convert absolute paths to relative from project root.
+
+    PR #61 Fix: Gemini HIGH - Absolute paths break portability.
+    Always store relative paths in task-state.json with POSIX separators.
+
+    Args:
+        task_file: Absolute or relative path to task file
+
+    Returns:
+        Relative path from project root with forward slashes, or original if outside repo
+    """
+    path = Path(task_file)
+
+    # If already relative, normalize separators to POSIX
+    if not path.is_absolute():
+        return path.as_posix()
+
+    # Get project root (parent of scripts directory)
+    project_root = Path(__file__).parent.parent.resolve()
+
+    # Try to make relative, fallback if not inside repo
+    try:
+        # Codex HIGH fix: Use as_posix() to ensure forward slashes on all platforms
+        return path.relative_to(project_root).as_posix()
+    except ValueError:
+        # Path is outside repo - try os.path.relpath fallback
+        # Codex MEDIUM fix: Handle cross-drive paths on Windows
+        try:
+            rel_path = os.path.relpath(task_file, project_root)
+            # Convert to forward slashes for consistency
+            return Path(rel_path).as_posix()
+        except ValueError:
+            # Cross-drive on Windows - return original (graceful degradation)
+            return task_file
+
+
 def start_task(
     state_file: Path,
     task_id: str,
@@ -261,13 +298,17 @@ def start_task(
     """Start tracking a new task."""
     # LOW-001 fix: use timezone-aware datetime
     now_iso = datetime.now(UTC).isoformat()
+
+    # PR #61 Fix: Normalize path to relative (Gemini HIGH priority)
+    normalized_task_file = normalize_task_file_path(task_file)
+
     state = {
         "current_task": {
             "task_id": task_id,
             "title": title,
             "phase": task_id[:2],  # e.g., "P2" from "P2T1"
             "branch": branch,
-            "task_file": task_file,
+            "task_file": normalized_task_file,
             "state": "IN_PROGRESS",
             "started": datetime.now(UTC).date().isoformat(),
         },

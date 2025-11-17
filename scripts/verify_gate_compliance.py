@@ -384,27 +384,59 @@ def main():
             print(f"   ({len(skipped_merges)} GitHub merge commit(s) skipped)")
         print()
 
-    # Load workflow state (may be missing in CI, that's OK)
+    # PR #61 Fix (Codex HIGH): Always verify markers in CI (defense-in-depth)
+    # This check must run REGARDLESS of workflow state to prevent bypasses
+    if is_ci:
+        print("ℹ️  Verifying review approval markers (in addition to Review-Hash)...")
+        print("   (Defense in depth: hash + markers required)")
+        print()
+
+        missing_markers = []
+        for commit_hash in pr_commits:
+            # Skip GitHub auto-generated merge commits (already checked above)
+            if commit_hash in skipped_merges:
+                continue
+
+            if not has_review_markers(commit_hash):
+                missing_markers.append(commit_hash)
+
+        if missing_markers:
+            print()
+            print("❌ MARKER VALIDATION FAILED!")
+            print(f"   Found {len(missing_markers)} commit(s) with valid Review-Hash but NO approval markers")
+            print()
+            print("   This could indicate:")
+            print("   - Review markers were manually removed")
+            print("   - Commit was made with --no-verify and hash forged locally")
+            print("   - Review process was bypassed")
+            print()
+            print("   All commits must have BOTH:")
+            print("   1. Valid Review-Hash trailer (cryptographic proof)")
+            print("   2. Approval markers (zen-mcp-review: approved + continuation-id)")
+            print()
+            print("   Commits missing markers:")
+            for commit_hash in missing_markers:
+                print(f"     - {commit_hash[:8]}")
+            print()
+            print("   See PR #61 (Codex P1 finding) for rationale")
+            return 1
+
+        print(f"✅ All {len(pr_commits) - len(skipped_merges)} commit(s) have approval markers")
+        print("   (BOTH Review-Hash and markers verified)")
+        print()
+
+    # Load workflow state (may be missing in CI, that's OK after marker check passed)
     state = load_workflow_state()
 
     if not state:
+        # Locally: Allow for documentation-only changes
+        # In CI: Already verified markers above, state is optional
+        print("ℹ️  No workflow state file found")
         if is_ci:
-            # In CI: Review-Hash validation already completed above
-            # That's the strongest validation - it proves code was reviewed and unchanged
-            # No need for redundant marker checking (which can have false positives if
-            # commits were amended/rebased and lost markers but retained valid hashes)
-            print("ℹ️  Workflow state file not available in CI (gitignored)")
-            print("   Review-Hash validation already completed (strongest gate)")
-            print()
-            print(f"✅ All {len(pr_commits) - len(skipped_merges)} commit(s) verified")
-            print("   (Review-Hash validation proves code was reviewed)")
-            return 0
+            print("   Acceptable after marker verification passed")
         else:
-            # Locally: Allow for documentation-only changes
-            print("⚠️  Warning: No workflow state file found")
-            print("   This is acceptable for documentation-only changes")
-            print("   or initial repository setup.")
-            return 0
+            print("   Acceptable for documentation-only changes or initial setup")
+        return 0
 
     # Get commit history from state
     commit_history = state.get("commit_history", [])
@@ -415,10 +447,24 @@ def main():
         if recorded_hash:
             commit_history = [recorded_hash]
 
+    # PR #61 Fix (Codex MEDIUM): Treat empty commit_history as failure in CI
     if not commit_history:
-        print("⚠️  Warning: No commit history found in workflow state")
-        print("   This may be a first commit or workflow state not initialized")
-        return 0
+        if is_ci:
+            print("❌ COMMIT HISTORY VALIDATION FAILED!")
+            print("   Workflow state exists but commit_history is empty")
+            print()
+            print("   This could indicate:")
+            print("   - Workflow state was manually truncated")
+            print("   - State file corruption")
+            print("   - Attempt to bypass commit tracking")
+            print()
+            print("   In CI, all commits must be tracked in workflow state")
+            print("   See PR #61 (Codex MEDIUM finding) for rationale")
+            return 1
+        else:
+            print("⚠️  Warning: No commit history found in workflow state")
+            print("   This may be a first commit or workflow state not initialized")
+            return 0
 
     # Validate EVERY commit in the PR against commit_history
     non_compliant_commits = []
