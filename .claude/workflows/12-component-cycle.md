@@ -1,4 +1,4 @@
-# Component Development Cycle (4-Step Pattern)
+# Component Development Cycle (6-Step Pattern)
 
 **Purpose:** Reusable checklist for implementing any logical component safely.
 
@@ -6,20 +6,24 @@
 
 ---
 
-## The Four Steps
+## The Six Steps
 
 | Step | Description | Expected Outputs |
 |------|-------------|------------------|
-| 1. Implement | Write/update production code | Feature code, docs, config |
-| 2. Test | Create/extend automated tests | Passing tests, updated fixtures |
-| 3. Review | Request zen-mcp quick review | Review approval + continuation_id |
-| 4. Commit | Commit reviewed changes only | Clean commit with message |
+| 1. Plan | Design component approach | Implementation plan, edge cases identified |
+| 2. Plan Review | Request zen-mcp plan review | Plan approval + continuation_id |
+| 3. Implement | Write/update production code | Feature code, docs, config |
+| 4. Test | Create/extend automated tests | Passing tests, updated fixtures |
+| 5. Code Review | Request zen-mcp code review | Code approval + continuation_id |
+| 6. Commit | Commit reviewed changes only | Clean commit with message |
 
 **Todo Template:**
 ```markdown
+- [ ] Plan <component> approach
+- [ ] Request plan review for <component>
 - [ ] Implement <component>
 - [ ] Create tests for <component>
-- [ ] Request zen-mcp review for <component>
+- [ ] Request code review for <component>
 - [ ] Commit <component>
 ```
 
@@ -27,25 +31,27 @@
 
 ## Workflow Gate Commands
 
-workflow_gate.py enforces the 4-step pattern automatically:
+workflow_gate.py enforces the 6-step pattern automatically:
 
 | Command | When | Purpose |
 |---------|------|---------|
 | `set-component "Name"` | Start of cycle | Set current component |
+| `advance plan-review` | After planning | Request plan review |
+| `advance implement` | After plan approval | Move to implementation |
 | `advance test` | After implementing | Move to test step |
-| `advance review` | After testing | Move to review step |
-| `record-review <id> APPROVED` | After zen-mcp review | Record approval |
+| `advance review` | After testing | Move to code review step |
+| `record-review <id> APPROVED` | After zen-mcp review | Record approval (plan or code) |
 | `record-ci true` | After `make ci-local` | Record CI pass |
 | `status` | Anytime | Check current state |
 
 **Workflow transitions:**
 ```
-implement → test → review → (commit) → implement (reset)
+plan → plan-review → implement → test → review → (commit) → plan (reset)
 ```
 
 **Commit prerequisites (enforced by pre-commit hook):**
 1. Current step = `review`
-2. Zen-MCP review = `APPROVED`
+2. Zen-MCP code review = `APPROVED`
 3. CI = `PASSED`
 
 **If commit blocked:** Run `./scripts/workflow_gate.py status` to see what's missing.

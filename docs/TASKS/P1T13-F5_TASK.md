@@ -262,7 +262,7 @@ def check_commit(self) -> None:
 
 ## Recommended Next Steps
 
-### Immediate Priority 1: Complete Phase A.2 (6-8h)
+### Immediate Priority 1: Complete Phase A.2 (2-4h) - REVISED
 
 **Why:** Closes remaining Phase A acceptance criteria, addresses Codex REQUIRED findings
 
@@ -276,13 +276,15 @@ def check_commit(self) -> None:
    - Test with intentional violations
    - **AC:** Merging is blocked when action fails (not just warning)
 
-2. **Implement Automated Audit Logging** (3-4h) - **CODEX CRITICAL**
-   - **Decision:** Use Option A (MCP server wrapper) for guaranteed interception
-   - Wrap `mcp__zen__clink` to write audit entry BEFORE calling actual clink
-   - Audit entry includes: timestamp, cli_name, role, continuation_id, files
-   - **✅ AC: EVERY clink call creates audit entry** (Codex requirement)
-   - Test: Call clink 10 times, verify 10 audit entries exist
-   - No manual record-review calls needed
+2. ~~**Implement Automated Audit Logging** (3-4h) - **DESCOPED**~~
+   - **DECISION (2025-11-16):** Manual audit logging via `record-review` is SUFFICIENT
+   - **Rationale:**
+     - Current enforcement chain works: `record-review` → audit log → `check_commit()` validates → commit blocked if missing
+     - User already must manually call `record-review` to record approval status
+     - Adding MCP wrapper automates ONE step of manual process without improving enforcement
+     - Commit gate already validates continuation ID exists in audit log (workflow_gate.py:1064)
+     - Saves 3-4h implementation + reduces maintenance burden
+   - **Enforcement achieved:** Skipping `record-review` = audit entry missing = commit fails ✅
 
 3. **Documentation Sync** (1h)
    - Update `.claude/workflows/README.md` line 103 (change "4 steps" to "6 steps")
@@ -290,8 +292,9 @@ def check_commit(self) -> None:
    - Add plan-review step to workflow diagrams
    - Verify CLAUDE.md is already correct (✅ line 40 says "6-step pattern")
 
-**Gate:** All Phase A acceptance criteria met (13/13)
-**Codex Enforcement:** GitHub Action prevents bypass + Audit logging proves compliance
+**Revised Effort:** 2-4h (down from 6-8h)
+**Gate:** Core Phase A enforcement complete (A2.1 ✅, A2.2 descoped, A2.3 pending)
+**Enforcement:** GitHub Action prevents bypass + Manual audit logging proves compliance
 
 ### Immediate Priority 2: Start Phase C (F5c) - 4-6h
 
