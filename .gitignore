@@ -99,3 +99,4 @@ zen_precommit.changeset
 # Workflow lock files (runtime only)
 .claude/*.lock
 .claude/workflow-audit.log
+.claude/analysis/

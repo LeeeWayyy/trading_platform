@@ -18,12 +18,13 @@ set -e
 #   tests/FILE.md → ../tests/FILE.md
 #   ./FILE.md (project root) → ../FILE.md
 
-# Find all markdown files, excluding generated/cache directories
+# Find all markdown files, excluding generated/cache directories and gitignored paths
 ALL_FILES=$(find . -name "*.md" -type f \
     -not -path "./.venv/*" \
     -not -path "./node_modules/*" \
     -not -path "./.git/*" \
     -not -path "./.pytest_cache/*" \
+    -not -path "./.claude/analysis/*" \
     2>/dev/null)
 
 # Transform paths to be relative to docs/INDEX.md

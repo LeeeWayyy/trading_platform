@@ -187,7 +187,9 @@ def complete_component(
 
         state["progress"]["completed_components"] = completed
         # HIGH fix: Guard against ZeroDivisionError (Gemini review)
-        state["progress"]["completion_percentage"] = int((completed / total) * 100) if total > 0 else 0
+        state["progress"]["completion_percentage"] = (
+            int((completed / total) * 100) if total > 0 else 0
+        )
 
         # Add to completed work
         component_name = state["progress"]["current_component"]["name"]
