@@ -309,47 +309,52 @@ def check_commit(self) -> None:
 - ✅ **Codex:** "Sound architecture. Scope larger than 2h, slice feature set."
 - 🔑 **Key Recommendations:** Automate execution (interactive prompt), add cancellation, provide auditable escape hatch
 
-**Implementation (3 Phases):**
+**Implementation Status:**
 
-#### Phase 1: Core Commands - 1.5h (MVP)
-**Goal:** Basic delegation lifecycle
+#### ✅ Phase 1: Core Commands - COMPLETE (2025-11-17)
+**Commit:** 4ecd685e
+**Status:** Delivered and approved by Gemini + Codex
 
-1. **Schema + CLI Commands** (45min)
-   - Add `planned_delegations` to workflow-state.json
+**Implemented:**
+1. **Schema + CLI Commands**
+   - Added `planned_delegations` to workflow-state.json
    - Commands: `plan-delegation`, `cancel-delegation`, `capture-summary`
-   - Integrate with existing `DelegationRules` class (workflow_gate.py:2110)
+   - Integrated with `DelegationRules` class (workflow_gate.py:2274-2516)
+   - Delegation ID format: `del-YYYYMMDD-xxxxxx` (date + UUID)
 
-2. **Commit Gate** (30min)
-   - Block if planned delegations have status!="completed|cancelled"
-   - Hook into `check_commit()` after context gates (workflow_gate.py:833)
+2. **Commit Gate 0.7**
+   - Blocks commits with unresolved delegations (status not in {completed, cancelled})
+   - Integrated into `check_commit()` at workflow_gate.py:1094-1122
+   - Provides clear error messages with remediation steps
 
-3. **Basic Tests** (15min)
-   - Unit tests for new commands
-   - Commit gate regression test
+3. **Comprehensive Tests**
+   - 9 unit tests in `tests/scripts/test_workflow_gate_delegation.py`
+   - Tests cover: lifecycle methods, CLI commands, commit gates, error cases
+   - All tests passing with full coverage of delegation logic
 
-#### Phase 2: Automation + Detection - 1.5h (Usability)
-**Goal:** Make delegation frictionless (Gemini HIGH priority)
+**Code Reviews:**
+- ✅ Gemini (adefc71c-b740-4a7d-ac09-fa775f660eea): APPROVED
+- ✅ Codex (d78f6cb7-c3fc-4ba0-b08d-bcc3eac3d89f): APPROVED (after 3 fixes)
 
-4. **Interactive Detection** (45min)
-   - Pattern detection: grep -r, find, WebFetch, gh pr commands
-   - Interactive prompt: "🤖 Delegation detected. Create? [Y/n]"
-   - Auto-launches Task tool if accepted
+**Fixes Applied:**
+- HIGH: Gate 0.7 blocks ALL nonterminal statuses (not just "pending")
+- HIGH: Tests avoid gitignored audit log dependencies
+- MEDIUM: Tests create temp task files to properly reach Gate 0.7
 
-5. **Direct Search Approval** (30min)
-   - Command: `approve-direct-search <reason>` (auditable escape hatch)
-   - Logs to audit trail, allows commit
-   - Doesn't conflict with ZEN_REVIEW_OVERRIDE
+#### ⏸️ Phases 2-3: Automation + Documentation - DEFERRED
+**Reason:** Interactive detection requires Claude Code client modifications outside CLI script scope
 
-6. **Enhanced Tests** (15min)
-   - Test detection automation
-   - Test approval workflow
+**Deferred Items:**
+- Interactive delegation detection (requires client-side hooks)
+- `approve-direct-search` escape hatch command
+- Enhanced automation tests
+- Documentation updates to CLAUDE.md and workflow docs
 
-#### Phase 3: Documentation - 30min (Adoption)
-
-7. **Documentation Updates**
-   - Update CLAUDE.md with delegation planning guidance
-   - Update `.claude/workflows/16-subagent-delegation.md` with new workflow
-   - Add examples to workflow docs
+**When to Resume:**
+- Real usage data shows patterns needing automation
+- Clear user feedback on friction points
+- Token/time budget available for usability polish
+- OR: Client-side hooks become available for pattern detection
 
 **Schema Design:**
 ```json
@@ -367,13 +372,14 @@ def check_commit(self) -> None:
 }
 ```
 
-**Enforcement Strategy (Proactive):**
-- **Planning Gate (Soft):** "Identify delegation candidates or say 'none'"
-- **Detection Gate (Interactive):** Auto-offers delegation creation
-- **Commit Gate (Hard):** Blocks if planned delegations incomplete
+**Enforcement Strategy (Implemented):**
+- ✅ **Commit Gate 0.7 (Hard):** Blocks commits if planned delegations not completed/cancelled
+- ⏸️ **Detection Gate (Interactive):** Deferred - requires client-side modifications
+- ⏸️ **Planning Gate (Soft):** Deferred - documentation-based approach
 
-**Total Duration:** 3.5h (revised from 1-2h based on reviews)
-**Priority:** MEDIUM (valuable but not blocking other work)
+**Actual Duration:** 1.5h (Phase 1 only)
+**Deferred Work:** ~2h (Phases 2-3, pending usage data)
+**Priority:** Phase 1 COMPLETE, Phases 2-3 DEFERRED
 
 ### Deferred: Phase D (F5b) Redesign
 
