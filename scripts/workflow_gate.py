@@ -27,7 +27,6 @@ Date: 2025-11-02
 import argparse
 import fcntl
 import glob
-import hashlib
 import json
 import os
 import re
@@ -40,6 +39,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+
+from libs.common.hash_utils import compute_git_diff_hash
 
 # Constants
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -426,8 +427,9 @@ class WorkflowGate:
         """
         Compute SHA256 hash of staged changes (Component 1: Code State Fingerprinting).
 
-        Uses git diff with flags to ensure consistent, machine-readable output across
-        environments. Addresses Gemini CRITICAL and HIGH findings.
+        Component A2.1 (P1T13-F5): Refactored to use shared hash_utils module.
+        This ensures byte-for-byte parity between local pre-commit hooks and CI validation.
+        Supports merge commits via first-parent diff strategy.
 
         Returns:
             str: Hex digest of staged changes, or empty string if no changes
@@ -436,34 +438,11 @@ class WorkflowGate:
             subprocess.CalledProcessError: If git command fails
         """
         try:
-            # Gemini HIGH fix: Add flags for consistent output across environments
-            # --no-pager: Prevents hanging on large diffs
-            # --binary: Include binary file content correctly
-            # --no-color: Disable color escape codes
-            # --no-ext-diff: Ignore external diff helpers
-            # Codex MEDIUM fix: Add cwd=PROJECT_ROOT to work from any directory
-            result = subprocess.run(
-                [
-                    "git",
-                    "--no-pager",
-                    "diff",
-                    "--staged",
-                    "--binary",
-                    "--no-color",
-                    "--no-ext-diff",
-                ],
-                capture_output=True,
-                check=True,
-                cwd=PROJECT_ROOT,
-            )
-
-            if not result.stdout:
-                return ""  # No staged changes
-
-            # Gemini CRITICAL fix: Use Python's hashlib instead of sha256sum (portability)
-            hasher = hashlib.sha256()
-            hasher.update(result.stdout)
-            return hasher.hexdigest()
+            # Component A2.1 (P1T13-F5): Use shared hash_utils for consistency
+            # This ensures byte-for-byte parity between local hooks and CI validation
+            # Supports both regular commits and merge commits
+            # Pass cwd=PROJECT_ROOT to ensure location-independent behavior
+            return compute_git_diff_hash(commit_sha=None, cwd=PROJECT_ROOT)
 
         except subprocess.CalledProcessError as e:
             # Propagate error with context

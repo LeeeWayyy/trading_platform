@@ -128,6 +128,72 @@ make test && make lint
 git commit -m "Add feature X"
 ```
 
+### Rule #5: Review-Hash Integrity (Code State Fingerprinting)
+
+**POLICY:** All commits MUST include a `Review-Hash` trailer containing a cryptographic hash of the changes
+
+**PURPOSE:** Prevent post-review tampering and detect commits made with `--no-verify` (bypassing workflow gates)
+
+**REQUIRED:**
+- ✅ Pre-commit hook automatically computes SHA256 hash of staged changes
+- ✅ Hash embedded in commit message as `Review-Hash: <sha256_hexdigest>`
+- ✅ CI validates Review-Hash correctness on all commits in PR
+- ✅ Merge commits are validated using first-parent diff strategy
+
+**How it works:**
+```bash
+# 1. Local: Pre-commit hook computes hash of staged changes
+git add my_file.py
+# Pre-commit hook runs:
+HASH=$(git diff --staged --binary --no-color --no-ext-diff | sha256sum)
+
+# 2. Hash embedded in commit message
+git commit -m "Add feature X
+
+Review-Hash: a1b2c3d4e5f6..."
+
+# 3. CI validates hash on PR
+# verify_gate_compliance.py recomputes hash from commit and compares
+```
+
+**Merge commit handling:**
+- **Local (during merge):** `git diff --staged` captures full merge result
+- **CI (validation):** `git diff <commit>^1 <commit>` reproduces same merge result
+- **Result:** Byte-for-byte parity between local hash and CI recomputation ✅
+
+**Edge cases:**
+- **Initial commits:** Exempt (no parent to diff against)
+- **Empty commits:** Hash of empty diff is empty string `""`
+- **Binary files:** Handled via `--binary` flag
+- **Merge commits:** Validated via diff against first parent
+
+**Bypass detection:**
+```bash
+# ❌ BAD - Bypassing pre-commit hook
+git commit --no-verify -m "Add feature X"
+# Missing Review-Hash → CI FAILS ❌
+
+# ❌ BAD - Post-review tampering
+git commit -m "Add feature X
+
+Review-Hash: a1b2c3..."
+git commit --amend --no-edit  # Modify files after review
+# Hash mismatch → CI FAILS ❌
+
+# ✅ GOOD - Normal workflow
+git commit -m "Add feature X"
+# Pre-commit hook adds Review-Hash automatically
+# CI validates hash matches commit changes
+```
+
+**Implementation:**
+- `libs/common/hash_utils.py` — Shared hash computation (single source of truth)
+- `scripts/workflow_gate.py` — Pre-commit hash embedding
+- `scripts/verify_gate_compliance.py` — CI validation
+- `tests/scripts/test_hash_utils.py` — Hash parity tests
+
+**See:** Component A2.1 (P1T13-F5) for implementation details
+
 **See:** [`.claude/workflows/04-development.md`](../../.claude/workflows/04-development.md) for testing procedures
 
 ---
