@@ -7,12 +7,10 @@ Date: 2025-11-17
 Component: PR #61 - Address Gemini HIGH priority feedback
 """
 
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.update_task_state import normalize_task_file_path
 
 

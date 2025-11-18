@@ -36,7 +36,7 @@ The following settings **MUST** be enabled for the `master` branch:
 - ✅ **Enabled:** Pull requests must pass CI before merging
 - **Required Checks:**
   - ✅ **`Run tests and check coverage`** (CRITICAL)
-    - This is the job name from `.github/workflows/ci-tests-coverage.yml:35`
+    - This is the job name from `.github/workflows/ci-tests-coverage.yml`
     - Runs `scripts/verify_gate_compliance.py` which validates Review-Hash
     - **This is the enforcement mechanism for the entire workflow system**
 
@@ -81,7 +81,7 @@ The following settings **MUST** be enabled for the `master` branch:
 5. **Select Required Status Checks**
    - In the **"Search for status checks"** box, type: `Run tests`
    - From the dropdown, select: **`Run tests and check coverage`**
-   - **CRITICAL:** This exact job name must match `.github/workflows/ci-tests-coverage.yml:35`
+   - **CRITICAL:** This exact job name must match `.github/workflows/ci-tests-coverage.yml`
    - The list will auto-populate after the first PR runs the workflow
 
 6. **Optional Additional Settings**

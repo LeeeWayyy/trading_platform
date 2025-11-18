@@ -13,14 +13,12 @@ Date: 2025-11-17
 Component: P1T13-F5 Phase C1 - Core Delegation Commands
 """
 
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.workflow_gate import DelegationRules, WorkflowGate
 
 
