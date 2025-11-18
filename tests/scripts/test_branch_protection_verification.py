@@ -11,6 +11,7 @@ Task: P1T13-F5 Phase A.2 Component 1
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -170,7 +171,7 @@ class TestBranchProtectionScript:
         # This is a smoke test - it will actually call GitHub API
         # It should not crash, though it may return 0, 1, or 2 depending on actual state
         result = subprocess.run(
-            ["python3", "scripts/verify_branch_protection.py"],
+            [sys.executable, "scripts/verify_branch_protection.py"],
             capture_output=True,
             text=True,
         )

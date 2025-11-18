@@ -16,16 +16,14 @@ from scripts.update_task_state import normalize_task_file_path
 
 def test_normalize_absolute_path_inside_repo():
     """Verify absolute paths inside repo are converted to relative."""
-    # Simulate absolute path inside repo
-    absolute_path = "/Users/test/trading_platform/docs/TASKS/P1T1_TASK.md"
+    # Get project root dynamically to make the test robust
+    project_root = Path(__file__).parent.parent.parent.resolve()
+    absolute_path = project_root / "docs" / "TASKS" / "P1T1_TASK.md"
 
-    # Note: This test will work relative to where it's run from
-    # The function uses Path(__file__).parent.parent from update_task_state.py
-    result = normalize_task_file_path(absolute_path)
+    result = normalize_task_file_path(str(absolute_path))
 
-    # Result should start with docs/ (relative path)
-    # Note: May be ../docs if path is outside, but should not be absolute
-    assert not Path(result).is_absolute(), f"Expected relative path, got: {result}"
+    # The result should be a relative path with POSIX separators
+    assert result == "docs/TASKS/P1T1_TASK.md"
 
 
 def test_normalize_already_relative_path():
