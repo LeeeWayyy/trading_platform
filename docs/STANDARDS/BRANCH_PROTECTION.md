@@ -63,7 +63,7 @@ The following settings **MUST** be enabled for the `master` branch:
 ### Step-by-Step Configuration
 
 1. **Navigate to Branch Protection Settings**
-   - Go to repository: https://github.com/{owner}/trading_platform
+   - Go to repository: https://github.com/LeeeWayyy/trading_platform
    - Click **Settings** → **Branches** → **Branch protection rules**
 
 2. **Add Protection Rule**
