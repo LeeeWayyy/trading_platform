@@ -1091,6 +1091,37 @@ class WorkflowGate:
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 sys.exit(1)
 
+        # Gate 0.7 (Phase C1 - P1T13-F5): Planned delegation completion check
+        # Block commit if there are unresolved delegations (not completed/cancelled)
+        planned_delegations = state.get("planned_delegations", [])
+        unresolved_delegations = [
+            d for d in planned_delegations
+            if d.get("status") not in ("completed", "cancelled")
+        ]
+
+        if unresolved_delegations:
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("❌ COMMIT BLOCKED: Unresolved delegations not completed")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   You have {len(unresolved_delegations)} unresolved delegation(s):")
+            print()
+            for delegation in unresolved_delegations:
+                print(f"   • {delegation.get('description', 'N/A')}")
+                print(f"     ID: {delegation.get('id', 'N/A')}")
+                print(f"     Reason: {delegation.get('reason', 'N/A')}")
+                print()
+            print("   Options:")
+            print("     1. Complete delegation and capture summary:")
+            print("        ./scripts/workflow_gate.py capture-summary <delegation_id> '<summary>'")
+            print()
+            print("     2. Cancel obsolete delegation:")
+            print("        ./scripts/workflow_gate.py cancel-delegation <delegation_id>")
+            print()
+            print("   Emergency override (production outage only):")
+            print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            sys.exit(1)
+
         # Check CI pass
         if not state["ci_passed"]:
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -2270,6 +2301,250 @@ class DelegationRules:
         }
 
         return templates.get(operation, "")
+
+    def plan_delegation(self, description: str, reason: str) -> dict:
+        """
+        Plan a future delegation (proactive approach).
+
+        Args:
+            description: What will be delegated (e.g., "Search for retry patterns")
+            reason: Why delegation is needed (e.g., "Large codebase search")
+
+        Returns:
+            Dictionary with delegation ID and status
+
+        Side effects:
+            - Adds to state["planned_delegations"] with status="pending"
+            - Does NOT reset context (delegation not executed yet)
+
+        Phase C1: Proactive delegation tracking
+        """
+        import uuid
+
+        delegation_id = f"del-{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+
+        if self._locked_modify_state:
+
+            def modifier(state: dict) -> None:
+                if "planned_delegations" not in state:
+                    state["planned_delegations"] = []
+
+                state["planned_delegations"].append(
+                    {
+                        "id": delegation_id,
+                        "description": description,
+                        "reason": reason,
+                        "status": "pending",
+                        "created_at": datetime.now(UTC).isoformat(),
+                        "summary": None,
+                    }
+                )
+
+            try:
+                state = self._locked_modify_state(modifier)
+                return {
+                    "id": delegation_id,
+                    "status": "pending",
+                    "description": description,
+                }
+            except Exception as e:
+                print(f"⚠️  Warning: Could not update state: {e}")
+                return {"error": str(e)}
+
+        # Fallback to unlocked (for backward compatibility / testing)
+        try:
+            state = self._load_state()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load state: {e}")
+            return {"error": str(e)}
+
+        if "planned_delegations" not in state:
+            state["planned_delegations"] = []
+
+        state["planned_delegations"].append(
+            {
+                "id": delegation_id,
+                "description": description,
+                "reason": reason,
+                "status": "pending",
+                "created_at": datetime.now(UTC).isoformat(),
+                "summary": None,
+            }
+        )
+
+        try:
+            self._save_state(state)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save state: {e}")
+            return {"error": str(e)}
+
+        return {
+            "id": delegation_id,
+            "status": "pending",
+            "description": description,
+        }
+
+    def cancel_delegation(self, delegation_id: str) -> dict:
+        """
+        Cancel a planned delegation (e.g., became obsolete).
+
+        Args:
+            delegation_id: Delegation ID to cancel
+
+        Returns:
+            Dictionary with cancellation status
+
+        Side effects:
+            - Updates state["planned_delegations"][i]["status"] = "cancelled"
+
+        Phase C1: Handle obsolete plans
+        """
+        if self._locked_modify_state:
+
+            def modifier(state: dict) -> None:
+                if "planned_delegations" not in state:
+                    state["planned_delegations"] = []
+
+                # Find and cancel delegation
+                for delegation in state["planned_delegations"]:
+                    if delegation["id"] == delegation_id:
+                        delegation["status"] = "cancelled"
+                        delegation["cancelled_at"] = datetime.now(UTC).isoformat()
+                        break
+
+            try:
+                state = self._locked_modify_state(modifier)
+                # Check if delegation was found
+                delegation = next(
+                    (d for d in state.get("planned_delegations", []) if d["id"] == delegation_id),
+                    None,
+                )
+                if delegation:
+                    return {
+                        "id": delegation_id,
+                        "status": "cancelled",
+                        "description": delegation.get("description", ""),
+                    }
+                else:
+                    return {"error": f"Delegation {delegation_id} not found"}
+            except Exception as e:
+                print(f"⚠️  Warning: Could not update state: {e}")
+                return {"error": str(e)}
+
+        # Fallback to unlocked
+        try:
+            state = self._load_state()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load state: {e}")
+            return {"error": str(e)}
+
+        if "planned_delegations" not in state:
+            state["planned_delegations"] = []
+
+        delegation = next(
+            (d for d in state["planned_delegations"] if d["id"] == delegation_id), None
+        )
+        if not delegation:
+            return {"error": f"Delegation {delegation_id} not found"}
+
+        delegation["status"] = "cancelled"
+        delegation["cancelled_at"] = datetime.now(UTC).isoformat()
+
+        try:
+            self._save_state(state)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save state: {e}")
+            return {"error": str(e)}
+
+        return {
+            "id": delegation_id,
+            "status": "cancelled",
+            "description": delegation.get("description", ""),
+        }
+
+    def capture_summary(self, delegation_id: str, summary: str) -> dict:
+        """
+        Capture delegation summary after completion.
+
+        Args:
+            delegation_id: Delegation ID to update
+            summary: Summary of delegation results (e.g., "Found 12 retry patterns")
+
+        Returns:
+            Dictionary with completion status
+
+        Side effects:
+            - Updates state["planned_delegations"][i]["status"] = "completed"
+            - Updates state["planned_delegations"][i]["summary"] = summary
+
+        Phase C1: Roll up delegation results to parent task
+        """
+        if self._locked_modify_state:
+
+            def modifier(state: dict) -> None:
+                if "planned_delegations" not in state:
+                    state["planned_delegations"] = []
+
+                # Find and complete delegation
+                for delegation in state["planned_delegations"]:
+                    if delegation["id"] == delegation_id:
+                        delegation["status"] = "completed"
+                        delegation["summary"] = summary
+                        delegation["completed_at"] = datetime.now(UTC).isoformat()
+                        break
+
+            try:
+                state = self._locked_modify_state(modifier)
+                # Check if delegation was found
+                delegation = next(
+                    (d for d in state.get("planned_delegations", []) if d["id"] == delegation_id),
+                    None,
+                )
+                if delegation:
+                    return {
+                        "id": delegation_id,
+                        "status": "completed",
+                        "description": delegation.get("description", ""),
+                        "summary": summary,
+                    }
+                else:
+                    return {"error": f"Delegation {delegation_id} not found"}
+            except Exception as e:
+                print(f"⚠️  Warning: Could not update state: {e}")
+                return {"error": str(e)}
+
+        # Fallback to unlocked
+        try:
+            state = self._load_state()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load state: {e}")
+            return {"error": str(e)}
+
+        if "planned_delegations" not in state:
+            state["planned_delegations"] = []
+
+        delegation = next(
+            (d for d in state["planned_delegations"] if d["id"] == delegation_id), None
+        )
+        if not delegation:
+            return {"error": f"Delegation {delegation_id} not found"}
+
+        delegation["status"] = "completed"
+        delegation["summary"] = summary
+        delegation["completed_at"] = datetime.now(UTC).isoformat()
+
+        try:
+            self._save_state(state)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save state: {e}")
+            return {"error": str(e)}
+
+        return {
+            "id": delegation_id,
+            "status": "completed",
+            "description": delegation.get("description", ""),
+            "summary": summary,
+        }
 
     def format_status(self, snapshot: dict, reason: str, heading: str = "Context Status") -> str:
         """
@@ -3654,6 +3929,24 @@ Examples:
     )
     record_delegation_parser.add_argument("task_description", help="Description of delegated task")
 
+    # Phase C1: Planned delegation commands
+    plan_delegation_parser = subparsers.add_parser(
+        "plan-delegation", help="Plan a future delegation (proactive approach)"
+    )
+    plan_delegation_parser.add_argument("description", help="What will be delegated")
+    plan_delegation_parser.add_argument("reason", help="Why delegation is needed")
+
+    cancel_delegation_parser = subparsers.add_parser(
+        "cancel-delegation", help="Cancel a planned delegation"
+    )
+    cancel_delegation_parser.add_argument("delegation_id", help="Delegation ID to cancel")
+
+    capture_summary_parser = subparsers.add_parser(
+        "capture-summary", help="Capture delegation summary after completion"
+    )
+    capture_summary_parser.add_argument("delegation_id", help="Delegation ID to update")
+    capture_summary_parser.add_argument("summary", help="Summary of delegation results")
+
     # Component 4: Unified Review System
     request_review_parser = subparsers.add_parser(
         "request-review", help="Request unified review (plan, commit, or PR)"
@@ -3773,6 +4066,32 @@ Examples:
                 print(f"Error: {result['error']}")
             else:
                 print(f"✅ Delegation recorded: {result['task_description']}")
+        elif args.command == "plan-delegation":
+            result = delegation_rules.plan_delegation(args.description, args.reason)
+            if result.get("error"):
+                print(f"❌ Error: {result['error']}", file=sys.stderr)
+                return 1
+            else:
+                print(f"✅ Planned delegation: {result['description']}")
+                print(f"   ID: {result['id']}")
+                print(f"   Status: {result['status']}")
+        elif args.command == "cancel-delegation":
+            result = delegation_rules.cancel_delegation(args.delegation_id)
+            if result.get("error"):
+                print(f"❌ Error: {result['error']}", file=sys.stderr)
+                return 1
+            else:
+                print(f"✅ Cancelled delegation: {result['description']}")
+                print(f"   ID: {result['id']}")
+        elif args.command == "capture-summary":
+            result = delegation_rules.capture_summary(args.delegation_id, args.summary)
+            if result.get("error"):
+                print(f"❌ Error: {result['error']}", file=sys.stderr)
+                return 1
+            else:
+                print(f"✅ Delegation completed: {result['description']}")
+                print(f"   ID: {result['id']}")
+                print(f"   Summary: {result['summary']}")
         elif args.command == "request-review":
             # Instantiate UnifiedReviewSystem with central WorkflowGate
             # (prevents state race conditions - see iteration 4 HIGH severity fix)

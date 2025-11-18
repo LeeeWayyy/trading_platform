@@ -72,6 +72,13 @@ jobs:
           PYTHONPATH=. python3 scripts/verify_gate_compliance.py
           echo "::endgroup::"
 
+      - name: Verify branch protection configuration
+        run: |
+          echo "::group::Checking branch protection status"
+          python3 scripts/verify_branch_protection.py
+          echo "::endgroup::"
+        continue-on-error: true  # Non-blocking: warns but doesn't fail build
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:

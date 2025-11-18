@@ -51,11 +51,11 @@ make ci-local  # Should pass all tests
 | [00-analysis-checklist.md](./00-analysis-checklist.md) | Comprehensive pre-implementation analysis | Before writing ANY code (30-60 min, MANDATORY) |
 | [02-planning.md](./02-planning.md) | Task breakdown, subfeatures, task creation review | Complex tasks (>8h), phase management |
 
-### Development Cycle (4-Step Pattern)
+### Development Cycle (6-Step Pattern)
 
 | Workflow | Purpose | When |
 |----------|---------|------|
-| [12-component-cycle.md](./12-component-cycle.md) | 4-step pattern: Implement → Test → Review → Commit | Every logical component (MANDATORY) |
+| [12-component-cycle.md](./12-component-cycle.md) | 6-step pattern: Plan → Plan Review → Implement → Test → Code Review → Commit | Every logical component (MANDATORY) |
 | [04-development.md](./04-development.md) | Testing, debugging, documentation, ADRs | During implementation |
 | [03-reviews.md](./03-reviews.md) | Quick (pre-commit) + Deep (pre-PR) reviews | Before commits & PRs (MANDATORY) |
 | [01-git.md](./01-git.md) | Progressive commits + PR creation | Every 30-60 min, when feature complete |
@@ -100,7 +100,7 @@ make ci-local  # Should pass all tests
 - 📋 02-planning.md (for complex tasks >8h)
 
 **Every Component (30-60 min):**
-- 🔄 12-component-cycle.md (4 steps: Implement → Test → Review → Commit)
+- 🔄 12-component-cycle.md (6 steps: Plan → Plan Review → Implement → Test → Code Review → Commit)
 - 🧪 04-development.md (testing, debugging, docs)
 - ✅ 03-reviews.md (quick review before commit)
 - 💾 01-git.md (commit after approval)

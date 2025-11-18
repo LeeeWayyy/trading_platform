@@ -66,6 +66,7 @@ These documents define **mandatory** practices for all code and contributions:
 - [CURRENT, 2025-01-17, Standard] [CODING_STANDARDS.md](./STANDARDS/CODING_STANDARDS.md) - Python style, type hints, error handling (read before writing code)
 - [CURRENT, 2025-01-17, Standard] [DOCUMENTATION_STANDARDS.md](./STANDARDS/DOCUMENTATION_STANDARDS.md) - Docstring format, examples, comments (read before documenting)
 - [CURRENT, 2025-10-24, Standard] [GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md) - Commit messages, PR process, PxTy-Fz branching (read before committing)
+- [CURRENT, 2025-11-16, Standard] [BRANCH_PROTECTION.md](./STANDARDS/BRANCH_PROTECTION.md) - GitHub branch protection setup and verification (repository administrators)
 - [CURRENT, 2025-01-17, Standard] [TESTING.md](./STANDARDS/TESTING.md) - Test structure, coverage requirements (read before writing tests)
 - [CURRENT, 2025-01-17, Standard] [ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md) - When/how to write ADRs (read before making architectural decisions)
 

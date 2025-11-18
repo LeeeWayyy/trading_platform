@@ -4,7 +4,7 @@
     "title": "Unknown Task",
     "phase": "P1",
     "branch": "feature/P1T13-F5-workflow-meta-optimization",
-    "task_file": "/Users/leeewayyy/Documents/SourceCode/trading_platform/docs/TASKS/P1T13-F5_TASK.md",
+    "task_file": "docs/TASKS/P1T13-F5_TASK.md",
     "state": "IN_PROGRESS",
     "started": "2025-11-15"
   },
