@@ -88,6 +88,28 @@ services:
     depends_on:
       - loki
 
+  # ⚠️ WARNING: Web Console uses INSECURE dev authentication by default!
+  # For production: Set WEB_CONSOLE_AUTH_TYPE=oauth2 and configure IdP
+  # For testing: Use docker-compose.dev.yml instead
+  web_console:
+    build:
+      context: .
+      dockerfile: apps/web_console/Dockerfile
+    container_name: trading_platform_web_console
+    ports:
+      - "8501:8501"
+    environment:
+      - EXECUTION_GATEWAY_URL=http://host.docker.internal:8002
+      - WEB_CONSOLE_AUTH_TYPE=dev  # ⚠️ INSECURE: Change for production!
+      - WEB_CONSOLE_USER=admin     # ⚠️ Default credentials - change immediately!
+      - WEB_CONSOLE_PASSWORD=admin # ⚠️ Default credentials - change immediately!
+      - DATABASE_URL=postgresql://trader:trader@postgres:5432/trader
+      - SESSION_TIMEOUT_MINUTES=15
+      - SESSION_ABSOLUTE_TIMEOUT_HOURS=4
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
   redisdata:
