@@ -22,6 +22,7 @@ Environment Variables:
     DATABASE_URL: PostgreSQL connection string
 """
 
+import json
 import time
 from datetime import datetime
 from typing import Any, cast
@@ -119,11 +120,11 @@ def fetch_api(endpoint: str, method: str = "GET", data: dict[str, Any] | None = 
 
     try:
         if method == "GET":
-            response = session.get(url, timeout=5)
+            response = session.get(url, timeout=config.API_REQUEST_TIMEOUT)
         elif method == "POST":
-            response = session.post(url, json=data, timeout=5)
+            response = session.post(url, json=data, timeout=config.API_REQUEST_TIMEOUT)
         elif method == "DELETE":
-            response = session.delete(url, timeout=5)
+            response = session.delete(url, timeout=config.API_REQUEST_TIMEOUT)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -178,8 +179,6 @@ def audit_log(action: str, details: dict[str, Any], reason: str | None = None) -
         Uses low connect_timeout (2s) to prevent blocking emergency actions
         when database is unavailable. Falls back to console logging on errors.
     """
-    import json
-
     user_info = auth.get_current_user()
     ip_address = auth._get_client_ip()
 
@@ -197,9 +196,9 @@ def audit_log(action: str, details: dict[str, Any], reason: str | None = None) -
     try:
         import psycopg
 
-        # Set 2-second connection timeout to prevent blocking kill switch
+        # Set short connection timeout to prevent blocking kill switch
         # Use conninfo parameter instead of URL manipulation to preserve existing query params
-        with psycopg.connect(config.DATABASE_URL, connect_timeout=2) as conn:
+        with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -217,10 +216,17 @@ def audit_log(action: str, details: dict[str, Any], reason: str | None = None) -
                 )
                 conn.commit()
         print(f"[AUDIT] {audit_entry}")  # Also log to console for debugging
-    except (ModuleNotFoundError, Exception) as e:
-        # Log error but don't fail the operation (critical for kill switch!)
-        # ModuleNotFoundError handles missing psycopg gracefully
-        print(f"[AUDIT ERROR] Failed to write to database: {e}")
+    except ModuleNotFoundError:
+        # psycopg not installed - fallback to console logging only
+        print(f"[AUDIT ERROR] psycopg module not found - using console fallback")
+        print(f"[AUDIT FALLBACK] {audit_entry}")
+    except psycopg.Error as e:
+        # Database connection or query error - don't fail the operation (critical for kill switch!)
+        print(f"[AUDIT ERROR] Database error: {e}")
+        print(f"[AUDIT FALLBACK] {audit_entry}")
+    except Exception as e:
+        # Unexpected error - don't fail the operation
+        print(f"[AUDIT ERROR] Unexpected error: {e}")
         print(f"[AUDIT FALLBACK] {audit_entry}")
 
 
@@ -612,15 +618,15 @@ def render_audit_log() -> None:
     )
 
     # Fetch recent audit log entries from database
-    st.subheader("Recent Actions (Last 10)")
+    st.subheader(f"Recent Actions (Last {config.AUDIT_LOG_DISPLAY_LIMIT})")
 
     try:
         import psycopg
 
-        with psycopg.connect(config.DATABASE_URL, connect_timeout=2) as conn:
+        with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    f"""
                     SELECT
                         timestamp,
                         user_id,
@@ -630,7 +636,7 @@ def render_audit_log() -> None:
                         ip_address
                     FROM audit_log
                     ORDER BY timestamp DESC
-                    LIMIT 10
+                    LIMIT {config.AUDIT_LOG_DISPLAY_LIMIT}
                     """
                 )
                 rows = cur.fetchall()
@@ -641,7 +647,11 @@ def render_audit_log() -> None:
                     "Timestamp": row[0].strftime("%Y-%m-%d %H:%M:%S") if row[0] else "N/A",
                     "User": row[1],
                     "Action": row[2],
-                    "Details": row[3][:100] + "..." if len(row[3]) > 100 else row[3],  # Truncate long JSON
+                    "Details": (
+                        row[3][:config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH] + "..."
+                        if len(row[3]) > config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH
+                        else row[3]
+                    ),
                     "Reason": row[4] or "N/A",
                     "IP": row[5] or "N/A",
                 }
@@ -651,9 +661,19 @@ def render_audit_log() -> None:
         else:
             st.info("No audit log entries yet. Take some actions to populate the audit trail!")
 
+    except ModuleNotFoundError:
+        st.warning(
+            "psycopg module not installed - cannot fetch audit log from database.\n\n"
+            "Audit events are still being logged to console."
+        )
+    except psycopg.Error as e:
+        st.warning(
+            f"Database error while fetching audit log: {str(e)}\n\n"
+            "Audit events are still being logged (check console logs for fallback)."
+        )
     except Exception as e:
         st.warning(
-            f"Unable to fetch audit log from database: {str(e)}\n\n"
+            f"Unexpected error while fetching audit log: {str(e)}\n\n"
             "Audit events are still being logged (check console logs for fallback)."
         )
 

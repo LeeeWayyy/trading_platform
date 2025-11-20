@@ -91,6 +91,7 @@ services:
   # ⚠️ WARNING: Web Console uses INSECURE dev authentication by default!
   # For production: Set WEB_CONSOLE_AUTH_TYPE=oauth2 and configure IdP
   # For testing: Use docker-compose.dev.yml instead
+  # RECOMMENDED: Use env_file: .env to load credentials from file instead of inline
   web_console:
     build:
       context: .
@@ -98,11 +99,18 @@ services:
     container_name: trading_platform_web_console
     ports:
       - "8501:8501"
+    # SECURITY: Create .env file with credentials (see .env.example)
+    # Required: WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
+    # env_file:
+    #   - .env
     environment:
       - EXECUTION_GATEWAY_URL=http://host.docker.internal:8002
       - WEB_CONSOLE_AUTH_TYPE=dev  # ⚠️ INSECURE: Change for production!
-      - WEB_CONSOLE_USER=${WEB_CONSOLE_USER:-admin}     # Set in .env file!
-      - WEB_CONSOLE_PASSWORD=${WEB_CONSOLE_PASSWORD:-admin} # Set in .env file!
+      # SECURITY: No defaults - force explicit credential configuration
+      # Create .env file with: WEB_CONSOLE_USER=<your_username>
+      #                        WEB_CONSOLE_PASSWORD=<your_password>
+      - WEB_CONSOLE_USER=${WEB_CONSOLE_USER:?WEB_CONSOLE_USER not set. Create .env file with credentials.}
+      - WEB_CONSOLE_PASSWORD=${WEB_CONSOLE_PASSWORD:?WEB_CONSOLE_PASSWORD not set. Create .env file with credentials.}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}
       - SESSION_TIMEOUT_MINUTES=15
       - SESSION_ABSOLUTE_TIMEOUT_HOURS=4

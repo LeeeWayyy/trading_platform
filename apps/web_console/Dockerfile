@@ -11,7 +11,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for running the application
+RUN groupadd -r appuser && useradd -r -g appuser -u 1000 appuser
 
 # Copy requirements first for better caching
 COPY apps/web_console/requirements.txt /app/apps/web_console/requirements.txt
@@ -22,12 +26,18 @@ RUN pip install --no-cache-dir -r apps/web_console/requirements.txt
 # Copy application code
 COPY apps/web_console /app/apps/web_console
 
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
 # Expose Streamlit port
 EXPOSE 8501
 
-# Health check
+# Health check (runs as appuser)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
-# Run Streamlit app
+# Run Streamlit app as non-root user
 CMD ["streamlit", "run", "apps/web_console/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

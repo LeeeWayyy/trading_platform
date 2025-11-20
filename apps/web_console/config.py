@@ -52,6 +52,12 @@ DEV_PASSWORD = os.getenv("WEB_CONSOLE_PASSWORD", "admin")
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "15"))
 SESSION_ABSOLUTE_TIMEOUT_HOURS = int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_HOURS", "4"))
 
+# IP address tracking for audit log
+# Comma-separated list of trusted proxy IPs (e.g., "10.0.0.1,10.0.0.2")
+# If set, X-Forwarded-For header will be trusted for requests from these IPs
+# If not set, all audit log entries will show "localhost" (safe default for dev)
+TRUSTED_PROXY_IPS = os.getenv("TRUSTED_PROXY_IPS", "").split(",") if os.getenv("TRUSTED_PROXY_IPS") else []
+
 # ============================================================================
 # Database Configuration (for audit log)
 # ============================================================================
@@ -59,6 +65,16 @@ SESSION_ABSOLUTE_TIMEOUT_HOURS = int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_HOURS",
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
 )
+
+# ============================================================================
+# API Request Configuration
+# ============================================================================
+
+# API request timeout (seconds)
+API_REQUEST_TIMEOUT = 5
+
+# Database connection timeout (seconds) - short to prevent blocking kill switch/auth
+DATABASE_CONNECT_TIMEOUT = 2
 
 # ============================================================================
 # UI Configuration
@@ -71,3 +87,7 @@ AUTO_REFRESH_INTERVAL = 10
 PAGE_TITLE = "Trading Platform - Web Console"
 PAGE_ICON = "📈"
 LAYOUT: Literal["centered", "wide"] = "wide"
+
+# Audit log display configuration
+AUDIT_LOG_DISPLAY_LIMIT = 10
+AUDIT_LOG_DETAILS_TRUNCATE_LENGTH = 100

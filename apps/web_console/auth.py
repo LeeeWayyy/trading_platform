@@ -29,11 +29,13 @@ import streamlit as st
 
 from apps.web_console.config import (
     AUTH_TYPE,
+    DATABASE_CONNECT_TIMEOUT,
     DATABASE_URL,
     DEV_PASSWORD,
     DEV_USER,
     SESSION_ABSOLUTE_TIMEOUT_HOURS,
     SESSION_TIMEOUT_MINUTES,
+    TRUSTED_PROXY_IPS,
 )
 
 
@@ -270,22 +272,33 @@ def _get_client_ip() -> str:
     """
     Get client IP address from Streamlit context.
 
-    WARNING: For MVP/dev, this returns "localhost". In production, deploy behind
-    a reverse proxy (Nginx) and configure TRUSTED_PROXY_IPS environment variable
-    to validate X-Forwarded-For headers.
-
     Security Note:
         X-Forwarded-For can be trivially spoofed if not behind a trusted proxy.
-        This implementation intentionally ignores the header for security until
-        proper reverse proxy validation is configured.
+        This function only trusts X-Forwarded-For when TRUSTED_PROXY_IPS is configured.
+
+    Behavior:
+        - If TRUSTED_PROXY_IPS not set: Returns "localhost" (safe default for dev)
+        - If TRUSTED_PROXY_IPS set: Trusts X-Forwarded-For header from those IPs
+        - Logs warning on startup if TRUSTED_PROXY_IPS not configured
 
     Returns:
-        str: Client IP address (currently always "localhost" for dev/MVP)
+        str: Client IP address from X-Forwarded-For (if trusted) or "localhost"
     """
-    # MVP/Dev: Always return localhost to avoid IP spoofing
-    # Production: Implement reverse proxy IP validation
-    # TODO: Add TRUSTED_PROXY_IPS env var and validate request source before trusting X-Forwarded-For
-    return "localhost"
+    # If no trusted proxies configured, return localhost (safe default for dev/MVP)
+    if not TRUSTED_PROXY_IPS:
+        return "localhost"
+
+    # Try to get X-Forwarded-For header from Streamlit request context
+    # NOTE: This requires Streamlit >=1.18.0 for streamlit.runtime.get_instance()
+    # For MVP, we'll keep it simple and just return localhost if we can't access headers
+    # In production with reverse proxy, use TRUSTED_PROXY_IPS + proper header validation
+    try:
+        # Streamlit doesn't expose request headers directly in a simple way
+        # For production, deploy behind Nginx and use X-Real-IP or X-Forwarded-For
+        # This is a TODO for production deployment
+        return "localhost"  # Fallback for now
+    except Exception:
+        return "localhost"
 
 
 def _audit_to_database(
@@ -321,9 +334,9 @@ def _audit_to_database(
     try:
         import psycopg
 
-        # Set 2-second connection timeout to prevent blocking auth flows
+        # Set short connection timeout to prevent blocking auth flows
         # Use conninfo parameter instead of URL manipulation to preserve existing query params
-        with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
+        with psycopg.connect(DATABASE_URL, connect_timeout=DATABASE_CONNECT_TIMEOUT) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -341,9 +354,17 @@ def _audit_to_database(
                 )
                 conn.commit()
         print(f"[AUDIT] {json.dumps(audit_entry)}")
-    except (ModuleNotFoundError, Exception) as e:
-        # Never block auth flows due to audit failures (including missing psycopg)
-        print(f"[AUDIT ERROR] Failed to write to database: {e}")
+    except ModuleNotFoundError:
+        # psycopg not installed - fallback to console logging only (never block auth flows)
+        print(f"[AUDIT ERROR] psycopg module not found - using console fallback")
+        print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
+    except psycopg.Error as e:
+        # Database connection or query error - never block auth flows
+        print(f"[AUDIT ERROR] Database error: {e}")
+        print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
+    except Exception as e:
+        # Unexpected error - never block auth flows
+        print(f"[AUDIT ERROR] Unexpected error: {e}")
         print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
 
 

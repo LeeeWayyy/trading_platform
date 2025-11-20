@@ -142,13 +142,14 @@ class TestAuditLogging:
         username = "test_user"
         auth_method = "dev"
 
-        auth._audit_successful_login(username, auth_method)
+        with patch("apps.web_console.auth.st.session_state", {"session_id": "test123"}):
+            auth._audit_successful_login(username, auth_method)
 
-        # Check console output
+        # Check console output (will be fallback since DB not available in tests)
         captured = capsys.readouterr()
-        assert "[AUDIT] Successful login" in captured.out
-        assert f"user={username}" in captured.out
-        assert f"method={auth_method}" in captured.out
+        assert "[AUDIT" in captured.out, "Expected [AUDIT marker in output"
+        assert username in captured.out, f"Expected username {username} in output"
+        assert "login_success" in captured.out, "Expected login_success action in output"
 
     def test_audit_failed_login(self, capsys):
         """Test failed login audit."""
@@ -157,11 +158,11 @@ class TestAuditLogging:
 
         auth._audit_failed_login(username, auth_method)
 
-        # Check console output
+        # Check console output (will be fallback since DB not available in tests)
         captured = capsys.readouterr()
-        assert "[AUDIT] Failed login" in captured.out
-        assert f"user={username}" in captured.out
-        assert f"method={auth_method}" in captured.out
+        assert "[AUDIT" in captured.out, "Expected [AUDIT marker in output"
+        assert username in captured.out, f"Expected username {username} in output"
+        assert "login_failed" in captured.out, "Expected login_failed action in output"
 
 
 class TestAuthTypes:
@@ -186,3 +187,159 @@ class TestAuthTypes:
 
         # Should call dev auth
         mock_dev_auth.assert_called_once()
+
+
+class TestDevAuthWorkflow:
+    """Test _dev_auth workflow including rate limiting."""
+
+    def test_dev_auth_successful_login(self):
+        """Test successful login in dev mode."""
+        mock_session_state = {
+            "failed_login_attempts": 0,
+            "lockout_until": None,
+        }
+
+        with patch("apps.web_console.auth.st.session_state", mock_session_state):
+            with patch("apps.web_console.auth.st.title"):
+                with patch("apps.web_console.auth.st.warning"):
+                    with patch("apps.web_console.auth.st.form") as mock_form:
+                        with patch("apps.web_console.auth._init_session"):
+                            with patch("apps.web_console.auth.st.success"):
+                                with patch("apps.web_console.auth.time"):
+                                    with patch("apps.web_console.auth.st.rerun"):
+                                        # Mock form inputs
+                                        mock_form_context = MagicMock()
+                                        mock_form.return_value.__enter__.return_value = mock_form_context
+                                        mock_form_context.text_input.side_effect = ["admin", "admin"]
+                                        mock_form_context.form_submit_button.return_value = True
+
+                                        result = auth._dev_auth()
+
+                                        # Should reset failed attempts on success
+                                        assert mock_session_state["failed_login_attempts"] == 0
+                                        assert mock_session_state["lockout_until"] is None
+
+    def test_dev_auth_rate_limiting_3_attempts(self):
+        """Test rate limiting after 3 failed attempts (30s lockout)."""
+        mock_session_state: dict[str, Any] = {
+            "failed_login_attempts": 2,  # Start at 2, next failure will be 3rd
+            "lockout_until": None,
+        }
+
+        with patch("apps.web_console.auth.st") as mock_st:
+            # Configure mock
+            mock_st.session_state = mock_session_state
+            mock_st.form.return_value.__enter__.return_value = None
+            mock_st.text_input.side_effect = ["wrong_user", "wrong_pass"]
+            mock_st.form_submit_button.return_value = True
+
+            # Call _dev_auth - should trigger 3rd failed attempt
+            result = auth._dev_auth()
+
+            # Should fail authentication
+            assert result is False
+
+            # Verify lockout is set for 30 seconds (3 attempts)
+            assert mock_session_state["failed_login_attempts"] == 3
+            assert mock_session_state["lockout_until"] is not None
+            lockout_delta = mock_session_state["lockout_until"] - datetime.now()
+            # Should be ~30 seconds (allow 5s variance)
+            assert 25 <= lockout_delta.total_seconds() <= 35
+
+    def test_dev_auth_rate_limiting_5_attempts(self):
+        """Test rate limiting after 5 failed attempts (5min lockout)."""
+        mock_session_state: dict[str, Any] = {
+            "failed_login_attempts": 4,  # Start at 4, next failure will be 5th
+            "lockout_until": None,
+        }
+
+        with patch("apps.web_console.auth.st") as mock_st:
+            # Configure mock
+            mock_st.session_state = mock_session_state
+            mock_st.form.return_value.__enter__.return_value = None
+            mock_st.text_input.side_effect = ["wrong_user", "wrong_pass"]
+            mock_st.form_submit_button.return_value = True
+
+            # Call _dev_auth - should trigger 5th failed attempt
+            result = auth._dev_auth()
+
+            # Should fail authentication
+            assert result is False
+
+            # Verify lockout is set for 5 minutes (5 attempts = 300 seconds)
+            assert mock_session_state["failed_login_attempts"] == 5
+            assert mock_session_state["lockout_until"] is not None
+            lockout_delta = mock_session_state["lockout_until"] - datetime.now()
+            # Should be ~300 seconds (allow 10s variance)
+            assert 290 <= lockout_delta.total_seconds() <= 310
+
+    def test_dev_auth_rate_limiting_7_attempts(self):
+        """Test rate limiting after 7+ failed attempts (15min lockout)."""
+        mock_session_state: dict[str, Any] = {
+            "failed_login_attempts": 6,  # Start at 6, next failure will be 7th
+            "lockout_until": None,
+        }
+
+        with patch("apps.web_console.auth.st") as mock_st:
+            # Configure mock
+            mock_st.session_state = mock_session_state
+            mock_st.form.return_value.__enter__.return_value = None
+            mock_st.text_input.side_effect = ["wrong_user", "wrong_pass"]
+            mock_st.form_submit_button.return_value = True
+
+            # Call _dev_auth - should trigger 7th failed attempt
+            result = auth._dev_auth()
+
+            # Should fail authentication
+            assert result is False
+
+            # Verify lockout is set for 15 minutes (7+ attempts = 900 seconds)
+            assert mock_session_state["failed_login_attempts"] == 7
+            assert mock_session_state["lockout_until"] is not None
+            lockout_delta = mock_session_state["lockout_until"] - datetime.now()
+            # Should be ~900 seconds (allow 10s variance)
+            assert 890 <= lockout_delta.total_seconds() <= 910
+
+    def test_dev_auth_lockout_active(self):
+        """Test that active lockout prevents login."""
+        future_time = datetime.now() + timedelta(minutes=5)
+        mock_session_state = {
+            "failed_login_attempts": 5,
+            "lockout_until": future_time,
+        }
+
+        with patch("apps.web_console.auth.st.session_state", mock_session_state):
+            with patch("apps.web_console.auth.st.title"):
+                with patch("apps.web_console.auth.st.error") as mock_error:
+                    result = auth._dev_auth()
+
+                    # Should show lockout message
+                    mock_error.assert_called()
+                    error_msg = mock_error.call_args[0][0]
+                    assert "locked" in error_msg.lower()
+                    assert result is False
+
+    def test_dev_auth_lockout_expired(self):
+        """Test that expired lockout resets attempts."""
+        past_time = datetime.now() - timedelta(minutes=5)
+        mock_session_state = {
+            "failed_login_attempts": 5,
+            "lockout_until": past_time,
+        }
+
+        with patch("apps.web_console.auth.st.session_state", mock_session_state):
+            with patch("apps.web_console.auth.st.title"):
+                with patch("apps.web_console.auth.st.warning"):
+                    with patch("apps.web_console.auth.st.form") as mock_form:
+                        # Mock form not submitted (just rendering)
+                        mock_form_context = MagicMock()
+                        mock_form.return_value.__enter__.return_value = mock_form_context
+                        mock_form_context.text_input.side_effect = ["", ""]
+                        mock_form_context.form_submit_button.return_value = False
+
+                        result = auth._dev_auth()
+
+                        # Should reset lockout
+                        assert mock_session_state["failed_login_attempts"] == 0
+                        assert mock_session_state["lockout_until"] is None
+                        assert result is False  # Not logged in (form not submitted)
