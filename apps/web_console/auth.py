@@ -27,6 +27,7 @@ from typing import Any
 
 import streamlit as st
 
+from apps.web_console import config
 from apps.web_console.config import (
     AUTH_TYPE,
     DATABASE_CONNECT_TIMEOUT,
@@ -123,16 +124,16 @@ def _dev_auth() -> bool:
                 st.rerun()
             else:
                 # Increment failed attempts
-                st.session_state["failed_login_attempts"] = st.session_state.get("failed_login_attempts", 0) + 1
+                st.session_state["failed_login_attempts"] += 1
                 attempts = st.session_state["failed_login_attempts"]
 
                 # Exponential backoff: 3 attempts = 30s, 5 attempts = 5min, 7+ = 15min
-                if attempts >= 7:
-                    lockout_seconds = 900  # 15 minutes
-                elif attempts >= 5:
-                    lockout_seconds = 300  # 5 minutes
-                elif attempts >= 3:
-                    lockout_seconds = 30  # 30 seconds
+                if attempts >= config.RATE_LIMIT_THRESHOLD_3:
+                    lockout_seconds = config.RATE_LIMIT_LOCKOUT_3
+                elif attempts >= config.RATE_LIMIT_THRESHOLD_2:
+                    lockout_seconds = config.RATE_LIMIT_LOCKOUT_2
+                elif attempts >= config.RATE_LIMIT_THRESHOLD_1:
+                    lockout_seconds = config.RATE_LIMIT_LOCKOUT_1
                 else:
                     lockout_seconds = 0
 
@@ -145,7 +146,7 @@ def _dev_auth() -> bool:
                 else:
                     st.error(f"Invalid username or password. ({attempts} failed attempt{'s' if attempts > 1 else ''})")
 
-                _audit_failed_login(username, "dev")
+                _audit_failed_login("dev")
 
     return False
 
@@ -301,7 +302,7 @@ def _get_client_ip() -> str:
         return "localhost"
 
 
-def _audit_to_database(
+def audit_to_database(
     user_id: str,
     action: str,
     details: dict[str, Any],
@@ -356,7 +357,7 @@ def _audit_to_database(
         print(f"[AUDIT] {json.dumps(audit_entry)}")
     except ModuleNotFoundError:
         # psycopg not installed - fallback to console logging only (never block auth flows)
-        print(f"[AUDIT ERROR] psycopg module not found - using console fallback")
+        print("[AUDIT ERROR] psycopg module not found - using console fallback")
         print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
     except psycopg.Error as e:
         # Database connection or query error - never block auth flows
@@ -381,7 +382,7 @@ def _audit_successful_login(username: str, auth_method: str) -> None:
         "timestamp": datetime.now().isoformat(),
     }
     session_id = st.session_state.get("session_id", "unknown")
-    _audit_to_database(
+    audit_to_database(
         user_id=username,
         action="login_success",
         details=details,
@@ -389,21 +390,19 @@ def _audit_successful_login(username: str, auth_method: str) -> None:
     )
 
 
-def _audit_failed_login(username: str, auth_method: str) -> None:
+def _audit_failed_login(auth_method: str) -> None:
     """
     Audit failed login attempt.
 
     Args:
-        username: Username that attempted login
         auth_method: Authentication method attempted
     """
     details = {
         "auth_method": auth_method,
         "timestamp": datetime.now().isoformat(),
-        "attempted_username": username,
     }
-    _audit_to_database(
-        user_id=username,
+    audit_to_database(
+        user_id="<failed_login_attempt>",
         action="login_failed",
         details=details,
         session_id="N/A",  # No session for failed login
@@ -433,7 +432,7 @@ def logout() -> None:
     details = {
         "timestamp": datetime.now().isoformat(),
     }
-    _audit_to_database(
+    audit_to_database(
         user_id=username,
         action="logout",
         details=details,

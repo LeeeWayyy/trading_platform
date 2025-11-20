@@ -153,15 +153,14 @@ class TestAuditLogging:
 
     def test_audit_failed_login(self, capsys):
         """Test failed login audit."""
-        username = "bad_user"
         auth_method = "dev"
 
-        auth._audit_failed_login(username, auth_method)
+        auth._audit_failed_login(auth_method)
 
         # Check console output (will be fallback since DB not available in tests)
         captured = capsys.readouterr()
         assert "[AUDIT" in captured.out, "Expected [AUDIT marker in output"
-        assert username in captured.out, f"Expected username {username} in output"
+        assert "<failed_login_attempt>" in captured.out, "Expected <failed_login_attempt> in output"
         assert "login_failed" in captured.out, "Expected login_failed action in output"
 
 

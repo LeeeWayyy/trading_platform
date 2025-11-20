@@ -22,7 +22,6 @@ Environment Variables:
     DATABASE_URL: PostgreSQL connection string
 """
 
-import json
 import time
 from datetime import datetime
 from typing import Any, cast
@@ -176,58 +175,16 @@ def audit_log(action: str, details: dict[str, Any], reason: str | None = None) -
         reason: User-provided reason/justification
 
     Notes:
-        Uses low connect_timeout (2s) to prevent blocking emergency actions
-        when database is unavailable. Falls back to console logging on errors.
+        Delegates to auth.audit_to_database for centralized audit logging.
     """
     user_info = auth.get_current_user()
-    ip_address = auth._get_client_ip()
-
-    audit_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "user": user_info["username"],
-        "session_id": user_info["session_id"],
-        "ip_address": ip_address,
-        "action": action,
-        "details": details,
-        "reason": reason,
-    }
-
-    # Write to database audit_log table with low timeout to avoid blocking
-    try:
-        import psycopg
-
-        # Set short connection timeout to prevent blocking kill switch
-        # Use conninfo parameter instead of URL manipulation to preserve existing query params
-        with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO audit_log (user_id, action, details, reason, ip_address, session_id)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        user_info["username"],
-                        action,
-                        json.dumps(details),
-                        reason,
-                        ip_address,
-                        user_info["session_id"],
-                    ),
-                )
-                conn.commit()
-        print(f"[AUDIT] {audit_entry}")  # Also log to console for debugging
-    except ModuleNotFoundError:
-        # psycopg not installed - fallback to console logging only
-        print(f"[AUDIT ERROR] psycopg module not found - using console fallback")
-        print(f"[AUDIT FALLBACK] {audit_entry}")
-    except psycopg.Error as e:
-        # Database connection or query error - don't fail the operation (critical for kill switch!)
-        print(f"[AUDIT ERROR] Database error: {e}")
-        print(f"[AUDIT FALLBACK] {audit_entry}")
-    except Exception as e:
-        # Unexpected error - don't fail the operation
-        print(f"[AUDIT ERROR] Unexpected error: {e}")
-        print(f"[AUDIT FALLBACK] {audit_entry}")
+    auth.audit_to_database(
+        user_id=user_info["username"],
+        action=action,
+        details=details,
+        reason=reason,
+        session_id=user_info["session_id"],
+    )
 
 
 # ============================================================================
@@ -284,10 +241,9 @@ def render_dashboard() -> None:
     with col4:
         last_update = pnl_data.get("timestamp", "unknown")
         try:
-            # Normalize RFC3339 timestamps (Z -> +00:00) and parse
+            # Parse RFC3339 timestamps (Python 3.11+ supports Z suffix)
             if isinstance(last_update, str) and last_update != "unknown":
-                normalized = last_update.replace("Z", "+00:00")
-                parsed_time = datetime.fromisoformat(normalized)
+                parsed_time = datetime.fromisoformat(last_update)
                 display_time = parsed_time.strftime("%H:%M:%S")
             else:
                 display_time = "N/A"
@@ -377,8 +333,8 @@ def render_manual_order_entry() -> None:
                 # Validation
                 if not symbol:
                     st.error("Symbol is required")
-                elif not reason or len(reason.strip()) < 10:
-                    st.error("Reason must be at least 10 characters")
+                elif not reason or len(reason.strip()) < config.MIN_REASON_LENGTH:
+                    st.error(f"Reason must be at least {config.MIN_REASON_LENGTH} characters")
                 else:
                     # Check kill switch (fresh, uncached)
                     kill_switch = fetch_kill_switch_status()
@@ -534,8 +490,8 @@ def render_kill_switch() -> None:
             disengage = st.form_submit_button("🟢 Disengage Kill Switch", type="primary")
 
             if disengage:
-                if not notes or len(notes.strip()) < 10:
-                    st.error("Notes must be at least 10 characters")
+                if not notes or len(notes.strip()) < config.MIN_REASON_LENGTH:
+                    st.error(f"Notes must be at least {config.MIN_REASON_LENGTH} characters")
                 else:
                     try:
                         fetch_api(
@@ -570,8 +526,8 @@ def render_kill_switch() -> None:
             engage = st.form_submit_button("🔴 ENGAGE KILL SWITCH", type="primary")
 
             if engage:
-                if not reason or len(reason.strip()) < 10:
-                    st.error("Reason must be at least 10 characters")
+                if not reason or len(reason.strip()) < config.MIN_REASON_LENGTH:
+                    st.error(f"Reason must be at least {config.MIN_REASON_LENGTH} characters")
                 else:
                     try:
                         fetch_api(
@@ -626,18 +582,13 @@ def render_audit_log() -> None:
         with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"""
-                    SELECT
-                        timestamp,
-                        user_id,
-                        action,
-                        details::text,
-                        reason,
-                        ip_address
+                    """
+                    SELECT timestamp, user_id, action, details::text, reason, ip_address
                     FROM audit_log
                     ORDER BY timestamp DESC
-                    LIMIT {config.AUDIT_LOG_DISPLAY_LIMIT}
-                    """
+                    LIMIT %s
+                    """,
+                    (config.AUDIT_LOG_DISPLAY_LIMIT,),
                 )
                 rows = cur.fetchall()
 
@@ -716,7 +667,7 @@ def main() -> None:
             st.markdown(
                 f"Dry Run: {'✅' if gateway_config.get('dry_run') else '❌'}"
             )
-        except Exception:
+        except requests.exceptions.RequestException:
             st.markdown("⚠️ Gateway unreachable")
 
         # Auto-refresh

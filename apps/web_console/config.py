@@ -80,8 +80,19 @@ DATABASE_CONNECT_TIMEOUT = 2
 # UI Configuration
 # ============================================================================
 
-# Auto-refresh interval (seconds)
-AUTO_REFRESH_INTERVAL = 10
+# Auto-refresh interval (seconds) - configurable via environment variable
+AUTO_REFRESH_INTERVAL = int(os.getenv("AUTO_REFRESH_INTERVAL_SECONDS", "10"))
+
+# Minimum reason length for manual actions (characters)
+MIN_REASON_LENGTH = 10
+
+# Rate limiting configuration
+RATE_LIMIT_THRESHOLD_1 = 3  # First threshold: 3 failed attempts
+RATE_LIMIT_LOCKOUT_1 = 30   # Lockout duration: 30 seconds
+RATE_LIMIT_THRESHOLD_2 = 5  # Second threshold: 5 failed attempts
+RATE_LIMIT_LOCKOUT_2 = 300  # Lockout duration: 5 minutes
+RATE_LIMIT_THRESHOLD_3 = 7  # Third threshold: 7+ failed attempts
+RATE_LIMIT_LOCKOUT_3 = 900  # Lockout duration: 15 minutes
 
 # Page title and layout
 PAGE_TITLE = "Trading Platform - Web Console"
