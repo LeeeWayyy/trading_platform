@@ -599,7 +599,7 @@ def render_audit_log() -> None:
                     "User": row[1],
                     "Action": row[2],
                     "Details": (
-                        row[3][:config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH] + "..."
+                        row[3][: config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH - 3] + "..."
                         if len(row[3]) > config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH
                         else row[3]
                     ),
@@ -620,11 +620,6 @@ def render_audit_log() -> None:
     except psycopg.Error as e:
         st.warning(
             f"Database error while fetching audit log: {str(e)}\n\n"
-            "Audit events are still being logged (check console logs for fallback)."
-        )
-    except Exception as e:
-        st.warning(
-            f"Unexpected error while fetching audit log: {str(e)}\n\n"
             "Audit events are still being logged (check console logs for fallback)."
         )
 

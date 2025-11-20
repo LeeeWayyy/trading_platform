@@ -363,10 +363,6 @@ def audit_to_database(
         # Database connection or query error - never block auth flows
         print(f"[AUDIT ERROR] Database error: {e}")
         print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
-    except Exception as e:
-        # Unexpected error - never block auth flows
-        print(f"[AUDIT ERROR] Unexpected error: {e}")
-        print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
 
 
 def _audit_successful_login(username: str, auth_method: str) -> None:

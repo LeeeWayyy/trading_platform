@@ -1,15 +1,36 @@
-# Web Console Dockerfile
+# Web Console Dockerfile - Multi-stage Build
 # Build: docker build -t trading-platform-web-console -f apps/web_console/Dockerfile .
 # Run: docker run -p 8501:8501 --env-file .env trading-platform-web-console
+#
+# Multi-stage build:
+# - Stage 1 (builder): Install build dependencies and Python packages
+# - Stage 2 (final): Copy installed packages, runtime dependencies only, non-root user
 
+# ============================================================================
+# Stage 1: Builder - Install dependencies with build tools
+# ============================================================================
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# Install build dependencies (gcc needed for some Python packages)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install to a target directory
+COPY apps/web_console/requirements.txt .
+RUN pip install --no-cache-dir --target=/build/packages -r requirements.txt
+
+# ============================================================================
+# Stage 2: Final - Minimal runtime image
+# ============================================================================
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
+# Install only runtime dependencies (no gcc, only postgresql-client and curl)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -17,11 +38,8 @@ RUN apt-get update && apt-get install -y \
 # Create non-root user for running the application
 RUN groupadd -r appuser && useradd -r -g appuser -u 1000 appuser
 
-# Copy requirements first for better caching
-COPY apps/web_console/requirements.txt /app/apps/web_console/requirements.txt
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r apps/web_console/requirements.txt
+# Copy installed packages from builder stage
+COPY --from=builder /build/packages /usr/local/lib/python3.11/site-packages
 
 # Copy application code
 COPY apps/web_console /app/apps/web_console

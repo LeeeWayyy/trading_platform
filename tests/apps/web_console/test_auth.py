@@ -147,9 +147,11 @@ class TestAuditLogging:
 
         # Check console output (will be fallback since DB not available in tests)
         captured = capsys.readouterr()
+        # Verify JSON audit log format
         assert "[AUDIT" in captured.out, "Expected [AUDIT marker in output"
-        assert username in captured.out, f"Expected username {username} in output"
-        assert "login_success" in captured.out, "Expected login_success action in output"
+        assert '"user_id": "test_user"' in captured.out or "'user_id': 'test_user'" in captured.out, f"Expected username {username} in JSON format"
+        assert '"action": "login_success"' in captured.out or "'action': 'login_success'" in captured.out, "Expected login_success action in JSON format"
+        assert '"auth_method": "dev"' in captured.out or "'auth_method': 'dev'" in captured.out, "Expected auth_method in details"
 
     def test_audit_failed_login(self, capsys):
         """Test failed login audit."""
@@ -159,9 +161,10 @@ class TestAuditLogging:
 
         # Check console output (will be fallback since DB not available in tests)
         captured = capsys.readouterr()
+        # Verify JSON audit log format
         assert "[AUDIT" in captured.out, "Expected [AUDIT marker in output"
-        assert "<failed_login_attempt>" in captured.out, "Expected <failed_login_attempt> in output"
-        assert "login_failed" in captured.out, "Expected login_failed action in output"
+        assert '"user_id": "<failed_login_attempt>"' in captured.out or "'user_id': '<failed_login_attempt>'" in captured.out, "Expected <failed_login_attempt> in JSON format"
+        assert '"action": "login_failed"' in captured.out or "'action': 'login_failed'" in captured.out, "Expected login_failed action in JSON format"
 
 
 class TestAuthTypes:
