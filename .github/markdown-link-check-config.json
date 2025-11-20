@@ -80,6 +80,9 @@
     },
     {
       "pattern": "^https://github.com/LeeeWayyy/trading_platform/pull/[0-9]+$"
+    },
+    {
+      "pattern": "^https://console.trading-platform.example.com"
     }
   ],
   "replacementPatterns": [

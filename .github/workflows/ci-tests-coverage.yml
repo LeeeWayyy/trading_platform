@@ -34,6 +34,11 @@ jobs:
   test-and-coverage:
     name: Run tests and check coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+      administration: read  # Required for branch protection check
 
     services:
       redis:
@@ -73,6 +78,8 @@ jobs:
           echo "::endgroup::"
 
       - name: Verify branch protection configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "::group::Checking branch protection status"
           python3 scripts/verify_branch_protection.py
