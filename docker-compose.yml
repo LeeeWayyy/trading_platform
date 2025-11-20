@@ -5,9 +5,9 @@ services:
     image: postgres:16
     container_name: trading_platform_postgres
     environment:
-      POSTGRES_USER: trader
-      POSTGRES_PASSWORD: trader
-      POSTGRES_DB: trader
+      POSTGRES_USER: ${POSTGRES_USER:-trader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trader}
+      POSTGRES_DB: ${POSTGRES_DB:-trader}
     ports:
       - "5432:5432"
     volumes:
@@ -52,8 +52,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
     volumes:
       - grafanadata:/var/lib/grafana
       - ./infra/grafana:/etc/grafana/provisioning
@@ -101,9 +101,9 @@ services:
     environment:
       - EXECUTION_GATEWAY_URL=http://host.docker.internal:8002
       - WEB_CONSOLE_AUTH_TYPE=dev  # ⚠️ INSECURE: Change for production!
-      - WEB_CONSOLE_USER=admin     # ⚠️ Default credentials - change immediately!
-      - WEB_CONSOLE_PASSWORD=admin # ⚠️ Default credentials - change immediately!
-      - DATABASE_URL=postgresql://trader:trader@postgres:5432/trader
+      - WEB_CONSOLE_USER=${WEB_CONSOLE_USER:-admin}     # Set in .env file!
+      - WEB_CONSOLE_PASSWORD=${WEB_CONSOLE_PASSWORD:-admin} # Set in .env file!
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}
       - SESSION_TIMEOUT_MINUTES=15
       - SESSION_ABSOLUTE_TIMEOUT_HOURS=4
     depends_on:

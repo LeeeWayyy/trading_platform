@@ -70,4 +70,4 @@ AUTO_REFRESH_INTERVAL = 10
 # Page title and layout
 PAGE_TITLE = "Trading Platform - Web Console"
 PAGE_ICON = "📈"
-LAYOUT = "wide"
+LAYOUT: Literal["centered", "wide"] = "wide"

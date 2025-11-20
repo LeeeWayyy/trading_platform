@@ -10,7 +10,8 @@ Security Features:
 - Session timeout (15 min idle, 4 hour absolute)
 - Audit logging for all auth attempts
 - IP address tracking
-- Failed login rate limiting
+- Failed login rate limiting (3 attempts = 30s lockout, 5 = 5min, 7+ = 15min)
+- Constant-time password comparison (prevents timing attacks)
 
 Note:
     OAuth2 implementation is a placeholder for future implementation.
@@ -18,6 +19,8 @@ Note:
 """
 
 import hashlib
+import hmac
+import json
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -26,6 +29,7 @@ import streamlit as st
 
 from apps.web_console.config import (
     AUTH_TYPE,
+    DATABASE_URL,
     DEV_PASSWORD,
     DEV_USER,
     SESSION_ABSOLUTE_TIMEOUT_HOURS,
@@ -63,14 +67,35 @@ def _dev_auth() -> bool:
     Returns:
         bool: True if authenticated
     """
-    # Check if already logged in
-    if "authenticated" in st.session_state and st.session_state.authenticated:
+    # Check if already logged in (dict-style access for test compatibility)
+    if "authenticated" in st.session_state and st.session_state.get("authenticated", False):
         if _check_session_timeout():
             return True
         else:
             # Session expired
             st.session_state.clear()
             st.rerun()
+
+    # Initialize rate limiting state
+    if "failed_login_attempts" not in st.session_state:
+        st.session_state["failed_login_attempts"] = 0
+        st.session_state["lockout_until"] = None
+
+    # Check if locked out
+    lockout_until = st.session_state.get("lockout_until")
+    if lockout_until:
+        if datetime.now() < lockout_until:
+            remaining = (lockout_until - datetime.now()).seconds
+            st.title("Trading Platform - Login")
+            st.error(
+                f"🔒 Account temporarily locked due to failed login attempts.\n\n"
+                f"Please wait {remaining} seconds before trying again."
+            )
+            return False
+        else:
+            # Lockout expired, reset
+            st.session_state["failed_login_attempts"] = 0
+            st.session_state["lockout_until"] = None
 
     # Show login form
     st.title("Trading Platform - Login")
@@ -82,13 +107,42 @@ def _dev_auth() -> bool:
         submit = st.form_submit_button("Login")
 
         if submit:
-            if username == DEV_USER and password == DEV_PASSWORD:
+            # Use constant-time comparison to prevent timing attacks
+            username_match = hmac.compare_digest(username, DEV_USER)
+            password_match = hmac.compare_digest(password, DEV_PASSWORD)
+
+            if username_match and password_match:
+                # Reset failed attempts on successful login
+                st.session_state["failed_login_attempts"] = 0
+                st.session_state["lockout_until"] = None
                 _init_session(username, "dev")
                 st.success("Logged in successfully!")
                 time.sleep(0.5)  # Brief pause for user feedback
                 st.rerun()
             else:
-                st.error("Invalid username or password")
+                # Increment failed attempts
+                st.session_state["failed_login_attempts"] = st.session_state.get("failed_login_attempts", 0) + 1
+                attempts = st.session_state["failed_login_attempts"]
+
+                # Exponential backoff: 3 attempts = 30s, 5 attempts = 5min, 7+ = 15min
+                if attempts >= 7:
+                    lockout_seconds = 900  # 15 minutes
+                elif attempts >= 5:
+                    lockout_seconds = 300  # 5 minutes
+                elif attempts >= 3:
+                    lockout_seconds = 30  # 30 seconds
+                else:
+                    lockout_seconds = 0
+
+                if lockout_seconds > 0:
+                    st.session_state["lockout_until"] = datetime.now() + timedelta(seconds=lockout_seconds)
+                    st.error(
+                        f"Invalid username or password.\n\n"
+                        f"Too many failed attempts ({attempts}). Account locked for {lockout_seconds} seconds."
+                    )
+                else:
+                    st.error(f"Invalid username or password. ({attempts} failed attempt{'s' if attempts > 1 else ''})")
+
                 _audit_failed_login(username, "dev")
 
     return False
@@ -96,16 +150,21 @@ def _dev_auth() -> bool:
 
 def _basic_auth() -> bool:
     """
-    Basic HTTP authentication.
+    Basic HTTP authentication (form-based, not HTTP Basic Auth header).
 
-    For testing only - not production-ready.
-    Requires HTTPS in production.
+    Note: Despite the name, this uses form-based authentication like dev mode.
+    For true HTTP Basic Authentication with Authorization header, this would
+    need to be implemented using Streamlit's request context.
+
+    For MVP: Uses same implementation as dev mode.
+    For production: Consider removing this mode or implementing proper HTTP Basic Auth.
 
     Returns:
         bool: True if authenticated
     """
     st.warning("Basic auth mode - testing only, not for production")
-    # Placeholder: same implementation as dev for MVP
+    # MVP: Same implementation as dev (form-based login)
+    # TODO: Implement proper HTTP Basic Auth or remove this mode
     return _dev_auth()
 
 
@@ -143,12 +202,12 @@ def _init_session(username: str, auth_method: str) -> None:
         auth_method: Authentication method used (dev, basic, oauth2)
     """
     now = datetime.now()
-    st.session_state.authenticated = True
-    st.session_state.username = username
-    st.session_state.auth_method = auth_method
-    st.session_state.login_time = now
-    st.session_state.last_activity = now
-    st.session_state.session_id = _generate_session_id(username, now)
+    st.session_state["authenticated"] = True
+    st.session_state["username"] = username
+    st.session_state["auth_method"] = auth_method
+    st.session_state["login_time"] = now
+    st.session_state["last_activity"] = now
+    st.session_state["session_id"] = _generate_session_id(username, now)
 
     # Audit successful login
     _audit_successful_login(username, auth_method)
@@ -168,8 +227,9 @@ def _check_session_timeout() -> bool:
     now = datetime.now()
 
     # Check absolute timeout
-    if "login_time" in st.session_state:
-        session_age = now - st.session_state.login_time
+    login_time = st.session_state.get("login_time")
+    if login_time:
+        session_age = now - login_time
         if session_age > timedelta(hours=SESSION_ABSOLUTE_TIMEOUT_HOURS):
             st.warning(
                 f"Session expired after {SESSION_ABSOLUTE_TIMEOUT_HOURS} hours. Please log in again."
@@ -177,8 +237,9 @@ def _check_session_timeout() -> bool:
             return False
 
     # Check idle timeout
-    if "last_activity" in st.session_state:
-        idle_time = now - st.session_state.last_activity
+    last_activity = st.session_state.get("last_activity")
+    if last_activity:
+        idle_time = now - last_activity
         if idle_time > timedelta(minutes=SESSION_TIMEOUT_MINUTES):
             st.warning(
                 f"Session timed out after {SESSION_TIMEOUT_MINUTES} minutes of inactivity. Please log in again."
@@ -186,7 +247,7 @@ def _check_session_timeout() -> bool:
             return False
 
     # Update last activity
-    st.session_state.last_activity = now
+    st.session_state["last_activity"] = now
     return True
 
 
@@ -205,6 +266,87 @@ def _generate_session_id(username: str, login_time: datetime) -> str:
     return hashlib.sha256(data.encode()).hexdigest()[:16]
 
 
+def _get_client_ip() -> str:
+    """
+    Get client IP address from Streamlit context.
+
+    WARNING: For MVP/dev, this returns "localhost". In production, deploy behind
+    a reverse proxy (Nginx) and configure TRUSTED_PROXY_IPS environment variable
+    to validate X-Forwarded-For headers.
+
+    Security Note:
+        X-Forwarded-For can be trivially spoofed if not behind a trusted proxy.
+        This implementation intentionally ignores the header for security until
+        proper reverse proxy validation is configured.
+
+    Returns:
+        str: Client IP address (currently always "localhost" for dev/MVP)
+    """
+    # MVP/Dev: Always return localhost to avoid IP spoofing
+    # Production: Implement reverse proxy IP validation
+    # TODO: Add TRUSTED_PROXY_IPS env var and validate request source before trusting X-Forwarded-For
+    return "localhost"
+
+
+def _audit_to_database(
+    user_id: str,
+    action: str,
+    details: dict[str, Any],
+    reason: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    """
+    Write audit entry to database.
+
+    Uses non-blocking approach with low timeout to prevent blocking
+    authentication flows.
+
+    Args:
+        user_id: Username or identifier
+        action: Action type (e.g., "login_success", "login_failed")
+        details: Action-specific details
+        reason: Optional reason/justification
+        session_id: Optional session ID
+    """
+    ip_address = _get_client_ip()
+    audit_entry = {
+        "user_id": user_id,
+        "action": action,
+        "details": details,
+        "reason": reason,
+        "ip_address": ip_address,
+        "session_id": session_id or "N/A",
+    }
+
+    try:
+        import psycopg
+
+        # Set 2-second connection timeout to prevent blocking auth flows
+        # Use conninfo parameter instead of URL manipulation to preserve existing query params
+        with psycopg.connect(DATABASE_URL, connect_timeout=2) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO audit_log (user_id, action, details, reason, ip_address, session_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        user_id,
+                        action,
+                        json.dumps(details),
+                        reason,
+                        ip_address,
+                        session_id or "N/A",
+                    ),
+                )
+                conn.commit()
+        print(f"[AUDIT] {json.dumps(audit_entry)}")
+    except (ModuleNotFoundError, Exception) as e:
+        # Never block auth flows due to audit failures (including missing psycopg)
+        print(f"[AUDIT ERROR] Failed to write to database: {e}")
+        print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
+
+
 def _audit_successful_login(username: str, auth_method: str) -> None:
     """
     Audit successful login attempt.
@@ -213,11 +355,16 @@ def _audit_successful_login(username: str, auth_method: str) -> None:
         username: Username that logged in
         auth_method: Authentication method used
     """
-    # TODO: Write to audit_log table
-    # For MVP, just log to console
-    print(
-        f"[AUDIT] Successful login: user={username}, method={auth_method}, "
-        f"time={datetime.now().isoformat()}"
+    details = {
+        "auth_method": auth_method,
+        "timestamp": datetime.now().isoformat(),
+    }
+    session_id = st.session_state.get("session_id", "unknown")
+    _audit_to_database(
+        user_id=username,
+        action="login_success",
+        details=details,
+        session_id=session_id,
     )
 
 
@@ -229,11 +376,16 @@ def _audit_failed_login(username: str, auth_method: str) -> None:
         username: Username that attempted login
         auth_method: Authentication method attempted
     """
-    # TODO: Write to audit_log table
-    # For MVP, just log to console
-    print(
-        f"[AUDIT] Failed login: user={username}, method={auth_method}, "
-        f"time={datetime.now().isoformat()}"
+    details = {
+        "auth_method": auth_method,
+        "timestamp": datetime.now().isoformat(),
+        "attempted_username": username,
+    }
+    _audit_to_database(
+        user_id=username,
+        action="login_failed",
+        details=details,
+        session_id="N/A",  # No session for failed login
     )
 
 
@@ -255,6 +407,17 @@ def get_current_user() -> dict[str, Any]:
 def logout() -> None:
     """Logout current user and clear session."""
     username = st.session_state.get("username", "unknown")
-    print(f"[AUDIT] Logout: user={username}, time={datetime.now().isoformat()}")
+    session_id = st.session_state.get("session_id", "unknown")
+
+    details = {
+        "timestamp": datetime.now().isoformat(),
+    }
+    _audit_to_database(
+        user_id=username,
+        action="logout",
+        details=details,
+        session_id=session_id,
+    )
+
     st.session_state.clear()
     st.rerun()

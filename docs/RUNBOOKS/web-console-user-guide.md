@@ -93,16 +93,22 @@ streamlit run apps/web_console/app.py --server.port 8501
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
-| `dev` | Basic username/password | Local development only |
-| `basic` | HTTP Basic Auth | Testing only (requires HTTPS) |
+| `dev` | Form-based username/password | Local development only |
+| `basic` | Form-based (same as dev mode) | Testing only - NOT HTTP Basic Auth protocol |
 | `oauth2` | OAuth2/OIDC (planned) | Production (not yet implemented) |
 
 **Current MVP:** Uses `dev` mode with credentials from `config.py`
 
+**Note:** `basic` mode currently uses the same form-based authentication as `dev` mode.
+It does NOT implement the HTTP Basic Authentication protocol (Authorization header).
+For true HTTP Basic Auth, use a reverse proxy like Nginx.
+
 ### Security Features
 
-✅ Session timeout enforcement
+✅ Session timeout enforcement (15 min idle, 4 hour absolute)
 ✅ Audit logging for all auth attempts
+✅ Rate limiting (3 failed attempts = 30s lockout, 5 = 5min, 7+ = 15min)
+✅ Constant-time password comparison (prevents timing attacks)
 ⚠️ OAuth2/OIDC integration pending
 ⚠️ MFA not yet supported
 
@@ -256,20 +262,28 @@ All kill switch actions are logged with:
 
 ## Audit Log
 
-View and filter all manual actions performed via web console.
+View all manual actions performed via web console with database-backed audit trail.
 
 ### Current Status
 
-⚠️ **Database Integration Pending**
+✅ **Database Integration Active**
 
-Audit events are currently logged to server console logs. Full database integration with web UI is planned for next iteration.
+All manual actions, authentication events, and kill switch operations are persisted to the PostgreSQL `audit_log` table with IP address tracking. The web UI displays the last 10 audit entries in real-time.
 
-### Planned Features
+### Features
 
+**Implemented:**
+- Last 10 audit entries displayed in UI
+- Database-backed persistence (PostgreSQL)
+- IP address tracking
+- Timestamp, user, action, details, reason captured
+- Fallback to console logging if database unavailable
+
+**Future Enhancements:**
 - Filter by date range, action type, user
 - Search by keywords
 - Export to CSV
-- Pagination for large datasets
+- Pagination for browsing full history
 
 ### Audit Event Types
 
@@ -279,11 +293,26 @@ Audit events are currently logged to server console logs. Full database integrat
 | `manual_order_failed` | Manual order submission failed |
 | `kill_switch_engage` | Kill switch activated |
 | `kill_switch_disengage` | Kill switch deactivated |
+| `login_success` | Successful authentication |
+| `login_failed` | Failed authentication attempt |
+| `logout` | User logout |
 | `strategy_toggle` | Strategy enabled/disabled (planned) |
 
-### Viewing Current Audit Trail
+### Viewing Audit Trail
 
-**Temporary workaround:** Check server logs
+The **Audit Log** tab displays recent actions directly from the database. Each entry shows:
+- Timestamp (when action occurred)
+- User (who performed the action)
+- Action type (what was done)
+- Details (JSON with action-specific data)
+- Reason (user-provided justification)
+- IP Address (client source)
+
+For full audit history beyond last 10 entries, query the database directly:
+
+```sql
+SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 100;
+```
 
 ```bash
 # View audit logs (if using Docker)

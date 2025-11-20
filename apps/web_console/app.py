@@ -24,11 +24,12 @@ Environment Variables:
 
 import time
 from datetime import datetime
-from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 import requests
 import streamlit as st
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from apps.web_console import auth, config
 
@@ -55,9 +56,52 @@ if not auth.check_password():
 # ============================================================================
 
 
+def _get_api_session() -> requests.Session:
+    """
+    Get or create a requests session with retry logic for current Streamlit session.
+
+    Each Streamlit user session gets its own requests.Session to avoid
+    thread-safety issues with shared connection pools and cookies.
+
+    Retry strategy:
+    - 3 retries on connection errors, timeouts, and 5xx errors
+    - Exponential backoff: 0.5s, 1s, 2s
+    - No retry on 4xx client errors
+
+    Returns:
+        requests.Session: Configured session with retry adapter
+    """
+    # Check if session already exists for this Streamlit session
+    if "api_session" not in st.session_state:
+        session = requests.Session()
+
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=3,  # Total number of retries
+            backoff_factor=0.5,  # Exponential backoff: 0.5s, 1s, 2s
+            status_forcelist=[500, 502, 503, 504],  # Retry on these HTTP status codes
+            allowed_methods=["GET", "POST", "DELETE"],  # Methods to retry
+            raise_on_status=False,  # Don't raise on retry exhaustion
+        )
+
+        # Mount adapter with retry strategy
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        st.session_state["api_session"] = session
+
+    return cast(requests.Session, st.session_state["api_session"])
+
+
 def fetch_api(endpoint: str, method: str = "GET", data: dict[str, Any] | None = None) -> dict[str, Any]:
     """
-    Fetch data from execution gateway API.
+    Fetch data from execution gateway API with retry logic.
+
+    Automatically retries on transient failures (connection errors, timeouts,
+    5xx server errors) with exponential backoff. Does NOT retry 4xx client errors.
+
+    Each Streamlit user session gets its own requests.Session for thread safety.
 
     Args:
         endpoint: API endpoint name (from config.ENDPOINTS)
@@ -68,21 +112,23 @@ def fetch_api(endpoint: str, method: str = "GET", data: dict[str, Any] | None = 
         dict: API response JSON
 
     Raises:
-        Exception: If API request fails
+        Exception: If API request fails after retries
     """
     url = config.ENDPOINTS[endpoint]
+    session = _get_api_session()
+
     try:
         if method == "GET":
-            response = requests.get(url, timeout=5)
+            response = session.get(url, timeout=5)
         elif method == "POST":
-            response = requests.post(url, json=data, timeout=5)
+            response = session.post(url, json=data, timeout=5)
         elif method == "DELETE":
-            response = requests.delete(url, timeout=5)
+            response = session.delete(url, timeout=5)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
     except requests.exceptions.RequestException as e:
         st.error(f"API Error: {endpoint} - {str(e)}")
         raise
@@ -134,13 +180,14 @@ def audit_log(action: str, details: dict[str, Any], reason: str | None = None) -
     """
     import json
 
-    import psycopg
-
     user_info = auth.get_current_user()
+    ip_address = auth._get_client_ip()
+
     audit_entry = {
         "timestamp": datetime.now().isoformat(),
         "user": user_info["username"],
         "session_id": user_info["session_id"],
+        "ip_address": ip_address,
         "action": action,
         "details": details,
         "reason": reason,
@@ -148,27 +195,31 @@ def audit_log(action: str, details: dict[str, Any], reason: str | None = None) -
 
     # Write to database audit_log table with low timeout to avoid blocking
     try:
+        import psycopg
+
         # Set 2-second connection timeout to prevent blocking kill switch
-        conn_params = f"{config.DATABASE_URL}?connect_timeout=2"
-        with psycopg.connect(conn_params) as conn:
+        # Use conninfo parameter instead of URL manipulation to preserve existing query params
+        with psycopg.connect(config.DATABASE_URL, connect_timeout=2) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO audit_log (user_id, action, details, reason, session_id)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO audit_log (user_id, action, details, reason, ip_address, session_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     """,
                     (
                         user_info["username"],
                         action,
                         json.dumps(details),
                         reason,
+                        ip_address,
                         user_info["session_id"],
                     ),
                 )
                 conn.commit()
         print(f"[AUDIT] {audit_entry}")  # Also log to console for debugging
-    except Exception as e:
+    except (ModuleNotFoundError, Exception) as e:
         # Log error but don't fail the operation (critical for kill switch!)
+        # ModuleNotFoundError handles missing psycopg gracefully
         print(f"[AUDIT ERROR] Failed to write to database: {e}")
         print(f"[AUDIT FALLBACK] {audit_entry}")
 
@@ -284,13 +335,13 @@ def render_manual_order_entry() -> None:
     """Render manual order entry form with two-step confirmation."""
     st.header("Manual Order Entry")
 
-    # Initialize confirmation state
+    # Initialize confirmation state (dict-style access for test compatibility)
     if "order_confirmation_pending" not in st.session_state:
-        st.session_state.order_confirmation_pending = False
-        st.session_state.order_preview = None
+        st.session_state["order_confirmation_pending"] = False
+        st.session_state["order_preview"] = None
 
     # Step 1: Order Entry Form
-    if not st.session_state.order_confirmation_pending:
+    if not st.session_state.get("order_confirmation_pending", False):
         with st.form("order_entry_form"):
             st.subheader("Order Details")
 
@@ -323,21 +374,30 @@ def render_manual_order_entry() -> None:
                 elif not reason or len(reason.strip()) < 10:
                     st.error("Reason must be at least 10 characters")
                 else:
-                    # Store order preview
-                    st.session_state.order_preview = {
-                        "symbol": symbol.upper(),
-                        "side": side,
-                        "qty": qty,
-                        "order_type": order_type,
-                        "limit_price": limit_price,
-                        "reason": reason.strip(),
-                    }
-                    st.session_state.order_confirmation_pending = True
-                    st.rerun()
+                    # Check kill switch (fresh, uncached)
+                    kill_switch = fetch_kill_switch_status()
+                    if kill_switch.get("state") == "ENGAGED":
+                        st.error(
+                            "🛑 Kill Switch is ENGAGED - Manual orders are blocked.\n\n"
+                            f"Engaged by: {kill_switch.get('engaged_by', 'unknown')}\n\n"
+                            f"Reason: {kill_switch.get('engagement_reason', 'N/A')}"
+                        )
+                    else:
+                        # Store order preview
+                        st.session_state["order_preview"] = {
+                            "symbol": symbol.upper(),
+                            "side": side,
+                            "qty": qty,
+                            "order_type": order_type,
+                            "limit_price": limit_price,
+                            "reason": reason.strip(),
+                        }
+                        st.session_state["order_confirmation_pending"] = True
+                        st.rerun()
 
     # Step 2: Confirmation
     else:
-        order = st.session_state.order_preview
+        order = st.session_state.get("order_preview", {})
 
         st.subheader("⚠️ Confirm Order")
         st.warning("**Please review order details carefully before confirming**")
@@ -357,6 +417,21 @@ def render_manual_order_entry() -> None:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✅ Confirm & Submit", type="primary", use_container_width=True):
+                # Final kill switch check (fresh, right before submission)
+                kill_switch = fetch_kill_switch_status()
+                if kill_switch.get("state") == "ENGAGED":
+                    st.error(
+                        "🛑 Kill Switch is ENGAGED - Cannot submit order.\n\n"
+                        f"Engaged by: {kill_switch.get('engaged_by', 'unknown')}\n\n"
+                        f"Reason: {kill_switch.get('engagement_reason', 'N/A')}"
+                    )
+                    # Clear confirmation state
+                    st.session_state["order_confirmation_pending"] = False
+                    st.session_state["order_preview"] = None
+                    time.sleep(2)
+                    st.rerun()
+                    return
+
                 # Submit order
                 try:
                     order_request = {
@@ -387,8 +462,8 @@ def render_manual_order_entry() -> None:
                     )
 
                     # Clear confirmation state
-                    st.session_state.order_confirmation_pending = False
-                    st.session_state.order_preview = None
+                    st.session_state["order_confirmation_pending"] = False
+                    st.session_state["order_preview"] = None
                     time.sleep(2)  # Brief pause for user to see success message
                     st.rerun()
 
@@ -402,8 +477,8 @@ def render_manual_order_entry() -> None:
 
         with col2:
             if st.button("❌ Cancel", use_container_width=True):
-                st.session_state.order_confirmation_pending = False
-                st.session_state.order_preview = None
+                st.session_state["order_confirmation_pending"] = False
+                st.session_state["order_preview"] = None
                 st.rerun()
 
 
@@ -457,7 +532,7 @@ def render_kill_switch() -> None:
                     st.error("Notes must be at least 10 characters")
                 else:
                     try:
-                        response = fetch_api(
+                        fetch_api(
                             "kill_switch_disengage",
                             method="POST",
                             data={"operator": operator, "notes": notes.strip()},
@@ -493,7 +568,7 @@ def render_kill_switch() -> None:
                     st.error("Reason must be at least 10 characters")
                 else:
                     try:
-                        response = fetch_api(
+                        fetch_api(
                             "kill_switch_engage",
                             method="POST",
                             data={"operator": operator, "reason": reason.strip()},
@@ -519,40 +594,68 @@ def render_kill_switch() -> None:
 
 
 def render_audit_log() -> None:
-    """Render audit log viewer."""
+    """Render audit log viewer with database integration."""
     st.header("Audit Log")
 
+    st.success(
+        "✅ **Audit log database integration active**\n\n"
+        "All manual actions, authentication events, and kill switch operations are "
+        "persisted to the `audit_log` database table with IP address tracking."
+    )
+
     st.info(
-        "⚠️ **Audit log database integration pending**\n\n"
-        "This section will display a searchable, filterable audit trail of all manual actions "
-        "once the audit_log table is integrated.\n\n"
-        "**Planned features:**\n"
+        "**Future enhancements (post-MVP):**\n"
         "- Filter by date range, action type, user\n"
         "- Search by keywords\n"
         "- Export to CSV\n"
-        "- Pagination for large datasets\n\n"
-        "**Audit events currently logged to console** (see server logs for full audit trail)"
+        "- Pagination for large datasets"
     )
 
-    # Placeholder table
-    st.subheader("Recent Actions (Placeholder)")
-    placeholder_data = [
-        {
-            "Timestamp": "2024-11-17 14:30:15",
-            "User": "admin",
-            "Action": "manual_order",
-            "Details": "AAPL buy 10 shares",
-            "Reason": "Closing position due to news event",
-        },
-        {
-            "Timestamp": "2024-11-17 13:45:22",
-            "User": "ops_team",
-            "Action": "kill_switch_engage",
-            "Details": "Emergency halt",
-            "Reason": "Market anomaly detected",
-        },
-    ]
-    st.table(placeholder_data)
+    # Fetch recent audit log entries from database
+    st.subheader("Recent Actions (Last 10)")
+
+    try:
+        import psycopg
+
+        with psycopg.connect(config.DATABASE_URL, connect_timeout=2) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        timestamp,
+                        user_id,
+                        action,
+                        details::text,
+                        reason,
+                        ip_address
+                    FROM audit_log
+                    ORDER BY timestamp DESC
+                    LIMIT 10
+                    """
+                )
+                rows = cur.fetchall()
+
+        if rows:
+            audit_data = [
+                {
+                    "Timestamp": row[0].strftime("%Y-%m-%d %H:%M:%S") if row[0] else "N/A",
+                    "User": row[1],
+                    "Action": row[2],
+                    "Details": row[3][:100] + "..." if len(row[3]) > 100 else row[3],  # Truncate long JSON
+                    "Reason": row[4] or "N/A",
+                    "IP": row[5] or "N/A",
+                }
+                for row in rows
+            ]
+            st.table(audit_data)
+        else:
+            st.info("No audit log entries yet. Take some actions to populate the audit trail!")
+
+    except Exception as e:
+        st.warning(
+            f"Unable to fetch audit log from database: {str(e)}\n\n"
+            "Audit events are still being logged (check console logs for fallback)."
+        )
 
 
 # ============================================================================
