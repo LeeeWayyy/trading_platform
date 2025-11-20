@@ -32,9 +32,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check links in all markdown files
-        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        uses: tcort/markdown-link-check@v2
         with:
-          use-verbose-mode: 'yes'
+          verbose: 'yes'
           config-file: '.github/markdown-link-check-config.json'
           folder-path: '.'
           file-extension: '.md'

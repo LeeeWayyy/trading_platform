@@ -31,7 +31,6 @@ The Trading Platform Web Console is a Streamlit-based UI for operational oversig
 
 **Target Users:** Operations team, traders, risk managers (non-technical operators)
 
-<!-- markdown-link-check-disable-next-line -->
 **Access URL:** http://localhost:8501 (local) or https://console.trading-platform.example.com (production)
 
 ---
