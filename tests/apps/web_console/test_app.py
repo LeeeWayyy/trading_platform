@@ -129,7 +129,7 @@ class TestAuditLog:
     def test_audit_log_manual_order(self, caplog):
         """Test audit log for manual order."""
         import logging
-        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+        caplog.set_level(logging.INFO)
 
         mock_user_info = {
             "username": "test_user",
@@ -156,7 +156,7 @@ class TestAuditLog:
     def test_audit_log_kill_switch(self, caplog):
         """Test audit log for kill switch action."""
         import logging
-        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+        caplog.set_level(logging.INFO)
 
         mock_user_info = {
             "username": "ops_team",
@@ -428,56 +428,67 @@ class TestManualOrderEntryFlow:
     def test_step_2_confirm_submits_order_and_clears_pending(self):
         """Test step 2: confirming pending order submits to API and clears state."""
         mock_session_state = {
-            "order_pending": {
+            "order_confirmation_pending": True,
+            "order_preview": {
                 "symbol": "AAPL",
                 "side": "buy",
                 "qty": 10,
                 "order_type": "market",
-                "price": None,
+                "limit_price": None,
+                "reason": "Test reason for order submission"
             }
         }
 
         with patch("apps.web_console.app.st") as mock_st:
             # Assign session_state dict directly to mock (not a separate patch)
             mock_st.session_state = mock_session_state
-            with patch("apps.web_console.app.fetch_api") as mock_fetch:
-                with patch("apps.web_console.app.audit_log"):
-                    mock_fetch.return_value = {"client_order_id": "test123"}
+            # Mock columns for layout
+            mock_st.columns.return_value = (MagicMock(), MagicMock())
+            with patch("apps.web_console.app.fetch_kill_switch_status") as mock_kill:
+                with patch("apps.web_console.app.fetch_api") as mock_fetch:
+                    with patch("apps.web_console.app.audit_log"):
+                        mock_kill.return_value = {"state": "ACTIVE"}
+                        mock_fetch.return_value = {"client_order_id": "test123"}
 
-                    # Simulate confirmation button click
-                    mock_st.button.return_value = True
+                        # Simulate confirmation button click (first button returns True)
+                        mock_st.button.return_value = True
 
-                    # Manually clear pending (simulating app logic)
-                    if "order_pending" in mock_session_state:
-                        del mock_session_state["order_pending"]
+                        # Call actual function
+                        app.render_manual_order_entry()
 
-                    # Verify state cleared
-                    assert "order_pending" not in mock_session_state
+                        # Verify fetch_api was called
+                        mock_fetch.assert_called_once()
+                        # Verify state cleared
+                        assert not mock_session_state.get("order_confirmation_pending", False)
 
     def test_step_2_cancel_clears_pending_without_submit(self):
         """Test step 2: canceling pending order clears state without API call."""
         mock_session_state = {
-            "order_pending": {
+            "order_confirmation_pending": True,
+            "order_preview": {
                 "symbol": "AAPL",
                 "side": "buy",
                 "qty": 10,
                 "order_type": "market",
+                "limit_price": None,
+                "reason": "Test reason"
             }
         }
 
         with patch("apps.web_console.app.st") as mock_st:
             # Assign session_state dict directly to mock (not a separate patch)
             mock_st.session_state = mock_session_state
+            # Mock columns for layout
+            mock_st.columns.return_value = (MagicMock(), MagicMock())
             with patch("apps.web_console.app.fetch_api") as mock_fetch:
                 # Simulate cancel button (first button returns False, second returns True)
                 mock_st.button.side_effect = [False, True]
 
-                # Manually clear pending (simulating cancel logic)
-                if "order_pending" in mock_session_state:
-                    del mock_session_state["order_pending"]
+                # Call actual function
+                app.render_manual_order_entry()
 
                 # Verify state cleared
-                assert "order_pending" not in mock_session_state
+                assert not mock_session_state.get("order_confirmation_pending", False)
                 # Verify no API call made
                 mock_fetch.assert_not_called()
 
@@ -683,8 +694,8 @@ class TestKillSwitchFlow:
                                     reason=reason.strip(),
                                 )
 
-                                # Verify success message and rerun
-                                mock_st.success.assert_called()
+                                # Verify toast notification (not success message) and rerun
+                                mock_st.toast.assert_called()
                                 mock_st.rerun.assert_called_once()
 
     def test_disengage_with_reason_calls_api_and_audits(self):
@@ -746,7 +757,7 @@ class TestKillSwitchFlow:
                                     reason=notes.strip(),
                                 )
 
-                                # Verify toast notification and rerun
+                                # Verify toast notification (not success message) and rerun
                                 mock_st.toast.assert_called()
                                 mock_st.rerun.assert_called_once()
 

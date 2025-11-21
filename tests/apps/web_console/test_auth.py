@@ -140,7 +140,7 @@ class TestAuditLogging:
     def test_audit_successful_login(self, caplog):
         """Test successful login audit."""
         import logging
-        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+        caplog.set_level(logging.INFO)
 
         username = "test_user"
         auth_method = "dev"
@@ -159,7 +159,7 @@ class TestAuditLogging:
     def test_audit_failed_login(self, caplog):
         """Test failed login audit."""
         import logging
-        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+        caplog.set_level(logging.INFO)
 
         auth_method = "dev"
 

@@ -73,7 +73,7 @@ def _get_api_session() -> requests.Session:
             total=3,  # Total number of retries
             backoff_factor=0.5,  # Exponential backoff: 0.5s, 1s, 2s
             status_forcelist=[500, 502, 503, 504],  # Retry on these HTTP status codes
-            allowed_methods=["GET", "POST", "DELETE"],  # Methods to retry
+            allowed_methods=["GET", "POST", "DELETE"],  # CRITICAL: Assumes POST endpoints are idempotent (via client_order_id)
             raise_on_status=False,  # Don't raise on retry exhaustion
         )
 
@@ -145,6 +145,12 @@ def auto_refresh_loop() -> None:
 
     Uses st.rerun() with a timer to refresh the dashboard every AUTO_REFRESH_INTERVAL seconds.
     Streamlit will re-execute the entire script, triggering cache refresh for stale data.
+
+    Implementation note:
+        @st.cache_data(ttl=X) alone does NOT auto-refresh the dashboard - it only prevents
+        redundant API calls within the TTL window. Without st.rerun(), cached data would
+        become stale after TTL expires but the UI would not update until user interaction.
+        This loop ensures the dashboard refreshes automatically every X seconds.
     """
     time.sleep(config.AUTO_REFRESH_INTERVAL)
     st.rerun()
@@ -156,6 +162,9 @@ def fetch_kill_switch_status() -> dict[str, Any]:
 
     Kill switch state is safety-critical and must always be real-time.
     Caching could show stale data for up to 10s after state change.
+
+    Raises:
+        Exception: If API request fails (network error, timeout, HTTP error)
     """
     return fetch_api("kill_switch_status")
 
@@ -341,7 +350,11 @@ def render_manual_order_entry() -> None:
                     st.error(f"Reason must be at least {config.MIN_REASON_LENGTH} characters")
                 else:
                     # Check kill switch (fresh, uncached)
-                    kill_switch = fetch_kill_switch_status()
+                    try:
+                        kill_switch = fetch_kill_switch_status()
+                    except Exception as e:
+                        st.error(f"Failed to check kill switch status: {str(e)}")
+                        return
                     if kill_switch.get("state") == "ENGAGED":
                         st.error(
                             "🛑 Kill Switch is ENGAGED - Manual orders are blocked.\n\n"
@@ -384,14 +397,22 @@ def render_manual_order_entry() -> None:
         with col1:
             if st.button("✅ Confirm & Submit", type="primary", use_container_width=True):
                 # Final kill switch check (fresh, right before submission)
-                kill_switch = fetch_kill_switch_status()
+                try:
+                    kill_switch = fetch_kill_switch_status()
+                except Exception as e:
+                    st.error(f"Failed to check kill switch status: {str(e)}")
+                    # Clear confirmation state
+                    st.session_state["order_confirmation_pending"] = False
+                    st.session_state["order_preview"] = None
+                    st.rerun()
+                    return
                 if kill_switch.get("state") == "ENGAGED":
                     st.error(
                         "🛑 Kill Switch is ENGAGED - Cannot submit order.\n\n"
                         f"Engaged by: {kill_switch.get('engaged_by', 'unknown')}\n\n"
                         f"Reason: {kill_switch.get('engagement_reason', 'N/A')}"
                     )
-                    # Clear confirmation state
+                    # Clear confirmation state and show toast
                     st.session_state["order_confirmation_pending"] = False
                     st.session_state["order_preview"] = None
                     st.toast("Order submission failed: Kill Switch is engaged.", icon="🛑")
@@ -407,7 +428,7 @@ def render_manual_order_entry() -> None:
                         "order_type": order["order_type"],
                     }
                     if order["limit_price"]:
-                        order_request["limit_price"] = order["limit_price"]
+                        order_request["limit_price"] = order["limit_price"]  # Keep as numeric, not string
 
                     response = fetch_api("submit_order", method="POST", data=order_request)
 
@@ -421,11 +442,10 @@ def render_manual_order_entry() -> None:
                         reason=order["reason"],
                     )
 
-                    st.toast("✅ Order submitted successfully!")
-
-                    # Clear confirmation state
+                    # Clear confirmation state and show toast
                     st.session_state["order_confirmation_pending"] = False
                     st.session_state["order_preview"] = None
+                    st.toast("✅ Order submitted successfully!")
                     st.rerun()
 
                 except Exception as e:
@@ -541,8 +561,7 @@ def render_kill_switch() -> None:
                             reason=reason.strip(),
                         )
 
-                        st.success("🔴 Kill switch engaged successfully!")
-                        time.sleep(1)
+                        st.toast("🔴 Kill switch engaged successfully!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to engage kill switch: {str(e)}")
@@ -554,7 +573,16 @@ def render_kill_switch() -> None:
 
 
 def render_audit_log() -> None:
-    """Render audit log viewer with database integration."""
+    """
+    Render audit log viewer with database integration.
+
+    Connection Pooling Note:
+        MVP implementation creates a new connection per query.
+        For production, consider implementing connection pooling using:
+        - psycopg.pool.ConnectionPool for sync operations
+        - psycopg_pool.AsyncConnectionPool for async operations
+        This will reduce connection overhead and improve performance under load.
+    """
     st.header("Audit Log")
 
     st.success(
@@ -577,6 +605,7 @@ def render_audit_log() -> None:
     try:
         import psycopg
 
+        # MVP: Creates new connection per query. For production, use connection pooling.
         with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
             with conn.cursor() as cur:
                 cur.execute(

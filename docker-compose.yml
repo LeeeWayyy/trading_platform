@@ -104,6 +104,9 @@ services:
     # env_file:
     #   - .env
     environment:
+      # host.docker.internal allows container to reach host services (execution gateway on port 8002)
+      # NOTE: On Linux, may need to add --add-host=host.docker.internal:host-gateway to docker run,
+      # or use network_mode: host, or specify host IP directly (e.g., http://172.17.0.1:8002)
       - EXECUTION_GATEWAY_URL=http://host.docker.internal:8002
       - WEB_CONSOLE_AUTH_TYPE=dev  # ⚠️ INSECURE: Change for production!
       # SECURITY: No defaults - force explicit credential configuration

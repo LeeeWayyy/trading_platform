@@ -117,7 +117,8 @@ def _dev_auth() -> bool:
             username_match = hmac.compare_digest(username, DEV_USER)
             password_match = hmac.compare_digest(password, DEV_PASSWORD)
 
-            if username_match and password_match:
+            # Use bitwise & to ensure both comparisons always execute (prevent timing side-channel)
+            if username_match & password_match:
                 # Reset failed attempts on successful login
                 st.session_state["failed_login_attempts"] = 0
                 st.session_state["lockout_until"] = None
@@ -356,7 +357,6 @@ def audit_to_database(
 
     try:
         import psycopg
-        from psycopg.types.json import Jsonb
 
         # Set short connection timeout to prevent blocking auth flows
         # Use conninfo parameter instead of URL manipulation to preserve existing query params
@@ -370,7 +370,7 @@ def audit_to_database(
                     (
                         user_id,
                         action,
-                        Jsonb(details),  # Explicitly wrap dict as JSONB for psycopg3
+                        details,  # psycopg3 auto-adapts dict to JSONB, no Jsonb() wrapper needed
                         reason,
                         ip_address,
                         session_id or "N/A",
