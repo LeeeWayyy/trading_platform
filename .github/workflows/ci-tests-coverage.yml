@@ -120,7 +120,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-client
 
           # Run migrations in order
-          for migration in migrations/*.sql; do
+          for migration in db/migrations/*.sql; do
             echo "Running migration: $migration"
             PGPASSWORD=dev_password psql -h localhost -U trading_platform -d trading_platform_test -f "$migration"
           done
@@ -207,7 +207,7 @@ jobs:
       - name: Run database migrations
         run: |
           echo "::group::Running database migrations"
-          for migration in migrations/*.sql; do
+          for migration in db/migrations/*.sql; do
             echo "Running migration: $migration"
             cat "$migration" | docker compose -f docker-compose.ci.yml exec -T postgres psql -U trader -d trader_test
           done

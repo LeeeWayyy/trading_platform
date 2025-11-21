@@ -616,37 +616,306 @@ class TestKillSwitchFlow:
 
     def test_engage_with_reason_calls_api_and_audits(self):
         """
-        Test engaging kill switch integration path.
+        Test kill switch engage flow through full Streamlit UI path.
 
-        NOTE: Full form submission flow is difficult to test with Streamlit's runtime.
-        This test verifies integration path exists. Production safety relies on:
-        1. Manual acceptance testing (documented in RUNBOOKS/web-console-user-guide.md)
-        2. Code review of kill switch logic
+        Drives render_kill_switch with mocked st context to verify:
+        1. Form input validation (MIN_REASON_LENGTH)
+        2. fetch_api called with correct endpoint, method, and payload
+        3. audit_log called with correct action, details, and reason
+        4. UI feedback (success message, rerun)
         """
-        # This test documents the expected integration behavior
-        # Actual form submission requires Streamlit runtime which is mocked away in tests
-        # The code path is verified by:
-        # 1. Code review showing correct API call structure
-        # 2. Manual testing procedures in runbook
-        # 3. Related tests (test_engage_requires_reason) verify validation logic
-        pass
+        mock_status = {"state": "ACTIVE"}  # Not engaged, show engage form
+        operator = "test_operator"
+        reason = "Test reason for engaging kill switch"
+
+        with patch("apps.web_console.app.fetch_kill_switch_status", return_value=mock_status):
+            with patch("apps.web_console.app.st") as mock_st:
+                with patch("apps.web_console.app.auth.get_current_user") as mock_user:
+                    with patch("apps.web_console.app.fetch_api") as mock_fetch:
+                        with patch("apps.web_console.app.audit_log") as mock_audit:
+                            with patch("apps.web_console.app.time"):
+                                # Mock user input
+                                mock_user.return_value = {"username": operator}
+
+                                # Mock form context
+                                mock_form = MagicMock()
+                                mock_st.form.return_value.__enter__.return_value = mock_form
+                                mock_form.text_area.return_value = reason
+                                mock_form.form_submit_button.return_value = True
+
+                                # Inside form context, st.text_area and st.form_submit_button
+                                # should delegate to form context (simulate streamlit behavior)
+                                mock_st.text_area = mock_form.text_area
+                                mock_st.form_submit_button = mock_form.form_submit_button
+
+                                # Mock API response
+                                mock_fetch.return_value = {"status": "ok"}
+
+                                # Call the real render_kill_switch function
+                                app.render_kill_switch()
+
+                                # Verify fetch_api was called with correct payload
+                                mock_fetch.assert_called_once_with(
+                                    "kill_switch_engage",
+                                    method="POST",
+                                    data={"operator": operator, "reason": reason.strip()},
+                                )
+
+                                # Verify audit_log was called correctly
+                                mock_audit.assert_called_once_with(
+                                    action="kill_switch_engage",
+                                    details={"operator": operator},
+                                    reason=reason.strip(),
+                                )
+
+                                # Verify success message and rerun
+                                mock_st.success.assert_called()
+                                mock_st.rerun.assert_called_once()
 
     def test_disengage_with_reason_calls_api_and_audits(self):
         """
-        Test disengaging kill switch integration path.
+        Test kill switch disengage flow through full Streamlit UI path.
 
-        NOTE: Full form submission flow is difficult to test with Streamlit's runtime.
-        This test verifies integration path exists. Production safety relies on:
-        1. Manual acceptance testing (documented in RUNBOOKS/web-console-user-guide.md)
-        2. Code review of kill switch logic
+        Drives render_kill_switch with mocked st context to verify:
+        1. Form input validation (MIN_REASON_LENGTH)
+        2. fetch_api called with correct endpoint, method, and payload
+        3. audit_log called with correct action, details, and notes
+        4. UI feedback (success message, rerun)
         """
-        # This test documents the expected integration behavior
-        # Actual form submission requires Streamlit runtime which is mocked away in tests
-        # The code path is verified by:
-        # 1. Code review showing correct API call structure
-        # 2. Manual testing procedures in runbook
-        # 3. Related tests verify validation and state display logic
-        pass
+        mock_status = {
+            "state": "ENGAGED",
+            "engaged_by": "ops_team",
+            "engagement_reason": "Test",
+            "engaged_at": "2024-11-17T10:00:00",
+        }  # Engaged, show disengage form
+        operator = "test_operator"
+        notes = "Test notes for disengaging kill switch"
+
+        with patch("apps.web_console.app.fetch_kill_switch_status", return_value=mock_status):
+            with patch("apps.web_console.app.st") as mock_st:
+                with patch("apps.web_console.app.auth.get_current_user") as mock_user:
+                    with patch("apps.web_console.app.fetch_api") as mock_fetch:
+                        with patch("apps.web_console.app.audit_log") as mock_audit:
+                            with patch("apps.web_console.app.time"):
+                                # Mock user input
+                                mock_user.return_value = {"username": operator}
+
+                                # Mock form context
+                                mock_form = MagicMock()
+                                mock_st.form.return_value.__enter__.return_value = mock_form
+                                mock_form.text_area.return_value = notes
+                                mock_form.form_submit_button.return_value = True
+
+                                # Inside form context, st.text_area and st.form_submit_button
+                                # should delegate to form context (simulate streamlit behavior)
+                                mock_st.text_area = mock_form.text_area
+                                mock_st.form_submit_button = mock_form.form_submit_button
+
+                                # Mock API response
+                                mock_fetch.return_value = {"status": "ok"}
+
+                                # Call the real render_kill_switch function
+                                app.render_kill_switch()
+
+                                # Verify fetch_api was called with correct payload
+                                mock_fetch.assert_called_once_with(
+                                    "kill_switch_disengage",
+                                    method="POST",
+                                    data={"operator": operator, "notes": notes.strip()},
+                                )
+
+                                # Verify audit_log was called correctly
+                                mock_audit.assert_called_once_with(
+                                    action="kill_switch_disengage",
+                                    details={"operator": operator},
+                                    reason=notes.strip(),
+                                )
+
+                                # Verify success message and rerun
+                                mock_st.success.assert_called()
+                                mock_st.rerun.assert_called_once()
+
+    def test_engage_validation_rejects_short_reason(self):
+        """
+        Test kill switch engage form validation rejects reason < MIN_REASON_LENGTH.
+
+        Verifies:
+        1. Validation error displayed when reason too short
+        2. fetch_api NOT called when validation fails
+        3. audit_log NOT called when validation fails
+        """
+        mock_status = {"state": "ACTIVE"}
+        operator = "test_operator"
+        short_reason = "short"  # Less than MIN_REASON_LENGTH (10)
+
+        with patch("apps.web_console.app.fetch_kill_switch_status", return_value=mock_status):
+            with patch("apps.web_console.app.st") as mock_st:
+                with patch("apps.web_console.app.auth.get_current_user") as mock_user:
+                    with patch("apps.web_console.app.fetch_api") as mock_fetch:
+                        with patch("apps.web_console.app.audit_log") as mock_audit:
+                            # Mock user input
+                            mock_user.return_value = {"username": operator}
+
+                            # Mock form context
+                            mock_form = MagicMock()
+                            mock_st.form.return_value.__enter__.return_value = mock_form
+                            mock_form.text_area.return_value = short_reason
+                            mock_form.form_submit_button.return_value = True
+
+                            # Inside form context, st.text_area and st.form_submit_button
+                            # should delegate to form context (simulate streamlit behavior)
+                            mock_st.text_area = mock_form.text_area
+                            mock_st.form_submit_button = mock_form.form_submit_button
+
+                            # Call the real render_kill_switch function
+                            app.render_kill_switch()
+
+                            # Verify error message displayed
+                            mock_st.error.assert_called()
+                            error_calls = [call for call in mock_st.error.call_args_list]
+                            assert any("must be at least" in str(call) for call in error_calls)
+
+                            # Verify fetch_api was NOT called
+                            mock_fetch.assert_not_called()
+
+                            # Verify audit_log was NOT called
+                            mock_audit.assert_not_called()
+
+    def test_disengage_validation_rejects_short_notes(self):
+        """
+        Test kill switch disengage form validation rejects notes < MIN_REASON_LENGTH.
+
+        Verifies:
+        1. Validation error displayed when notes too short
+        2. fetch_api NOT called when validation fails
+        3. audit_log NOT called when validation fails
+        """
+        mock_status = {
+            "state": "ENGAGED",
+            "engaged_by": "ops_team",
+            "engagement_reason": "Test",
+            "engaged_at": "2024-11-17T10:00:00",
+        }
+        operator = "test_operator"
+        short_notes = "short"  # Less than MIN_REASON_LENGTH (10)
+
+        with patch("apps.web_console.app.fetch_kill_switch_status", return_value=mock_status):
+            with patch("apps.web_console.app.st") as mock_st:
+                with patch("apps.web_console.app.auth.get_current_user") as mock_user:
+                    with patch("apps.web_console.app.fetch_api") as mock_fetch:
+                        with patch("apps.web_console.app.audit_log") as mock_audit:
+                            # Mock user input
+                            mock_user.return_value = {"username": operator}
+
+                            # Mock form context
+                            mock_form = MagicMock()
+                            mock_st.form.return_value.__enter__.return_value = mock_form
+                            mock_form.text_area.return_value = short_notes
+                            mock_form.form_submit_button.return_value = True
+
+                            # Inside form context, st.text_area and st.form_submit_button
+                            # should delegate to form context (simulate streamlit behavior)
+                            mock_st.text_area = mock_form.text_area
+                            mock_st.form_submit_button = mock_form.form_submit_button
+
+                            # Call the real render_kill_switch function
+                            app.render_kill_switch()
+
+                            # Verify error message displayed
+                            mock_st.error.assert_called()
+                            error_calls = [call for call in mock_st.error.call_args_list]
+                            assert any("must be at least" in str(call) for call in error_calls)
+
+                            # Verify fetch_api was NOT called
+                            mock_fetch.assert_not_called()
+
+                            # Verify audit_log was NOT called
+                            mock_audit.assert_not_called()
+
+    def test_engage_form_not_submitted_no_api_calls(self):
+        """
+        Test kill switch engage form without submission.
+
+        Verifies:
+        1. No API calls when form not submitted
+        2. No audit log when form not submitted
+        3. Form renders without errors
+        """
+        mock_status = {"state": "ACTIVE"}
+        operator = "test_operator"
+
+        with patch("apps.web_console.app.fetch_kill_switch_status", return_value=mock_status):
+            with patch("apps.web_console.app.st") as mock_st:
+                with patch("apps.web_console.app.auth.get_current_user") as mock_user:
+                    with patch("apps.web_console.app.fetch_api") as mock_fetch:
+                        with patch("apps.web_console.app.audit_log") as mock_audit:
+                            # Mock user input
+                            mock_user.return_value = {"username": operator}
+
+                            # Mock form NOT submitted
+                            mock_form = MagicMock()
+                            mock_st.form.return_value.__enter__.return_value = mock_form
+                            mock_form.text_area.return_value = "Valid reason text"
+                            mock_form.form_submit_button.return_value = False
+
+                            # Inside form context, st.text_area and st.form_submit_button
+                            # should delegate to form context (simulate streamlit behavior)
+                            mock_st.text_area = mock_form.text_area
+                            mock_st.form_submit_button = mock_form.form_submit_button
+
+                            # Call the real render_kill_switch function
+                            app.render_kill_switch()
+
+                            # Verify fetch_api was NOT called
+                            mock_fetch.assert_not_called()
+
+                            # Verify audit_log was NOT called
+                            mock_audit.assert_not_called()
+
+    def test_disengage_form_not_submitted_no_api_calls(self):
+        """
+        Test kill switch disengage form without submission.
+
+        Verifies:
+        1. No API calls when form not submitted
+        2. No audit log when form not submitted
+        3. Form renders without errors
+        """
+        mock_status = {
+            "state": "ENGAGED",
+            "engaged_by": "ops_team",
+            "engagement_reason": "Test",
+            "engaged_at": "2024-11-17T10:00:00",
+        }
+        operator = "test_operator"
+
+        with patch("apps.web_console.app.fetch_kill_switch_status", return_value=mock_status):
+            with patch("apps.web_console.app.st") as mock_st:
+                with patch("apps.web_console.app.auth.get_current_user") as mock_user:
+                    with patch("apps.web_console.app.fetch_api") as mock_fetch:
+                        with patch("apps.web_console.app.audit_log") as mock_audit:
+                            # Mock user input
+                            mock_user.return_value = {"username": operator}
+
+                            # Mock form NOT submitted
+                            mock_form = MagicMock()
+                            mock_st.form.return_value.__enter__.return_value = mock_form
+                            mock_form.text_area.return_value = "Valid notes text"
+                            mock_form.form_submit_button.return_value = False
+
+                            # Inside form context, st.text_area and st.form_submit_button
+                            # should delegate to form context (simulate streamlit behavior)
+                            mock_st.text_area = mock_form.text_area
+                            mock_st.form_submit_button = mock_form.form_submit_button
+
+                            # Call the real render_kill_switch function
+                            app.render_kill_switch()
+
+                            # Verify fetch_api was NOT called
+                            mock_fetch.assert_not_called()
+
+                            # Verify audit_log was NOT called
+                            mock_audit.assert_not_called()
 
     def test_kill_switch_status_not_cached(self):
         """Test that kill switch status is fetched fresh each time (no caching)."""

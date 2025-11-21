@@ -45,13 +45,6 @@ st.set_page_config(
 )
 
 # ============================================================================
-# Authentication
-# ============================================================================
-
-if not auth.check_password():
-    st.stop()
-
-# ============================================================================
 # Helper Functions
 # ============================================================================
 
@@ -631,6 +624,10 @@ def render_audit_log() -> None:
 
 def main() -> None:
     """Main application entry point."""
+    # Authentication gate - must be called inside main() to avoid StreamlitAPIException at module import
+    if not auth.check_password():
+        st.stop()
+
     # Sidebar
     with st.sidebar:
         st.title("Navigation")

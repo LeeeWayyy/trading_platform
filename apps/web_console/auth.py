@@ -96,8 +96,8 @@ def _dev_auth() -> bool:
             )
             return False
         else:
-            # Lockout expired, reset
-            st.session_state["failed_login_attempts"] = 0
+            # Lockout expired - clear lockout but keep attempt counter for escalation
+            # Counter only resets on successful login (line 119)
             st.session_state["lockout_until"] = None
 
     # Show login form
@@ -279,8 +279,15 @@ def _get_client_ip() -> str:
 
     Behavior:
         - If TRUSTED_PROXY_IPS not set: Returns "localhost" (safe default for dev)
-        - If TRUSTED_PROXY_IPS set: Trusts X-Forwarded-For header from those IPs
-        - Logs warning on startup if TRUSTED_PROXY_IPS not configured
+        - If TRUSTED_PROXY_IPS set: Attempts to extract X-Forwarded-For from request headers
+        - Falls back to "localhost" if header extraction fails
+
+    MVP Limitation:
+        Streamlit does not expose request headers directly in a simple way.
+        Current implementation always returns "localhost" regardless of TRUSTED_PROXY_IPS.
+        For production deployment with reverse proxy (Nginx), implement proper header
+        extraction using streamlit.web.server.server_util or middleware.
+        See: https://github.com/streamlit/streamlit/discussions/4812
 
     Returns:
         str: Client IP address from X-Forwarded-For (if trusted) or "localhost"
@@ -290,14 +297,20 @@ def _get_client_ip() -> str:
         return "localhost"
 
     # Try to get X-Forwarded-For header from Streamlit request context
-    # NOTE: This requires Streamlit >=1.18.0 for streamlit.runtime.get_instance()
-    # For MVP, we'll keep it simple and just return localhost if we can't access headers
-    # In production with reverse proxy, use TRUSTED_PROXY_IPS + proper header validation
+    # NOTE: Streamlit doesn't expose request headers in a stable/documented way
+    # For MVP, we return "localhost" as safe default
+    # For production with reverse proxy, implement using:
+    # 1. streamlit.web.server.server_util.get_request_headers() (if available)
+    # 2. Custom middleware to inject headers into session_state
+    # 3. Environment variable set by reverse proxy
     try:
-        # Streamlit doesn't expose request headers directly in a simple way
-        # For production, deploy behind Nginx and use X-Real-IP or X-Forwarded-For
-        # This is a TODO for production deployment
-        return "localhost"  # Fallback for now
+        # Attempt to access request context (Streamlit internal API - unstable)
+        # This is a placeholder for future implementation
+        # from streamlit.web.server import Server
+        # headers = Server.get_current().get_request_headers()
+        # if headers and "X-Forwarded-For" in headers:
+        #     return headers["X-Forwarded-For"].split(",")[0].strip()
+        return "localhost"  # MVP: Always localhost (documented limitation)
     except Exception:
         return "localhost"
 

@@ -322,7 +322,7 @@ class TestDevAuthWorkflow:
                     assert result is False
 
     def test_dev_auth_lockout_expired(self):
-        """Test that expired lockout resets attempts."""
+        """Test that expired lockout clears lockout_until but keeps attempt counter for escalation."""
         past_time = datetime.now() - timedelta(minutes=5)
         mock_session_state = {
             "failed_login_attempts": 5,
@@ -341,7 +341,8 @@ class TestDevAuthWorkflow:
 
                         result = auth._dev_auth()
 
-                        # Should reset lockout
-                        assert mock_session_state["failed_login_attempts"] == 0
-                        assert mock_session_state["lockout_until"] is None
+                        # Should clear lockout but KEEP attempt counter for escalation
+                        # Counter only resets on successful login (auth.py:119)
+                        assert mock_session_state["failed_login_attempts"] == 5, "Counter should persist for escalation"
+                        assert mock_session_state["lockout_until"] is None, "Lockout should be cleared"
                         assert result is False  # Not logged in (form not submitted)

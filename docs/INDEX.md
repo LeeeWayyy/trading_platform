@@ -262,6 +262,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-10-26, Task] [P2T0_DONE.md](./TASKS/P2T0_DONE.md) - TWAP order slicer implementation
 - [CURRENT, 2025-10-26, Task] [P2T1_DONE.md](./TASKS/P2T1_DONE.md) - Advanced order types and execution
 - [CURRENT, 2025-11-15, Task] [P2T2_TASK.md](./TASKS/P2T2_TASK.md) - Secrets management with Google Cloud Secret Manager
+- [CURRENT, 2025-11-17, Task] [P2T3_TASK.md](./TASKS/P2T3_TASK.md) - Web console for operational oversight and manual intervention
 
 **Checking Current/Next Task:**
 ```bash
@@ -305,6 +306,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-11-15, Runbook] [secret-rotation.md](./RUNBOOKS/secret-rotation.md) - Secret rotation procedures for Google Cloud Secret Manager
 - [CURRENT, 2025-11-15, Runbook] [secrets-migration.md](./RUNBOOKS/secrets-migration.md) - Migration from .env to Google Cloud Secret Manager
 - [CURRENT, 2025-10-20, Runbook] [staging-deployment.md](./RUNBOOKS/staging-deployment.md) - Staging environment deployment, credentials, and rollback procedures
+- [CURRENT, 2025-11-17, Runbook] [web-console-user-guide.md](./RUNBOOKS/web-console-user-guide.md) - Web console usage, authentication, manual order entry, kill switch operations
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 
@@ -349,6 +351,9 @@ Configuration files, templates, prompts, and tooling:
 - [CURRENT, 2025-11-15, Research] [research/delegation-decision-tree.md](../.claude/research/delegation-decision-tree.md) - Subagent delegation decision framework
 - [CURRENT, 2025-11-15, Research] [research/P1T13-workflow-simplification-analysis.md](../.claude/research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
 - [CURRENT, 2025-11-15, Research] [research/subagent-capabilities-research.md](../.claude/research/subagent-capabilities-research.md) - Subagent capabilities and limitations
+
+**tests/ci/ (CI Test Documentation):**
+- [CURRENT, 2025-11-15, Test] [../tests/ci/test_workflow_config.md](../tests/ci/test_workflow_config.md) - CI configuration validation and manual testing procedures
 
 **.claude/prompts/ (Clink Review Templates):**
 - [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../.claude/prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex

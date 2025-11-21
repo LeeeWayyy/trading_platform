@@ -31,9 +31,7 @@ The Trading Platform Web Console is a Streamlit-based UI for operational oversig
 
 **Target Users:** Operations team, traders, risk managers (non-technical operators)
 
-<!-- markdown-link-check-disable -->
 **Access URL:** http://localhost:8501 (local) or https://console.trading-platform.example.com (production)
-<!-- markdown-link-check-enable -->
 
 ---
 
@@ -113,6 +111,22 @@ For true HTTP Basic Auth, use a reverse proxy like Nginx.
 ✅ Constant-time password comparison (prevents timing attacks)
 ⚠️ OAuth2/OIDC integration pending
 ⚠️ MFA not yet supported
+
+### IP Address Tracking
+
+**MVP Limitation:** Client IP addresses are logged as "localhost" in all audit entries.
+
+Streamlit does not expose request headers (like `X-Forwarded-For`) in a stable/documented way. For production deployment with reverse proxy (Nginx):
+
+1. Configure `TRUSTED_PROXY_IPS` environment variable with proxy IP addresses
+2. Implement header extraction using:
+   - `streamlit.web.server.server_util.get_request_headers()` (if available in future Streamlit versions)
+   - Custom middleware to inject headers into session_state
+   - Environment variable set by reverse proxy
+
+Reference: https://github.com/streamlit/streamlit/discussions/4812
+
+**Security Note:** Never trust `X-Forwarded-For` header without verifying request comes from trusted proxy IPs (prevents IP spoofing attacks).
 
 ---
 
