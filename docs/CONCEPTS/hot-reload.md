@@ -455,7 +455,7 @@ Model B has better Sharpe ratio → deactivate A, keep only B.
 
 ### Technical Resources
 - [Zero-Downtime Deployments (Martin Fowler)](https://martinfowler.com/bliki/BlueGreenDeployment.html)
-- [Hot Reloading in Production Systems](https://medium.com/@copyconstruct/hot-reloading-in-production-e307a5e5a24e)
+- [Reloading Service Configurations Without Downtime](https://dohost.us/index.php/2025/07/30/reloading-service-configurations-applying-changes-without-downtime/)
 - [Python asyncio Documentation](https://docs.python.org/3/library/asyncio.html)
 
 ### Related Concepts

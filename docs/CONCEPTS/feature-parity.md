@@ -558,7 +558,7 @@ Fix before deploying!
 ### Industry Best Practices
 - [Uber's Michelangelo ML Platform](https://eng.uber.com/michelangelo-machine-learning-platform/)
   - Feature store ensures parity
-- [Airbnb's Zipline](https://medium.com/airbnb-engineering/zipline-airbnbs-machine-learning-data-management-platform-2c5b0c91afe8)
+- [Airbnb's Zipline](https://www.datacouncil.ai/talks/zipline-airbnbs-declarative-feature-engineering-framework)
   - Training/serving pipeline
 - [LinkedIn's Pro-ML](https://engineering.linkedin.com/blog/2019/01/productive-machine-learning)
   - Shared feature library

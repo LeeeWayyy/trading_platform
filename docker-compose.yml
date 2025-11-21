@@ -5,9 +5,9 @@ services:
     image: postgres:16
     container_name: trading_platform_postgres
     environment:
-      POSTGRES_USER: trader
-      POSTGRES_PASSWORD: trader
-      POSTGRES_DB: trader
+      POSTGRES_USER: ${POSTGRES_USER:-trader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trader}
+      POSTGRES_DB: ${POSTGRES_DB:-trader}
     ports:
       - "5432:5432"
     volumes:
@@ -52,8 +52,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
     volumes:
       - grafanadata:/var/lib/grafana
       - ./infra/grafana:/etc/grafana/provisioning
@@ -87,6 +87,39 @@ services:
     command: -config.file=/etc/promtail/promtail-config.yml
     depends_on:
       - loki
+
+  # ⚠️ WARNING: Web Console uses INSECURE dev authentication by default!
+  # For production: Set WEB_CONSOLE_AUTH_TYPE=oauth2 and configure IdP
+  # For testing: Use docker-compose.dev.yml instead
+  # RECOMMENDED: Use env_file: .env to load credentials from file instead of inline
+  web_console:
+    build:
+      context: .
+      dockerfile: apps/web_console/Dockerfile
+    container_name: trading_platform_web_console
+    ports:
+      - "8501:8501"
+    # SECURITY: Create .env file with credentials (see .env.example)
+    # Required: WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
+    # env_file:
+    #   - .env
+    environment:
+      # host.docker.internal allows container to reach host services (execution gateway on port 8002)
+      # NOTE: On Linux, may need to add --add-host=host.docker.internal:host-gateway to docker run,
+      # or use network_mode: host, or specify host IP directly (e.g., http://172.17.0.1:8002)
+      - EXECUTION_GATEWAY_URL=http://host.docker.internal:8002
+      - WEB_CONSOLE_AUTH_TYPE=dev  # ⚠️ INSECURE: Change for production!
+      # SECURITY: No defaults - force explicit credential configuration
+      # Create .env file with: WEB_CONSOLE_USER=<your_username>
+      #                        WEB_CONSOLE_PASSWORD=<your_password>
+      - WEB_CONSOLE_USER=${WEB_CONSOLE_USER:?WEB_CONSOLE_USER not set. Create .env file with credentials.}
+      - WEB_CONSOLE_PASSWORD=${WEB_CONSOLE_PASSWORD:?WEB_CONSOLE_PASSWORD not set. Create .env file with credentials.}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}
+      - SESSION_TIMEOUT_MINUTES=15
+      - SESSION_ABSOLUTE_TIMEOUT_HOURS=4
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -34,6 +34,11 @@ jobs:
   test-and-coverage:
     name: Run tests and check coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+      administration: read  # Required for branch protection check
 
     services:
       redis:
@@ -73,6 +78,8 @@ jobs:
           echo "::endgroup::"
 
       - name: Verify branch protection configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "::group::Checking branch protection status"
           python3 scripts/verify_branch_protection.py
@@ -112,8 +119,13 @@ jobs:
           # Install psql client for running migrations
           sudo apt-get update && sudo apt-get install -y postgresql-client
 
-          # Run migrations in order
+          # Run foundational migrations first (migrations/), then additional migrations (db/migrations/)
           for migration in migrations/*.sql; do
+            echo "Running migration: $migration"
+            PGPASSWORD=dev_password psql -h localhost -U trading_platform -d trading_platform_test -f "$migration"
+          done
+
+          for migration in db/migrations/*.sql; do
             echo "Running migration: $migration"
             PGPASSWORD=dev_password psql -h localhost -U trading_platform -d trading_platform_test -f "$migration"
           done
@@ -200,7 +212,13 @@ jobs:
       - name: Run database migrations
         run: |
           echo "::group::Running database migrations"
+          # Run foundational migrations first (migrations/), then additional migrations (db/migrations/)
           for migration in migrations/*.sql; do
+            echo "Running migration: $migration"
+            cat "$migration" | docker compose -f docker-compose.ci.yml exec -T postgres psql -U trader -d trader_test
+          done
+
+          for migration in db/migrations/*.sql; do
             echo "Running migration: $migration"
             cat "$migration" | docker compose -f docker-compose.ci.yml exec -T postgres psql -U trader -d trader_test
           done
