@@ -137,34 +137,40 @@ class TestDevAuth:
 class TestAuditLogging:
     """Test audit logging functions."""
 
-    def test_audit_successful_login(self, capsys):
+    def test_audit_successful_login(self, caplog):
         """Test successful login audit."""
+        import logging
+        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+
         username = "test_user"
         auth_method = "dev"
 
         with patch("apps.web_console.auth.st.session_state", {"session_id": "test123"}):
             auth._audit_successful_login(username, auth_method)
 
-        # Check console output (will be fallback since DB not available in tests)
-        captured = capsys.readouterr()
+        # Check logging output (will be fallback since DB not available in tests)
+        log_text = caplog.text
         # Verify JSON audit log format
-        assert "[AUDIT" in captured.out, "Expected [AUDIT marker in output"
-        assert '"user_id": "test_user"' in captured.out or "'user_id': 'test_user'" in captured.out, f"Expected username {username} in JSON format"
-        assert '"action": "login_success"' in captured.out or "'action': 'login_success'" in captured.out, "Expected login_success action in JSON format"
-        assert '"auth_method": "dev"' in captured.out or "'auth_method': 'dev'" in captured.out, "Expected auth_method in details"
+        assert "[AUDIT" in log_text, f"Expected [AUDIT marker in output. Got: {log_text}"
+        assert '"user_id": "test_user"' in log_text or "'user_id': 'test_user'" in log_text, f"Expected username {username} in JSON format. Got: {log_text}"
+        assert '"action": "login_success"' in log_text or "'action': 'login_success'" in log_text, f"Expected login_success action in JSON format. Got: {log_text}"
+        assert '"auth_method": "dev"' in log_text or "'auth_method': 'dev'" in log_text, f"Expected auth_method in details. Got: {log_text}"
 
-    def test_audit_failed_login(self, capsys):
+    def test_audit_failed_login(self, caplog):
         """Test failed login audit."""
+        import logging
+        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+
         auth_method = "dev"
 
         auth._audit_failed_login(auth_method)
 
-        # Check console output (will be fallback since DB not available in tests)
-        captured = capsys.readouterr()
+        # Check logging output (will be fallback since DB not available in tests)
+        log_text = caplog.text
         # Verify JSON audit log format
-        assert "[AUDIT" in captured.out, "Expected [AUDIT marker in output"
-        assert '"user_id": "<failed_login_attempt>"' in captured.out or "'user_id': '<failed_login_attempt>'" in captured.out, "Expected <failed_login_attempt> in JSON format"
-        assert '"action": "login_failed"' in captured.out or "'action': 'login_failed'" in captured.out, "Expected login_failed action in JSON format"
+        assert "[AUDIT" in log_text, f"Expected [AUDIT marker in output. Got: {log_text}"
+        assert '"user_id": "<failed_login_attempt>"' in log_text or "'user_id': '<failed_login_attempt>'" in log_text, f"Expected <failed_login_attempt> in JSON format. Got: {log_text}"
+        assert '"action": "login_failed"' in log_text or "'action': 'login_failed'" in log_text, f"Expected login_failed action in JSON format. Got: {log_text}"
 
 
 class TestAuthTypes:

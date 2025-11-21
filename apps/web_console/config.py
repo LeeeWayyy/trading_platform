@@ -56,7 +56,7 @@ SESSION_ABSOLUTE_TIMEOUT_HOURS = int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_HOURS",
 # Comma-separated list of trusted proxy IPs (e.g., "10.0.0.1,10.0.0.2")
 # If set, X-Forwarded-For header will be trusted for requests from these IPs
 # If not set, all audit log entries will show "localhost" (safe default for dev)
-TRUSTED_PROXY_IPS = os.getenv("TRUSTED_PROXY_IPS", "").split(",") if os.getenv("TRUSTED_PROXY_IPS") else []
+TRUSTED_PROXY_IPS = [ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()]
 
 # ============================================================================
 # Database Configuration (for audit log)

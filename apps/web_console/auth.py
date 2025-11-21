@@ -21,11 +21,14 @@ Note:
 import hashlib
 import hmac
 import json
+import logging
 import time
 from datetime import datetime, timedelta
 from typing import Any
 
 import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 from apps.web_console import config
 from apps.web_console.config import (
@@ -119,8 +122,7 @@ def _dev_auth() -> bool:
                 st.session_state["failed_login_attempts"] = 0
                 st.session_state["lockout_until"] = None
                 _init_session(username, "dev")
-                st.success("Logged in successfully!")
-                time.sleep(0.5)  # Brief pause for user feedback
+                st.toast("Logged in successfully!")
                 st.rerun()
             else:
                 # Increment failed attempts
@@ -328,6 +330,13 @@ def audit_to_database(
     Uses non-blocking approach with low timeout to prevent blocking
     authentication flows.
 
+    Connection Pooling Note:
+        MVP implementation creates a new connection per audit log entry.
+        For production, consider implementing connection pooling using:
+        - psycopg.pool.ConnectionPool for sync operations
+        - psycopg_pool.AsyncConnectionPool for async operations
+        This will reduce connection overhead and improve performance under load.
+
     Args:
         user_id: Username or identifier
         action: Action type (e.g., "login_success", "login_failed")
@@ -347,6 +356,7 @@ def audit_to_database(
 
     try:
         import psycopg
+        from psycopg.types.json import Jsonb
 
         # Set short connection timeout to prevent blocking auth flows
         # Use conninfo parameter instead of URL manipulation to preserve existing query params
@@ -360,22 +370,22 @@ def audit_to_database(
                     (
                         user_id,
                         action,
-                        json.dumps(details),
+                        Jsonb(details),  # Explicitly wrap dict as JSONB for psycopg3
                         reason,
                         ip_address,
                         session_id or "N/A",
                     ),
                 )
                 conn.commit()
-        print(f"[AUDIT] {json.dumps(audit_entry)}")
+        logger.info("[AUDIT] %s", json.dumps(audit_entry))
     except ModuleNotFoundError:
         # psycopg not installed - fallback to console logging only (never block auth flows)
-        print("[AUDIT ERROR] psycopg module not found - using console fallback")
-        print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
+        logger.error("[AUDIT ERROR] psycopg module not found - using console fallback")
+        logger.info("[AUDIT FALLBACK] %s", json.dumps(audit_entry))
     except psycopg.Error as e:
         # Database connection or query error - never block auth flows
-        print(f"[AUDIT ERROR] Database error: {e}")
-        print(f"[AUDIT FALLBACK] {json.dumps(audit_entry)}")
+        logger.error("[AUDIT ERROR] Database error: %s", e)
+        logger.info("[AUDIT FALLBACK] %s", json.dumps(audit_entry))
 
 
 def _audit_successful_login(username: str, auth_method: str) -> None:

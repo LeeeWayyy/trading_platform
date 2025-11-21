@@ -139,6 +139,17 @@ def fetch_realtime_pnl() -> dict[str, Any]:
     return fetch_api("pnl_realtime")
 
 
+def auto_refresh_loop() -> None:
+    """
+    Auto-refresh loop to keep data current.
+
+    Uses st.rerun() with a timer to refresh the dashboard every AUTO_REFRESH_INTERVAL seconds.
+    Streamlit will re-execute the entire script, triggering cache refresh for stale data.
+    """
+    time.sleep(config.AUTO_REFRESH_INTERVAL)
+    st.rerun()
+
+
 def fetch_kill_switch_status() -> dict[str, Any]:
     """
     Fetch kill switch status WITHOUT caching.
@@ -383,7 +394,7 @@ def render_manual_order_entry() -> None:
                     # Clear confirmation state
                     st.session_state["order_confirmation_pending"] = False
                     st.session_state["order_preview"] = None
-                    time.sleep(2)
+                    st.toast("Order submission failed: Kill Switch is engaged.", icon="🛑")
                     st.rerun()
                     return
 
@@ -396,7 +407,7 @@ def render_manual_order_entry() -> None:
                         "order_type": order["order_type"],
                     }
                     if order["limit_price"]:
-                        order_request["limit_price"] = str(order["limit_price"])
+                        order_request["limit_price"] = order["limit_price"]
 
                     response = fetch_api("submit_order", method="POST", data=order_request)
 
@@ -410,16 +421,11 @@ def render_manual_order_entry() -> None:
                         reason=order["reason"],
                     )
 
-                    st.success(
-                        f"✅ Order submitted successfully!\n\n"
-                        f"Client Order ID: `{response.get('client_order_id')}`\n\n"
-                        f"Status: {response.get('status')}"
-                    )
+                    st.toast("✅ Order submitted successfully!")
 
                     # Clear confirmation state
                     st.session_state["order_confirmation_pending"] = False
                     st.session_state["order_preview"] = None
-                    time.sleep(2)  # Brief pause for user to see success message
                     st.rerun()
 
                 except Exception as e:
@@ -500,8 +506,7 @@ def render_kill_switch() -> None:
                             reason=notes.strip(),
                         )
 
-                        st.success("✅ Kill switch disengaged successfully!")
-                        time.sleep(1)
+                        st.toast("✅ Kill switch disengaged successfully!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to disengage kill switch: {str(e)}")
@@ -668,6 +673,8 @@ def main() -> None:
     # Main content
     if page == "Dashboard":
         render_dashboard()
+        # Auto-refresh for dashboard only
+        auto_refresh_loop()
     elif page == "Manual Order Entry":
         render_manual_order_entry()
     elif page == "Kill Switch":

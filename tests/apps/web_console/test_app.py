@@ -126,8 +126,11 @@ class TestCachedFetchers:
 class TestAuditLog:
     """Test audit logging function."""
 
-    def test_audit_log_manual_order(self, capsys):
+    def test_audit_log_manual_order(self, caplog):
         """Test audit log for manual order."""
+        import logging
+        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+
         mock_user_info = {
             "username": "test_user",
             "session_id": "abc123",
@@ -142,16 +145,19 @@ class TestAuditLog:
                     reason="Test order",
                 )
 
-        captured = capsys.readouterr()
-        # Should fallback to console logging when psycopg unavailable
-        assert "[AUDIT" in captured.out, "Expected [AUDIT] marker in console output for fallback logging"
-        assert "test_user" in captured.out, "Expected username in audit log output"
-        assert "manual_order" in captured.out, "Expected action type in audit log output"
+        # Should fallback to logging when psycopg unavailable/table missing
+        log_text = caplog.text
+        assert "[AUDIT" in log_text, f"Expected [AUDIT] marker in log output. Got: {log_text}"
+        assert "test_user" in log_text, f"Expected username in audit log output. Got: {log_text}"
+        assert "manual_order" in log_text, f"Expected action type in audit log output. Got: {log_text}"
         # Verify fallback was triggered (error message should be present)
-        assert "[AUDIT FALLBACK]" in captured.out or "[AUDIT ERROR]" in captured.out, "Expected fallback logging to be triggered"
+        assert "[AUDIT FALLBACK]" in log_text or "[AUDIT ERROR]" in log_text, f"Expected fallback logging to be triggered. Got: {log_text}"
 
-    def test_audit_log_kill_switch(self, capsys):
+    def test_audit_log_kill_switch(self, caplog):
         """Test audit log for kill switch action."""
+        import logging
+        caplog.set_level(logging.INFO)  # Ensure INFO level logs are captured
+
         mock_user_info = {
             "username": "ops_team",
             "session_id": "xyz789",
@@ -166,13 +172,13 @@ class TestAuditLog:
                     reason="Market anomaly",
                 )
 
-        captured = capsys.readouterr()
-        # Should fallback to console logging
-        assert "[AUDIT" in captured.out, "Expected [AUDIT] marker in console output for fallback logging"
-        assert "ops_team" in captured.out, "Expected username in audit log output"
-        assert "kill_switch_engage" in captured.out, "Expected action type in audit log output"
+        # Should fallback to logging
+        log_text = caplog.text
+        assert "[AUDIT" in log_text, f"Expected [AUDIT] marker in log output. Got: {log_text}"
+        assert "ops_team" in log_text, f"Expected username in audit log output. Got: {log_text}"
+        assert "kill_switch_engage" in log_text, f"Expected action type in audit log output. Got: {log_text}"
         # Verify fallback was triggered (error message should be present)
-        assert "[AUDIT FALLBACK]" in captured.out or "[AUDIT ERROR]" in captured.out, "Expected fallback logging to be triggered"
+        assert "[AUDIT FALLBACK]" in log_text or "[AUDIT ERROR]" in log_text, f"Expected fallback logging to be triggered. Got: {log_text}"
 
 
 class TestDashboard:
@@ -481,46 +487,52 @@ class TestManualOrderEntryFlow:
         mock_session_state = {}
 
         with patch("apps.web_console.app.st") as mock_st:
-            # Assign session_state dict directly to mock (not a separate patch)
-            mock_st.session_state = mock_session_state
+            # Create a mock that supports both dict-style access and .get()
+            mock_st.session_state = MagicMock()
+            mock_st.session_state.__getitem__ = lambda self, key: mock_session_state[key]
+            mock_st.session_state.__setitem__ = lambda self, key, val: mock_session_state.__setitem__(key, val)
+            mock_st.session_state.__contains__ = lambda self, key: key in mock_session_state
+            mock_st.session_state.get = lambda key, default=None: mock_session_state.get(key, default)
             with patch("apps.web_console.app.fetch_kill_switch_status") as mock_kill:
-                with patch("apps.web_console.app.fetch_gateway_config") as mock_config:
-                    # Mock columns for layout
-                    mock_st.columns.return_value = (MagicMock(), MagicMock())
+                # Mock columns for layout
+                mock_st.columns.return_value = (MagicMock(), MagicMock())
 
-                    # Kill switch engaged
-                    mock_kill.return_value = {
-                        "state": "ENGAGED",
-                        "engaged_by": "ops_team",
-                        "engagement_reason": "Market anomaly"
-                    }
-                    mock_config.return_value = {"dry_run": True}
+                # Kill switch engaged
+                mock_kill.return_value = {
+                    "state": "ENGAGED",
+                    "engaged_by": "ops_team",
+                    "engagement_reason": "Market anomaly"
+                }
 
-                    # Simulate form submission - wire to actual st functions
-                    mock_st.text_input.return_value = "AAPL"
-                    mock_st.selectbox.side_effect = ["buy", "market"]
-                    mock_st.number_input.return_value = 10
-                    mock_st.text_area.return_value = "Test reason for order submission"
+                # Simulate form submission - wire to actual st functions
+                mock_st.text_input.return_value = "AAPL"
+                mock_st.selectbox.side_effect = ["buy", "market"]
+                mock_st.number_input.return_value = 10
+                mock_st.text_area.return_value = "Test reason for order submission"
 
-                    # Mock form context and submit button
-                    mock_form_context = MagicMock()
-                    mock_st.form.return_value.__enter__.return_value = mock_form_context
-                    mock_form_context.form_submit_button.return_value = True
+                # Mock form context and submit button
+                mock_form_context = MagicMock()
+                mock_st.form.return_value.__enter__.return_value = mock_form_context
+                mock_form_context.form_submit_button.return_value = True
+                mock_form_context.text_input = mock_st.text_input
+                mock_form_context.selectbox = mock_st.selectbox
+                mock_form_context.number_input = mock_st.number_input
+                mock_form_context.text_area = mock_st.text_area
 
-                    # Call actual function
-                    app.render_manual_order_entry()
+                # Call actual function
+                app.render_manual_order_entry()
 
-                    # Verify kill switch was checked
-                    mock_kill.assert_called_once()
+                # Verify kill switch was checked
+                mock_kill.assert_called_once()
 
-                    # Verify error was shown (kill switch engaged)
-                    mock_st.error.assert_called()
-                    error_msg = mock_st.error.call_args[0][0]
-                    assert "Kill Switch is ENGAGED" in error_msg
-                    assert "ops_team" in error_msg
+                # Verify error was shown (kill switch engaged)
+                mock_st.error.assert_called()
+                error_msg = mock_st.error.call_args[0][0]
+                assert "Kill Switch is ENGAGED" in error_msg
+                assert "ops_team" in error_msg
 
-                    # Verify order was NOT previewed (confirmation_pending not set)
-                    assert not mock_session_state.get("order_confirmation_pending", False)
+                # Verify order was NOT previewed (confirmation_pending not set)
+                assert not mock_session_state.get("order_confirmation_pending", False)
 
     def test_kill_switch_blocks_order_submission(self):
         """Test that kill switch blocks order at final submission step."""
@@ -538,41 +550,44 @@ class TestManualOrderEntryFlow:
         }
 
         with patch("apps.web_console.app.st") as mock_st:
-            # Assign session_state dict directly to mock (not a separate patch)
-            mock_st.session_state = mock_session_state
+            # Create a mock that supports both dict-style access and .get()
+            mock_st.session_state = MagicMock()
+            mock_st.session_state.__getitem__ = lambda self, key: mock_session_state[key]
+            mock_st.session_state.__setitem__ = lambda self, key, val: mock_session_state.__setitem__(key, val)
+            mock_st.session_state.__contains__ = lambda self, key: key in mock_session_state
+            mock_st.session_state.get = lambda key, default=None: mock_session_state.get(key, default)
             with patch("apps.web_console.app.fetch_kill_switch_status") as mock_kill:
                 with patch("apps.web_console.app.fetch_api") as mock_fetch:
-                    with patch("apps.web_console.app.time"):
-                        # Mock columns for layout
-                        mock_st.columns.return_value = (MagicMock(), MagicMock())
+                    # Mock columns for layout
+                    mock_st.columns.return_value = (MagicMock(), MagicMock())
 
-                        # Kill switch engaged at submission time
-                        mock_kill.return_value = {
-                            "state": "ENGAGED",
-                            "engaged_by": "ops_team",
-                            "engagement_reason": "Emergency halt"
-                        }
+                    # Kill switch engaged at submission time
+                    mock_kill.return_value = {
+                        "state": "ENGAGED",
+                        "engaged_by": "ops_team",
+                        "engagement_reason": "Emergency halt"
+                    }
 
-                        # Simulate confirmation button click
-                        mock_st.button.return_value = True
+                    # Simulate confirmation button click (first call returns True)
+                    mock_st.button.return_value = True
 
-                        # Call actual function
-                        app.render_manual_order_entry()
+                    # Call actual function
+                    app.render_manual_order_entry()
 
-                        # Verify kill switch was checked
-                        mock_kill.assert_called_once()
+                    # Verify kill switch was checked
+                    mock_kill.assert_called_once()
 
-                        # Verify error was shown
-                        mock_st.error.assert_called()
-                        error_msg = mock_st.error.call_args[0][0]
-                        assert "Kill Switch is ENGAGED" in error_msg
-                        assert "Cannot submit order" in error_msg
+                    # Verify error was shown
+                    mock_st.error.assert_called()
+                    error_msg = mock_st.error.call_args[0][0]
+                    assert "Kill Switch is ENGAGED" in error_msg
+                    assert "Cannot submit order" in error_msg
 
-                        # Verify API was NOT called
-                        mock_fetch.assert_not_called()
+                    # Verify API was NOT called
+                    mock_fetch.assert_not_called()
 
-                        # Verify state was cleared (use dict-style access)
-                        assert not mock_session_state.get("order_confirmation_pending", False)
+                    # Verify state was cleared (use dict-style access)
+                    assert not mock_session_state.get("order_confirmation_pending", False)
 
 
 class TestKillSwitchFlow:
@@ -731,8 +746,8 @@ class TestKillSwitchFlow:
                                     reason=notes.strip(),
                                 )
 
-                                # Verify success message and rerun
-                                mock_st.success.assert_called()
+                                # Verify toast notification and rerun
+                                mock_st.toast.assert_called()
                                 mock_st.rerun.assert_called_once()
 
     def test_engage_validation_rejects_short_reason(self):
