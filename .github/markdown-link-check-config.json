@@ -83,6 +83,9 @@
     },
     {
       "pattern": "^https://console.trading-platform.example.com"
+    },
+    {
+      "pattern": "^https://docs.python.org/"
     }
   ],
   "replacementPatterns": [
