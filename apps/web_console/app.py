@@ -22,6 +22,7 @@ Environment Variables:
     DATABASE_URL: PostgreSQL connection string
 """
 
+import hashlib
 import time
 from datetime import datetime
 from typing import Any, cast
@@ -421,11 +422,27 @@ def render_manual_order_entry() -> None:
 
                 # Submit order
                 try:
+                    # Generate client_order_id for idempotency (prevents duplicate orders on retry)
+                    # Same pattern as automated orders: hash(symbol + side + qty + price + strategy + date)[:24]
+                    # For manual orders, use "manual" as strategy
+                    date_str = datetime.now().strftime("%Y-%m-%d")
+                    limit_price_str = str(order.get("limit_price", ""))
+                    id_components = (
+                        order["symbol"]
+                        + order["side"]
+                        + str(order["qty"])
+                        + limit_price_str
+                        + "manual"
+                        + date_str
+                    )
+                    client_order_id = hashlib.sha256(id_components.encode()).hexdigest()[:24]
+
                     order_request = {
                         "symbol": order["symbol"],
                         "side": order["side"],
                         "qty": order["qty"],
                         "order_type": order["order_type"],
+                        "client_order_id": client_order_id,
                     }
                     if order["limit_price"]:
                         order_request["limit_price"] = order["limit_price"]  # Keep as numeric, not string
@@ -605,7 +622,7 @@ def render_audit_log() -> None:
     try:
         import psycopg
 
-        # MVP: Creates new connection per query. For production, use connection pooling.
+        # MVP: New connection per render. Production TODO: Use connection pool
         with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
             with conn.cursor() as cur:
                 cur.execute(

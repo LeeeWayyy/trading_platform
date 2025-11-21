@@ -396,34 +396,41 @@ class TestManualOrderEntryFlow:
     def test_step_1_submit_creates_pending_order(self):
         """Test step 1: submitting form creates pending order in session state."""
         mock_session_state: dict[str, Any] = {}
-        mock_form_data = {
-            "symbol": "AAPL",
-            "side": "buy",
-            "qty": 10,
-            "order_type": "market",
-        }
 
         with patch("apps.web_console.app.st") as mock_st:
             # Assign session_state dict directly to mock (not a separate patch)
             mock_st.session_state = mock_session_state
-            with patch("apps.web_console.app.fetch_gateway_config") as mock_config:
-                mock_config.return_value = {"dry_run": True}
+            # Mock columns for layout
+            mock_st.columns.return_value = (MagicMock(), MagicMock())
+            with patch("apps.web_console.app.fetch_kill_switch_status") as mock_kill:
+                # Kill switch active (not engaged)
+                mock_kill.return_value = {"state": "ACTIVE"}
 
-                # Simulate form submission
-                mock_st.form.return_value.__enter__.return_value.form_submit_button.return_value = True
-                mock_st.form.return_value.__enter__.return_value.selectbox.side_effect = [
-                    "AAPL",
-                    "buy",
-                ]
-                mock_st.form.return_value.__enter__.return_value.number_input.return_value = 10
-                mock_st.form.return_value.__enter__.return_value.radio.return_value = "market"
+                # Simulate form submission - wire to actual st functions
+                mock_st.text_input.return_value = "AAPL"
+                mock_st.selectbox.side_effect = ["buy", "market"]
+                mock_st.number_input.return_value = 10
+                mock_st.text_area.return_value = "Test reason for order submission"
 
-                # Store pending order
-                mock_session_state["order_pending"] = mock_form_data
+                # Mock form context and submit button
+                mock_form_context = MagicMock()
+                mock_st.form.return_value.__enter__.return_value = mock_form_context
+                mock_form_context.form_submit_button.return_value = True
+                mock_form_context.text_input = mock_st.text_input
+                mock_form_context.selectbox = mock_st.selectbox
+                mock_form_context.number_input = mock_st.number_input
+                mock_form_context.text_area = mock_st.text_area
 
-                assert "order_pending" in mock_session_state
-                assert mock_session_state["order_pending"]["symbol"] == "AAPL"
-                assert mock_session_state["order_pending"]["qty"] == 10
+                # Call actual function
+                app.render_manual_order_entry()
+
+                # Verify order preview was created in session state
+                assert mock_session_state.get("order_confirmation_pending") is True
+                assert "order_preview" in mock_session_state
+                order_preview = mock_session_state["order_preview"]
+                assert order_preview["symbol"] == "AAPL"
+                assert order_preview["qty"] == 10
+                assert order_preview["side"] == "buy"
 
     def test_step_2_confirm_submits_order_and_clears_pending(self):
         """Test step 2: confirming pending order submits to API and clears state."""

@@ -360,6 +360,7 @@ def audit_to_database(
 
         # Set short connection timeout to prevent blocking auth flows
         # Use conninfo parameter instead of URL manipulation to preserve existing query params
+        # MVP: New connection per audit entry. Production TODO: Use connection pool
         with psycopg.connect(DATABASE_URL, connect_timeout=DATABASE_CONNECT_TIMEOUT) as conn:
             with conn.cursor() as cur:
                 cur.execute(
