@@ -287,7 +287,7 @@ def _get_client_ip() -> str:
         Current implementation always returns "localhost" regardless of TRUSTED_PROXY_IPS.
         For production deployment with reverse proxy (Nginx), implement proper header
         extraction using streamlit.web.server.server_util or middleware.
-        See: https://github.com/streamlit/streamlit/discussions/4812
+        See: https://discuss.streamlit.io/t/how-to-extract-headers-in-streamlit-app/32157
 
     Returns:
         str: Client IP address from X-Forwarded-For (if trusted) or "localhost"

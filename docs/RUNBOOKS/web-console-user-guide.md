@@ -120,11 +120,14 @@ Streamlit does not expose request headers (like `X-Forwarded-For`) in a stable/d
 
 1. Configure `TRUSTED_PROXY_IPS` environment variable with proxy IP addresses
 2. Implement header extraction using:
-   - `streamlit.web.server.server_util.get_request_headers()` (if available in future Streamlit versions)
+   - `st.context.headers` (available in modern Streamlit versions)
+   - `streamlit.runtime.scriptrunner.get_script_run_ctx()` to access `session_info.request.remote_ip`
    - Custom middleware to inject headers into session_state
-   - Environment variable set by reverse proxy
 
-Reference: https://github.com/streamlit/streamlit/discussions/4812
+References:
+- [Streamlit headers access](https://discuss.streamlit.io/t/how-to-extract-headers-in-streamlit-app/32157)
+- [Getting client IP in Streamlit](https://discuss.streamlit.io/t/streamlit-get-the-client-ip-address/55299)
+- [Accessing request headers](https://discuss.streamlit.io/t/access-request-header-in-streamlit/1882)
 
 **Security Note:** Never trust `X-Forwarded-For` header without verifying request comes from trusted proxy IPs (prevents IP spoofing attacks).
 
