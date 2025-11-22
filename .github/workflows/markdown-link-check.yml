@@ -31,13 +31,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check links in all markdown files
-        uses: gaurav-nelson/github-action-markdown-link-check@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          use-verbose-mode: 'yes'
-          config-file: '.github/markdown-link-check-config.json'
-          folder-path: '.'
-          file-extension: '.md'
+          node-version: '20'
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check
+
+      - name: Check links in markdown files (excluding root symlinks)
+        run: find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json -v
 
       - name: Report results
         if: failure()

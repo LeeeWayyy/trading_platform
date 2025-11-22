@@ -8,7 +8,7 @@ This guide provides complete instructions for Claude Code, Codex, Gemini, and ot
 
 ## 🤖 AUTO-RESUME: Check for Incomplete Work
 
-**CRITICAL:** Check `.claude/task-state.json` for incomplete work before starting. If found, follow [Workflows/08-session-management.md](docs/AI/Workflows/08-session-management.md) to resume.
+**CRITICAL:** Check `.claude/task-state.json` for incomplete work before starting. If found, follow [Workflows/08-session-management.md](./Workflows/08-session-management.md) to resume.
 
 ---
 
@@ -32,7 +32,7 @@ This guide provides complete instructions for Claude Code, Codex, Gemini, and ot
 - Commits with `ZEN_REVIEW_OVERRIDE` without user approval will be flagged in code review
 - Bypassing review gates undermines the entire quality assurance system
 
-See [Workflows/03-reviews.md](docs/AI/Workflows/03-reviews.md#zen-mcp-server-unavailable) for complete override procedure.
+See [Workflows/03-reviews.md](./Workflows/03-reviews.md#zen-mcp-server-unavailable) for complete override procedure.
 
 ---
 
@@ -49,45 +49,45 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - Feature parity: research and production feature definitions must share code
 - Never produce duplicate orders
 - Circuit breakers override signals
-- **Every architectural change requires an ADR** (see `/docs/STANDARDS/ADR_GUIDE.md`)
-- **All code must be educational and well-documented for learning** (see `/docs/STANDARDS/DOCUMENTATION_STANDARDS.md`)
+- **Every architectural change requires an ADR** (see `/../STANDARDS/ADR_GUIDE.md`)
+- **All code must be educational and well-documented for learning** (see `/../STANDARDS/DOCUMENTATION_STANDARDS.md`)
 
 ---
 
 ## 🚀 Quick Start
 
-**New to the project?** Read this file, then see [Workflows/README.md](docs/AI/Workflows/README.md) for setup and workflows.
+**New to the project?** Read this file, then see [Workflows/README.md](./Workflows/README.md) for setup and workflows.
 
 **Ready to code?**
 1. **🔍 MANDATORY: Complete Pre-Implementation Analysis** (30-60 min)
-   - Follow [Workflows/00-analysis-checklist.md](docs/AI/Workflows/00-analysis-checklist.md)
+   - Follow [Workflows/00-analysis-checklist.md](./Workflows/00-analysis-checklist.md)
    - Identify ALL impacted components, call sites, tests
    - Verify pattern parity and process compliance
    - Create comprehensive todo list with 6-step pattern (plan → plan-review → implement → test → review → commit)
    - **⚠️ DO NOT write code before completing analysis**
 
-2. **For task documents:** Request task creation review (see [Workflows/02-planning.md](docs/AI/Workflows/02-planning.md))
+2. **For task documents:** Request task creation review (see [Workflows/02-planning.md](./Workflows/02-planning.md))
 
 3. **Record planning artifacts** (Phase 1.5: enforced by hard gates)
    - Record analysis completion: `./scripts/workflow_gate.py record-analysis-complete`
    - Set component breakdown (≥2): `./scripts/workflow_gate.py set-components "Name 1" "Name 2" ...`
 
 4. **Break feature into logical components** — Use 6-step pattern (see below)
-   - For large tasks (>8h), decompose into subfeatures: [Workflows/02-planning.md](docs/AI/Workflows/02-planning.md)
+   - For large tasks (>8h), decompose into subfeatures: [Workflows/02-planning.md](./Workflows/02-planning.md)
 
 5. **For EACH component:**
    - Request plan review: `./scripts/workflow_gate.py advance plan-review`
    - After plan approval, transition to implement: `./scripts/workflow_gate.py advance implement`
    - Implement logic + create test cases (TDD)
-   - **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): [Workflows/03-reviews.md](docs/AI/Workflows/03-reviews.md)
+   - **🔒 MANDATORY: Request zen-mcp review** (NEVER skip): [Workflows/03-reviews.md](./Workflows/03-reviews.md)
    - **🔒 MANDATORY: Run `make ci-local`** (NEVER skip)
-   - Commit ONLY after review approval + CI passes: [Workflows/01-git.md](docs/AI/Workflows/01-git.md)
+   - Commit ONLY after review approval + CI passes: [Workflows/01-git.md](./Workflows/01-git.md)
 
 6. Repeat until feature complete
 
-7. **🔍 MANDATORY: Comprehensive review** via independent Gemini + Codex reviews: [Workflows/03-reviews.md](docs/AI/Workflows/03-reviews.md)
+7. **🔍 MANDATORY: Comprehensive review** via independent Gemini + Codex reviews: [Workflows/03-reviews.md](./Workflows/03-reviews.md)
 
-8. Create PR: [Workflows/01-git.md](docs/AI/Workflows/01-git.md)
+8. Create PR: [Workflows/01-git.md](./Workflows/01-git.md)
 
 ---
 
@@ -95,10 +95,10 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 | Category | Key Files |
 |----------|-----------|
-| **Workflows** | [Workflows/README.md](docs/AI/Workflows/README.md) (index), [00-analysis-checklist.md](docs/AI/Workflows/00-analysis-checklist.md), [12-component-cycle.md](docs/AI/Workflows/12-component-cycle.md), [03-reviews.md](docs/AI/Workflows/03-reviews.md), [01-git.md](docs/AI/Workflows/01-git.md) |
-| **Standards** | [/docs/STANDARDS/](docs/STANDARDS/) (CODING, DOCUMENTATION, GIT_WORKFLOW, TESTING, ADR_GUIDE) |
-| **Implementation** | [/docs/TASKS/](docs/TASKS/) (tickets), [/docs/ADRs/](docs/ADRs/) (architecture decisions), [/docs/CONCEPTS/](docs/CONCEPTS/) (trading glossary) |
-| **Navigation** | [/docs/INDEX.md](docs/INDEX.md) (canonical index), this file (AI quick-start) |
+| **Workflows** | [Workflows/README.md](./Workflows/README.md) (index), [00-analysis-checklist.md](./Workflows/00-analysis-checklist.md), [12-component-cycle.md](./Workflows/12-component-cycle.md), [03-reviews.md](./Workflows/03-reviews.md), [01-git.md](./Workflows/01-git.md) |
+| **Standards** | [/../STANDARDS/](../STANDARDS/) (CODING, DOCUMENTATION, GIT_WORKFLOW, TESTING, ADR_GUIDE) |
+| **Implementation** | [/../TASKS/](../TASKS/) (tickets), [/../ADRs/](../ADRs/) (architecture decisions), [/../CONCEPTS/](../CONCEPTS/) (trading glossary) |
+| **Navigation** | [/../INDEX.md](../INDEX.md) (canonical index), this file (AI quick-start) |
 
 ---
 
@@ -134,7 +134,7 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 **⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen__clink` exclusively** (direct zen-mcp tools bypass CLI authentication).
 
-**See [Workflows/03-reviews.md](docs/AI/Workflows/03-reviews.md) for:**
+**See [Workflows/03-reviews.md](./Workflows/03-reviews.md) for:**
 - Complete review workflow
 - Usage examples
 - Error handling
@@ -149,13 +149,13 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - `infra/` — Infrastructure configs (docker-compose, prometheus, grafana)
 - `db/` — Database migrations (Alembic)
 - `libs/` — Shared libraries (feature_store, common, secrets)
-- `docs/` — Documentation (STANDARDS, GETTING_STARTED, ADRs, CONCEPTS, TASKS, AI)
+- `../` — Documentation (STANDARDS, GETTING_STARTED, ADRs, CONCEPTS, TASKS, AI)
 - `tests/` — Test suite (mirrors src structure)
 - `data/` — Parquet files, DuckDB catalogs
 - `artifacts/` — Models, backtests, reports
 - `scripts/` — Utility scripts (workflow_gate.py, tasks.py, etc.)
 
-See [/docs/GETTING_STARTED/REPO_MAP.md](docs/GETTING_STARTED/REPO_MAP.md) for detailed structure.
+See [/../GETTING_STARTED/REPO_MAP.md](../GETTING_STARTED/REPO_MAP.md) for detailed structure.
 
 ---
 
@@ -239,7 +239,7 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 
 **Thresholds:** <70% OK | 70-84% delegation recommended | ≥85% delegation mandatory.
 
-See [Workflows/16-subagent-delegation.md](docs/AI/Workflows/16-subagent-delegation.md) for details.
+See [Workflows/16-subagent-delegation.md](./Workflows/16-subagent-delegation.md) for details.
 
 ---
 
@@ -321,14 +321,14 @@ git commit -m "message"                          # Pre-commit hook enforces gate
 
 ### Key Principles
 
-- **Analysis first:** Complete [Workflows/00-analysis-checklist.md](docs/AI/Workflows/00-analysis-checklist.md) before coding (saves 3-11 hours)
+- **Analysis first:** Complete [Workflows/00-analysis-checklist.md](./Workflows/00-analysis-checklist.md) before coding (saves 3-11 hours)
 - **Planning discipline (Phase 1.5):** Hard gates enforce task file, analysis completion, component breakdown, and plan review
 - **TDD:** Write tests before implementation
 - **6-step pattern:** Plan → Plan Review → Implement → Test → Code Review → Commit
 - **Context monitoring:** Auto-delegation at 70%+ context usage (≥85% blocks commits)
 - **No bypasses:** NEVER use `git commit --no-verify` (detected by CI)
 
-**See [Workflows/README.md](docs/AI/Workflows/README.md) for detailed workflows**
+**See [Workflows/README.md](./Workflows/README.md) for detailed workflows**
 
 ---
 
@@ -345,7 +345,7 @@ git commit -m "message"                          # Pre-commit hook enforces gate
 - Migrations for schema changes (Alembic)
 - Async FastAPI + httpx for HTTP
 
-**See [/docs/STANDARDS/CODING_STANDARDS.md](docs/STANDARDS/CODING_STANDARDS.md) for detailed patterns**
+**See [/../STANDARDS/CODING_STANDARDS.md](../STANDARDS/CODING_STANDARDS.md) for detailed patterns**
 
 ---
 
@@ -362,7 +362,7 @@ git commit -m "message"                          # Pre-commit hook enforces gate
 - Stale order cleanup test (>15m → cancel)
 - Backtest replay test (same signals from saved data)
 
-**See [/docs/STANDARDS/TESTING.md](docs/STANDARDS/TESTING.md) for requirements**
+**See [/../STANDARDS/TESTING.md](../STANDARDS/TESTING.md) for requirements**
 
 ---
 
@@ -397,7 +397,7 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 - Allow risk-reducing exits only
 - Recovery: conditions normalized + manual approval + quiet period
 
-**See [/docs/RUNBOOKS/ops.md](docs/RUNBOOKS/ops.md) for recovery procedures**
+**See [/../RUNBOOKS/ops.md](../RUNBOOKS/ops.md) for recovery procedures**
 
 ---
 
@@ -419,7 +419,7 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 
 ## 🎓 Key Terminology
 
-See [/docs/GETTING_STARTED/GLOSSARY.md](docs/GETTING_STARTED/GLOSSARY.md) for full definitions:
+See [/../GETTING_STARTED/GLOSSARY.md](../GETTING_STARTED/GLOSSARY.md) for full definitions:
 
 - **Alpha** — Model signal predicting returns
 - **Circuit Breaker** — Safety mechanism (OPEN/TRIPPED)
@@ -435,17 +435,17 @@ See [/docs/GETTING_STARTED/GLOSSARY.md](docs/GETTING_STARTED/GLOSSARY.md) for fu
 ## 📚 Additional Resources
 
 **Project Context:**
-- [/docs/GETTING_STARTED/PROJECT_STATUS.md](docs/GETTING_STARTED/PROJECT_STATUS.md) — Current implementation status
-- [/docs/GETTING_STARTED/REPO_MAP.md](docs/GETTING_STARTED/REPO_MAP.md) — Directory structure and ownership
-- [/docs/GETTING_STARTED/GLOSSARY.md](docs/GETTING_STARTED/GLOSSARY.md) — Trading and ML terminology
+- [/../GETTING_STARTED/PROJECT_STATUS.md](../GETTING_STARTED/PROJECT_STATUS.md) — Current implementation status
+- [/../GETTING_STARTED/REPO_MAP.md](../GETTING_STARTED/REPO_MAP.md) — Directory structure and ownership
+- [/../GETTING_STARTED/GLOSSARY.md](../GETTING_STARTED/GLOSSARY.md) — Trading and ML terminology
 
 **Implementation:**
-- [/docs/TASKS/P1_PLANNING.md](docs/TASKS/P1_PLANNING.md) — Phase 1 planning
-- [/docs/TASKS/P2_PLANNING.md](docs/TASKS/P2_PLANNING.md) — Phase 2 planning
-- [Prompts/](docs/AI/Prompts/) — Reusable AI prompts
+- [/../TASKS/P1_PLANNING.md](../TASKS/P1_PLANNING.md) — Phase 1 planning
+- [/../TASKS/P2_PLANNING.md](../TASKS/P2_PLANNING.md) — Phase 2 planning
+- [Prompts/](./Prompts/) — Reusable AI prompts
 
 **Retrospectives:**
-- [/docs/LESSONS_LEARNED/](docs/LESSONS_LEARNED/) — Post-implementation learnings
+- [/../LESSONS_LEARNED/](../LESSONS_LEARNED/) — Post-implementation learnings
 
 ---
 
@@ -453,9 +453,9 @@ See [/docs/GETTING_STARTED/GLOSSARY.md](docs/GETTING_STARTED/GLOSSARY.md) for fu
 
 **Questions or need help?**
 - **This document (AI_GUIDE.md) is your PRIMARY guidance** — review principles and mandatory steps here first
-- Find specific workflows in [Workflows/README.md](docs/AI/Workflows/README.md)
-- Review [/docs/INDEX.md](docs/INDEX.md) for complete documentation index
-- See [/docs/GETTING_STARTED/](docs/GETTING_STARTED/) for setup and orientation
+- Find specific workflows in [Workflows/README.md](./Workflows/README.md)
+- Review [/../INDEX.md](../INDEX.md) for complete documentation index
+- See [/../GETTING_STARTED/](../GETTING_STARTED/) for setup and orientation
 
 ---
 
