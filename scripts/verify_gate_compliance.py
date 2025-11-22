@@ -145,22 +145,17 @@ def has_review_markers(commit_hash):
         return False
 
     # Check for continuation ID formats
-    # Accept both dual-phase (gemini + codex) and legacy single-phase formats
+    # ONLY accept dual-phase (gemini + codex) format - no legacy format
+    # This enforces the new comprehensive independent review policy
     gemini_pattern = r"(?:^|\n)\s*gemini-continuation-id:"
     codex_pattern = r"(?:^|\n)\s*codex-continuation-id:"
-    legacy_pattern = r"(?:^|\n)\s*continuation-id:"
 
-    # Gemini MEDIUM fix: Use regex patterns to avoid false positives
+    # Use regex patterns to avoid false positives
     gemini_trailer_pattern = r"(?:^|\n)\s*(?:gemini-continuation-id|gemini-review):"
     codex_trailer_pattern = r"(?:^|\n)\s*(?:codex-continuation-id|codex-review):"
     has_gemini = bool(re.search(gemini_trailer_pattern, message))
     has_codex = bool(re.search(codex_trailer_pattern, message))
     has_dual_phase = has_gemini and has_codex
-
-    # Legacy single-phase format (for backward compatibility)
-    has_continuation = bool(re.search(legacy_pattern, message))
-    has_prefixed = has_gemini or has_codex
-    has_legacy_format = has_continuation and not has_prefixed
 
     # Component 2 (P1T13-F5a): Check for Review-Hash trailer (presence only)
     # Note: We only check presence, not correctness (can't reconstruct staging area post-commit)
@@ -170,7 +165,9 @@ def has_review_markers(commit_hash):
     review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*(?:\n|$)"
     has_review_hash = bool(re.search(review_hash_pattern, message, re.IGNORECASE | re.MULTILINE))
 
-    return (has_dual_phase or has_legacy_format) and has_review_hash
+    # Require BOTH dual-phase review markers AND review hash
+    # No backward compatibility - all commits must have independent gemini + codex reviews
+    return has_dual_phase and has_review_hash
 
 
 def extract_review_hash(commit_sha: str) -> str | None:

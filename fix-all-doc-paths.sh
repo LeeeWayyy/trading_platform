@@ -31,10 +31,8 @@ fix_file() {
 
     # Fix .claude/workflows/ references (context-sensitive)
     if [[ "$file" == *"/AI/Workflows/"* ]]; then
-        # Inside AI/Workflows, use relative paths
-        sed -i.bak 's|\.\.\/\.\.\/\.claude\/workflows\/|\.\/|g' "$file" && rm -f "${file}.bak"
-        sed -i.bak 's|\.\.\/\.claude\/workflows\/|\.\/|g' "$file" && rm -f "${file}.bak"
-        sed -i.bak 's|\.claude\/workflows\/|\.\/|g' "$file" && rm -f "${file}.bak"
+        # Inside AI/Workflows, use relative paths (combined with extended regex)
+        sed -i.bak -E 's|(\.\.\/){0,2}\.claude\/workflows\/|\.\/|g' "$file" && rm -f "${file}.bak"
     elif [[ "$file" == docs/* ]]; then
         # Inside docs/, use relative from docs/
         sed -i.bak 's|\.\.\/\.claude\/workflows\/|\.\/AI\/Workflows\/|g' "$file" && rm -f "${file}.bak"
