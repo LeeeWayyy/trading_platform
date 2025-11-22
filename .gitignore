@@ -101,5 +101,5 @@ zen_precommit.changeset
 .claude/workflow-audit.log
 .claude/analysis/
 
-# backup
-docs-backup-20251121-005138
+# backup (pattern to match all timestamped backup directories)
+docs-backup-*/

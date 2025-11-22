@@ -17,7 +17,7 @@ cp -r CLAUDE.md AGENTS.md "$BACKUP_DIR/" 2>/dev/null || true
 
 echo "Starting fixes..."
 
-# Function to replace paths in a file
+# Function to replace paths in a file (portable sed - works on both BSD and GNU)
 fix_file() {
     local file="$1"
     echo "  Fixing: $file"
@@ -25,32 +25,32 @@ fix_file() {
     # Fix .claude/workflows/ references (context-sensitive)
     if [[ "$file" == *"/AI/Workflows/"* ]]; then
         # Inside AI/Workflows, use relative paths
-        sed -i '' 's|\.\.\/\.\.\/\.claude\/workflows\/|\.\/|g' "$file"
-        sed -i '' 's|\.\.\/\.claude\/workflows\/|\.\/|g' "$file"
-        sed -i '' 's|\.claude\/workflows\/|\.\/|g' "$file"
+        sed -i.bak 's|\.\.\/\.\.\/\.claude\/workflows\/|\.\/|g' "$file" && rm -f "${file}.bak"
+        sed -i.bak 's|\.\.\/\.claude\/workflows\/|\.\/|g' "$file" && rm -f "${file}.bak"
+        sed -i.bak 's|\.claude\/workflows\/|\.\/|g' "$file" && rm -f "${file}.bak"
     elif [[ "$file" == docs/* ]]; then
         # Inside docs/, use relative from docs/
-        sed -i '' 's|\.\.\/\.claude\/workflows\/|\.\/AI\/Workflows\/|g' "$file"
-        sed -i '' 's|\.claude\/workflows\/|\.\/AI\/Workflows\/|g' "$file"
+        sed -i.bak 's|\.\.\/\.claude\/workflows\/|\.\/AI\/Workflows\/|g' "$file" && rm -f "${file}.bak"
+        sed -i.bak 's|\.claude\/workflows\/|\.\/AI\/Workflows\/|g' "$file" && rm -f "${file}.bak"
     else
         # Outside docs/, use path from root
-        sed -i '' 's|\.claude\/workflows\/|docs\/AI\/Workflows\/|g' "$file"
+        sed -i.bak 's|\.claude\/workflows\/|docs\/AI\/Workflows\/|g' "$file" && rm -f "${file}.bak"
     fi
 
     # Fix other .claude/ subdirectories
-    sed -i '' 's|\.claude\/research\/|docs\/AI\/Research\/|g' "$file"
-    sed -i '' 's|\.claude\/prompts\/|docs\/AI\/Prompts\/|g' "$file"
-    sed -i '' 's|\.claude\/examples\/|docs\/AI\/Examples\/|g' "$file"
-    sed -i '' 's|\.claude\/audits\/|docs\/AI\/Audits\/|g' "$file"
-    sed -i '' 's|\.claude\/analysis\/|docs\/AI\/Analysis\/|g' "$file"
-    sed -i '' 's|\.claude\/implementation-plans\/|docs\/AI\/Implementation\/|g' "$file"
+    sed -i.bak 's|\.claude\/research\/|docs\/AI\/Research\/|g' "$file" && rm -f "${file}.bak"
+    sed -i.bak 's|\.claude\/prompts\/|docs\/AI\/Prompts\/|g' "$file" && rm -f "${file}.bak"
+    sed -i.bak 's|\.claude\/examples\/|docs\/AI\/Examples\/|g' "$file" && rm -f "${file}.bak"
+    sed -i.bak 's|\.claude\/audits\/|docs\/AI\/Audits\/|g' "$file" && rm -f "${file}.bak"
+    sed -i.bak 's|\.claude\/analysis\/|docs\/AI\/Analysis\/|g' "$file" && rm -f "${file}.bak"
+    sed -i.bak 's|\.claude\/implementation-plans\/|docs\/AI\/Implementation\/|g' "$file" && rm -f "${file}.bak"
 
     # Fix prompts/ references
     if [[ "$file" == docs/* ]]; then
-        sed -i '' 's|prompts\/|\.\/AI\/Prompts\/|g' "$file"
-        sed -i '' 's|\.\.\/prompts\/|\.\/AI\/Prompts\/|g' "$file"
+        sed -i.bak 's|prompts\/|\.\/AI\/Prompts\/|g' "$file" && rm -f "${file}.bak"
+        sed -i.bak 's|\.\.\/prompts\/|\.\/AI\/Prompts\/|g' "$file" && rm -f "${file}.bak"
     else
-        sed -i '' 's|prompts\/|docs\/AI\/Prompts\/|g' "$file"
+        sed -i.bak 's|prompts\/|docs\/AI\/Prompts\/|g' "$file" && rm -f "${file}.bak"
     fi
 }
 
