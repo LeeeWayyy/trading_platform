@@ -28,6 +28,8 @@ from typing import Any
 
 import streamlit as st
 
+logger = logging.getLogger(__name__)
+
 from apps.web_console import config
 from apps.web_console.config import (
     AUTH_TYPE,
@@ -39,8 +41,6 @@ from apps.web_console.config import (
     SESSION_TIMEOUT_MINUTES,
     TRUSTED_PROXY_IPS,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def check_password() -> bool:
