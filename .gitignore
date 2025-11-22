@@ -90,6 +90,7 @@ zen_precommit.changeset
 
 # Claude Code runtime state
 .claude/state/current-todo.json
+.claude/session-state.md
 
 # Context checkpoints (Phase 3: Context Optimization)
 .claude/checkpoints/*.json
@@ -103,3 +104,14 @@ zen_precommit.changeset
 
 # backup (pattern to match all timestamped backup directories)
 docs-backup-*/
+
+# Web Console Certificates (Phase 2: mTLS + JWT)
+# CRITICAL: Never commit private keys to version control
+apps/web_console/certs/*.key
+apps/web_console/certs/*.pem
+apps/web_console/certs/jwt_private.key
+# Allow certificate files (public data)
+!apps/web_console/certs/*.crt
+!apps/web_console/certs/README.md
+# Allow JWT public key (public data, needed for JWT validation)
+!apps/web_console/certs/jwt_public.pem
