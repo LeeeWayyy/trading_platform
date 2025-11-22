@@ -544,7 +544,7 @@ After addressing findings, remember to follow the established workflow:
 
 4. **Before PR:**
    - Deep review MANDATORY (use clink + gemini codereviewer)
-   - See `.claude/workflows/03-reviews.md`
+   - See `./AI/Workflows/03-reviews.md`
 
 **Do NOT skip these steps after completing fixes!**
 ```
@@ -555,7 +555,7 @@ This reminder should be included at the END of every review response.
 
 ### Task Review Template
 
-**File:** `.claude/prompts/clink-reviews/task-creation-review.md`
+**File:** `docs/AI/Prompts/clink-reviews/task-creation-review.md`
 
 ```markdown
 # Task Creation Review (Gemini Planner)
@@ -656,7 +656,7 @@ After addressing task review findings, remember to follow the workflow:
 
 3. **Before creating PR:**
    - Deep review MANDATORY (clink + gemini codereviewer)
-   - See `.claude/workflows/03-reviews.md`
+   - See `./AI/Workflows/03-reviews.md`
 
 **Do NOT:**
 - ❌ Skip the 4-step pattern
@@ -799,14 +799,14 @@ Continuation ID: task-review-ghi789
    - Add clink workflows for quick review, deep review, task creation review
    - Document model selection strategy (codex=gpt-5-codex, gemini=2.5)
 
-2. Create standardized review prompts (`.claude/prompts/clink-reviews/`)
+2. Create standardized review prompts (`docs/AI/Prompts/clink-reviews/`)
    - `quick-safety-review.md` - Pre-commit safety checks
    - `deep-architecture-review.md` - Pre-PR comprehensive review
    - `security-audit.md` - Security-focused analysis
    - `task-creation-review.md` - Task validation before work starts
    - **Each prompt includes workflow reminders** (see below)
 
-3. Update workflow guides (`.claude/workflows/`)
+3. Update workflow guides (`./AI/Workflows/`)
    - `03-reviews.md` → Use clink + codex
    - `03-reviews.md` → Use clink + gemini → codex
    - `13-task-creation-review.md` (new)
@@ -1019,7 +1019,7 @@ Continuation ID: task-review-ghi789
 **Risk:** Gemini CLI not available on developer machines
 
 **Mitigation:**
-- Add installation to `.claude/workflows/11-environment-bootstrap.md`
+- Add installation to `./AI/Workflows/11-environment-bootstrap.md`
 - One-line install: `npm install -g @google/gemini-cli`
 - Add to pre-commit hook: Check for gemini CLI availability
 - Fallback: Use codex for all reviews if gemini unavailable (costlier)

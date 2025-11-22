@@ -13,7 +13,7 @@ duration: 0 days
 dependencies: ["P1T11"]
 estimated_effort: "4-6 hours"
 related_adrs: []
-related_docs: [".claude/workflows/README.md", "docs/STANDARDS/GIT_WORKFLOW.md"]
+related_docs: ["./AI/Workflows/README.md", "docs/STANDARDS/GIT_WORKFLOW.md"]
 features: []
 ---
 
@@ -31,18 +31,18 @@ features: []
 
 ## Objective
 
-Audit and simplify the `.claude/workflows/` directory to improve usability, reduce redundancy, and design pre-commit automation for critical workflow enforcement.
+Audit and simplify the `./AI/Workflows/` directory to improve usability, reduce redundancy, and design pre-commit automation for critical workflow enforcement.
 
 ## Background
 
 After completing P1T11, we have:
-- **17 workflows** in `.claude/workflows/` (not 13 - updated count)
+- **17 workflows** in `./AI/Workflows/` (not 13 - updated count)
 - Pre-commit framework with 3 gates (branch naming, TodoWrite, CI tests)
 - Documented 4-step pattern and subfeature branching strategy
 
 **Problems Identified:**
 - **7 workflows exceed 500 lines** (readability suffers, target: ≤600 lines)
-- **Documentation hierarchy unclear:** CLAUDE.md vs `.claude/workflows/README.md` roles not distinct
+- **Documentation hierarchy unclear:** CLAUDE.md vs `./AI/Workflows/README.md` roles not distinct
 - Potential redundancy across workflow guides
 - No systematic enforcement of workflow best practices (ADR updates, documentation, etc.)
 - ADR creation doesn't automatically trigger updates to README.md, CONCEPTS/, or LESSONS_LEARNED/
@@ -62,7 +62,7 @@ After completing P1T11, we have:
 
 **Tasks:**
 - Update CLAUDE.md to explicitly position it as PRIMARY guidance document
-- Slim `.claude/workflows/README.md` to pure index (2 sentences + tables only)
+- Slim `./AI/Workflows/README.md` to pure index (2 sentences + tables only)
 - Find and fix all cross-references using `rg -n "workflows/README"`
 - Update all workflows to reference CLAUDE.md (not README.md) for overview
 
@@ -76,7 +76,7 @@ After completing P1T11, we have:
 ### 1. Workflow Audit (1.5-2 hours)
 
 **Tasks:**
-- Review all **17 workflows** in `.claude/workflows/` (updated count)
+- Review all **17 workflows** in `./AI/Workflows/` (updated count)
 - Use table template (timebox: 10 min per workflow)
 - Capture: line count, redundancy notes, missing cross-links
 - Identify verbose workflows (>500 lines, target: ≤600)
@@ -96,14 +96,14 @@ After completing P1T11, we have:
   - 01-git.md (678 → ~450 lines)
   - 11-environment-bootstrap.md (678 → ~400 lines)
   - 13-task-creation-review.md (624 → ~400 lines)
-- Extract examples to `.claude/examples/` directory
+- Extract examples to `docs/AI/Examples/` directory
 - Use shared snippets for repeated content (reduce duplication)
 - Add expandable appendix sections (don't delete crucial content)
 - Consolidate DRAFT-pr-review-feedback-rules.md into 01-git.md
 
 **Deliverables:**
 - Simplified workflow guides (≤600 lines or justified)
-- `.claude/examples/` directory with extracted examples
+- `docs/AI/Examples/` directory with extracted examples
 - Better cross-links using shared snippets
 
 ### 3. Pre-commit Gate Design (2 hours)
@@ -149,7 +149,7 @@ After completing P1T11, we have:
 
 **Tasks:**
 - Create systematic checklist for ADR lifecycle
-- Integrate checklist into `.claude/workflows/08-adr-creation.md`
+- Integrate checklist into `./AI/Workflows/08-adr-creation.md`
 - Document enforcement approach (manual checklist vs. pre-commit gate)
 
 **Checklist Items:**
@@ -191,7 +191,7 @@ After completing P1T11, we have:
 
 1. **Simplify workflows (2.5-3 hours)**
    - Wave-based approach (largest first = maximum impact quickly)
-   - Extract examples to `.claude/examples/`
+   - Extract examples to `docs/AI/Examples/`
    - Use shared snippets for repeated content
    - Add appendix sections (preserve crucial content)
 
@@ -218,7 +218,7 @@ After completing P1T11, we have:
 - [ ] All cross-references fixed and validated (`rg -n "workflows/README"` returns clean)
 - [ ] Audit report completed (17 workflows analyzed with table template)
 - [ ] Top 5 workflows simplified (≤600 lines or justified)
-- [ ] Examples extracted to `.claude/examples/` directory
+- [ ] Examples extracted to `docs/AI/Examples/` directory
 - [ ] No redundant content across workflows (shared snippets used)
 - [ ] ADR update checklist integrated into `08-adr-creation.md`
 - [ ] **ADR-00XX created** (4 gates designed: task reminder + 3 automation)
@@ -272,7 +272,7 @@ After completing P1T11, we have:
   - "Simplicity and Maintainability" as explicit NFR for gates
   - Mirror task review reminder in CI pre-merge checklist
 - Focus on design over implementation for gates (explicitly defer to follow-up task)
-- Leverage existing `.claude/workflows/07-documentation.md` as baseline
+- Leverage existing `./AI/Workflows/07-documentation.md` as baseline
 - Consider consolidating with 00-task-breakdown.md patterns
 
 **Risk Mitigations:**
@@ -285,7 +285,7 @@ After completing P1T11, we have:
 
 ## References
 
-- `.claude/workflows/README.md` - Current workflow index
+- `./AI/Workflows/README.md` - Current workflow index
 - `docs/STANDARDS/GIT_WORKFLOW.md` - Git workflow standards
 - `scripts/hooks/zen_pre_commit.sh` - Existing pre-commit orchestrator
 - P1T11_DONE.md - Completed workflow optimization task

@@ -8,16 +8,16 @@ on:
       - develop
     paths:
       - '**.md'
-      - '.claude/workflows/**.md'
       - 'docs/**.md'
       - 'CLAUDE.md'
+      - 'AGENTS.md'
       - '.github/workflows/markdown-link-check.yml'
   pull_request:
     paths:
       - '**.md'
-      - '.claude/workflows/**.md'
       - 'docs/**.md'
       - 'CLAUDE.md'
+      - 'AGENTS.md'
       - '.github/workflows/markdown-link-check.yml'
   schedule:
     # Run weekly on Mondays at 9am UTC
@@ -44,7 +44,7 @@ jobs:
         run: |
           echo "::error::Markdown link check failed! Please fix broken links."
           echo "::error::Common issues:"
-          echo "::error::- Workflow files moved or renamed in .claude/workflows/"
+          echo "::error::- Workflow files moved or renamed in docs/AI/Workflows/"
           echo "::error::- Documentation files moved or renamed in docs/"
-          echo "::error::- Broken cross-references between CLAUDE.md and workflow guides"
+          echo "::error::- Broken cross-references between CLAUDE.md/AGENTS.md and docs/AI/"
           echo "::error::- External URLs changed or removed"

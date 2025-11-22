@@ -126,13 +126,14 @@ def get_commit_message(commit_hash):
 def has_review_markers(commit_hash):
     """Check if commit message contains zen-mcp review approval markers.
 
-    Accepts two formats:
-    1. Quick review (single continuation): continuation-id: <id>
-    2. Deep review (dual phase): gemini-continuation-id: <id> AND codex-continuation-id: <id>
+    All reviews now use comprehensive independent review format:
+    - gemini-continuation-id: <final-uuid-from-approved-iteration>
+    - codex-continuation-id: <final-uuid-from-approved-iteration>
 
     Also accepts legacy marker names:
     - gemini-review: (alias for gemini-continuation-id:)
     - codex-review: (alias for codex-continuation-id:)
+    - continuation-id: (legacy single-phase format)
 
     Component 2 (P1T13-F5a): Also checks for Review-Hash trailer.
     """
@@ -143,26 +144,23 @@ def has_review_markers(commit_hash):
     if not has_approval:
         return False
 
-    # Check for continuation ID in either format
-    # Format 1: Quick review (single continuation-id without prefix)
-    # Match line start + optional whitespace + continuation-id, but ensure
-    # it's not preceded by gemini- or codex- by checking the full pattern
-    quick_pattern = r"(?:^|\n)\s*continuation-id:"
+    # Check for continuation ID formats
+    # Accept both dual-phase (gemini + codex) and legacy single-phase formats
     gemini_pattern = r"(?:^|\n)\s*gemini-continuation-id:"
     codex_pattern = r"(?:^|\n)\s*codex-continuation-id:"
+    legacy_pattern = r"(?:^|\n)\s*continuation-id:"
 
-    has_continuation = bool(re.search(quick_pattern, message))
-    has_prefixed = bool(re.search(gemini_pattern, message) or re.search(codex_pattern, message))
-    has_quick_format = has_continuation and not has_prefixed
-
-    # Format 2: Deep review (dual phase with gemini + codex)
-    # Accept both current and legacy marker names
     # Gemini MEDIUM fix: Use regex patterns to avoid false positives
     gemini_trailer_pattern = r"(?:^|\n)\s*(?:gemini-continuation-id|gemini-review):"
     codex_trailer_pattern = r"(?:^|\n)\s*(?:codex-continuation-id|codex-review):"
     has_gemini = bool(re.search(gemini_trailer_pattern, message))
     has_codex = bool(re.search(codex_trailer_pattern, message))
-    has_deep_format = has_gemini and has_codex
+    has_dual_phase = has_gemini and has_codex
+
+    # Legacy single-phase format (for backward compatibility)
+    has_continuation = bool(re.search(legacy_pattern, message))
+    has_prefixed = has_gemini or has_codex
+    has_legacy_format = has_continuation and not has_prefixed
 
     # Component 2 (P1T13-F5a): Check for Review-Hash trailer (presence only)
     # Note: We only check presence, not correctness (can't reconstruct staging area post-commit)
@@ -172,7 +170,7 @@ def has_review_markers(commit_hash):
     review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*(?:\n|$)"
     has_review_hash = bool(re.search(review_hash_pattern, message, re.IGNORECASE | re.MULTILINE))
 
-    return (has_quick_format or has_deep_format) and has_review_hash
+    return (has_dual_phase or has_legacy_format) and has_review_hash
 
 
 def extract_review_hash(commit_sha: str) -> str | None:

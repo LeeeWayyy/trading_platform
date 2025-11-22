@@ -396,7 +396,7 @@ blended_df = pl.DataFrame({
 
 **RECOMMENDED:** Before starting work, request task creation review to validate scope and requirements.
 
-See [`.claude/workflows/02-planning.md`](../../.claude/workflows/02-planning.md) for workflow details.
+See [`./AI/Workflows/02-planning.md`](.././AI/Workflows/02-planning.md) for workflow details.
 
 **Review validates:**
 - [ ] Objective is clear and measurable

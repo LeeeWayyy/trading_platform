@@ -41,7 +41,7 @@
 All tasks in this phase follow the standard development workflow with **clink-based zen-mcp reviews**:
 
 1. **Task Creation Review** (RECOMMENDED for complex tasks >4 hours)
-   - Use workflow: `.claude/workflows/13-task-creation-review.md`
+   - Use workflow: `./AI/Workflows/13-task-creation-review.md`
    - Tool: clink + gemini planner → codex planner
    - Validates: scope clarity, requirements completeness, safety requirements
    - Duration: ~2-3 minutes
@@ -49,11 +49,11 @@ All tasks in this phase follow the standard development workflow with **clink-ba
 2. **Progressive Implementation** (MANDATORY 4-step pattern per component)
    - Implement → Test → Quick Review → Commit
    - Quick review tool: clink + codex codereviewer
-   - See: `.claude/workflows/03-reviews.md`
+   - See: `./AI/Workflows/03-reviews.md`
    - Frequency: Every 30-60 minutes per component
 
 3. **Deep Review** (MANDATORY before PR)
-   - Use workflow: `.claude/workflows/03-reviews.md`
+   - Use workflow: `./AI/Workflows/03-reviews.md`
    - Tool: clink + gemini codereviewer → codex codereviewer
    - Reviews: architecture, safety, scalability, test coverage
    - Duration: ~3-5 minutes

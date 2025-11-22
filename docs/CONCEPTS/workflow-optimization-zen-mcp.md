@@ -201,7 +201,7 @@ zen clink review \
   --mode full \
   --target commit HEAD \
   --include-tests \
-  --prompt-file prompts/deep_trading_safety.md
+  --prompt-file ./AI/Prompts/deep_trading_safety.md
 ```
 
 **Includes:**
@@ -441,7 +441,7 @@ chmod +x .git/hooks/pre-commit
 
 **2. Create Deep Review Prompt**
 
-Create `prompts/deep_trading_safety.md`:
+Create `./AI/Prompts/deep_trading_safety.md`:
 ```markdown
 # Deep Trading Safety Review
 

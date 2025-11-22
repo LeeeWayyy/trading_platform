@@ -157,9 +157,9 @@ psql -U postgres -d trading_platform_test -c "\d model_registry"
 
 ## Test Data Setup
 
-### Step 1: Verify T1 Data Exists
+### Step 1: Verify Market Data Exists
 
-Tests require T1 adjusted data to be present:
+Tests require adjusted market data to be present:
 
 ```bash
 # Check data directory structure
@@ -183,11 +183,11 @@ data/adjusted/
 
 **If data doesn't exist**, generate test data:
 ```bash
-# Run T1 data generation (if you have the pipeline setup)
+# Generate test data if needed
 python scripts/generate_test_data.py --symbols AAPL,MSFT,GOOGL,AMZN,TSLA --start 2024-01-01 --end 2024-01-31
 ```
 
-### Step 2: Verify T2 Model Exists
+### Step 2: Verify ML Model Exists
 
 Tests require the trained alpha_baseline model:
 
@@ -203,7 +203,7 @@ ls -lh artifacts/models/alpha_baseline.txt
 
 **If model doesn't exist**, train it:
 ```bash
-# Train baseline model (from T2)
+# Train baseline model
 python -m strategies.alpha_baseline.train
 
 # Or use quick training script
@@ -230,7 +230,7 @@ INSERT INTO model_registry (
     'active',
     '{"ic": 0.082, "sharpe": 1.45, "max_drawdown": -0.12, "win_rate": 0.55}',
     '{"learning_rate": 0.05, "max_depth": 6, "num_boost_round": 100}',
-    'Initial baseline model from T2 implementation'
+    'Initial baseline model'
 ) ON CONFLICT (strategy_name, version) DO NOTHING;
 EOF
 
@@ -320,7 +320,7 @@ chmod +x scripts/test_health_check.sh
 [4/6] Checking model_registry table...
 ✓ Table exists with 1 models
 
-[5/6] Checking T1 data...
+[5/6] Checking market data...
 ✓ Data directory: data/adjusted
 
 [6/6] Checking model file...
@@ -419,7 +419,7 @@ Test fixtures are defined in `apps/signal_service/tests/conftest.py`:
 - `test_db_url` - Test database connection string
 - `db_connection` - Database connection (auto-close)
 - `setup_model_registry_table` - Create table in test DB
-- `mock_t1_data` - Mock T1 Parquet files
+- `mock_market_data` - Mock market data Parquet files
 - `mock_alpha158_features` - Mock features DataFrame
 - `sample_model_metadata` - Sample metadata dictionary
 
@@ -501,7 +501,7 @@ python -m strategies.alpha_baseline.train
 python scripts/quick_train_test.py
 ```
 
-### Issue: T1 Data Not Found
+### Issue: Market Data Not Found
 
 **Symptom:**
 ```
@@ -550,7 +550,7 @@ Before running tests, verify:
 - [ ] Database `trading_platform_test` exists
 - [ ] Migrations have been run (both databases)
 - [ ] Model file exists: `artifacts/models/alpha_baseline.txt`
-- [ ] T1 data exists: `data/adjusted/2024-01-15/*.parquet`
+- [ ] Market data exists: `data/adjusted/2024-01-15/*.parquet`
 - [ ] Model registered in database
 - [ ] `.env` file created with correct values
 - [ ] Virtual environment activated
@@ -622,7 +622,7 @@ jobs:
 - **psycopg2 documentation:** https://www.psycopg.org/docs/
 
 For project-specific documentation:
-- `/docs/TASKS/P0T3_DONE.md` - Implementation guide
+- `/docs/TASKS/` - Task implementation guides
 - `/docs/ADRs/0004-signal-service-architecture.md` - Architecture decisions
 - `/docs/CONCEPTS/model-registry.md` - Model registry concept
 
@@ -636,7 +636,7 @@ For project-specific documentation:
 1. Install PostgreSQL
 2. Create databases (production + test)
 3. Run migrations
-4. Verify T1 data and T2 model exist
+4. Verify market data and ML model exist
 5. Register model in database
 6. Create `.env` file
 7. Run health check

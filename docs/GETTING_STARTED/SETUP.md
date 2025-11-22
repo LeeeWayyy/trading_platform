@@ -162,7 +162,7 @@ OUTLIER_THRESHOLD=0.30
 # Database (for future use)
 DATABASE_URL=postgresql+psycopg://trader:trader@localhost:5432/trader
 
-# Alpaca API (for T2+, not needed for T1)
+# Alpaca API (for paper/live trading)
 ALPACA_API_KEY_ID=your_key_here
 ALPACA_SECRET_KEY=your_secret_here
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
@@ -566,7 +566,7 @@ Before starting development, verify each step:
 - [ ] Dependencies installed: `pip list | grep polars` shows polars
 - [ ] Tests pass: `pytest tests/ -v` shows all tests passing
 - [ ] Environment configured: `.env` file exists with proper settings
-- [ ] Docker running (optional for T1): `docker ps` shows containers (if needed)
+- [ ] Docker running: `docker ps` shows containers (PostgreSQL, Redis, etc.)
 
 **If any step fails, refer to the Troubleshooting section above.**
 
@@ -575,9 +575,10 @@ Before starting development, verify each step:
 After setup is complete:
 
 1. **Run tests**: `pytest tests/ -v`
-2. **Read implementation guide**: `docs/IMPLEMENTATION_GUIDES/p0t1-data-etl.md`
-3. **Review ADRs**: `docs/ADRs/`
-4. **Start T2**: Real data integration (see `P0_TICKETS.md`)
+2. **Review project status**: `docs/GETTING_STARTED/PROJECT_STATUS.md`
+3. **Review repository map**: `docs/GETTING_STARTED/REPO_MAP.md`
+4. **Review ADRs**: `docs/ADRs/`
+5. **Check task planning**: `docs/TASKS/INDEX.md`
 
 ## Quick Reference
 

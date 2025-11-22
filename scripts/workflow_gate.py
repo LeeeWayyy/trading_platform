@@ -875,14 +875,18 @@ class WorkflowGate:
             except OSError:
                 pass
 
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("⚠️  EMERGENCY OVERRIDE DETECTED")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print(f"   ZEN_REVIEW_OVERRIDE={override_env}")
             print("   Bypassing workflow gates for emergency hotfix")
-            print("   ⚠️  This override is logged and auditable")
-            print("   ⚠️  DO NOT SET override_env without user approval ")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print()
+            print("   ⚠️  CRITICAL: This override is logged and auditable")
+            print("   ⚠️  AI AGENTS: NEVER use ZEN_REVIEW_OVERRIDE without explicit user approval")
+            print("   ⚠️  If you are an AI agent, you MUST ask user before using this override")
+            print()
+            print("   See: CLAUDE.md for AI agent review override policy")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             # Log override for audit
             import logging
@@ -918,8 +922,9 @@ class WorkflowGate:
                 print("   Then advance to implement:")
                 print("     ./scripts/workflow_gate.py advance implement")
                 print()
-                print("   Emergency bypass (production outage only):")
+                print("   Emergency bypass (production outage only, REQUIRES user approval):")
                 print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 sys.exit(1)
 
@@ -938,8 +943,9 @@ class WorkflowGate:
             print('       {"content": "Component 2", "status": "pending"}')
             print("     ]")
             print()
-            print("   Emergency bypass (production outage only):")
+            print("   Emergency bypass (production outage only, REQUIRES user approval):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
@@ -965,8 +971,9 @@ class WorkflowGate:
             print("     - Context resets to 0")
             print("     - Commit will be allowed")
             print()
-            print("   Emergency bypass (production outage only):")
+            print("   Emergency bypass (production outage only, REQUIRES user approval):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
@@ -996,6 +1003,7 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             sys.exit(1)
 
         # Check zen review approval
@@ -1012,6 +1020,7 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             sys.exit(1)
 
         # Gate 0.3 (Component 3 - P1T13-F5a): Continuation ID verification
@@ -1035,6 +1044,7 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
@@ -1055,6 +1065,7 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
@@ -1074,6 +1085,7 @@ class WorkflowGate:
                     print()
                     print("   Emergency override (production outage only):")
                     print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                    print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     sys.exit(1)
             except Exception as e:
@@ -1088,6 +1100,7 @@ class WorkflowGate:
                 print()
                 print("   Emergency override (production outage only):")
                 print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 sys.exit(1)
 
@@ -1119,6 +1132,7 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
@@ -1134,6 +1148,7 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             sys.exit(1)
 
         # Gate 0.4 (Component 1 - P1T13-F5a): Code state fingerprinting
@@ -1152,6 +1167,7 @@ class WorkflowGate:
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+            print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
@@ -1192,6 +1208,7 @@ class WorkflowGate:
                     print()
                     print("   Emergency override (production outage only):")
                     print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                    print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     sys.exit(1)
 
@@ -1203,6 +1220,7 @@ class WorkflowGate:
                 print()
                 print("   Emergency override (production outage only):")
                 print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 sys.exit(1)
 
@@ -3034,14 +3052,15 @@ Request task creation review via .claude/workflows/02-planning.md before startin
 
 class UnifiedReviewSystem:
     """
-    Consolidated review system with context-aware rigor.
+    Consolidated review system with comprehensive independent reviews.
 
-    Merges quick/deep reviews with multi-iteration pre-PR validation.
-    Implements conservative override policy for quality gates.
+    Uses two-phase independent review pattern (Gemini → Codex) for all reviews.
+    Implements multi-iteration validation until zero issues.
 
     Component 4 of P1T13-F4: Workflow Intelligence & Context Efficiency
     Author: Claude Code
     Date: 2025-11-08
+    Updated: 2025-11-21 - Removed quick/deep distinction, made phases independent
     """
 
     def __init__(self, workflow_gate: "WorkflowGate | None" = None, state_file: Path = STATE_FILE):
@@ -3103,15 +3122,19 @@ class UnifiedReviewSystem:
         self, scope: str = "commit", iteration: int = 1, override_justification: str | None = None
     ) -> dict:
         """
-        Request unified review (gemini codereviewer → codex codereviewer).
+        Request comprehensive independent review (Gemini + Codex independent reviews).
 
         Args:
-            scope: "plan" (plan review), "commit" (lightweight), or "pr" (comprehensive + multi-iteration)
-            iteration: Iteration number for PR reviews (1, 2, 3...)
+            scope: "plan", "commit", or "pr" (all use comprehensive two-phase independent reviews)
+            iteration: Iteration number for multi-iteration reviews (1, 2, 3...)
             override_justification: Justification for overriding LOW severity issues
 
         Returns:
-            Review result dict with continuation_id and status
+            Review result dict with continuation_ids (one from each reviewer) and status
+
+        Note:
+            All reviews use the same comprehensive standard with independent Gemini + Codex reviews.
+            Only record final continuation IDs when BOTH reviewers approve with zero issues.
 
         Example:
             >>> reviewer = UnifiedReviewSystem()
@@ -3129,45 +3152,59 @@ class UnifiedReviewSystem:
 
     def _commit_review(self) -> dict:
         """
-        Lightweight commit review (replaces quick review).
+        Comprehensive commit review with independent Gemini + Codex reviews.
 
         Focus:
-        - Trading safety (circuit breakers, idempotency)
-        - Critical bugs
-        - Code quality (type safety, error handling)
+        - Trading safety (circuit breakers, idempotency, position limits)
+        - Architecture and design patterns
+        - Code quality (type safety, error handling, resource cleanup)
+        - Security (secrets handling, SQL injection prevention)
+        - Test coverage and edge cases
+        - Documentation completeness
 
-        Speed: 2-3 minutes (gemini 1-2min, codex 30-60sec)
+        Speed: ~3-5 minutes (Gemini 2-3min, Codex 1-2min - both independent)
 
         Returns:
             dict with keys: scope, continuation_id, status, issues
         """
-        print("🔍 Requesting commit review (gemini → codex)...")
-        print("   Focus: Trading safety, critical bugs, code quality")
-        print("   Duration: ~2-3 minutes")
+        print("🔍 Requesting comprehensive review (INDEPENDENT: Gemini + Codex)...")
+        print("   ⚠️  CRITICAL: Both reviewers work INDEPENDENTLY (not sequential)")
+        print("   Focus: All comprehensive criteria (trading safety, architecture, quality, security)")
+        print("   Duration: ~3-5 minutes")
         print()
-        print("💡 Follow workflow: .claude/workflows/03-reviews.md")
+        print("💡 Follow workflow: docs/AI/Workflows/03-reviews.md")
+        print()
+        print("   === Phase 1: Request INDEPENDENT Gemini review ===")
         print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
-        print(
-            "   Then: mcp__zen__clink with cli_name='codex', role='codereviewer' (reuse continuation_id)"
-        )
+        print("   Prompt: 'Request comprehensive review (fresh, independent analysis)'")
         print()
-        print("   After review, record approval:")
-        print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
+        print("   === Phase 2: Request INDEPENDENT Codex review ===")
+        print("   Use: mcp__zen__clink with cli_name='codex', role='codereviewer'")
+        print("   Prompt: 'Request comprehensive review (fresh, independent - DO NOT reference Gemini)'")
+        print("   ⚠️  DO NOT reuse Gemini's continuation_id - Codex reviews independently")
+        print()
+        print("   === If ANY issues found ===")
+        print("   - Fix ALL issues")
+        print("   - RESTART with FRESH independent reviews (discard previous continuation_ids)")
+        print()
+        print("   === After BOTH approve with ZERO issues ===")
+        print("   Record with EITHER final continuation_id:")
+        print("     ./scripts/workflow_gate.py record-review <final-continuation-id> APPROVED")
         print()
 
         # Return placeholder - actual review happens via clink
         return {
             "scope": "commit",
-            "continuation_id": None,  # Set by user after review
+            "continuation_id": None,  # Set by user after BOTH reviews approve
             "status": "PENDING",
             "issues": [],
         }
 
     def _plan_review(self) -> dict:
         """
-        Deep plan review via INDEPENDENT Gemini + Codex reviews (Phase 1.5).
+        Comprehensive plan review via INDEPENDENT Gemini + Codex reviews (Phase 1.5).
 
-        CRITICAL: This is a DEEP REVIEW with INDEPENDENT reviews (Tier 2 pattern)
+        CRITICAL: Both reviewers work INDEPENDENTLY (not sequential)
         - Gemini reviews plan independently (fresh perspective)
         - Codex reviews plan independently (NOT building on Gemini)
         - Multi-iteration until BOTH approve with ZERO issues
@@ -3181,43 +3218,43 @@ class UnifiedReviewSystem:
         - Integration concerns
         - Missing edge cases
 
-        Speed: ~3-5 minutes (similar to PR deep review)
+        Speed: ~3-5 minutes (same comprehensive standard as all reviews)
 
         Returns:
             dict with keys: scope, continuation_id, status, issues
         """
-        print("🔍 Requesting DEEP REVIEW of plan (INDEPENDENT reviews: Gemini + Codex)...")
+        print("🔍 Requesting comprehensive plan review (INDEPENDENT: Gemini + Codex)...")
         print("   ⚠️  CRITICAL: Both reviewers work INDEPENDENTLY (not sequential)")
         print("   Focus: Feasibility, risk assessment, breakdown, integration")
-        print("   Duration: ~3-5 minutes (deep review)")
+        print("   Duration: ~3-5 minutes")
         print()
-        print("💡 Follow Tier 2 (Deep Review) workflow: .claude/workflows/03-reviews.md")
+        print("💡 Follow workflow: docs/AI/Workflows/03-reviews.md")
         print()
-        print("   === Step 1: Request INDEPENDENT Gemini review ===")
+        print("   === Phase 1: Request INDEPENDENT Gemini review ===")
         print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
-        print("   Prompt: 'Request independent deep review of plan (fresh, no prior context)'")
+        print("   Prompt: 'Request comprehensive plan review (fresh, independent analysis)'")
         print("   Materials to review:")
         print("     - Pre-implementation analysis document")
         print("     - Component breakdown and estimates")
         print("     - Risk assessment and mitigation strategies")
         print()
-        print("   === Step 2: Request INDEPENDENT Codex review ===")
+        print("   === Phase 2: Request INDEPENDENT Codex review ===")
         print("   Use: mcp__zen__clink with cli_name='codex', role='codereviewer'")
-        print("   Prompt: 'Request independent deep review of plan (fresh, no prior context)'")
+        print("   Prompt: 'Request comprehensive plan review (fresh, independent - DO NOT reference Gemini)'")
         print("   ⚠️  DO NOT reuse Gemini's continuation_id - Codex reviews independently")
         print()
-        print("   === Step 3: If ANY issues found by EITHER reviewer ===")
+        print("   === If ANY issues found by EITHER reviewer ===")
         print("   - Fix ALL issues")
         print("   - Update plan documents")
-        print("   - RESTART from Step 1 with FRESH reviews (no memory)")
+        print("   - RESTART from Phase 1 with FRESH reviews (discard previous continuation_ids)")
         print()
-        print("   === Step 4: Repeat until BOTH approve with ZERO issues ===")
+        print("   === Repeat until BOTH approve with ZERO issues ===")
         print("   Result: ✅ Both Gemini AND Codex approve with NO issues")
         print()
-        print("   === Step 5: Record approval ===")
-        print("   After BOTH approve, record with EITHER continuation_id:")
+        print("   === After BOTH approve, record approval ===")
+        print("   Record with EITHER final continuation_id:")
         print(
-            "     ./scripts/workflow_gate.py record-review <gemini-or-codex-continuation-id> APPROVED"
+            "     ./scripts/workflow_gate.py record-review <final-continuation-id> APPROVED"
         )
         print()
 
@@ -3259,21 +3296,35 @@ class UnifiedReviewSystem:
         review_state = state.setdefault("unified_review", {})
         review_history = review_state.setdefault("history", [])
 
-        print(f"🔍 Requesting PR review - Iteration {iteration} (gemini → codex)...")
+        print(f"🔍 Requesting PR review - Iteration {iteration} (INDEPENDENT: Gemini + Codex)...")
+        print("   ⚠️  CRITICAL: Both reviewers work INDEPENDENTLY (not sequential)")
         print("   Focus: Architecture, integration, coverage, safety, quality")
         print("   Duration: ~3-5 minutes per iteration")
         print()
 
         if iteration > 1:
-            print(f"   ⚠️  INDEPENDENT REVIEW (no memory of iteration {iteration-1})")
+            print(f"   ⚠️  FRESH REVIEW (no memory of iteration {iteration-1})")
             print("      Looking for: (1) Verified fixes, (2) New issues from fixes")
             print()
 
-        print("💡 Follow workflow: .claude/workflows/03-reviews.md")
+        print("💡 Follow workflow: docs/AI/Workflows/03-reviews.md")
+        print()
+        print("   === Phase 1: Request INDEPENDENT Gemini review ===")
         print("   Use: mcp__zen__clink with cli_name='gemini', role='codereviewer'")
-        print("   Then: mcp__zen__clink with cli_name='codex', role='codereviewer'")
-        print("   ⚠️  CRITICAL: Do NOT reuse continuation_id from previous iteration")
-        print("      Each iteration must be independent for unbiased review")
+        print("   Prompt: 'Request comprehensive PR review (fresh, independent analysis)'")
+        print()
+        print("   === Phase 2: Request INDEPENDENT Codex review ===")
+        print("   Use: mcp__zen__clink with cli_name='codex', role='codereviewer'")
+        print("   Prompt: 'Request comprehensive PR review (fresh, independent - DO NOT reference Gemini)'")
+        print("   ⚠️  DO NOT reuse Gemini's continuation_id - Codex reviews independently")
+        print()
+        print("   === If ANY issues found ===")
+        print("   - Fix ALL issues")
+        print(f"   - RESTART iteration {iteration+1} with FRESH reviews (discard continuation_ids from iteration {iteration})")
+        print()
+        print("   === After BOTH approve with ZERO issues ===")
+        print("   Record with EITHER final continuation_id:")
+        print("     ./scripts/workflow_gate.py record-review <final-continuation-id> APPROVED")
         print()
 
         # Check for override conditions

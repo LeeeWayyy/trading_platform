@@ -359,7 +359,7 @@ CREATE INDEX idx_audit_log_action ON audit_log(action);
 ## References
 
 - P2_PLANNING.md: Lines 505-630 (T3 specification)
-- .claude/workflows/12-component-cycle.md: 6-step pattern
-- .claude/workflows/00-analysis-checklist.md: Analysis template
+- ./AI/Workflows/12-component-cycle.md: 6-step pattern
+- ./AI/Workflows/00-analysis-checklist.md: Analysis template
 - apps/execution_gateway/main.py: Existing APIs
 - apps/execution_gateway/schemas.py: Request/response models

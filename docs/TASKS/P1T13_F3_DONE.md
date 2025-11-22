@@ -12,7 +12,7 @@ completed: 2025-11-02
 dependencies: ["P1T13"]
 estimated_effort: "11-15 hours (revised from 8-11h)"
 related_adrs: []
-related_docs: ["CLAUDE.md", ".claude/workflows/", "docs/STANDARDS/"]
+related_docs: ["CLAUDE.md", "./AI/Workflows/", "docs/STANDARDS/"]
 features: ["context_optimization", "context_checkpointing"]
 branch: "feature/P1T13-F3-phase3-automation"
 ---
@@ -200,7 +200,7 @@ claude_code_cli --task "$TASK_TYPE" --prompt "$TASK_PROMPT" --return-summary
 
 **Workflow Integration:**
 
-Update `.claude/workflows/00-analysis-checklist.md` and `01-git.md`:
+Update `./AI/Workflows/00-analysis-checklist.md` and `01-git.md`:
 
 ```markdown
 ## Phase 1: Comprehensive Analysis (30-60 min)
@@ -226,7 +226,7 @@ Task(description="Find call sites", prompt="Search for all calls to function_nam
 
 **Deliverables:**
 
-1. `.claude/workflows/16-subagent-delegation.md` - Delegation pattern guide
+1. `./AI/Workflows/16-subagent-delegation.md` - Delegation pattern guide
 2. Updated workflows (00, 01, 03, 04) with delegation examples
 3. `.claude/hooks/delegate_subtask.sh` - Script hook (Option B/C)
 4. Baseline vs. optimized context usage metrics
@@ -241,13 +241,13 @@ Task(description="Find call sites", prompt="Search for all calls to function_nam
 
 Instead of relying on AI to follow documentation (soft gates), implement **hard gates** via Python scripts and git hooks that **programmatically enforce** workflow compliance.
 
-**Key Insight:** Existing workflows (`.claude/workflows/01-git.md`, `component-cycle.md`) already define the 4-step pattern correctly. The problem is **enforcement**, not definition.
+**Key Insight:** Existing workflows (`./AI/Workflows/01-git.md`, `component-cycle.md`) already define the 4-step pattern correctly. The problem is **enforcement**, not definition.
 
 > **📝 NOTE: The following "Workflow Enforcement Layer" design is FUTURE WORK (not implemented in Phase 3).**
 >
 > **Phase 3 Status (COMPLETED):** Context checkpointing system only.
 >
-> **Future Work:** The detailed design below describes a future workflow enforcement system. This section serves as research/design documentation for potential Phase 4+ implementation and should be moved to a dedicated design document (e.g., `.claude/research/workflow-enforcement-design.md`) in a future refactoring.
+> **Future Work:** The detailed design below describes a future workflow enforcement system. This section serves as research/design documentation for potential Phase 4+ implementation and should be moved to a dedicated design document (e.g., `docs/AI/Research/workflow-enforcement-design.md`) in a future refactoring.
 
 **Design (FUTURE - NOT IMPLEMENTED):**
 
@@ -377,7 +377,7 @@ class WorkflowGate:
             if not state["zen_review"].get("status") == "APPROVED":
                 return False, (
                     "❌ COMMIT BLOCKED: Zen review not approved\n"
-                    "   Run: Request zen review via .claude/workflows/03-reviews.md"
+                    "   Run: Request zen review via ./AI/Workflows/03-reviews.md"
                 )
 
             # HARD GATE: Must have CI pass
@@ -402,7 +402,7 @@ class WorkflowGate:
         # Special logic for review step
         if next == "review":
             print("🔍 Requesting zen-mcp review (clink + codex)...")
-            print("   Follow: .claude/workflows/03-reviews.md")
+            print("   Follow: ./AI/Workflows/03-reviews.md")
             print("   After review, record approval:")
             print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
 
@@ -519,7 +519,7 @@ if [ $? -ne 0 ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "This is a HARD GATE. You must:"
-    echo "  1. Request zen review: Follow .claude/workflows/03-reviews.md"
+    echo "  1. Request zen review: Follow ./AI/Workflows/03-reviews.md"
     echo "  2. Run CI locally: make ci-local"
     echo "  3. Record results: ./scripts/workflow_gate.py record-review <id> APPROVED"
     echo "                     ./scripts/workflow_gate.py record-ci true"
@@ -560,7 +560,7 @@ test: check-hooks
 	pytest $(ARGS)
 ```
 
-Add to `.claude/workflows/11-environment-bootstrap.md`:
+Add to `./AI/Workflows/11-environment-bootstrap.md`:
 
 ```bash
 # After initial setup, install git hooks
@@ -656,7 +656,7 @@ Add to `.github/workflows/ci.yml`:
 
 Enhance existing workflows with workflow gate commands:
 
-**`.claude/workflows/component-cycle.md` (Updated)**:
+**`./AI/Workflows/component-cycle.md` (Updated)**:
 
 ```markdown
 # Component Development Cycle (4-Step Pattern)
@@ -673,7 +673,7 @@ For EACH logical component, follow these steps with hard gate enforcement:
 - [ ] Run: ./scripts/workflow_gate.py advance review
 
 ### Step 3: Request Review + Run CI (MANDATORY)
-- [ ] Request zen review: Follow .claude/workflows/03-reviews.md
+- [ ] Request zen review: Follow ./AI/Workflows/03-reviews.md
 - [ ] Record review: ./scripts/workflow_gate.py record-review <continuation_id> APPROVED
 - [ ] Run CI: make ci-local
 - [ ] Record CI: ./scripts/workflow_gate.py record-ci true
@@ -684,7 +684,7 @@ For EACH logical component, follow these steps with hard gate enforcement:
 - [ ] ./scripts/workflow_gate.py record-commit (post-commit: record hash, reset to "implement")
 ```
 
-**`.claude/workflows/01-git.md` (Updated)**:
+**`./AI/Workflows/01-git.md` (Updated)**:
 
 Add hard gate reference at top:
 
@@ -776,7 +776,7 @@ After hard gates are implemented, simplify existing workflows to reduce context:
 
 **Redundant Content to Remove:**
 1. **Repeated "MANDATORY" warnings** → Gates enforce, no need for warnings
-   - Example: `.claude/workflows/01-git.md` has 12 instances of "MANDATORY"
+   - Example: `./AI/Workflows/01-git.md` has 12 instances of "MANDATORY"
    - After gates: Reduce to 1-2 instances with reference to gate enforcement
 
 2. **Process validation checklists** → Gates validate automatically
@@ -804,8 +804,8 @@ After hard gates are implemented, simplify existing workflows to reduce context:
 1. `scripts/workflow_gate.py` - State machine enforcement script (~220 lines including subagent tracking)
 2. `scripts/pre-commit-hook.sh` - Git hook (version-controlled, ~25 lines)
 3. `.claude/workflow-state.json` - State tracking file (git-tracked)
-4. Updated `.claude/workflows/component-cycle.md` - Add CLI commands
-5. Updated `.claude/workflows/01-git.md` - Add hard gate reference
+4. Updated `./AI/Workflows/component-cycle.md` - Add CLI commands
+5. Updated `./AI/Workflows/01-git.md` - Add hard gate reference
 6. Updated `CLAUDE.md` - Document hard gate enforcement approach
 7. Task state sync integration with existing `update_task_state.py`
 8. Updated `Makefile` - Add `install-hooks`, `check-hooks`, integrate hook check into `test` target
@@ -819,7 +819,7 @@ After hard gates are implemented, simplify existing workflows to reduce context:
 ### Phase 1: Context Optimization via Subagent Delegation (4-5 hours)
 
 **Status:** ✅ COMPLETED (2025-11-01)
-**Deliverable:** `.claude/workflows/16-subagent-delegation.md`
+**Deliverable:** `./AI/Workflows/16-subagent-delegation.md`
 **Continuation ID:** 9613b833-d705-47f1-85d1-619f80accb0e
 
 **Achievements:**
@@ -834,7 +834,7 @@ After hard gates are implemented, simplify existing workflows to reduce context:
 ### Phase 2: Workflow Enforcement Layer with Hard Gates (4-6 hours)
 
 **Status:** ✅ COMPLETED (2025-11-01)
-**Deliverable:** `.claude/workflows/17-automated-analysis.md`
+**Deliverable:** `./AI/Workflows/17-automated-analysis.md`
 **Continuation ID:** 9613b833-d705-47f1-85d1-619f80accb0e
 
 **Achievements:**
@@ -941,8 +941,8 @@ Symlinks for quick access:
 
 **Deliverables:**
 1. `scripts/context_checkpoint.py` - Checkpoint management script (~150 lines)
-2. Updated `.claude/workflows/16-subagent-delegation.md` - Add checkpoint usage
-3. Updated `.claude/workflows/14-task-resume.md` - Add checkpoint restoration
+2. Updated `./AI/Workflows/16-subagent-delegation.md` - Add checkpoint usage
+3. Updated `./AI/Workflows/14-task-resume.md` - Add checkpoint restoration
 4. `.gitignore` update - Ignore `.claude/checkpoints/*.json` (except symlinks)
 
 ---
@@ -954,7 +954,7 @@ Symlinks for quick access:
 **Status:** 🔄 IN PROGRESS (2025-11-02)
 
 **Problem Statement:**
-Current workflow experiences context compaction interrupting critical work mid-task, despite having subagent delegation infrastructure (from Phase 1/2: `.claude/workflows/16-subagent-delegation.md`). No automatic monitoring or triggering of delegation when context usage is high.
+Current workflow experiences context compaction interrupting critical work mid-task, despite having subagent delegation infrastructure (from Phase 1/2: `./AI/Workflows/16-subagent-delegation.md`). No automatic monitoring or triggering of delegation when context usage is high.
 
 **Planning Reviews:**
 - ✅ **Gemini Planner**: APPROVED (continuation_id: `7504c849-37cc-4a2e-9b6b-d6c2e731cf60`)
@@ -998,8 +998,8 @@ Current workflow experiences context compaction interrupting critical work mid-t
    - Regression tests: legacy state file migration
 
 6. **Documentation** (30 min)
-   - Update `.claude/workflows/component-cycle.md` with context monitoring guidance
-   - Update `.claude/workflows/01-git.md` with context checks
+   - Update `./AI/Workflows/component-cycle.md` with context monitoring guidance
+   - Update `./AI/Workflows/01-git.md` with context checks
    - Update `CLAUDE.md` with Component 3 overview
 
 7. **Final Review and Rollout** (30 min)
@@ -1058,12 +1058,12 @@ Current workflow experiences context compaction interrupting critical work mid-t
    - Test division-by-zero guard
    - Test delegation history tracking
 
-3. **`.claude/workflows/component-cycle.md`** (~30 lines)
+3. **`./AI/Workflows/component-cycle.md`** (~30 lines)
    - Add context monitoring guidance
    - Document `check-context` usage before each step
    - Reference delegation workflow (16-subagent-delegation.md)
 
-4. **`.claude/workflows/01-git.md`** (~20 lines)
+4. **`./AI/Workflows/01-git.md`** (~20 lines)
    - Add context check reminder before commits
    - Reference delegation mandatory at 85%
 
@@ -1103,7 +1103,7 @@ Current workflow experiences context compaction interrupting critical work mid-t
 - [  ] CI validation passing (`make ci-local`)
 
 **Integration with Existing Infrastructure:**
-- Leverages Phase 1/2 subagent delegation patterns (`.claude/workflows/16-subagent-delegation.md`)
+- Leverages Phase 1/2 subagent delegation patterns (`./AI/Workflows/16-subagent-delegation.md`)
 - Extends Component 2 workflow enforcement (workflow_gate.py state machine)
 - Uses established 4-step pattern (implement → test → review → commit)
 - Reuses existing `subagent_delegations` tracking field
@@ -1267,11 +1267,11 @@ git checkout -b feature/P1T13-F3-automation
 # feature/P1T13-F3b-full-automation (Phases 3-6)
 ```
 
-**Rationale:** F3 is 12-16h (borderline for subfeature splitting per `.claude/workflows/00-task-breakdown.md`). Use single branch unless components become too large for single PR review (>500 lines).
+**Rationale:** F3 is 12-16h (borderline for subfeature splitting per `./AI/Workflows/00-task-breakdown.md`). Use single branch unless components become too large for single PR review (>500 lines).
 
 ---
 
-### Task State Tracking (per `.claude/workflows/14-task-resume.md`, `15-update-task-state.md`)
+### Task State Tracking (per `./AI/Workflows/14-task-resume.md`, `15-update-task-state.md`)
 
 **MANDATORY:** Update `.claude/task-state.json` after EACH phase completion
 
@@ -1296,7 +1296,7 @@ git checkout -b feature/P1T13-F3-automation
    ./scripts/update_task_state.py complete \
        --component 1 \
        --commit $(git rev-parse HEAD) \
-       --files .claude/workflows/16-subagent-delegation.md .claude/workflows/00-analysis-checklist.md \
+       --files ./AI/Workflows/16-subagent-delegation.md ./AI/Workflows/00-analysis-checklist.md \
        --continuation-id <zen-review-id>
 
    git add .claude/task-state.json
@@ -1312,11 +1312,11 @@ git checkout -b feature/P1T13-F3-automation
    git commit -m "chore: Mark P1T13-F3 task complete"
    ```
 
-**Benefit:** Auto-resume between sessions (`.claude/workflows/14-task-resume.md` automatically reconstructs context)
+**Benefit:** Auto-resume between sessions (`./AI/Workflows/14-task-resume.md` automatically reconstructs context)
 
 ---
 
-### Component Development Cycle (4-Step Pattern per `.claude/workflows/01-git.md`)
+### Component Development Cycle (4-Step Pattern per `./AI/Workflows/01-git.md`)
 
 **Each phase = 1 logical component** → Apply 4-step pattern:
 
@@ -1343,22 +1343,22 @@ git checkout -b feature/P1T13-F3-automation
 ### Related Workflows Reference
 
 **Pre-implementation:**
-- `.claude/workflows/00-analysis-checklist.md` - Comprehensive analysis BEFORE coding
-- `.claude/workflows/13-task-creation-review.md` - Task validation (ALREADY APPROVED)
-- `.claude/workflows/00-task-breakdown.md` - Subfeature branching strategy
+- `./AI/Workflows/00-analysis-checklist.md` - Comprehensive analysis BEFORE coding
+- `./AI/Workflows/13-task-creation-review.md` - Task validation (ALREADY APPROVED)
+- `./AI/Workflows/00-task-breakdown.md` - Subfeature branching strategy
 
 **During implementation:**
-- `.claude/workflows/01-git.md` - Progressive commits (4-step pattern)
-- `.claude/workflows/03-reviews.md` - Quick review per phase
-- `.claude/workflows/05-testing.md` - Test execution
-- `.claude/workflows/15-update-task-state.md` - Task state tracking
+- `./AI/Workflows/01-git.md` - Progressive commits (4-step pattern)
+- `./AI/Workflows/03-reviews.md` - Quick review per phase
+- `./AI/Workflows/05-testing.md` - Test execution
+- `./AI/Workflows/15-update-task-state.md` - Task state tracking
 
 **Pre-PR:**
-- `.claude/workflows/03-reviews.md` - Deep review before PR
-- `.claude/workflows/01-git.md` - PR creation
+- `./AI/Workflows/03-reviews.md` - Deep review before PR
+- `./AI/Workflows/01-git.md` - PR creation
 
 **Documentation:**
-- `.claude/workflows/07-documentation.md` - Documentation standards
+- `./AI/Workflows/07-documentation.md` - Documentation standards
 - `docs/STANDARDS/DOCUMENTATION_STANDARDS.md` - Google style docstrings
 
 ---
@@ -1537,15 +1537,15 @@ From **Codex**:
 
 **Existing Workflows:**
 
-- `.claude/workflows/00-analysis-checklist.md` - Pre-implementation analysis
-- `.claude/workflows/00-task-breakdown.md` - Task decomposition and subfeature branching
-- `.claude/workflows/01-git.md` - Progressive commits with zen review
-- `.claude/workflows/03-reviews.md` - Quick pre-commit review
-- `.claude/workflows/03-reviews.md` - Deep pre-PR review
-- `.claude/workflows/07-documentation.md` - Documentation writing workflow
-- `.claude/workflows/13-task-creation-review.md` - Task planning review
-- `.claude/workflows/14-task-resume.md` - Auto-resume workflow
-- `.claude/workflows/15-update-task-state.md` - Task state tracking
+- `./AI/Workflows/00-analysis-checklist.md` - Pre-implementation analysis
+- `./AI/Workflows/00-task-breakdown.md` - Task decomposition and subfeature branching
+- `./AI/Workflows/01-git.md` - Progressive commits with zen review
+- `./AI/Workflows/03-reviews.md` - Quick pre-commit review
+- `./AI/Workflows/03-reviews.md` - Deep pre-PR review
+- `./AI/Workflows/07-documentation.md` - Documentation writing workflow
+- `./AI/Workflows/13-task-creation-review.md` - Task planning review
+- `./AI/Workflows/14-task-resume.md` - Auto-resume workflow
+- `./AI/Workflows/15-update-task-state.md` - Task state tracking
 - `CLAUDE.md` - Primary guidance document
 - `docs/STANDARDS/GIT_WORKFLOW.md` - Git workflow policies
 - `docs/STANDARDS/DOCUMENTATION_STANDARDS.md` - Documentation standards

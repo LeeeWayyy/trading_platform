@@ -25,6 +25,6 @@ This directory contains all architectural decisions made for the trading platfor
 
 ## Creating New ADRs
 
-See: `.claude/workflows/04-development.md` §4 for ADR creation workflow
+See: `./AI/Workflows/04-development.md` §4 for ADR creation workflow
 
 Template: `docs/ADRs/0000-template.md`

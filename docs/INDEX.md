@@ -10,7 +10,9 @@ This index provides a structured guide to all documentation, organized by purpos
 
 **Essential First Reads:**
 - [INDEX.md](./INDEX.md) (this file) → Documentation structure and navigation
-- [AI_GUIDE.md](./AI_GUIDE.md) → AI assistant quick-start and discovery patterns
+- [AI_GUIDE.md](./AI/AI_GUIDE.md) → AI assistant quick-start and discovery patterns
+- [AI/](./AI/) → All AI workflows, prompts, research, and examples
+- [AI/Workflows/](./AI/Workflows/) → Step-by-step development workflows
 - [STANDARDS/](./STANDARDS/) → Normative standards directory (MUST follow)
 
 **By Task Type:**
@@ -21,7 +23,7 @@ This index provides a structured guide to all documentation, organized by purpos
 - **Testing** → STANDARDS/TESTING.md → Write tests
 
 **By Document Type:**
-- **Standards** (mandatory rules) → [STANDARDS/](#1-normative-standards-must-follow-️)
+- **Standards** (mandatory rules) → [STANDARDS](#1-normative-standards-must-follow)
 - **Architecture** (decisions and rationale) → [ADRs/](#3-architecture--decisions-adrs)
 - **Concepts** (domain knowledge) → [CONCEPTS/](#4-domain-concepts-trading--ml-knowledge)
 - **Tasks** (work tracking) → [TASKS/](#6-tasks--planning)
@@ -57,7 +59,7 @@ Essential project-level documentation:
 
 ---
 
-### 1. Normative Standards (MUST Follow) ⚠️
+### 1. Normative Standards (MUST Follow)
 
 **Location:** `docs/STANDARDS/`
 
@@ -93,29 +95,86 @@ Onboarding and environment setup:
 
 ### 2.5. Workflow Guides (Development Process)
 
-**Location:** `.claude/workflows/`
+**Location:** `docs/AI/Workflows/`
 
 Step-by-step procedures for development workflows:
 
-- [CURRENT, 2025-10-31, Workflow] [README.md](../.claude/workflows/README.md) - Workflow index and quick reference
-- [CURRENT, 2025-10-31, Workflow] [00-analysis-checklist.md](../.claude/workflows/00-analysis-checklist.md) - Pre-implementation analysis (MANDATORY)
-- [CURRENT, 2025-10-21, Workflow] [01-git.md](../.claude/workflows/01-git.md) - Git workflow: progressive commits and pull request creation
-- [CURRENT, 2025-10-24, Workflow] [02-planning.md](../.claude/workflows/02-planning.md) - Task decomposition, subfeature branching, and task document review
-- [CURRENT, 2025-10-27, Workflow] [03-reviews.md](../.claude/workflows/03-reviews.md) - Zen-mcp reviews: quick pre-commit (codex) and deep pre-PR (gemini)
-- [CURRENT, 2025-10-21, Workflow] [04-development.md](../.claude/workflows/04-development.md) - Test execution, debugging procedures, and documentation writing
-- [CURRENT, 2025-10-18, Workflow] [05-operations.md](../.claude/workflows/05-operations.md) - Operations: ADRs, deployment, CI triage, environment setup, phase/task management
-- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](../.claude/workflows/08-session-management.md) - Auto-resume from task state and task state tracking
-- [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](../.claude/workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
-- [CURRENT, 2025-11-15, Workflow] [16-subagent-delegation.md](../.claude/workflows/16-subagent-delegation.md) - Context monitoring and subagent delegation at 70%+ usage
-- [CURRENT, 2025-11-15, Workflow] [17-automated-analysis.md](../.claude/workflows/17-automated-analysis.md) - Automated pre-implementation analysis checklist execution
-- [CURRENT, 2025-10-24, Workflow] [12-component-cycle.md](../.claude/workflows/12-component-cycle.md) - 4-step component development cycle
-- [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](../.claude/workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
-- [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](../.claude/workflows/_common/git-commands.md) - Git operations and branch naming conventions
-- [CURRENT, 2025-11-01, Reference] [_common/test-commands.md](../.claude/workflows/_common/test-commands.md) - Testing commands and CI workflows
-- [CURRENT, 2025-11-01, Reference] [_common/zen-review-process.md](../.claude/workflows/_common/zen-review-process.md) - Three-tier zen-mcp review system
-- [DRAFT, 2025-10-18, Template] [02-planning.md](../.claude/workflows/02-planning.md) - Workflow template
+- [CURRENT, 2025-10-31, Workflow] [README.md](./AI/Workflows/README.md) - Workflow index and quick reference
+- [CURRENT, 2025-10-31, Workflow] [00-analysis-checklist.md](./AI/Workflows/00-analysis-checklist.md) - Pre-implementation analysis (MANDATORY)
+- [CURRENT, 2025-10-21, Workflow] [01-git.md](./AI/Workflows/01-git.md) - Git workflow: progressive commits and pull request creation
+- [CURRENT, 2025-10-24, Workflow] [02-planning.md](./AI/Workflows/02-planning.md) - Task decomposition, subfeature branching, and task document review
+- [CURRENT, 2025-11-21, Workflow] [03-reviews.md](./AI/Workflows/03-reviews.md) - Zen-mcp comprehensive reviews: independent Gemini + Codex reviews for all commits and PRs
+- [CURRENT, 2025-10-21, Workflow] [04-development.md](./AI/Workflows/04-development.md) - Test execution, debugging procedures, and documentation writing
+- [CURRENT, 2025-10-18, Workflow] [05-operations.md](./AI/Workflows/05-operations.md) - Operations: ADRs, deployment, CI triage, environment setup, phase/task management
+- [CURRENT, 2025-10-29, Workflow] [08-session-management.md](./AI/Workflows/08-session-management.md) - Auto-resume from task state and task state tracking
+- [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](./AI/Workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
+- [CURRENT, 2025-11-15, Workflow] [16-subagent-delegation.md](./AI/Workflows/16-subagent-delegation.md) - Context monitoring and subagent delegation at 70%+ usage
+- [CURRENT, 2025-11-15, Workflow] [17-automated-analysis.md](./AI/Workflows/17-automated-analysis.md) - Automated pre-implementation analysis checklist execution
+- [CURRENT, 2025-10-24, Workflow] [12-component-cycle.md](./AI/Workflows/12-component-cycle.md) - 4-step component development cycle
+- [CURRENT, 2025-11-01, Reference] [_common/clink-policy.md](./AI/Workflows/_common/clink-policy.md) - Clink-only tool usage policy for zen-mcp
+- [CURRENT, 2025-11-01, Reference] [_common/git-commands.md](./AI/Workflows/_common/git-commands.md) - Git operations and branch naming conventions
+- [CURRENT, 2025-11-01, Reference] [_common/test-commands.md](./AI/Workflows/_common/test-commands.md) - Testing commands and CI workflows
+- [CURRENT, 2025-11-21, Reference] [_common/zen-review-process.md](./AI/Workflows/_common/zen-review-process.md) - Comprehensive independent review system (Gemini + Codex)
+- [DRAFT, 2025-10-18, Template] [02-planning.md](./AI/Workflows/02-planning.md) - Workflow template
 
 **Priority:** 🔴 **CRITICAL** - Follow workflows for all development activities
+
+---
+
+### 2.75. AI Documentation & Resources
+
+**Location:** `docs/AI/`
+
+Comprehensive AI assistant resources, workflows, prompts, and research:
+
+**Main Guide:**
+- [CURRENT, 2025-11-21, Guide] [AI_GUIDE.md](./AI/AI_GUIDE.md) - AI assistant quick-start and comprehensive guidance
+- [CURRENT, 2025-11-21, Index] [README.md](./AI/README.md) - AI documentation structure and navigation
+
+**Analysis:**
+- [CURRENT, 2025-11-21, Index] [Analysis/README.md](./AI/Analysis/README.md) - Pre-implementation analysis artifacts index
+
+**Audits:**
+- [CURRENT, 2025-11-17, Audit] [Audits/P1T13-F5-phase0-findings.md](./AI/Audits/P1T13-F5-phase0-findings.md) - P1T13-F5 Phase 0 audit findings
+- [CURRENT, 2025-11-17, Audit] [Audits/P1T13-F5-phase0-fixes-summary.md](./AI/Audits/P1T13-F5-phase0-fixes-summary.md) - P1T13-F5 Phase 0 fixes summary
+- [CURRENT, 2025-11-21, Index] [Audits/README.md](./AI/Audits/README.md) - Code audit artifacts index
+
+**Examples:**
+- [CURRENT, 2025-11-21, Index] [Examples/README.md](./AI/Examples/README.md) - AI workflow examples index
+- [CURRENT, 2025-11-21, Example] [Examples/git-pr/example-review-feedback-loop.md](./AI/Examples/git-pr/example-review-feedback-loop.md) - PR review feedback loop example
+- [CURRENT, 2025-11-21, Example] [Examples/git-pr/example-standard-pr-creation.md](./AI/Examples/git-pr/example-standard-pr-creation.md) - Standard PR creation example
+- [CURRENT, 2025-11-21, Example] [Examples/git-pr/good-pr-description-template.md](./AI/Examples/git-pr/good-pr-description-template.md) - PR description template
+- [CURRENT, 2025-11-21, Guide] [Examples/pr-guidelines.md](./AI/Examples/pr-guidelines.md) - Pull request guidelines for contributors
+
+**Implementation Plans:**
+- [CURRENT, 2025-11-17, Plan] [Implementation/P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
+- [CURRENT, 2025-11-21, Index] [Implementation/README.md](./AI/Implementation/README.md) - Implementation plan artifacts index
+
+**Prompts:**
+- [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
+- [CURRENT, 2025-11-21, Prompt] [Prompts/assistant-rules.md](./AI/Prompts/assistant-rules.md) - AI assistant behavioral rules
+- [CURRENT, 2025-11-21, Prompt] [Prompts/implement-ticket.md](./AI/Prompts/implement-ticket.md) - Ticket implementation prompt
+- [CURRENT, 2025-11-21, Prompt] [Prompts/pr-body-template.md](./AI/Prompts/pr-body-template.md) - Pull request body template
+- [CURRENT, 2025-11-21, Prompt] [Prompts/clink-reviews/deep-architecture-review.md](./AI/Prompts/clink-reviews/deep-architecture-review.md) - Deep architecture review prompt (deprecated)
+- [CURRENT, 2025-11-21, Prompt] [Prompts/clink-reviews/quick-safety-review.md](./AI/Prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt (deprecated)
+- [CURRENT, 2025-11-21, Prompt] [Prompts/clink-reviews/security-audit.md](./AI/Prompts/clink-reviews/security-audit.md) - Security audit review prompt
+- [CURRENT, 2025-11-21, Prompt] [Prompts/clink-reviews/task-creation-review.md](./AI/Prompts/clink-reviews/task-creation-review.md) - Task creation review prompt
+
+**Research:**
+- [CURRENT, 2025-11-21, Index] [Research/README.md](./AI/Research/README.md) - AI workflow research index
+- [CURRENT, 2025-11-21, Research] [Research/automated-coding-research.md](./AI/Research/automated-coding-research.md) - Automated coding workflow research
+- [CURRENT, 2025-11-21, Research] [Research/automated-planning-research.md](./AI/Research/automated-planning-research.md) - Automated planning workflow research
+- [CURRENT, 2025-11-21, Research] [Research/context-optimization-measurement.md](./AI/Research/context-optimization-measurement.md) - Context window optimization research
+- [CURRENT, 2025-11-21, Research] [Research/delegation-decision-tree.md](./AI/Research/delegation-decision-tree.md) - Subagent delegation decision tree
+- [CURRENT, 2025-11-21, Research] [Research/P1T13-workflow-simplification-analysis.md](./AI/Research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
+- [CURRENT, 2025-11-21, Research] [Research/subagent-capabilities-research.md](./AI/Research/subagent-capabilities-research.md) - Subagent capabilities research
+
+**Workflow References:**
+- [CURRENT, 2025-11-21, Reference] [Workflows/_common/zen-review-command.md](./AI/Workflows/_common/zen-review-command.md) - Zen review slash command implementation
+- [CURRENT, 2025-11-21, Reference] [Workflows/session-management.md](./AI/Workflows/session-management.md) - Auto-resume and session management
+- [CURRENT, 2025-11-21, Reference] [Workflows/troubleshooting.md](./AI/Workflows/troubleshooting.md) - Workflow troubleshooting guide
+
+**Priority:** 🟡 **HIGH** - Essential for AI assistants; informational for human developers
 
 ---
 
@@ -253,15 +312,15 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-10-25, Task] [P1T10_DONE.md](./TASKS/P1T10_DONE.md) - Multi-alpha capital allocation system
 - [CURRENT, 2025-10-27, Task] [P1T11_DONE.md](./TASKS/P1T11_DONE.md) - Workflow automation and testing gates
 - [CURRENT, 2025-10-29, Task] [P1T12_DONE.md](./TASKS/P1T12_DONE.md) - Auto-resume task state tracking
-- [CURRENT, 2025-10-31, Task] [P1T13_TASK.md](./TASKS/P1T13_TASK.md) - Documentation and workflow optimization (current task)
+- [CURRENT, 2025-10-31, Task] [P1T13_DONE.md](./TASKS/P1T13_DONE.md) - Documentation and workflow optimization (completed)
 - [CURRENT, 2025-11-15, Task] [P1T13_F3_DONE.md](./TASKS/P1T13_F3_DONE.md) - P1T13 Feature 3: Systematic PR review comment addressing workflow
-- [CURRENT, 2025-11-15, Task] [P1T13_F4_PROGRESS.md](./TASKS/P1T13_F4_PROGRESS.md) - P1T13 Feature 4: Dependency validation and auto-update system (in progress)
-- [CURRENT, 2025-11-15, Task] [P1T13-F5_TASK.md](./TASKS/P1T13-F5_TASK.md) - P1T13 Feature 5: Workflow refinement phase 1 (Phase 0-A2 in progress)
+- [CURRENT, 2025-11-15, Task] [P1T13_F4_DONE.md](./TASKS/P1T13_F4_DONE.md) - P1T13 Feature 4: Dependency validation and auto-update system (completed)
+- [CURRENT, 2025-11-15, Task] [P1T13-F5_DONE.md](./TASKS/P1T13-F5_DONE.md) - P1T13 Feature 5: Workflow refinement phase 1 (completed)
 
 **Phase 2 Tasks:**
 - [CURRENT, 2025-10-26, Task] [P2T0_DONE.md](./TASKS/P2T0_DONE.md) - TWAP order slicer implementation
 - [CURRENT, 2025-10-26, Task] [P2T1_DONE.md](./TASKS/P2T1_DONE.md) - Advanced order types and execution
-- [CURRENT, 2025-11-15, Task] [P2T2_TASK.md](./TASKS/P2T2_TASK.md) - Secrets management with Google Cloud Secret Manager
+- [CURRENT, 2025-11-15, Task] [P2T2_DONE.md](./TASKS/P2T2_DONE.md) - Secrets management with Google Cloud Secret Manager (completed)
 - [CURRENT, 2025-11-17, Task] [P2T3_TASK.md](./TASKS/P2T3_TASK.md) - Web console for operational oversight and manual intervention
 
 **Checking Current/Next Task:**
@@ -326,56 +385,54 @@ Incident reports and post-mortem analysis:
 
 ### 9. Configuration and Tooling
 
-**Location:** `.claude/`, `.github/`, `prompts/`, `strategies/`
+**Location:** `docs/AI/`, `.github/`, `docs/AI/Prompts/`, `strategies/`
 
 Configuration files, templates, prompts, and tooling:
 
-**.claude/ Configuration:**
-- [CURRENT, 2025-10-31, Guide] [AUTO_RESUME.md](../.claude/AUTO_RESUME.md) - Auto-resume task state tracking configuration
-- [CURRENT, 2025-10-27, Guide] [TROUBLESHOOTING.md](../.claude/TROUBLESHOOTING.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
-- [CURRENT, 2025-10-26, Guide] [commands/zen-review.md](../.claude/commands/zen-review.md) - Zen-mcp review slash command configuration
-- [CURRENT, 2025-10-25, Guide] [state/README.md](../.claude/state/README.md) - Task state tracking system documentation
-- [CURRENT, 2025-11-15, Guide] [checkpoints/README.md](../.claude/checkpoints/README.md) - Context checkpointing system for session delegation
+**docs/AI/Workflows/ (Session Management):**
+- [CURRENT, 2025-10-31, Guide] [session-management.md](./AI/Workflows/session-management.md) - Auto-resume task state tracking configuration
+- [CURRENT, 2025-10-27, Guide] [troubleshooting.md](./AI/Workflows/troubleshooting.md) - Troubleshooting guide for Claude Code workflows and zen-mcp integration
 
-**.claude/audits/ (Code Audits):**
-- [CURRENT, 2025-11-15, Audit] [audits/P1T13-F5-phase0-findings.md](../.claude/audits/P1T13-F5-phase0-findings.md) - P1T13-F5 Phase 0 audit findings
-- [CURRENT, 2025-11-15, Audit] [audits/P1T13-F5-phase0-fixes-summary.md](../.claude/audits/P1T13-F5-phase0-fixes-summary.md) - P1T13-F5 Phase 0 fixes summary
+**docs/AI/Workflows/_common/ (Tool-Specific Configuration):**
+- [CURRENT, 2025-10-26, Guide] [zen-review-command.md](./AI/Workflows/_common/zen-review-command.md) - Zen-mcp review slash command configuration
+- [CURRENT, 2025-10-25, Guide] [state-README.md](./AI/Workflows/_common/state-README.md) - Task state tracking system documentation
+- [CURRENT, 2025-11-15, Guide] [checkpoints-README.md](./AI/Workflows/_common/checkpoints-README.md) - Context checkpointing system for session delegation
 
-**.claude/implementation-plans/ (Implementation Plans):**
-- [CURRENT, 2025-11-15, Plan] [implementation-plans/P1T13-F5-phase1-implementation-plan.md](../.claude/implementation-plans/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
+**docs/AI/Implementation/ (Implementation Plans):**
+- [CURRENT, 2025-11-15, Plan] [P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
 
-**.claude/research/ (Research Documents):**
-- [CURRENT, 2025-11-15, Research] [research/automated-coding-research.md](../.claude/research/automated-coding-research.md) - Automated coding workflow research
-- [CURRENT, 2025-11-15, Research] [research/automated-planning-research.md](../.claude/research/automated-planning-research.md) - Automated planning system research
-- [CURRENT, 2025-11-15, Research] [research/context-optimization-measurement.md](../.claude/research/context-optimization-measurement.md) - Context optimization and measurement techniques
-- [CURRENT, 2025-11-15, Research] [research/delegation-decision-tree.md](../.claude/research/delegation-decision-tree.md) - Subagent delegation decision framework
-- [CURRENT, 2025-11-15, Research] [research/P1T13-workflow-simplification-analysis.md](../.claude/research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
-- [CURRENT, 2025-11-15, Research] [research/subagent-capabilities-research.md](../.claude/research/subagent-capabilities-research.md) - Subagent capabilities and limitations
+**docs/AI/Research/ (Research Documents):**
+- [CURRENT, 2025-11-15, Research] [research/automated-coding-research.md](../docs/AI/Research/automated-coding-research.md) - Automated coding workflow research
+- [CURRENT, 2025-11-15, Research] [research/automated-planning-research.md](../docs/AI/Research/automated-planning-research.md) - Automated planning system research
+- [CURRENT, 2025-11-15, Research] [research/context-optimization-measurement.md](../docs/AI/Research/context-optimization-measurement.md) - Context optimization and measurement techniques
+- [CURRENT, 2025-11-15, Research] [research/delegation-decision-tree.md](../docs/AI/Research/delegation-decision-tree.md) - Subagent delegation decision framework
+- [CURRENT, 2025-11-15, Research] [research/P1T13-workflow-simplification-analysis.md](../docs/AI/Research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
+- [CURRENT, 2025-11-15, Research] [research/subagent-capabilities-research.md](../docs/AI/Research/subagent-capabilities-research.md) - Subagent capabilities and limitations
 
 **tests/ci/ (CI Test Documentation):**
 - [CURRENT, 2025-11-15, Test] [../tests/ci/test_workflow_config.md](../tests/ci/test_workflow_config.md) - CI configuration validation and manual testing procedures
 
-**.claude/prompts/ (Clink Review Templates):**
-- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../.claude/prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex
-- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/deep-architecture-review.md](../.claude/prompts/clink-reviews/deep-architecture-review.md) - Deep architecture review prompt template for clink + gemini
-- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/security-audit.md](../.claude/prompts/clink-reviews/security-audit.md) - Security audit prompt template for clink + gemini
-- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/task-creation-review.md](../.claude/prompts/clink-reviews/task-creation-review.md) - Task creation review prompt template for clink + gemini
-- [CURRENT, 2025-10-27, Template] [prompts/pr-body-template.md](../.claude/prompts/pr-body-template.md) - Pull request body template
+**docs/AI/Prompts/ (Clink Review Templates):**
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../docs/AI/Prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/deep-architecture-review.md](../docs/AI/Prompts/clink-reviews/deep-architecture-review.md) - Deep architecture review prompt template for clink + gemini
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/security-audit.md](../docs/AI/Prompts/clink-reviews/security-audit.md) - Security audit prompt template for clink + gemini
+- [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/task-creation-review.md](../docs/AI/Prompts/clink-reviews/task-creation-review.md) - Task creation review prompt template for clink + gemini
+- [CURRENT, 2025-10-27, Template] [prompts/pr-body-template.md](../docs/AI/Prompts/pr-body-template.md) - Pull request body template
 
-**.claude/examples/ (Usage Examples):**
-- [CURRENT, 2025-10-26, Example] [examples/git-pr/example-standard-pr-creation.md](../.claude/examples/git-pr/example-standard-pr-creation.md) - Standard PR creation example
-- [CURRENT, 2025-10-26, Example] [examples/git-pr/example-review-feedback-loop.md](../.claude/examples/git-pr/example-review-feedback-loop.md) - Review feedback loop example
-- [CURRENT, 2025-10-26, Example] [examples/git-pr/good-pr-description-template.md](../.claude/examples/git-pr/good-pr-description-template.md) - Good PR description template
+**docs/AI/Examples/ (Usage Examples):**
+- [CURRENT, 2025-10-26, Example] [examples/git-pr/example-standard-pr-creation.md](../docs/AI/Examples/git-pr/example-standard-pr-creation.md) - Standard PR creation example
+- [CURRENT, 2025-10-26, Example] [examples/git-pr/example-review-feedback-loop.md](../docs/AI/Examples/git-pr/example-review-feedback-loop.md) - Review feedback loop example
+- [CURRENT, 2025-10-26, Example] [examples/git-pr/good-pr-description-template.md](../docs/AI/Examples/git-pr/good-pr-description-template.md) - Good PR description template
 
-**.claude/snippets/ (Reusable Snippets):**
-- [CURRENT, 2025-10-27, Snippet] [snippets/clink-only-warning.md](../.claude/snippets/clink-only-warning.md) - Warning snippet about clink-only tool usage policy
+**docs/AI/Workflows/_common/ (Reusable Snippets):**
+- [CURRENT, 2025-10-27, Snippet] [clink-only-warning.md](./AI/Workflows/_common/clink-only-warning.md) - Warning snippet about clink-only tool usage policy
 
 **.github/ Templates:**
 - [CURRENT, 2025-10-26, Template] [pull_request_template.md](../.github/pull_request_template.md) - GitHub pull request template
 
-**prompts/ (AI Assistant Prompts):**
-- [CURRENT, 2025-10-18, Guide] [assistant_rules.md](../prompts/assistant_rules.md) - Original AI assistant guidance (superseded by CLAUDE.md and docs/AI_GUIDE.md)
-- [CURRENT, 2025-10-18, Template] [implement_ticket.md](../prompts/implement_ticket.md) - Ticket implementation prompt template
+**docs/AI/Prompts/ (AI Assistant Prompts):**
+- [CURRENT, 2025-10-18, Guide] [assistant-rules.md](./AI/Prompts/assistant-rules.md) - Original AI assistant guidance (superseded by CLAUDE.md and docs/AI/AI_GUIDE.md)
+- [CURRENT, 2025-10-18, Template] [implement-ticket.md](./AI/Prompts/implement-ticket.md) - Ticket implementation prompt template
 
 **strategies/ (Strategy Documentation):**
 - [CURRENT, 2025-10-20, Guide] [alpha_baseline/README.md](../strategies/alpha_baseline/README.md) - Alpha baseline strategy documentation
@@ -397,7 +454,7 @@ Special guidance for AI coding assistants:
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
-| [AI_GUIDE.md](./AI_GUIDE.md) | Specific instructions for Claude Code | Always (first document) |
+| [AI_GUIDE.md](./AI/AI_GUIDE.md) | Specific instructions for Claude Code | Always (first document) |
 | [INDEX.md](./INDEX.md) | This file - documentation structure | Always (navigation) |
 
 **Priority:** 🔴 **CRITICAL** - AI assistants MUST read AI_GUIDE.md first
@@ -409,7 +466,7 @@ Special guidance for AI coding assistants:
 ### For New Tasks (Code Implementation)
 
 ```
-1. docs/AI_GUIDE.md                                    [If not already read]
+1. docs/AI/AI_GUIDE.md                                 [If not already read]
 2. docs/INDEX.md                                       [This file - for navigation]
 3. docs/STANDARDS/CODING_STANDARDS.md                  [MUST read]
 4. docs/STANDARDS/DOCUMENTATION_STANDARDS.md           [MUST read]
