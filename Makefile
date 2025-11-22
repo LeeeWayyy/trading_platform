@@ -91,7 +91,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "If this passes, CI should pass too."
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 1/5: Validating documentation index"
+	@echo "Step 1/6: Validating documentation index"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@./scripts/validate_doc_index.sh || { \
 		echo ""; \
@@ -105,22 +105,46 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 2/5: Type checking with mypy --strict"
+	@echo "Step 2/6: Checking markdown links"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@command -v markdown-link-check >/dev/null 2>&1 || { \
+		echo "❌ markdown-link-check not found. Installing..."; \
+		npm install -g markdown-link-check; \
+	}
+	@find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" -print0 | \
+		xargs -0 markdown-link-check --config .github/markdown-link-check-config.json || { \
+		echo ""; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "❌ Markdown link check failed!"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "Common issues:"; \
+		echo "  • Broken internal links (wrong path depth)"; \
+		echo "  • Missing anchor links (heading text changed)"; \
+		echo "  • Files moved/renamed without updating references"; \
+		echo "  • External URLs changed or removed"; \
+		echo ""; \
+		echo "See error output above for specific broken links"; \
+		exit 1; \
+	}
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 3/6: Type checking with mypy --strict"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run mypy libs/ apps/ strategies/ --strict
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 3/5: Linting with ruff"
+	@echo "Step 4/6: Linting with ruff"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run ruff check libs/ apps/ strategies/
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 4/5: Running tests (integration and e2e tests skipped)"
+	@echo "Step 5/6: Running tests (integration and e2e tests skipped)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	PYTHONPATH=. poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=80
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 5/5: Verifying workflow gate compliance (Review-Hash validation)"
+	@echo "Step 6/6: Verifying workflow gate compliance (Review-Hash validation)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@CI=true PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
 		echo ""; \
