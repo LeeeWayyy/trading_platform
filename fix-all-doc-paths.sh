@@ -20,6 +20,13 @@ echo "Starting fixes..."
 # Function to replace paths in a file (portable sed - works on both BSD and GNU)
 fix_file() {
     local file="$1"
+
+    # Skip if file doesn't exist
+    if [ ! -f "$file" ]; then
+        echo "  Skipping (not found): $file"
+        return 0
+    fi
+
     echo "  Fixing: $file"
 
     # Fix .claude/workflows/ references (context-sensitive)

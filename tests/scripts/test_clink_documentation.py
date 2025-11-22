@@ -66,6 +66,28 @@ def test_correct_clink_tool_name_in_documentation():
         assert "mcp__zen__clink" in content, f"{doc_file.name} should reference mcp__zen__clink"
 
 
+def test_no_incorrect_clink_tool_name_typo():
+    """Verify documentation doesn't contain the incorrect typo: mcp__zen-mcp__clink (dash instead of underscore)."""
+    errors = []
+    incorrect_pattern = "mcp__zen-mcp__clink"  # Note: dash between zen and mcp (typo)
+    correct_pattern = "mcp__zen__clink"  # Correct: double underscore
+
+    for doc_file in DOC_FILES:
+        if not doc_file.exists():
+            continue
+
+        content = doc_file.read_text()
+
+        if incorrect_pattern in content:
+            count = content.count(incorrect_pattern)
+            errors.append(
+                f"{doc_file.relative_to(PROJECT_ROOT)}: Found {count} instance(s) of incorrect '{incorrect_pattern}' (should be '{correct_pattern}')"
+            )
+
+    if errors:
+        pytest.fail("\n".join([f"❌ Clink tool name typo found in {len(errors)} file(s):"] + errors))
+
+
 def test_no_direct_zen_mcp_tool_references():
     """Verify documentation doesn't incorrectly suggest using direct zen-mcp tools (outside of warning examples)."""
     # These are the direct tool names that should NOT be used
