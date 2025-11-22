@@ -11,14 +11,14 @@ This script prevents commits unless prerequisites are met:
 - Current step is "review"
 
 Usage:
-  ./scripts/workflow_gate.py advance <next_step>         # Transition to next step
-  ./scripts/workflow_gate.py check-commit                # Validate commit prerequisites
-  ./scripts/workflow_gate.py record-review <id> <status> # Record review result
-  ./scripts/workflow_gate.py record-ci <passed>          # Record CI result
-  ./scripts/workflow_gate.py record-commit               # Record commit hash (post-commit)
-  ./scripts/workflow_gate.py status                      # Show current workflow state
-  ./scripts/workflow_gate.py reset                       # Reset state (emergency)
-  ./scripts/workflow_gate.py set-component <name>        # Set current component name
+  ./scripts/workflow_gate.py advance <next_step>                   # Transition to next step
+  ./scripts/workflow_gate.py check-commit                          # Validate commit prerequisites
+  ./scripts/workflow_gate.py record-review <cli> <id> <status>     # Record review (cli: gemini|codex)
+  ./scripts/workflow_gate.py record-ci <passed>                    # Record CI result
+  ./scripts/workflow_gate.py record-commit                         # Record commit hash (post-commit)
+  ./scripts/workflow_gate.py status                                # Show current workflow state
+  ./scripts/workflow_gate.py reset                                 # Reset state (emergency)
+  ./scripts/workflow_gate.py set-component <name>                  # Set current component name
 
 Author: Claude Code
 Date: 2025-11-02
@@ -84,7 +84,9 @@ class WorkflowGate:
         return {
             "current_component": "",
             "step": "plan",  # Phase 1: Start with planning step
-            "zen_review": {},  # Used for both plan-review and code review steps
+            "zen_review": {},  # DEPRECATED: Kept for backward compatibility, use gemini_review/codex_review
+            "gemini_review": {},  # Gemini independent review (plan-review or code review)
+            "codex_review": {},  # Codex independent review (plan-review or code review)
             "ci_passed": False,
             "last_commit_hash": None,
             "commit_history": [],
@@ -400,20 +402,22 @@ class WorkflowGate:
                         "     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED"
                     )
                     sys.exit(1)
-                # Clear zen_review for code review later
-                state["zen_review"] = {}
+                # Clear reviews for code review later
+                state["zen_review"] = {}  # DEPRECATED but kept for compatibility
+                state["gemini_review"] = {}
+                state["codex_review"] = {}
 
             # Special logic for plan-review step
             if next == "plan-review":
                 print("🔍 Requesting plan review (clink + gemini → codex)...")
-                print("   Follow: .claude/workflows/03-reviews.md")
+                print("   Follow: docs/AI/Workflows/03-reviews.md")
                 print("   After review, record approval:")
                 print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
 
             # Special logic for code review step
             if next == "review":
                 print("🔍 Requesting code review (clink + gemini → codex)...")
-                print("   Follow: .claude/workflows/03-reviews.md")
+                print("   Follow: docs/AI/Workflows/03-reviews.md")
                 print("   After review, record approval:")
                 print("     ./scripts/workflow_gate.py record-review <continuation_id> <status>")
 
@@ -537,9 +541,9 @@ class WorkflowGate:
                     continue
         return False
 
-    def record_review(self, continuation_id: str, status: str) -> None:
+    def record_review(self, cli_name: str, continuation_id: str, status: str) -> None:
         """
-        Record zen-mcp review result.
+        Record zen-mcp review result from a specific CLI (gemini or codex).
 
         For PR reviews, also updates the unified_review.history to enable
         the override workflow for LOW severity issues after max iterations.
@@ -551,9 +555,15 @@ class WorkflowGate:
         there's no code yet. Only code reviews (step=review) require fingerprinting.
 
         Args:
+            cli_name: CLI name ("gemini" or "codex")
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
         """
+        # Validate CLI name
+        if cli_name not in ("gemini", "codex"):
+            print(f"❌ Invalid CLI name: {cli_name}")
+            print("   Valid options: gemini, codex")
+            sys.exit(1)
         # Gemini HIGH fix: Read step inside locked context to prevent race condition
         # Precompute hash outside lock (expensive operation), but check step inside lock
         staged_hash = ""
@@ -589,12 +599,20 @@ class WorkflowGate:
             # Gemini LOW fix: Note that serialization is via workflow-state.json lock
             self._log_to_audit(continuation_id)
 
-            state["zen_review"] = {
+            # Store review in CLI-specific field
+            review_data = {
                 "requested": True,
                 "continuation_id": continuation_id,
                 "status": status,  # "APPROVED" or "NEEDS_REVISION"
                 "staged_hash": staged_hash,  # Component 1: Store fingerprint
             }
+
+            # Update the CLI-specific review field (gemini_review or codex_review)
+            state[f"{cli_name}_review"] = review_data
+
+            # DEPRECATED: Also update zen_review for backward compatibility
+            # (This will be removed once all workflows migrate to dual reviews)
+            state["zen_review"] = review_data
 
             # Check if this is a PR review by looking for pending unified_review history
             review_state = state.get("unified_review", {})
@@ -612,7 +630,7 @@ class WorkflowGate:
                 print(f"✅ Updated PR review history (iteration {review_history[-1]['iteration']})")
             # State automatically saved when exiting context
 
-        print(f"✅ Recorded zen review: {status}")
+        print(f"✅ Recorded {cli_name} review: {status}")
 
         if status == REVIEW_NEEDS_REVISION:
             print("⚠️  Review requires changes. Fix issues and re-request review.")
@@ -680,7 +698,7 @@ class WorkflowGate:
         # Check 2: Analysis checklist completed
         if not state.get("analysis_completed", False):
             print("❌ Missing: pre-implementation analysis not completed")
-            print("   Follow: .claude/workflows/00-analysis-checklist.md")
+            print("   Follow: docs/AI/Workflows/00-analysis-checklist.md")
             print("   Then: ./scripts/workflow_gate.py record-analysis-complete")
             return False
 
@@ -1006,17 +1024,31 @@ class WorkflowGate:
             print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
             sys.exit(1)
 
-        # Check zen review approval
-        if not state["zen_review"].get("status") == REVIEW_APPROVED:
+        # Check DUAL review approval (both gemini AND codex required)
+        gemini_status = state.get("gemini_review", {}).get("status", REVIEW_NOT_REQUESTED)
+        codex_status = state.get("codex_review", {}).get("status", REVIEW_NOT_REQUESTED)
+        gemini_approved = gemini_status == REVIEW_APPROVED
+        codex_approved = codex_status == REVIEW_APPROVED
+
+        if not (gemini_approved and codex_approved):
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("❌ COMMIT BLOCKED: Zen review not approved")
+            print("❌ COMMIT BLOCKED: Dual review not approved")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print("   Continuation ID:", state["zen_review"].get("continuation_id", "N/A"))
-            print("   Status:", state["zen_review"].get("status", REVIEW_NOT_REQUESTED))
-            print("   Request review:")
-            print("     Follow: .claude/workflows/03-reviews.md")
+            print("   Requires BOTH gemini AND codex reviews approved")
+            print()
+            print(f"   Gemini status: {gemini_status}")
+            if state.get("gemini_review", {}).get("continuation_id"):
+                print(f"   Gemini ID: {state['gemini_review']['continuation_id'][:8]}...")
+            print()
+            print(f"   Codex status: {codex_status}")
+            if state.get("codex_review", {}).get("continuation_id"):
+                print(f"   Codex ID: {state['codex_review']['continuation_id'][:8]}...")
+            print()
+            print("   Request reviews:")
+            print("     Follow: docs/AI/Workflows/03-reviews.md")
             print("   After approval:")
-            print("     ./scripts/workflow_gate.py record-review <continuation_id> APPROVED")
+            print("     ./scripts/workflow_gate.py record-review gemini <id> APPROVED")
+            print("     ./scripts/workflow_gate.py record-review codex <id> APPROVED")
             print()
             print("   Emergency override (production outage only):")
             print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
@@ -1024,13 +1056,18 @@ class WorkflowGate:
             sys.exit(1)
 
         # Gate 0.3 (Component 3 - P1T13-F5a): Continuation ID verification
-        # Block placeholder/fake continuation IDs
-        continuation_id = state["zen_review"].get("continuation_id", "")
-        if self._is_placeholder_id(continuation_id):
+        # Block placeholder/fake continuation IDs for BOTH reviews
+        gemini_id = state.get("gemini_review", {}).get("continuation_id", "")
+        codex_id = state.get("codex_review", {}).get("continuation_id", "")
+
+        if self._is_placeholder_id(gemini_id) or self._is_placeholder_id(codex_id):
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("❌ COMMIT BLOCKED: Placeholder continuation ID detected")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print(f"   Detected ID: {continuation_id}")
+            if self._is_placeholder_id(gemini_id):
+                print(f"   Gemini ID: {gemini_id} (placeholder)")
+            if self._is_placeholder_id(codex_id):
+                print(f"   Codex ID: {codex_id} (placeholder)")
             print()
             print("   Placeholder patterns blocked:")
             print("     - test-*")
@@ -1039,7 +1076,7 @@ class WorkflowGate:
             print("     - dummy-*")
             print("     - mock-*")
             print()
-            print("   Request a real zen-mcp review:")
+            print("   Request real zen-mcp reviews:")
             print("     ./scripts/workflow_gate.py request-review commit")
             print()
             print("   Emergency override (production outage only):")
@@ -1070,17 +1107,24 @@ class WorkflowGate:
             sys.exit(1)
 
         # Gemini MEDIUM fix: Fail-closed on I/O errors (exception bubbles up)
+        # Verify BOTH continuation IDs are in audit log
         if AUDIT_LOG_FILE.exists():
             try:
-                if not self._is_continuation_id_in_audit_log(continuation_id):
+                gemini_in_log = self._is_continuation_id_in_audit_log(gemini_id)
+                codex_in_log = self._is_continuation_id_in_audit_log(codex_id)
+
+                if not (gemini_in_log and codex_in_log):
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("❌ COMMIT BLOCKED: Continuation ID not found in audit log")
+                    print("❌ COMMIT BLOCKED: Continuation ID(s) not found in audit log")
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print(f"   Continuation ID: {continuation_id}")
+                    if not gemini_in_log:
+                        print(f"   Gemini ID missing: {gemini_id}")
+                    if not codex_in_log:
+                        print(f"   Codex ID missing: {codex_id}")
                     print(f"   Audit log: {AUDIT_LOG_FILE}")
                     print()
                     print("   This indicates the state file may have been manually edited.")
-                    print("   Request a real zen-mcp review to log the continuation ID:")
+                    print("   Request real zen-mcp reviews to log the continuation IDs:")
                     print("     ./scripts/workflow_gate.py request-review commit")
                     print()
                     print("   Emergency override (production outage only):")
@@ -1227,15 +1271,19 @@ class WorkflowGate:
         # All gates passed
         print("✅ Commit prerequisites satisfied")
         print(f"   Component: {state['current_component']}")
-        print(f"   Zen review: {state['zen_review']['continuation_id'][:8]}...")
+        print(f"   Gemini review: {gemini_id[:8]}... (APPROVED)")
+        print(f"   Codex review: {codex_id[:8]}... (APPROVED)")
         print("   CI: PASSED")
         if stored_hash:
             print(f"   Code fingerprint: {stored_hash[:16]}... (verified)")
         print()
-        print("📝 REMINDER: Include Review-Hash trailer in commit message:")
+        print("📝 REMINDER: Include dual review trailers in commit message:")
+        print("   Zen-MCP-Review: APPROVED")
+        print(f"   gemini-continuation-id: {gemini_id}")
+        print(f"   codex-continuation-id: {codex_id}")
         print("   Review-Hash: $(./scripts/compute_review_hash.py)")
         print()
-        print("   This proves code was fingerprinted at review time.")
+        print("   These trailers prove dual independent reviews were completed.")
 
         # Phase 1: Performance instrumentation (report hook duration)
         end_time = time.time()
@@ -1291,7 +1339,9 @@ class WorkflowGate:
             state.pop("last_commit_hash", None)
             # Phase 1.5: Reset to plan step for next component (enforces plan-review gate)
             state["step"] = "plan"
-            state["zen_review"] = {}
+            state["zen_review"] = {}  # DEPRECATED but kept for compatibility
+            state["gemini_review"] = {}
+            state["codex_review"] = {}
             state["ci_passed"] = False
 
             # Phase 1: Mark that first commit has been made (planning gates won't check again)
@@ -1448,7 +1498,7 @@ class WorkflowGate:
             print("  ./scripts/workflow_gate.py advance review")
         elif current == "review":
             if zen_status != "APPROVED":
-                print("  Follow: .claude/workflows/03-reviews.md")
+                print("  Follow: docs/AI/Workflows/03-reviews.md")
                 print("  ./scripts/workflow_gate.py record-review <continuation_id> APPROVED")
             if not state["ci_passed"]:
                 print("  make ci-local")
@@ -2141,7 +2191,7 @@ class DelegationRules:
         if should_delegate:
             lines.append("RECOMMENDATION: Delegate non-core tasks to specialized agents")
             lines.append("")
-            lines.append("See: .claude/workflows/16-subagent-delegation.md")
+            lines.append("See: docs/AI/Workflows/16-subagent-delegation.md")
             lines.append("")
 
             # Add delegation template if operation specified
@@ -2677,7 +2727,7 @@ class PlanningWorkflow:
         print()
         print("📋 Requesting task creation review (gemini planner → codex planner)...")
         print("   This will validate scope, requirements, and feasibility.")
-        print("   See .claude/workflows/02-planning.md for review workflow.")
+        print("   See docs/AI/Workflows/02-planning.md for review workflow.")
         print()
         print("💡 Next steps:")
         print("   1. Review task document for completeness")
@@ -2934,7 +2984,7 @@ class PlanningWorkflow:
 ---
 
 **Note:** This task document was generated by PlanningWorkflow.
-Request task creation review via .claude/workflows/02-planning.md before starting work.
+Request task creation review via docs/AI/Workflows/02-planning.md before starting work.
 """
 
         # Replace placeholders
@@ -3893,8 +3943,9 @@ Examples:
   %(prog)s advance test       # implement → test
   %(prog)s advance review     # test → review
 
-  # Record review approval
-  %(prog)s record-review abc123... APPROVED
+  # Record review approvals (dual review required)
+  %(prog)s record-review gemini abc123... APPROVED
+  %(prog)s record-review codex def456... APPROVED
 
   # Record CI result
   %(prog)s record-ci true
@@ -3929,7 +3980,10 @@ Examples:
 
     # Record review
     record_review_parser = subparsers.add_parser(
-        "record-review", help="Record zen-mcp review result"
+        "record-review", help="Record zen-mcp review result from specific CLI"
+    )
+    record_review_parser.add_argument(
+        "cli_name", choices=["gemini", "codex"], help="CLI name (gemini or codex)"
     )
     record_review_parser.add_argument("continuation_id", help="Zen-MCP continuation ID")
     record_review_parser.add_argument(
@@ -4084,7 +4138,7 @@ Examples:
         elif args.command == "advance":
             gate.advance(args.next_step)
         elif args.command == "record-review":
-            gate.record_review(args.continuation_id, args.status)
+            gate.record_review(args.cli_name, args.continuation_id, args.status)
         elif args.command == "record-ci":
             gate.record_ci(args.passed)
         elif args.command == "check-commit":
