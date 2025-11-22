@@ -146,6 +146,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 
 **Implementation Plans:**
 - [CURRENT, 2025-11-17, Plan] [Implementation/P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
+- [CURRENT, 2025-11-21, Plan] [Implementation/P2T3_PHASE2_PLAN.md](./AI/Implementation/P2T3_PHASE2_PLAN.md) - P2T3 Phase 2 Web Console mTLS + JWT authentication implementation plan
 - [CURRENT, 2025-11-21, Index] [Implementation/README.md](./AI/Implementation/README.md) - Implementation plan artifacts index
 
 **Prompts:**
@@ -364,6 +365,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-11-15, Runbook] [secrets-migration.md](./RUNBOOKS/secrets-migration.md) - Migration from .env to Google Cloud Secret Manager
 - [CURRENT, 2025-10-20, Runbook] [staging-deployment.md](./RUNBOOKS/staging-deployment.md) - Staging environment deployment, credentials, and rollback procedures
 - [CURRENT, 2025-11-17, Runbook] [web-console-user-guide.md](./RUNBOOKS/web-console-user-guide.md) - Web console usage, authentication, manual order entry, kill switch operations
+- [CURRENT, 2025-11-21, Runbook] [web-console-cert-rotation.md](./RUNBOOKS/web-console-cert-rotation.md) - Certificate rotation procedures for web console mTLS authentication
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 
@@ -402,6 +404,9 @@ Configuration files, templates, prompts, and tooling:
 **docs/AI/Research/ (Research Documents):**
 - [CURRENT, 2025-11-15, Research] [research/automated-coding-research.md](../docs/AI/Research/automated-coding-research.md) - Automated coding workflow research
 - [CURRENT, 2025-11-15, Research] [research/automated-planning-research.md](../docs/AI/Research/automated-planning-research.md) - Automated planning system research
+
+**apps/ (Application-Level Documentation):**
+- [CURRENT, 2025-11-21, Guide] [../apps/web_console/certs/README.md](../apps/web_console/certs/README.md) - Web console certificate management and rotation guide
 - [CURRENT, 2025-11-15, Research] [research/context-optimization-measurement.md](../docs/AI/Research/context-optimization-measurement.md) - Context optimization and measurement techniques
 - [CURRENT, 2025-11-15, Research] [research/delegation-decision-tree.md](../docs/AI/Research/delegation-decision-tree.md) - Subagent delegation decision framework
 - [CURRENT, 2025-11-15, Research] [research/P1T13-workflow-simplification-analysis.md](../docs/AI/Research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis
