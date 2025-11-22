@@ -304,6 +304,6 @@ codex-continuation-id: <final-uuid-from-approved-iteration>
 ---
 
 **See also:**
-- [Zen-MCP Review Process](./_common/zen-review-process.md) - Complete review system details
+- [Zen-MCP Review Process](./zen-review-process.md) - Complete review system details
 - [03-reviews.md](../03-reviews.md) - Full review workflow
 - `/docs/STANDARDS/GIT_WORKFLOW.md` - Pre-commit review requirements

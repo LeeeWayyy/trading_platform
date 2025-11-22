@@ -69,7 +69,7 @@
 
 **Output:** Complete list of ALL files/modules/components that need changes
 
-**💡 Context Optimization:** If context usage >50% (100k tokens), prefer Option B (delegation) for all searches. See [16-subagent-delegation.md](./16-subagent-delegation.md) for how-to patterns and [delegation-decision-tree.md](../research/delegation-decision-tree.md) for when-to criteria.
+**💡 Context Optimization:** If context usage >50% (100k tokens), prefer Option B (delegation) for all searches. See [16-subagent-delegation.md](./16-subagent-delegation.md) for how-to patterns and [delegation-decision-tree.md](../Research/delegation-decision-tree.md) for when-to criteria.
 
 ---
 

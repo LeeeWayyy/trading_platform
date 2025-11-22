@@ -409,5 +409,5 @@ docker-compose down && docker-compose up -d
 
 - [01-git.md](./01-git.md) - Creating PRs
 - [04-development.md](./04-development.md) - Testing and debugging
-- [/docs/RUNBOOKS/ops.md](../../docs/RUNBOOKS/ops.md) - Operational procedures
-- [/docs/INCIDENTS/](../../docs/INCIDENTS/) - Past incidents for reference
+- [/docs/RUNBOOKS/ops.md](../RUNBOOKS/ops.md) - Operational procedures
+- [/docs/INCIDENTS/](../INCIDENTS/) - Past incidents for reference

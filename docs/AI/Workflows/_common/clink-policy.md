@@ -47,4 +47,4 @@ Tool restriction is **not enforceable at project level** because MCP config is s
 
 - [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) - Complete policy
 - [Quick Review Workflow](../03-reviews.md) - Clink usage examples
-- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Wrong-tool error fixes
+- [Troubleshooting Guide](../troubleshooting.md) - Wrong-tool error fixes

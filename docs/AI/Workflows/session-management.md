@@ -68,7 +68,7 @@ When this file is detected, Claude should:
 
 ## 📖 Full Resume Workflow
 
-See [`./08-session-management.md`](./workflows/08-session-management.md) for complete auto-resume workflow.
+See [`./08-session-management.md`](./08-session-management.md) for complete auto-resume workflow.
 
 ---
 

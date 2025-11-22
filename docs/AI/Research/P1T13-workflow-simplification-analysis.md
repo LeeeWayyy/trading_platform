@@ -177,14 +177,14 @@ pytest tests/test_file.py -v
 
 **Changes:**
 1. **Create shared reference docs:**
-   - `.claude/workflows/_common/git-commands.md` - Git command reference (~40 lines)
-   - `.claude/workflows/_common/test-commands.md` - Test command reference (~30 lines)
-   - `.claude/workflows/_common/clink-policy.md` - Clink usage policy (~20 lines)
-   - `.claude/workflows/_common/zen-review-process.md` - Review process (~150 lines)
+   - `.clau../Workflows/_common/git-commands.md` - Git command reference (~40 lines)
+   - `.clau../Workflows/_common/test-commands.md` - Test command reference (~30 lines)
+   - `.clau../Workflows/_common/clink-policy.md` - Clink usage policy (~20 lines)
+   - `.clau../Workflows/_common/zen-review-process.md` - Review process (~150 lines)
 
 2. **Replace duplicates with references:**
-   - Instead of duplicating git commands → "See [git-commands.md](../workflows/_common/git-commands.md)"
-   - Instead of duplicating zen review process → "See [zen-review-process.md](../workflows/_common/zen-review-process.md)"
+   - Instead of duplicating git commands → "See [git-commands.md](../Workflows/_common/git-commands.md)"
+   - Instead of duplicating zen review process → "See [zen-review-process.md](../Workflows/_common/zen-review-process.md)"
 
 **Expected savings:** Additional ~800-1,200 lines
 
@@ -219,7 +219,7 @@ pytest tests/test_file.py -v
 
 ### Phase 1: Create Shared Reference Documents (1-2 hours)
 
-**Create `.claude/workflows/_common/` directory with:**
+**Create `.clau../Workflows/_common/` directory with:**
 
 1. **git-commands.md** (~40 lines)
    - Common git operations (add, commit, push, status, branch)

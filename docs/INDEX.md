@@ -135,8 +135,6 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-11-21, Index] [Analysis/README.md](./AI/Analysis/README.md) - Pre-implementation analysis artifacts index
 
 **Audits:**
-- [CURRENT, 2025-11-17, Audit] [Audits/P1T13-F5-phase0-findings.md](./AI/Audits/P1T13-F5-phase0-findings.md) - P1T13-F5 Phase 0 audit findings
-- [CURRENT, 2025-11-17, Audit] [Audits/P1T13-F5-phase0-fixes-summary.md](./AI/Audits/P1T13-F5-phase0-fixes-summary.md) - P1T13-F5 Phase 0 fixes summary
 - [CURRENT, 2025-11-21, Index] [Audits/README.md](./AI/Audits/README.md) - Code audit artifacts index
 
 **Examples:**
