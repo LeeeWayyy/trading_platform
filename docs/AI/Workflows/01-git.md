@@ -392,4 +392,4 @@ git commit --amend -m "new message"
 - [03-reviews.md](./03-reviews.md) - Quick & deep review workflows
 - [02-planning.md](./02-planning.md) - Task breakdown and subfeatures
 - [16-subagent-delegation.md](./16-subagent-delegation.md) - Context optimization
-- [/docs/STANDARDS/GIT_WORKFLOW.md](../STANDARDS/GIT_WORKFLOW.md) - Git standards
+- [/docs/STANDARDS/GIT_WORKFLOW.md](../../STANDARDS/GIT_WORKFLOW.md) - Git standards
