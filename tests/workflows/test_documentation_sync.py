@@ -17,7 +17,7 @@ def project_root() -> Path:
 
 def test_readme_has_6_step_pattern(project_root: Path) -> None:
     """Verify README.md references 6-step pattern, not 4-step."""
-    readme = project_root / ".claude" / "workflows" / "README.md"
+    readme = project_root / "docs" / "AI" / "Workflows" / "README.md"
     content = readme.read_text(encoding="utf-8")
 
     # Should mention 6-step pattern
@@ -31,7 +31,7 @@ def test_readme_has_6_step_pattern(project_root: Path) -> None:
 
 def test_component_cycle_has_6_steps(project_root: Path) -> None:
     """Verify 12-component-cycle.md documents all 6 steps."""
-    component_cycle = project_root / ".claude" / "workflows" / "12-component-cycle.md"
+    component_cycle = project_root / "docs" / "AI" / "Workflows" / "12-component-cycle.md"
     content = component_cycle.read_text(encoding="utf-8")
 
     # Should mention 6-step pattern
@@ -53,7 +53,7 @@ def test_component_cycle_has_6_steps(project_root: Path) -> None:
 
 def test_workflow_transitions_updated(project_root: Path) -> None:
     """Verify workflow transition diagram shows complete 6-step flow."""
-    component_cycle = project_root / ".claude" / "workflows" / "12-component-cycle.md"
+    component_cycle = project_root / "docs" / "AI" / "Workflows" / "12-component-cycle.md"
     content = component_cycle.read_text(encoding="utf-8")
 
     # Should show complete transition: plan → plan-review → ... → commit → plan

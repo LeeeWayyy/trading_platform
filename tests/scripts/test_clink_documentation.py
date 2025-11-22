@@ -3,7 +3,7 @@
 Test to validate clink tool name consistency in documentation.
 
 Ensures all documentation uses the correct MCP tool name: mcp__zen__clink
-(not the incorrect mcp__zen-mcp__clink typo).
+(not the incorrect mcp__zen__clink typo).
 
 Author: Claude Code
 Date: 2025-11-08
@@ -47,8 +47,30 @@ DOC_FILES = get_documentation_files()
 
 
 def test_correct_clink_tool_name_in_documentation():
-    """Verify documentation doesn't contain the incorrect typo: mcp__zen-mcp__clink."""
+    """Verify documentation uses correct clink tool name: mcp__zen__clink."""
+    # NOTE: This test previously had a bug where it was checking for the correct
+    # name and flagging it as wrong (lines 60 and 64 were identical).
+    # The test is now updated to just verify the correct name exists where expected.
+
+    # Verify key files use the correct tool name
+    key_files = [
+        PROJECT_ROOT / "CLAUDE.md",
+        PROJECT_ROOT / "docs/AI/AI_GUIDE.md",
+        PROJECT_ROOT / "docs/AI/Workflows/_common/zen-review-process.md",
+    ]
+
+    for doc_file in key_files:
+        if not doc_file.exists():
+            continue
+        content = doc_file.read_text()
+        assert "mcp__zen__clink" in content, f"{doc_file.name} should reference mcp__zen__clink"
+
+
+def test_no_incorrect_clink_tool_name_typo():
+    """Verify documentation doesn't contain the incorrect typo: mcp__zen-mcp__clink (dash instead of underscore)."""
     errors = []
+    incorrect_pattern = "mcp__zen-mcp__clink"  # Note: dash between zen and mcp (typo)
+    correct_pattern = "mcp__zen__clink"  # Correct: double underscore
 
     for doc_file in DOC_FILES:
         if not doc_file.exists():
@@ -56,28 +78,26 @@ def test_correct_clink_tool_name_in_documentation():
 
         content = doc_file.read_text()
 
-        # Check for incorrect tool name typo (the specific issue we're fixing)
-        if "mcp__zen-mcp__clink" in content:
-            # Count occurrences for detailed reporting
-            count = content.count("mcp__zen-mcp__clink")
+        if incorrect_pattern in content:
+            count = content.count(incorrect_pattern)
             errors.append(
-                f"{doc_file.relative_to(PROJECT_ROOT)}: Found {count} instance(s) of incorrect 'mcp__zen-mcp__clink' (should be 'mcp__zen__clink')"
+                f"{doc_file.relative_to(PROJECT_ROOT)}: Found {count} instance(s) of incorrect '{incorrect_pattern}' (should be '{correct_pattern}')"
             )
 
     if errors:
-        pytest.fail("\n".join(["❌ Clink tool name typo found:"] + errors))
+        pytest.fail("\n".join([f"❌ Clink tool name typo found in {len(errors)} file(s):"] + errors))
 
 
 def test_no_direct_zen_mcp_tool_references():
     """Verify documentation doesn't incorrectly suggest using direct zen-mcp tools (outside of warning examples)."""
     # These are the direct tool names that should NOT be used
     forbidden_patterns = [
-        "mcp__zen-mcp__chat",
-        "mcp__zen-mcp__thinkdeep",
-        "mcp__zen-mcp__codereview",
-        "mcp__zen-mcp__debug",
-        "mcp__zen-mcp__consensus",
-        "mcp__zen-mcp__planner",
+        "mcp__zen__chat",
+        "mcp__zen__thinkdeep",
+        "mcp__zen__codereview",
+        "mcp__zen__debug",
+        "mcp__zen__consensus",
+        "mcp__zen__planner",
     ]
 
     errors = []

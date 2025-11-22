@@ -172,9 +172,9 @@ P1_PLANNING.md     → Phase-level planning (living document)
 
 | ID | Title | Owner | State | Depends On | Blocks | Effort |
 |----|-------|-------|-------|------------|--------|--------|
-| [P0T0](#p0t0) | [Task title] | @team | TASK | - | P0T1 | 3d |
-| [P0T1](#p0t1) | [Task title] | @team | PROGRESS | P0T0 | P0T2 | 5d |
-| [P0T2](#p0t2) | [Task title] | @team | DONE | P0T1 | - | 2d |
+| [P0T0](#p0t0-example-task-template) | [Task title] | @team | TASK | - | P0T1 | 3d |
+| [P0T1](#p0t1-example-task-in-progress) | [Task title] | @team | PROGRESS | P0T0 | P0T2 | 5d |
+| [P0T2](#p0t2-task-title) | [Task title] | @team | DONE | P0T1 | - | 2d |
 
 ### P0T0: Example Task (Template)
 **Status:** TASK (Not Started)
@@ -236,7 +236,7 @@ P1_PLANNING.md     → Phase-level planning (living document)
 
 | ID | Title | Owner | State | Depends On | Blocks | Effort |
 |----|-------|-------|-------|------------|--------|--------|
-| [P1T0](#p1t0) | Enhanced P&L Calculation | @development-team | DONE | P0T4 | - | 3-5d |
+| [P1T0](#p1t0-enhanced-pl-calculation) | Enhanced P&L Calculation | @development-team | DONE | P0T4 | - | 3-5d |
 
 ### P1T0: Enhanced P&L Calculation
 **Status:** DONE (Completed)
@@ -250,7 +250,7 @@ P1_PLANNING.md     → Phase-level planning (living document)
 
 | ID | Title | Owner | State | Depends On | Blocks | Effort |
 |----|-------|-------|-------|------------|--------|--------|
-| [P2T0](#p2t0) | [Task title] | @team | TASK | P1T5 | - | 3d |
+| [P2T0](#p2t0-example-future-task) | [Task title] | @team | TASK | P1T5 | - | 3d |
 
 ### P2T0: Example Future Task
 **Status:** TASK (Not Started)
@@ -377,9 +377,9 @@ grep -l "owner: \"@alice\"" P*_*.md
 - [ADR Guide](../STANDARDS/ADR_GUIDE.md)
 
 **Workflows:**
-- [Git Commit Workflow](../../.claude/workflows/01-git.md)
-- [PR Creation](../../.claude/workflows/01-git.md)
-- [Zen Review](../../.claude/workflows/03-reviews.md)
+- [Git Commit Workflow](.././AI/Workflows/01-git.md)
+- [PR Creation](.././AI/Workflows/01-git.md)
+- [Zen Review](.././AI/Workflows/03-reviews.md)
 
 ---
 

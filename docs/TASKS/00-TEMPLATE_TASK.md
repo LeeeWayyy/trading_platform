@@ -137,7 +137,7 @@ Break this task into components, each following the 4-step pattern:
 ## Documentation Requirements
 
 ### Must Create/Update
-- [ ] ADR if architectural change (`.claude/workflows/05-operations.md`)
+- [ ] ADR if architectural change (`./AI/Workflows/05-operations.md`)
 - [ ] Concept doc in `/docs/CONCEPTS/` if trading-specific
 - [ ] API spec in `/docs/API/` if endpoint changes
 - [ ] Database schema in `/docs/DB/` if schema changes
@@ -172,7 +172,7 @@ Break this task into components, each following the 4-step pattern:
 
 **RECOMMENDED:** Before starting work, request task creation review to validate scope and requirements.
 
-See [`.claude/workflows/02-planning.md`](../../.claude/workflows/02-planning.md) for workflow details.
+See [`./AI/Workflows/02-planning.md`](.././AI/Workflows/02-planning.md) for workflow details.
 
 **Review validates:**
 - [ ] Objective is clear and measurable

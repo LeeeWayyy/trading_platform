@@ -100,9 +100,9 @@ Implement systematic workflow improvements to prevent AI assistant concentration
 - ✅ Git-integrated state transitions (TASK → PROGRESS → DONE)
 
 **Workflow Documentation:**
-- ✅ 12 comprehensive workflow files (`.claude/workflows/`)
+- ✅ 12 comprehensive workflow files (`./AI/Workflows/`)
 - ✅ 3-tier review system documented (quick/deep/task reviews)
-- ✅ Task review workflow (`.claude/workflows/02-planning.md`)
+- ✅ Task review workflow (`./AI/Workflows/02-planning.md`)
 - ✅ Two-phase review process: gemini planner → codex planner
 
 ### Critical Problems Identified
@@ -233,7 +233,7 @@ Each component follows the mandatory 4-step pattern:
 
 **Component C: Subfeature Branching Strategy (4-6 hours)**
 1. **Implement:** Documentation and branch naming enforcement
-   - Create .claude/workflows/02-planning.md
+   - Create ./AI/Workflows/02-planning.md
    - Update docs/STANDARDS/GIT_WORKFLOW.md with subfeature strategy
    - Update CLAUDE.md references to ./scripts/tasks.py
    - Document PxTy-Fz decomposition examples
@@ -269,9 +269,9 @@ Focus on documentation and training rather than technical restriction.
 
 **File Changes:**
 - `CLAUDE.md` (update zen-mcp section)
-- `.claude/workflows/03-reviews.md` (add clink reminder)
-- `.claude/workflows/03-reviews.md` (add clink reminder)
-- `.claude/workflows/02-planning.md` (add clink reminder)
+- `./AI/Workflows/03-reviews.md` (add clink reminder)
+- `./AI/Workflows/03-reviews.md` (add clink reminder)
+- `./AI/Workflows/02-planning.md` (add clink reminder)
 - `docs/TROUBLESHOOTING.md` (new - tool usage errors guide)
 
 **Exit Criteria:**
@@ -323,8 +323,8 @@ Migrate hook logic to pre-commit framework with version-controlled scripts.
 - `.claude/state/current-todo.json` (new template)
 - `logs/zen_hooks_events.jsonl` (new, initially empty)
 - `logs/zen_hooks_overrides.jsonl` (new, initially empty)
-- `.claude/workflows/01-git.md` (update with review marker workflow)
-- `.claude/workflows/03-reviews.md` (update with zen_review.sh reference)
+- `./AI/Workflows/01-git.md` (update with review marker workflow)
+- `./AI/Workflows/03-reviews.md` (update with zen_review.sh reference)
 
 **Exit Criteria:**
 - `.pre-commit-config.yaml` has local hook (version-controlled!)
@@ -352,12 +352,12 @@ Leverage existing infrastructure, add enforcement and documentation.
    - Integrated in `scripts/hooks/verify_branch_name.sh` (Component B)
 
 2. **Documentation Updates:**
-   - Create `.claude/workflows/02-planning.md`
+   - Create `./AI/Workflows/02-planning.md`
    - Update `docs/STANDARDS/GIT_WORKFLOW.md`
    - Update `CLAUDE.md`
 
 **File Changes:**
-- `.claude/workflows/02-planning.md` (new workflow guide)
+- `./AI/Workflows/02-planning.md` (new workflow guide)
 - `docs/STANDARDS/GIT_WORKFLOW.md` (add subfeature strategy)
 - `CLAUDE.md` (update task creation references to use ./scripts/tasks.py)
 
@@ -442,10 +442,10 @@ None identified - all dependencies available.
 - Review marker workflow design
 
 ### Workflow Updates
-- `.claude/workflows/02-planning.md` (new - subfeature decomposition guide)
-- `.claude/workflows/01-git.md` (update with review marker workflow)
-- `.claude/workflows/03-reviews.md` (add zen_review.sh reference)
-- `.claude/workflows/README.md` (add new workflow)
+- `./AI/Workflows/02-planning.md` (new - subfeature decomposition guide)
+- `./AI/Workflows/01-git.md` (update with review marker workflow)
+- `./AI/Workflows/03-reviews.md` (add zen_review.sh reference)
+- `./AI/Workflows/README.md` (add new workflow)
 
 ### Standards Updates
 - `docs/STANDARDS/GIT_WORKFLOW.md` (subfeature branching strategy)
@@ -597,7 +597,7 @@ None identified - all dependencies available.
 
 **RECOMMENDED:** Before starting work, request task creation review to validate scope and requirements.
 
-See [`.claude/workflows/02-planning.md`](../../.claude/workflows/02-planning.md) for workflow details.
+See [`./AI/Workflows/02-planning.md`](.././AI/Workflows/02-planning.md) for workflow details.
 
 **Review validates:**
 - [x] Objective is clear and measurable

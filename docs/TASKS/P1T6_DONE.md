@@ -236,7 +236,7 @@ Implement additional ML strategies beyond Alpha158 baseline for diversification 
 ## Documentation Requirements
 
 ### Must Create/Update
-- [ ] ADR if architectural change (`.claude/workflows/08-adr-creation.md`)
+- [ ] ADR if architectural change (`./AI/Workflows/08-adr-creation.md`)
 - [ ] Concept doc in `/docs/CONCEPTS/` if trading-specific
 - [ ] API spec in `/docs/API/` if endpoint changes
 - [ ] Database schema in `/docs/DB/` if schema changes

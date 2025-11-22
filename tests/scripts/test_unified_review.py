@@ -76,10 +76,10 @@ class TestUnifiedReviewSystemInit:
 
 
 class TestCommitReview:
-    """Test _commit_review() lightweight commit review."""
+    """Test _commit_review() comprehensive commit review with independent Gemini + Codex."""
 
     def test_commit_review_returns_pending_status(self, temp_state_file):
-        """Test commit review returns PENDING status (actual review via clink)."""
+        """Test comprehensive commit review returns PENDING status (actual review via clink)."""
         reviewer = UnifiedReviewSystem(state_file=temp_state_file)
         result = reviewer._commit_review()
 
@@ -89,16 +89,17 @@ class TestCommitReview:
         assert result["issues"] == []
 
     def test_commit_review_prints_guidance(self, temp_state_file, capsys):
-        """Test commit review prints workflow guidance."""
+        """Test comprehensive commit review prints workflow guidance."""
         reviewer = UnifiedReviewSystem(state_file=temp_state_file)
         reviewer._commit_review()
 
         captured = capsys.readouterr()
-        assert "commit review" in captured.out.lower()
+        assert "comprehensive review" in captured.out.lower()
+        assert "independent" in captured.out.lower()
         assert "mcp__zen__clink" in captured.out
         assert "gemini" in captured.out
         assert "codex" in captured.out
-        assert "2-3 minutes" in captured.out
+        assert "3-5 minutes" in captured.out
 
 
 class TestPRReview:
@@ -126,14 +127,14 @@ class TestPRReview:
         assert "--justification" in captured.out
 
     def test_pr_review_prints_independent_warning_iteration_2(self, temp_state_file, capsys):
-        """Test PR review iteration 2+ warns about independent review."""
+        """Test PR review iteration 2+ warns about fresh independent review."""
         reviewer = UnifiedReviewSystem(state_file=temp_state_file)
         reviewer._pr_review(iteration=2)
 
         captured = capsys.readouterr()
-        assert "INDEPENDENT REVIEW" in captured.out
+        assert "FRESH REVIEW" in captured.out
         assert "no memory of iteration 1" in captured.out
-        assert "Do NOT reuse continuation_id" in captured.out
+        assert "DO NOT reuse Gemini's continuation_id" in captured.out
 
     def test_pr_review_with_override_at_iteration_3(self, temp_state_file):
         """Test PR review with override at iteration 3 triggers override handler."""

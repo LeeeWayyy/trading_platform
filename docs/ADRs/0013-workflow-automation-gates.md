@@ -56,7 +56,7 @@ You're working on a task file. Consider validating it:
 • 2-3 minutes now saves hours of rework
 
 Skip for trivial tasks (<2 hours, well-defined).
-See: .claude/workflows/13-task-creation-review.md
+See: ./AI/Workflows/13-task-creation-review.md
 ```
 
 **Exit Code:** Always 0 (warning only, never blocks)
@@ -83,7 +83,7 @@ See: .claude/workflows/13-task-creation-review.md
 2. **Documentation ecosystem updates** (heuristics):
    - If ADR introduces "service" or "component" → Check README.md staged
    - If ADR introduces new architectural concept → Check `docs/CONCEPTS/` files staged
-   - If ADR modifies "workflow" or "process" → Check `.claude/workflows/` staged
+   - If ADR modifies "workflow" or "process" → Check `./AI/Workflows/` staged
 
 **Exit Codes:**
 - `0` - All checks pass
@@ -101,7 +101,7 @@ Consider if you need to:
 • Create docs/CONCEPTS/ explaining the pattern
 
 This is a heuristic - override if not applicable.
-See: .claude/workflows/08-adr-creation.md Step 7
+See: ./AI/Workflows/08-adr-creation.md Step 7
 ```
 
 **Rationale:**
@@ -142,7 +142,7 @@ Action required:
 • Update test file and stage it, OR
 • Use SKIP_TEST_CHECK=1: SKIP_TEST_CHECK=1 git commit -m "..." + reference follow-up ticket
 
-See: .claude/workflows/05-testing.md
+See: ./AI/Workflows/05-testing.md
 ```
 
 **Rationale:**
@@ -188,7 +188,7 @@ Action required:
 • Add docstring following /docs/STANDARDS/DOCUMENTATION_STANDARDS.md, OR
 • Add TODO comment if docstring deferred
 
-See: .claude/workflows/07-documentation.md
+See: ./AI/Workflows/07-documentation.md
 ```
 
 **Rationale:**
@@ -516,7 +516,7 @@ main() {
     echo "• 2-3 minutes now saves hours of rework"
     echo ""
     echo "Skip for trivial tasks (<2 hours, well-defined)."
-    echo "See: .claude/workflows/13-task-creation-review.md"
+    echo "See: ./AI/Workflows/13-task-creation-review.md"
     echo ""
 
     exit 0  # Always non-blocking

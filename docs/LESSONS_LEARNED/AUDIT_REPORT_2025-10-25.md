@@ -2,7 +2,7 @@
 
 **Date:** 2025-10-25
 **Auditor:** Claude Code (automated audit for P1T12)
-**Scope:** All 17 workflows in `.claude/workflows/`
+**Scope:** All 17 workflows in `./AI/Workflows/`
 **Target:** Identify verbose workflows (>600 lines), redundancy, missing cross-links
 
 ---
@@ -13,7 +13,7 @@
 - **7 workflows exceed 500 lines** (target: ≤600 lines)
 - **1 DRAFT file** should be consolidated into main workflow
 - **Redundant "Clink-Only" warnings** in 4 workflows (opportunity for shared snippets)
-- **Examples embedded** throughout workflows (should extract to `.claude/examples/`)
+- **Examples embedded** throughout workflows (should extract to `docs/AI/Examples/`)
 - **Missing cross-links identified** in 5 workflows (will add during simplification)
 
 **Top Priority for Simplification (Wave-based: Largest First):**
@@ -34,12 +34,12 @@
 
 **Redundancy:**
 - **Lines 34-56:** Deep review workflow details (duplicates 03-reviews.md)
-- **Lines 167-243:** Example PR descriptions (should extract to `.claude/examples/git-pr/`)
+- **Lines 167-243:** Example PR descriptions (should extract to `docs/AI/Examples/git-pr/`)
 - **Lines 357-502:** Comprehensive troubleshooting (140+ lines, could move to appendix)
 - **Lines 595-653:** DRAFT consolidation content from PR review feedback rules
 
 **Simplification Opportunities:**
-- Extract 4+ examples to `.claude/examples/git-pr/good-pr-description.md`
+- Extract 4+ examples to `docs/AI/Examples/git-pr/good-pr-description.md`
 - Move troubleshooting to expandable appendix section
 - Consolidate DRAFT-pr-review-feedback-rules.md (Step 9) content
 - Reference 03-reviews.md instead of duplicating steps
@@ -49,7 +49,7 @@
 **Target:** ~600 lines (reduce by ~500 lines)
 
 **Extraction Plan:**
-- Extract examples: ~150 lines → `.claude/examples/git-pr/`
+- Extract examples: ~150 lines → `docs/AI/Examples/git-pr/`
 - Move troubleshooting to appendix: ~140 lines
 - Remove duplication of deep review: ~80 lines
 - Consolidate DRAFT content: ~130 lines (delete DRAFT file)
@@ -61,13 +61,13 @@
 
 **Redundancy:**
 - **Lines 12-22:** Clink-only warning (identical across 4 workflows)
-- **Lines 154-267:** Two complete example reviews (should extract to `.claude/examples/zen-reviews/`)
+- **Lines 154-267:** Two complete example reviews (should extract to `docs/AI/Examples/zen-reviews/`)
 - **Lines 380-510:** Decision tree examples (130 lines, could condense)
 - **Lines 611-720:** Common issues section (overlaps with 03-quick review)
 
 **Simplification Opportunities:**
 - Create shared snippet for "Clink-Only Tool Usage" warning (used in 4 workflows)
-- Extract example reviews to `.claude/examples/zen-reviews/deep-review-examples.md`
+- Extract example reviews to `docs/AI/Examples/zen-reviews/deep-review-examples.md`
 - Condense decision trees (use tables instead of long narratives)
 - Reference 03-reviews.md for common issues
 
@@ -78,7 +78,7 @@
 
 **Extraction Plan:**
 - Shared snippet for Clink warning: ~10 lines
-- Extract examples: ~110 lines → `.claude/examples/zen-reviews/`
+- Extract examples: ~110 lines → `docs/AI/Examples/zen-reviews/`
 - Condense decision trees: ~50 lines savings
 - Remove common issues duplication: ~80 lines
 
@@ -95,7 +95,7 @@
 - **Lines 502-580:** Common issues section (overlaps with troubleshooting in other workflows)
 
 **Simplification Opportunities:**
-- Extract complete commit examples to `.claude/examples/git-commits/`
+- Extract complete commit examples to `docs/AI/Examples/git-commits/`
 - Condense 4-step pattern explanation (currently 3 examples, need only 1)
 - Move common issues to appendix
 
@@ -105,7 +105,7 @@
 **Target:** ~450 lines (reduce by ~225 lines)
 
 **Extraction Plan:**
-- Extract commit examples: ~140 lines → `.claude/examples/git-commits/`
+- Extract commit examples: ~140 lines → `docs/AI/Examples/git-commits/`
 - Condense 4-step pattern: ~40 lines savings
 - Move common issues to appendix: ~45 lines
 
@@ -165,7 +165,7 @@
 
 **Simplification Opportunities:**
 - Use shared snippet for Clink warning
-- Extract examples to `.claude/examples/task-reviews/`
+- Extract examples to `docs/AI/Examples/task-reviews/`
 - Condense decision points section
 
 **Missing Cross-links:** None (well-linked)
@@ -174,7 +174,7 @@
 
 **Extraction Plan:**
 - Shared snippet for Clink warning: ~10 lines
-- Extract examples: ~160 lines → `.claude/examples/task-reviews/`
+- Extract examples: ~160 lines → `docs/AI/Examples/task-reviews/`
 - Condense decision points: ~50 lines
 
 ---
@@ -187,7 +187,7 @@
 - **Lines 420-540:** Complete example debugging sessions (should extract)
 
 **Simplification Opportunities:**
-- Extract debugging examples to `.claude/examples/ci-triage/`
+- Extract debugging examples to `docs/AI/Examples/ci-triage/`
 - Reference 11-environment-bootstrap.md for platform issues
 - Create quick reference table for common CI failures
 
@@ -197,7 +197,7 @@
 **Target:** ~400 lines (reduce by ~190 lines)
 
 **Extraction Plan:**
-- Extract debugging examples: ~120 lines → `.claude/examples/ci-triage/`
+- Extract debugging examples: ~120 lines → `docs/AI/Examples/ci-triage/`
 - Remove platform duplication: ~70 lines (reference 11-bootstrap instead)
 
 ---
@@ -212,7 +212,7 @@
 
 **Simplification Opportunities:**
 - Use shared snippet for Clink warning
-- Extract example reviews to `.claude/examples/zen-reviews/quick-review-examples.md`
+- Extract example reviews to `docs/AI/Examples/zen-reviews/quick-review-examples.md`
 - Reference 03-reviews.md for detailed common issues
 
 **Missing Cross-links:** None (well-linked)
@@ -221,7 +221,7 @@
 
 **Extraction Plan:**
 - Shared snippet for Clink warning: ~10 lines
-- Extract examples: ~160 lines → `.claude/examples/zen-reviews/`
+- Extract examples: ~160 lines → `docs/AI/Examples/zen-reviews/`
 - Remove common issues duplication: ~20 lines
 
 ---
@@ -337,7 +337,7 @@
 - 13-task-creation-review.md (lines 12-22)
 - (All identical, ~10 lines each)
 
-**Action:** Create `.claude/snippets/clink-only-warning.md` and reference in workflows
+**Action:** Create `docs/AI/Workflows/_common/clink-only-warning.md` and reference in workflows
 
 **Savings:** ~40 lines across 4 workflows
 
@@ -350,7 +350,7 @@
 - 03-reviews.md: Deep review examples (lines 154-267)
 - 13-task-creation-review.md: Task review examples (lines 402-560)
 
-**Action:** Extract to `.claude/examples/zen-reviews/`
+**Action:** Extract to `docs/AI/Examples/zen-reviews/`
 - `quick-review-example-approved.md`
 - `quick-review-example-needs-fixes.md`
 - `deep-review-example-comprehensive.md`
@@ -367,7 +367,7 @@
 - 01-git.md: Multiple commit examples (lines 248-390)
 - 01-git.md: PR description examples (lines 167-243)
 
-**Action:** Extract to `.claude/examples/git-commits/` and `.claude/examples/git-pr/`
+**Action:** Extract to `docs/AI/Examples/git-commits/` and `docs/AI/Examples/git-pr/`
 
 **Savings:** ~210 lines
 
@@ -424,14 +424,14 @@
    - DRAFT-pr-review-feedback-rules.md → DELETE (consolidate into 02)
 
 2. **Create extraction directories:**
-   - `.claude/examples/git-pr/`
-   - `.claude/examples/git-commits/`
-   - `.claude/examples/zen-reviews/`
-   - `.claude/examples/ci-triage/`
-   - `.claude/examples/task-reviews/`
+   - `docs/AI/Examples/git-pr/`
+   - `docs/AI/Examples/git-commits/`
+   - `docs/AI/Examples/zen-reviews/`
+   - `docs/AI/Examples/ci-triage/`
+   - `docs/AI/Examples/task-reviews/`
 
 3. **Create shared snippets:**
-   - `.claude/snippets/clink-only-warning.md`
+   - `docs/AI/Workflows/_common/clink-only-warning.md`
    - Reference in workflows with `{{include:clink-only-warning.md}}`
 
 4. **Add missing cross-links** during simplification
@@ -449,7 +449,7 @@
 **After Simplification (Target):**
 - 0 workflows >600 lines ✅
 - 0 DRAFT files ✅
-- Examples extracted to `.claude/examples/` ✅
+- Examples extracted to `docs/AI/Examples/` ✅
 - Shared snippets reduce duplication ✅
 - All cross-links verified ✅
 

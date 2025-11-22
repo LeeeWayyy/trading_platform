@@ -413,11 +413,11 @@ else:
 - `/docs/STANDARDS/GIT_WORKFLOW.md` - Progressive commit workflow
 
 **Workflows Used:**
-- `.claude/workflows/00-analysis-checklist.md` - Pre-implementation analysis
-- `.claude/workflows/01-git.md` - Progressive commits (4-step pattern)
-- `.claude/workflows/03-reviews.md` - Per-commit reviews (26 reviews)
-- `.claude/workflows/03-reviews.md` - Pre-PR comprehensive review
-- `.claude/workflows/08-adr-creation.md` - ADR-0015 creation
+- `./AI/Workflows/00-analysis-checklist.md` - Pre-implementation analysis
+- `./AI/Workflows/01-git.md` - Progressive commits (4-step pattern)
+- `./AI/Workflows/03-reviews.md` - Per-commit reviews (26 reviews)
+- `./AI/Workflows/03-reviews.md` - Pre-PR comprehensive review
+- `./AI/Workflows/08-adr-creation.md` - ADR-0015 creation
 
 **Implementation:**
 - `/docs/ADRs/0015-twap-order-slicer.md` - Architecture decisions

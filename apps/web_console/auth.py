@@ -30,13 +30,18 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
-from apps.web_console import config
 from apps.web_console.config import (
     AUTH_TYPE,
     DATABASE_CONNECT_TIMEOUT,
     DATABASE_URL,
     DEV_PASSWORD,
     DEV_USER,
+    RATE_LIMIT_LOCKOUT_1,
+    RATE_LIMIT_LOCKOUT_2,
+    RATE_LIMIT_LOCKOUT_3,
+    RATE_LIMIT_THRESHOLD_1,
+    RATE_LIMIT_THRESHOLD_2,
+    RATE_LIMIT_THRESHOLD_3,
     SESSION_ABSOLUTE_TIMEOUT_HOURS,
     SESSION_TIMEOUT_MINUTES,
     TRUSTED_PROXY_IPS,
@@ -131,12 +136,12 @@ def _dev_auth() -> bool:
                 attempts = st.session_state["failed_login_attempts"]
 
                 # Exponential backoff: 3 attempts = 30s, 5 attempts = 5min, 7+ = 15min
-                if attempts >= config.RATE_LIMIT_THRESHOLD_3:
-                    lockout_seconds = config.RATE_LIMIT_LOCKOUT_3
-                elif attempts >= config.RATE_LIMIT_THRESHOLD_2:
-                    lockout_seconds = config.RATE_LIMIT_LOCKOUT_2
-                elif attempts >= config.RATE_LIMIT_THRESHOLD_1:
-                    lockout_seconds = config.RATE_LIMIT_LOCKOUT_1
+                if attempts >= RATE_LIMIT_THRESHOLD_3:
+                    lockout_seconds = RATE_LIMIT_LOCKOUT_3
+                elif attempts >= RATE_LIMIT_THRESHOLD_2:
+                    lockout_seconds = RATE_LIMIT_LOCKOUT_2
+                elif attempts >= RATE_LIMIT_THRESHOLD_1:
+                    lockout_seconds = RATE_LIMIT_LOCKOUT_1
                 else:
                     lockout_seconds = 0
 

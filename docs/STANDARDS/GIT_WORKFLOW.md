@@ -10,10 +10,10 @@
 ## 🎯 Quick Reference
 
 **For step-by-step procedures, see:**
-- **Git commits:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md)
-- **Pull requests:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md)
-- **Zen-mcp review (quick):** [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
-- **Zen-mcp review (deep):** [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
+- **Git commits:** [`./AI/Workflows/01-git.md`](.././AI/Workflows/01-git.md)
+- **Pull requests:** [`./AI/Workflows/01-git.md`](.././AI/Workflows/01-git.md)
+- **Zen-mcp review (quick):** [`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md)
+- **Zen-mcp review (deep):** [`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md)
 
 **This document defines:**
 - ✅ What you MUST do (policies)
@@ -49,7 +49,7 @@
 - ✅ Each commit should compile and pass basic checks
 - ✅ Push regularly to backup work
 
-**See:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md) for commit procedures
+**See:** [`./AI/Workflows/01-git.md`](.././AI/Workflows/01-git.md) for commit procedures
 
 **Benefits:**
 - Regular backups of work in progress
@@ -76,8 +76,8 @@ git commit -m "Add rate limiting with exponential backoff"
 **POLICY:** ALL code commits by AI assistants MUST be reviewed by zen-mcp before committing
 
 **REQUIRED:**
-- ✅ **Quick review** before each progressive commit ([`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md))
-- ✅ **Deep review** before creating PR ([`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md))
+- ✅ **Quick review** before each progressive commit ([`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md))
+- ✅ **Deep review** before creating PR ([`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md))
 - ✅ Fix ALL HIGH/CRITICAL issues before committing (blocking)
 - ✅ Address or document MEDIUM issues
 - ✅ Cannot commit if zen finds blocking issues
@@ -102,8 +102,8 @@ Will perform post-commit review and create follow-up PR if issues found"
 - ✅ CAN commit with user override if zen unavailable (document reason)
 
 **See:**
-- Quick review: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
-- Deep review: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
+- Quick review: [`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md)
+- Deep review: [`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md)
 - Implementation: `/docs/CONCEPTS/workflow-optimization-zen-mcp.md`
 
 ### Rule #4: Mandatory Testing Before Commit
@@ -194,7 +194,7 @@ git commit -m "Add feature X"
 
 **See:** Component A2.1 (P1T13-F5) for implementation details
 
-**See:** [`.claude/workflows/04-development.md`](../../.claude/workflows/04-development.md) for testing procedures
+**See:** [`./AI/Workflows/04-development.md`](.././AI/Workflows/04-development.md) for testing procedures
 
 ---
 
@@ -240,7 +240,7 @@ feature/P1T11-DOCS                   # ❌ BAD - Description must be lowercase
 - Task has multiple independent components
 - Want progressive PRs instead of one large PR
 
-**See:** [`.claude/workflows/02-planning.md`](../../.claude/workflows/02-planning.md) for subfeature decomposition strategy
+**See:** [`./AI/Workflows/02-planning.md`](.././AI/Workflows/02-planning.md) for subfeature decomposition strategy
 
 **Enforced by:** Pre-commit hook (`scripts/hooks/verify_branch_name.sh`)
 
@@ -303,7 +303,7 @@ Closes #T4
 Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
-**See:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md) for commit procedures
+**See:** [`./AI/Workflows/01-git.md`](.././AI/Workflows/01-git.md) for commit procedures
 
 ---
 
@@ -348,8 +348,8 @@ Zen-mcp MUST verify these critical patterns:
 4. Include zen review summary in PR description
 
 **See:**
-- Quick review workflow: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
-- Deep review workflow: [`.claude/workflows/03-reviews.md`](../../.claude/workflows/03-reviews.md)
+- Quick review workflow: [`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md)
+- Deep review workflow: [`./AI/Workflows/03-reviews.md`](.././AI/Workflows/03-reviews.md)
 
 ---
 
@@ -373,7 +373,7 @@ Zen-mcp MUST verify these critical patterns:
 - Documentation updated checklist
 - Zen-mcp review summary
 
-**See:** [`.claude/workflows/01-git.md`](../../.claude/workflows/01-git.md) for PR creation procedures
+**See:** [`./AI/Workflows/01-git.md`](.././AI/Workflows/01-git.md) for PR creation procedures
 
 ### PR Size Guidelines
 
@@ -605,11 +605,11 @@ Claude Code MUST NOT:
 ## 📚 Related Documentation
 
 **Workflow procedures (step-by-step how-to):**
-- [Git commit workflow](../../.claude/workflows/01-git.md)
-- [PR creation workflow](../../.claude/workflows/01-git.md)
-- [Zen quick review workflow](../../.claude/workflows/03-reviews.md)
-- [Zen deep review workflow](../../.claude/workflows/03-reviews.md)
-- [Testing workflow](../../.claude/workflows/04-development.md)
+- [Git commit workflow](.././AI/Workflows/01-git.md)
+- [PR creation workflow](.././AI/Workflows/01-git.md)
+- [Zen quick review workflow](.././AI/Workflows/03-reviews.md)
+- [Zen deep review workflow](.././AI/Workflows/03-reviews.md)
+- [Testing workflow](.././AI/Workflows/04-development.md)
 
 **Other standards:**
 - [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Python style and patterns
@@ -635,7 +635,7 @@ Claude Code MUST NOT:
 - Poetry (package manager)
 
 **Setup procedures:**
-- See [`.claude/workflows/05-operations.md`](../../.claude/workflows/05-operations.md) for complete setup
+- See [`./AI/Workflows/05-operations.md`](.././AI/Workflows/05-operations.md) for complete setup
 
 **Authentication:**
 ```bash
@@ -668,7 +668,7 @@ When policies conflict, follow this priority:
 ---
 
 **Questions or clarifications needed?**
-- See workflow guides in `.claude/workflows/` for procedures
+- See workflow guides in `./AI/Workflows/` for procedures
 - See other STANDARDS docs for detailed requirements
 - Ask team lead for policy interpretation
 
