@@ -402,4 +402,4 @@ git push
 ## References
 
 - [Git Commands Reference](./_common/git-commands.md) - PR operations
-- [/docs/STANDARDS/GIT_WORKFLOW.md](../STANDARDS/GIT_WORKFLOW.md) - Review policies
+- [/docs/STANDARDS/GIT_WORKFLOW.md](../../STANDARDS/GIT_WORKFLOW.md) - Review policies

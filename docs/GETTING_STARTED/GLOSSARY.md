@@ -26,7 +26,7 @@ Quick reference guide for trading platform terminology. Terms are organized by c
 ### Alpha
 Expected excess returns above a benchmark. Our baseline strategy achieves IC=0.082.
 
-**See also:** [Signal](#signal), [Information Coefficient](#information-coefficient)
+**See also:** [Signal](#signal), [Information Coefficient](#information-coefficient-ic)
 
 ### Circuit Breaker
 Safety mechanism that stops trading when risk limits are violated.
