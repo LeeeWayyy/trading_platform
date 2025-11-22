@@ -188,11 +188,12 @@ def test_check_commit_blocks_when_ci_failed(temp_state_file):
 
 
 def test_check_commit_success_when_all_prerequisites_met(temp_state_file, tmp_path):
-    """Verify check_commit succeeds when all prerequisites are met."""
-    # P1T13-F5a: Mock audit log for continuation ID verification
+    """Verify check_commit succeeds when all prerequisites are met (DUAL REVIEW FORMAT)."""
+    # P1T13-F5a: Mock audit log for continuation ID verification (DUAL REVIEW)
     audit_file = tmp_path / "audit.log"
     audit_file.write_text(
-        '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "smoke-test-123"}\n'
+        '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "smoke-test-gemini-123"}\n'
+        '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "smoke-test-codex-456"}\n'
     )
 
     with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
@@ -214,9 +215,10 @@ def test_check_commit_success_when_all_prerequisites_met(temp_state_file, tmp_pa
             gate.advance("test")
             gate.advance("review")
 
-        # P1T13-F5a: Mock hash computation for unit test
+        # P1T13-F5a: Mock hash computation for unit test (DUAL REVIEW - record both gemini and codex)
         with patch.object(gate, "_compute_staged_hash", return_value="fake_hash_123"):
-            gate.record_review("smoke-test-123", "APPROVED")
+            gate.record_review("smoke-test-gemini-123", "APPROVED", "gemini")
+            gate.record_review("smoke-test-codex-456", "APPROVED", "codex")
         gate.record_ci(True)
 
         # P1T13-F5a: Mock hash computation for check_commit too

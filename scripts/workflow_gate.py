@@ -541,7 +541,7 @@ class WorkflowGate:
                     continue
         return False
 
-    def record_review(self, cli_name: str, continuation_id: str, status: str) -> None:
+    def record_review(self, continuation_id: str, status: str, cli_name: str = "codex") -> None:
         """
         Record zen-mcp review result from a specific CLI (gemini or codex).
 
@@ -555,9 +555,9 @@ class WorkflowGate:
         there's no code yet. Only code reviews (step=review) require fingerprinting.
 
         Args:
-            cli_name: CLI name ("gemini" or "codex")
             continuation_id: Zen-MCP continuation ID from review
             status: Review status ("APPROVED" or "NEEDS_REVISION")
+            cli_name: CLI name ("gemini" or "codex"), defaults to "codex" for backward compatibility
         """
         # Validate CLI name
         if cli_name not in ("gemini", "codex"):
@@ -3944,8 +3944,9 @@ Examples:
   %(prog)s advance review     # test → review
 
   # Record review approvals (dual review required)
-  %(prog)s record-review gemini abc123... APPROVED
-  %(prog)s record-review codex def456... APPROVED
+  %(prog)s record-review abc123... APPROVED gemini
+  %(prog)s record-review def456... APPROVED codex
+  %(prog)s record-review xyz789... APPROVED  # defaults to codex
 
   # Record CI result
   %(prog)s record-ci true
@@ -3982,12 +3983,16 @@ Examples:
     record_review_parser = subparsers.add_parser(
         "record-review", help="Record zen-mcp review result from specific CLI"
     )
-    record_review_parser.add_argument(
-        "cli_name", choices=["gemini", "codex"], help="CLI name (gemini or codex)"
-    )
     record_review_parser.add_argument("continuation_id", help="Zen-MCP continuation ID")
     record_review_parser.add_argument(
         "status", choices=[REVIEW_APPROVED, REVIEW_NEEDS_REVISION], help="Review status"
+    )
+    record_review_parser.add_argument(
+        "cli_name",
+        nargs="?",
+        default="codex",
+        choices=["gemini", "codex"],
+        help="CLI name (gemini or codex, default: codex)",
     )
 
     # Record CI
@@ -4138,7 +4143,7 @@ Examples:
         elif args.command == "advance":
             gate.advance(args.next_step)
         elif args.command == "record-review":
-            gate.record_review(args.cli_name, args.continuation_id, args.status)
+            gate.record_review(args.continuation_id, args.status, args.cli_name)
         elif args.command == "record-ci":
             gate.record_ci(args.passed)
         elif args.command == "check-commit":

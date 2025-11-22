@@ -181,10 +181,15 @@ def test_commit_gate_blocks_pending_delegations(temp_state_file):
         state["task_file"] = str(task_file)
         state["analysis_completed"] = True
         state["components"] = ["Component 1", "Component 2"]
-        # Bypass workflow gates
+        # Bypass workflow gates (NEW DUAL REVIEW FORMAT)
         state["step"] = "review"  # Bypass step check
-        state["zen_review"] = {
-            "continuation_id": "test-real-id-12345",
+        state["gemini_review"] = {
+            "continuation_id": "test-gemini-real-id-12345",
+            "status": "APPROVED",
+            "staged_hash": "abc123",  # Non-empty hash
+        }
+        state["codex_review"] = {
+            "continuation_id": "test-codex-real-id-54321",
             "status": "APPROVED",
             "staged_hash": "abc123",  # Non-empty hash
         }
@@ -230,10 +235,15 @@ def test_commit_gate_passes_with_completed_delegations(temp_state_file):
         state["task_file"] = str(task_file)
         state["analysis_completed"] = True
         state["components"] = ["Component 1", "Component 2"]
-        # Bypass workflow gates
+        # Bypass workflow gates (NEW DUAL REVIEW FORMAT)
         state["step"] = "review"
-        state["zen_review"] = {
-            "continuation_id": "test-real-id-67890",
+        state["gemini_review"] = {
+            "continuation_id": "test-gemini-real-id-67890",
+            "status": "APPROVED",
+            "staged_hash": "def456",
+        }
+        state["codex_review"] = {
+            "continuation_id": "test-codex-real-id-09876",
             "status": "APPROVED",
             "staged_hash": "def456",
         }

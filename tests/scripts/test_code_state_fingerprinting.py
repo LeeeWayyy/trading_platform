@@ -231,23 +231,30 @@ class TestCheckCommitFingerprinting:
 
     def test_commit_allowed_when_hash_matches(self, temp_state_file, tmp_path):
         """Test that commit is allowed when hash matches."""
-        # Mock audit log file with the test continuation ID
-        # Use a UUID-like ID to avoid placeholder detection
+        # Mock audit log file with the test continuation IDs
+        # Use UUID-like IDs to avoid placeholder detection
         audit_file = tmp_path / "audit.log"
         audit_file.write_text(
-            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "abc123-cont-id"}\n'
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "abc123-gemini-cont-id"}\n'
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "def456-codex-cont-id"}\n'
         )
 
         with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
             gate = WorkflowGate()
 
-            # Setup state with stored hash and planning artifacts
+            # Setup state with stored hash and planning artifacts (NEW DUAL REVIEW FORMAT)
             state = gate.load_state()
             state["step"] = "review"
             state["first_commit_made"] = True  # Bypass planning artifact gate
-            state["zen_review"] = {
+            state["gemini_review"] = {
                 "requested": True,
-                "continuation_id": "abc123-cont-id",
+                "continuation_id": "abc123-gemini-cont-id",
+                "status": "APPROVED",
+                "staged_hash": "matching_hash_abc123",
+            }
+            state["codex_review"] = {
+                "requested": True,
+                "continuation_id": "def456-codex-cont-id",
                 "status": "APPROVED",
                 "staged_hash": "matching_hash_abc123",
             }
@@ -263,22 +270,29 @@ class TestCheckCommitFingerprinting:
 
     def test_backwards_compatibility_no_stored_hash(self, temp_state_file, tmp_path):
         """Test backwards compatibility: allow commit if no hash stored (Gemini LOW)."""
-        # Mock audit log file with the test continuation ID
+        # Mock audit log file with the test continuation IDs
         audit_file = tmp_path / "audit.log"
         audit_file.write_text(
-            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "old-review-id"}\n'
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "old-gemini-review-id"}\n'
+            '{"timestamp": "2025-11-14T00:00:00Z", "continuation_id": "old-codex-review-id"}\n'
         )
 
         with patch("scripts.workflow_gate.AUDIT_LOG_FILE", audit_file):
             gate = WorkflowGate()
 
-            # Setup state without staged_hash (old review)
+            # Setup state without staged_hash (old review) - NEW DUAL REVIEW FORMAT
             state = gate.load_state()
             state["step"] = "review"
             state["first_commit_made"] = True  # Bypass planning artifact gate
-            state["zen_review"] = {
+            state["gemini_review"] = {
                 "requested": True,
-                "continuation_id": "old-review-id",
+                "continuation_id": "old-gemini-review-id",
+                "status": "APPROVED",
+                # No staged_hash field
+            }
+            state["codex_review"] = {
+                "requested": True,
+                "continuation_id": "old-codex-review-id",
                 "status": "APPROVED",
                 # No staged_hash field
             }

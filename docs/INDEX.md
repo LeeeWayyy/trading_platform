@@ -321,6 +321,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-10-26, Task] [P2T1_DONE.md](./TASKS/P2T1_DONE.md) - Advanced order types and execution
 - [CURRENT, 2025-11-15, Task] [P2T2_DONE.md](./TASKS/P2T2_DONE.md) - Secrets management with Google Cloud Secret Manager (completed)
 - [CURRENT, 2025-11-17, Task] [P2T3_TASK.md](./TASKS/P2T3_TASK.md) - Web console for operational oversight and manual intervention
+- [CURRENT, 2025-11-22, Plan] [P2T3_Component2_Plan.md](./TASKS/P2T3_Component2_Plan.md) - Component 2: JWT token generation and validation implementation plan
 
 **Checking Current/Next Task:**
 ```bash

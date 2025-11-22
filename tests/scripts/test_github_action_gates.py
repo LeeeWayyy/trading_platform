@@ -23,14 +23,15 @@ class TestReviewHashTrailer:
     """Test Review-Hash trailer verification (Component 2)."""
 
     def test_commit_with_review_hash_passes(self):
-        """Test that commit with Review-Hash trailer passes verification."""
+        """Test that commit with Review-Hash trailer passes verification (DUAL REVIEW FORMAT)."""
         commit_hash = "abc123"
         commit_message = """feat: Add new feature
 
 Some description.
 
 zen-mcp-review: approved
-continuation-id: 12345678-1234-1234-1234-123456789abc
+gemini-continuation-id: 12345678-1234-1234-1234-123456789abc
+codex-continuation-id: 87654321-4321-4321-4321-cba987654321
 Review-Hash: 530744c33ff1687e6de14733414a7dd23afd1c28ca4cc3e37f7136f994599943
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -97,13 +98,14 @@ codex-continuation-id: dddd-eeee-ffff
             assert has_review_markers(commit_hash) is False
 
     def test_review_hash_presence_not_value(self):
-        """Test that we only check presence of Review-Hash, not correctness."""
+        """Test that we only check presence of Review-Hash, not correctness (DUAL REVIEW FORMAT)."""
         commit_hash = "mno345"
         # Review-Hash value is wrong hex, but presence check passes (we don't verify correctness)
         commit_message = """feat: Add feature
 
 zen-mcp-review: approved
-continuation-id: 12345678-1234-1234-1234-123456789abc
+gemini-continuation-id: 12345678-1234-1234-1234-123456789abc
+codex-continuation-id: 87654321-4321-4321-4321-cba987654321
 Review-Hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -115,12 +117,13 @@ Review-Hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
             assert has_review_markers(commit_hash) is True
 
     def test_case_insensitive_review_hash(self):
-        """Test that Review-Hash check is case-insensitive."""
+        """Test that Review-Hash check is case-insensitive (DUAL REVIEW FORMAT)."""
         commit_hash = "pqr678"
         commit_message = """feat: Add feature
 
 zen-mcp-review: approved
-continuation-id: 12345678-1234-1234-1234-123456789abc
+gemini-continuation-id: 12345678-1234-1234-1234-123456789abc
+codex-continuation-id: 87654321-4321-4321-4321-cba987654321
 REVIEW-HASH: 530744c33ff1687e6de14733414a7dd23afd1c28ca4cc3e37f7136f994599943
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
