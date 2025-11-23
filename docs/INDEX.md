@@ -322,6 +322,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-15, Task] [P2T2_DONE.md](./TASKS/P2T2_DONE.md) - Secrets management with Google Cloud Secret Manager (completed)
 - [CURRENT, 2025-11-17, Task] [P2T3_TASK.md](./TASKS/P2T3_TASK.md) - Web console for operational oversight and manual intervention
 - [CURRENT, 2025-11-22, Plan] [P2T3_Component2_Plan.md](./TASKS/P2T3_Component2_Plan.md) - Component 2: JWT token generation and validation implementation plan
+- [CURRENT, 2025-11-22, Plan] [P2T3_Component3_Plan.md](./TASKS/P2T3_Component3_Plan.md) - Component 3: Nginx reverse proxy with mTLS authentication implementation plan
 
 **Checking Current/Next Task:**
 ```bash
@@ -367,6 +368,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-10-20, Runbook] [staging-deployment.md](./RUNBOOKS/staging-deployment.md) - Staging environment deployment, credentials, and rollback procedures
 - [CURRENT, 2025-11-17, Runbook] [web-console-user-guide.md](./RUNBOOKS/web-console-user-guide.md) - Web console usage, authentication, manual order entry, kill switch operations
 - [CURRENT, 2025-11-21, Runbook] [web-console-cert-rotation.md](./RUNBOOKS/web-console-cert-rotation.md) - Certificate rotation procedures for web console mTLS authentication
+- [CURRENT, 2025-11-22, Runbook] [web-console-mtls-setup.md](./RUNBOOKS/web-console-mtls-setup.md) - Web console mTLS setup guide with certificate generation and nginx configuration
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 
@@ -401,6 +403,7 @@ Configuration files, templates, prompts, and tooling:
 
 **docs/AI/Implementation/ (Implementation Plans):**
 - [CURRENT, 2025-11-15, Plan] [P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
+- [CURRENT, 2025-11-22, Plan] [P2T3_PHASE2_PLAN.md](./AI/Implementation/P2T3_PHASE2_PLAN.md) - P2T3 Phase 2 complete mTLS authentication system implementation plan
 
 **docs/AI/Research/ (Research Documents):**
 - [CURRENT, 2025-11-15, Research] [research/automated-coding-research.md](../docs/AI/Research/automated-coding-research.md) - Automated coding workflow research

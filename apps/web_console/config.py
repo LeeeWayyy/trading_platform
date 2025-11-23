@@ -20,9 +20,7 @@ from typing import Literal
 # API Configuration
 # ============================================================================
 
-EXECUTION_GATEWAY_URL = os.getenv(
-    "EXECUTION_GATEWAY_URL", "http://localhost:8002"
-)
+EXECUTION_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
 
 # API endpoints
 ENDPOINTS = {
@@ -40,7 +38,7 @@ ENDPOINTS = {
 # Authentication Configuration
 # ============================================================================
 
-AUTH_TYPE: Literal["basic", "oauth2", "dev"] = os.getenv(  # type: ignore
+AUTH_TYPE: Literal["basic", "oauth2", "dev", "mtls"] = os.getenv(  # type: ignore
     "WEB_CONSOLE_AUTH_TYPE", "dev"
 )
 
@@ -56,7 +54,9 @@ SESSION_ABSOLUTE_TIMEOUT_HOURS = int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_HOURS",
 # Comma-separated list of trusted proxy IPs (e.g., "10.0.0.1,10.0.0.2")
 # If set, X-Forwarded-For header will be trusted for requests from these IPs
 # If not set, all audit log entries will show "localhost" (safe default for dev)
-TRUSTED_PROXY_IPS = [ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()]
+TRUSTED_PROXY_IPS = [
+    ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()
+]
 
 # ============================================================================
 # Database Configuration (for audit log)
@@ -88,7 +88,7 @@ MIN_REASON_LENGTH = 10
 
 # Rate limiting configuration
 RATE_LIMIT_THRESHOLD_1 = 3  # First threshold: 3 failed attempts
-RATE_LIMIT_LOCKOUT_1 = 30   # Lockout duration: 30 seconds
+RATE_LIMIT_LOCKOUT_1 = 30  # Lockout duration: 30 seconds
 RATE_LIMIT_THRESHOLD_2 = 5  # Second threshold: 5 failed attempts
 RATE_LIMIT_LOCKOUT_2 = 300  # Lockout duration: 5 minutes
 RATE_LIMIT_THRESHOLD_3 = 7  # Third threshold: 7+ failed attempts

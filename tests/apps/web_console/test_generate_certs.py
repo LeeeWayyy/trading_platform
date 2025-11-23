@@ -125,7 +125,9 @@ class TestCAGeneration:
         ca_key = load_private_key(temp_cert_dir / "ca.key")
 
         assert isinstance(ca_key, rsa.RSAPrivateKey), "CA key is not RSA"
-        assert ca_key.key_size == EXPECTED_RSA_KEY_SIZE, f"CA key size is {ca_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
+        assert (
+            ca_key.key_size == EXPECTED_RSA_KEY_SIZE
+        ), f"CA key size is {ca_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
 
     def test_ca_private_key_has_0600_permissions(self, temp_cert_dir: Path):
         """Test CA private key has 0600 permissions (owner read/write only)."""
@@ -133,8 +135,9 @@ class TestCAGeneration:
         ca_key = temp_cert_dir / "ca.key"
 
         file_permissions = os.stat(ca_key).st_mode & 0o777
-        assert file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS, \
-            f"CA key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
+        assert (
+            file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS
+        ), f"CA key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
 
     def test_ca_certificate_subject_fields(self, temp_cert_dir: Path):
         """Test CA certificate has correct subject fields."""
@@ -146,12 +149,16 @@ class TestCAGeneration:
         # Check common name
         cn = subject.get_attributes_for_oid(NameOID.COMMON_NAME)
         assert len(cn) == 1, "CA certificate missing Common Name"
-        assert cn[0].value == "Trading Platform CA", f"CA CN is '{cn[0].value}', expected 'Trading Platform CA'"
+        assert (
+            cn[0].value == "Trading Platform CA"
+        ), f"CA CN is '{cn[0].value}', expected 'Trading Platform CA'"
 
         # Check organization
         org = subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
         assert len(org) == 1, "CA certificate missing Organization"
-        assert org[0].value == "Trading Platform", f"CA Org is '{org[0].value}', expected 'Trading Platform'"
+        assert (
+            org[0].value == "Trading Platform"
+        ), f"CA Org is '{org[0].value}', expected 'Trading Platform'"
 
 
 class TestServerGeneration:
@@ -195,7 +202,9 @@ class TestServerGeneration:
         server_key = load_private_key(temp_cert_dir / "server.key")
 
         assert isinstance(server_key, rsa.RSAPrivateKey), "Server key is not RSA"
-        assert server_key.key_size == EXPECTED_RSA_KEY_SIZE, f"Server key size is {server_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
+        assert (
+            server_key.key_size == EXPECTED_RSA_KEY_SIZE
+        ), f"Server key size is {server_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
 
     def test_server_certificate_subject_alternative_names(self, temp_cert_dir: Path):
         """Test server certificate has correct SANs (DNS and IP)."""
@@ -205,7 +214,9 @@ class TestServerGeneration:
         server_cert = load_certificate(temp_cert_dir / "server.crt")
 
         # Extract Subject Alternative Name extension
-        san_extension = server_cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = server_cert.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san = san_extension.value
 
         # Expected SANs (from plan)
@@ -244,8 +255,9 @@ class TestServerGeneration:
         server_key = temp_cert_dir / "server.key"
         file_permissions = os.stat(server_key).st_mode & 0o777
 
-        assert file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS, \
-            f"Server key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
+        assert (
+            file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS
+        ), f"Server key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
 
 
 class TestClientGeneration:
@@ -285,7 +297,9 @@ class TestClientGeneration:
         client_key = load_private_key(temp_cert_dir / "client-charlie.key")
 
         assert isinstance(client_key, rsa.RSAPrivateKey), "Client key is not RSA"
-        assert client_key.key_size == EXPECTED_RSA_KEY_SIZE, f"Client key size is {client_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
+        assert (
+            client_key.key_size == EXPECTED_RSA_KEY_SIZE
+        ), f"Client key size is {client_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
 
     def test_client_certificate_subject_alternative_name(self, temp_cert_dir: Path):
         """Test client certificate has correct SAN (DNS name)."""
@@ -295,7 +309,9 @@ class TestClientGeneration:
         client_cert = load_certificate(temp_cert_dir / "client-david.crt")
 
         # Extract Subject Alternative Name extension
-        san_extension = client_cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_extension = client_cert.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         san = san_extension.value
 
         # Extract DNS names
@@ -305,7 +321,9 @@ class TestClientGeneration:
                 dns_names.add(san_value.value)
 
         expected_dns = {"client-david.trading-platform.local"}
-        assert dns_names == expected_dns, f"Client DNS SANs are {dns_names}, expected {expected_dns}"
+        assert (
+            dns_names == expected_dns
+        ), f"Client DNS SANs are {dns_names}, expected {expected_dns}"
 
     def test_client_certificate_signed_by_ca(self, temp_cert_dir: Path):
         """Test client certificate is signed by CA."""
@@ -326,8 +344,9 @@ class TestClientGeneration:
         client_key = temp_cert_dir / "client-frank.key"
         file_permissions = os.stat(client_key).st_mode & 0o777
 
-        assert file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS, \
-            f"Client key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
+        assert (
+            file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS
+        ), f"Client key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
 
     def test_client_certificate_common_name(self, temp_cert_dir: Path):
         """Test client certificate has correct Common Name (client-{username})."""
@@ -339,7 +358,9 @@ class TestClientGeneration:
 
         cn = subject.get_attributes_for_oid(NameOID.COMMON_NAME)
         assert len(cn) == 1, "Client certificate missing Common Name"
-        assert cn[0].value == "client-grace", f"Client CN is '{cn[0].value}', expected 'client-grace'"
+        assert (
+            cn[0].value == "client-grace"
+        ), f"Client CN is '{cn[0].value}', expected 'client-grace'"
 
 
 class TestJWTKeyGeneration:
@@ -364,7 +385,9 @@ class TestJWTKeyGeneration:
         jwt_private_key = load_private_key(temp_cert_dir / "jwt_private.key")
 
         assert isinstance(jwt_private_key, rsa.RSAPrivateKey), "JWT key is not RSA"
-        assert jwt_private_key.key_size == EXPECTED_RSA_KEY_SIZE, f"JWT key size is {jwt_private_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
+        assert (
+            jwt_private_key.key_size == EXPECTED_RSA_KEY_SIZE
+        ), f"JWT key size is {jwt_private_key.key_size}, expected {EXPECTED_RSA_KEY_SIZE}"
 
     def test_jwt_public_key_matches_private_key(self, temp_cert_dir: Path):
         """Test JWT public key matches JWT private key."""
@@ -389,8 +412,9 @@ class TestJWTKeyGeneration:
         jwt_private = temp_cert_dir / "jwt_private.key"
         file_permissions = os.stat(jwt_private).st_mode & 0o777
 
-        assert file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS, \
-            f"JWT private key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
+        assert (
+            file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS
+        ), f"JWT private key permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
 
 
 class TestDefaultGeneration:
@@ -404,10 +428,14 @@ class TestDefaultGeneration:
 
         # Check all expected files exist
         expected_files = [
-            "ca.crt", "ca.key",
-            "server.crt", "server.key",
-            "client-admin.crt", "client-admin.key",
-            "jwt_private.key", "jwt_public.pem",
+            "ca.crt",
+            "ca.key",
+            "server.crt",
+            "server.key",
+            "client-admin.crt",
+            "client-admin.key",
+            "jwt_private.key",
+            "jwt_public.pem",
         ]
 
         for filename in expected_files:
@@ -429,8 +457,9 @@ class TestDefaultGeneration:
             key_path = temp_cert_dir / key_file
             file_permissions = os.stat(key_path).st_mode & 0o777
 
-            assert file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS, \
-                f"{key_file} permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
+            assert (
+                file_permissions == EXPECTED_PRIVATE_KEY_PERMISSIONS
+            ), f"{key_file} permissions are {oct(file_permissions)}, expected {oct(EXPECTED_PRIVATE_KEY_PERMISSIONS)}"
 
 
 class TestErrorHandling:
@@ -491,7 +520,9 @@ class TestCertificateExpiration:
 
         # Allow 2-day tolerance
         expiry_diff = abs((server_cert.not_valid_after_utc - expected_expiry).days)
-        assert expiry_diff <= 2, f"Server expiry is {expiry_diff} days off, expected ~1 year from now"
+        assert (
+            expiry_diff <= 2
+        ), f"Server expiry is {expiry_diff} days off, expected ~1 year from now"
 
     def test_client_expiration_is_approximately_90_days_from_now(self, temp_cert_dir: Path):
         """Test client certificate expires approximately 90 days from generation."""
@@ -505,4 +536,6 @@ class TestCertificateExpiration:
 
         # Allow 2-day tolerance
         expiry_diff = abs((client_cert.not_valid_after_utc - expected_expiry).days)
-        assert expiry_diff <= 2, f"Client expiry is {expiry_diff} days off, expected ~90 days from now"
+        assert (
+            expiry_diff <= 2
+        ), f"Client expiry is {expiry_diff} days off, expected ~90 days from now"

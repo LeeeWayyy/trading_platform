@@ -90,6 +90,8 @@ class AuthConfig:
             cookie_domain=os.getenv("COOKIE_DOMAIN"),
             cookie_path=os.getenv("COOKIE_PATH", "/"),
             cookie_max_age=(
-                int(cookie_max_age_str) if (cookie_max_age_str := os.getenv("COOKIE_MAX_AGE")) else None
+                int(cookie_max_age_str)
+                if (cookie_max_age_str := os.getenv("COOKIE_MAX_AGE"))
+                else None
             ),
         )
