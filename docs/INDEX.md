@@ -205,6 +205,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0015](./ADRs/0015-twap-order-slicer.md) | TWAP order slicer with APScheduler | ✅ Accepted |
 | [0016](./ADRs/0016-multi-alpha-allocation.md) | Multi-alpha capital allocation system | ✅ Accepted |
 | [0017](./ADRs/0017-secrets-management.md) | Secrets management with Google Cloud Secret Manager | ✅ Accepted |
+| [0018](./ADRs/0018-web-console-mtls-authentication.md) | Web console mTLS authentication with JWT session management | ✅ Accepted |
 
 **How to use ADRs:**
 - **Before modifying architecture:** Check if ADR exists, follow its decisions
@@ -235,6 +236,7 @@ Educational explanations of trading and ML concepts:
 | [execution-algorithms.md](./CONCEPTS/execution-algorithms.md) | Order execution strategies (TWAP, VWAP) | Intermediate |
 | [hot-reload.md](./CONCEPTS/hot-reload.md) | Zero-downtime model updates | Advanced |
 | [feature-parity.md](./CONCEPTS/feature-parity.md) | Research-production consistency | Advanced |
+| [mtls-jwt-authentication.md](./CONCEPTS/mtls-jwt-authentication.md) | Mutual TLS and JWT authentication concepts | Advanced |
 | [monitoring-and-observability.md](./CONCEPTS/monitoring-and-observability.md) | Metrics, logs, and traces | Intermediate |
 | [multi-alpha-allocation.md](./CONCEPTS/multi-alpha-allocation.md) | Multi-strategy capital allocation | Advanced |
 | [parquet-format.md](./CONCEPTS/parquet-format.md) | Columnar storage format | Beginner |

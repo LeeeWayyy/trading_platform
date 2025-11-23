@@ -267,5 +267,5 @@ Committing without review gates is the PRIMARY root cause of multiple fix commit
 - [Clink-Only Tool Usage Policy](./clink-policy.md) - Tool restriction details
 - [Review Workflow](../03-reviews.md) - Complete step-by-step process
 - [Task Creation Review](../02-planning.md) - Task review workflow
-- [CLAUDE.md Zen-MCP Integration](/CLAUDE.md#zen-mcp--clink-integration) - Complete policy
+- [CLAUDE.md Zen-MCP Integration](../../../../CLAUDE.md#zen-mcp--clink-integration) - Complete policy
 - [Troubleshooting Guide](../troubleshooting.md) - Error resolution

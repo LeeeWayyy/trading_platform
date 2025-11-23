@@ -72,7 +72,7 @@ Analyzed 13 of 20 workflow files (8,854 total lines). Identified significant red
 
 **⚠️ MANDATORY: Use `mcp__zen__clink` EXCLUSIVELY for all zen-mcp interactions.**
 
-See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) for complete policy.
+See [CLAUDE.md - Zen-MCP + Clink Integration](../../../CLAUDE.md#zen-mcp--clink-integration) for complete policy.
 ```
 
 **Impact:** 15 lines × 3 files = 45 lines can be replaced with 1 reference
@@ -532,7 +532,7 @@ fi
 3. Commit using `.claude/workflows/01-git.md`
 
 # Pattern 3: Workflow index reference
-**Workflow Index:** [`.claude/workflows/README.md`](./.claude/workflows/README.md)
+**Workflow Index:** [`docs/AI/Workflows/README.md`](../Workflows/README.md)
 ```
 
 ### Workflow Index Structure

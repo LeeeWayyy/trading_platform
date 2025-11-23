@@ -132,7 +132,7 @@ mcp__zen__clink(
 
 **3. Check CLAUDE.md Section**
 
-See [CLAUDE.md - Zen-MCP + Clink Integration](/CLAUDE.md#zen-mcp--clink-integration) for complete policy and examples.
+See [CLAUDE.md - Zen-MCP + Clink Integration](../../../CLAUDE.md#zen-mcp--clink-integration) for complete policy and examples.
 
 **4. Look for Error Patterns**
 
@@ -389,10 +389,10 @@ OVERRIDE_TESTS=1 git commit -m "..."
 
 ## Related Documentation
 
-- [CLAUDE.md](/CLAUDE.md) - Main project guidance
-- [Workflows](/./README.md) - Development workflows
-- [Standards](/docs/STANDARDS/) - Coding and git standards
-- [Concepts](/docs/CONCEPTS/) - Trading domain concepts
+- [CLAUDE.md](../../../CLAUDE.md) - Main project guidance
+- [Workflows](./README.md) - Development workflows
+- [Standards](../../STANDARDS/) - Coding and git standards
+- [Concepts](../../CONCEPTS/) - Trading domain concepts
 
 ---
 

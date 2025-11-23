@@ -75,6 +75,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ## See Also
 
-- [Git Workflow Standards](/docs/STANDARDS/GIT_WORKFLOW.md) - Complete git standards
+- [Git Workflow Standards](../../../STANDARDS/GIT_WORKFLOW.md) - Complete git standards
 - [Git Commit Workflow](../01-git.md) - Step-by-step commit process
 - [Git PR Workflow](../01-git.md) - Step-by-step PR creation

@@ -379,13 +379,13 @@ class TestDevAuthWorkflow:
 class TestMtlsAuth:
     """Test mTLS authentication with JWT-DN binding."""
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
     @patch("apps.web_console.auth._get_client_ip")
     @patch("apps.web_console.auth._get_remote_addr")
     @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["nginx"])
     def test_mtls_auth_success_first_visit(
-        self, mock_remote_addr, mock_get_ip, mock_get_headers, mock_get_jwt
+        self, mock_remote_addr, mock_get_ip, mock_get_headers, mock_get_session
     ):
         """Test mTLS authentication issues token on first visit."""
         # Setup mocks
@@ -397,11 +397,10 @@ class TestMtlsAuth:
         }
         mock_get_ip.return_value = "192.168.1.100"
 
-        # Mock JWTManager
-        mock_jwt_manager = MagicMock()
-        mock_jwt_manager.generate_access_token.return_value = "test.jwt.token"
-        mock_jwt_manager.config.session_binding_strict = True
-        mock_get_jwt.return_value = mock_jwt_manager
+        # Mock SessionManager
+        mock_session_manager = MagicMock()
+        mock_session_manager.create_session.return_value = ("test.jwt.token", "test.refresh.token")
+        mock_get_session.return_value = mock_session_manager
 
         mock_session_state = {}
 
@@ -415,8 +414,8 @@ class TestMtlsAuth:
                 }
                 result = auth._mtls_auth()
 
-        # Verify JWT was generated
-        mock_jwt_manager.generate_access_token.assert_called_once()
+        # Verify session was created
+        mock_session_manager.create_session.assert_called_once()
 
         # Verify session state populated
         assert mock_session_state["authenticated"] is True
@@ -428,7 +427,7 @@ class TestMtlsAuth:
         assert mock_session_state["jti"] == "test-jti-123"
         assert result is True
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
     @patch("apps.web_console.auth._get_client_ip")
     def test_validate_jwt_dn_binding_rejects_ip_change(
@@ -443,27 +442,18 @@ class TestMtlsAuth:
         }
         mock_get_ip.return_value = "192.168.1.999"  # CHANGED IP
 
-        # Mock JWTManager validation
-        mock_jwt_manager = MagicMock()
-        mock_jwt_manager.validate_token.return_value = {
-            "sub": "CN=test@example.com,O=Test Corp,C=US",
-            "ip": "192.168.1.100",  # Original IP
-            "user_agent_hash": hashlib.sha256(b"TestBrowser/1.0").hexdigest(),
-            "jti": "test-jti-123",
-        }
-        mock_jwt_manager.config.session_binding_strict = True
-        mock_get_jwt.return_value = mock_jwt_manager
+        # Mock SessionManager - validate_session should raise InvalidTokenError for IP mismatch
+        from libs.web_console_auth.exceptions import InvalidTokenError
+        mock_session_manager = MagicMock()
+        mock_session_manager.validate_session.side_effect = InvalidTokenError("Session binding mismatch: IP changed")
+        mock_get_jwt.return_value = mock_session_manager
 
-        # Validate JWT should FAIL due to IP mismatch
-        with patch("apps.web_console.auth.hashlib.sha256") as mock_sha:
-            mock_sha.return_value.hexdigest.return_value = hashlib.sha256(
-                b"TestBrowser/1.0"
-            ).hexdigest()
-            result = auth._validate_jwt_dn_binding(mock_get_headers.return_value, "test.jwt.token")
+        # Validate JWT should FAIL due to IP mismatch (SessionManager raises InvalidTokenError)
+        result = auth._validate_jwt_dn_binding(mock_get_headers.return_value, "test.jwt.token")
 
         assert result is False  # Should reject due to IP change
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
     @patch("apps.web_console.auth._get_client_ip")
     def test_validate_jwt_dn_binding_rejects_ua_change(
@@ -479,22 +469,17 @@ class TestMtlsAuth:
         mock_get_ip.return_value = "192.168.1.100"
 
         # Mock JWTManager validation
-        mock_jwt_manager = MagicMock()
-        mock_jwt_manager.validate_token.return_value = {
-            "sub": "CN=test@example.com,O=Test Corp,C=US",
-            "ip": "192.168.1.100",
-            "user_agent_hash": hashlib.sha256(b"TestBrowser/1.0").hexdigest(),  # Original UA
-            "jti": "test-jti-123",
-        }
-        mock_jwt_manager.config.session_binding_strict = True
-        mock_get_jwt.return_value = mock_jwt_manager
+        mock_session_manager = MagicMock()
+        from libs.web_console_auth.exceptions import InvalidTokenError
+        mock_session_manager.validate_session.side_effect = InvalidTokenError("Session binding mismatch: UA changed")
+        mock_get_jwt.return_value = mock_session_manager
 
         # Validate JWT should FAIL due to UA mismatch
         result = auth._validate_jwt_dn_binding(mock_get_headers.return_value, "test.jwt.token")
 
         assert result is False  # Should reject due to User-Agent change
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
     @patch("apps.web_console.auth._get_client_ip")
     @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["nginx"])
@@ -512,15 +497,15 @@ class TestMtlsAuth:
         mock_get_ip.return_value = "localhost"
 
         # Mock JWTManager validation - token was issued with real IP
-        mock_jwt_manager = MagicMock()
-        mock_jwt_manager.validate_token.return_value = {
+        mock_session_manager = MagicMock()
+        mock_session_manager.validate_session.return_value = {
             "sub": "CN=test@example.com,O=Test Corp,C=US",
             "ip": "192.168.1.100",  # Real IP when token was issued
             "user_agent_hash": hashlib.sha256(b"TestBrowser/1.0").hexdigest(),
             "jti": "test-jti-123",
         }
-        mock_jwt_manager.config.session_binding_strict = True
-        mock_get_jwt.return_value = mock_jwt_manager
+        mock_session_manager.config.session_binding_strict = True
+        mock_get_jwt.return_value = mock_session_manager
 
         # Validate JWT should FAIL (fail closed when cannot determine real IP)
         with patch("apps.web_console.auth.hashlib.sha256") as mock_sha:
@@ -531,7 +516,7 @@ class TestMtlsAuth:
 
         assert result is False  # Should reject when IP extraction fails
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
     @patch("apps.web_console.auth._get_client_ip")
     @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["nginx"])
@@ -547,8 +532,8 @@ class TestMtlsAuth:
         mock_get_ip.return_value = "localhost"
 
         # Mock JWTManager
-        mock_jwt_manager = MagicMock()
-        mock_get_jwt.return_value = mock_jwt_manager
+        mock_session_manager = MagicMock()
+        mock_get_jwt.return_value = mock_session_manager
 
         # Attempt to issue JWT - should FAIL (fail-closed)
         token, claims = auth._issue_jwt_for_client_dn(
@@ -560,10 +545,10 @@ class TestMtlsAuth:
         # Should reject token issuance
         assert token is None
         assert claims is None
-        # JWTManager should NOT be called
-        mock_jwt_manager.generate_access_token.assert_not_called()
+        # SessionManager should NOT be called
+        mock_session_manager.create_session.assert_not_called()
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
     @patch("apps.web_console.auth._get_remote_addr")
     @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["10.0.0.1", "nginx"])
@@ -583,7 +568,7 @@ class TestMtlsAuth:
         client_ip = auth._get_client_ip()
         assert client_ip == "localhost"
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
     @patch("apps.web_console.auth._get_remote_addr")
     @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["10.0.0.1", "nginx"])
@@ -700,12 +685,12 @@ class TestMtlsAuth:
         for call in mock_st.error.call_args_list:
             assert "TRUSTED_PROXY_IPS" not in str(call)
 
-    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_session_manager")
     def test_logout_revokes_jwt_token(self, mock_get_jwt):
         """Test logout revokes JWT token for mTLS mode."""
-        mock_jwt_manager = MagicMock()
-        mock_jwt_manager.config.access_token_ttl = 900
-        mock_get_jwt.return_value = mock_jwt_manager
+        mock_session_manager = MagicMock()
+        mock_session_manager.config.access_token_ttl = 900
+        mock_get_jwt.return_value = mock_session_manager
 
         exp_timestamp = int(time.time()) + 900
         mock_session_state = {
@@ -714,7 +699,7 @@ class TestMtlsAuth:
             "session_id": "test-session",
             "jwt_token": "test.jwt.token",
             "jwt_claims": {
-                "jti": "test-jti-123",
+                "session_id": "test-session-456",
                 "exp": exp_timestamp,
             },
         }
@@ -724,4 +709,4 @@ class TestMtlsAuth:
                 auth.logout()
 
         # Verify token was revoked with correct exp timestamp
-        mock_jwt_manager.revoke_token.assert_called_once_with("test-jti-123", exp_timestamp)
+        mock_session_manager.terminate_session.assert_called_once_with("test-session-456")
