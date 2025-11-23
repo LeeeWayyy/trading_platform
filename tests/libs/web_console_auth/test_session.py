@@ -198,7 +198,9 @@ class TestSessionTermination:
 
     def test_terminate_session_revokes_tokens(self, session_manager):
         """Test terminate_session blacklists both access and refresh tokens."""
-        access_token, refresh_token = session_manager.create_session("user1", "192.168.1.100", "Mozilla/5.0")
+        access_token, refresh_token = session_manager.create_session(
+            "user1", "192.168.1.100", "Mozilla/5.0"
+        )
         access_payload = session_manager.jwt.decode_token(access_token)
         refresh_payload = session_manager.jwt.decode_token(refresh_token)
 

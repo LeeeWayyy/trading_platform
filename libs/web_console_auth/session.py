@@ -35,7 +35,9 @@ class SessionManager:
     - Rate limiting prevents brute force attacks (Gemini Finding #1)
     """
 
-    def __init__(self, redis_client: Redis, jwt_manager: JWTManager, auth_config: AuthConfig) -> None:
+    def __init__(
+        self, redis_client: Redis, jwt_manager: JWTManager, auth_config: AuthConfig
+    ) -> None:
         """Initialize session manager.
 
         Args:
@@ -136,7 +138,9 @@ class SessionManager:
 
         return access_token, refresh_token
 
-    def refresh_session(self, refresh_token: str, client_ip: str, user_agent: str) -> tuple[str, str]:
+    def refresh_session(
+        self, refresh_token: str, client_ip: str, user_agent: str
+    ) -> tuple[str, str]:
         """Refresh session by issuing new access + refresh token pair.
 
         Args:
@@ -182,7 +186,9 @@ class SessionManager:
         session_key = f"{self.config.redis_session_prefix}{session_id}"
 
         # Generate new access token
-        new_access_token = self.jwt.generate_access_token(user_id, session_id, client_ip, user_agent)
+        new_access_token = self.jwt.generate_access_token(
+            user_id, session_id, client_ip, user_agent
+        )
         new_access_payload = self.jwt.decode_token(new_access_token)
         new_access_jti = new_access_payload["jti"]
 
@@ -231,7 +237,9 @@ class SessionManager:
 
         return new_access_token, new_refresh_token
 
-    def validate_session(self, access_token: str, client_ip: str, user_agent: str) -> dict[str, Any]:
+    def validate_session(
+        self, access_token: str, client_ip: str, user_agent: str
+    ) -> dict[str, Any]:
         """Validate session and return user info.
 
         Args:
@@ -477,7 +485,11 @@ class SessionManager:
             excess_count = session_count - self.config.max_sessions_per_user
             oldest_sessions = cast(list[bytes], self.redis.zrange(index_key, 0, excess_count - 1))
             for session_id_bytes in oldest_sessions:
-                session_id = session_id_bytes.decode() if isinstance(session_id_bytes, bytes) else session_id_bytes
+                session_id = (
+                    session_id_bytes.decode()
+                    if isinstance(session_id_bytes, bytes)
+                    else session_id_bytes
+                )
                 logger.info(
                     "session_evicted_limit",
                     extra={

@@ -31,7 +31,9 @@ class TestFullTokenLifecycle:
         )
 
         # 2. Validate access token
-        payload1 = session_manager.validate_session(access_token1, "192.168.1.100", "Mozilla/5.0 Integration Test")
+        payload1 = session_manager.validate_session(
+            access_token1, "192.168.1.100", "Mozilla/5.0 Integration Test"
+        )
         assert payload1["sub"] == "integration_user"
         session_id = payload1["session_id"]
         access_jti1 = payload1["jti"]
@@ -40,7 +42,9 @@ class TestFullTokenLifecycle:
         access_token2, refresh_token2 = session_manager.refresh_session(
             refresh_token, "192.168.1.100", "Mozilla/5.0 Integration Test"
         )
-        payload2 = session_manager.validate_session(access_token2, "192.168.1.100", "Mozilla/5.0 Integration Test")
+        payload2 = session_manager.validate_session(
+            access_token2, "192.168.1.100", "Mozilla/5.0 Integration Test"
+        )
         assert payload2["session_id"] == session_id  # Same session
         assert payload2["jti"] != access_jti1  # Different access token
 
@@ -49,10 +53,14 @@ class TestFullTokenLifecycle:
 
         # 5. Validate should fail (tokens revoked)
         with pytest.raises(TokenRevokedError):
-            session_manager.validate_session(access_token1, "192.168.1.100", "Mozilla/5.0 Integration Test")
+            session_manager.validate_session(
+                access_token1, "192.168.1.100", "Mozilla/5.0 Integration Test"
+            )
 
         with pytest.raises(TokenRevokedError):
-            session_manager.validate_session(access_token2, "192.168.1.100", "Mozilla/5.0 Integration Test")
+            session_manager.validate_session(
+                access_token2, "192.168.1.100", "Mozilla/5.0 Integration Test"
+            )
 
 
 class TestConcurrentSessions:
@@ -122,7 +130,9 @@ class TestRealJWTKeys:
         jwt_manager = JWTManager(config, redis_client)
 
         # Generate and validate token
-        token = jwt_manager.generate_access_token("test_user", "session_123", "127.0.0.1", "Test UA")
+        token = jwt_manager.generate_access_token(
+            "test_user", "session_123", "127.0.0.1", "Test UA"
+        )
         payload = jwt_manager.validate_token(token, "access")
 
         assert payload["sub"] == "test_user"
@@ -146,7 +156,9 @@ class TestRealJWTKeys:
         session_manager = SessionManager(redis_client, jwt_manager, config)
 
         # Full workflow
-        access_token, refresh_token = session_manager.create_session("real_user", "127.0.0.1", "Real UA")
+        access_token, refresh_token = session_manager.create_session(
+            "real_user", "127.0.0.1", "Real UA"
+        )
         payload = session_manager.validate_session(access_token, "127.0.0.1", "Real UA")
         assert payload["sub"] == "real_user"
 

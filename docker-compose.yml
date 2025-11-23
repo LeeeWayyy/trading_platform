@@ -21,8 +21,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: trading_platform_redis
-    ports:
-      - "6379:6379"
+    # SECURITY: No host port mapping by default (internal Docker network only)
+    # Prevents tampering with JTI revocation blacklist from host
+    # For dev access, use: docker exec -it trading_platform_redis redis-cli
     command: redis-server --appendonly yes
     volumes:
       - redisdata:/data
@@ -146,10 +147,15 @@ services:
     # Access via nginx reverse proxy on port 443
     environment:
       - WEB_CONSOLE_AUTH_TYPE=mtls  # Override to use mTLS authentication
-      # CRITICAL: JWT secret required for session persistence across restarts
-      # Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-      # Add to .env file: WEB_CONSOLE_JWT_SECRET=<generated_secret>
-      - WEB_CONSOLE_JWT_SECRET=${WEB_CONSOLE_JWT_SECRET:?WEB_CONSOLE_JWT_SECRET not set. Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"}
+      # Component 2 RS256 JWT infrastructure (replaces WEB_CONSOLE_JWT_SECRET)
+      # Redis connection for JTI revocation and session management
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     profiles:
       - mtls
 

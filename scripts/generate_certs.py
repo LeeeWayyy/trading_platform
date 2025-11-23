@@ -102,13 +102,9 @@ def save_private_key(key: rsa.RSAPrivateKey, output_path: Path) -> None:
     )
 
     # Atomically create file with 0600 permissions (no race condition)
-    fd = os.open(
-        str(output_path),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        PRIVATE_KEY_PERMISSIONS
-    )
+    fd = os.open(str(output_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, PRIVATE_KEY_PERMISSIONS)
     try:
-        with os.fdopen(fd, 'wb') as f:
+        with os.fdopen(fd, "wb") as f:
             f.write(key_pem)
     except:
         # If write fails, close the file descriptor
@@ -169,14 +165,16 @@ def generate_ca_certificate(certs_dir: Path) -> tuple[rsa.RSAPrivateKey, x509.Ce
     ca_key = generate_private_key()
 
     # Build CA certificate
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Trading Platform"),
-        x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Security"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "Trading Platform CA"),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Trading Platform"),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Security"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "Trading Platform CA"),
+        ]
+    )
 
     now = datetime.now(UTC)
     ca_cert = (
@@ -256,14 +254,16 @@ def generate_server_certificate(
     server_key = generate_private_key()
 
     # Build server certificate
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Trading Platform"),
-        x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Web Console"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "web-console.trading-platform.local"),
-    ])
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Trading Platform"),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Web Console"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "web-console.trading-platform.local"),
+        ]
+    )
 
     now = datetime.now(UTC)
     server_cert = (
@@ -275,11 +275,13 @@ def generate_server_certificate(
         .not_valid_before(now)
         .not_valid_after(now + timedelta(days=SERVER_VALIDITY_YEARS * 365))
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName("web-console.trading-platform.local"),
-                x509.DNSName("localhost"),
-                x509.IPAddress(IPv4Address("127.0.0.1")),
-            ]),
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("web-console.trading-platform.local"),
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(IPv4Address("127.0.0.1")),
+                ]
+            ),
             critical=False,
         )
         .add_extension(
@@ -301,9 +303,11 @@ def generate_server_certificate(
             critical=True,
         )
         .add_extension(
-            x509.ExtendedKeyUsage([
-                x509.oid.ExtendedKeyUsageOID.SERVER_AUTH,
-            ]),
+            x509.ExtendedKeyUsage(
+                [
+                    x509.oid.ExtendedKeyUsageOID.SERVER_AUTH,
+                ]
+            ),
             critical=True,
         )
         .sign(ca_key, hashes.SHA256())
@@ -353,14 +357,16 @@ def generate_client_certificate(
     client_key = generate_private_key()
 
     # Build client certificate
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Trading Platform"),
-        x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Users"),
-        x509.NameAttribute(NameOID.COMMON_NAME, f"client-{username}"),
-    ])
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Trading Platform"),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Users"),
+            x509.NameAttribute(NameOID.COMMON_NAME, f"client-{username}"),
+        ]
+    )
 
     now = datetime.now(UTC)
     client_cert = (
@@ -372,9 +378,11 @@ def generate_client_certificate(
         .not_valid_before(now)
         .not_valid_after(now + timedelta(days=CLIENT_VALIDITY_DAYS))
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName(f"client-{username}.trading-platform.local"),
-            ]),
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName(f"client-{username}.trading-platform.local"),
+                ]
+            ),
             critical=False,
         )
         .add_extension(
@@ -396,9 +404,11 @@ def generate_client_certificate(
             critical=True,
         )
         .add_extension(
-            x509.ExtendedKeyUsage([
-                x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH,
-            ]),
+            x509.ExtendedKeyUsage(
+                [
+                    x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH,
+                ]
+            ),
             critical=True,
         )
         .sign(ca_key, hashes.SHA256())
@@ -462,8 +472,7 @@ def load_ca(certs_dir: Path) -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
 
     if not ca_key_path.exists() or not ca_cert_path.exists():
         raise FileNotFoundError(
-            "CA not found. Generate CA first:\n"
-            "  ./scripts/generate_certs.py --ca-only"
+            "CA not found. Generate CA first:\n" "  ./scripts/generate_certs.py --ca-only"
         )
 
     # Load CA private key
@@ -475,6 +484,49 @@ def load_ca(certs_dir: Path) -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
 
     return ca_key, ca_cert  # type: ignore
+
+
+def generate_dhparam(output_dir: Path, key_size: int = 4096) -> None:
+    """Generate Diffie-Hellman parameters for nginx.
+
+    Args:
+        output_dir: Directory to save DH params
+        key_size: Size of DH parameters in bits (default: 4096 for strong security)
+
+    Note:
+        This is required by nginx.conf ssl_dhparam directive.
+        Generation can take several minutes for 4096-bit params.
+    """
+    dhparam_path = output_dir / "dhparam.pem"
+
+    print(f"Generating {key_size}-bit Diffie-Hellman parameters...")
+    print("⏳ This may take several minutes (especially for 4096-bit)...")
+
+    # Generate DH params using OpenSSL command
+    # Using subprocess because cryptography library doesn't support DH param generation
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["openssl", "dhparam", "-out", str(dhparam_path), str(key_size)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Set secure permissions (owner read-only)
+        dhparam_path.chmod(0o600)
+
+        print(f"✅ DH parameters saved to {dhparam_path}")
+        print(f"   Size: {key_size} bits")
+        print("   Permissions: 0600 (owner read-only)")
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to generate DH parameters: {e.stderr}")
+        raise
+    except FileNotFoundError:
+        print("❌ OpenSSL not found. Please install OpenSSL.")
+        raise
 
 
 def main() -> int:
@@ -557,7 +609,9 @@ Security Notes:
         # Check for existing CA (overwrite protection)
         ca_cert_path = args.output / "ca.crt"
         if ca_cert_path.exists() and not args.force:
-            print("❌ CA certificate already exists. This would invalidate all issued certificates!")
+            print(
+                "❌ CA certificate already exists. This would invalidate all issued certificates!"
+            )
             print(f"   Found: {ca_cert_path}")
             print()
             print("⚠️  Regenerating CA requires:")
@@ -628,6 +682,10 @@ Security Notes:
 
     # Generate JWT key pair
     generate_jwt_keypair(args.output)
+    print()
+
+    # Generate DH parameters for nginx (required by nginx.conf ssl_dhparam directive)
+    generate_dhparam(args.output)
     print()
 
     print("✅ All certificates generated successfully!")

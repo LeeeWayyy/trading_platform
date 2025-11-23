@@ -4,11 +4,11 @@ Tests for Web Console Authentication.
 Tests authentication flows, session management, and timeout enforcement.
 """
 
+import hashlib
 import time
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from apps.web_console import auth
 
@@ -140,6 +140,7 @@ class TestAuditLogging:
     def test_audit_successful_login(self, caplog):
         """Test successful login audit."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         username = "test_user"
@@ -152,13 +153,20 @@ class TestAuditLogging:
         log_text = caplog.text
         # Verify JSON audit log format
         assert "[AUDIT" in log_text, f"Expected [AUDIT marker in output. Got: {log_text}"
-        assert '"user_id": "test_user"' in log_text or "'user_id': 'test_user'" in log_text, f"Expected username {username} in JSON format. Got: {log_text}"
-        assert '"action": "login_success"' in log_text or "'action': 'login_success'" in log_text, f"Expected login_success action in JSON format. Got: {log_text}"
-        assert '"auth_method": "dev"' in log_text or "'auth_method': 'dev'" in log_text, f"Expected auth_method in details. Got: {log_text}"
+        assert (
+            '"user_id": "test_user"' in log_text or "'user_id': 'test_user'" in log_text
+        ), f"Expected username {username} in JSON format. Got: {log_text}"
+        assert (
+            '"action": "login_success"' in log_text or "'action': 'login_success'" in log_text
+        ), f"Expected login_success action in JSON format. Got: {log_text}"
+        assert (
+            '"auth_method": "dev"' in log_text or "'auth_method': 'dev'" in log_text
+        ), f"Expected auth_method in details. Got: {log_text}"
 
     def test_audit_failed_login(self, caplog):
         """Test failed login audit."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         auth_method = "dev"
@@ -169,8 +177,13 @@ class TestAuditLogging:
         log_text = caplog.text
         # Verify JSON audit log format
         assert "[AUDIT" in log_text, f"Expected [AUDIT marker in output. Got: {log_text}"
-        assert '"user_id": "<failed_login_attempt>"' in log_text or "'user_id': '<failed_login_attempt>'" in log_text, f"Expected <failed_login_attempt> in JSON format. Got: {log_text}"
-        assert '"action": "login_failed"' in log_text or "'action': 'login_failed'" in log_text, f"Expected login_failed action in JSON format. Got: {log_text}"
+        assert (
+            '"user_id": "<failed_login_attempt>"' in log_text
+            or "'user_id': '<failed_login_attempt>'" in log_text
+        ), f"Expected <failed_login_attempt> in JSON format. Got: {log_text}"
+        assert (
+            '"action": "login_failed"' in log_text or "'action': 'login_failed'" in log_text
+        ), f"Expected login_failed action in JSON format. Got: {log_text}"
 
 
 class TestAuthTypes:
@@ -217,11 +230,16 @@ class TestDevAuthWorkflow:
                                     with patch("apps.web_console.auth.st.rerun"):
                                         # Mock form inputs
                                         mock_form_context = MagicMock()
-                                        mock_form.return_value.__enter__.return_value = mock_form_context
-                                        mock_form_context.text_input.side_effect = ["admin", "admin"]
+                                        mock_form.return_value.__enter__.return_value = (
+                                            mock_form_context
+                                        )
+                                        mock_form_context.text_input.side_effect = [
+                                            "admin",
+                                            "admin",
+                                        ]
                                         mock_form_context.form_submit_button.return_value = True
 
-                                        result = auth._dev_auth()
+                                        auth._dev_auth()
 
                                         # Should reset failed attempts on success
                                         assert mock_session_state["failed_login_attempts"] == 0
@@ -349,6 +367,361 @@ class TestDevAuthWorkflow:
 
                         # Should clear lockout but KEEP attempt counter for escalation
                         # Counter only resets on successful login (auth.py:119)
-                        assert mock_session_state["failed_login_attempts"] == 5, "Counter should persist for escalation"
-                        assert mock_session_state["lockout_until"] is None, "Lockout should be cleared"
+                        assert (
+                            mock_session_state["failed_login_attempts"] == 5
+                        ), "Counter should persist for escalation"
+                        assert (
+                            mock_session_state["lockout_until"] is None
+                        ), "Lockout should be cleared"
                         assert result is False  # Not logged in (form not submitted)
+
+
+class TestMtlsAuth:
+    """Test mTLS authentication with JWT-DN binding."""
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_client_ip")
+    @patch("apps.web_console.auth._get_remote_addr")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["nginx"])
+    def test_mtls_auth_success_first_visit(
+        self, mock_remote_addr, mock_get_ip, mock_get_headers, mock_get_jwt
+    ):
+        """Test mTLS authentication issues token on first visit."""
+        # Setup mocks
+        mock_remote_addr.return_value = "nginx"  # Trusted proxy
+        mock_get_headers.return_value = {
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-S-DN": "CN=test@example.com,O=Test Corp,C=US",
+            "User-Agent": "TestBrowser/1.0",
+        }
+        mock_get_ip.return_value = "192.168.1.100"
+
+        # Mock JWTManager
+        mock_jwt_manager = MagicMock()
+        mock_jwt_manager.generate_access_token.return_value = "test.jwt.token"
+        mock_jwt_manager.config.session_binding_strict = True
+        mock_get_jwt.return_value = mock_jwt_manager
+
+        mock_session_state = {}
+
+        with patch("apps.web_console.auth.st.session_state", mock_session_state):
+            with patch("apps.web_console.auth.jwt.decode") as mock_decode:
+                mock_decode.return_value = {
+                    "sub": "CN=test@example.com,O=Test Corp,C=US",
+                    "jti": "test-jti-123",
+                    "session_id": "test-session-456",
+                    "exp": int(time.time()) + 900,
+                }
+                result = auth._mtls_auth()
+
+        # Verify JWT was generated
+        mock_jwt_manager.generate_access_token.assert_called_once()
+
+        # Verify session state populated
+        assert mock_session_state["authenticated"] is True
+        assert mock_session_state["auth_method"] == "mtls"
+        assert mock_session_state["username"] == "test@example.com"
+        assert mock_session_state["client_dn"] == "CN=test@example.com,O=Test Corp,C=US"
+        assert mock_session_state["jwt_token"] == "test.jwt.token"
+        assert mock_session_state["session_id"] == "test-session-456"
+        assert mock_session_state["jti"] == "test-jti-123"
+        assert result is True
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_client_ip")
+    def test_validate_jwt_dn_binding_rejects_ip_change(
+        self, mock_get_ip, mock_get_headers, mock_get_jwt
+    ):
+        """Test JWT-DN binding rejects token when IP changes."""
+        # Mock headers with valid cert
+        mock_get_headers.return_value = {
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-S-DN": "CN=test@example.com,O=Test Corp,C=US",
+            "User-Agent": "TestBrowser/1.0",
+        }
+        mock_get_ip.return_value = "192.168.1.999"  # CHANGED IP
+
+        # Mock JWTManager validation
+        mock_jwt_manager = MagicMock()
+        mock_jwt_manager.validate_token.return_value = {
+            "sub": "CN=test@example.com,O=Test Corp,C=US",
+            "ip": "192.168.1.100",  # Original IP
+            "user_agent_hash": hashlib.sha256(b"TestBrowser/1.0").hexdigest(),
+            "jti": "test-jti-123",
+        }
+        mock_jwt_manager.config.session_binding_strict = True
+        mock_get_jwt.return_value = mock_jwt_manager
+
+        # Validate JWT should FAIL due to IP mismatch
+        with patch("apps.web_console.auth.hashlib.sha256") as mock_sha:
+            mock_sha.return_value.hexdigest.return_value = hashlib.sha256(
+                b"TestBrowser/1.0"
+            ).hexdigest()
+            result = auth._validate_jwt_dn_binding(mock_get_headers.return_value, "test.jwt.token")
+
+        assert result is False  # Should reject due to IP change
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_client_ip")
+    def test_validate_jwt_dn_binding_rejects_ua_change(
+        self, mock_get_ip, mock_get_headers, mock_get_jwt
+    ):
+        """Test JWT-DN binding rejects token when User-Agent changes."""
+        # Mock headers with CHANGED User-Agent
+        mock_get_headers.return_value = {
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-S-DN": "CN=test@example.com,O=Test Corp,C=US",
+            "User-Agent": "DifferentBrowser/2.0",  # CHANGED
+        }
+        mock_get_ip.return_value = "192.168.1.100"
+
+        # Mock JWTManager validation
+        mock_jwt_manager = MagicMock()
+        mock_jwt_manager.validate_token.return_value = {
+            "sub": "CN=test@example.com,O=Test Corp,C=US",
+            "ip": "192.168.1.100",
+            "user_agent_hash": hashlib.sha256(b"TestBrowser/1.0").hexdigest(),  # Original UA
+            "jti": "test-jti-123",
+        }
+        mock_jwt_manager.config.session_binding_strict = True
+        mock_get_jwt.return_value = mock_jwt_manager
+
+        # Validate JWT should FAIL due to UA mismatch
+        result = auth._validate_jwt_dn_binding(mock_get_headers.return_value, "test.jwt.token")
+
+        assert result is False  # Should reject due to User-Agent change
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_client_ip")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["nginx"])
+    def test_validate_jwt_dn_binding_rejects_localhost_when_expecting_real_ip(
+        self, mock_get_ip, mock_get_headers, mock_get_jwt
+    ):
+        """Test JWT-DN binding fails closed when IP extraction fails (returns localhost)."""
+        # Mock headers with valid cert
+        mock_get_headers.return_value = {
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-S-DN": "CN=test@example.com,O=Test Corp,C=US",
+            "User-Agent": "TestBrowser/1.0",
+        }
+        # IP extraction failed (returns localhost)
+        mock_get_ip.return_value = "localhost"
+
+        # Mock JWTManager validation - token was issued with real IP
+        mock_jwt_manager = MagicMock()
+        mock_jwt_manager.validate_token.return_value = {
+            "sub": "CN=test@example.com,O=Test Corp,C=US",
+            "ip": "192.168.1.100",  # Real IP when token was issued
+            "user_agent_hash": hashlib.sha256(b"TestBrowser/1.0").hexdigest(),
+            "jti": "test-jti-123",
+        }
+        mock_jwt_manager.config.session_binding_strict = True
+        mock_get_jwt.return_value = mock_jwt_manager
+
+        # Validate JWT should FAIL (fail closed when cannot determine real IP)
+        with patch("apps.web_console.auth.hashlib.sha256") as mock_sha:
+            mock_sha.return_value.hexdigest.return_value = hashlib.sha256(
+                b"TestBrowser/1.0"
+            ).hexdigest()
+            result = auth._validate_jwt_dn_binding(mock_get_headers.return_value, "test.jwt.token")
+
+        assert result is False  # Should reject when IP extraction fails
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_client_ip")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["nginx"])
+    def test_issue_jwt_rejects_localhost_when_proxy_configured(
+        self, mock_get_ip, mock_get_headers, mock_get_jwt
+    ):
+        """Test JWT issuance fails when IP extraction returns localhost with TRUSTED_PROXY_IPS set."""
+        # Mock headers
+        mock_get_headers.return_value = {
+            "User-Agent": "TestBrowser/1.0",
+        }
+        # IP extraction failed (returns localhost)
+        mock_get_ip.return_value = "localhost"
+
+        # Mock JWTManager
+        mock_jwt_manager = MagicMock()
+        mock_get_jwt.return_value = mock_jwt_manager
+
+        # Attempt to issue JWT - should FAIL (fail-closed)
+        token, claims = auth._issue_jwt_for_client_dn(
+            client_dn="CN=test@example.com,O=Test Corp,C=US",
+            client_cn="test@example.com",
+            client_verify="SUCCESS",
+        )
+
+        # Should reject token issuance
+        assert token is None
+        assert claims is None
+        # JWTManager should NOT be called
+        mock_jwt_manager.generate_access_token.assert_not_called()
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_remote_addr")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["10.0.0.1", "nginx"])
+    def test_get_client_ip_rejects_untrusted_proxy(
+        self, mock_remote_addr, mock_get_headers, mock_get_jwt
+    ):
+        """Test _get_client_ip rejects XFF from untrusted proxy (defense-in-depth)."""
+        # Remote addr is NOT in TRUSTED_PROXY_IPS
+        mock_remote_addr.return_value = "192.168.99.99"  # Attacker's IP
+
+        # Headers with spoofed X-Forwarded-For
+        mock_get_headers.return_value = {
+            "X-Forwarded-For": "203.0.113.42",  # Spoofed client IP
+        }
+
+        # Should reject XFF and return localhost (fail-safe)
+        client_ip = auth._get_client_ip()
+        assert client_ip == "localhost"
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_remote_addr")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["10.0.0.1", "nginx"])
+    def test_get_client_ip_accepts_trusted_proxy(
+        self, mock_remote_addr, mock_get_headers, mock_get_jwt
+    ):
+        """Test _get_client_ip accepts XFF from trusted proxy."""
+        # Remote addr IS in TRUSTED_PROXY_IPS
+        mock_remote_addr.return_value = "nginx"  # Trusted nginx proxy
+
+        # Headers with X-Forwarded-For
+        mock_get_headers.return_value = {
+            "X-Forwarded-For": "203.0.113.42",  # Real client IP
+        }
+
+        # Should accept XFF from trusted proxy
+        client_ip = auth._get_client_ip()
+        assert client_ip == "203.0.113.42"
+
+    @patch("apps.web_console.auth.st")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_remote_addr")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", ["nginx", "10.0.0.1"])
+    @patch("apps.web_console.auth._audit_failed_login")
+    def test_mtls_auth_rejects_untrusted_proxy_source(
+        self, mock_audit, mock_remote_addr, mock_get_headers, mock_st
+    ):
+        """Test mTLS auth rejects X-SSL-Client-* headers from untrusted proxy."""
+        # Remote addr is NOT in TRUSTED_PROXY_IPS
+        mock_remote_addr.return_value = "192.168.99.99"  # Attacker's IP
+
+        # Headers with forged X-SSL-Client-Verify (spoofing attack)
+        mock_get_headers.return_value = {
+            "X-SSL-Client-Verify": "SUCCESS",  # Forged
+            "X-SSL-Client-S-DN": "CN=attacker@evil.com,O=Evil Corp,C=US",  # Forged
+        }
+
+        # Should reject authentication
+        result = auth._mtls_auth()
+        assert result is False
+
+        # Should log audit failure
+        mock_audit.assert_called_once_with("mtls")
+
+        # Should show error to user
+        mock_st.error.assert_called_once()
+
+    @patch("apps.web_console.auth.st")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_remote_addr")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", [])
+    @patch("apps.web_console.auth._audit_failed_login")
+    def test_mtls_auth_rejects_when_no_trusted_proxies_configured(
+        self, mock_audit, mock_remote_addr, mock_get_headers, mock_st
+    ):
+        """Test mTLS auth rejects when TRUSTED_PROXY_IPS is not configured (fail-closed)."""
+        # No trusted proxies configured and no dev override
+        mock_remote_addr.return_value = "192.168.99.99"
+
+        # Mock session state (not authenticated yet)
+        mock_st.session_state = {}
+
+        # Headers with X-SSL-Client headers
+        mock_get_headers.return_value = {
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-S-DN": "CN=test@example.com,O=Test Corp,C=US",
+            "User-Agent": "TestBrowser/1.0",
+        }
+
+        # Should reject authentication (fail-closed)
+        result = auth._mtls_auth()
+        assert result is False
+
+        # Should log audit failure
+        mock_audit.assert_called_once_with("mtls")
+
+        # Should show configuration error
+        mock_st.error.assert_called_once()
+        error_message = str(mock_st.error.call_args)
+        assert "TRUSTED_PROXY_IPS" in error_message
+
+    @patch("apps.web_console.auth.st")
+    @patch("apps.web_console.auth._get_request_headers")
+    @patch("apps.web_console.auth._get_remote_addr")
+    @patch("apps.web_console.auth.TRUSTED_PROXY_IPS", [])
+    @patch("apps.web_console.auth.os.environ", {"ALLOW_INSECURE_MTLS_DEV": "true"})
+    def test_mtls_auth_allows_insecure_dev_mode_when_explicitly_enabled(
+        self, mock_remote_addr, mock_get_headers, mock_st
+    ):
+        """Test mTLS auth allows insecure dev mode with explicit override."""
+        # No trusted proxies but ALLOW_INSECURE_MTLS_DEV=true
+        mock_remote_addr.return_value = "192.168.99.99"
+
+        # Mock session state (not authenticated yet)
+        mock_st.session_state = {}
+
+        # Headers with X-SSL-Client headers
+        mock_get_headers.return_value = {
+            "X-SSL-Client-Verify": "SUCCESS",
+            "X-SSL-Client-S-DN": "CN=test@example.com,O=Test Corp,C=US",
+            "User-Agent": "TestBrowser/1.0",
+        }
+
+        # In insecure dev mode, should proceed to authentication
+        # (will fail later due to missing mocks, but proxy check should pass)
+        # We just verify proxy check doesn't block
+        try:
+            auth._mtls_auth()
+        except Exception:
+            pass  # Expected to fail on other mocks, we just care proxy check passed
+
+        # Should NOT call st.error for configuration error
+        # (May call for other reasons, but not with "TRUSTED_PROXY_IPS" message)
+        for call in mock_st.error.call_args_list:
+            assert "TRUSTED_PROXY_IPS" not in str(call)
+
+    @patch("apps.web_console.auth._get_jwt_manager")
+    def test_logout_revokes_jwt_token(self, mock_get_jwt):
+        """Test logout revokes JWT token for mTLS mode."""
+        mock_jwt_manager = MagicMock()
+        mock_jwt_manager.config.access_token_ttl = 900
+        mock_get_jwt.return_value = mock_jwt_manager
+
+        exp_timestamp = int(time.time()) + 900
+        mock_session_state = {
+            "auth_method": "mtls",
+            "username": "test@example.com",
+            "session_id": "test-session",
+            "jwt_token": "test.jwt.token",
+            "jwt_claims": {
+                "jti": "test-jti-123",
+                "exp": exp_timestamp,
+            },
+        }
+
+        with patch("apps.web_console.auth.st.session_state", mock_session_state):
+            with patch("apps.web_console.auth.st.rerun"):
+                auth.logout()
+
+        # Verify token was revoked with correct exp timestamp
+        mock_jwt_manager.revoke_token.assert_called_once_with("test-jti-123", exp_timestamp)

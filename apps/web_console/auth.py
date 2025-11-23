@@ -28,10 +28,11 @@ import logging
 import os
 import secrets
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import jwt
+import redis
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
@@ -51,24 +52,55 @@ from apps.web_console.config import (
     SESSION_TIMEOUT_MINUTES,
     TRUSTED_PROXY_IPS,
 )
+from libs.web_console_auth.config import AuthConfig
+from libs.web_console_auth.exceptions import InvalidTokenError, TokenExpiredError, TokenRevokedError
+from libs.web_console_auth.jwt_manager import JWTManager
 
 logger = logging.getLogger(__name__)
 
-# JWT configuration for mTLS mode
-# Note: In production, load from secure secret store (e.g., AWS Secrets Manager, HashiCorp Vault)
-# For P2T3 Phase 2, we use environment variable with fallback to secure random generation
-JWT_SECRET_KEY: str = os.environ.get("WEB_CONSOLE_JWT_SECRET", "")
-if not JWT_SECRET_KEY:
-    # Generate secure random key on startup (WARNING: Will invalidate sessions on restart)
-    # Production: MUST set WEB_CONSOLE_JWT_SECRET environment variable
-    JWT_SECRET_KEY = secrets.token_urlsafe(32)
-    logger.warning(
-        "WEB_CONSOLE_JWT_SECRET not set. Generated random key (sessions will be invalidated on restart). "
-        "Set WEB_CONSOLE_JWT_SECRET environment variable for production."
-    )
+# Initialize JWTManager for mTLS mode (Component 2 RS256 infrastructure)
+# Lazily initialized on first mTLS authentication to avoid unnecessary Redis connections
+_jwt_manager: JWTManager | None = None
+_redis_client: redis.Redis | None = None
 
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 8  # JWT valid for 8 hours
+
+def _get_jwt_manager() -> JWTManager:
+    """
+    Get or initialize JWTManager singleton.
+
+    Returns:
+        JWTManager: Configured JWTManager instance with Redis
+
+    Raises:
+        RuntimeError: If initialization fails
+    """
+    global _jwt_manager, _redis_client
+
+    if _jwt_manager is None:
+        try:
+            # Initialize Redis client
+            # IMPORTANT: decode_responses=False to match SessionManager expectations (bytes keys/values)
+            redis_host = os.environ.get("REDIS_HOST", "localhost")
+            redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+            _redis_client = redis.Redis(
+                host=redis_host, port=redis_port, decode_responses=False, socket_timeout=5
+            )
+            # Test connection
+            _redis_client.ping()
+
+            # Load auth config and initialize JWTManager
+            auth_config = AuthConfig.from_env()
+            _jwt_manager = JWTManager(config=auth_config, redis_client=_redis_client)
+
+            logger.info(
+                f"JWTManager initialized with RS256 (Redis: {redis_host}:{redis_port}, "
+                f"access_ttl={auth_config.access_token_ttl}s, refresh_ttl={auth_config.refresh_token_ttl}s)"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize JWTManager: {e}")
+            raise RuntimeError(f"JWTManager initialization failed: {e}") from e
+
+    return _jwt_manager
 
 
 def check_password() -> bool:
@@ -85,7 +117,7 @@ def check_password() -> bool:
         return _dev_auth()
     elif AUTH_TYPE == "basic":
         return _basic_auth()
-    elif AUTH_TYPE == "mtls":  # type: ignore[comparison-overlap]
+    elif AUTH_TYPE == "mtls":
         return _mtls_auth()
     elif AUTH_TYPE == "oauth2":
         return _oauth2_auth()
@@ -229,6 +261,50 @@ def _mtls_auth() -> bool:
     # Get request headers from Streamlit context
     headers = _get_request_headers()
 
+    # Step 0: Verify request comes from trusted proxy (defense-in-depth)
+    # This prevents X-SSL-Client-* header spoofing if Streamlit is directly reachable
+    # (e.g., misconfigured network exposure or lateral movement within cluster)
+
+    # Fail-closed: mTLS mode REQUIRES TRUSTED_PROXY_IPS to be configured
+    # This prevents production misconfiguration where mTLS is enabled but proxy
+    # verification is accidentally disabled by empty/missing TRUSTED_PROXY_IPS
+    if not TRUSTED_PROXY_IPS:
+        # Allow insecure dev mode only if explicitly enabled
+        if not os.environ.get("ALLOW_INSECURE_MTLS_DEV", "").lower() == "true":
+            st.error(
+                "🔒 Configuration Error: mTLS mode requires TRUSTED_PROXY_IPS.\n\n"
+                "TRUSTED_PROXY_IPS environment variable is not configured.\n\n"
+                "For production: Set TRUSTED_PROXY_IPS to your nginx proxy IP.\n"
+                "For development: Set ALLOW_INSECURE_MTLS_DEV=true (insecure!)."
+            )
+            logger.error(
+                "mTLS auth rejected: TRUSTED_PROXY_IPS not configured. "
+                "This is required for production mTLS to prevent header spoofing. "
+                "Set ALLOW_INSECURE_MTLS_DEV=true to allow dev mode (insecure)."
+            )
+            _audit_failed_login("mtls")
+            return False
+        else:
+            logger.warning(
+                "mTLS auth running in INSECURE dev mode (ALLOW_INSECURE_MTLS_DEV=true). "
+                "Headers are NOT verified. DO NOT use in production!"
+            )
+    else:
+        # TRUSTED_PROXY_IPS configured - verify request source
+        remote_addr = _get_remote_addr()
+        if remote_addr not in TRUSTED_PROXY_IPS:
+            st.error(
+                "🔒 Authentication failed: Request not from trusted proxy.\n\n"
+                f"Source: {remote_addr}\n\n"
+                "This may indicate a security issue. Please contact your administrator."
+            )
+            logger.error(
+                f"mTLS auth rejected: Request from untrusted source {remote_addr} "
+                f"(not in TRUSTED_PROXY_IPS). Possible header spoofing attempt."
+            )
+            _audit_failed_login("mtls")
+            return False
+
     # Step 1: Verify nginx performed successful mTLS verification
     client_verify = headers.get("X-SSL-Client-Verify", "")
     if client_verify != "SUCCESS":
@@ -288,8 +364,10 @@ def _mtls_auth() -> bool:
     st.session_state["auth_method"] = "mtls"
     st.session_state["login_time"] = datetime.now()
     st.session_state["last_activity"] = datetime.now()
-    if claims and "jti" in claims:
-        st.session_state["session_id"] = claims["jti"]
+    # Store both session_id and jti for audit/revocation correlation
+    if claims:
+        st.session_state["session_id"] = claims.get("session_id", claims.get("jti", "unknown"))
+        st.session_state["jti"] = claims.get("jti", "unknown")
 
     # Audit successful login
     _audit_successful_login(client_cn, "mtls")
@@ -351,6 +429,8 @@ def _check_session_timeout() -> bool:
     1. Idle timeout: 15 minutes of inactivity
     2. Absolute timeout: 4 hours since login
 
+    For mTLS mode: Revokes JWT token on timeout.
+
     Returns:
         bool: True if session is valid, False if expired
     """
@@ -361,6 +441,7 @@ def _check_session_timeout() -> bool:
     if login_time:
         session_age = now - login_time
         if session_age > timedelta(hours=SESSION_ABSOLUTE_TIMEOUT_HOURS):
+            _revoke_token_on_timeout("absolute_timeout")
             st.warning(
                 f"Session expired after {SESSION_ABSOLUTE_TIMEOUT_HOURS} hours. Please log in again."
             )
@@ -371,6 +452,7 @@ def _check_session_timeout() -> bool:
     if last_activity:
         idle_time = now - last_activity
         if idle_time > timedelta(minutes=SESSION_TIMEOUT_MINUTES):
+            _revoke_token_on_timeout("idle_timeout")
             st.warning(
                 f"Session timed out after {SESSION_TIMEOUT_MINUTES} minutes of inactivity. Please log in again."
             )
@@ -379,6 +461,47 @@ def _check_session_timeout() -> bool:
     # Update last activity
     st.session_state["last_activity"] = now
     return True
+
+
+def _revoke_token_on_timeout(timeout_type: str) -> None:
+    """
+    Revoke JWT token when session times out (mTLS mode only).
+
+    Args:
+        timeout_type: Type of timeout ("idle_timeout" or "absolute_timeout")
+    """
+    auth_method = st.session_state.get("auth_method", "unknown")
+    if auth_method != "mtls":
+        return
+
+    if not st.session_state.get("jwt_token"):
+        return
+
+    try:
+        jwt_manager = _get_jwt_manager()
+        jwt_claims = st.session_state.get("jwt_claims", {})
+        jti = jwt_claims.get("jti")
+
+        if jti:
+            # Pass expiration timestamp (not TTL) - JWTManager calculates TTL internally
+            exp = jwt_claims.get("exp")
+            if exp:
+                jwt_manager.revoke_token(jti, exp)
+                logger.info(
+                    f"Revoked JWT on {timeout_type}: jti={jti}, "
+                    f"user={st.session_state.get('username', 'unknown')}"
+                )
+            else:
+                # No expiration claim - calculate exp as now + access_token_ttl
+                exp_timestamp = int(time.time()) + jwt_manager.config.access_token_ttl
+                jwt_manager.revoke_token(jti, exp_timestamp)
+                logger.info(
+                    f"Revoked JWT on {timeout_type} (default TTL): jti={jti}, "
+                    f"user={st.session_state.get('username', 'unknown')}"
+                )
+    except Exception as e:
+        # Log error but don't block timeout handling
+        logger.error(f"Failed to revoke JWT on {timeout_type}: {e}")
 
 
 def _generate_session_id(username: str, login_time: datetime) -> str:
@@ -396,49 +519,115 @@ def _generate_session_id(username: str, login_time: datetime) -> str:
     return hashlib.sha256(data.encode()).hexdigest()[:16]
 
 
+def _get_remote_addr() -> str:
+    """
+    Get remote address (immediate upstream caller) from Streamlit context.
+
+    This returns the IP of the direct caller (nginx proxy in production,
+    or localhost in dev). Used to verify the request comes from a trusted proxy
+    before honoring X-Forwarded-For.
+
+    Returns:
+        str: Remote address (IP of immediate upstream caller)
+    """
+    try:
+        # Attempt to get remote address from Streamlit session context
+        ctx = get_script_run_ctx()
+        if ctx and hasattr(ctx, "session_id"):
+            from streamlit.runtime import get_instance
+
+            runtime = get_instance()
+            if runtime:
+                session = getattr(runtime, "get_session_info", lambda x: None)(ctx.session_id)
+                if session and hasattr(session, "ws") and hasattr(session.ws, "request"):
+                    # Extract remote IP from WebSocket request
+                    # This is the immediate caller (nginx container IP in Docker network)
+                    remote_ip: str | None = getattr(session.ws.request, "remote_ip", None)
+                    if remote_ip:
+                        logger.debug(f"Extracted remote_addr: {remote_ip}")
+                        return remote_ip
+
+        # Fallback: check X-Real-IP header (set by nginx)
+        headers = _get_request_headers()
+        x_real_ip = headers.get("X-Real-IP", "")
+        if x_real_ip:
+            logger.debug(f"Extracted remote_addr from X-Real-IP: {x_real_ip}")
+            return x_real_ip
+
+        # Fallback: environment variable for testing
+        env_remote = os.environ.get("REMOTE_ADDR", "127.0.0.1")
+        logger.debug(f"Using env REMOTE_ADDR: {env_remote}")
+        return env_remote
+
+    except Exception as e:
+        logger.debug(f"Failed to extract remote_addr: {e}. Using 127.0.0.1")
+        return "127.0.0.1"
+
+
 def _get_client_ip() -> str:
     """
     Get client IP address from Streamlit context.
 
     Security Note:
         X-Forwarded-For can be trivially spoofed if not behind a trusted proxy.
-        This function only trusts X-Forwarded-For when TRUSTED_PROXY_IPS is configured.
+        This function only trusts X-Forwarded-For when:
+        1. TRUSTED_PROXY_IPS is configured, AND
+        2. The immediate upstream caller (remote_addr) is in TRUSTED_PROXY_IPS
+
+        This prevents spoofing if the Streamlit container is directly reachable
+        (e.g., misconfigured network exposure or lateral movement).
 
     Behavior:
         - If TRUSTED_PROXY_IPS not set: Returns "localhost" (safe default for dev)
-        - If TRUSTED_PROXY_IPS set: Attempts to extract X-Forwarded-For from request headers
-        - Falls back to "localhost" if header extraction fails
-
-    MVP Limitation:
-        Streamlit does not expose request headers directly in a simple way.
-        Current implementation always returns "localhost" regardless of TRUSTED_PROXY_IPS.
-        For production deployment with reverse proxy (Nginx), implement proper header
-        extraction using streamlit.web.server.server_util or middleware.
-        See: https://discuss.streamlit.io/t/how-to-extract-headers-in-streamlit-app/32157
+        - If TRUSTED_PROXY_IPS set: Verifies remote_addr is trusted before using XFF
+        - Falls back to "localhost" if verification fails or header extraction fails
 
     Returns:
-        str: Client IP address from X-Forwarded-For (if trusted) or "localhost"
+        str: Client IP address from X-Forwarded-For (if from trusted proxy) or "localhost"
     """
-    # If no trusted proxies configured, return localhost (safe default for dev/MVP)
+    # If no trusted proxies configured, return localhost (safe default for dev)
     if not TRUSTED_PROXY_IPS:
         return "localhost"
 
-    # Try to get X-Forwarded-For header from Streamlit request context
-    # NOTE: Streamlit doesn't expose request headers in a stable/documented way
-    # For MVP, we return "localhost" as safe default
-    # For production with reverse proxy, implement using:
-    # 1. streamlit.web.server.server_util.get_request_headers() (if available)
-    # 2. Custom middleware to inject headers into session_state
-    # 3. Environment variable set by reverse proxy
+    # Extract X-Forwarded-For header from nginx
     try:
-        # Attempt to access request context (Streamlit internal API - unstable)
-        # This is a placeholder for future implementation
-        # from streamlit.web.server import Server
-        # headers = Server.get_current().get_request_headers()
-        # if headers and "X-Forwarded-For" in headers:
-        #     return headers["X-Forwarded-For"].split(",")[0].strip()
-        return "localhost"  # MVP: Always localhost (documented limitation)
-    except Exception:
+        # Get remote_addr (immediate upstream caller) to verify it's a trusted proxy
+        remote_addr = _get_remote_addr()
+
+        # Defense-in-depth: Only trust X-Forwarded-For if request came from trusted proxy
+        # This prevents spoofing if Streamlit container is directly reachable
+        if remote_addr not in TRUSTED_PROXY_IPS:
+            logger.warning(
+                f"Request from untrusted proxy {remote_addr} (not in TRUSTED_PROXY_IPS). "
+                "Ignoring X-Forwarded-For to prevent IP spoofing. Using localhost."
+            )
+            return "localhost"
+
+        headers = _get_request_headers()
+        xff = headers.get("X-Forwarded-For", "")
+        if xff:
+            # X-Forwarded-For format: "client, proxy1, proxy2"
+            # Take first (leftmost) IP as client IP
+            client_ip = xff.split(",")[0].strip()
+            if client_ip:
+                logger.debug(
+                    f"Extracted client IP from X-Forwarded-For: {client_ip} "
+                    f"(verified from trusted proxy {remote_addr})"
+                )
+                return client_ip
+
+        # Fallback: check environment variable (for testing)
+        env_xff = os.environ.get("X_FORWARDED_FOR", "")
+        if env_xff:
+            client_ip = env_xff.split(",")[0].strip()
+            logger.debug(f"Extracted client IP from env X_FORWARDED_FOR: {client_ip}")
+            return client_ip
+
+        # No X-Forwarded-For header - fall back to localhost
+        logger.debug("No X-Forwarded-For header found, using localhost")
+        return "localhost"
+    except Exception as e:
+        logger.warning(f"Failed to extract client IP: {e}. Using localhost.")
         return "localhost"
 
 
@@ -640,13 +829,17 @@ def _issue_jwt_for_client_dn(
     """
     Issue JWT token with DN binding for authenticated client.
 
-    JWT Claims:
+    Uses Component 2's JWTManager for RS256 signing with Redis-backed revocation.
+
+    JWT Claims (via JWTManager):
     - sub: Client DN (CRITICAL: Used for JWT-DN binding contract)
-    - cn: Client Common Name (for display)
-    - cert_verify: Verification status (should always be "SUCCESS")
+    - typ: "access" (token type)
     - iat: Issued at timestamp
-    - exp: Expiration timestamp (8 hours from issuance)
-    - jti: Unique JWT ID (used as session ID)
+    - exp: Expiration timestamp (from AuthConfig.access_token_ttl)
+    - jti: Unique JWT ID (Redis-backed revocation)
+    - aud: Audience claim (from AuthConfig)
+    - iss: Issuer claim (from AuthConfig)
+    - session_binding: Hash of IP + User Agent (session hijacking prevention)
 
     Args:
         client_dn: Full Distinguished Name from client certificate
@@ -657,21 +850,47 @@ def _issue_jwt_for_client_dn(
         tuple: (JWT token string, claims dict) on success, (None, None) on failure
     """
     try:
-        now = datetime.now(UTC)
-        jti = secrets.token_urlsafe(16)  # Unique JWT ID
+        # Get JWTManager instance
+        jwt_manager = _get_jwt_manager()
 
-        claims = {
-            "sub": client_dn,  # CRITICAL: DN binding (JWT.sub == client DN)
-            "cn": client_cn,
-            "cert_verify": client_verify,
-            "iat": now,
-            "exp": now + timedelta(hours=JWT_EXPIRATION_HOURS),
-            "jti": jti,
-        }
+        # Get client info for session binding
+        headers = _get_request_headers()
+        client_ip = _get_client_ip()
+        user_agent = headers.get("User-Agent", "unknown")
 
-        # Encode JWT
-        token = jwt.encode(claims, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-        logger.info(f"Issued JWT for {client_cn} (DN: {client_dn}, jti: {jti})")
+        # Fail-closed: If TRUSTED_PROXY_IPS configured but IP extraction failed (localhost),
+        # reject token issuance to prevent silently downgrading session binding strength
+        if TRUSTED_PROXY_IPS and client_ip == "localhost":
+            logger.error(
+                f"Token issuance failed for {client_dn}: Cannot determine real client IP "
+                "(got localhost). TRUSTED_PROXY_IPS is configured but X-Forwarded-For extraction failed. "
+                "This prevents silently downgrading session binding security."
+            )
+            return None, None
+
+        # Generate session ID (unique per login)
+        session_id = secrets.token_urlsafe(16)
+
+        # Use JWTManager to generate RS256 access token
+        token = jwt_manager.generate_access_token(
+            user_id=client_dn,  # DN as user_id (JWT.sub == client DN for binding)
+            session_id=session_id,
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
+
+        # Decode token (without verification) to get claims for display
+        # This is safe because we just generated it and need the claims for session_state
+        claims = jwt.decode(token, options={"verify_signature": False})
+
+        # Add custom fields for backward compatibility with existing code
+        claims["cn"] = client_cn
+        claims["cert_verify"] = client_verify
+
+        logger.info(
+            f"Issued RS256 JWT for {client_cn} (DN: {client_dn}, "
+            f"jti: {claims.get('jti', 'unknown')}, session: {session_id})"
+        )
 
         return token, claims
 
@@ -684,16 +903,23 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
     """
     Validate JWT-DN binding contract on EVERY request.
 
+    Uses Component 2's JWTManager for RS256 signature validation with Redis revocation checks.
+
     Security Contract:
     1. JWT.sub (subject) MUST equal current client DN from X-SSL-Client-S-DN header
     2. X-SSL-Client-Verify MUST be "SUCCESS"
-    3. JWT MUST not be expired
-    4. JWT MUST have valid signature
+    3. JWT MUST not be expired (with clock skew tolerance)
+    4. JWT MUST have valid RS256 signature (public key validation)
+    5. JWT MUST not be revoked (Redis JTI blacklist check)
+    6. JWT MUST have correct audience and issuer claims
+    7. JWT session binding MUST match current IP + User Agent (if strict)
 
     This prevents:
     - Session hijacking (attacker cannot reuse JWT with different certificate)
     - Token replay attacks (JWT bound to specific client certificate)
     - Header spoofing (validates X-SSL-Client-Verify on every request)
+    - Revoked token usage (Redis-backed JTI blacklist)
+    - Session fixation (session binding to IP + User Agent)
 
     Args:
         headers: Current request headers from nginx
@@ -715,13 +941,19 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
             logger.error("JWT validation failed: X-SSL-Client-S-DN header missing")
             return False
 
-        # Decode and validate JWT
+        # Get JWTManager instance
+        jwt_manager = _get_jwt_manager()
+
+        # Validate JWT using JWTManager (RS256 signature + expiration + revocation + session binding)
         try:
-            claims = jwt.decode(jwt_token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        except jwt.ExpiredSignatureError:
+            claims = jwt_manager.validate_token(jwt_token, expected_type="access")
+        except TokenExpiredError:
             logger.warning("JWT validation failed: Token expired")
             return False
-        except jwt.InvalidTokenError as e:
+        except TokenRevokedError:
+            logger.error("JWT validation failed: Token revoked (JTI blacklisted)")
+            return False
+        except InvalidTokenError as e:
             logger.error(f"JWT validation failed: Invalid token: {e}")
             return False
 
@@ -729,11 +961,46 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
         jwt_dn = claims.get("sub", "")
         if jwt_dn != current_dn:
             logger.error(
-                f"JWT-DN binding validation failed: " f"JWT.sub={jwt_dn}, current DN={current_dn}"
+                f"JWT-DN binding validation failed: JWT.sub={jwt_dn}, current DN={current_dn}"
             )
             return False
 
-        # All checks passed
+        # Validate session binding: IP + User Agent (if strict mode enabled)
+        # JWTManager stores session binding in token but doesn't validate it
+        # We must validate explicitly to prevent session hijacking
+        auth_config = _get_jwt_manager().config
+        if auth_config.session_binding_strict:
+            # Check IP binding
+            token_ip = claims.get("ip", "")
+            current_ip = _get_client_ip()
+
+            # Fail closed: Reject if IP is localhost in mTLS mode (indicates extraction failure)
+            # Only allow localhost if token was originally issued with localhost
+            if current_ip == "localhost" and token_ip != "localhost" and TRUSTED_PROXY_IPS:
+                logger.error(
+                    f"Session binding failed: Cannot determine real client IP (expected={token_ip}, got=localhost). "
+                    "Check X-Forwarded-For header extraction."
+                )
+                return False
+
+            if token_ip != current_ip:
+                logger.error(
+                    f"Session binding failed: IP mismatch (token={token_ip}, current={current_ip})"
+                )
+                return False
+
+            # Check User-Agent binding
+            token_ua_hash = claims.get("user_agent_hash", "")
+            current_ua = headers.get("User-Agent", "unknown")
+            current_ua_hash = hashlib.sha256(current_ua.encode()).hexdigest()
+            if token_ua_hash != current_ua_hash:
+                logger.error(
+                    f"Session binding failed: User-Agent mismatch "
+                    f"(token_hash={token_ua_hash}, current_hash={current_ua_hash})"
+                )
+                return False
+
+        # All checks passed (signature, expiration, revocation, DN binding, session binding)
         return True
 
     except Exception as e:
@@ -757,12 +1024,40 @@ def get_current_user() -> dict[str, Any]:
 
 
 def logout() -> None:
-    """Logout current user and clear session."""
+    """Logout current user and clear session.
+
+    For mTLS mode: Revokes JWT token to prevent reuse.
+    For other modes: Simply clears session state.
+    """
     username = st.session_state.get("username", "unknown")
     session_id = st.session_state.get("session_id", "unknown")
+    auth_method = st.session_state.get("auth_method", "unknown")
+
+    # Revoke JWT token for mTLS mode (prevents token reuse)
+    if auth_method == "mtls" and st.session_state.get("jwt_token"):
+        try:
+            jwt_manager = _get_jwt_manager()
+            jwt_claims = st.session_state.get("jwt_claims", {})
+            jti = jwt_claims.get("jti")
+
+            if jti:
+                # Pass expiration timestamp (not TTL) - JWTManager calculates TTL internally
+                exp = jwt_claims.get("exp")
+                if exp:
+                    jwt_manager.revoke_token(jti, exp)
+                    logger.info(f"Revoked JWT on logout: jti={jti}, user={username}")
+                else:
+                    # No expiration claim - calculate exp as now + access_token_ttl
+                    exp_timestamp = int(time.time()) + jwt_manager.config.access_token_ttl
+                    jwt_manager.revoke_token(jti, exp_timestamp)
+                    logger.info(f"Revoked JWT on logout (default TTL): jti={jti}, user={username}")
+        except Exception as e:
+            # Log error but don't block logout
+            logger.error(f"Failed to revoke JWT on logout: {e}")
 
     details = {
         "timestamp": datetime.now().isoformat(),
+        "auth_method": auth_method,
     }
     audit_to_database(
         user_id=username,
