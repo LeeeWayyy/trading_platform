@@ -1,7 +1,11 @@
 # Web Console Requirements
 # Install with: pip install -r apps/web_console/requirements.txt
 
-streamlit>=1.28.0
+# CRITICAL: Streamlit version pinned due to internal API usage for header extraction
+# auth.py uses streamlit.runtime.get_instance() and session_info.ws.request
+# These are internal APIs that may break with updates
+streamlit==1.28.0
 requests>=2.31.0
 psycopg[binary]>=3.1.0
 cryptography>=41.0.0  # Phase 2: mTLS + JWT certificate generation
+pyjwt>=2.8.0  # Phase 2: JWT-DN binding for mTLS authentication

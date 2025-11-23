@@ -90,15 +90,17 @@ services:
 
   # ⚠️ WARNING: Web Console uses INSECURE dev authentication by default!
   # For production: Set WEB_CONSOLE_AUTH_TYPE=oauth2 and configure IdP
-  # For testing: Use docker-compose.dev.yml instead
+  # For mTLS mode: Use docker-compose --profile mtls up -d
   # RECOMMENDED: Use env_file: .env to load credentials from file instead of inline
+
+  # Base web_console service (shared configuration)
+  # NOTE: This service is abstract and should not be started directly.
+  # Use web_console_dev or web_console_mtls profiles instead.
   web_console:
     build:
       context: .
       dockerfile: apps/web_console/Dockerfile
     container_name: trading_platform_web_console
-    ports:
-      - "8501:8501"
     # SECURITY: Create .env file with credentials (see .env.example)
     # Required: WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
     # env_file:
@@ -120,6 +122,62 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - trading_platform
+    profiles:
+      - manual  # Prevent auto-start, require explicit profile selection
+
+  # Development profile: Direct access on port 8501 (no mTLS)
+  # Usage: docker-compose up -d (default)
+  web_console_dev:
+    extends: web_console
+    container_name: trading_platform_web_console_dev
+    ports:
+      - "8501:8501"
+    profiles:
+      - dev
+
+  # mTLS profile: No direct port exposure, access via nginx reverse proxy
+  # Usage: docker-compose --profile mtls up -d
+  web_console_mtls:
+    extends: web_console
+    container_name: trading_platform_web_console_mtls
+    # NO ports exposed on host (only internal Docker network access)
+    # Access via nginx reverse proxy on port 443
+    environment:
+      - WEB_CONSOLE_AUTH_TYPE=mtls  # Override to use mTLS authentication
+      # CRITICAL: JWT secret required for session persistence across restarts
+      # Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      # Add to .env file: WEB_CONSOLE_JWT_SECRET=<generated_secret>
+      - WEB_CONSOLE_JWT_SECRET=${WEB_CONSOLE_JWT_SECRET:?WEB_CONSOLE_JWT_SECRET not set. Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"}
+    profiles:
+      - mtls
+
+  # Nginx reverse proxy with mTLS (Component 3)
+  # Only runs in mTLS profile
+  # Usage: docker-compose --profile mtls up -d
+  nginx:
+    build:
+      context: .
+      dockerfile: apps/web_console/nginx/Dockerfile
+    container_name: trading_platform_nginx
+    ports:
+      - "443:443"  # HTTPS with mTLS
+      - "80:80"    # HTTP redirect to HTTPS
+    volumes:
+      # Mount certificates from apps/web_console/certs
+      # Certificates must be generated before starting (see docs/RUNBOOKS/web-console-mtls-setup.md)
+      - ./apps/web_console/certs:/etc/nginx/certs:ro
+    depends_on:
+      - web_console_mtls
+    networks:
+      - trading_platform
+    profiles:
+      - mtls
+
+networks:
+  trading_platform:
+    driver: bridge
 
 volumes:
   pgdata:
