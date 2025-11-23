@@ -24,7 +24,7 @@ Environment Variables:
 
 import hashlib
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import requests
@@ -425,7 +425,7 @@ def render_manual_order_entry() -> None:
                     # Generate client_order_id for idempotency (prevents duplicate orders on retry)
                     # Same pattern as automated orders: hash(symbol + side + qty + price + strategy + date)[:24]
                     # For manual orders, use "manual" as strategy
-                    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
                     limit_price_str = str(order.get("limit_price", ""))
                     id_components = (
                         order["symbol"]

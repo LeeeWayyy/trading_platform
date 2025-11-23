@@ -688,7 +688,10 @@ class SessionManager:
         Warning:
             NOT ATOMIC - only for testing! Production must use Lua-based CAS.
         """
-        session_data = self.redis.hgetall(session_key)
+        session_data_raw = self.redis.hgetall(session_key)
+        # Type assertion: redis.Redis (sync client) returns dict[Any, Any], not Awaitable
+        assert not hasattr(session_data_raw, "__await__"), "Expected sync Redis client"
+        session_data: dict[Any, Any] = session_data_raw
 
         if not session_data:
             session_id = session_key.replace(self.config.redis_session_prefix, "")

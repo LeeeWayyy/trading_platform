@@ -26,7 +26,6 @@ import hmac
 import json
 import logging
 import os
-import secrets
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -53,30 +52,37 @@ from apps.web_console.config import (
     TRUSTED_PROXY_IPS,
 )
 from libs.web_console_auth.config import AuthConfig
-from libs.web_console_auth.exceptions import InvalidTokenError, TokenExpiredError, TokenRevokedError
+from libs.web_console_auth.exceptions import (
+    InvalidTokenError,
+    RateLimitExceededError,
+    SessionLimitExceededError,
+    TokenExpiredError,
+    TokenRevokedError,
+)
 from libs.web_console_auth.jwt_manager import JWTManager
+from libs.web_console_auth.session import SessionManager
 
 logger = logging.getLogger(__name__)
 
-# Initialize JWTManager for mTLS mode (Component 2 RS256 infrastructure)
+# Initialize SessionManager for mTLS mode (Component 2 RS256 + session management)
 # Lazily initialized on first mTLS authentication to avoid unnecessary Redis connections
-_jwt_manager: JWTManager | None = None
+_session_manager: SessionManager | None = None
 _redis_client: redis.Redis | None = None
 
 
-def _get_jwt_manager() -> JWTManager:
+def _get_session_manager() -> SessionManager:
     """
-    Get or initialize JWTManager singleton.
+    Get or initialize SessionManager singleton.
 
     Returns:
-        JWTManager: Configured JWTManager instance with Redis
+        SessionManager: Configured SessionManager instance with Redis
 
     Raises:
         RuntimeError: If initialization fails
     """
-    global _jwt_manager, _redis_client
+    global _session_manager, _redis_client
 
-    if _jwt_manager is None:
+    if _session_manager is None:
         try:
             # Initialize Redis client
             # IMPORTANT: decode_responses=False to match SessionManager expectations (bytes keys/values)
@@ -88,19 +94,31 @@ def _get_jwt_manager() -> JWTManager:
             # Test connection
             _redis_client.ping()
 
-            # Load auth config and initialize JWTManager
+            # Load auth config
             auth_config = AuthConfig.from_env()
-            _jwt_manager = JWTManager(config=auth_config, redis_client=_redis_client)
+
+            # Initialize JWTManager (required by SessionManager)
+            # JWTManager signature: JWTManager(config, redis_client)
+            jwt_manager = JWTManager(config=auth_config, redis_client=_redis_client)
+
+            # Initialize SessionManager with required dependencies
+            # Signature: SessionManager(redis_client, jwt_manager, auth_config)
+            _session_manager = SessionManager(
+                redis_client=_redis_client,
+                jwt_manager=jwt_manager,
+                auth_config=auth_config
+            )
 
             logger.info(
-                f"JWTManager initialized with RS256 (Redis: {redis_host}:{redis_port}, "
-                f"access_ttl={auth_config.access_token_ttl}s, refresh_ttl={auth_config.refresh_token_ttl}s)"
+                f"SessionManager initialized with RS256 (Redis: {redis_host}:{redis_port}, "
+                f"access_ttl={auth_config.access_token_ttl}s, refresh_ttl={auth_config.refresh_token_ttl}s, "
+                f"max_sessions={auth_config.max_sessions_per_user})"
             )
         except Exception as e:
-            logger.error(f"Failed to initialize JWTManager: {e}")
-            raise RuntimeError(f"JWTManager initialization failed: {e}") from e
+            logger.error(f"Failed to initialize SessionManager: {e}")
+            raise RuntimeError(f"SessionManager initialization failed: {e}") from e
 
-    return _jwt_manager
+    return _session_manager
 
 
 def check_password() -> bool:
@@ -465,7 +483,9 @@ def _check_session_timeout() -> bool:
 
 def _revoke_token_on_timeout(timeout_type: str) -> None:
     """
-    Revoke JWT token when session times out (mTLS mode only).
+    Terminate session when session times out (mTLS mode only).
+
+    Uses SessionManager to properly revoke tokens and clean up session index.
 
     Args:
         timeout_type: Type of timeout ("idle_timeout" or "absolute_timeout")
@@ -474,32 +494,20 @@ def _revoke_token_on_timeout(timeout_type: str) -> None:
     if auth_method != "mtls":
         return
 
-    if not st.session_state.get("jwt_token"):
+    session_id = st.session_state.get("session_id")
+    if not session_id:
         return
 
     try:
-        jwt_manager = _get_jwt_manager()
-        jwt_claims = st.session_state.get("jwt_claims", {})
-        jti = jwt_claims.get("jti")
-
-        if jti:
-            # Pass expiration timestamp (not TTL) - JWTManager calculates TTL internally
-            exp = jwt_claims.get("exp")
-            if not exp:
-                logger.error(
-                    f"Cannot revoke JWT on {timeout_type}: 'exp' claim missing. jti={jti}, "
-                    f"user={st.session_state.get('username', 'unknown')}"
-                )
-                return
-
-            jwt_manager.revoke_token(jti, exp)
-            logger.info(
-                f"Revoked JWT on {timeout_type}: jti={jti}, "
-                f"user={st.session_state.get('username', 'unknown')}"
-            )
+        session_manager = _get_session_manager()
+        session_manager.terminate_session(session_id)
+        logger.info(
+            f"Terminated session on {timeout_type}: session_id={session_id}, "
+            f"user={st.session_state.get('username', 'unknown')}"
+        )
     except Exception as e:
         # Log error but don't block timeout handling
-        logger.error(f"Failed to revoke JWT on {timeout_type}: {e}")
+        logger.error(f"Failed to terminate session on {timeout_type}: {e}")
 
 
 def _generate_session_id(username: str, login_time: datetime) -> str:
@@ -825,15 +833,20 @@ def _issue_jwt_for_client_dn(
     client_dn: str, client_cn: str, client_verify: str
 ) -> tuple[str, dict[str, Any]] | tuple[None, None]:
     """
-    Issue JWT token with DN binding for authenticated client.
+    Create session and issue JWT token pair for authenticated client.
 
-    Uses Component 2's JWTManager for RS256 signing with Redis-backed revocation.
+    Uses SessionManager for comprehensive session management including:
+    - Session limits enforcement (max_sessions_per_user)
+    - Automatic eviction of oldest sessions when limit exceeded
+    - Session index tracking for user_id
+    - Token pair generation (access + refresh)
+    - Session metadata storage in Redis
 
-    JWT Claims (via JWTManager):
+    JWT Claims (via SessionManager):
     - sub: Client DN (CRITICAL: Used for JWT-DN binding contract)
-    - typ: "access" (token type)
+    - typ: "access" or "refresh" (token type)
     - iat: Issued at timestamp
-    - exp: Expiration timestamp (from AuthConfig.access_token_ttl)
+    - exp: Expiration timestamp (from AuthConfig)
     - jti: Unique JWT ID (Redis-backed revocation)
     - aud: Audience claim (from AuthConfig)
     - iss: Issuer claim (from AuthConfig)
@@ -845,11 +858,11 @@ def _issue_jwt_for_client_dn(
         client_verify: Verification status from nginx (should be "SUCCESS")
 
     Returns:
-        tuple: (JWT token string, claims dict) on success, (None, None) on failure
+        tuple: (access_token string, claims dict) on success, (None, None) on failure
     """
     try:
-        # Get JWTManager instance
-        jwt_manager = _get_jwt_manager()
+        # Get SessionManager instance
+        session_manager = _get_session_manager()
 
         # Get client info for session binding
         headers = _get_request_headers()
@@ -860,40 +873,48 @@ def _issue_jwt_for_client_dn(
         # reject token issuance to prevent silently downgrading session binding strength
         if TRUSTED_PROXY_IPS and client_ip == "localhost":
             logger.error(
-                f"Token issuance failed for {client_dn}: Cannot determine real client IP "
+                f"Session creation failed for {client_dn}: Cannot determine real client IP "
                 "(got localhost). TRUSTED_PROXY_IPS is configured but X-Forwarded-For extraction failed. "
                 "This prevents silently downgrading session binding security."
             )
             return None, None
 
-        # Generate session ID (unique per login)
-        session_id = secrets.token_urlsafe(16)
+        # Create session with SessionManager (enforces session limits and rate limiting)
+        # Returns (access_token, refresh_token) tuple
+        try:
+            access_token, refresh_token = session_manager.create_session(
+                user_id=client_dn,  # DN as user_id (JWT.sub == client DN for binding)
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
+        except SessionLimitExceededError as e:
+            logger.error(
+                f"Session creation failed for {client_dn}: Session limit exceeded. {e}"
+            )
+            return None, None
+        except RateLimitExceededError as e:
+            logger.error(
+                f"Session creation failed for {client_dn}: Rate limit exceeded. {e}"
+            )
+            return None, None
 
-        # Use JWTManager to generate RS256 access token
-        token = jwt_manager.generate_access_token(
-            user_id=client_dn,  # DN as user_id (JWT.sub == client DN for binding)
-            session_id=session_id,
-            client_ip=client_ip,
-            user_agent=user_agent,
-        )
-
-        # Decode token (without verification) to get claims for display
+        # Decode access token (without verification) to get claims for display
         # This is safe because we just generated it and need the claims for session_state
-        claims = jwt.decode(token, options={"verify_signature": False})
+        claims = jwt.decode(access_token, options={"verify_signature": False})
 
         # Add custom fields for backward compatibility with existing code
         claims["cn"] = client_cn
         claims["cert_verify"] = client_verify
 
         logger.info(
-            f"Issued RS256 JWT for {client_cn} (DN: {client_dn}, "
-            f"jti: {claims.get('jti', 'unknown')}, session: {session_id})"
+            f"Created session for {client_cn} (DN: {client_dn}, "
+            f"session_id: {claims.get('session_id', 'unknown')}, jti: {claims.get('jti', 'unknown')})"
         )
 
-        return token, claims
+        return access_token, claims
 
     except Exception as e:
-        logger.error(f"Failed to issue JWT for {client_dn}: {e}")
+        logger.error(f"Failed to create session for {client_dn}: {e}")
         return None, None
 
 
@@ -901,7 +922,12 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
     """
     Validate JWT-DN binding contract on EVERY request.
 
-    Uses Component 2's JWTManager for RS256 signature validation with Redis revocation checks.
+    Uses SessionManager for comprehensive validation including:
+    - RS256 signature validation
+    - Token expiration checks
+    - Redis JTI revocation checks
+    - Session binding validation (IP + User Agent)
+    - Session metadata validation
 
     Security Contract:
     1. JWT.sub (subject) MUST equal current client DN from X-SSL-Client-S-DN header
@@ -921,7 +947,7 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
 
     Args:
         headers: Current request headers from nginx
-        jwt_token: JWT token from session state
+        jwt_token: JWT access token from session state
 
     Returns:
         bool: True if JWT-DN binding valid, False otherwise
@@ -939,20 +965,36 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
             logger.error("JWT validation failed: X-SSL-Client-S-DN header missing")
             return False
 
-        # Get JWTManager instance
-        jwt_manager = _get_jwt_manager()
+        # Get SessionManager instance
+        session_manager = _get_session_manager()
 
-        # Validate JWT using JWTManager (RS256 signature + expiration + revocation + session binding)
+        # Get current client info for session binding validation
+        client_ip = _get_client_ip()
+        current_ua = headers.get("User-Agent", "unknown")
+
+        # Fail-closed: If TRUSTED_PROXY_IPS configured but IP extraction failed (localhost),
+        # reject validation even if SessionManager validation passed
+        # This prevents token replay when header extraction degrades
+        if TRUSTED_PROXY_IPS and client_ip == "localhost":
+            logger.error(
+                "JWT validation failed: Cannot determine real client IP (got localhost). "
+                "TRUSTED_PROXY_IPS is configured but X-Forwarded-For extraction failed. "
+                "Rejecting to prevent token replay with degraded IP detection."
+            )
+            return False
+
+        # Validate session using SessionManager (validates token + session binding)
+        # SessionManager.validate_session signature: (access_token, client_ip, user_agent)
         try:
-            claims = jwt_manager.validate_token(jwt_token, expected_type="access")
+            claims = session_manager.validate_session(jwt_token, client_ip, current_ua)
         except TokenExpiredError:
-            logger.warning("JWT validation failed: Token expired")
+            logger.warning("Session validation failed: Token expired")
             return False
         except TokenRevokedError:
-            logger.error("JWT validation failed: Token revoked (JTI blacklisted)")
+            logger.error("Session validation failed: Token revoked (JTI blacklisted)")
             return False
         except InvalidTokenError as e:
-            logger.error(f"JWT validation failed: Invalid token: {e}")
+            logger.error(f"Session validation failed: Invalid token or session binding mismatch: {e}")
             return False
 
         # Validate JWT-DN binding contract: JWT.sub MUST equal current client DN
@@ -963,42 +1005,8 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
             )
             return False
 
-        # Validate session binding: IP + User Agent (if strict mode enabled)
-        # JWTManager stores session binding in token but doesn't validate it
-        # We must validate explicitly to prevent session hijacking
-        auth_config = _get_jwt_manager().config
-        if auth_config.session_binding_strict:
-            # Check IP binding
-            token_ip = claims.get("ip", "")
-            current_ip = _get_client_ip()
-
-            # Fail closed: Reject if IP is localhost in mTLS mode (indicates extraction failure)
-            # Only allow localhost if token was originally issued with localhost
-            if current_ip == "localhost" and token_ip != "localhost" and TRUSTED_PROXY_IPS:
-                logger.error(
-                    f"Session binding failed: Cannot determine real client IP (expected={token_ip}, got=localhost). "
-                    "Check X-Forwarded-For header extraction."
-                )
-                return False
-
-            if token_ip != current_ip:
-                logger.error(
-                    f"Session binding failed: IP mismatch (token={token_ip}, current={current_ip})"
-                )
-                return False
-
-            # Check User-Agent binding
-            token_ua_hash = claims.get("user_agent_hash", "")
-            current_ua = headers.get("User-Agent", "unknown")
-            current_ua_hash = hashlib.sha256(current_ua.encode()).hexdigest()
-            if token_ua_hash != current_ua_hash:
-                logger.error(
-                    f"Session binding failed: User-Agent mismatch "
-                    f"(token_hash={token_ua_hash}, current_hash={current_ua_hash})"
-                )
-                return False
-
         # All checks passed (signature, expiration, revocation, DN binding, session binding)
+        # Note: SessionManager already validated session binding (IP + User Agent)
         return True
 
     except Exception as e:
@@ -1024,32 +1032,31 @@ def get_current_user() -> dict[str, Any]:
 def logout() -> None:
     """Logout current user and clear session.
 
-    For mTLS mode: Revokes JWT token to prevent reuse.
+    For mTLS mode: Terminates session (revokes tokens, cleans up session index).
     For other modes: Simply clears session state.
     """
     username = st.session_state.get("username", "unknown")
-    session_id = st.session_state.get("session_id", "unknown")
     auth_method = st.session_state.get("auth_method", "unknown")
+    # Get session_id from session_state first (available in all modes)
+    session_id = st.session_state.get("session_id")
 
-    # Revoke JWT token for mTLS mode (prevents token reuse)
-    if auth_method == "mtls" and st.session_state.get("jwt_token"):
+    # Terminate session for mTLS mode (revokes tokens and cleans up session index)
+    if auth_method == "mtls":
         try:
-            jwt_manager = _get_jwt_manager()
+            # Get session_id from JWT claims (more reliable than session_state)
+            # Fallback to session_state if claims unavailable
             jwt_claims = st.session_state.get("jwt_claims", {})
-            jti = jwt_claims.get("jti")
+            session_id = jwt_claims.get("session_id") or session_id
 
-            if jti:
-                # Pass expiration timestamp (not TTL) - JWTManager calculates TTL internally
-                exp = jwt_claims.get("exp")
-                if not exp:
-                    logger.error(f"Cannot revoke JWT on logout: 'exp' claim missing. jti={jti}, user={username}")
-                    return
-
-                jwt_manager.revoke_token(jti, exp)
-                logger.info(f"Revoked JWT on logout: jti={jti}, user={username}")
+            if session_id:
+                session_manager = _get_session_manager()
+                session_manager.terminate_session(session_id)
+                logger.info(f"Terminated session on logout: session_id={session_id}, user={username}")
+            else:
+                logger.warning(f"Logout skipped session termination: No session_id found for user={username}")
         except Exception as e:
             # Log error but don't block logout
-            logger.error(f"Failed to revoke JWT on logout: {e}")
+            logger.error(f"Failed to terminate session on logout: {e}")
 
     details = {
         "timestamp": datetime.now().isoformat(),

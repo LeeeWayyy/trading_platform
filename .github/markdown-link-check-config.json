@@ -86,6 +86,9 @@
     },
     {
       "pattern": "^https://docs.python.org/"
+    },
+    {
+      "pattern": "^https://github.com"
     }
   ],
   "replacementPatterns": [

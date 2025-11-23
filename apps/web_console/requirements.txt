@@ -7,5 +7,6 @@
 streamlit==1.28.0
 requests>=2.31.0
 psycopg[binary]>=3.1.0
+redis>=5.0.0  # Phase 2: SessionManager integration (session limits, binding, revocation)
 cryptography>=41.0.0  # Phase 2: mTLS + JWT certificate generation
 pyjwt>=2.8.0  # Phase 2: JWT-DN binding for mTLS authentication
