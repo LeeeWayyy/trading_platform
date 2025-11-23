@@ -106,7 +106,7 @@ def save_private_key(key: rsa.RSAPrivateKey, output_path: Path) -> None:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(key_pem)
-    except:
+    except Exception:
         # If write fails, close the file descriptor
         os.close(fd)
         raise

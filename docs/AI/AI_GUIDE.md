@@ -408,6 +408,7 @@ Trip on: drawdown breach, broker errors, data staleness (>30min)
 - ❌ NEVER use `git commit --no-verify` (bypasses gates, detected by CI)
 - ❌ No skipping review gates (caused 7 fix commits, 10-15 hours wasted)
 - ❌ No skipping local CI (2-4x faster than remote CI)
+- ❌ NEVER create documents out side of `docs` folder, place them where is suitable
 
 **Code Quality:**
 - No duplicate feature logic (share research/production code)
