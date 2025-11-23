@@ -108,10 +108,11 @@ docs-backup-*/
 # Web Console Certificates (Phase 2: mTLS + JWT)
 # CRITICAL: Never commit private keys to version control
 apps/web_console/certs/*.key
-apps/web_console/certs/*.pem
+apps/web_console/certs/*.pem  # Deny all .pem files by default (OpenSSL private key format)
 apps/web_console/certs/jwt_private.key
 # Allow certificate files (public data)
 !apps/web_console/certs/*.crt
 !apps/web_console/certs/README.md
-# Allow JWT public key (public data, needed for JWT validation)
+# Allow specific public .pem files (needed for JWT validation and CA certificates)
 !apps/web_console/certs/jwt_public.pem
+!apps/web_console/certs/ca.pem

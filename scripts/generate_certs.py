@@ -68,6 +68,29 @@ PRIVATE_KEY_PERMISSIONS = 0o600
 DEFAULT_CERTS_DIR = Path(__file__).parent.parent / "apps" / "web_console" / "certs"
 
 
+def add_years_safe(dt: datetime, years: int) -> datetime:
+    """
+    Add years to a datetime, handling leap years safely.
+
+    If the source date is Feb 29 and the target year is not a leap year,
+    the result will be Feb 28 to avoid ValueError.
+
+    Args:
+        dt: Source datetime
+        years: Number of years to add
+
+    Returns:
+        Datetime with years added, adjusted for leap year edge cases
+    """
+    try:
+        # Try direct year replacement (works for most dates)
+        return dt.replace(year=dt.year + years)
+    except ValueError:
+        # Feb 29 in a leap year → target year is not a leap year
+        # Move to Feb 28 of target year
+        return dt.replace(year=dt.year + years, day=28)
+
+
 def generate_private_key() -> rsa.RSAPrivateKey:
     """
     Generate RSA private key (4096-bit).
@@ -184,7 +207,7 @@ def generate_ca_certificate(certs_dir: Path) -> tuple[rsa.RSAPrivateKey, x509.Ce
         .public_key(ca_key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + timedelta(days=CA_VALIDITY_YEARS * 365))
+        .not_valid_after(add_years_safe(now, CA_VALIDITY_YEARS))
         .add_extension(
             x509.BasicConstraints(ca=True, path_length=0),
             critical=True,
@@ -273,7 +296,7 @@ def generate_server_certificate(
         .public_key(server_key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + timedelta(days=SERVER_VALIDITY_YEARS * 365))
+        .not_valid_after(add_years_safe(now, SERVER_VALIDITY_YEARS))
         .add_extension(
             x509.SubjectAlternativeName(
                 [
@@ -507,7 +530,7 @@ def generate_dhparam(output_dir: Path, key_size: int = 4096) -> None:
     import subprocess
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["openssl", "dhparam", "-out", str(dhparam_path), str(key_size)],
             capture_output=True,
             text=True,

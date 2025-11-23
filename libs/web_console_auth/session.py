@@ -90,8 +90,10 @@ class SessionManager:
                 )
                 raise RateLimitExceededError(f"Rate limit exceeded for IP: {client_ip}")
 
-        # Generate session ID
-        session_id = str(uuid.uuid4())
+        # Generate session ID with user_id prefix for recovery during cleanup
+        # Format: {user_id}_{uuid} enables terminate_session to extract user_id
+        # when session metadata has expired via TTL
+        session_id = f"{user_id}_{uuid.uuid4()}"
 
         # Generate token pair
         access_token = self.jwt.generate_access_token(user_id, session_id, client_ip, user_agent)
@@ -111,6 +113,8 @@ class SessionManager:
             "user_agent_hash": user_agent_hash,
             "access_jti": access_jti,
             "refresh_jti": refresh_payload["jti"],
+            "access_exp": str(access_payload["exp"]),    # Store for precise revocation TTL
+            "refresh_exp": str(refresh_payload["exp"]),  # Store for precise revocation TTL
             "created_at": int(time.time()),
         }
 
@@ -200,8 +204,13 @@ class SessionManager:
         # Atomic compare-and-swap using Lua script (prevents concurrent refresh race)
         # Try atomic Lua-based CAS (production), fallback to non-atomic for FakeRedis (tests)
         try:
-            old_access_jti = self._atomic_refresh_cas(
-                session_key, presented_refresh_jti, new_access_jti, new_refresh_jti
+            old_access_jti, old_access_exp = self._atomic_refresh_cas(
+                session_key,
+                presented_refresh_jti,
+                new_access_jti,
+                new_refresh_jti,
+                new_access_payload["exp"],
+                new_refresh_payload["exp"],
             )
         except Exception as e:
             # Check if this is a FakeRedis "eval not supported" error
@@ -213,15 +222,22 @@ class SessionManager:
                         "reason": "FakeRedis or Redis version lacks Lua support",
                     },
                 )
-                old_access_jti = self._fallback_refresh_cas(
-                    session_key, presented_refresh_jti, new_access_jti, new_refresh_jti
+                old_access_jti, old_access_exp = self._fallback_refresh_cas(
+                    session_key,
+                    presented_refresh_jti,
+                    new_access_jti,
+                    new_refresh_jti,
+                    new_access_payload["exp"],
+                    new_refresh_payload["exp"],
                 )
             else:
                 raise
 
-        # Revoke old tokens (after successful atomic swap)
+        # Revoke old tokens with precise expirations (after successful atomic swap)
         if old_access_jti:
-            self.jwt.revoke_token(old_access_jti, refresh_payload["exp"])
+            # Use actual old access exp if available, fallback to refresh exp
+            access_exp_for_revocation = old_access_exp if old_access_exp > 0 else refresh_payload["exp"]
+            self.jwt.revoke_token(old_access_jti, access_exp_for_revocation)
         self.jwt.revoke_token(presented_refresh_jti, refresh_payload["exp"])
 
         logger.info(
@@ -284,12 +300,32 @@ class SessionManager:
         Note:
             Revokes both access and refresh tokens for this session.
             Removes session metadata from Redis.
+            If session metadata is missing (expired via TTL), still removes
+            from index to prevent stale entries blocking session limit enforcement.
         """
         # Get session metadata to extract token JTIs
         session_key = f"{self.config.redis_session_prefix}{session_id}"
         session_data = self.redis.hgetall(session_key)
 
         if not session_data:
+            # Session metadata already expired (natural TTL), but we must still
+            # remove from user index to prevent stale entries. Otherwise, session
+            # limit enforcement will repeatedly hit missing entries and fail to evict.
+            # Extract user_id from session_id format: {user_id}_{uuid}
+            # Use rsplit to handle user_ids containing underscores (e.g., "alice_smith")
+            try:
+                user_id = session_id.rsplit("_", 1)[0] if "_" in session_id else None
+                if user_id:
+                    self._remove_session_from_index(user_id, session_id)
+                    logger.info(
+                        "session_index_cleaned",
+                        extra={"user_id": user_id, "session_id": session_id},
+                    )
+            except Exception as e:
+                logger.error(
+                    "failed_to_clean_expired_session_index",
+                    extra={"session_id": session_id, "error": str(e)},
+                )
             logger.warning("session_not_found", extra={"session_id": session_id})
             return
 
@@ -299,15 +335,19 @@ class SessionManager:
         access_jti = session_dict.get(b"access_jti", b"").decode()
         refresh_jti = session_dict.get(b"refresh_jti", b"").decode()
 
-        # Revoke tokens (need to get exp from tokens or default to max TTL)
-        # For simplicity, use max TTL as upper bound
+        # Get actual token expirations for precise revocation TTL
+        # Fallback to max TTL if exp not stored (older sessions)
         now = int(time.time())
-        max_exp = now + self.config.refresh_token_ttl
+        access_exp_str = session_dict.get(b"access_exp", b"").decode()
+        refresh_exp_str = session_dict.get(b"refresh_exp", b"").decode()
+
+        access_exp = int(access_exp_str) if access_exp_str else (now + self.config.access_token_ttl)
+        refresh_exp = int(refresh_exp_str) if refresh_exp_str else (now + self.config.refresh_token_ttl)
 
         if access_jti:
-            self.jwt.revoke_token(access_jti, max_exp)
+            self.jwt.revoke_token(access_jti, access_exp)
         if refresh_jti:
-            self.jwt.revoke_token(refresh_jti, max_exp)
+            self.jwt.revoke_token(refresh_jti, refresh_exp)
 
         # Remove session from user index
         if user_id:
@@ -506,7 +546,9 @@ class SessionManager:
         presented_refresh_jti: str,
         new_access_jti: str,
         new_refresh_jti: str,
-    ) -> str:
+        new_access_exp: int,
+        new_refresh_exp: int,
+    ) -> tuple[str, int]:
         """Atomic compare-and-swap for refresh token using Lua script.
 
         Args:
@@ -514,9 +556,11 @@ class SessionManager:
             presented_refresh_jti: JTI from the refresh token being used
             new_access_jti: JTI for the new access token
             new_refresh_jti: JTI for the new refresh token
+            new_access_exp: Expiration timestamp for new access token
+            new_refresh_exp: Expiration timestamp for new refresh token
 
         Returns:
-            old_access_jti for revocation
+            Tuple of (old_access_jti, old_access_exp) for precise revocation TTL
 
         Raises:
             InvalidTokenError: If session not found or JTI mismatch
@@ -531,6 +575,8 @@ class SessionManager:
         local new_access_jti = ARGV[2]
         local new_refresh_jti = ARGV[3]
         local refresh_ttl = tonumber(ARGV[4])
+        local new_access_exp = ARGV[5]
+        local new_refresh_exp = ARGV[6]
 
         -- Get current session data
         local session_data = redis.call('HGETALL', session_key)
@@ -549,16 +595,19 @@ class SessionManager:
             return 'ERROR:JTI_MISMATCH'
         end
 
-        -- Save old access JTI for revocation
+        -- Save old access JTI and exp for precise revocation TTL
         local old_access_jti = session['access_jti'] or ''
+        local old_access_exp = session['access_exp'] or ''
 
-        -- Atomic swap: update both JTIs and extend TTL
+        -- Atomic swap: update JTIs, exp timestamps, and extend TTL
         redis.call('HSET', session_key, 'access_jti', new_access_jti)
         redis.call('HSET', session_key, 'refresh_jti', new_refresh_jti)
+        redis.call('HSET', session_key, 'access_exp', new_access_exp)
+        redis.call('HSET', session_key, 'refresh_exp', new_refresh_exp)
         redis.call('EXPIRE', session_key, refresh_ttl)
 
-        -- Return old access JTI for revocation
-        return old_access_jti
+        -- Return old access JTI and exp (pipe-delimited for parsing)
+        return old_access_jti .. '|' .. old_access_exp
         """
 
         # Execute atomic CAS with swap
@@ -571,6 +620,8 @@ class SessionManager:
                 new_access_jti,
                 new_refresh_jti,
                 str(self.config.refresh_token_ttl),
+                str(new_access_exp),
+                str(new_refresh_exp),
             )
         except Exception as e:
             # Catch redis.exceptions.ResponseError if Lua script errors
@@ -596,8 +647,18 @@ class SessionManager:
                 )
                 raise InvalidTokenError("Refresh token already used or revoked")
 
-        # CAS succeeded - return old access JTI
-        return cast(str, result)
+        # CAS succeeded - parse old_access_jti and old_access_exp
+        # Format: "jti|exp" (pipe-delimited from Lua script)
+        result_str = cast(str, result)
+        if "|" in result_str:
+            old_jti, old_exp_str = result_str.split("|", 1)
+            old_exp = int(old_exp_str) if old_exp_str else 0
+        else:
+            # Backwards compatibility: old sessions may not have stored exp
+            old_jti = result_str
+            old_exp = 0
+
+        return old_jti, old_exp
 
     def _fallback_refresh_cas(
         self,
@@ -605,7 +666,9 @@ class SessionManager:
         presented_refresh_jti: str,
         new_access_jti: str,
         new_refresh_jti: str,
-    ) -> str:
+        new_access_exp: int,
+        new_refresh_exp: int,
+    ) -> tuple[str, int]:
         """Non-atomic fallback CAS for testing with FakeRedis.
 
         Args:
@@ -613,9 +676,11 @@ class SessionManager:
             presented_refresh_jti: JTI from the refresh token being used
             new_access_jti: JTI for the new access token
             new_refresh_jti: JTI for the new refresh token
+            new_access_exp: Expiration timestamp for new access token
+            new_refresh_exp: Expiration timestamp for new refresh token
 
         Returns:
-            old_access_jti for revocation
+            Tuple of (old_access_jti, old_access_exp) for precise revocation TTL
 
         Raises:
             InvalidTokenError: If session not found or JTI mismatch
@@ -640,6 +705,8 @@ class SessionManager:
         # Redis was initialized with decode_responses=False, so keys are bytes
         stored_refresh_jti = safe_decode(session_data.get(b"refresh_jti", b""))
         old_access_jti = safe_decode(session_data.get(b"access_jti", b""))
+        old_access_exp_str = safe_decode(session_data.get(b"access_exp", b""))
+        old_access_exp = int(old_access_exp_str) if old_access_exp_str else 0
 
         # Non-atomic JTI check (race condition possible in production!)
         if presented_refresh_jti != stored_refresh_jti:
@@ -655,9 +722,11 @@ class SessionManager:
             )
             raise InvalidTokenError("Refresh token already used or revoked")
 
-        # Non-atomic swap: update both JTIs and extend TTL
+        # Non-atomic swap: update JTIs, exp timestamps, and extend TTL
         self.redis.hset(session_key, "access_jti", new_access_jti)
         self.redis.hset(session_key, "refresh_jti", new_refresh_jti)
+        self.redis.hset(session_key, "access_exp", str(new_access_exp))
+        self.redis.hset(session_key, "refresh_exp", str(new_refresh_exp))
         self.redis.expire(session_key, self.config.refresh_token_ttl)
 
-        return old_access_jti
+        return old_access_jti, old_access_exp
