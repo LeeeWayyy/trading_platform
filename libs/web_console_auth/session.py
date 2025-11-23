@@ -637,12 +637,9 @@ class SessionManager:
             return str(value) if value else ""
 
         # Try both string and bytes keys (decode_responses affects which works)
-        stored_refresh_jti = safe_decode(
-            session_data.get("refresh_jti") or session_data.get(b"refresh_jti", b"")  # type: ignore[union-attr]
-        )
-        old_access_jti = safe_decode(
-            session_data.get("access_jti") or session_data.get(b"access_jti", b"")  # type: ignore[union-attr]
-        )
+        # Redis was initialized with decode_responses=False, so keys are bytes
+        stored_refresh_jti = safe_decode(session_data.get(b"refresh_jti", b""))
+        old_access_jti = safe_decode(session_data.get(b"access_jti", b""))
 
         # Non-atomic JTI check (race condition possible in production!)
         if presented_refresh_jti != stored_refresh_jti:

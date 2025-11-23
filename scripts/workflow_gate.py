@@ -1197,7 +1197,10 @@ class WorkflowGate:
 
         # Gate 0.4 (Component 1 - P1T13-F5a): Code state fingerprinting
         # Verify that staged changes haven't been modified since review approval
-        stored_hash = state["zen_review"].get("staged_hash")
+        # CRITICAL: Check BOTH gemini_review and codex_review hashes (dual-review requirement)
+        gemini_hash = state.get("gemini_review", {}).get("staged_hash")
+        codex_hash = state.get("codex_review", {}).get("staged_hash")
+        stored_hash = gemini_hash or codex_hash  # Fallback for backwards compatibility
 
         # Codex HIGH fix: Defensive check - reject approvals with empty hash
         if stored_hash is not None and not stored_hash:
@@ -1215,18 +1218,37 @@ class WorkflowGate:
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sys.exit(1)
 
-        if stored_hash:  # Only verify if hash was stored (backwards compatibility)
+        if gemini_hash or codex_hash:  # Only verify if at least one hash was stored
             try:
                 current_hash = self._compute_staged_hash()
 
-                if current_hash != stored_hash:
+                # Check BOTH Gemini and Codex hashes (dual-review requirement)
+                if gemini_hash and current_hash != gemini_hash:
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("❌ COMMIT BLOCKED: Code changed after review approval")
+                    print("❌ COMMIT BLOCKED: Code changed after Gemini review approval")
                     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    print("   Staged changes have been modified since zen-mcp review.")
+                    print("   Staged changes have been modified since Gemini review.")
                     print()
-                    print("   Stored hash (at review):  ", stored_hash[:16], "...")
-                    print("   Current hash (now):       ", current_hash[:16], "...")
+                    print("   Gemini hash (at review): ", gemini_hash[:16], "...")
+                    print("   Current hash (now):      ", current_hash[:16], "...")
+                    print()
+                    print("   Re-request reviews after staging your changes:")
+                    print("     ./scripts/workflow_gate.py request-review commit")
+                    print()
+                    print("   Emergency override (production outage only):")
+                    print('     ZEN_REVIEW_OVERRIDE=1 git commit -m "..."')
+                    print("   ⚠️  AI agents: Ask user before using override (see CLAUDE.md)")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    sys.exit(1)
+
+                if codex_hash and current_hash != codex_hash:
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("❌ COMMIT BLOCKED: Code changed after Codex review approval")
+                    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    print("   Staged changes have been modified since Codex review.")
+                    print()
+                    print("   Codex hash (at review):  ", codex_hash[:16], "...")
+                    print("   Current hash (now):      ", current_hash[:16], "...")
                     print()
                     print("   Changes detected:")
                     # Show diff summary

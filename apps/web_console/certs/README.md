@@ -151,7 +151,10 @@ openssl verify -CAfile apps/web_console/certs/ca.crt apps/web_console/certs/clie
 ### Verify Private Key Permissions
 ```bash
 # Should show 0600 (owner read/write only)
+# macOS/BSD:
 stat -f "%A %N" apps/web_console/certs/*.key
+# Linux:
+# stat -c "%a %n" apps/web_console/certs/*.key
 ```
 
 ### Test Certificate with OpenSSL

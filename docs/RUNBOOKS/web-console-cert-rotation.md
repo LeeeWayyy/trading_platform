@@ -376,10 +376,12 @@ for user in "${USERS[@]}"; do
 done
 
 # Package all certificates for distribution
+# Use GPG for secure encryption (NOT zip -e which uses weak encryption)
 for user in "${USERS[@]}"; do
-  zip -e apps/web_console/certs/client-$user-$(date +%Y%m%d).zip \
-    apps/web_console/certs/client-$user.crt \
-    apps/web_console/certs/client-$user.key
+  tar -czf - apps/web_console/certs/client-$user.crt \
+             apps/web_console/certs/client-$user.key | \
+    gpg --symmetric --cipher-algo AES256 \
+        --output apps/web_console/certs/client-$user-$(date +%Y%m%d).tar.gz.gpg
 done
 ```
 

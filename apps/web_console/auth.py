@@ -485,20 +485,18 @@ def _revoke_token_on_timeout(timeout_type: str) -> None:
         if jti:
             # Pass expiration timestamp (not TTL) - JWTManager calculates TTL internally
             exp = jwt_claims.get("exp")
-            if exp:
-                jwt_manager.revoke_token(jti, exp)
-                logger.info(
-                    f"Revoked JWT on {timeout_type}: jti={jti}, "
+            if not exp:
+                logger.error(
+                    f"Cannot revoke JWT on {timeout_type}: 'exp' claim missing. jti={jti}, "
                     f"user={st.session_state.get('username', 'unknown')}"
                 )
-            else:
-                # No expiration claim - calculate exp as now + access_token_ttl
-                exp_timestamp = int(time.time()) + jwt_manager.config.access_token_ttl
-                jwt_manager.revoke_token(jti, exp_timestamp)
-                logger.info(
-                    f"Revoked JWT on {timeout_type} (default TTL): jti={jti}, "
-                    f"user={st.session_state.get('username', 'unknown')}"
-                )
+                return
+
+            jwt_manager.revoke_token(jti, exp)
+            logger.info(
+                f"Revoked JWT on {timeout_type}: jti={jti}, "
+                f"user={st.session_state.get('username', 'unknown')}"
+            )
     except Exception as e:
         # Log error but don't block timeout handling
         logger.error(f"Failed to revoke JWT on {timeout_type}: {e}")
@@ -1043,14 +1041,12 @@ def logout() -> None:
             if jti:
                 # Pass expiration timestamp (not TTL) - JWTManager calculates TTL internally
                 exp = jwt_claims.get("exp")
-                if exp:
-                    jwt_manager.revoke_token(jti, exp)
-                    logger.info(f"Revoked JWT on logout: jti={jti}, user={username}")
-                else:
-                    # No expiration claim - calculate exp as now + access_token_ttl
-                    exp_timestamp = int(time.time()) + jwt_manager.config.access_token_ttl
-                    jwt_manager.revoke_token(jti, exp_timestamp)
-                    logger.info(f"Revoked JWT on logout (default TTL): jti={jti}, user={username}")
+                if not exp:
+                    logger.error(f"Cannot revoke JWT on logout: 'exp' claim missing. jti={jti}, user={username}")
+                    return
+
+                jwt_manager.revoke_token(jti, exp)
+                logger.info(f"Revoked JWT on logout: jti={jti}, user={username}")
         except Exception as e:
             # Log error but don't block logout
             logger.error(f"Failed to revoke JWT on logout: {e}")
