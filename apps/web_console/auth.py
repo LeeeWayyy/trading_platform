@@ -1,10 +1,11 @@
 """
 Authentication Module for Web Console.
 
-Supports three authentication modes:
+Supports four authentication modes:
 1. dev: Basic auth for local development (username/password from config)
 2. basic: Basic HTTP auth (for testing only - not production-ready)
-3. oauth2: OAuth2/OIDC integration (production-ready)
+3. mtls: Mutual TLS with JWT-DN binding (production-ready for P2T3 Phase 2)
+4. oauth2: OAuth2/OIDC integration (future implementation)
 
 Security Features:
 - Session timeout (15 min idle, 4 hour absolute)
@@ -12,21 +13,27 @@ Security Features:
 - IP address tracking
 - Failed login rate limiting (3 attempts = 30s lockout, 5 = 5min, 7+ = 15min)
 - Constant-time password comparison (prevents timing attacks)
+- mTLS: JWT-DN binding contract (JWT.sub == client DN, enforced on every request)
+- mTLS: Header spoofing prevention (X-SSL-Client-Verify validation)
 
 Note:
     OAuth2 implementation is a placeholder for future implementation.
-    For P2T3 MVP, we use dev mode with basic auth.
+    For P2T3 Phase 2, we add mtls mode with certificate-based authentication.
 """
 
 import hashlib
 import hmac
 import json
 import logging
+import os
+import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import jwt
 import streamlit as st
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 from apps.web_console.config import (
     AUTH_TYPE,
@@ -47,6 +54,22 @@ from apps.web_console.config import (
 
 logger = logging.getLogger(__name__)
 
+# JWT configuration for mTLS mode
+# Note: In production, load from secure secret store (e.g., AWS Secrets Manager, HashiCorp Vault)
+# For P2T3 Phase 2, we use environment variable with fallback to secure random generation
+JWT_SECRET_KEY: str = os.environ.get("WEB_CONSOLE_JWT_SECRET", "")
+if not JWT_SECRET_KEY:
+    # Generate secure random key on startup (WARNING: Will invalidate sessions on restart)
+    # Production: MUST set WEB_CONSOLE_JWT_SECRET environment variable
+    JWT_SECRET_KEY = secrets.token_urlsafe(32)
+    logger.warning(
+        "WEB_CONSOLE_JWT_SECRET not set. Generated random key (sessions will be invalidated on restart). "
+        "Set WEB_CONSOLE_JWT_SECRET environment variable for production."
+    )
+
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 8  # JWT valid for 8 hours
+
 
 def check_password() -> bool:
     """
@@ -62,6 +85,8 @@ def check_password() -> bool:
         return _dev_auth()
     elif AUTH_TYPE == "basic":
         return _basic_auth()
+    elif AUTH_TYPE == "mtls":  # type: ignore[comparison-overlap]
+        return _mtls_auth()
     elif AUTH_TYPE == "oauth2":
         return _oauth2_auth()
     else:
@@ -146,13 +171,17 @@ def _dev_auth() -> bool:
                     lockout_seconds = 0
 
                 if lockout_seconds > 0:
-                    st.session_state["lockout_until"] = datetime.now() + timedelta(seconds=lockout_seconds)
+                    st.session_state["lockout_until"] = datetime.now() + timedelta(
+                        seconds=lockout_seconds
+                    )
                     st.error(
                         f"Invalid username or password.\n\n"
                         f"Too many failed attempts ({attempts}). Account locked for {lockout_seconds} seconds."
                     )
                 else:
-                    st.error(f"Invalid username or password. ({attempts} failed attempt{'s' if attempts > 1 else ''})")
+                    st.error(
+                        f"Invalid username or password. ({attempts} failed attempt{'s' if attempts > 1 else ''})"
+                    )
 
                 _audit_failed_login("dev")
 
@@ -177,6 +206,96 @@ def _basic_auth() -> bool:
     # MVP: Same implementation as dev (form-based login)
     # TODO: Implement proper HTTP Basic Auth or remove this mode
     return _dev_auth()
+
+
+def _mtls_auth() -> bool:
+    """
+    Mutual TLS (mTLS) authentication with JWT-DN binding.
+
+    Security Features:
+    - Client certificate validation (performed by nginx)
+    - JWT-DN binding contract: JWT.sub MUST equal client certificate DN
+    - Header spoofing prevention: Validates X-SSL-Client-Verify header
+    - Automatic JWT issuance on first successful mTLS verification
+    - JWT validation on every request (prevents session hijacking)
+
+    Header Access:
+    - Uses Streamlit's session_info API to access nginx-forwarded headers
+    - Fallback to environment variables if session_info unavailable
+
+    Returns:
+        bool: True if authenticated and JWT-DN binding valid
+    """
+    # Get request headers from Streamlit context
+    headers = _get_request_headers()
+
+    # Step 1: Verify nginx performed successful mTLS verification
+    client_verify = headers.get("X-SSL-Client-Verify", "")
+    if client_verify != "SUCCESS":
+        st.error(
+            "🔒 Client certificate verification failed.\n\n"
+            f"Verification status: {client_verify or 'NONE'}\n\n"
+            "Please ensure you have a valid client certificate configured in your browser."
+        )
+        logger.warning(f"mTLS verification failed: {client_verify}")
+        _audit_failed_login("mtls")
+        return False
+
+    # Step 2: Extract client certificate DN (Distinguished Name)
+    client_dn = headers.get("X-SSL-Client-S-DN", "")
+    if not client_dn:
+        st.error("🔒 Client certificate DN not found. mTLS configuration error.")
+        logger.error("X-SSL-Client-S-DN header missing despite SUCCESS verification")
+        _audit_failed_login("mtls")
+        return False
+
+    # Step 3: Extract CN from DN (for display purposes)
+    client_cn = _extract_cn_from_dn(client_dn)
+
+    # Step 4: Check if already authenticated with valid JWT
+    if "authenticated" in st.session_state and st.session_state.get("authenticated", False):
+        # Validate JWT-DN binding contract on EVERY request
+        if _validate_jwt_dn_binding(headers, st.session_state.get("jwt_token", "")):
+            # Check session timeout
+            if _check_session_timeout():
+                return True
+            else:
+                # Session expired - clear and re-authenticate
+                st.session_state.clear()
+                st.rerun()
+        else:
+            # JWT-DN binding validation failed - force re-authentication
+            logger.error(f"JWT-DN binding validation failed for {client_dn}")
+            st.session_state.clear()
+            st.error("🔒 Session validation failed. Please refresh the page.")
+            _audit_failed_login("mtls")
+            return False
+
+    # Step 5: First-time authentication - issue JWT with DN binding
+    jwt_token, claims = _issue_jwt_for_client_dn(client_dn, client_cn, client_verify)
+    if not jwt_token:
+        st.error("🔒 Failed to issue authentication token. Please try again.")
+        logger.error(f"JWT issuance failed for {client_dn}")
+        _audit_failed_login("mtls")
+        return False
+
+    # Step 6: Initialize session with JWT and client info
+    st.session_state["authenticated"] = True
+    st.session_state["username"] = client_cn  # Display name
+    st.session_state["client_dn"] = client_dn  # Full DN for JWT binding
+    st.session_state["jwt_token"] = jwt_token
+    st.session_state["jwt_claims"] = claims
+    st.session_state["auth_method"] = "mtls"
+    st.session_state["login_time"] = datetime.now()
+    st.session_state["last_activity"] = datetime.now()
+    if claims and "jti" in claims:
+        st.session_state["session_id"] = claims["jti"]
+
+    # Audit successful login
+    _audit_successful_login(client_cn, "mtls")
+    logger.info(f"mTLS authentication successful for {client_cn} (DN: {client_dn})")
+
+    return True
 
 
 def _oauth2_auth() -> bool:
@@ -432,6 +551,194 @@ def _audit_failed_login(auth_method: str) -> None:
         details=details,
         session_id="N/A",  # No session for failed login
     )
+
+
+def _get_request_headers() -> dict[str, str]:
+    """
+    Get request headers from Streamlit context.
+
+    Attempts to access nginx-forwarded headers using Streamlit's session_info API.
+    Falls back to environment variables if session_info unavailable (e.g., older Streamlit versions).
+
+    Implementation Notes:
+    - Streamlit exposes headers via session_info.ws.request (WebSocket request object)
+    - This is the recommended approach for production deployment behind nginx
+    - Fallback to os.environ for testing/development without nginx
+
+    Returns:
+        dict: Request headers (X-SSL-Client-* headers from nginx)
+    """
+    headers: dict[str, str] = {}
+
+    try:
+        # Attempt to get headers from Streamlit session context
+        # This works when running behind nginx reverse proxy
+        ctx = get_script_run_ctx()
+        if ctx and hasattr(ctx, "session_id"):
+            # Access session_info to get request headers
+            # Note: This API is internal and may change in future Streamlit versions
+            from streamlit.runtime import get_instance
+
+            runtime = get_instance()
+            if runtime:
+                # Try to get session info (API varies by Streamlit version)
+                session = getattr(runtime, "get_session_info", lambda x: None)(ctx.session_id)
+                if session and hasattr(session, "ws") and hasattr(session.ws, "request"):
+                    # Extract headers from WebSocket request
+                    ws_headers = session.ws.request.headers
+                    # Convert to dict (case-insensitive lookup)
+                    for key, value in ws_headers.items():
+                        headers[key] = value
+                    logger.debug(f"Retrieved {len(headers)} headers from session_info")
+    except Exception as e:
+        logger.debug(
+            f"Could not access session_info headers: {e}. Falling back to environment variables."
+        )
+
+    # Fallback: Check environment variables (for testing/development)
+    if not headers:
+        headers = {
+            "X-SSL-Client-Verify": os.environ.get("X_SSL_CLIENT_VERIFY", ""),
+            "X-SSL-Client-S-DN": os.environ.get("X_SSL_CLIENT_S_DN", ""),
+            "X-SSL-Client-I-DN": os.environ.get("X_SSL_CLIENT_I_DN", ""),
+            "X-SSL-Client-Serial": os.environ.get("X_SSL_CLIENT_SERIAL", ""),
+            "X-SSL-Client-Fingerprint": os.environ.get("X_SSL_CLIENT_FINGERPRINT", ""),
+        }
+        logger.debug("Using environment variable fallback for headers")
+
+    return headers
+
+
+def _extract_cn_from_dn(dn: str) -> str:
+    """
+    Extract Common Name (CN) from Distinguished Name (DN).
+
+    Example DN: "CN=user@example.com,OU=Users,O=Example Corp,C=US"
+    Returns: "user@example.com"
+
+    Args:
+        dn: Full Distinguished Name from client certificate
+
+    Returns:
+        str: Common Name (CN) component, or full DN if CN not found
+    """
+    # Parse DN to extract CN (Common Name)
+    # DN format: "CN=value,OU=value,O=value,C=value"
+    for component in dn.split(","):
+        component = component.strip()
+        if component.startswith("CN="):
+            return component[3:]  # Remove "CN=" prefix
+
+    # Fallback: Return full DN if CN not found
+    logger.warning(f"CN not found in DN: {dn}")
+    return dn
+
+
+def _issue_jwt_for_client_dn(
+    client_dn: str, client_cn: str, client_verify: str
+) -> tuple[str, dict[str, Any]] | tuple[None, None]:
+    """
+    Issue JWT token with DN binding for authenticated client.
+
+    JWT Claims:
+    - sub: Client DN (CRITICAL: Used for JWT-DN binding contract)
+    - cn: Client Common Name (for display)
+    - cert_verify: Verification status (should always be "SUCCESS")
+    - iat: Issued at timestamp
+    - exp: Expiration timestamp (8 hours from issuance)
+    - jti: Unique JWT ID (used as session ID)
+
+    Args:
+        client_dn: Full Distinguished Name from client certificate
+        client_cn: Common Name from client certificate
+        client_verify: Verification status from nginx (should be "SUCCESS")
+
+    Returns:
+        tuple: (JWT token string, claims dict) on success, (None, None) on failure
+    """
+    try:
+        now = datetime.now(UTC)
+        jti = secrets.token_urlsafe(16)  # Unique JWT ID
+
+        claims = {
+            "sub": client_dn,  # CRITICAL: DN binding (JWT.sub == client DN)
+            "cn": client_cn,
+            "cert_verify": client_verify,
+            "iat": now,
+            "exp": now + timedelta(hours=JWT_EXPIRATION_HOURS),
+            "jti": jti,
+        }
+
+        # Encode JWT
+        token = jwt.encode(claims, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+        logger.info(f"Issued JWT for {client_cn} (DN: {client_dn}, jti: {jti})")
+
+        return token, claims
+
+    except Exception as e:
+        logger.error(f"Failed to issue JWT for {client_dn}: {e}")
+        return None, None
+
+
+def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
+    """
+    Validate JWT-DN binding contract on EVERY request.
+
+    Security Contract:
+    1. JWT.sub (subject) MUST equal current client DN from X-SSL-Client-S-DN header
+    2. X-SSL-Client-Verify MUST be "SUCCESS"
+    3. JWT MUST not be expired
+    4. JWT MUST have valid signature
+
+    This prevents:
+    - Session hijacking (attacker cannot reuse JWT with different certificate)
+    - Token replay attacks (JWT bound to specific client certificate)
+    - Header spoofing (validates X-SSL-Client-Verify on every request)
+
+    Args:
+        headers: Current request headers from nginx
+        jwt_token: JWT token from session state
+
+    Returns:
+        bool: True if JWT-DN binding valid, False otherwise
+    """
+    try:
+        # Verify current mTLS verification is still successful
+        current_verify = headers.get("X-SSL-Client-Verify", "")
+        if current_verify != "SUCCESS":
+            logger.error(f"JWT validation failed: X-SSL-Client-Verify={current_verify}")
+            return False
+
+        # Get current client DN from request headers
+        current_dn = headers.get("X-SSL-Client-S-DN", "")
+        if not current_dn:
+            logger.error("JWT validation failed: X-SSL-Client-S-DN header missing")
+            return False
+
+        # Decode and validate JWT
+        try:
+            claims = jwt.decode(jwt_token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        except jwt.ExpiredSignatureError:
+            logger.warning("JWT validation failed: Token expired")
+            return False
+        except jwt.InvalidTokenError as e:
+            logger.error(f"JWT validation failed: Invalid token: {e}")
+            return False
+
+        # Validate JWT-DN binding contract: JWT.sub MUST equal current client DN
+        jwt_dn = claims.get("sub", "")
+        if jwt_dn != current_dn:
+            logger.error(
+                f"JWT-DN binding validation failed: " f"JWT.sub={jwt_dn}, current DN={current_dn}"
+            )
+            return False
+
+        # All checks passed
+        return True
+
+    except Exception as e:
+        logger.error(f"JWT validation exception: {e}")
+        return False
 
 
 def get_current_user() -> dict[str, Any]:
