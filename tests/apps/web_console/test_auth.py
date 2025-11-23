@@ -545,8 +545,8 @@ class TestMtlsAuth:
         # Should reject token issuance
         assert token is None
         assert claims is None
-        # JWTManager should NOT be called
-        mock_session_manager.generate_access_token.assert_not_called()
+        # SessionManager should NOT be called
+        mock_session_manager.create_session.assert_not_called()
 
     @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
