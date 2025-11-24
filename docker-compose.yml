@@ -120,6 +120,15 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}
       - SESSION_TIMEOUT_MINUTES=15
       - SESSION_ABSOLUTE_TIMEOUT_HOURS=4
+      # Phase 3: OAuth2/OIDC Configuration (optional, required if WEB_CONSOLE_AUTH_TYPE=oauth2)
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN:-}
+      - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID:-}
+      - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET:-}
+      - AUTH0_AUDIENCE=${AUTH0_AUDIENCE:-https://api.trading-platform.local}
+      - OAUTH2_REDIRECT_URI=${OAUTH2_REDIRECT_URI:-https://web-console.trading-platform.local/callback}
+      - OAUTH2_LOGOUT_REDIRECT_URI=${OAUTH2_LOGOUT_REDIRECT_URI:-https://web-console.trading-platform.local/logout}
+      - REDIS_SESSION_DB=${REDIS_SESSION_DB:-1}
+      - HEALTH_CHECK_SECRET=${HEALTH_CHECK_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -163,14 +172,81 @@ services:
     profiles:
       - mtls
 
+  # OAuth2 profile: No direct port exposure, access via nginx reverse proxy
+  # Usage: docker-compose --profile oauth2 up -d
+  web_console_oauth2:
+    extends: web_console
+    container_name: trading_platform_web_console_oauth2
+    # NO ports exposed on host (only internal Docker network access)
+    # Access via nginx reverse proxy on port 443
+    environment:
+      - WEB_CONSOLE_AUTH_TYPE=oauth2  # Override to use OAuth2 authentication
+      # Redis connection for session storage
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Component 3: Trust nginx reverse proxy for header forwarding
+      - TRUSTED_PROXY_IPS=172.28.0.10
+      # OAuth2 redirect URLs (for FastAPI auth service)
+      - OAUTH2_LOGIN_URL=/login
+      - OAUTH2_LOGOUT_URL=/logout
+      # Session encryption key (AES-256-GCM)
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY not set. Generate with: python3 -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles:
+      - oauth2
+
+  # FastAPI auth service (OAuth2 endpoints)
+  # Only runs in OAuth2 profile
+  # Usage: docker-compose --profile oauth2 up -d
+  auth_service:
+    build:
+      context: .
+      dockerfile: apps/auth_service/Dockerfile
+    container_name: trading_platform_auth_service
+    # NO ports exposed on host (only internal Docker network access)
+    # Access via nginx reverse proxy (/login, /callback, /refresh, /logout)
+    environment:
+      # Auth0 configuration
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN:?AUTH0_DOMAIN not set}
+      - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID:?AUTH0_CLIENT_ID not set}
+      - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET:?AUTH0_CLIENT_SECRET not set}
+      - AUTH0_AUDIENCE=${AUTH0_AUDIENCE:-https://api.trading-platform.local}
+      - OAUTH2_REDIRECT_URI=${OAUTH2_REDIRECT_URI:-https://web-console.trading-platform.local/callback}
+      - OAUTH2_LOGOUT_REDIRECT_URI=${OAUTH2_LOGOUT_REDIRECT_URI:-https://web-console.trading-platform.local}
+      # Cookie domain (must match web console domain)
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN:-.trading-platform.local}
+      # Redis connection for session storage
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Session encryption key (AES-256-GCM) - MUST match web_console
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY not set}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - trading_platform
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - oauth2
+
   # Nginx reverse proxy with mTLS (Component 3)
   # Only runs in mTLS profile
   # Usage: docker-compose --profile mtls up -d
-  nginx:
+  nginx_mtls:
     build:
       context: .
       dockerfile: apps/web_console/nginx/Dockerfile
-    container_name: trading_platform_nginx
+    container_name: trading_platform_nginx_mtls
+    environment:
+      - AUTH_MODE=mtls  # Use mTLS configuration
     ports:
       - "443:443"  # HTTPS with mTLS
       - "80:80"    # HTTP redirect to HTTPS
@@ -185,6 +261,32 @@ services:
         ipv4_address: 172.28.0.10
     profiles:
       - mtls
+
+  # Nginx reverse proxy with OAuth2 (Component 2 Phase 3)
+  # Only runs in OAuth2 profile
+  # Usage: docker-compose --profile oauth2 up -d
+  nginx_oauth2:
+    build:
+      context: .
+      dockerfile: apps/web_console/nginx/Dockerfile
+    container_name: trading_platform_nginx_oauth2
+    environment:
+      - AUTH_MODE=oauth2  # Use OAuth2 configuration
+    ports:
+      - "443:443"  # HTTPS with OAuth2
+      - "80:80"    # HTTP redirect to HTTPS
+    volumes:
+      # Mount certificates from apps/web_console/certs
+      # Certificates must be generated before starting (see docs/RUNBOOKS/web-console-oauth2-setup.md)
+      - ./apps/web_console/certs:/etc/nginx/certs:ro
+    depends_on:
+      - web_console_oauth2
+      - auth_service
+    networks:
+      trading_platform:
+        ipv4_address: 172.28.0.10
+    profiles:
+      - oauth2
 
 networks:
   trading_platform:

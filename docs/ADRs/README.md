@@ -20,6 +20,7 @@ This directory contains all architectural decisions made for the trading platfor
 | [0011](./0011-risk-management-system.md) | Risk management system | Accepted |
 | [0012](./0012-prometheus-grafana-monitoring.md) | Prometheus/Grafana monitoring | Accepted |
 | [0013](./0013-workflow-automation-gates.md) | Workflow automation gates | Accepted |
+| [ADR-015](./ADR-015-auth0-idp-selection.md) | Auth0 for Production OAuth2/OIDC Identity Provider | Proposed |
 | [0015](./0015-twap-order-slicer.md) | TWAP order slicer | Accepted |
 | [0016](./0016-multi-alpha-allocation.md) | Multi-alpha allocation | Accepted |
 

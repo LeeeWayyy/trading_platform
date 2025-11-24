@@ -74,7 +74,11 @@ def _get_api_session() -> requests.Session:
             total=3,  # Total number of retries
             backoff_factor=0.5,  # Exponential backoff: 0.5s, 1s, 2s
             status_forcelist=[500, 502, 503, 504],  # Retry on these HTTP status codes
-            allowed_methods=["GET", "POST", "DELETE"],  # CRITICAL: Assumes POST endpoints are idempotent (via client_order_id)
+            allowed_methods=[
+                "GET",
+                "POST",
+                "DELETE",
+            ],  # CRITICAL: Assumes POST endpoints are idempotent (via client_order_id)
             raise_on_status=False,  # Don't raise on retry exhaustion
         )
 
@@ -88,7 +92,9 @@ def _get_api_session() -> requests.Session:
     return cast(requests.Session, st.session_state["api_session"])
 
 
-def fetch_api(endpoint: str, method: str = "GET", data: dict[str, Any] | None = None) -> dict[str, Any]:
+def fetch_api(
+    endpoint: str, method: str = "GET", data: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Fetch data from execution gateway API with retry logic.
 
@@ -241,9 +247,11 @@ def render_dashboard() -> None:
         st.metric(
             "Unrealized P&L",
             f"${float(unrealized_pnl):,.2f}",
-            delta=f"{float(pnl_data.get('total_unrealized_pl_pct', 0)):.2f}%"
-            if pnl_data.get("total_unrealized_pl_pct")
-            else None,
+            delta=(
+                f"{float(pnl_data.get('total_unrealized_pl_pct', 0)):.2f}%"
+                if pnl_data.get("total_unrealized_pl_pct")
+                else None
+            ),
         )
     with col3:
         realtime_count = pnl_data.get("realtime_prices_available", 0)
@@ -323,7 +331,9 @@ def render_manual_order_entry() -> None:
 
             col1, col2 = st.columns(2)
             with col1:
-                symbol = st.text_input("Symbol", placeholder="AAPL", help="Stock symbol (e.g., AAPL, MSFT)")
+                symbol = st.text_input(
+                    "Symbol", placeholder="AAPL", help="Stock symbol (e.g., AAPL, MSFT)"
+                )
                 side = st.selectbox("Side", ["buy", "sell"])
                 qty = st.number_input("Quantity", min_value=1, value=10, step=1)
 
@@ -445,7 +455,9 @@ def render_manual_order_entry() -> None:
                         "client_order_id": client_order_id,
                     }
                     if order["limit_price"]:
-                        order_request["limit_price"] = order["limit_price"]  # Keep as numeric, not string
+                        order_request["limit_price"] = order[
+                            "limit_price"
+                        ]  # Keep as numeric, not string
 
                     response = fetch_api("submit_order", method="POST", data=order_request)
 
@@ -623,7 +635,9 @@ def render_audit_log() -> None:
         import psycopg
 
         # MVP: New connection per render. Production TODO: Use connection pool
-        with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
+        with psycopg.connect(
+            config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT
+        ) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -707,9 +721,7 @@ def main() -> None:
         try:
             gateway_config = fetch_gateway_config()
             st.markdown(f"Mode: {gateway_config.get('environment', 'unknown')}")
-            st.markdown(
-                f"Dry Run: {'✅' if gateway_config.get('dry_run') else '❌'}"
-            )
+            st.markdown(f"Dry Run: {'✅' if gateway_config.get('dry_run') else '❌'}")
         except requests.exceptions.RequestException:
             st.markdown("⚠️ Gateway unreachable")
 

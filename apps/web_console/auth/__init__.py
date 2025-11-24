@@ -35,6 +35,12 @@ import redis
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
+# Import session manager for OAuth2
+from apps.web_console.auth.session_manager import (
+    get_session_cookie,
+    validate_session,
+)
+from apps.web_console.auth.session_store import RedisSessionStore
 from apps.web_console.config import (
     AUTH_TYPE,
     DATABASE_CONNECT_TIMEOUT,
@@ -104,9 +110,7 @@ def _get_session_manager() -> SessionManager:
             # Initialize SessionManager with required dependencies
             # Signature: SessionManager(redis_client, jwt_manager, auth_config)
             _session_manager = SessionManager(
-                redis_client=_redis_client,
-                jwt_manager=jwt_manager,
-                auth_config=auth_config
+                redis_client=_redis_client, jwt_manager=jwt_manager, auth_config=auth_config
             )
 
             logger.info(
@@ -396,27 +400,151 @@ def _mtls_auth() -> bool:
 
 def _oauth2_auth() -> bool:
     """
-    OAuth2/OIDC authentication.
+    OAuth2/OIDC authentication via FastAPI auth service.
 
-    Production-ready authentication with SSO support.
-    Placeholder for future implementation.
+    Production-ready authentication with Auth0 SSO integration.
+    Validates HttpOnly session cookie set by FastAPI auth service.
+
+    Security Features:
+    - HttpOnly cookies (XSS protection)
+    - Secure + SameSite=Lax flags
+    - Server-side session validation
+    - AES-256-GCM encrypted session storage
+    - Session binding (IP + User-Agent validation)
+    - Absolute 4-hour timeout enforcement
+
+    Flow:
+    1. User accesses Streamlit page
+    2. Check for session_id cookie (HttpOnly, set by FastAPI /callback)
+    3. If no cookie, redirect to /login (FastAPI initiates OAuth2 flow)
+    4. If cookie exists, validate session with RedisSessionStore
+    5. If valid, allow access; if invalid/expired, redirect to /login
 
     Returns:
         bool: True if authenticated
     """
-    st.error(
-        "OAuth2 authentication not yet implemented. "
-        "Please set WEB_CONSOLE_AUTH_TYPE=dev for development."
-    )
-    st.info(
-        "**Planned OAuth2 Features:**\n"
-        "- Single Sign-On (SSO) integration\n"
-        "- Multi-Factor Authentication (MFA)\n"
-        "- Role-Based Access Control (RBAC)\n"
-        "- Automatic session refresh\n"
-        "- Integration with corporate IdP"
-    )
-    return False
+    import asyncio
+    import base64
+    import os
+
+    import redis.asyncio
+
+    # Check if already authenticated (cached in Streamlit session_state)
+    if "authenticated" in st.session_state and st.session_state.get("authenticated", False):
+        # Check session timeout
+        if _check_session_timeout():
+            return True
+        else:
+            # Session expired - clear and redirect to login
+            st.session_state.clear()
+            st.rerun()
+
+    # Get session cookie
+    session_id = get_session_cookie()
+
+    if not session_id:
+        # No session cookie - redirect to login
+        st.title("Trading Platform - Login Required")
+        st.info("You are not authenticated. Please log in to continue.")
+
+        # Construct login URL (FastAPI auth service endpoint)
+        # In production, this will be /login via nginx proxy
+        login_url = os.getenv("OAUTH2_LOGIN_URL", "/login")
+
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url={login_url}">',
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"[Click here if not redirected automatically]({login_url})")
+        st.stop()
+        return False
+
+    # Get client info for session binding
+    client_ip = _get_client_ip()
+    user_agent = _get_request_headers().get("User-Agent", "unknown")
+
+    # Validate session (async operation)
+    async def _validate() -> dict[str, Any] | None:
+        redis_client = redis.asyncio.Redis(
+            host=os.getenv("REDIS_HOST", "redis"),
+            port=int(os.getenv("REDIS_PORT", "6379")),
+            db=1,  # Sessions DB
+            decode_responses=False,
+        )
+
+        # Get encryption key
+        key_b64 = os.getenv("SESSION_ENCRYPTION_KEY")
+        if not key_b64:
+            raise ValueError("SESSION_ENCRYPTION_KEY environment variable not set")
+        key_bytes = base64.b64decode(key_b64)
+        if len(key_bytes) != 32:
+            raise ValueError(
+                f"SESSION_ENCRYPTION_KEY must decode to 32 bytes (got {len(key_bytes)})"
+            )
+
+        session_store = RedisSessionStore(
+            redis_client=redis_client,
+            encryption_key=key_bytes,
+        )
+
+        # Validate session with IP/UA binding
+        return await validate_session(session_id, session_store, client_ip, user_agent)
+
+    try:
+        # Run async validation
+        user_info = asyncio.run(_validate())
+    except RuntimeError:
+        # If event loop already running (e.g., in Jupyter), use nest_asyncio
+        try:
+            import nest_asyncio
+
+            nest_asyncio.apply()
+            user_info = asyncio.run(_validate())
+        except ImportError:
+            logger.error("nest_asyncio not installed, cannot validate session")
+            st.error("Session validation failed. Please login again.")
+            st.markdown(f"[Login]({os.getenv('OAUTH2_LOGIN_URL', '/login')})")
+            st.stop()
+            return False
+    except Exception as e:
+        logger.error(f"Session validation exception: {e}")
+        st.error("Session validation failed. Please login again.")
+        st.markdown(f"[Login]({os.getenv('OAUTH2_LOGIN_URL', '/login')})")
+        st.stop()
+        return False
+
+    if not user_info:
+        # Invalid/expired session - redirect to login
+        st.title("Trading Platform - Session Expired")
+        st.warning("Your session has expired. Please log in again.")
+
+        login_url = os.getenv("OAUTH2_LOGIN_URL", "/login")
+        st.markdown(
+            f'<meta http-equiv="refresh" content="2; url={login_url}">',
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"[Click here if not redirected automatically]({login_url})")
+        st.stop()
+        return False
+
+    # Cache user info in Streamlit session_state
+    now = datetime.now()
+    st.session_state["authenticated"] = True
+    st.session_state["username"] = user_info["email"]  # Use email as display name
+    st.session_state["auth_method"] = "oauth2"
+    st.session_state["login_time"] = now  # Use now as login time for timeout tracking
+    st.session_state["last_activity"] = now
+    st.session_state["session_id"] = session_id
+    st.session_state["user_id"] = user_info["user_id"]
+    st.session_state["access_token"] = user_info["access_token"]
+
+    # Audit successful validation (not a new login, but session validation)
+    # Only log on first validation to avoid spam
+    if "oauth2_logged" not in st.session_state:
+        _audit_successful_login(user_info["email"], "oauth2")
+        st.session_state["oauth2_logged"] = True
+
+    return True
 
 
 def _init_session(username: str, auth_method: str) -> None:
@@ -553,12 +681,9 @@ def _get_remote_addr() -> str:
                         logger.debug(f"Extracted remote_addr: {remote_ip}")
                         return remote_ip
 
-        # Fallback: check X-Real-IP header (set by nginx)
-        headers = _get_request_headers()
-        x_real_ip = headers.get("X-Real-IP", "")
-        if x_real_ip:
-            logger.debug(f"Extracted remote_addr from X-Real-IP: {x_real_ip}")
-            return x_real_ip
+        # CRITICAL: Do NOT fallback to X-Real-IP header here.
+        # We use remote_addr to VALIDATE headers (trusted proxy check).
+        # Reading headers to get remote_addr would create a circular trust vulnerability.
 
         # Fallback: environment variable for testing
         env_remote = os.environ.get("REMOTE_ADDR", "127.0.0.1")
@@ -584,30 +709,31 @@ def _get_client_ip() -> str:
         (e.g., misconfigured network exposure or lateral movement).
 
     Behavior:
-        - If TRUSTED_PROXY_IPS not set: Returns "localhost" (safe default for dev)
+        - Get remote_addr (immediate upstream caller)
+        - If TRUSTED_PROXY_IPS not set: Returns remote_addr (safe default for dev/docker)
         - If TRUSTED_PROXY_IPS set: Verifies remote_addr is trusted before using XFF
-        - Falls back to "localhost" if verification fails or header extraction fails
+        - Falls back to remote_addr if verification fails or header extraction fails
 
     Returns:
-        str: Client IP address from X-Forwarded-For (if from trusted proxy) or "localhost"
+        str: Client IP address from X-Forwarded-For (if from trusted proxy) or remote_addr
     """
-    # If no trusted proxies configured, return localhost (safe default for dev)
+    # Get remote_addr (immediate upstream caller)
+    remote_addr = _get_remote_addr()
+
+    # If no trusted proxies configured, return remote_addr (safe default for dev/docker)
     if not TRUSTED_PROXY_IPS:
-        return "localhost"
+        return remote_addr
 
     # Extract X-Forwarded-For header from nginx
     try:
-        # Get remote_addr (immediate upstream caller) to verify it's a trusted proxy
-        remote_addr = _get_remote_addr()
-
         # Defense-in-depth: Only trust X-Forwarded-For if request came from trusted proxy
         # This prevents spoofing if Streamlit container is directly reachable
         if remote_addr not in TRUSTED_PROXY_IPS:
             logger.warning(
                 f"Request from untrusted proxy {remote_addr} (not in TRUSTED_PROXY_IPS). "
-                "Ignoring X-Forwarded-For to prevent IP spoofing. Using localhost."
+                "Ignoring X-Forwarded-For to prevent IP spoofing. Using remote_addr."
             )
-            return "localhost"
+            return remote_addr
 
         headers = _get_request_headers()
         xff = headers.get("X-Forwarded-For", "")
@@ -629,12 +755,12 @@ def _get_client_ip() -> str:
             logger.debug(f"Extracted client IP from env X_FORWARDED_FOR: {client_ip}")
             return client_ip
 
-        # No X-Forwarded-For header - fall back to localhost
-        logger.debug("No X-Forwarded-For header found, using localhost")
-        return "localhost"
+        # No X-Forwarded-For header - fall back to remote_addr
+        logger.debug(f"No X-Forwarded-For header found, using remote_addr: {remote_addr}")
+        return remote_addr
     except Exception as e:
-        logger.warning(f"Failed to extract client IP: {e}. Using localhost.")
-        return "localhost"
+        logger.warning(f"Failed to extract client IP: {e}. Using remote_addr.")
+        return remote_addr
 
 
 def audit_to_database(
@@ -888,14 +1014,10 @@ def _issue_jwt_for_client_dn(
                 user_agent=user_agent,
             )
         except SessionLimitExceededError as e:
-            logger.error(
-                f"Session creation failed for {client_dn}: Session limit exceeded. {e}"
-            )
+            logger.error(f"Session creation failed for {client_dn}: Session limit exceeded. {e}")
             return None, None
         except RateLimitExceededError as e:
-            logger.error(
-                f"Session creation failed for {client_dn}: Rate limit exceeded. {e}"
-            )
+            logger.error(f"Session creation failed for {client_dn}: Rate limit exceeded. {e}")
             return None, None
 
         # Decode access token (without verification) to get claims for display
@@ -994,7 +1116,9 @@ def _validate_jwt_dn_binding(headers: dict[str, str], jwt_token: str) -> bool:
             logger.error("Session validation failed: Token revoked (JTI blacklisted)")
             return False
         except InvalidTokenError as e:
-            logger.error(f"Session validation failed: Invalid token or session binding mismatch: {e}")
+            logger.error(
+                f"Session validation failed: Invalid token or session binding mismatch: {e}"
+            )
             return False
 
         # Validate JWT-DN binding contract: JWT.sub MUST equal current client DN
@@ -1033,6 +1157,7 @@ def logout() -> None:
     """Logout current user and clear session.
 
     For mTLS mode: Terminates session (revokes tokens, cleans up session index).
+    For OAuth2 mode: Redirects to FastAPI /logout (clears cookie, redirects to Auth0 logout).
     For other modes: Simply clears session state.
     """
     username = st.session_state.get("username", "unknown")
@@ -1051,9 +1176,13 @@ def logout() -> None:
             if session_id:
                 session_manager = _get_session_manager()
                 session_manager.terminate_session(session_id)
-                logger.info(f"Terminated session on logout: session_id={session_id}, user={username}")
+                logger.info(
+                    f"Terminated session on logout: session_id={session_id}, user={username}"
+                )
             else:
-                logger.warning(f"Logout skipped session termination: No session_id found for user={username}")
+                logger.warning(
+                    f"Logout skipped session termination: No session_id found for user={username}"
+                )
         except Exception as e:
             # Log error but don't block logout
             logger.error(f"Failed to terminate session on logout: {e}")
@@ -1070,4 +1199,16 @@ def logout() -> None:
     )
 
     st.session_state.clear()
-    st.rerun()
+
+    # For OAuth2, redirect to FastAPI /logout endpoint
+    # FastAPI will clear HttpOnly cookie and redirect to Auth0 logout
+    if auth_method == "oauth2":
+        logout_url = os.getenv("OAUTH2_LOGOUT_URL", "/logout")
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url={logout_url}">',
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"[Click here if not redirected automatically]({logout_url})")
+        st.stop()
+    else:
+        st.rerun()

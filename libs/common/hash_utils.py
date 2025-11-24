@@ -62,9 +62,7 @@ def is_merge_commit(commit_sha: str, cwd: Path | None = None) -> bool:
 
 
 def compute_git_diff_hash(
-    commit_sha: str | None = None,
-    is_merge: bool | None = None,
-    cwd: Path | None = None
+    commit_sha: str | None = None, is_merge: bool | None = None, cwd: Path | None = None
 ) -> str:
     """
     Compute SHA256 hash of git diff with exact WorkflowGate parity.
@@ -121,10 +119,10 @@ def compute_git_diff_hash(
                 "--no-pager",
                 "diff",
                 f"{commit_sha}^1",  # First parent (usually master/main)
-                commit_sha,         # The merge commit
-                "--binary",         # Include binary file content correctly
-                "--no-color",       # Disable color escape codes
-                "--no-ext-diff",    # Ignore external diff helpers
+                commit_sha,  # The merge commit
+                "--binary",  # Include binary file content correctly
+                "--no-color",  # Disable color escape codes
+                "--no-ext-diff",  # Ignore external diff helpers
             ]
         else:
             # Regular commit: standard show
@@ -133,7 +131,7 @@ def compute_git_diff_hash(
                 "--no-pager",
                 "show",
                 commit_sha,
-                "--format=",        # Suppress commit message/metadata
+                "--format=",  # Suppress commit message/metadata
                 "--binary",
                 "--no-color",
                 "--no-ext-diff",
@@ -145,7 +143,7 @@ def compute_git_diff_hash(
             "git",
             "--no-pager",
             "diff",
-            "--staged",         # Only staged changes (not working tree)
+            "--staged",  # Only staged changes (not working tree)
             "--binary",
             "--no-color",
             "--no-ext-diff",

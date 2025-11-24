@@ -9,9 +9,7 @@ Date: 2025-11-15
 Task: P1T13-F5 Phase A.2 Component 1
 """
 
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -19,7 +17,7 @@ from libs.common.hash_utils import compute_git_diff_hash
 from scripts.verify_gate_compliance import validate_review_hash
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_git_repo(tmp_path, monkeypatch):
     """Create a temporary git repository for testing."""
     repo_dir = tmp_path / "test_repo"
@@ -27,8 +25,15 @@ def temp_git_repo(tmp_path, monkeypatch):
 
     # Initialize repo with master as default branch
     subprocess.run(["git", "init", "-b", "master"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
 
     # Change to temp repo and ensure it's restored after test
     monkeypatch.chdir(repo_dir)

@@ -234,27 +234,21 @@ class TestAcceptanceCriteria:
                     for call in mock_print.call_args_list
                 )
                 assert "branch protection" in printed_text.lower()
-                assert "action required" in printed_text.lower() or "settings" in printed_text.lower()
+                assert (
+                    "action required" in printed_text.lower() or "settings" in printed_text.lower()
+                )
 
     def test_ac_returns_correct_exit_codes(self):
         """AC: Returns exit code 0/1 appropriately."""
         # Test exit code 0 (success)
-        protection_data = {
-            "required_status_checks": {
-                "contexts": ["Run tests and check coverage"]
-            }
-        }
-        mock_result = MagicMock(
-            returncode=0, stdout=json.dumps(protection_data), stderr=""
-        )
+        protection_data = {"required_status_checks": {"contexts": ["Run tests and check coverage"]}}
+        mock_result = MagicMock(returncode=0, stdout=json.dumps(protection_data), stderr="")
 
         with patch("subprocess.run", return_value=mock_result):
             assert check_branch_protection() == 0
 
         # Test exit code 1 (misconfigured)
-        mock_result = MagicMock(
-            returncode=1, stderr="Branch not protected", stdout=""
-        )
+        mock_result = MagicMock(returncode=1, stderr="Branch not protected", stdout="")
 
         with patch("subprocess.run", return_value=mock_result):
             assert check_branch_protection() == 1

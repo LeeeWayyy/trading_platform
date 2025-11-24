@@ -189,15 +189,19 @@ class TestAuditLogging:
 class TestAuthTypes:
     """Test different authentication types."""
 
-    def test_oauth2_not_implemented(self):
-        """Test OAuth2 shows not implemented message."""
+    def test_oauth2_requires_session_cookie(self):
+        """Test OAuth2 requires session cookie and redirects if missing."""
         with patch("apps.web_console.auth.AUTH_TYPE", "oauth2"):
-            with patch("apps.web_console.auth.st.error") as mock_error:
-                with patch("apps.web_console.auth.st.info"):
-                    result = auth._oauth2_auth()
+            with patch("apps.web_console.auth.get_session_cookie", return_value=None):
+                with patch("apps.web_console.auth.st.title"):
+                    with patch("apps.web_console.auth.st.info"):
+                        with patch("apps.web_console.auth.st.markdown"):
+                            with patch("apps.web_console.auth.st.stop"):
+                                with patch("apps.web_console.auth.st.session_state", {}):
+                                    result = auth._oauth2_auth()
 
+        # Should return False when no session cookie
         assert result is False
-        mock_error.assert_called_once()
 
     def test_basic_auth_fallback(self):
         """Test basic auth falls back to dev auth for MVP."""
@@ -444,8 +448,11 @@ class TestMtlsAuth:
 
         # Mock SessionManager - validate_session should raise InvalidTokenError for IP mismatch
         from libs.web_console_auth.exceptions import InvalidTokenError
+
         mock_session_manager = MagicMock()
-        mock_session_manager.validate_session.side_effect = InvalidTokenError("Session binding mismatch: IP changed")
+        mock_session_manager.validate_session.side_effect = InvalidTokenError(
+            "Session binding mismatch: IP changed"
+        )
         mock_get_jwt.return_value = mock_session_manager
 
         # Validate JWT should FAIL due to IP mismatch (SessionManager raises InvalidTokenError)
@@ -471,7 +478,10 @@ class TestMtlsAuth:
         # Mock JWTManager validation
         mock_session_manager = MagicMock()
         from libs.web_console_auth.exceptions import InvalidTokenError
-        mock_session_manager.validate_session.side_effect = InvalidTokenError("Session binding mismatch: UA changed")
+
+        mock_session_manager.validate_session.side_effect = InvalidTokenError(
+            "Session binding mismatch: UA changed"
+        )
         mock_get_jwt.return_value = mock_session_manager
 
         # Validate JWT should FAIL due to UA mismatch

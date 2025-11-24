@@ -9,8 +9,6 @@ Component: PR #61 - Address Gemini HIGH priority feedback
 
 from pathlib import Path
 
-import pytest
-
 from scripts.update_task_state import normalize_task_file_path
 
 

@@ -113,7 +113,7 @@ class SessionManager:
             "user_agent_hash": user_agent_hash,
             "access_jti": access_jti,
             "refresh_jti": refresh_payload["jti"],
-            "access_exp": str(access_payload["exp"]),    # Store for precise revocation TTL
+            "access_exp": str(access_payload["exp"]),  # Store for precise revocation TTL
             "refresh_exp": str(refresh_payload["exp"]),  # Store for precise revocation TTL
             "created_at": int(time.time()),
         }
@@ -236,7 +236,9 @@ class SessionManager:
         # Revoke old tokens with precise expirations (after successful atomic swap)
         if old_access_jti:
             # Use actual old access exp if available, fallback to refresh exp
-            access_exp_for_revocation = old_access_exp if old_access_exp > 0 else refresh_payload["exp"]
+            access_exp_for_revocation = (
+                old_access_exp if old_access_exp > 0 else refresh_payload["exp"]
+            )
             self.jwt.revoke_token(old_access_jti, access_exp_for_revocation)
         self.jwt.revoke_token(presented_refresh_jti, refresh_payload["exp"])
 
@@ -342,7 +344,9 @@ class SessionManager:
         refresh_exp_str = session_dict.get(b"refresh_exp", b"").decode()
 
         access_exp = int(access_exp_str) if access_exp_str else (now + self.config.access_token_ttl)
-        refresh_exp = int(refresh_exp_str) if refresh_exp_str else (now + self.config.refresh_token_ttl)
+        refresh_exp = (
+            int(refresh_exp_str) if refresh_exp_str else (now + self.config.refresh_token_ttl)
+        )
 
         if access_jti:
             self.jwt.revoke_token(access_jti, access_exp)

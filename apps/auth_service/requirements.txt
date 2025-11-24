@@ -1,0 +1,27 @@
+# FastAPI auth service dependencies
+# Inherits from apps/web_console/requirements.txt for auth modules
+
+# FastAPI framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# HTTP client
+httpx>=0.25.0
+
+# Redis client (async)
+redis[hiredis]>=5.0.0
+
+# Cryptography for JWT validation
+pyjwt[crypto]>=2.8.0
+cryptography>=41.0.0
+
+# Data validation
+pydantic>=2.4.0
+pydantic-settings>=2.0.0
+
+# Python standard library (no install needed, listed for reference)
+# - base64 (session encryption key decoding)
+# - os (environment variables)
+# - logging (structured logging)
+# - datetime (timezone-aware timestamps)
+# - urllib.parse (URL encoding)

@@ -261,7 +261,7 @@ def validate_review_hash(commit_sha: str) -> bool:
     # For empty commits, the hash value itself can be empty, but trailer must exist
     if claimed_hash is None:
         print(f"  ❌ Missing Review-Hash trailer in {commit_type} commit {commit_sha[:8]}")
-        print(f"     All commits must include 'Review-Hash:' trailer (even empty commits)")
+        print("     All commits must include 'Review-Hash:' trailer (even empty commits)")
         return False
 
     # Handle empty commits - require empty hash value
@@ -272,7 +272,7 @@ def validate_review_hash(commit_sha: str) -> bool:
         else:
             print(f"  ❌ Empty {commit_type} commit but hash mismatch")
             print(f"     Claimed: {claimed_hash[:16]}...")
-            print(f"     Expected: (empty)")
+            print("     Expected: (empty)")
             return False
 
     # For non-empty commits, hash value must not be empty
@@ -286,7 +286,7 @@ def validate_review_hash(commit_sha: str) -> bool:
         print(f"     Claimed: {claimed_hash[:16]}...")
         print(f"     Actual:  {actual_hash[:16]}...")
         if merge:
-            print(f"     Note: Merge validated with diff against first parent")
+            print("     Note: Merge validated with diff against first parent")
         return False
 
     # Success
@@ -398,7 +398,9 @@ def main():
         if missing_markers:
             print()
             print("❌ MARKER VALIDATION FAILED!")
-            print(f"   Found {len(missing_markers)} commit(s) with valid Review-Hash but NO approval markers")
+            print(
+                f"   Found {len(missing_markers)} commit(s) with valid Review-Hash but NO approval markers"
+            )
             print()
             print("   This could indicate:")
             print("   - Review markers were manually removed")

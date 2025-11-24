@@ -85,7 +85,9 @@ def test_no_incorrect_clink_tool_name_typo():
             )
 
     if errors:
-        pytest.fail("\n".join([f"❌ Clink tool name typo found in {len(errors)} file(s):"] + errors))
+        pytest.fail(
+            "\n".join([f"❌ Clink tool name typo found in {len(errors)} file(s):"] + errors)
+        )
 
 
 def test_no_direct_zen_mcp_tool_references():
