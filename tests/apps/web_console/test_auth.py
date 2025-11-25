@@ -574,9 +574,9 @@ class TestMtlsAuth:
             "X-Forwarded-For": "203.0.113.42",  # Spoofed client IP
         }
 
-        # Should reject XFF and return localhost (fail-safe)
+        # Should reject XFF and return remote_addr (fail-safe)
         client_ip = auth._get_client_ip()
-        assert client_ip == "localhost"
+        assert client_ip == "192.168.99.99"  # Returns remote_addr when proxy untrusted
 
     @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")

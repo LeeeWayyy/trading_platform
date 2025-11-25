@@ -274,8 +274,13 @@ def test_logout_redirects_and_clears_cookie(client, mock_oauth2_handler):
     assert "session_id=" in set_cookie_header
     assert "Max-Age=0" in set_cookie_header or "max-age=0" in set_cookie_header
 
-    # Should have called handle_logout
-    mock_oauth2_handler.handle_logout.assert_called_once_with("session_id_123")
+    # Should have called handle_logout with session ID, IP, and User-Agent
+    # TestClient provides "testclient" as User-Agent, and IP extraction may fallback to "unknown" in tests
+    mock_oauth2_handler.handle_logout.assert_called_once_with(
+        "session_id_123",
+        current_ip="unknown",
+        current_user_agent="testclient",
+    )
 
 
 def test_logout_no_cookie_redirects_to_login(client, mock_oauth2_handler):

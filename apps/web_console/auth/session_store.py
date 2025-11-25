@@ -45,6 +45,7 @@ class SessionData(BaseModel):
         last_activity: Last request timestamp for idle timeout (UTC)
         ip_address: Client IP address for session binding
         user_agent: Client User-Agent for session binding
+        access_token_expires_at: Access token expiry timestamp for auto-refresh (Component 3)
     """
 
     access_token: str
@@ -56,6 +57,9 @@ class SessionData(BaseModel):
     last_activity: datetime
     ip_address: str
     user_agent: str
+    # NEW: Component 3 - Track token expiry for auto-refresh
+    # Optional for backward compatibility with existing sessions (defaults to created_at + 1h)
+    access_token_expires_at: datetime | None = None
 
 
 class RedisSessionStore:

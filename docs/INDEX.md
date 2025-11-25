@@ -328,18 +328,11 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-15, Task] [P2T2_DONE.md](./TASKS/P2T2_DONE.md) - Secrets management with Google Cloud Secret Manager (completed)
 - [CURRENT, 2025-11-17, Task] [P2T3_TASK.md](./TASKS/P2T3_TASK.md) - Web console for operational oversight and manual intervention
 - [CURRENT, 2025-11-22, Plan] [P2T3_Component2_Plan.md](./TASKS/P2T3_Component2_Plan.md) - Component 2: JWT token generation and validation implementation plan
-- [CURRENT, 2025-11-22, Plan] [P2T3_Component3_Plan.md](./TASKS/P2T3_Component3_Plan.md) - Component 3: Nginx reverse proxy with mTLS authentication implementation plan
-- [CURRENT, 2025-11-23, Plan] [P2T3_Phase3_Plan.md](./TASKS/P2T3_Phase3_Plan.md) - P2T3 Phase 3: Initial OAuth2/OIDC authentication plan
-- [CURRENT, 2025-11-23, Plan] [P2T3_Phase3_AMENDMENTS.md](./TASKS/P2T3_Phase3_AMENDMENTS.md) - P2T3 Phase 3: Iteration 2 amendments fixing CRITICAL + HIGH issues
-- [CURRENT, 2025-11-23, Plan] [P2T3_Phase3_ITERATION3_FIXES.md](./TASKS/P2T3_Phase3_ITERATION3_FIXES.md) - P2T3 Phase 3: Iteration 3 quick fixes for Codex HIGH + MEDIUM issues
-- [CURRENT, 2025-11-23, Plan] [P2T3_Phase3_FINAL_PLAN.md](./TASKS/P2T3_Phase3_FINAL_PLAN.md) - P2T3 Phase 3: Final consolidated OAuth2/OIDC authentication plan (dual approved)
-- [CURRENT, 2025-11-23, Plan] [P2T3_Phase3_PLANNING_SUMMARY.md](./TASKS/P2T3_Phase3_PLANNING_SUMMARY.md) - P2T3 Phase 3: Planning summary (4 iterations)
 - [CURRENT, 2025-11-23, Task] [P2T3-Phase3_TASK.md](./TASKS/P2T3-Phase3_TASK.md) - P2T3 Phase 3: OAuth2/OIDC Authentication for Production (in progress)
 - [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component1_Plan.md](./TASKS/P2T3-Phase3_Component1_Plan.md) - Component 1: OAuth2 Config & IdP Setup detailed implementation plan
-- [SUPERSEDED, 2025-11-23, Plan] [P2T3-Phase3_Component2_Plan.md](./TASKS/P2T3-Phase3_Component2_Plan.md) - Component 2: OAuth2 Authorization Flow with PKCE (v1, superseded by v3)
-- [SUPERSEDED, 2025-11-23, Plan] [P2T3-Phase3_Component2_Plan_v2.md](./TASKS/P2T3-Phase3_Component2_Plan_v2.md) - Component 2: OAuth2 Authorization Flow with PKCE (v2, superseded by v3)
 - [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component2_Plan_v3.md](./TASKS/P2T3-Phase3_Component2_Plan_v3.md) - Component 2: OAuth2 Authorization Flow with PKCE (v3 FINAL - FastAPI sidecar architecture)
 - [CURRENT, 2025-11-23, Errata] [P2T3-Phase3_Component2_Plan_v3_ERRATA.md](./TASKS/P2T3-Phase3_Component2_Plan_v3_ERRATA.md) - Component 2 Plan v3 errata and clarifications
+- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component3_Plan_v2.md](./TASKS/P2T3-Phase3_Component3_Plan_v2.md) - Component 3: Session Management & Token Refresh (v2 FINAL - Security fixes for production)
 
 **Checking Current/Next Task:**
 ```bash

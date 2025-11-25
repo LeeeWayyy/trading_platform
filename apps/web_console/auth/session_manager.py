@@ -62,7 +62,11 @@ async def validate_session(
     client_ip: str,
     user_agent: str,
 ) -> dict[str, Any] | None:
-    """Validate session ID and return session data.
+    """Validate session ID and return ONLY non-sensitive metadata.
+
+    CRITICAL SECURITY (Component 3 - Codex Critical #1):
+    Returns ONLY non-sensitive user metadata. Tokens remain in Redis
+    and are fetched by backend helpers when needed for API calls.
 
     Args:
         session_id: Session ID from cookie
@@ -71,7 +75,8 @@ async def validate_session(
         user_agent: Client User-Agent for session binding validation
 
     Returns:
-        Session data dict (user_id, email, access_token, etc.) or None if invalid
+        Non-sensitive metadata dict (user_id, email, display_name, timestamps)
+        or None if invalid. NEVER includes access_token, refresh_token, or id_token.
     """
     if not session_id:
         return None
@@ -89,13 +94,23 @@ async def validate_session(
             logger.info("Invalid or expired session", extra={"session_id": session_id[:8] + "..."})
             return None
 
-        # Convert SessionData to dict for Streamlit state
+        # CRITICAL: Return ONLY non-sensitive metadata (NO TOKENS!)
+        # Component 3 - Codex Critical #1 Fix
+
+        # Backward compatibility: Default to created_at + 1h if field missing (old sessions)
+        expires_at = session_data.access_token_expires_at
+        if expires_at is None:
+            from datetime import timedelta
+            expires_at = session_data.created_at + timedelta(hours=1)
+
         return {
             "user_id": session_data.user_id,
             "email": session_data.email,
-            "access_token": session_data.access_token,
+            "display_name": session_data.email.split("@")[0],  # Derive display name from email
             "created_at": session_data.created_at.isoformat(),
             "last_activity": session_data.last_activity.isoformat(),
+            "access_token_expires_at": expires_at.isoformat(),
+            # NEVER include: access_token, refresh_token, id_token
         }
     except Exception as e:
         logger.error(f"Session validation error: {e}")
@@ -115,10 +130,6 @@ def require_auth(func: Any) -> Any:
 
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        # Check if already authenticated (cached in Streamlit session_state)
-        if "user_info" in st.session_state:
-            return func(*args, **kwargs)
-
         # Get session cookie
         session_id = get_session_cookie()
         if not session_id:
@@ -144,6 +155,8 @@ def require_auth(func: Any) -> Any:
         user_agent = _get_request_headers().get("User-Agent", "unknown")
 
         async def _validate() -> dict[str, Any] | None:
+            # TODO (Codex Medium #2): Reuse Redis client instead of creating new connection
+            # on every request. Requires module-level client management for Streamlit context.
             redis_client = redis.asyncio.Redis(
                 host=os.getenv("REDIS_HOST", "redis"),
                 port=int(os.getenv("REDIS_PORT", "6379")),
@@ -192,7 +205,17 @@ def get_current_user() -> dict[str, Any]:
     Must be called within a function decorated with @require_auth.
 
     Returns:
-        User info dict with user_id, email, access_token, etc.
+        Non-sensitive user metadata dict containing:
+        - user_id: Auth0 user ID
+        - email: User email address
+        - display_name: Display name derived from email
+        - created_at: Session creation timestamp (ISO 8601)
+        - last_activity: Last activity timestamp (ISO 8601)
+        - access_token_expires_at: Token expiry timestamp (ISO 8601)
+
+        SECURITY (Component 3 - Codex Critical #1): Tokens (access_token,
+        refresh_token, id_token) are NEVER included. Use api_client.py helpers
+        to fetch tokens from Redis when needed for API calls.
 
     Raises:
         RuntimeError: If called without @require_auth

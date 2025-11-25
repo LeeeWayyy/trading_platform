@@ -177,6 +177,11 @@ class OAuth2FlowHandler:
         session_id = generate_session_id()
         now = datetime.now(UTC)
 
+        # Calculate access token expiry (Component 3: Auto-refresh)
+        # Auth0 default: 1 hour (3600s), but use expires_in from response if available
+        expires_in_seconds = tokens.get("expires_in", 3600)
+        access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
+
         session_data = SessionData(
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
@@ -187,6 +192,7 @@ class OAuth2FlowHandler:
             last_activity=now,
             ip_address=ip_address,
             user_agent=user_agent,
+            access_token_expires_at=access_token_expires_at,  # Component 3
         )
 
         await self.session_store.create_session(session_id, session_data)
@@ -229,18 +235,23 @@ class OAuth2FlowHandler:
     async def refresh_tokens(
         self,
         session_id: str,
-        ip_address: str,
-        user_agent: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> SessionData:
         """Refresh access token using refresh token.
 
-        CRITICAL: Enforces absolute 4-hour timeout and session binding.
+        CRITICAL: Enforces absolute 4-hour timeout.
+        Optionally enforces session binding (pass None to skip).
         Rotates refresh token on every refresh per OAuth2 best practices.
+
+        FIX (Codex High): Made binding optional since Streamlit background
+        refreshes originate from the server, not the user's browser.
+        The HttpOnly cookie itself proves authentication.
 
         Args:
             session_id: Session ID from cookie
-            ip_address: Client IP address (for binding validation)
-            user_agent: Client User-Agent (for binding validation)
+            ip_address: Client IP address (for binding validation), or None to skip
+            user_agent: Client User-Agent (for binding validation), or None to skip
 
         Returns:
             Updated session data with new tokens
@@ -248,7 +259,7 @@ class OAuth2FlowHandler:
         Raises:
             ValueError: If session not found, binding fails, or absolute timeout exceeded
         """
-        # Retrieve session with binding validation
+        # Retrieve session with optional binding validation
         session_data = await self.session_store.get_session(
             session_id,
             current_ip=ip_address,
@@ -293,6 +304,11 @@ class OAuth2FlowHandler:
         session_data.refresh_token = tokens.get(
             "refresh_token", session_data.refresh_token
         )  # May rotate
+
+        # Component 3: Update access token expiry for auto-refresh
+        now = datetime.now(UTC)
+        expires_in_seconds = tokens.get("expires_in", 3600)
+        session_data.access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
 
         # Validate new ID token if present (security: prevent identity swap)
         if "id_token" in tokens:
@@ -347,15 +363,54 @@ class OAuth2FlowHandler:
 
         return session_data
 
-    async def handle_logout(self, session_id: str) -> str:
-        """Handle OAuth2 logout.
+    async def handle_logout(
+        self,
+        session_id: str,
+        current_ip: str,
+        current_user_agent: str,
+    ) -> str:
+        """Handle OAuth2 logout with binding validation and token revocation.
+
+        FIX (Codex Medium #5): Validates session binding before revoking tokens
+        to prevent attacker with stolen cookie from revoking real user's refresh token.
 
         Args:
             session_id: Session ID to delete
+            current_ip: Client IP address for binding validation
+            current_user_agent: Client User-Agent for binding validation
 
         Returns:
             Auth0 logout URL to redirect to
         """
+        # Retrieve session WITH binding validation
+        session_data = await self.session_store.get_session(
+            session_id,
+            current_ip=current_ip,
+            current_user_agent=current_user_agent,
+            update_activity=False,
+        )
+
+        # Revoke refresh token at Auth0 ONLY if binding is valid
+        if session_data and session_data.refresh_token:
+            try:
+                await self._revoke_refresh_token(session_data.refresh_token)
+                logger.info(
+                    "Refresh token revoked at Auth0",
+                    extra={"user_id": session_data.user_id}
+                )
+            except Exception as e:
+                # Non-critical: Session will still be deleted locally
+                logger.error(f"Refresh token revocation failed (non-critical): {e}")
+        elif not session_data:
+            # Binding failed - delete session locally but don't revoke at Auth0
+            logger.warning(
+                "Logout binding validation failed - deleting session locally only",
+                extra={
+                    "session_id": session_id[:8] + "...",
+                    "current_ip": current_ip,
+                }
+            )
+
         # Delete session from Redis
         await self.session_store.delete_session(session_id)
 
@@ -368,3 +423,28 @@ class OAuth2FlowHandler:
         logout_url = f"{self.logout_endpoint}?{query}"
 
         return logout_url
+
+    async def _revoke_refresh_token(self, refresh_token: str) -> None:
+        """Revoke refresh token at Auth0 (internal method).
+
+        See: https://auth0.com/docs/api/authentication#revoke-refresh-token
+
+        Args:
+            refresh_token: Refresh token to revoke
+
+        Raises:
+            httpx.HTTPStatusError: If revocation fails
+        """
+        revocation_endpoint = f"https://{self.config.auth0_domain}/oauth/revoke"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                revocation_endpoint,
+                data={
+                    "client_id": self.config.client_id,
+                    "client_secret": self.config.client_secret,
+                    "token": refresh_token,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()

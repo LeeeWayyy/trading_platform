@@ -73,6 +73,7 @@ def sample_session_data():
         last_activity=now,
         ip_address="192.168.1.100",
         user_agent="Mozilla/5.0 (Test)",
+        access_token_expires_at=now + timedelta(hours=1),  # Component 3
     )
 
 
