@@ -224,6 +224,14 @@ services:
       - REDIS_PORT=6379
       # Session encryption key (AES-256-GCM) - MUST match web_console
       - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY not set}
+      # Component 5: Trust nginx reverse proxy for X-Forwarded-For
+      - TRUSTED_PROXY_IPS=172.28.0.10
+      # Component 5: CSP Report Only mode (safe rollout) - Codex Fresh Review: HIGH
+      # Use environment variable to stay consistent with nginx (both use ${CSP_REPORT_ONLY})
+      - CSP_REPORT_ONLY=${CSP_REPORT_ONLY:-false}
+      # Enable test endpoints for integration tests (Codex Code Review Iteration 3)
+      # Default to false for security, override in test/dev environments
+      - ENABLE_TEST_ENDPOINTS=${ENABLE_TEST_ENDPOINTS:-false}
     depends_on:
       redis:
         condition: service_healthy
@@ -272,6 +280,9 @@ services:
     container_name: trading_platform_nginx_oauth2
     environment:
       - AUTH_MODE=oauth2  # Use OAuth2 configuration
+      # Component 5: CSP Report Only mode (safe rollout)
+      # Set to "true" for report-only mode, "false" for enforcement
+      - CSP_REPORT_ONLY=${CSP_REPORT_ONLY:-false}
     ports:
       - "443:443"  # HTTPS with OAuth2
       - "80:80"    # HTTP redirect to HTTPS
@@ -279,6 +290,9 @@ services:
       # Mount certificates from apps/web_console/certs
       # Certificates must be generated before starting (see docs/RUNBOOKS/web-console-oauth2-setup.md)
       - ./apps/web_console/certs:/etc/nginx/certs:ro
+      # Component 5: Mount template and entrypoint for CSP configuration
+      - ./apps/web_console/nginx/nginx-oauth2.conf.template:/etc/nginx/nginx-oauth2.conf.template:ro
+      - ./apps/web_console/nginx/entrypoint.sh:/app/nginx/entrypoint.sh:ro
     depends_on:
       - web_console_oauth2
       - auth_service

@@ -335,6 +335,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component3_Plan_v2.md](./TASKS/P2T3-Phase3_Component3_Plan_v2.md) - Component 3: Session Management & Token Refresh (v2 FINAL - Security fixes for production)
 - [CURRENT, 2025-11-25, Plan] [P2T3_Phase3_PLANNING_SUMMARY.md](./TASKS/P2T3_Phase3_PLANNING_SUMMARY.md) - P2T3 Phase 3 planning summary with all 4 components
 - [CURRENT, 2025-11-25, Plan] [P2T3-Phase3_Component4_Plan.md](./TASKS/P2T3-Phase3_Component4_Plan.md) - Component 4: Streamlit UI Integration detailed implementation plan
+- [CURRENT, 2025-11-26, Plan] [P2T3-Phase3_Component5_Plan.md](./TASKS/P2T3-Phase3_Component5_Plan.md) - Component 5: CSP Hardening + Nginx Integration detailed implementation plan
 
 **Checking Current/Next Task:**
 ```bash

@@ -12,11 +12,17 @@
 FROM nginx:1.25-alpine
 
 # Install OpenSSL for OCSP testing and certificate validation
-RUN apk add --no-cache openssl
+# Install bash and gettext for entrypoint script and envsubst
+RUN apk add --no-cache openssl bash gettext
 
-# Copy both nginx configurations
+# Copy nginx configurations
 COPY apps/web_console/nginx/nginx.conf /etc/nginx/nginx-mtls.conf
 COPY apps/web_console/nginx/nginx-oauth2.conf /etc/nginx/nginx-oauth2.conf
+
+# Component 5: Copy OAuth2 template and entrypoint script
+# Template will be processed at runtime by entrypoint.sh
+COPY apps/web_console/nginx/nginx-oauth2.conf.template /etc/nginx/nginx-oauth2.conf.template
+COPY apps/web_console/nginx/entrypoint.sh /app/nginx/entrypoint.sh
 
 # Create certificate directory (will be mounted from host at runtime)
 RUN mkdir -p /etc/nginx/certs
@@ -27,14 +33,17 @@ RUN mkdir -p /var/log/nginx
 # Create entrypoint script to select config based on AUTH_MODE
 RUN echo '#!/bin/sh' > /docker-entrypoint.sh && \
     echo 'if [ "$AUTH_MODE" = "oauth2" ]; then' >> /docker-entrypoint.sh && \
-    echo '  echo "Using OAuth2 configuration"' >> /docker-entrypoint.sh && \
-    echo '  cp /etc/nginx/nginx-oauth2.conf /etc/nginx/nginx.conf' >> /docker-entrypoint.sh && \
+    echo '  echo "Using OAuth2 configuration with template processing"' >> /docker-entrypoint.sh && \
+    echo '  exec /app/nginx/entrypoint.sh' >> /docker-entrypoint.sh && \
     echo 'else' >> /docker-entrypoint.sh && \
     echo '  echo "Using mTLS configuration"' >> /docker-entrypoint.sh && \
     echo '  cp /etc/nginx/nginx-mtls.conf /etc/nginx/nginx.conf' >> /docker-entrypoint.sh && \
+    echo '  exec nginx -g "daemon off;"' >> /docker-entrypoint.sh && \
     echo 'fi' >> /docker-entrypoint.sh && \
-    echo 'exec nginx -g "daemon off;"' >> /docker-entrypoint.sh && \
     chmod +x /docker-entrypoint.sh
+
+# Make entrypoint script executable
+RUN chmod +x /app/nginx/entrypoint.sh
 
 # NOTE: nginx -t validation removed from build because certificates
 # are mounted at runtime via docker-compose volume.

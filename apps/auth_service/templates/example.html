@@ -1,0 +1,24 @@
+<!-- File: apps/auth_service/templates/example.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Example Page</title>
+</head>
+<body>
+    <h1>CSP Nonce Example</h1>
+
+    <!-- Inline script with nonce (ALLOWED by CSP) -->
+    <script nonce="{{ csp_nonce }}">
+        console.log("This script has valid nonce and will execute");
+        document.addEventListener("DOMContentLoaded", function() {
+            console.log("DOM loaded");
+        });
+    </script>
+
+    <!-- Inline script WITHOUT nonce (BLOCKED by CSP) -->
+    <!-- <script>alert("XSS attack - blocked by CSP")</script> -->
+
+    <!-- External script from allowed domain (ALLOWED by CSP) -->
+    <script src="https://cdn.auth0.com/some-library.js"></script>
+</body>
+</html>

@@ -280,7 +280,10 @@ http {
             # Codex Iteration 2: Documented WHY each directive is needed (see table above)
             # LIMITATION: 'unsafe-inline' required for Streamlit (no nonce support)
             # ROLLBACK: Set CSP_REPORT_ONLY=true if Streamlit breaks
-            add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.plot.ly; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
+            # NOTE: entrypoint.sh transforms CSP_REPORT_ONLY boolean to header suffix
+            # If CSP_REPORT_ONLY=true, ${CSP_REPORT_ONLY}="-Report-Only" → "Content-Security-Policy-Report-Only"
+            # If CSP_REPORT_ONLY=false, ${CSP_REPORT_ONLY}="" → "Content-Security-Policy"
+            add_header Content-Security-Policy${CSP_REPORT_ONLY} "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.plot.ly; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
 
             # WebSocket support (required for Streamlit)
             proxy_set_header Upgrade $http_upgrade;
@@ -316,7 +319,8 @@ http {
             proxy_http_version 1.1;
 
             # CSP header for Streamlit WebSocket (same policy as /)
-            add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.plot.ly; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
+            # NOTE: entrypoint.sh transforms CSP_REPORT_ONLY boolean to header suffix
+            add_header Content-Security-Policy${CSP_REPORT_ONLY} "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.plot.ly; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://*.trading-platform.local; frame-src 'self'; base-uri 'self'; form-action 'self'; report-uri /csp-report;" always;
 
             # WebSocket headers (REQUIRED)
             proxy_set_header Upgrade $http_upgrade;

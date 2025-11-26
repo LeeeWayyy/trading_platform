@@ -9,70 +9,140 @@ import os
 from collections.abc import Callable
 from typing import Any
 
+from fastapi import HTTPException, Request
+
 logger = logging.getLogger(__name__)
 
-# Trusted proxy IPs (same as config.TRUSTED_PROXY_IPS)
-# Reloaded here to avoid circular imports
-_TRUSTED_PROXY_IPS: set[str] = {
-    ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()
-}
+def validate_trusted_proxy(request: Request, get_remote_addr: Callable[[], str]) -> None:
+    """Validate request comes from trusted proxy.
 
+    Prevents X-Forwarded-For header spoofing by checking the immediate
+    peer IP address against TRUSTED_PROXY_IPS environment variable.
 
-def extract_client_ip_from_fastapi(request: Any, get_remote_addr: Callable[[], str]) -> str:
-    """Extract client IP from FastAPI request with trusted proxy validation.
-
-    Security Note:
-        X-Real-IP and X-Forwarded-For headers can be trivially spoofed if not
-        behind a trusted proxy. This function:
-        1. Validates request comes from trusted proxy (remote_addr check)
-        2. Only uses X-Real-IP/X-Forwarded-For if from trusted proxy
-        3. Falls back to remote_addr if not trusted or headers missing
+    NOTE: This is application-level validation. Nginx-level validation
+    via real_ip_from directive is the PRIMARY defense (see nginx-oauth2.conf).
+    This function provides defense-in-depth.
 
     Args:
-        request: FastAPI Request object
-        get_remote_addr: Function that returns remote_addr (immediate upstream)
+        request: FastAPI request object
+        get_remote_addr: Callable returning immediate peer IP (request.client.host)
 
-    Returns:
-        str: Client IP address (real client if from trusted proxy, else remote_addr)
+    Raises:
+        HTTPException: 403 Forbidden if request not from trusted proxy
+
+    Example:
+        def get_remote_addr():
+            return request.client.host if request.client else "unknown"
+
+        validate_trusted_proxy(request, get_remote_addr)
     """
-    # Get remote_addr (immediate upstream caller - nginx proxy IP in production)
+    # Get trusted proxy IPs from environment (comma-separated)
+    trusted_proxies_str = os.getenv("TRUSTED_PROXY_IPS", "")
+
+    if not trusted_proxies_str:
+        # No trusted proxies configured - allow all (development mode)
+        logger.warning(
+            "TRUSTED_PROXY_IPS not set - accepting all requests (INSECURE)",
+            extra={"remote_addr": get_remote_addr()},
+        )
+        return
+
+    trusted_proxies = [ip.strip() for ip in trusted_proxies_str.split(",")]
     remote_addr = get_remote_addr()
 
-    # If no trusted proxies configured, use remote_addr directly
-    if not _TRUSTED_PROXY_IPS:
-        logger.debug(f"No TRUSTED_PROXY_IPS configured, using remote_addr: {remote_addr}")
-        return remote_addr
-
-    # Validate request comes from trusted proxy
-    if remote_addr not in _TRUSTED_PROXY_IPS:
-        logger.warning(
-            f"Request from untrusted source {remote_addr} (not in TRUSTED_PROXY_IPS). "
-            f"Ignoring X-Real-IP/X-Forwarded-For to prevent IP spoofing. Using remote_addr."
+    if remote_addr not in trusted_proxies:
+        logger.error(
+            "Request from untrusted proxy blocked",
+            extra={
+                "remote_addr": remote_addr,
+                "trusted_proxies": trusted_proxies,
+                "x_forwarded_for": request.headers.get("X-Forwarded-For"),
+            },
         )
-        return remote_addr
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Request not from trusted proxy",
+        )
 
-    # Request is from trusted proxy - honor X-Real-IP header
-    x_real_ip = request.headers.get("X-Real-IP", "")
-    if x_real_ip:
+    logger.debug(
+        "Trusted proxy validation passed",
+        extra={"remote_addr": remote_addr},
+    )
+
+
+def extract_client_ip_from_fastapi(
+    request: Request,
+    get_remote_addr: Callable[[], str],
+) -> str:
+    """Extract client IP from FastAPI request with trusted proxy validation.
+
+    UPDATED for Component 5: Now validates trusted proxy before using X-Forwarded-For.
+
+    NOTE: Nginx real_ip_from directive provides Nginx-level validation.
+    This function provides application-level defense-in-depth.
+
+    Order of precedence:
+    1. Validate request.client.host against TRUSTED_PROXY_IPS
+    2. If trusted, use X-Forwarded-For (first IP = original client)
+    3. If not trusted or no X-Forwarded-For, use request.client.host
+
+    Args:
+        request: FastAPI request object
+        get_remote_addr: Callable returning request.client.host
+
+    Returns:
+        Client IP address (original client, not proxy)
+    """
+    # Get immediate peer IP (the proxy)
+    remote_addr = get_remote_addr()
+
+    # Check if request is from trusted proxy
+    trusted_proxies_str = os.getenv("TRUSTED_PROXY_IPS", "")
+
+    if not trusted_proxies_str:
+        # No trusted proxies - use remote_addr directly (development mode)
         logger.debug(
-            f"Extracted client IP from X-Real-IP: {x_real_ip} "
-            f"(verified from trusted proxy {remote_addr})"
+            "No trusted proxies configured, using remote_addr",
+            extra={"remote_addr": remote_addr},
         )
-        return x_real_ip  # type: ignore[no-any-return]
+        return remote_addr
 
-    # Fallback: X-Forwarded-For (take leftmost IP)
-    x_forwarded_for = request.headers.get("X-Forwarded-For", "")
+    trusted_proxies = [ip.strip() for ip in trusted_proxies_str.split(",")]
+
+    if remote_addr not in trusted_proxies:
+        # Request not from trusted proxy - use remote_addr
+        # This prevents X-Forwarded-For spoofing
+        logger.warning(
+            "Ignoring X-Forwarded-For from untrusted proxy",
+            extra={
+                "remote_addr": remote_addr,
+                "x_forwarded_for": request.headers.get("X-Forwarded-For"),
+            },
+        )
+        return remote_addr
+
+    # Request is from trusted proxy - use X-Forwarded-For
+    x_forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
+
     if x_forwarded_for:
+        # X-Forwarded-For format: "client, proxy1, proxy2, ..."
+        # First IP is the original client
         client_ip = x_forwarded_for.split(",")[0].strip()
-        if client_ip:
-            logger.debug(
-                f"Extracted client IP from X-Forwarded-For: {client_ip} "
-                f"(verified from trusted proxy {remote_addr})"
-            )
-            return client_ip  # type: ignore[no-any-return]
+        logger.debug(
+            "Using X-Forwarded-For from trusted proxy",
+            extra={
+                "client_ip": client_ip,
+                "proxy_ip": remote_addr,
+                "x_forwarded_for": x_forwarded_for,
+            },
+        )
+        return client_ip
 
-    # No headers found - use remote_addr
-    logger.debug(f"No X-Real-IP or X-Forwarded-For headers, using remote_addr: {remote_addr}")
+    # No X-Forwarded-For header - use remote_addr
+    logger.debug(
+        "No X-Forwarded-For header, using remote_addr",
+        extra={"remote_addr": remote_addr},
+    )
     return remote_addr
 
 
