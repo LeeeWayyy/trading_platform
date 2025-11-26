@@ -438,6 +438,10 @@ class TestManualOrderEntryFlow:
 
     def test_step_2_confirm_submits_order_and_clears_pending(self):
         """Test step 2: confirming pending order submits to API and clears state."""
+        # HIGH FIX (Codex High #1 - Iteration 4):
+        # Add client_order_id to order_preview (generated during Preview step).
+        # This tests idempotency: the SAME ID generated during Preview is reused on Confirm.
+        preview_client_order_id = "abc123def456ghi789012345"  # Pre-generated UUID-based ID
         mock_session_state = {
             "order_confirmation_pending": True,
             "order_preview": {
@@ -447,6 +451,7 @@ class TestManualOrderEntryFlow:
                 "order_type": "market",
                 "limit_price": None,
                 "reason": "Test reason for order submission",
+                "client_order_id": preview_client_order_id,  # CRITICAL: include pre-generated ID
             },
         }
 
@@ -469,11 +474,21 @@ class TestManualOrderEntryFlow:
 
                         # Verify fetch_api was called
                         mock_fetch.assert_called_once()
+
+                        # HIGH FIX (Codex High #1 - Iteration 4):
+                        # Assert idempotency: Confirm reuses the SAME client_order_id from Preview
+                        call_args = mock_fetch.call_args[1]  # Get kwargs
+                        submitted_order = call_args["data"]
+                        assert submitted_order["client_order_id"] == preview_client_order_id, \
+                            "Confirm must reuse client_order_id from Preview (idempotency)"
+
                         # Verify state cleared
                         assert not mock_session_state.get("order_confirmation_pending", False)
 
     def test_step_2_cancel_clears_pending_without_submit(self):
         """Test step 2: canceling pending order clears state without API call."""
+        # HIGH FIX (Codex High #1 - Iteration 4):
+        # Add client_order_id to order_preview (generated during Preview step)
         mock_session_state = {
             "order_confirmation_pending": True,
             "order_preview": {
@@ -483,6 +498,7 @@ class TestManualOrderEntryFlow:
                 "order_type": "market",
                 "limit_price": None,
                 "reason": "Test reason",
+                "client_order_id": "abc123def456ghi789012345",  # Pre-generated UUID-based ID
             },
         }
 

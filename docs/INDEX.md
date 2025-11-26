@@ -333,6 +333,8 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component2_Plan_v3.md](./TASKS/P2T3-Phase3_Component2_Plan_v3.md) - Component 2: OAuth2 Authorization Flow with PKCE (v3 FINAL - FastAPI sidecar architecture)
 - [CURRENT, 2025-11-23, Errata] [P2T3-Phase3_Component2_Plan_v3_ERRATA.md](./TASKS/P2T3-Phase3_Component2_Plan_v3_ERRATA.md) - Component 2 Plan v3 errata and clarifications
 - [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component3_Plan_v2.md](./TASKS/P2T3-Phase3_Component3_Plan_v2.md) - Component 3: Session Management & Token Refresh (v2 FINAL - Security fixes for production)
+- [CURRENT, 2025-11-25, Plan] [P2T3_Phase3_PLANNING_SUMMARY.md](./TASKS/P2T3_Phase3_PLANNING_SUMMARY.md) - P2T3 Phase 3 planning summary with all 4 components
+- [CURRENT, 2025-11-25, Plan] [P2T3-Phase3_Component4_Plan.md](./TASKS/P2T3-Phase3_Component4_Plan.md) - Component 4: Streamlit UI Integration detailed implementation plan
 
 **Checking Current/Next Task:**
 ```bash

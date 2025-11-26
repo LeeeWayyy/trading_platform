@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
@@ -174,8 +174,8 @@ def _dev_auth() -> bool:
     # Check if locked out
     lockout_until = st.session_state.get("lockout_until")
     if lockout_until:
-        if datetime.now() < lockout_until:
-            remaining = (lockout_until - datetime.now()).seconds
+        if datetime.now(UTC) < lockout_until:
+            remaining = (lockout_until - datetime.now(UTC)).seconds
             st.title("Trading Platform - Login")
             st.error(
                 f"🔒 Account temporarily locked due to failed login attempts.\n\n"
@@ -225,7 +225,7 @@ def _dev_auth() -> bool:
                     lockout_seconds = 0
 
                 if lockout_seconds > 0:
-                    st.session_state["lockout_until"] = datetime.now() + timedelta(
+                    st.session_state["lockout_until"] = datetime.now(UTC) + timedelta(
                         seconds=lockout_seconds
                     )
                     st.error(
@@ -384,8 +384,8 @@ def _mtls_auth() -> bool:
     st.session_state["jwt_token"] = jwt_token
     st.session_state["jwt_claims"] = claims
     st.session_state["auth_method"] = "mtls"
-    st.session_state["login_time"] = datetime.now()
-    st.session_state["last_activity"] = datetime.now()
+    st.session_state["login_time"] = datetime.now(UTC)
+    st.session_state["last_activity"] = datetime.now(UTC)
     # Store both session_id and jti for audit/revocation correlation
     if claims:
         st.session_state["session_id"] = claims.get("session_id", claims.get("jti", "unknown"))
@@ -443,19 +443,9 @@ def _oauth2_auth() -> bool:
     session_id = get_session_cookie()
 
     if not session_id:
-        # No session cookie - redirect to login
-        st.title("Trading Platform - Login Required")
-        st.info("You are not authenticated. Please log in to continue.")
-
-        # Construct login URL (FastAPI auth service endpoint)
-        # In production, this will be /login via nginx proxy
-        login_url = os.getenv("OAUTH2_LOGIN_URL", "/login")
-
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url={login_url}">',
-            unsafe_allow_html=True,
-        )
-        st.markdown(f"[Click here if not redirected automatically]({login_url})")
+        # No session cookie - redirect to login page
+        # Use st.switch_page for proper Streamlit navigation (CSP-friendly)
+        st.switch_page("pages/login.py")
         st.stop()
         return False
 
@@ -514,21 +504,19 @@ def _oauth2_auth() -> bool:
         return False
 
     if not user_info:
-        # Invalid/expired session - redirect to login
-        st.title("Trading Platform - Session Expired")
-        st.warning("Your session has expired. Please log in again.")
-
-        login_url = os.getenv("OAUTH2_LOGIN_URL", "/login")
-        st.markdown(
-            f'<meta http-equiv="refresh" content="2; url={login_url}">',
-            unsafe_allow_html=True,
-        )
-        st.markdown(f"[Click here if not redirected automatically]({login_url})")
+        # Invalid/expired session - redirect to login page
+        # Use st.switch_page for proper Streamlit navigation (CSP-friendly)
+        st.switch_page("pages/login.py")
         st.stop()
         return False
 
-    # Cache user info in Streamlit session_state
-    now = datetime.now()
+    # CRITICAL SECURITY (Component 3 - Codex High #1):
+    # Store ONLY non-sensitive metadata in session_state.
+    # Tokens (access_token, refresh_token, id_token) remain in encrypted Redis.
+    # Use api_client.py helpers (get_access_token_from_redis) when tokens needed.
+    # CRITICAL FIX (Codex High #3 - Iteration 2): Use UTC-aware datetime to prevent
+    # TypeError when session_status.py mixes naive/aware datetimes.
+    now = datetime.now(UTC)
     st.session_state["authenticated"] = True
     st.session_state["username"] = user_info["email"]  # Use email as display name
     st.session_state["auth_method"] = "oauth2"
@@ -536,7 +524,17 @@ def _oauth2_auth() -> bool:
     st.session_state["last_activity"] = now
     st.session_state["session_id"] = session_id
     st.session_state["user_id"] = user_info["user_id"]
-    st.session_state["access_token"] = user_info["access_token"]
+
+    # Store non-sensitive user info for session status UI (Component 4)
+    st.session_state["user_info"] = {
+        "email": user_info["email"],
+        "user_id": user_info["user_id"],
+        "display_name": user_info.get("display_name", user_info["email"].split("@")[0]),
+        "created_at": user_info.get("created_at"),
+        "last_activity": user_info.get("last_activity"),
+        "access_token_expires_at": user_info.get("access_token_expires_at"),
+        # NEVER include: access_token, refresh_token, id_token
+    }
 
     # Audit successful validation (not a new login, but session validation)
     # Only log on first validation to avoid spam
@@ -555,7 +553,7 @@ def _init_session(username: str, auth_method: str) -> None:
         username: Authenticated user
         auth_method: Authentication method used (dev, basic, oauth2)
     """
-    now = datetime.now()
+    now = datetime.now(UTC)
     st.session_state["authenticated"] = True
     st.session_state["username"] = username
     st.session_state["auth_method"] = auth_method
@@ -580,7 +578,7 @@ def _check_session_timeout() -> bool:
     Returns:
         bool: True if session is valid, False if expired
     """
-    now = datetime.now()
+    now = datetime.now(UTC)
 
     # Check absolute timeout
     login_time = st.session_state.get("login_time")
@@ -844,7 +842,7 @@ def _audit_successful_login(username: str, auth_method: str) -> None:
     """
     details = {
         "auth_method": auth_method,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     session_id = st.session_state.get("session_id", "unknown")
     audit_to_database(
@@ -864,7 +862,7 @@ def _audit_failed_login(auth_method: str) -> None:
     """
     details = {
         "auth_method": auth_method,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     audit_to_database(
         user_id="<failed_login_attempt>",
@@ -1188,7 +1186,7 @@ def logout() -> None:
             logger.error(f"Failed to terminate session on logout: {e}")
 
     details = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "auth_method": auth_method,
     }
     audit_to_database(
@@ -1201,14 +1199,22 @@ def logout() -> None:
     st.session_state.clear()
 
     # For OAuth2, redirect to FastAPI /logout endpoint
-    # FastAPI will clear HttpOnly cookie and redirect to Auth0 logout
+    # FastAPI will:
+    # 1. Get session_id from HttpOnly cookie
+    # 2. Revoke refresh token at Auth0
+    # 3. Delete session from Redis
+    # 4. Redirect to Auth0 logout URL
     if auth_method == "oauth2":
         logout_url = os.getenv("OAUTH2_LOGOUT_URL", "/logout")
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url={logout_url}">',
-            unsafe_allow_html=True,
-        )
-        st.markdown(f"[Click here if not redirected automatically]({logout_url})")
+
+        # Show logout message and redirect link (CSP-friendly)
+        st.title("Logging out...")
+        st.info("You are being logged out. Please click the link below to complete logout.")
+        st.markdown(f"**[Complete Logout]({logout_url})**")
+
+        # Note: We can't use st.switch_page() here because logout is a FastAPI endpoint,
+        # not a Streamlit page. User must click the link to trigger logout endpoint
+        # which will handle token revocation and Auth0 logout redirect.
         st.stop()
     else:
         st.rerun()

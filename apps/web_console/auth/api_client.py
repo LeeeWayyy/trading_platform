@@ -20,9 +20,10 @@ Usage in Streamlit pages:
 """
 
 import logging
-from typing import Any, Callable
+from typing import Any
 
 import httpx
+
 from apps.web_console.auth.session_store import RedisSessionStore
 
 logger = logging.getLogger(__name__)

@@ -15,7 +15,6 @@ Usage in Streamlit:
         st.rerun()  # Refresh UI with new token expiry
 """
 
-import asyncio
 import logging
 import os
 from datetime import UTC, datetime, timedelta
