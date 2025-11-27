@@ -28,12 +28,17 @@ import logging
 import os
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jwt
 import redis
 import streamlit as st
+from prometheus_client import Counter, Gauge
 from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+if TYPE_CHECKING:
+    from apps.web_console.auth.idp_health import IdPHealthChecker
+    from apps.web_console.auth.mtls_fallback import CertificateInfo, MtlsFallbackValidator
 
 # Import session manager for OAuth2
 from apps.web_console.auth.session_manager import (
@@ -70,10 +75,144 @@ from libs.web_console_auth.session import SessionManager
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Prometheus Metrics (Component 6+7: P2T3 Phase 3)
+# ============================================================================
+# Enable multiprocess mode for Streamlit
+if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+    from prometheus_client import CollectorRegistry, multiprocess
+
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)
+else:
+    from prometheus_client import REGISTRY as registry
+
+# Session Management Metrics (3 total - 2 removed after review)
+session_created_total = Counter(
+    "oauth2_session_created_total",
+    "Total sessions created",
+    registry=registry,
+)
+
+session_signature_failures_total = Counter(
+    "oauth2_session_signature_failures_total",
+    "Total session signature validation failures",
+    ["reason"],
+    registry=registry,
+)
+
+active_sessions_count = Gauge(
+    "oauth2_active_sessions_count",
+    "Number of active sessions in Redis",
+    registry=registry,
+)
+
+# OAuth2 Flow Metrics (4 total)
+authorization_total = Counter(
+    "oauth2_authorization_total",
+    "Total OAuth2 authorization attempts",
+    ["result"],
+    registry=registry,
+)
+
+authorization_failures_total = Counter(
+    "oauth2_authorization_failures_total",
+    "Total OAuth2 authorization failures by reason",
+    ["reason"],
+    registry=registry,
+)
+
+# NOTE: Token refresh metrics are placeholders for FastAPI auth service
+# Streamlit web_console does NOT handle token refresh (only FastAPI /auth/refresh endpoint does)
+# These metrics are defined here for alert compatibility but will NOT emit values from Streamlit
+token_refresh_total = Counter(
+    "oauth2_token_refresh_total",
+    "Total OAuth2 token refresh attempts (FastAPI only, not Streamlit)",
+    ["result"],
+    registry=registry,
+)
+
+token_refresh_failures_total = Counter(
+    "oauth2_token_refresh_failures_total",
+    "Total OAuth2 token refresh failures by reason (FastAPI only, not Streamlit)",
+    ["reason"],
+    registry=registry,
+)
+
 # Initialize SessionManager for mTLS mode (Component 2 RS256 + session management)
 # Lazily initialized on first mTLS authentication to avoid unnecessary Redis connections
 _session_manager: SessionManager | None = None
 _redis_client: redis.Redis | None = None
+
+# Throttling for active_sessions_count updates (avoid excessive SCAN operations)
+_last_session_count_update: datetime | None = None
+_session_count_update_interval = timedelta(seconds=60)  # Update every 60s max
+
+
+def _update_active_sessions_count() -> None:
+    """
+    Update active_sessions_count gauge with Redis SCAN (throttled).
+
+    Component 6+7: Prometheus metrics for session monitoring.
+
+    This function is throttled to run at most once per 60 seconds to avoid
+    excessive SCAN operations on Redis. Called opportunistically during
+    OAuth2 authentication checks.
+
+    Notes:
+        - Uses Redis SCAN with pattern matching (web_console:session:*)
+        - Counts all session keys (both active and expired, before TTL cleanup)
+        - SCAN timeout: 1 second (fail-safe for large key counts)
+        - Silently fails on errors (metric becomes stale but doesn't block auth)
+    """
+    global _last_session_count_update, _redis_client
+
+    # Throttling: Only update every 60 seconds
+    now = datetime.now(UTC)
+    if _last_session_count_update is not None:
+        if now - _last_session_count_update < _session_count_update_interval:
+            return  # Too soon, skip update
+
+    try:
+        # Ensure Redis client is initialized
+        if _redis_client is None:
+            redis_host = os.environ.get("REDIS_HOST", "localhost")
+            redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+            _redis_client = redis.Redis(
+                host=redis_host,
+                port=redis_port,
+                db=1,  # CRITICAL: Sessions DB (must match _validate's redis.asyncio.Redis(..., db=1))
+                decode_responses=False,
+                socket_timeout=1,  # 1s timeout for SCAN operations
+            )
+
+        # Use SCAN to count session keys with pattern matching
+        # Pattern: web_console:session:* (matches SessionManager's redis_session_prefix)
+        session_count = 0
+        cursor = 0
+        while True:
+            cursor, keys = _redis_client.scan(
+                cursor=cursor, match="web_console:session:*", count=100
+            )
+            session_count += len(keys)
+            if cursor == 0:
+                break  # SCAN complete
+
+        # Update gauge
+        active_sessions_count.set(session_count)
+        _last_session_count_update = now
+
+        logger.debug(
+            f"Updated active_sessions_count: {session_count} sessions",
+            extra={"session_count": session_count},
+        )
+
+    except Exception as e:
+        # Fail silently (don't block authentication)
+        logger.warning(
+            f"Failed to update active_sessions_count: {e}",
+            extra={"error": str(e)},
+        )
 
 
 def _get_session_manager() -> SessionManager:
@@ -95,7 +234,11 @@ def _get_session_manager() -> SessionManager:
             redis_host = os.environ.get("REDIS_HOST", "localhost")
             redis_port = int(os.environ.get("REDIS_PORT", "6379"))
             _redis_client = redis.Redis(
-                host=redis_host, port=redis_port, decode_responses=False, socket_timeout=5
+                host=redis_host,
+                port=redis_port,
+                db=1,  # CRITICAL: Sessions DB (must match _validate's redis.asyncio.Redis(..., db=1))
+                decode_responses=False,
+                socket_timeout=5,
             )
             # Test connection
             _redis_client.ping()
@@ -123,6 +266,77 @@ def _get_session_manager() -> SessionManager:
             raise RuntimeError(f"SessionManager initialization failed: {e}") from e
 
     return _session_manager
+
+
+# Component 6 singletons (P2T3 Phase 3)
+_idp_health_checker: "IdPHealthChecker | None" = None
+_mtls_fallback_validator: "MtlsFallbackValidator | None" = None
+
+
+def _get_idp_health_checker() -> "IdPHealthChecker":
+    """
+    Get or initialize IdPHealthChecker singleton with persistent state (Component 6).
+
+    CRITICAL: Persists health check state across Streamlit reruns to prevent
+    consecutive failure counters from resetting to 0 on every request.
+    Without singleton pattern, fallback mode would never activate.
+
+    Returns:
+        IdPHealthChecker: Singleton instance with persistent state
+
+    Raises:
+        ValueError: If AUTH0_DOMAIN not configured
+    """
+    global _idp_health_checker
+
+    if _idp_health_checker is None:
+        from apps.web_console.auth.idp_health import IdPHealthChecker
+
+        auth0_domain = os.getenv("AUTH0_DOMAIN", "")
+        if not auth0_domain:
+            raise ValueError("AUTH0_DOMAIN not configured")
+
+        _idp_health_checker = IdPHealthChecker(auth0_domain=auth0_domain)
+        logger.info(f"IdPHealthChecker initialized for domain: {auth0_domain}")
+
+    return _idp_health_checker
+
+
+def _get_mtls_fallback_validator() -> "MtlsFallbackValidator":
+    """
+    Get or initialize MtlsFallbackValidator singleton with cached CRL (Component 6).
+
+    CRITICAL: Persists CRL cache across authentication attempts.
+    Without singleton pattern, the 1-hour CRL cache would be useless as
+    validator would be recreated on every request.
+
+    Returns:
+        MtlsFallbackValidator: Singleton instance with persistent CRL cache
+
+    Raises:
+        ValueError: If MTLS_ADMIN_CN_ALLOWLIST not configured
+    """
+    global _mtls_fallback_validator
+
+    if _mtls_fallback_validator is None:
+        from apps.web_console.auth.mtls_fallback import (
+            get_admin_cn_allowlist,
+            get_crl_url,
+            MtlsFallbackValidator,
+        )
+
+        admin_cn_allowlist = get_admin_cn_allowlist()
+        if not admin_cn_allowlist:
+            raise ValueError("MTLS_ADMIN_CN_ALLOWLIST not configured")
+
+        crl_url = get_crl_url()
+        _mtls_fallback_validator = MtlsFallbackValidator(
+            admin_cn_allowlist=admin_cn_allowlist,
+            crl_url=crl_url,
+        )
+        logger.info(f"MtlsFallbackValidator initialized (CRL: {crl_url})")
+
+    return _mtls_fallback_validator
 
 
 def check_password() -> bool:
@@ -400,10 +614,15 @@ def _mtls_auth() -> bool:
 
 def _oauth2_auth() -> bool:
     """
-    OAuth2/OIDC authentication via FastAPI auth service.
+    OAuth2/OIDC authentication via FastAPI auth service with mTLS fallback.
 
     Production-ready authentication with Auth0 SSO integration.
     Validates HttpOnly session cookie set by FastAPI auth service.
+
+    Component 6 (mTLS Fallback):
+    - Checks IdP health monitor for fallback mode
+    - If fallback active AND ENABLE_MTLS_FALLBACK=true → use mTLS auth
+    - Otherwise → normal OAuth2/session validation
 
     Security Features:
     - HttpOnly cookies (XSS protection)
@@ -412,13 +631,15 @@ def _oauth2_auth() -> bool:
     - AES-256-GCM encrypted session storage
     - Session binding (IP + User-Agent validation)
     - Absolute 4-hour timeout enforcement
+    - mTLS fallback for IdP outages (admin-only)
 
     Flow:
     1. User accesses Streamlit page
-    2. Check for session_id cookie (HttpOnly, set by FastAPI /callback)
-    3. If no cookie, redirect to /login (FastAPI initiates OAuth2 flow)
-    4. If cookie exists, validate session with RedisSessionStore
-    5. If valid, allow access; if invalid/expired, redirect to /login
+    2. Check IdP health → if fallback mode + feature flag → mTLS auth
+    3. Check for session_id cookie (HttpOnly, set by FastAPI /callback)
+    4. If no cookie, redirect to /login (FastAPI initiates OAuth2 flow)
+    5. If cookie exists, validate session with RedisSessionStore
+    6. If valid, allow access; if invalid/expired, redirect to /login
 
     Returns:
         bool: True if authenticated
@@ -428,6 +649,66 @@ def _oauth2_auth() -> bool:
     import os
 
     import redis.asyncio
+
+    # Component 6: Check mTLS fallback mode
+    # Import fallback functions here to avoid circular imports
+    import asyncio
+
+    from apps.web_console.auth.mtls_fallback import is_fallback_enabled
+
+    # Component 6: Check if mTLS fallback should activate
+    # This requires both: 1) IdP outage detected, 2) Feature flag enabled
+    if is_fallback_enabled():
+        try:
+            # CRITICAL FIX: Use singleton to persist health check state across requests
+            # Without this, consecutive failure counters reset to 0 on every request,
+            # preventing fallback mode from ever activating.
+            idp_checker = _get_idp_health_checker()
+
+            # CRITICAL FIX: Trigger health check to update state
+            # Without this call, the health checker never runs and fallback_mode
+            # stays permanently False even during real Auth0 outages.
+            # Performance optimization: Only check if interval has elapsed (throttling)
+            # Use try-except with asyncio compatibility for Streamlit
+            if idp_checker.should_check_now():
+                try:
+                    asyncio.run(idp_checker.check_health())
+                except RuntimeError:
+                    # If event loop already running (e.g., in Jupyter), use nest_asyncio
+                    try:
+                        import nest_asyncio
+
+                        nest_asyncio.apply()
+                        asyncio.run(idp_checker.check_health())
+                    except ImportError:
+                        logger.warning(
+                            "nest_asyncio not installed, cannot run health check in existing event loop"
+                        )
+
+            # Check if fallback mode is active (requires 3 consecutive IdP failures)
+            if idp_checker.is_fallback_mode():
+                auth0_domain = os.getenv("AUTH0_DOMAIN", "")
+                logger.warning(
+                    "mTLS fallback mode active - using certificate authentication",
+                    extra={"auth0_domain": auth0_domain},
+                )
+
+                # Display fallback mode banner to admins
+                st.warning(
+                    "⚠️ **Admin Fallback Mode Active**\n\n"
+                    "Auth0 IdP is currently unavailable. Using mTLS certificate authentication.\n\n"
+                    "Only administrators with pre-distributed client certificates can access the system."
+                )
+
+                # Attempt mTLS fallback authentication
+                return _mtls_fallback_auth()
+
+        except ValueError as e:
+            # AUTH0_DOMAIN not configured - fallback disabled
+            logger.debug(f"mTLS fallback check skipped: {e}")
+        except Exception as e:
+            # Health check failed - log but don't block OAuth2 login
+            logger.error(f"IdP health check exception: {e}")
 
     # Check if already authenticated (cached in Streamlit session_state)
     if "authenticated" in st.session_state and st.session_state.get("authenticated", False):
@@ -483,7 +764,7 @@ def _oauth2_auth() -> bool:
     try:
         # Run async validation
         user_info = asyncio.run(_validate())
-    except RuntimeError:
+    except RuntimeError as e:
         # If event loop already running (e.g., in Jupyter), use nest_asyncio
         try:
             import nest_asyncio
@@ -492,12 +773,44 @@ def _oauth2_auth() -> bool:
             user_info = asyncio.run(_validate())
         except ImportError:
             logger.error("nest_asyncio not installed, cannot validate session")
+            # Prometheus: Record authorization failure
+            authorization_total.labels(result="failure").inc()
+            authorization_failures_total.labels(reason="nest_asyncio_missing").inc()
+            session_signature_failures_total.labels(reason="runtime_error").inc()
             st.error("Session validation failed. Please login again.")
             st.markdown(f"[Login]({os.getenv('OAUTH2_LOGIN_URL', '/login')})")
             st.stop()
             return False
+        except Exception as nested_e:
+            logger.error(f"Session validation exception (nested): {nested_e}")
+            # Prometheus: Record authorization failure with specific exception type
+            authorization_total.labels(result="failure").inc()
+            reason = type(nested_e).__name__.lower()[:64]  # Bounded cardinality
+            authorization_failures_total.labels(reason=reason).inc()
+            session_signature_failures_total.labels(reason=reason).inc()
+            st.error("Session validation failed. Please login again.")
+            st.markdown(f"[Login]({os.getenv('OAUTH2_LOGIN_URL', '/login')})")
+            st.stop()
+            return False
+    except ValueError as e:
+        # Config errors (SESSION_ENCRYPTION_KEY missing or wrong size)
+        logger.error(f"Session validation config error: {e}")
+        # Prometheus: Record authorization failure
+        authorization_total.labels(result="failure").inc()
+        authorization_failures_total.labels(reason="config_error").inc()
+        session_signature_failures_total.labels(reason="config_error").inc()
+        st.error("Session validation failed. Please login again.")
+        st.markdown(f"[Login]({os.getenv('OAUTH2_LOGIN_URL', '/login')})")
+        st.stop()
+        return False
     except Exception as e:
         logger.error(f"Session validation exception: {e}")
+        # Prometheus: Record authorization failure with specific exception type
+        authorization_total.labels(result="failure").inc()
+        # Use exception class name as reason (bounded cardinality, truncated to 64 chars)
+        reason = type(e).__name__.lower()[:64]
+        authorization_failures_total.labels(reason=reason).inc()
+        session_signature_failures_total.labels(reason=reason).inc()
         st.error("Session validation failed. Please login again.")
         st.markdown(f"[Login]({os.getenv('OAUTH2_LOGIN_URL', '/login')})")
         st.stop()
@@ -505,6 +818,8 @@ def _oauth2_auth() -> bool:
 
     if not user_info:
         # Invalid/expired session - redirect to login page
+        # Prometheus: Record session signature failure (expired or invalid)
+        session_signature_failures_total.labels(reason="invalid_or_expired").inc()
         # Use st.switch_page for proper Streamlit navigation (CSP-friendly)
         st.switch_page("pages/login.py")
         st.stop()
@@ -541,6 +856,14 @@ def _oauth2_auth() -> bool:
     if "oauth2_logged" not in st.session_state:
         _audit_successful_login(user_info["email"], "oauth2")
         st.session_state["oauth2_logged"] = True
+
+        # Prometheus: Record successful session creation (only on first validation)
+        session_created_total.inc()
+        authorization_total.labels(result="success").inc()
+
+    # Prometheus: Update active sessions count (throttled to 60s interval)
+    # CRITICAL: Must be outside oauth2_logged guard to refresh on subsequent reruns
+    _update_active_sessions_count()
 
     return True
 
@@ -1151,11 +1474,163 @@ def get_current_user() -> dict[str, Any]:
     }
 
 
+def _mtls_fallback_auth() -> bool:
+    """
+    mTLS fallback authentication for Auth0 IdP outages (Component 6).
+
+    Admin-only authentication using pre-distributed client certificates.
+    Only activates when:
+    1. ENABLE_MTLS_FALLBACK=true (feature flag)
+    2. IdP health monitor detects fallback mode (3+ consecutive failures)
+
+    Security:
+    - Certificate lifetime enforcement (7-day max)
+    - CRL validation (fail-secure if CRL unavailable)
+    - Admin CN allowlist validation
+    - Comprehensive audit logging
+
+    Returns:
+        bool: True if authenticated via mTLS fallback
+    """
+    import asyncio
+    import urllib.parse
+
+    # Check if already authenticated via fallback
+    if "authenticated" in st.session_state and st.session_state.get("authenticated", False):
+        if st.session_state.get("auth_method") == "mtls_fallback":
+            # Check session timeout
+            if _check_session_timeout():
+                return True
+            else:
+                # Session expired
+                st.session_state.clear()
+                st.rerun()
+
+    # Get request headers
+    headers = _get_request_headers()
+
+    # Get client certificate from nginx header (URL-encoded PEM)
+    cert_pem_encoded = headers.get("X-SSL-Client-Cert", "")
+    if not cert_pem_encoded:
+        st.error(
+            "🔒 mTLS Fallback Authentication Failed\n\n"
+            "No client certificate provided. Only administrators with pre-distributed "
+            "client certificates can access the system during IdP outages.\n\n"
+            "Contact your administrator for emergency access credentials."
+        )
+        _audit_failed_login("mtls_fallback")
+        return False
+
+    # URL-decode certificate (nginx uses URL encoding for special characters)
+    cert_pem = urllib.parse.unquote(cert_pem_encoded)
+
+    # MEDIUM FIX: Use singleton validator to persist CRL cache across requests
+    # Without this, the 1-hour CRL cache would be useless as validator is recreated
+    # on every authentication attempt.
+    try:
+        validator = _get_mtls_fallback_validator()
+    except ValueError:
+        st.error(
+            "🔒 mTLS Fallback Configuration Error\n\n"
+            "Admin CN allowlist not configured (MTLS_ADMIN_CN_ALLOWLIST).\n\n"
+            "Contact your administrator to configure fallback authentication."
+        )
+        logger.error("mTLS fallback rejected: MTLS_ADMIN_CN_ALLOWLIST not configured")
+        _audit_failed_login("mtls_fallback")
+        return False
+
+    # Validate certificate (async operation for CRL check)
+    # MEDIUM FIX: Use nested function + try-except for asyncio compatibility with Streamlit
+    async def _validate_cert() -> "CertificateInfo":
+        return await validator.validate_certificate(cert_pem, headers)
+
+    try:
+        cert_info = asyncio.run(_validate_cert())
+    except RuntimeError:
+        # If event loop already running (e.g., in Jupyter), use nest_asyncio
+        try:
+            import nest_asyncio
+
+            nest_asyncio.apply()
+            cert_info = asyncio.run(_validate_cert())
+        except ImportError:
+            logger.error("nest_asyncio not installed, cannot validate certificate")
+            st.error("Certificate validation failed. Please contact your administrator.")
+            _audit_failed_login("mtls_fallback")
+            return False
+    except Exception as e:
+        logger.error(f"Certificate validation exception: {e}")
+        st.error("Certificate validation failed. Please contact your administrator.")
+        _audit_failed_login("mtls_fallback")
+        return False
+
+    # Check validation result
+    if not cert_info.valid:
+        st.error(
+            f"🔒 mTLS Fallback Authentication Failed\n\n"
+            f"Certificate validation error: {cert_info.error}\n\n"
+            f"Contact your administrator for assistance."
+        )
+        logger.warning(
+            f"mTLS fallback rejected: {cert_info.error}",
+            extra={"cn": cert_info.cn, "fingerprint": cert_info.fingerprint},
+        )
+        _audit_failed_login("mtls_fallback")
+        return False
+
+    # Initialize session for authenticated admin
+    st.session_state["authenticated"] = True
+    st.session_state["username"] = cert_info.cn
+    st.session_state["auth_method"] = "mtls_fallback"
+    st.session_state["login_time"] = datetime.now(UTC)
+    st.session_state["last_activity"] = datetime.now(UTC)
+    st.session_state["session_id"] = _generate_session_id(cert_info.cn, datetime.now(UTC))
+
+    # Store certificate info for audit
+    st.session_state["cert_info"] = {
+        "cn": cert_info.cn,
+        "dn": cert_info.dn,
+        "fingerprint": cert_info.fingerprint,
+        "not_before": cert_info.not_before.isoformat(),
+        "not_after": cert_info.not_after.isoformat(),
+        "crl_status": cert_info.crl_status,
+    }
+
+    # Audit successful fallback authentication
+    client_ip = _get_client_ip()
+    audit_to_database(
+        user_id=cert_info.cn,
+        action="mtls_fallback_login_success",
+        details={
+            "auth_method": "mtls_fallback",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "fingerprint": cert_info.fingerprint,
+            "dn": cert_info.dn,
+            "expires_at": cert_info.not_after.isoformat(),
+            "crl_status": cert_info.crl_status,
+        },
+        session_id=st.session_state["session_id"],
+    )
+
+    logger.info(
+        "mTLS fallback authentication successful",
+        extra={
+            "cn": cert_info.cn,
+            "fingerprint": cert_info.fingerprint,
+            "client_ip": client_ip,
+            "crl_status": cert_info.crl_status,
+        },
+    )
+
+    return True
+
+
 def logout() -> None:
     """Logout current user and clear session.
 
     For mTLS mode: Terminates session (revokes tokens, cleans up session index).
     For OAuth2 mode: Redirects to FastAPI /logout (clears cookie, redirects to Auth0 logout).
+    For mTLS fallback mode: Clears session state and audit logs.
     For other modes: Simply clears session state.
     """
     username = st.session_state.get("username", "unknown")

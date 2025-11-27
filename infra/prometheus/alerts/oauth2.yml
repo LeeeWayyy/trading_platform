@@ -1,0 +1,397 @@
+# Prometheus Alert Rules for OAuth2/OIDC Authentication
+#
+# Component 1+6+7 of P2T3 Phase 3 (OAuth2/OIDC Authentication)
+#
+# This file defines Prometheus alert rules for monitoring:
+# - Auth0 IdP health and availability
+# - mTLS fallback authentication
+# - Session management
+# - Certificate expiry and revocation
+#
+# References:
+# - docs/TASKS/P2T3-Phase3_Component6-7_Plan.md
+# - docs/RUNBOOKS/auth0-idp-outage.md
+# - docs/RUNBOOKS/mtls-fallback-admin-certs.md
+# - docs/RUNBOOKS/session-key-rotation.md
+#
+# Alert Severity Levels:
+# - CRITICAL: Immediate action required (paging, on-call)
+# - WARNING: Action required within hours (Slack notification)
+# - INFO: Informational only (logged, no notification)
+
+groups:
+  - name: oauth2_authentication
+    interval: 30s  # Evaluate rules every 30 seconds
+    rules:
+      # ============================================================================
+      # Auth0 IdP Health Monitoring
+      # ============================================================================
+
+      - alert: IdPHealthCheckFailed
+        expr: |
+          oauth2_idp_health_consecutive_failures >= 3
+        for: 30s
+        labels:
+          severity: warning
+          component: oauth2
+          subsystem: idp_health
+        annotations:
+          summary: "Auth0 IdP health check failing ({{ $value }} consecutive failures)"
+          description: |
+            The Auth0 IdP health monitor has detected {{ $value }} consecutive failures
+            when checking the /.well-known/openid-configuration endpoint.
+
+            Threshold: 3 consecutive failures (30 seconds sustained outage)
+            Current failures: {{ $value }}
+
+            **Impact:** mTLS fallback mode will activate if failures continue.
+
+            **Next Steps:**
+            1. Check Auth0 status page: https://status.auth0.com
+            2. Verify network connectivity to Auth0
+            3. Review IdP health check logs
+            4. Prepare for fallback mode activation
+
+            **Runbook:** docs/RUNBOOKS/auth0-idp-outage.md
+
+      - alert: IdPFallbackModeActive
+        expr: |
+          oauth2_idp_fallback_mode == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: oauth2
+          subsystem: idp_health
+        annotations:
+          summary: "mTLS fallback mode activated (Auth0 IdP unavailable)"
+          description: |
+            The IdP health monitor has entered fallback mode due to sustained Auth0 outage.
+
+            **Hysteresis Entry:** 3 consecutive health check failures (30s outage)
+            **Hysteresis Exit:** 5 consecutive successes + 5min stable period
+
+            **Impact:**
+            - Normal OAuth2/OIDC authentication unavailable
+            - Only administrators with client certificates can access
+            - Fallback mode banner displayed to users
+
+            **Next Steps:**
+            1. Verify mTLS fallback operational (check admin certificate auth)
+            2. Monitor IdP health checks for recovery
+            3. Notify administrators of fallback mode
+            4. Follow incident response procedures
+
+            **Runbook:** docs/RUNBOOKS/auth0-idp-outage.md
+
+      - alert: IdPRecoveryInProgress
+        expr: |
+          oauth2_idp_fallback_mode == 1
+          and oauth2_idp_health_consecutive_successes >= 5
+          and oauth2_idp_stability_period_active == 1
+        for: 1m
+        labels:
+          severity: info
+          component: oauth2
+          subsystem: idp_health
+        annotations:
+          summary: "Auth0 IdP recovery detected (stability period active)"
+          description: |
+            The IdP health monitor has detected Auth0 recovery and is in stability period.
+
+            **Status:**
+            - Consecutive successes: {{ $value }}
+            - Stability period: Active (5 minutes remaining)
+            - Fallback mode: Still active (will exit after stability period)
+
+            **Next Steps:**
+            - Wait for stability period to complete
+            - Fallback mode will auto-deactivate
+            - Normal OAuth2 authentication will resume
+
+            **Runbook:** docs/RUNBOOKS/auth0-idp-outage.md (Phase 5: Recovery)
+
+      # ============================================================================
+      # mTLS Fallback Authentication
+      # ============================================================================
+
+      - alert: MtlsAuthFailureRateHigh
+        expr: |
+          rate(oauth2_mtls_auth_failures_total[1m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: oauth2
+          subsystem: mtls_fallback
+        annotations:
+          summary: "High mTLS authentication failure rate ({{ $value | humanize }}/min)"
+          description: |
+            Excessive mTLS fallback authentication failures detected.
+
+            **Rate:** {{ $value | humanize }} failures/minute (threshold: 10/min)
+
+            **Possible Causes:**
+            - Attacker attempting to use invalid certificates
+            - Administrator using expired certificate
+            - Certificate revoked but admin unaware
+            - CRL fetch failures (fail-secure rejecting auth)
+
+            **Next Steps:**
+            1. Check application logs for failure reasons
+            2. Identify source IPs of failures
+            3. Verify CRL distribution point accessible
+            4. Check for compromised certificates
+            5. Block unauthorized sources at firewall if attack
+
+            **Runbook:** docs/RUNBOOKS/auth0-idp-outage.md (Scenario 2: Excessive Failures)
+
+      - alert: MtlsCertificateExpiringSoon
+        expr: |
+          (oauth2_mtls_cert_not_after_timestamp - time()) < 86400
+        for: 5m
+        labels:
+          severity: warning
+          component: oauth2
+          subsystem: mtls_fallback
+          certificate_cn: "{{ $labels.cn }}"
+        annotations:
+          summary: "Admin certificate expiring soon (CN: {{ $labels.cn }})"
+          description: |
+            An admin client certificate is expiring within 24 hours.
+
+            **Certificate CN:** {{ $labels.cn }}
+            **Expires:** {{ $value | humanizeDuration }} from now
+            **Max Lifetime:** 7 days (enforced by validation logic)
+
+            **Impact:** Administrator will lose emergency access if not rotated.
+
+            **Next Steps:**
+            1. Issue replacement certificate for CN: {{ $labels.cn }}
+            2. Distribute to administrator securely
+            3. Verify old certificate expires naturally (no revocation needed)
+
+            **Runbook:** docs/RUNBOOKS/mtls-fallback-admin-certs.md (Procedure 2: Rotation)
+
+      - alert: MtlsCrlFetchFailure
+        expr: |
+          increase(oauth2_mtls_crl_fetch_failures_total[5m]) > 2
+        for: 1m
+        labels:
+          severity: critical
+          component: oauth2
+          subsystem: mtls_fallback
+        annotations:
+          summary: "Certificate Revocation List (CRL) fetch failing"
+          description: |
+            The mTLS validator is unable to fetch the CRL from the distribution point.
+
+            **CRL URL:** {{ $labels.crl_url }}
+            **Failures (last 5min):** {{ $value }}
+
+            **Impact:** ALL mTLS authentication rejected (fail-secure behavior)
+
+            **Next Steps:**
+            1. Verify CRL distribution point accessible
+            2. Check CA server HTTP service (nginx)
+            3. Verify CRL file exists at distribution point
+            4. Test connectivity from web-console pod to CRL URL
+
+            **Runbook:** docs/RUNBOOKS/auth0-idp-outage.md (Scenario 1: CRL Unavailable)
+            **Runbook:** docs/RUNBOOKS/mtls-fallback-admin-certs.md (CRL Management)
+
+      - alert: MtlsCrlTooOld
+        expr: |
+          (time() - oauth2_mtls_crl_last_update_timestamp) > 86400
+        for: 5m
+        labels:
+          severity: critical
+          component: oauth2
+          subsystem: mtls_fallback
+        annotations:
+          summary: "Certificate Revocation List (CRL) is stale"
+          description: |
+            The cached CRL has not been updated in >24 hours (fail-secure threshold).
+
+            **CRL Age:** {{ $value | humanizeDuration }}
+            **Max Age:** 24 hours
+            **Last Update:** {{ $labels.last_update }}
+
+            **Impact:** ALL mTLS authentication rejected (fail-secure behavior)
+
+            **Next Steps:**
+            1. Check CRL generation on CA server
+            2. Verify CRL auto-update cron job running
+            3. Manually generate fresh CRL if needed
+            4. Publish updated CRL to distribution point
+
+            **Runbook:** docs/RUNBOOKS/mtls-fallback-admin-certs.md (CRL Freshness Monitoring)
+
+      # ============================================================================
+      # Session Management
+      # ============================================================================
+      #
+      # NOTE: SessionSecretRotation alerts removed (metric removed after review)
+      # Reason: oauth2_session_secret_last_rotation_timestamp resets on every deployment
+      # Session secret rotation must be tracked externally (runbook procedures)
+
+      - alert: SessionSignatureVerificationFailures
+        expr: |
+          rate(oauth2_session_signature_failures_total[1m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: oauth2
+          subsystem: session_management
+        annotations:
+          summary: "High session signature verification failure rate"
+          description: |
+            Excessive session cookie signature verification failures detected.
+
+            **Rate:** {{ $value | humanize }} failures/minute (threshold: 10/min)
+
+            **Possible Causes:**
+            - Recent session secret rotation (grace period not working)
+            - Session secret mismatch (config not updated)
+            - Forged session cookies (attack attempt)
+            - Cookie tampering (integrity violation)
+
+            **Next Steps:**
+            1. Check recent session secret rotation logs
+            2. Verify SESSION_SECRET_KEY environment variable
+            3. Confirm service restarted after secret update
+            4. Review logs for attack patterns (IPs, user agents)
+            5. Re-enable grace period if rotation issue
+
+            **Runbook:** docs/RUNBOOKS/session-key-rotation.md (Troubleshooting)
+
+      - alert: SessionCountHigh
+        expr: |
+          oauth2_active_sessions_count > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: oauth2
+          subsystem: session_management
+        annotations:
+          summary: "High active session count ({{ $value }} sessions)"
+          description: |
+            The number of active OAuth2 sessions is unusually high.
+
+            **Current Sessions:** {{ $value }}
+            **Typical Range:** < 1000
+
+            **Possible Causes:**
+            - Increased legitimate user activity (normal)
+            - Session TTL not expiring properly (bug)
+            - Orphaned sessions accumulating (Redis TTL issue)
+            - Denial of service attack (session creation flood)
+
+            **Next Steps:**
+            1. Check Redis memory usage
+            2. Verify session TTL working correctly
+            3. Review session creation rate (last 1 hour)
+            4. Check for orphaned sessions (TTL = -1)
+            5. Run session cleanup if needed
+
+            **Runbook:** docs/RUNBOOKS/oauth2-session-cleanup.md (Procedure 1: Cleanup Expired Sessions)
+
+      # NOTE: SessionCleanupFailed alert removed (metric removed after review)
+      # Reason: No cleanup code exists - Redis TTL handles expiry automatically
+      # Manual cleanup procedures documented in runbook if needed
+
+      # ============================================================================
+      # OAuth2 Flow Metrics
+      # ============================================================================
+
+      - alert: OAuth2AuthorizationFailureRateHigh
+        expr: |
+          rate(oauth2_authorization_failures_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: oauth2
+          subsystem: authorization
+        annotations:
+          summary: "High OAuth2 authorization failure rate"
+          description: |
+            Excessive OAuth2 authorization failures detected.
+
+            **Rate:** {{ $value | humanize }} failures/minute
+            **Threshold:** 5 failures/minute
+
+            **Possible Causes:**
+            - Auth0 configuration error (client_id, client_secret)
+            - Redirect URI mismatch
+            - Auth0 tenant issue
+            - Network connectivity to Auth0
+
+            **Next Steps:**
+            1. Check application logs for failure reasons
+            2. Verify Auth0 client configuration
+            3. Test OAuth2 flow manually
+            4. Check Auth0 dashboard for errors
+
+            **Runbook:** docs/RUNBOOKS/auth0-idp-outage.md
+
+      - alert: OAuth2TokenRefreshFailureRateHigh
+        expr: |
+          rate(oauth2_token_refresh_failures_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: oauth2
+          subsystem: token_refresh
+        annotations:
+          summary: "High OAuth2 token refresh failure rate"
+          description: |
+            Excessive OAuth2 token refresh failures detected.
+
+            **Rate:** {{ $value | humanize }} failures/minute
+            **Threshold:** 5 failures/minute
+
+            **Possible Causes:**
+            - Refresh token expired/revoked
+            - Auth0 configuration change
+            - Network connectivity to Auth0
+            - Auth0 rate limiting
+
+            **Next Steps:**
+            1. Check application logs for failure reasons
+            2. Verify Auth0 token endpoint accessible
+            3. Check refresh token TTL configuration
+            4. Review Auth0 rate limits
+
+            **Runbook:** docs/RUNBOOKS/auth0-idp-outage.md
+
+# ==============================================================================
+# Metric Definitions (for reference)
+# ==============================================================================
+#
+# These metrics should be exposed by the web_console application:
+#
+# # IdP Health Monitoring
+# oauth2_idp_health_consecutive_failures{auth0_domain}
+# oauth2_idp_health_consecutive_successes{auth0_domain}
+# oauth2_idp_fallback_mode{auth0_domain}  # 1 = active, 0 = inactive
+# oauth2_idp_stability_period_active{auth0_domain}  # 1 = active, 0 = inactive
+# oauth2_idp_health_check_duration_seconds{auth0_domain}
+#
+# # mTLS Fallback Authentication
+# oauth2_mtls_auth_total{cn, result}  # result = success|failure
+# oauth2_mtls_auth_failures_total{cn, reason}  # reason = expired|revoked|cn_not_allowed|crl_error
+# oauth2_mtls_cert_not_after_timestamp{cn}  # Unix timestamp when cert expires
+# oauth2_mtls_crl_fetch_failures_total{crl_url}
+# oauth2_mtls_crl_last_update_timestamp{crl_url}  # Unix timestamp of last CRL update
+# oauth2_mtls_crl_cache_age_seconds{crl_url}
+#
+# # Session Management (3 metrics - 2 removed after review)
+# oauth2_session_created_total{}
+# oauth2_session_signature_failures_total{reason}
+# oauth2_active_sessions_count{}
+# # NOTE: session_secret_last_rotation_timestamp removed (resets on deployment)
+# # NOTE: session_cleanup_failures_total removed (no cleanup code - Redis TTL handles expiry)
+#
+# # OAuth2 Flow
+# oauth2_authorization_total{result}  # result = success|failure
+# oauth2_authorization_failures_total{reason}
+# oauth2_token_refresh_total{result}
+# oauth2_token_refresh_failures_total{reason}
