@@ -758,6 +758,10 @@ class DatabaseClient:
                     if status == "filled" and filled_qty is not None:
                         filled_at = datetime.now()
 
+                    # C8 Fix: Don't use COALESCE for error_message
+                    # COALESCE prevents clearing error_message by passing None
+                    # For error_message: None clears, value sets (intended behavior for recovery)
+                    # Other fields still use COALESCE to preserve existing values when None passed
                     cur.execute(
                         """
                         UPDATE orders
@@ -766,7 +770,7 @@ class DatabaseClient:
                             broker_order_id = COALESCE(%s, broker_order_id),
                             filled_qty = COALESCE(%s, filled_qty),
                             filled_avg_price = COALESCE(%s, filled_avg_price),
-                            error_message = COALESCE(%s, error_message),
+                            error_message = %s,
                             filled_at = COALESCE(%s, filled_at),
                             updated_at = NOW()
                         WHERE client_order_id = %s

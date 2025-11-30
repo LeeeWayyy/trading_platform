@@ -1147,13 +1147,41 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             extra={"client_order_id": client_order_id},
         )
 
-        order_detail = db_client.create_order(
-            client_order_id=client_order_id,
-            strategy_id=STRATEGY_ID,
-            order_request=order,
-            status="dry_run",
-            broker_order_id=None,
-        )
+        # C4 Fix: Handle race condition where concurrent requests both pass idempotency check
+        try:
+            order_detail = db_client.create_order(
+                client_order_id=client_order_id,
+                strategy_id=STRATEGY_ID,
+                order_request=order,
+                status="dry_run",
+                broker_order_id=None,
+            )
+        except UniqueViolation:
+            # Race condition: Another request created this order between our check and insert
+            # Return existing order (idempotent response)
+            logger.info(
+                f"Concurrent order submission detected (UniqueViolation): {client_order_id}",
+                extra={"client_order_id": client_order_id},
+            )
+            existing_order = db_client.get_order_by_client_id(client_order_id)
+            if existing_order:
+                return OrderResponse(
+                    client_order_id=client_order_id,
+                    status=existing_order.status,
+                    broker_order_id=existing_order.broker_order_id,
+                    symbol=existing_order.symbol,
+                    side=existing_order.side,
+                    qty=existing_order.qty,
+                    order_type=existing_order.order_type,
+                    limit_price=existing_order.limit_price,
+                    created_at=existing_order.created_at,
+                    message=f"Order already submitted (race condition resolved)",
+                )
+            # Should never happen: UniqueViolation means order exists
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database inconsistency: order not found after UniqueViolation",
+            ) from None
 
         # Track metrics for dry run order
         _record_order_metrics(order, start_time, "success")
@@ -1193,14 +1221,41 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                     operation="submit_order", status=alpaca_api_status
                 ).inc()
 
-            # Save order to database
-            order_detail = db_client.create_order(
-                client_order_id=client_order_id,
-                strategy_id=STRATEGY_ID,
-                order_request=order,
-                status=alpaca_response["status"],
-                broker_order_id=alpaca_response["id"],
-            )
+            # C4 Fix: Handle race condition in live mode
+            # Alpaca handles duplicate client_order_ids idempotently
+            # But we need to handle the DB race condition
+            try:
+                order_detail = db_client.create_order(
+                    client_order_id=client_order_id,
+                    strategy_id=STRATEGY_ID,
+                    order_request=order,
+                    status=alpaca_response["status"],
+                    broker_order_id=alpaca_response["id"],
+                )
+            except UniqueViolation:
+                # Race condition: Another request already saved this order
+                logger.info(
+                    f"Concurrent order submission detected (UniqueViolation): {client_order_id}",
+                    extra={"client_order_id": client_order_id},
+                )
+                existing_order = db_client.get_order_by_client_id(client_order_id)
+                if existing_order:
+                    return OrderResponse(
+                        client_order_id=client_order_id,
+                        status=existing_order.status,
+                        broker_order_id=existing_order.broker_order_id,
+                        symbol=existing_order.symbol,
+                        side=existing_order.side,
+                        qty=existing_order.qty,
+                        order_type=existing_order.order_type,
+                        limit_price=existing_order.limit_price,
+                        created_at=existing_order.created_at,
+                        message=f"Order already submitted (race condition resolved)",
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Database inconsistency: order not found after UniqueViolation",
+                ) from None
 
             logger.info(
                 f"Order submitted to Alpaca: {client_order_id}",
