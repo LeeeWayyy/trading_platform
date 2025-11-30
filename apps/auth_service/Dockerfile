@@ -20,12 +20,17 @@ COPY apps/auth_service /app/apps/auth_service
 # Copy shared auth modules from web_console
 COPY apps/web_console/auth /app/apps/web_console/auth
 
+# Copy shared libs (network_utils, etc.)
+COPY libs /app/libs
+
 # Create __init__.py files for Python package structure
 RUN touch /app/apps/__init__.py && \
     touch /app/apps/auth_service/__init__.py && \
     touch /app/apps/auth_service/routes/__init__.py && \
     touch /app/apps/web_console/__init__.py && \
-    touch /app/apps/web_console/auth/__init__.py
+    touch /app/apps/web_console/auth/__init__.py && \
+    touch /app/libs/__init__.py && \
+    touch /app/libs/common/__init__.py
 
 # Set PYTHONPATH to include /app for imports
 ENV PYTHONPATH=/app

@@ -148,3 +148,18 @@ def extract_client_ip_from_fastapi(
         extra={"remote_addr": remote_addr},
     )
     return remote_addr
+
+
+def extract_user_agent_from_fastapi(request: Request) -> str:
+    """Extract User-Agent from FastAPI request.
+
+    Simple helper to extract User-Agent header with a sensible default.
+    Moved from apps/web_console/utils.py to resolve architectural layering.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        str: User-Agent header value or "unknown"
+    """
+    return request.headers.get("User-Agent", "unknown")

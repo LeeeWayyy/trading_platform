@@ -645,14 +645,9 @@ def _oauth2_auth() -> bool:
         bool: True if authenticated
     """
     import asyncio
-    import base64
-    import os
-
-    import redis.asyncio
 
     # Component 6: Check mTLS fallback mode
     # Import fallback functions here to avoid circular imports
-    import asyncio
 
     from apps.web_console.auth.mtls_fallback import is_fallback_enabled
 
@@ -735,29 +730,11 @@ def _oauth2_auth() -> bool:
     user_agent = _get_request_headers().get("User-Agent", "unknown")
 
     # Validate session (async operation)
+    # HIGH FIX: Reuse cached session store to avoid creating new Redis connections per request
     async def _validate() -> dict[str, Any] | None:
-        redis_client = redis.asyncio.Redis(
-            host=os.getenv("REDIS_HOST", "redis"),
-            port=int(os.getenv("REDIS_PORT", "6379")),
-            db=1,  # Sessions DB
-            decode_responses=False,
-        )
+        from apps.web_console.auth.session_manager import _get_session_store
 
-        # Get encryption key
-        key_b64 = os.getenv("SESSION_ENCRYPTION_KEY")
-        if not key_b64:
-            raise ValueError("SESSION_ENCRYPTION_KEY environment variable not set")
-        key_bytes = base64.b64decode(key_b64)
-        if len(key_bytes) != 32:
-            raise ValueError(
-                f"SESSION_ENCRYPTION_KEY must decode to 32 bytes (got {len(key_bytes)})"
-            )
-
-        session_store = RedisSessionStore(
-            redis_client=redis_client,
-            encryption_key=key_bytes,
-        )
-
+        session_store = _get_session_store()
         # Validate session with IP/UA binding
         return await validate_session(session_id, session_store, client_ip, user_agent)
 
