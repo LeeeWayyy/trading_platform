@@ -116,6 +116,17 @@ CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() =
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
+# C3 Fix: Validate webhook secret is set in production environments
+# In non-dev/test environments with DRY_RUN=false, webhook secret is MANDATORY
+# This prevents webhook spoofing attacks in production
+# Strip whitespace to prevent whitespace-only secrets (which would be useless)
+WEBHOOK_SECRET = WEBHOOK_SECRET.strip()
+if not WEBHOOK_SECRET and ENVIRONMENT not in ("dev", "test") and not DRY_RUN:
+    raise RuntimeError(
+        "WEBHOOK_SECRET must be set for production/staging environments. "
+        "Set WEBHOOK_SECRET environment variable or use DRY_RUN=true for testing."
+    )
+
 # Redis configuration (for real-time price lookups)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))

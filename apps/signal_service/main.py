@@ -33,6 +33,7 @@ See Also:
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -387,10 +388,43 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
+# C6 Fix: CORS configuration with environment-based allowlist
+# In production, ALLOWED_ORIGINS must be set explicitly
+# In dev/test, safe defaults are used (localhost only)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "")
+
+if ALLOWED_ORIGINS:
+    # Parse comma-separated origins from environment variable
+    cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+    # Reject wildcard "*" explicitly - it's incompatible with allow_credentials=True
+    # and would cause CORSMiddleware to crash at startup
+    if "*" in cors_origins:
+        raise RuntimeError(
+            "ALLOWED_ORIGINS cannot contain wildcard '*' when credentials are enabled. "
+            "Specify explicit origins (e.g., 'https://app.example.com,https://admin.example.com') "
+            "or use ENVIRONMENT=dev for development with localhost defaults."
+        )
+elif ENVIRONMENT in ("dev", "test"):
+    # Safe defaults for development/testing (localhost only)
+    cors_origins = [
+        "http://localhost:8501",   # Streamlit default
+        "http://127.0.0.1:8501",
+        "http://localhost:3000",   # React dev server
+        "http://127.0.0.1:3000",
+    ]
+else:
+    # Production requires explicit ALLOWED_ORIGINS configuration
+    raise RuntimeError(
+        "ALLOWED_ORIGINS must be set for production/staging environments. "
+        "Set ALLOWED_ORIGINS environment variable (comma-separated list of origins) "
+        "or use ENVIRONMENT=dev for development."
+    )
+
+# Add CORS middleware with configured origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: Restrict in production
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
