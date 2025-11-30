@@ -281,6 +281,7 @@ class TestCLICheckCommit:
     def test_check_commit_not_ready(self, temp_dir):
         """Should return not ready when checks fail."""
         state_file = temp_dir / ".ai_workflow" / "workflow-state.json"
+        config_file = temp_dir / ".ai_workflow" / "config.json"
         state_file.parent.mkdir(parents=True)
 
         state = {
@@ -292,21 +293,28 @@ class TestCLICheckCommit:
         with open(state_file, "w") as f:
             json.dump(state, f)
 
+        # Need to patch _gate since cmd_check_commit delegates to _gate.get_commit_status()
+        from ai_workflow.core import WorkflowGate
+        test_gate = WorkflowGate(state_file=state_file)
+
         with patch("workflow_gate.STATE_FILE", state_file):
             with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import cmd_check_commit
+                with patch("workflow_gate._gate", test_gate):
+                    with patch("ai_workflow.config.CONFIG_FILE", config_file):
+                        with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
+                            from workflow_gate import cmd_check_commit
 
-                args = MagicMock()
+                            args = MagicMock()
 
-                import io
-                from contextlib import redirect_stdout
+                            import io
+                            from contextlib import redirect_stdout
 
-                f = io.StringIO()
-                with redirect_stdout(f):
-                    result = cmd_check_commit(args)
+                            f = io.StringIO()
+                            with redirect_stdout(f):
+                                result = cmd_check_commit(args)
 
-                output = f.getvalue()
-                parsed = json.loads(output)
+                            output = f.getvalue()
+                            parsed = json.loads(output)
 
         assert result == 1
         assert parsed["ready"] is False

@@ -143,41 +143,60 @@ class TestGetContextSnapshot:
 class TestRecordContext:
     """Tests for record_context method."""
 
-    def test_updates_context_tokens(self):
-        """Should update current_tokens in state."""
+    def test_requires_locked_modify_state(self):
+        """Should raise TypeError if locked_modify_state not provided."""
         state = {"context": {"current_tokens": 0, "max_tokens": 200000}}
         save_fn = MagicMock()
 
-        rules = DelegationRules(lambda: state, save_fn)
+        rules = DelegationRules(lambda: state, save_fn)  # No locked_modify_state
+
+        with pytest.raises(TypeError) as exc_info:
+            rules.record_context(75000)
+        assert "locked_modify_state" in str(exc_info.value)
+
+    def test_updates_context_tokens(self):
+        """Should update current_tokens in state via locked_modify."""
+        state = {"context": {"current_tokens": 0, "max_tokens": 200000}}
+        save_fn = MagicMock()
+
+        def locked_fn(modifier):
+            modifier(state)
+            return state
+
+        rules = DelegationRules(lambda: state, save_fn, locked_fn)
         rules.record_context(75000)
 
-        save_fn.assert_called_once()
-        saved_state = save_fn.call_args[0][0]
-        assert saved_state["context"]["current_tokens"] == 75000
+        assert state["context"]["current_tokens"] == 75000
 
     def test_clamps_negative_tokens(self):
         """Should clamp negative tokens to 0."""
         state = {"context": {}}
         save_fn = MagicMock()
 
-        rules = DelegationRules(lambda: state, save_fn)
+        def locked_fn(modifier):
+            modifier(state)
+            return state
+
+        rules = DelegationRules(lambda: state, save_fn, locked_fn)
         rules.record_context(-100)
 
-        saved_state = save_fn.call_args[0][0]
-        assert saved_state["context"]["current_tokens"] == 0
+        assert state["context"]["current_tokens"] == 0
 
     def test_updates_timestamp(self):
         """Should update last_check_timestamp."""
         state = {"context": {}}
         save_fn = MagicMock()
 
-        rules = DelegationRules(lambda: state, save_fn)
+        def locked_fn(modifier):
+            modifier(state)
+            return state
+
+        rules = DelegationRules(lambda: state, save_fn, locked_fn)
         rules.record_context(50000)
 
-        saved_state = save_fn.call_args[0][0]
-        assert "last_check_timestamp" in saved_state["context"]
+        assert "last_check_timestamp" in state["context"]
         # Should be valid ISO timestamp
-        datetime.fromisoformat(saved_state["context"]["last_check_timestamp"])
+        datetime.fromisoformat(state["context"]["last_check_timestamp"])
 
     def test_uses_locked_modify_when_available(self):
         """Should use locked_modify_state when available."""
@@ -278,23 +297,38 @@ class TestProjectOperationCost:
 class TestRecordDelegation:
     """Tests for record_delegation method."""
 
-    def test_records_delegation(self):
-        """Should record delegation and reset context."""
+    def test_requires_locked_modify_state(self):
+        """Should raise TypeError if locked_modify_state not provided."""
         state = {
             "subagent_delegations": [],
             "context": {"current_tokens": 150000},
         }
         save_fn = MagicMock()
 
-        rules = DelegationRules(lambda: state, save_fn)
+        rules = DelegationRules(lambda: state, save_fn)  # No locked_modify_state
+
+        with pytest.raises(TypeError) as exc_info:
+            rules.record_delegation("Delegated large search")
+        assert "locked_modify_state" in str(exc_info.value)
+
+    def test_records_delegation(self):
+        """Should record delegation and reset context via locked_modify."""
+        state = {
+            "subagent_delegations": [],
+            "context": {"current_tokens": 150000},
+        }
+        save_fn = MagicMock()
+
+        def locked_fn(modifier):
+            modifier(state)
+            return state
+
+        rules = DelegationRules(lambda: state, save_fn, locked_fn)
         rules.record_delegation("Delegated large search")
 
-        save_fn.assert_called_once()
-        saved_state = save_fn.call_args[0][0]
-
-        assert len(saved_state["subagent_delegations"]) == 1
-        assert saved_state["subagent_delegations"][0]["description"] == "Delegated large search"
-        assert saved_state["context"]["current_tokens"] == 0
+        assert len(state["subagent_delegations"]) == 1
+        assert state["subagent_delegations"][0]["description"] == "Delegated large search"
+        assert state["context"]["current_tokens"] == 0
 
     def test_uses_locked_modify_when_available(self):
         """Should use locked_modify_state when available."""

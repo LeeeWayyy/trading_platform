@@ -52,10 +52,9 @@ With P0-P2 complete, the trading platform is production-ready for paper trading.
 
 ## Track 1: Workflow Modernization ⭐⭐⭐ FIRST PRIORITY
 
-**Goal:** Replace monolithic workflow_gate.py (4300+ lines) with modular structure from general_ai_guide. This improves development velocity for all subsequent fixes.
+**Goal:** Replace monolithic workflow_gate.py (4300+ lines) with modular structure. This improves development velocity for all subsequent fixes.
 
-**Source:** `/Users/leeewayyy/Documents/SourceCode/general_ai_guide/scripts/`
-**Target:** `/Users/leeewayyy/Documents/SourceCode/trading_platform/scripts/`
+**Target:** `scripts/`  (trading_platform repository)
 
 ---
 
@@ -65,7 +64,7 @@ With P0-P2 complete, the trading platform is production-ready for paper trading.
 
 **Tasks:**
 - [ ] Backup current workflow_gate.py to `workflow_gate.py.bak`
-- [ ] Copy `ai_workflow/` package from general_ai_guide
+- [ ] Copy `ai_workflow/` package from source repository
 - [ ] Copy new `workflow_gate.py` CLI entry point
 - [ ] Verify file structure matches expected layout
 
@@ -74,11 +73,11 @@ With P0-P2 complete, the trading platform is production-ready for paper trading.
 # Backup
 cp scripts/workflow_gate.py scripts/workflow_gate.py.bak
 
-# Copy package
-cp -r /Users/leeewayyy/Documents/SourceCode/general_ai_guide/scripts/ai_workflow scripts/
+# Copy package (from external source repo - already completed)
+# cp -r <source_repo>/scripts/ai_workflow scripts/
 
-# Copy CLI
-cp /Users/leeewayyy/Documents/SourceCode/general_ai_guide/scripts/workflow_gate.py scripts/
+# Copy CLI (from external source repo - already completed)
+# cp <source_repo>/scripts/workflow_gate.py scripts/
 ```
 
 **Files to Copy:**
@@ -125,10 +124,10 @@ ai_workflow/
 
 **Configuration Changes:**
 ```python
-# config.py - Update these values
-PROJECT_ROOT = Path("/Users/leeewayyy/Documents/SourceCode/trading_platform")
-STATE_FILE = PROJECT_ROOT / ".claude" / "workflow-state.json"
-AUDIT_LOG_FILE = PROJECT_ROOT / ".claude" / "audit.log"
+# config.py - Update these values (paths are now auto-calculated)
+PROJECT_ROOT = Path(__file__).parent.parent.parent  # Auto-calculated
+STATE_FILE = PROJECT_ROOT / ".ai_workflow" / "workflow-state.json"
+AUDIT_LOG_FILE = PROJECT_ROOT / ".ai_workflow" / "workflow-audit.log"
 ```
 
 **Test Cases:**
@@ -833,7 +832,6 @@ Examples:
 - [P3_ISSUES.md](./P3_ISSUES.md) - Full issue list (47+ issues)
 - [P1_PLANNING.md](./P1_PLANNING.md) - Phase 1 (completed)
 - [P2_PLANNING.md](./P2_PLANNING.md) - Phase 2 (completed)
-- [general_ai_guide/scripts/](../../general_ai_guide/scripts/) - Workflow source
 
 ---
 

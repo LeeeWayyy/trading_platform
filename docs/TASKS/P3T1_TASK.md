@@ -31,7 +31,7 @@ Replace the monolithic `workflow_gate.py` (4,369 lines) with a modular workflow 
 
 ### Source Package Location
 ```
-/Users/leeewayyy/Documents/SourceCode/general_ai_guide/scripts/
+<source_repo>/scripts/  # (Originally copied from external general_ai_guide repo)
 ├── workflow_gate.py          # 952 lines (new CLI entry point)
 └── ai_workflow/              # ~85KB modular package
     ├── __init__.py           (2,029 bytes)
@@ -60,7 +60,7 @@ Replace the monolithic `workflow_gate.py` (4,369 lines) with a modular workflow 
 
 ### Target Location
 ```
-/Users/leeewayyy/Documents/SourceCode/trading_platform/scripts/
+scripts/  # (trading_platform repository)
 ├── workflow_gate.py          # New 952-line CLI entry point
 ├── workflow_gate.py.bak      # Backup of original 4,369-line file
 └── ai_workflow/              # Copied and adapted package
@@ -219,18 +219,17 @@ scripts/workflow_gate.py.bak      # Preserve original for rollback
 cp scripts/workflow_gate.py scripts/workflow_gate.py.bak
 md5sum scripts/workflow_gate.py.bak scripts/workflow_gate.py  # Should match
 
-# 2. Copy package
-cp -r /Users/leeewayyy/Documents/SourceCode/general_ai_guide/scripts/ai_workflow scripts/
+# 2. Copy package (from external source repo - already completed)
+# cp -r <source_repo>/scripts/ai_workflow scripts/
 
-# 3. Copy CLI entry point
-cp /Users/leeewayyy/Documents/SourceCode/general_ai_guide/scripts/workflow_gate.py scripts/
+# 3. Copy CLI entry point (from external source repo - already completed)
+# cp <source_repo>/scripts/workflow_gate.py scripts/
 
 # 4. [NEW - Codex] Restore executable permission
 chmod +x scripts/workflow_gate.py
 
-# 5. Verify file count matches source
+# 5. Verify file count
 ls scripts/ai_workflow/*.py | wc -l  # Should be 10
-ls /Users/leeewayyy/Documents/SourceCode/general_ai_guide/scripts/ai_workflow/*.py | wc -l  # Compare
 ```
 
 **Verification:**
@@ -597,7 +596,6 @@ git checkout -- CLAUDE.md docs/AI/Workflows/
 ## References
 
 - [P3_PLANNING.md](./P3_PLANNING.md) - Track 1 specification
-- [general_ai_guide/scripts/](../../general_ai_guide/scripts/) - Source package
 - [docs/AI/Workflows/](../AI/Workflows/) - Workflow documentation
 
 ---

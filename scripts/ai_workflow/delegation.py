@@ -123,62 +123,51 @@ class DelegationRules:
 
         Returns:
             Updated context snapshot
+
+        Raises:
+            TypeError: If locked_modify_state was not provided (required for atomic updates)
         """
         tokens = max(0, tokens)
 
-        if self._locked_modify_state:
-            def modifier(state: dict) -> None:
-                if "context" not in state:
-                    state["context"] = {}
-                state["context"]["current_tokens"] = tokens
-                state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
-                if "max_tokens" not in state["context"]:
-                    state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
+        # Gemini HIGH fix: Require locked_modify_state for atomic updates
+        # Remove fallback to non-atomic operations to prevent race conditions
+        if not self._locked_modify_state:
+            raise TypeError(
+                "DelegationRules must be initialized with a locked_modify_state callable "
+                "for atomic updates. Non-atomic fallback has been removed to prevent race conditions."
+            )
 
-                # Refresh context cache
-                try:
-                    git_index_hash = subprocess.check_output(
-                        ["git", "write-tree"],
-                        cwd=PROJECT_ROOT,
-                        text=True,
-                        stderr=subprocess.DEVNULL,
-                    ).strip()
-                except subprocess.CalledProcessError:
-                    git_index_hash = "unknown"
+        def modifier(state: dict) -> None:
+            if "context" not in state:
+                state["context"] = {}
+            state["context"]["current_tokens"] = tokens
+            state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+            if "max_tokens" not in state["context"]:
+                state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
 
-                state["context_cache"] = {
-                    "tokens": tokens,
-                    "timestamp": time.time(),
-                    "git_index_hash": git_index_hash,
-                }
-
+            # Refresh context cache
             try:
-                state = self._locked_modify_state(modifier)
-                return self.get_context_snapshot(state)
-            except Exception as e:
-                print(f"Warning: Could not update state: {e}")
-                return self.get_context_snapshot({})
+                git_index_hash = subprocess.check_output(
+                    ["git", "write-tree"],
+                    cwd=PROJECT_ROOT,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+            except subprocess.CalledProcessError:
+                git_index_hash = "unknown"
 
-        # Fallback to unlocked
+            state["context_cache"] = {
+                "tokens": tokens,
+                "timestamp": time.time(),
+                "git_index_hash": git_index_hash,
+            }
+
         try:
-            state = self._load_state()
+            state = self._locked_modify_state(modifier)
+            return self.get_context_snapshot(state)
         except Exception as e:
-            print(f"Warning: Could not load state: {e}")
+            print(f"Warning: Could not update state: {e}")
             return self.get_context_snapshot({})
-
-        if "context" not in state:
-            state["context"] = {}
-        state["context"]["current_tokens"] = tokens
-        state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
-        if "max_tokens" not in state["context"]:
-            state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
-
-        try:
-            self._save_state(state)
-        except Exception as e:
-            print(f"Warning: Could not save state: {e}")
-
-        return self.get_context_snapshot(state)
 
     def check_threshold(self, state: Optional[dict] = None) -> dict:
         """
@@ -251,52 +240,42 @@ class DelegationRules:
 
         Returns:
             Updated context snapshot
+
+        Raises:
+            TypeError: If locked_modify_state was not provided (required for atomic updates)
         """
-        if self._locked_modify_state:
-            def modifier(state: dict) -> None:
-                # Record delegation
-                if "subagent_delegations" not in state:
-                    state["subagent_delegations"] = []
-                state["subagent_delegations"].append({
-                    "description": description,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
+        # Gemini HIGH fix: Require locked_modify_state for atomic updates
+        # Remove fallback to non-atomic operations to prevent race conditions
+        if not self._locked_modify_state:
+            raise TypeError(
+                "DelegationRules must be initialized with a locked_modify_state callable "
+                "for atomic updates. Non-atomic fallback has been removed to prevent race conditions."
+            )
 
-                # Reset context
-                if "context" not in state:
-                    state["context"] = {}
-                state["context"]["current_tokens"] = 0
-                state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
-
-                # Clear cache
-                state["context_cache"] = {
-                    "tokens": 0,
-                    "timestamp": time.time(),
-                    "git_index_hash": "",
-                }
-
-            try:
-                state = self._locked_modify_state(modifier)
-                print(f"Delegation recorded: {description}")
-                print("Context reset to 0")
-                return self.get_context_snapshot(state)
-            except Exception as e:
-                print(f"Warning: Could not record delegation: {e}")
-                return self.get_context_snapshot({})
-
-        # Fallback
-        try:
-            state = self._load_state()
+        def modifier(state: dict) -> None:
+            # Record delegation
             if "subagent_delegations" not in state:
                 state["subagent_delegations"] = []
             state["subagent_delegations"].append({
                 "description": description,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
+
+            # Reset context
             if "context" not in state:
                 state["context"] = {}
             state["context"]["current_tokens"] = 0
-            self._save_state(state)
+            state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+
+            # Clear cache
+            state["context_cache"] = {
+                "tokens": 0,
+                "timestamp": time.time(),
+                "git_index_hash": "",
+            }
+
+        try:
+            state = self._locked_modify_state(modifier)
             print(f"Delegation recorded: {description}")
             print("Context reset to 0")
             return self.get_context_snapshot(state)
