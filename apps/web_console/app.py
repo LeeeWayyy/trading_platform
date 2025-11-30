@@ -24,6 +24,7 @@ Environment Variables:
 
 import hashlib
 import time
+import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -33,6 +34,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from apps.web_console import auth, config
+from apps.web_console.auth.streamlit_helpers import requires_auth
+from apps.web_console.components.session_status import render_session_status
 
 # ============================================================================
 # Page Configuration
@@ -74,7 +77,11 @@ def _get_api_session() -> requests.Session:
             total=3,  # Total number of retries
             backoff_factor=0.5,  # Exponential backoff: 0.5s, 1s, 2s
             status_forcelist=[500, 502, 503, 504],  # Retry on these HTTP status codes
-            allowed_methods=["GET", "POST", "DELETE"],  # CRITICAL: Assumes POST endpoints are idempotent (via client_order_id)
+            allowed_methods=[
+                "GET",
+                "POST",
+                "DELETE",
+            ],  # CRITICAL: Assumes POST endpoints are idempotent (via client_order_id)
             raise_on_status=False,  # Don't raise on retry exhaustion
         )
 
@@ -88,7 +95,9 @@ def _get_api_session() -> requests.Session:
     return cast(requests.Session, st.session_state["api_session"])
 
 
-def fetch_api(endpoint: str, method: str = "GET", data: dict[str, Any] | None = None) -> dict[str, Any]:
+def fetch_api(
+    endpoint: str, method: str = "GET", data: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Fetch data from execution gateway API with retry logic.
 
@@ -241,9 +250,11 @@ def render_dashboard() -> None:
         st.metric(
             "Unrealized P&L",
             f"${float(unrealized_pnl):,.2f}",
-            delta=f"{float(pnl_data.get('total_unrealized_pl_pct', 0)):.2f}%"
-            if pnl_data.get("total_unrealized_pl_pct")
-            else None,
+            delta=(
+                f"{float(pnl_data.get('total_unrealized_pl_pct', 0)):.2f}%"
+                if pnl_data.get("total_unrealized_pl_pct")
+                else None
+            ),
         )
     with col3:
         realtime_count = pnl_data.get("realtime_prices_available", 0)
@@ -323,7 +334,9 @@ def render_manual_order_entry() -> None:
 
             col1, col2 = st.columns(2)
             with col1:
-                symbol = st.text_input("Symbol", placeholder="AAPL", help="Stock symbol (e.g., AAPL, MSFT)")
+                symbol = st.text_input(
+                    "Symbol", placeholder="AAPL", help="Stock symbol (e.g., AAPL, MSFT)"
+                )
                 side = st.selectbox("Side", ["buy", "sell"])
                 qty = st.number_input("Quantity", min_value=1, value=10, step=1)
 
@@ -363,7 +376,31 @@ def render_manual_order_entry() -> None:
                             f"Reason: {kill_switch.get('engagement_reason', 'N/A')}"
                         )
                     else:
-                        # Store order preview
+                        # CRITICAL FIX (Codex High #2 - Iteration 3):
+                        # Generate client_order_id ONCE during Preview step and store in session_state.
+                        # This ensures idempotency: retries/double-clicks reuse the SAME ID,
+                        # preventing duplicate orders.
+                        #
+                        # Use UUID nonce (not session_id) to allow multiple identical manual orders
+                        # in same session/day. UUID is generated once per Preview and reused on Confirm,
+                        # so retries get same ID but new previews get new IDs.
+                        # LOW FIX (Gemini Low #1 - Iteration 4):
+                        # Removed redundant imports (hashlib, uuid already imported at top)
+                        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+                        limit_price_str = str(limit_price) if limit_price else ""
+                        preview_nonce = str(uuid.uuid4())  # Unique per preview, stable for retries
+                        id_components = (
+                            symbol.upper()
+                            + side
+                            + str(qty)
+                            + limit_price_str
+                            + "manual"
+                            + date_str
+                            + preview_nonce  # Unique per preview (allows repeat orders)
+                        )
+                        client_order_id = hashlib.sha256(id_components.encode()).hexdigest()[:24]
+
+                        # Store order preview with pre-generated ID
                         st.session_state["order_preview"] = {
                             "symbol": symbol.upper(),
                             "side": side,
@@ -371,6 +408,7 @@ def render_manual_order_entry() -> None:
                             "order_type": order_type,
                             "limit_price": limit_price,
                             "reason": reason.strip(),
+                            "client_order_id": client_order_id,  # Store for reuse on Confirm
                         }
                         st.session_state["order_confirmation_pending"] = True
                         st.rerun()
@@ -422,30 +460,29 @@ def render_manual_order_entry() -> None:
 
                 # Submit order
                 try:
-                    # Generate client_order_id for idempotency (prevents duplicate orders on retry)
-                    # Same pattern as automated orders: hash(symbol + side + qty + price + strategy + date)[:24]
-                    # For manual orders, use "manual" as strategy
-                    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
-                    limit_price_str = str(order.get("limit_price", ""))
-                    id_components = (
-                        order["symbol"]
-                        + order["side"]
-                        + str(order["qty"])
-                        + limit_price_str
-                        + "manual"
-                        + date_str
-                    )
-                    client_order_id = hashlib.sha256(id_components.encode()).hexdigest()[:24]
+                    # CRITICAL FIX (Gemini Critical #2, Codex Critical #1):
+                    # Reuse client_order_id from Preview step (stored in order_preview).
+                    # This ensures idempotency: retries/double-clicks use SAME ID,
+                    # preventing duplicate orders. DO NOT regenerate ID here!
+                    client_order_id = order.get("client_order_id")
+                    if not client_order_id:
+                        st.error("Internal error: client_order_id missing from preview")
+                        st.session_state["order_confirmation_pending"] = False
+                        st.session_state["order_preview"] = None
+                        st.rerun()
+                        return
 
                     order_request = {
                         "symbol": order["symbol"],
                         "side": order["side"],
                         "qty": order["qty"],
                         "order_type": order["order_type"],
-                        "client_order_id": client_order_id,
+                        "client_order_id": client_order_id,  # Reuse pre-generated ID
                     }
                     if order["limit_price"]:
-                        order_request["limit_price"] = order["limit_price"]  # Keep as numeric, not string
+                        order_request["limit_price"] = order[
+                            "limit_price"
+                        ]  # Keep as numeric, not string
 
                     response = fetch_api("submit_order", method="POST", data=order_request)
 
@@ -623,7 +660,9 @@ def render_audit_log() -> None:
         import psycopg
 
         # MVP: New connection per render. Production TODO: Use connection pool
-        with psycopg.connect(config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT) as conn:
+        with psycopg.connect(
+            config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT
+        ) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -673,11 +712,13 @@ def render_audit_log() -> None:
 # ============================================================================
 
 
+@requires_auth  # Component 4: OAuth2 protected page decorator
 def main() -> None:
     """Main application entry point."""
-    # Authentication gate - must be called inside main() to avoid StreamlitAPIException at module import
-    if not auth.check_password():
-        st.stop()
+    # Component 4 CRITICAL FIX (Codex Critical #1 - Iteration 3):
+    # Token refresh is handled automatically by Component 3's idle_timeout_monitor.py
+    # via background monitoring. No manual start needed in Component 4.
+    # Removed broken import of non-existent start_token_refresh_monitor().
 
     # Sidebar
     with st.sidebar:
@@ -688,8 +729,32 @@ def main() -> None:
         st.markdown(f"**User:** {user_info['username']}")
         st.markdown(f"**Auth:** {user_info['auth_method']}")
 
-        if st.button("Logout", use_container_width=True):
-            auth.logout()
+        # Component 4 Deliverable 3: Session status UI with idle timeout warnings
+        # CRITICAL FIX (Codex Critical #1 - Iteration 4):
+        # Use user_info["auth_method"], not undefined variable auth_method
+        if user_info["auth_method"] == "oauth2":
+            render_session_status()
+            st.divider()
+
+        # Component 4 Deliverable 4: Logout with confirmation
+        if "logout_confirmation_pending" not in st.session_state:
+            st.session_state["logout_confirmation_pending"] = False
+
+        if st.session_state.get("logout_confirmation_pending", False):
+            st.warning("⚠️ **Confirm Logout**")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Yes, Logout", type="primary", use_container_width=True):
+                    st.session_state["logout_confirmation_pending"] = False
+                    auth.logout()
+            with col2:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state["logout_confirmation_pending"] = False
+                    st.rerun()
+        else:
+            if st.button("Logout", use_container_width=True):
+                st.session_state["logout_confirmation_pending"] = True
+                st.rerun()
 
         st.divider()
 
@@ -707,9 +772,7 @@ def main() -> None:
         try:
             gateway_config = fetch_gateway_config()
             st.markdown(f"Mode: {gateway_config.get('environment', 'unknown')}")
-            st.markdown(
-                f"Dry Run: {'✅' if gateway_config.get('dry_run') else '❌'}"
-            )
+            st.markdown(f"Dry Run: {'✅' if gateway_config.get('dry_run') else '❌'}")
         except requests.exceptions.RequestException:
             st.markdown("⚠️ Gateway unreachable")
 

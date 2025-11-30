@@ -1,0 +1,149 @@
+# Redis Session Store Schema - OAuth2/OIDC
+
+**Database:** Redis DB 1 (dedicated, isolated from features DB 0 and metrics DB 2)
+**Encryption:** AES-256-GCM with 32-byte key from AWS Secrets Manager
+
+## Key Format
+
+```
+session:{session_id}
+```
+
+- `session_id`: 32-character random hex string (128-bit entropy)
+- Example: `session:a3f5c8e9d2b1f0a7c4e6d8b2f5a9c3e7`
+
+## Value Structure
+
+**Encrypted JSON blob** (base64-encoded AES-256-GCM ciphertext):
+
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "v1.MR...abc123",
+  "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user_id": "auth0|67890abcdef12345",
+  "email": "trader@example.com",
+  "created_at": "2025-11-23T10:00:00Z",
+  "last_activity": "2025-11-23T10:15:00Z",
+  "ip_address": "192.168.1.100",
+  "user_agent": "Mozilla/5.0..."
+}
+```
+
+## TTL (Time-To-Live)
+
+- **Absolute timeout**: 4 hours (14,400 seconds)
+- **Idle timeout**: 15 minutes (enforced in application, not Redis TTL)
+
+Redis TTL is set to 4 hours. Application checks `last_activity` on each request:
+- If `now - last_activity > 15 minutes`: Delete session (idle timeout)
+- If valid: Update `last_activity` and re-encrypt
+
+## Encryption Details
+
+**Algorithm:** AES-256-GCM (Authenticated Encryption with Associated Data)
+
+**Key Management:**
+- Primary key: 32-byte key from AWS Secrets Manager
+- Secondary key: Optional 32-byte key for zero-downtime rotation
+
+**Encryption Format:**
+```
+base64(nonce || ciphertext || tag)
+```
+
+- Nonce: 12 bytes (96-bit, randomly generated per encryption)
+- Ciphertext: Variable length (encrypted JSON)
+- Tag: 16 bytes (128-bit authentication tag, provided by GCM)
+
+## Session Lifecycle
+
+1. **Login** → Create session:
+   - Generate random session_id (32 chars hex)
+   - Store encrypted tokens in Redis with 4-hour TTL
+   - Set HttpOnly cookie: `session_id=<session_id>; Secure; SameSite=Lax; Max-Age=14400`
+
+2. **Request** → Validate session:
+   - Read session_id from cookie
+   - Fetch encrypted blob from Redis
+   - Decrypt and validate idle timeout
+   - Update last_activity if valid
+
+3. **Logout** → Delete session:
+   - Delete Redis key
+   - Clear cookie
+   - Revoke refresh token with Auth0
+
+4. **Expiration** → Automatic cleanup:
+   - Redis TTL expires after 4 hours (automatic deletion)
+   - OR idle timeout triggers manual deletion
+
+## Security Considerations
+
+### Tokens NEVER in Streamlit session_state
+
+**CI Validation:**
+```bash
+# Pre-commit hook
+if grep -r "session_state.*token" apps/web_console/*.py; then
+    echo "❌ CRITICAL: Tokens MUST NOT be in session_state!"
+    exit 1
+fi
+```
+
+**Allowed in session_state:**
+- `session_id` (cookie ID, not sensitive)
+- `user_display_name` (non-sensitive UI state)
+- `last_activity` (client-side timer only)
+
+**NEVER in session_state:**
+- `access_token`
+- `refresh_token`
+- `id_token`
+
+### Session Binding
+
+To prevent session hijacking, bind session to:
+- IP address (stored in SessionData)
+- User-Agent (stored in SessionData)
+
+On each request:
+```python
+if session_data.ip_address != request_ip:
+    logger.warning("Session IP mismatch - possible hijack attempt")
+    delete_session(session_id)
+    return None
+```
+
+### Encryption Key Rotation
+
+See: `docs/RUNBOOKS/session-key-rotation.md` (to be created in Component 5)
+
+## Database Isolation
+
+**Redis Database Allocation:**
+- DB 0: Feature store data
+- DB 1: OAuth2 sessions (THIS SCHEMA)
+- DB 2: Metrics and circuit breaker state
+
+**Why isolation matters:**
+- `FLUSHDB` on DB 0 won't affect sessions
+- Separate monitoring and alerting
+- Different backup/retention policies
+
+## Emergency Cleanup (IdP Outage)
+
+When switching to mTLS fallback, safely delete all OAuth2 sessions:
+
+```bash
+# SAFE: Uses SCAN + DEL (not FLUSHDB)
+redis-cli -n 1 --scan --pattern "session:*" | xargs -L 1 redis-cli -n 1 DEL
+
+# OR use Python script
+python3 scripts/clear_oauth2_sessions.py --redis-db 1 --prefix "session:"
+```
+
+**DO NOT USE:**
+```bash
+redis-cli -n 1 FLUSHDB  # ❌ DANGEROUS - deletes ALL DB 1 data
+```

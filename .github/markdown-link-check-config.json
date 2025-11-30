@@ -1,6 +1,12 @@
 {
   "ignorePatterns": [
     {
+      "pattern": "^mailto:"
+    },
+    {
+      "pattern": "^https://report-uri.com"
+    },
+    {
       "pattern": "^http://localhost"
     },
     {

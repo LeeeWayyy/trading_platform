@@ -10,16 +10,14 @@ Task: P1T13-F5 Phase A.2 Component 1
 """
 
 import hashlib
-import os
 import subprocess
-from pathlib import Path
 
 import pytest
 
-from libs.common.hash_utils import is_merge_commit, compute_git_diff_hash
+from libs.common.hash_utils import compute_git_diff_hash, is_merge_commit
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_git_repo(tmp_path):
     """Create a temporary git repository for testing."""
     repo_dir = tmp_path / "test_repo"
@@ -118,7 +116,9 @@ def test_is_merge_commit_detection(temp_git_repo):
     assert not is_merge_commit(commit_sha, cwd=temp_git_repo), "Regular commit should not be merge"
 
     # Create a branch
-    subprocess.run(["git", "checkout", "-b", "feature"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-b", "feature"], cwd=temp_git_repo, check=True, capture_output=True
+    )
     (temp_git_repo / "feature.txt").write_text("feature work\n")
     subprocess.run(["git", "add", "."], cwd=temp_git_repo, check=True)
     subprocess.run(
@@ -129,7 +129,9 @@ def test_is_merge_commit_detection(temp_git_repo):
     )
 
     # Merge back to master
-    subprocess.run(["git", "checkout", "master"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "master"], cwd=temp_git_repo, check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "merge", "--no-ff", "feature", "-m", "Merge feature"],
         cwd=temp_git_repo,
@@ -168,14 +170,22 @@ def test_merge_commit_hash_parity(temp_git_repo):
     )
 
     # Branch 1: change file
-    subprocess.run(["git", "checkout", "-b", "branch1"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-b", "branch1"], cwd=temp_git_repo, check=True, capture_output=True
+    )
     (temp_git_repo / "file.txt").write_text("branch1 content\n")
-    subprocess.run(["git", "commit", "-am", "B1"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-am", "B1"], cwd=temp_git_repo, check=True, capture_output=True
+    )
 
     # Branch 2: different change
-    subprocess.run(["git", "checkout", "master"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "master"], cwd=temp_git_repo, check=True, capture_output=True
+    )
     (temp_git_repo / "file.txt").write_text("branch2 content\n")
-    subprocess.run(["git", "commit", "-am", "B2"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-am", "B2"], cwd=temp_git_repo, check=True, capture_output=True
+    )
 
     # Merge with conflict
     subprocess.run(

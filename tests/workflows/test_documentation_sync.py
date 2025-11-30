@@ -4,12 +4,13 @@ Test documentation sync for 6-step workflow pattern.
 Component A2.3 - P1T13-F5
 Verifies that workflow documentation accurately reflects the 6-step pattern.
 """
+
 from pathlib import Path
 
 import pytest
 
 
-@pytest.fixture
+@pytest.fixture()
 def project_root() -> Path:
     """Get project root directory."""
     return Path(__file__).parent.parent.parent

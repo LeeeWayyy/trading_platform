@@ -119,8 +119,7 @@ def check_branch_protection() -> int:
         # Also check "checks" field if contexts is empty (newer API format)
         if not required_checks:
             required_checks = [
-                check["context"]
-                for check in required_status_checks.get("checks", [])
+                check["context"] for check in required_status_checks.get("checks", [])
             ]
 
         if REQUIRED_CHECK not in required_checks:
@@ -155,15 +154,15 @@ def check_branch_protection() -> int:
         print(f"   Critical check present: ✅ {REQUIRED_CHECK}")
         print()
         print("   Branch protection settings:")
-        print(f"     - Require status checks: ✅ Enabled")
+        print("     - Require status checks: ✅ Enabled")
         if required_status_checks.get("strict"):
-            print(f"     - Require up-to-date branches: ✅ Enabled")
+            print("     - Require up-to-date branches: ✅ Enabled")
         else:
-            print(f"     - Require up-to-date branches: ⚠️  Not enabled (recommended)")
+            print("     - Require up-to-date branches: ⚠️  Not enabled (recommended)")
 
         # Show if admins are included
         if protection.get("enforce_admins", {}).get("enabled"):
-            print(f"     - Include administrators: ✅ Enabled")
+            print("     - Include administrators: ✅ Enabled")
 
         print()
         print("   Review-Hash validation is enforced. Bypass attempts will be blocked.")

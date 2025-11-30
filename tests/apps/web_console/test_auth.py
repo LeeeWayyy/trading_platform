@@ -6,7 +6,7 @@ Tests authentication flows, session management, and timeout enforcement.
 
 import hashlib
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -40,8 +40,8 @@ class TestDevAuth:
         mock_session_state = {
             "authenticated": True,
             "username": "test_user",
-            "login_time": datetime.now(),
-            "last_activity": datetime.now() - timedelta(minutes=20),  # 20 min idle
+            "login_time": datetime.now(UTC),
+            "last_activity": datetime.now(UTC) - timedelta(minutes=20),  # 20 min idle
         }
 
         with patch("apps.web_console.auth.st.session_state", mock_session_state):
@@ -56,8 +56,8 @@ class TestDevAuth:
         mock_session_state = {
             "authenticated": True,
             "username": "test_user",
-            "login_time": datetime.now() - timedelta(hours=5),  # 5 hours old
-            "last_activity": datetime.now(),
+            "login_time": datetime.now(UTC) - timedelta(hours=5),  # 5 hours old
+            "last_activity": datetime.now(UTC),
         }
 
         with patch("apps.web_console.auth.st.session_state", mock_session_state):
@@ -72,8 +72,8 @@ class TestDevAuth:
         mock_session_state = {
             "authenticated": True,
             "username": "test_user",
-            "login_time": datetime.now(),
-            "last_activity": datetime.now(),
+            "login_time": datetime.now(UTC),
+            "last_activity": datetime.now(UTC),
         }
 
         with patch("apps.web_console.auth.st.session_state", mock_session_state):
@@ -81,12 +81,12 @@ class TestDevAuth:
 
         assert result is True  # Session should be valid
         # last_activity should be updated
-        assert (datetime.now() - mock_session_state["last_activity"]).total_seconds() < 1
+        assert (datetime.now(UTC) - mock_session_state["last_activity"]).total_seconds() < 1
 
     def test_generate_session_id_unique(self):
         """Test session ID generation produces unique IDs."""
         username = "test_user"
-        login_time = datetime.now()
+        login_time = datetime.now(UTC)
 
         # Generate two IDs
         id1 = auth._generate_session_id(username, login_time)
@@ -104,7 +104,7 @@ class TestDevAuth:
         mock_session_state = {
             "username": "test_user",
             "auth_method": "dev",
-            "login_time": datetime.now(),
+            "login_time": datetime.now(UTC),
             "session_id": "abc123",
         }
 
@@ -189,15 +189,20 @@ class TestAuditLogging:
 class TestAuthTypes:
     """Test different authentication types."""
 
-    def test_oauth2_not_implemented(self):
-        """Test OAuth2 shows not implemented message."""
+    def test_oauth2_requires_session_cookie(self):
+        """Test OAuth2 requires session cookie and redirects if missing."""
         with patch("apps.web_console.auth.AUTH_TYPE", "oauth2"):
-            with patch("apps.web_console.auth.st.error") as mock_error:
-                with patch("apps.web_console.auth.st.info"):
-                    result = auth._oauth2_auth()
+            with patch("apps.web_console.auth.get_session_cookie", return_value=None):
+                with patch("apps.web_console.auth.st.title"):
+                    with patch("apps.web_console.auth.st.info"):
+                        with patch("apps.web_console.auth.st.markdown"):
+                            with patch("apps.web_console.auth.st.stop"):
+                                with patch("apps.web_console.auth.st.switch_page"):
+                                    with patch("apps.web_console.auth.st.session_state", {}):
+                                        result = auth._oauth2_auth()
 
+        # Should return False when no session cookie
         assert result is False
-        mock_error.assert_called_once()
 
     def test_basic_auth_fallback(self):
         """Test basic auth falls back to dev auth for MVP."""
@@ -268,7 +273,7 @@ class TestDevAuthWorkflow:
             # Verify lockout is set for 30 seconds (3 attempts)
             assert mock_session_state["failed_login_attempts"] == 3
             assert mock_session_state["lockout_until"] is not None
-            lockout_delta = mock_session_state["lockout_until"] - datetime.now()
+            lockout_delta = mock_session_state["lockout_until"] - datetime.now(UTC)
             # Should be ~30 seconds (allow 5s variance)
             assert 25 <= lockout_delta.total_seconds() <= 35
 
@@ -295,7 +300,7 @@ class TestDevAuthWorkflow:
             # Verify lockout is set for 5 minutes (5 attempts = 300 seconds)
             assert mock_session_state["failed_login_attempts"] == 5
             assert mock_session_state["lockout_until"] is not None
-            lockout_delta = mock_session_state["lockout_until"] - datetime.now()
+            lockout_delta = mock_session_state["lockout_until"] - datetime.now(UTC)
             # Should be ~300 seconds (allow 10s variance)
             assert 290 <= lockout_delta.total_seconds() <= 310
 
@@ -322,13 +327,13 @@ class TestDevAuthWorkflow:
             # Verify lockout is set for 15 minutes (7+ attempts = 900 seconds)
             assert mock_session_state["failed_login_attempts"] == 7
             assert mock_session_state["lockout_until"] is not None
-            lockout_delta = mock_session_state["lockout_until"] - datetime.now()
+            lockout_delta = mock_session_state["lockout_until"] - datetime.now(UTC)
             # Should be ~900 seconds (allow 10s variance)
             assert 890 <= lockout_delta.total_seconds() <= 910
 
     def test_dev_auth_lockout_active(self):
         """Test that active lockout prevents login."""
-        future_time = datetime.now() + timedelta(minutes=5)
+        future_time = datetime.now(UTC) + timedelta(minutes=5)
         mock_session_state = {
             "failed_login_attempts": 5,
             "lockout_until": future_time,
@@ -347,7 +352,7 @@ class TestDevAuthWorkflow:
 
     def test_dev_auth_lockout_expired(self):
         """Test that expired lockout clears lockout_until but keeps attempt counter for escalation."""
-        past_time = datetime.now() - timedelta(minutes=5)
+        past_time = datetime.now(UTC) - timedelta(minutes=5)
         mock_session_state = {
             "failed_login_attempts": 5,
             "lockout_until": past_time,
@@ -444,8 +449,11 @@ class TestMtlsAuth:
 
         # Mock SessionManager - validate_session should raise InvalidTokenError for IP mismatch
         from libs.web_console_auth.exceptions import InvalidTokenError
+
         mock_session_manager = MagicMock()
-        mock_session_manager.validate_session.side_effect = InvalidTokenError("Session binding mismatch: IP changed")
+        mock_session_manager.validate_session.side_effect = InvalidTokenError(
+            "Session binding mismatch: IP changed"
+        )
         mock_get_jwt.return_value = mock_session_manager
 
         # Validate JWT should FAIL due to IP mismatch (SessionManager raises InvalidTokenError)
@@ -471,7 +479,10 @@ class TestMtlsAuth:
         # Mock JWTManager validation
         mock_session_manager = MagicMock()
         from libs.web_console_auth.exceptions import InvalidTokenError
-        mock_session_manager.validate_session.side_effect = InvalidTokenError("Session binding mismatch: UA changed")
+
+        mock_session_manager.validate_session.side_effect = InvalidTokenError(
+            "Session binding mismatch: UA changed"
+        )
         mock_get_jwt.return_value = mock_session_manager
 
         # Validate JWT should FAIL due to UA mismatch
@@ -564,9 +575,9 @@ class TestMtlsAuth:
             "X-Forwarded-For": "203.0.113.42",  # Spoofed client IP
         }
 
-        # Should reject XFF and return localhost (fail-safe)
+        # Should reject XFF and return remote_addr (fail-safe)
         client_ip = auth._get_client_ip()
-        assert client_ip == "localhost"
+        assert client_ip == "192.168.99.99"  # Returns remote_addr when proxy untrusted
 
     @patch("apps.web_console.auth._get_session_manager")
     @patch("apps.web_console.auth._get_request_headers")
@@ -710,3 +721,75 @@ class TestMtlsAuth:
 
         # Verify token was revoked with correct exp timestamp
         mock_session_manager.terminate_session.assert_called_once_with("test-session-456")
+
+
+class TestOAuth2SecurityRegression:
+    """CRITICAL SECURITY REGRESSION TESTS (Component 4 - Codex test-01)."""
+
+    @patch("apps.web_console.auth.get_session_cookie")
+    @patch("apps.web_console.auth.validate_session")
+    def test_tokens_never_stored_in_session_state(
+        self, mock_validate, mock_get_cookie
+    ):
+        """CRITICAL REGRESSION TEST: Ensure tokens never enter session_state.
+
+        Component 3 Security Requirement (Codex High #1):
+        Tokens (access_token, refresh_token, id_token) MUST remain in
+        encrypted Redis and NEVER be stored in st.session_state.
+
+        This test prevents regression of the security violation identified
+        in Component 4 plan review where access_token was stored in session_state.
+        """
+        # Mock session cookie
+        mock_get_cookie.return_value = "test-session-id"
+
+        # Mock validate_session to return user_info (NO tokens)
+        mock_user_info = {
+            "user_id": "auth0|12345",
+            "email": "test@example.com",
+            "display_name": "test",
+            "created_at": "2025-11-25T10:00:00Z",
+            "last_activity": "2025-11-25T10:00:00Z",
+            "access_token_expires_at": "2025-11-25T11:00:00Z",
+        }
+
+        # Mock asyncio.run to return mock_user_info directly
+        # (it will be called by _oauth2_auth to execute _validate())
+        def mock_asyncio_run(coro):
+            return mock_user_info
+
+        # Mock session_state
+        mock_session_state = {}
+
+        # Execute _oauth2_auth() which populates session_state
+        with patch("apps.web_console.auth.st.session_state", mock_session_state):
+            with patch("asyncio.run", side_effect=mock_asyncio_run):
+                with patch("apps.web_console.auth.audit_to_database"):
+                    result = auth._oauth2_auth()
+
+        # CRITICAL ASSERTIONS: Verify NO tokens in session_state
+        forbidden_keys = ["access_token", "refresh_token", "id_token"]
+        for key in forbidden_keys:
+            assert key not in mock_session_state, (
+                f"CRITICAL SECURITY VIOLATION: {key} found in st.session_state! "
+                f"Tokens must remain in encrypted Redis. "
+                f"This violates Component 3 security requirement (Codex High #1)."
+            )
+
+        # Verify non-sensitive metadata IS present (positive test)
+        user_info_dict = mock_session_state.get("user_info", {})
+        assert "email" in user_info_dict, "user_info should contain email"
+        assert "user_id" in user_info_dict, "user_info should contain user_id"
+        assert "display_name" in user_info_dict, "user_info should contain display_name"
+
+        # Verify user_info does NOT contain tokens
+        for key in forbidden_keys:
+            assert key not in user_info_dict, (
+                f"CRITICAL SECURITY VIOLATION: {key} found in user_info dict! "
+                f"Tokens must remain in encrypted Redis."
+            )
+
+        # Verify authentication succeeded
+        assert result is True, "OAuth2 authentication should succeed"
+        assert mock_session_state.get("authenticated") is True
+        assert mock_session_state.get("auth_method") == "oauth2"

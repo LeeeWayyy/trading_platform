@@ -527,7 +527,7 @@ class WorkflowGate:
 
         # Gemini MEDIUM fix: Fail closed on I/O errors
         # If audit log exists but is unreadable, raise exception to block commit
-        with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+        with open(AUDIT_LOG_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -571,7 +571,7 @@ class WorkflowGate:
             # Compute hash speculatively (will only be used if step=review)
             # If this fails, we want to fail early before acquiring the lock
             staged_hash = self._compute_staged_hash()
-        except Exception as e:
+        except Exception:
             # Hash computation failed - check if this is expected (no staged changes)
             # If step=review, this is an error; if step=plan-review, it's OK
             # We'll verify inside the lock
@@ -1094,7 +1094,7 @@ class WorkflowGate:
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("❌ COMMIT BLOCKED: Audit log file is missing")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            print(f"   The audit log file is required for all commits after the first one.")
+            print("   The audit log file is required for all commits after the first one.")
             print(f"   Expected location: {AUDIT_LOG_FILE}")
             print()
             print("   This may indicate tampering or an inconsistent state.")
@@ -1152,8 +1152,7 @@ class WorkflowGate:
         # Block commit if there are unresolved delegations (not completed/cancelled)
         planned_delegations = state.get("planned_delegations", [])
         unresolved_delegations = [
-            d for d in planned_delegations
-            if d.get("status") not in ("completed", "cancelled")
+            d for d in planned_delegations if d.get("status") not in ("completed", "cancelled")
         ]
 
         if unresolved_delegations:
@@ -3241,7 +3240,9 @@ class UnifiedReviewSystem:
         """
         print("🔍 Requesting comprehensive review (INDEPENDENT: Gemini + Codex)...")
         print("   ⚠️  CRITICAL: Both reviewers work INDEPENDENTLY (not sequential)")
-        print("   Focus: All comprehensive criteria (trading safety, architecture, quality, security)")
+        print(
+            "   Focus: All comprehensive criteria (trading safety, architecture, quality, security)"
+        )
         print("   Duration: ~3-5 minutes")
         print()
         print("💡 Follow workflow: docs/AI/Workflows/03-reviews.md")
@@ -3252,7 +3253,9 @@ class UnifiedReviewSystem:
         print()
         print("   === Phase 2: Request INDEPENDENT Codex review ===")
         print("   Use: mcp__zen__clink with cli_name='codex', role='codereviewer'")
-        print("   Prompt: 'Request comprehensive review (fresh, independent - DO NOT reference Gemini)'")
+        print(
+            "   Prompt: 'Request comprehensive review (fresh, independent - DO NOT reference Gemini)'"
+        )
         print("   ⚠️  DO NOT reuse Gemini's continuation_id - Codex reviews independently")
         print()
         print("   === If ANY issues found ===")
@@ -3312,7 +3315,9 @@ class UnifiedReviewSystem:
         print()
         print("   === Phase 2: Request INDEPENDENT Codex review ===")
         print("   Use: mcp__zen__clink with cli_name='codex', role='codereviewer'")
-        print("   Prompt: 'Request comprehensive plan review (fresh, independent - DO NOT reference Gemini)'")
+        print(
+            "   Prompt: 'Request comprehensive plan review (fresh, independent - DO NOT reference Gemini)'"
+        )
         print("   ⚠️  DO NOT reuse Gemini's continuation_id - Codex reviews independently")
         print()
         print("   === If ANY issues found by EITHER reviewer ===")
@@ -3325,9 +3330,7 @@ class UnifiedReviewSystem:
         print()
         print("   === After BOTH approve, record approval ===")
         print("   Record with EITHER final continuation_id:")
-        print(
-            "     ./scripts/workflow_gate.py record-review <final-continuation-id> APPROVED"
-        )
+        print("     ./scripts/workflow_gate.py record-review <final-continuation-id> APPROVED")
         print()
 
         # Return placeholder - actual review happens via clink
@@ -3387,12 +3390,16 @@ class UnifiedReviewSystem:
         print()
         print("   === Phase 2: Request INDEPENDENT Codex review ===")
         print("   Use: mcp__zen__clink with cli_name='codex', role='codereviewer'")
-        print("   Prompt: 'Request comprehensive PR review (fresh, independent - DO NOT reference Gemini)'")
+        print(
+            "   Prompt: 'Request comprehensive PR review (fresh, independent - DO NOT reference Gemini)'"
+        )
         print("   ⚠️  DO NOT reuse Gemini's continuation_id - Codex reviews independently")
         print()
         print("   === If ANY issues found ===")
         print("   - Fix ALL issues")
-        print(f"   - RESTART iteration {iteration+1} with FRESH reviews (discard continuation_ids from iteration {iteration})")
+        print(
+            f"   - RESTART iteration {iteration+1} with FRESH reviews (discard continuation_ids from iteration {iteration})"
+        )
         print()
         print("   === After BOTH approve with ZERO issues ===")
         print("   Record with EITHER final continuation_id:")

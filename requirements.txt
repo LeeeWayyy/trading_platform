@@ -42,7 +42,9 @@ apscheduler>=3.10.0,<4.0.0
 prometheus-client>=0.19.0,<1.0.0
 
 # Web console
-streamlit==1.28.0
+# CRITICAL FIX (Gemini Critical #1 - Iteration 2): Upgrade to >=1.31.0
+# Component 3 uses st.context.cookies API (available since 1.31.0)
+streamlit>=1.31.0,<2.0.0
 requests>=2.31.0,<3.0.0
 cryptography>=41.0.0,<42.0.0
 pyjwt>=2.8.0,<3.0.0

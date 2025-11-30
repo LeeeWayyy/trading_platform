@@ -206,6 +206,10 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0016](./ADRs/0016-multi-alpha-allocation.md) | Multi-alpha capital allocation system | ✅ Accepted |
 | [0017](./ADRs/0017-secrets-management.md) | Secrets management with Google Cloud Secret Manager | ✅ Accepted |
 | [0018](./ADRs/0018-web-console-mtls-authentication.md) | Web console mTLS authentication with JWT session management | ✅ Accepted |
+| [ADR-015](./ADRs/ADR-015-auth0-idp-selection.md) | Auth0 for Production OAuth2/OIDC Identity Provider | 🚧 Proposed |
+
+**Architecture Documentation:**
+- [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
 
 **How to use ADRs:**
 - **Before modifying architecture:** Check if ADR exists, follow its decisions
@@ -238,6 +242,7 @@ Educational explanations of trading and ML concepts:
 | [feature-parity.md](./CONCEPTS/feature-parity.md) | Research-production consistency | Advanced |
 | [mtls-jwt-authentication.md](./CONCEPTS/mtls-jwt-authentication.md) | Mutual TLS and JWT authentication concepts | Advanced |
 | [monitoring-and-observability.md](./CONCEPTS/monitoring-and-observability.md) | Metrics, logs, and traces | Intermediate |
+| [oauth2-mtls-fallback-architecture.md](./CONCEPTS/oauth2-mtls-fallback-architecture.md) | OAuth2/OIDC with mTLS fallback architecture | Advanced |
 | [multi-alpha-allocation.md](./CONCEPTS/multi-alpha-allocation.md) | Multi-strategy capital allocation | Advanced |
 | [parquet-format.md](./CONCEPTS/parquet-format.md) | Columnar storage format | Beginner |
 | [python-testing-tools.md](./CONCEPTS/python-testing-tools.md) | pytest and testing frameworks | Beginner |
@@ -324,7 +329,15 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-15, Task] [P2T2_DONE.md](./TASKS/P2T2_DONE.md) - Secrets management with Google Cloud Secret Manager (completed)
 - [CURRENT, 2025-11-17, Task] [P2T3_TASK.md](./TASKS/P2T3_TASK.md) - Web console for operational oversight and manual intervention
 - [CURRENT, 2025-11-22, Plan] [P2T3_Component2_Plan.md](./TASKS/P2T3_Component2_Plan.md) - Component 2: JWT token generation and validation implementation plan
-- [CURRENT, 2025-11-22, Plan] [P2T3_Component3_Plan.md](./TASKS/P2T3_Component3_Plan.md) - Component 3: Nginx reverse proxy with mTLS authentication implementation plan
+- [CURRENT, 2025-11-23, Task] [P2T3-Phase3_TASK.md](./TASKS/P2T3-Phase3_TASK.md) - P2T3 Phase 3: OAuth2/OIDC Authentication for Production (in progress)
+- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component1_Plan.md](./TASKS/P2T3-Phase3_Component1_Plan.md) - Component 1: OAuth2 Config & IdP Setup detailed implementation plan
+- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component2_Plan_v3.md](./TASKS/P2T3-Phase3_Component2_Plan_v3.md) - Component 2: OAuth2 Authorization Flow with PKCE (v3 FINAL - FastAPI sidecar architecture)
+- [CURRENT, 2025-11-23, Errata] [P2T3-Phase3_Component2_Plan_v3_ERRATA.md](./TASKS/P2T3-Phase3_Component2_Plan_v3_ERRATA.md) - Component 2 Plan v3 errata and clarifications
+- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component3_Plan_v2.md](./TASKS/P2T3-Phase3_Component3_Plan_v2.md) - Component 3: Session Management & Token Refresh (v2 FINAL - Security fixes for production)
+- [CURRENT, 2025-11-25, Plan] [P2T3_Phase3_PLANNING_SUMMARY.md](./TASKS/P2T3_Phase3_PLANNING_SUMMARY.md) - P2T3 Phase 3 planning summary with all 4 components
+- [CURRENT, 2025-11-25, Plan] [P2T3-Phase3_Component4_Plan.md](./TASKS/P2T3-Phase3_Component4_Plan.md) - Component 4: Streamlit UI Integration detailed implementation plan
+- [CURRENT, 2025-11-26, Plan] [P2T3-Phase3_Component5_Plan.md](./TASKS/P2T3-Phase3_Component5_Plan.md) - Component 5: CSP Hardening + Nginx Integration detailed implementation plan
+- [CURRENT, 2025-11-27, Plan] [P2T3-Phase3_Component6-7_Plan.md](./TASKS/P2T3-Phase3_Component6-7_Plan.md) - Components 6+7: mTLS Fallback + Operational Monitoring detailed implementation plan
 
 **Checking Current/Next Task:**
 ```bash
@@ -364,8 +377,12 @@ Post-implementation analysis and learnings:
 Operational procedures and troubleshooting:
 
 - [CURRENT, 2025-10-21, Runbook] [logging-queries.md](./RUNBOOKS/logging-queries.md) - Common LogQL queries for debugging production issues with Loki
+- [CURRENT, 2025-11-27, Runbook] [auth0-idp-outage.md](./RUNBOOKS/auth0-idp-outage.md) - Auth0 IdP outage response and mTLS fallback procedures
 - [CURRENT, 2025-10-20, Runbook] [ops.md](./RUNBOOKS/ops.md) - Core operational procedures for deployment and troubleshooting
+- [CURRENT, 2025-11-27, Runbook] [mtls-fallback-admin-certs.md](./RUNBOOKS/mtls-fallback-admin-certs.md) - mTLS fallback emergency admin certificate generation and rotation
+- [CURRENT, 2025-11-27, Runbook] [oauth2-session-cleanup.md](./RUNBOOKS/oauth2-session-cleanup.md) - OAuth2 session cleanup and expired token removal procedures
 - [CURRENT, 2025-11-15, Runbook] [secret-rotation.md](./RUNBOOKS/secret-rotation.md) - Secret rotation procedures for Google Cloud Secret Manager
+- [CURRENT, 2025-11-27, Runbook] [session-key-rotation.md](./RUNBOOKS/session-key-rotation.md) - Session encryption key rotation procedures for OAuth2
 - [CURRENT, 2025-11-15, Runbook] [secrets-migration.md](./RUNBOOKS/secrets-migration.md) - Migration from .env to Google Cloud Secret Manager
 - [CURRENT, 2025-10-20, Runbook] [staging-deployment.md](./RUNBOOKS/staging-deployment.md) - Staging environment deployment, credentials, and rollback procedures
 - [CURRENT, 2025-11-17, Runbook] [web-console-user-guide.md](./RUNBOOKS/web-console-user-guide.md) - Web console usage, authentication, manual order entry, kill switch operations
@@ -413,6 +430,9 @@ Configuration files, templates, prompts, and tooling:
 
 **apps/ (Application-Level Documentation):**
 - [CURRENT, 2025-11-21, Guide] [../apps/web_console/certs/README.md](../apps/web_console/certs/README.md) - Web console certificate management and rotation guide
+
+**infra/ (Infrastructure Configuration):**
+- [CURRENT, 2025-11-27, Dashboard] [../infra/grafana/dashboards/oauth2-sessions-spec.md](../infra/grafana/dashboards/oauth2-sessions-spec.md) - OAuth2 session monitoring Grafana dashboard specification
 - [CURRENT, 2025-11-15, Research] [research/context-optimization-measurement.md](../docs/AI/Research/context-optimization-measurement.md) - Context optimization and measurement techniques
 - [CURRENT, 2025-11-15, Research] [research/delegation-decision-tree.md](../docs/AI/Research/delegation-decision-tree.md) - Subagent delegation decision framework
 - [CURRENT, 2025-11-15, Research] [research/P1T13-workflow-simplification-analysis.md](../docs/AI/Research/P1T13-workflow-simplification-analysis.md) - P1T13 workflow simplification analysis

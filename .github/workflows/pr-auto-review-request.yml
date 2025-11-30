@@ -44,7 +44,7 @@ jobs:
         run: |
           gh pr comment $PR_NUMBER --body "🤖 **Automated Review Request**
 
-          @gemini-code-assist @codex please review this pull request and check for:
+          @gemini-code-assist please review this pull request and check for:
           - Code quality issues
           - Potential bugs or security vulnerabilities
           - Test coverage gaps
@@ -57,6 +57,6 @@ jobs:
 
       - name: Summary
         run: |
-          echo "✅ Automatically requested reviews from @codex and @gemini-code-assist"
+          echo "✅ Automatically requested reviews from @gemini-code-assist"
           echo "PR: #${{ github.event.pull_request.number }}"
           echo "Author: @${{ github.event.pull_request.user.login }}"

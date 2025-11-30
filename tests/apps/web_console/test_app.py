@@ -129,6 +129,7 @@ class TestAuditLog:
     def test_audit_log_manual_order(self, caplog):
         """Test audit log for manual order."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         mock_user_info = {
@@ -149,13 +150,18 @@ class TestAuditLog:
         log_text = caplog.text
         assert "[AUDIT" in log_text, f"Expected [AUDIT] marker in log output. Got: {log_text}"
         assert "test_user" in log_text, f"Expected username in audit log output. Got: {log_text}"
-        assert "manual_order" in log_text, f"Expected action type in audit log output. Got: {log_text}"
+        assert (
+            "manual_order" in log_text
+        ), f"Expected action type in audit log output. Got: {log_text}"
         # Verify fallback was triggered (error message should be present)
-        assert "[AUDIT FALLBACK]" in log_text or "[AUDIT ERROR]" in log_text, f"Expected fallback logging to be triggered. Got: {log_text}"
+        assert (
+            "[AUDIT FALLBACK]" in log_text or "[AUDIT ERROR]" in log_text
+        ), f"Expected fallback logging to be triggered. Got: {log_text}"
 
     def test_audit_log_kill_switch(self, caplog):
         """Test audit log for kill switch action."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         mock_user_info = {
@@ -176,9 +182,13 @@ class TestAuditLog:
         log_text = caplog.text
         assert "[AUDIT" in log_text, f"Expected [AUDIT] marker in log output. Got: {log_text}"
         assert "ops_team" in log_text, f"Expected username in audit log output. Got: {log_text}"
-        assert "kill_switch_engage" in log_text, f"Expected action type in audit log output. Got: {log_text}"
+        assert (
+            "kill_switch_engage" in log_text
+        ), f"Expected action type in audit log output. Got: {log_text}"
         # Verify fallback was triggered (error message should be present)
-        assert "[AUDIT FALLBACK]" in log_text or "[AUDIT ERROR]" in log_text, f"Expected fallback logging to be triggered. Got: {log_text}"
+        assert (
+            "[AUDIT FALLBACK]" in log_text or "[AUDIT ERROR]" in log_text
+        ), f"Expected fallback logging to be triggered. Got: {log_text}"
 
 
 class TestDashboard:
@@ -200,9 +210,7 @@ class TestDashboard:
             with patch(
                 "apps.web_console.app.fetch_kill_switch_status", return_value=mock_kill_switch
             ):
-                with patch(
-                    "apps.web_console.app.fetch_gateway_config", return_value=mock_config
-                ):
+                with patch("apps.web_console.app.fetch_gateway_config", return_value=mock_config):
                     with patch("apps.web_console.app.st") as mock_st:
                         mock_st.columns.return_value = (
                             MagicMock(),
@@ -240,9 +248,7 @@ class TestDashboard:
             with patch(
                 "apps.web_console.app.fetch_kill_switch_status", return_value=mock_kill_switch
             ):
-                with patch(
-                    "apps.web_console.app.fetch_gateway_config", return_value=mock_config
-                ):
+                with patch("apps.web_console.app.fetch_gateway_config", return_value=mock_config):
                     with patch("apps.web_console.app.st") as mock_st:
                         mock_st.columns.return_value = (
                             MagicMock(),
@@ -269,9 +275,7 @@ class TestDashboard:
             with patch(
                 "apps.web_console.app.fetch_kill_switch_status", return_value=mock_kill_switch
             ):
-                with patch(
-                    "apps.web_console.app.fetch_gateway_config", return_value=mock_config
-                ):
+                with patch("apps.web_console.app.fetch_gateway_config", return_value=mock_config):
                     with patch("apps.web_console.app.st") as mock_st:
                         mock_st.columns.return_value = (
                             MagicMock(),
@@ -434,6 +438,10 @@ class TestManualOrderEntryFlow:
 
     def test_step_2_confirm_submits_order_and_clears_pending(self):
         """Test step 2: confirming pending order submits to API and clears state."""
+        # HIGH FIX (Codex High #1 - Iteration 4):
+        # Add client_order_id to order_preview (generated during Preview step).
+        # This tests idempotency: the SAME ID generated during Preview is reused on Confirm.
+        preview_client_order_id = "abc123def456ghi789012345"  # Pre-generated UUID-based ID
         mock_session_state = {
             "order_confirmation_pending": True,
             "order_preview": {
@@ -442,8 +450,9 @@ class TestManualOrderEntryFlow:
                 "qty": 10,
                 "order_type": "market",
                 "limit_price": None,
-                "reason": "Test reason for order submission"
-            }
+                "reason": "Test reason for order submission",
+                "client_order_id": preview_client_order_id,  # CRITICAL: include pre-generated ID
+            },
         }
 
         with patch("apps.web_console.app.st") as mock_st:
@@ -465,11 +474,21 @@ class TestManualOrderEntryFlow:
 
                         # Verify fetch_api was called
                         mock_fetch.assert_called_once()
+
+                        # HIGH FIX (Codex High #1 - Iteration 4):
+                        # Assert idempotency: Confirm reuses the SAME client_order_id from Preview
+                        call_args = mock_fetch.call_args[1]  # Get kwargs
+                        submitted_order = call_args["data"]
+                        assert submitted_order["client_order_id"] == preview_client_order_id, \
+                            "Confirm must reuse client_order_id from Preview (idempotency)"
+
                         # Verify state cleared
                         assert not mock_session_state.get("order_confirmation_pending", False)
 
     def test_step_2_cancel_clears_pending_without_submit(self):
         """Test step 2: canceling pending order clears state without API call."""
+        # HIGH FIX (Codex High #1 - Iteration 4):
+        # Add client_order_id to order_preview (generated during Preview step)
         mock_session_state = {
             "order_confirmation_pending": True,
             "order_preview": {
@@ -478,8 +497,9 @@ class TestManualOrderEntryFlow:
                 "qty": 10,
                 "order_type": "market",
                 "limit_price": None,
-                "reason": "Test reason"
-            }
+                "reason": "Test reason",
+                "client_order_id": "abc123def456ghi789012345",  # Pre-generated UUID-based ID
+            },
         }
 
         with patch("apps.web_console.app.st") as mock_st:
@@ -508,9 +528,13 @@ class TestManualOrderEntryFlow:
             # Create a mock that supports both dict-style access and .get()
             mock_st.session_state = MagicMock()
             mock_st.session_state.__getitem__ = lambda self, key: mock_session_state[key]
-            mock_st.session_state.__setitem__ = lambda self, key, val: mock_session_state.__setitem__(key, val)
+            mock_st.session_state.__setitem__ = (
+                lambda self, key, val: mock_session_state.__setitem__(key, val)
+            )
             mock_st.session_state.__contains__ = lambda self, key: key in mock_session_state
-            mock_st.session_state.get = lambda key, default=None: mock_session_state.get(key, default)
+            mock_st.session_state.get = lambda key, default=None: mock_session_state.get(
+                key, default
+            )
             with patch("apps.web_console.app.fetch_kill_switch_status") as mock_kill:
                 # Mock columns for layout
                 mock_st.columns.return_value = (MagicMock(), MagicMock())
@@ -519,7 +543,7 @@ class TestManualOrderEntryFlow:
                 mock_kill.return_value = {
                     "state": "ENGAGED",
                     "engaged_by": "ops_team",
-                    "engagement_reason": "Market anomaly"
+                    "engagement_reason": "Market anomaly",
                 }
 
                 # Simulate form submission - wire to actual st functions
@@ -563,17 +587,21 @@ class TestManualOrderEntryFlow:
                 "qty": 10,
                 "order_type": "market",
                 "limit_price": None,
-                "reason": "Test reason"
-            }
+                "reason": "Test reason",
+            },
         }
 
         with patch("apps.web_console.app.st") as mock_st:
             # Create a mock that supports both dict-style access and .get()
             mock_st.session_state = MagicMock()
             mock_st.session_state.__getitem__ = lambda self, key: mock_session_state[key]
-            mock_st.session_state.__setitem__ = lambda self, key, val: mock_session_state.__setitem__(key, val)
+            mock_st.session_state.__setitem__ = (
+                lambda self, key, val: mock_session_state.__setitem__(key, val)
+            )
             mock_st.session_state.__contains__ = lambda self, key: key in mock_session_state
-            mock_st.session_state.get = lambda key, default=None: mock_session_state.get(key, default)
+            mock_st.session_state.get = lambda key, default=None: mock_session_state.get(
+                key, default
+            )
             with patch("apps.web_console.app.fetch_kill_switch_status") as mock_kill:
                 with patch("apps.web_console.app.fetch_api") as mock_fetch:
                     # Mock columns for layout
@@ -583,7 +611,7 @@ class TestManualOrderEntryFlow:
                     mock_kill.return_value = {
                         "state": "ENGAGED",
                         "engaged_by": "ops_team",
-                        "engagement_reason": "Emergency halt"
+                        "engagement_reason": "Emergency halt",
                     }
 
                     # Simulate confirmation button click (first call returns True)
@@ -642,7 +670,9 @@ class TestKillSwitchFlow:
                         # Should show error for missing reason
                         mock_st.error.assert_called()
                         error_msg = mock_st.error.call_args[0][0]
-                        assert "at least 10 characters" in error_msg, "Expected validation error for short reason"
+                        assert (
+                            "at least 10 characters" in error_msg
+                        ), "Expected validation error for short reason"
 
                         # Should NOT call API when validation fails
                         mock_fetch.assert_not_called()

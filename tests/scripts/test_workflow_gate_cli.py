@@ -199,7 +199,9 @@ class TestWorkflowGateCLI:
 
             assert exit_code == 0
             # Defaults to "codex" when cli_name not provided
-            mock_gate_instance.record_review.assert_called_once_with("cont-123", "APPROVED", "codex")
+            mock_gate_instance.record_review.assert_called_once_with(
+                "cont-123", "APPROVED", "codex"
+            )
 
     def test_record_ci_command(self):
         """Test 'record-ci' command calls WorkflowGate.record_ci()."""

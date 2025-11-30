@@ -116,3 +116,6 @@ apps/web_console/certs/jwt_private.key
 # Allow specific public .pem files (needed for JWT validation and CA certificates)
 !apps/web_console/certs/jwt_public.pem
 !apps/web_console/certs/ca.pem
+
+# repomix
+repomix-output.xml
