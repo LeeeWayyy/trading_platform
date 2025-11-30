@@ -1,6 +1,6 @@
 # Session Secret Key Rotation Runbook
 
-**Purpose:** Rotate SESSION_ENCRYPTION_KEY with zero downtime to maintain security compliance
+**Purpose:** Rotate SESSION_SECRET_KEY with zero downtime to maintain security compliance
 
 **Owner:** @platform-team
 
@@ -12,7 +12,7 @@
 
 ## Overview
 
-This runbook guides operators through rotating the `SESSION_ENCRYPTION_KEY` used to sign and verify HTTP session cookies. Regular rotation is a security best practice to limit the impact of key compromise.
+This runbook guides operators through rotating the `SESSION_SECRET_KEY` used to sign and verify HTTP session cookies. Regular rotation is a security best practice to limit the impact of key compromise.
 
 **Estimated Time:** 10-15 minutes
 
@@ -28,7 +28,7 @@ This runbook guides operators through rotating the `SESSION_ENCRYPTION_KEY` used
 
 ### Purpose
 
-The `SESSION_ENCRYPTION_KEY` is used to:
+The `SESSION_SECRET_KEY` is used to:
 
 1. **Sign session cookies** (HMAC-SHA256 signature)
 2. **Verify session cookies** (prevent tampering)
@@ -128,11 +128,11 @@ curl -k https://YOUR-DOMAIN/health
 ```bash
 # Export current secret from secrets backend
 # Vault example:
-vault kv get -field=SESSION_ENCRYPTION_KEY secret/trading-platform/web-console > /tmp/old_session_secret.txt
+vault kv get -field=SESSION_SECRET_KEY secret/trading-platform/web-console > /tmp/old_session_secret.txt
 
 # AWS Secrets Manager example:
 aws secretsmanager get-secret-value --secret-id trading-platform/web-console/session-secret \
-  --query 'SecretString' --output text | jq -r '.SESSION_ENCRYPTION_KEY' > /tmp/old_session_secret.txt
+  --query 'SecretString' --output text | jq -r '.SESSION_SECRET_KEY' > /tmp/old_session_secret.txt
 
 # Verify backup
 wc -c /tmp/old_session_secret.txt
@@ -170,17 +170,17 @@ OLD_SECRET=$(cat /tmp/old_session_secret.txt)
 NEW_SECRET="[from Step 3]"
 
 # Method 1: Direct .env edit
-echo "SESSION_ENCRYPTION_KEY=$NEW_SECRET,$OLD_SECRET" >> /app/.env
+echo "SESSION_SECRET_KEY=$NEW_SECRET,$OLD_SECRET" >> /app/.env
 
 # Method 2: Secrets backend update
-vault kv put secret/trading-platform/web-console SESSION_ENCRYPTION_KEY="$NEW_SECRET,$OLD_SECRET"
+vault kv put secret/trading-platform/web-console SESSION_SECRET_KEY="$NEW_SECRET,$OLD_SECRET"
 ```
 
 **Code Behavior During Grace Period:**
 
 ```python
 # Session verification accepts BOTH keys (old sessions still valid)
-ALLOWED_KEYS = SESSION_ENCRYPTION_KEY.split(',')
+ALLOWED_KEYS = SESSION_SECRET_KEY.split(',')
 for key in ALLOWED_KEYS:
     if verify_signature(cookie, key):
         return True  # Valid session
@@ -244,10 +244,10 @@ kubectl logs -l app=web-console --since=1h | grep -i "signature verification fai
 
 ```bash
 # Update .env to use ONLY new secret
-echo "SESSION_ENCRYPTION_KEY=$NEW_SECRET" > /app/.env
+echo "SESSION_SECRET_KEY=$NEW_SECRET" > /app/.env
 
 # Or update secrets backend
-vault kv put secret/trading-platform/web-console SESSION_ENCRYPTION_KEY="$NEW_SECRET"
+vault kv put secret/trading-platform/web-console SESSION_SECRET_KEY="$NEW_SECRET"
 
 # Restart service
 kubectl rollout restart deployment/web-console
@@ -324,7 +324,7 @@ echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> /var/log/session-secret-ro
 NEW_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
 # Update secrets backend (NO grace period - single key only)
-vault kv put secret/trading-platform/web-console SESSION_ENCRYPTION_KEY="$NEW_SECRET"
+vault kv put secret/trading-platform/web-console SESSION_SECRET_KEY="$NEW_SECRET"
 ```
 
 #### Step 3: Deploy New Secret Immediately
@@ -450,10 +450,10 @@ zcat /tmp/sessions-forensics-*.log.gz | grep -A 10 "KEY: session:" > /tmp/analys
 **Environment Variable Format:**
 ```bash
 # Grace period: comma-separated list (new key first)
-SESSION_ENCRYPTION_KEY=new_secret_here,old_secret_here
+SESSION_SECRET_KEY=new_secret_here,old_secret_here
 
 # Post-grace period: single key only
-SESSION_ENCRYPTION_KEY=new_secret_here
+SESSION_SECRET_KEY=new_secret_here
 ```
 
 **Code Implementation:**
@@ -463,7 +463,7 @@ SESSION_ENCRYPTION_KEY=new_secret_here
 
 def verify_session_cookie(cookie: str) -> bool:
     """Verify session cookie signature (supports multi-key for rotation)."""
-    allowed_keys = os.getenv("SESSION_ENCRYPTION_KEY", "").split(',')
+    allowed_keys = os.getenv("SESSION_SECRET_KEY", "").split(',')
 
     for key in allowed_keys:
         try:
@@ -480,7 +480,7 @@ def verify_session_cookie(cookie: str) -> bool:
 
 def sign_session_cookie(session_data: dict) -> str:
     """Sign new session cookie (uses FIRST key only)."""
-    allowed_keys = os.getenv("SESSION_ENCRYPTION_KEY", "").split(',')
+    allowed_keys = os.getenv("SESSION_SECRET_KEY", "").split(',')
     primary_key = allowed_keys[0]  # ALWAYS use first key for signing
 
     signature = compute_signature(session_data, primary_key)
@@ -492,7 +492,7 @@ def sign_session_cookie(session_data: dict) -> str:
 ```
 T=0:     Rotation starts
          - Generate new secret
-         - Update SESSION_ENCRYPTION_KEY="new,old" (comma-separated)
+         - Update SESSION_SECRET_KEY="new,old" (comma-separated)
          - Restart service
 
 T=0-24h: Grace period active
@@ -501,7 +501,7 @@ T=0-24h: Grace period active
          - Both secrets accepted for verification
 
 T=24h:   Grace period ends
-         - Update SESSION_ENCRYPTION_KEY="new" (single key)
+         - Update SESSION_SECRET_KEY="new" (single key)
          - Restart service
          - Old sessions now invalid (signature verification fails)
          - All sessions must use new secret
@@ -568,8 +568,8 @@ echo "Days since last rotation: $DAYS_SINCE"
 
 **Diagnosis:**
 ```bash
-# Check current SESSION_ENCRYPTION_KEY configuration
-kubectl exec deployment/web-console -- env | grep SESSION_ENCRYPTION_KEY
+# Check current SESSION_SECRET_KEY configuration
+kubectl exec deployment/web-console -- env | grep SESSION_SECRET_KEY
 # Should show new secret (or "new,old" during grace period)
 
 # Check logs for signature errors
@@ -588,7 +588,7 @@ kubectl logs -l app=web-console --since=1h | grep -i "signature"
 OLD_SECRET="[backed up old secret]"
 NEW_SECRET="[current new secret]"
 
-vault kv put secret/trading-platform/web-console SESSION_ENCRYPTION_KEY="$NEW_SECRET,$OLD_SECRET"
+vault kv put secret/trading-platform/web-console SESSION_SECRET_KEY="$NEW_SECRET,$OLD_SECRET"
 
 # Restart service
 kubectl rollout restart deployment/web-console
@@ -607,7 +607,7 @@ kubectl rollout restart deployment/web-console
 **Diagnosis:**
 ```bash
 # Verify multi-key configuration
-kubectl exec deployment/web-console -- python3 -c "import os; print(os.getenv('SESSION_ENCRYPTION_KEY').split(','))"
+kubectl exec deployment/web-console -- python3 -c "import os; print(os.getenv('SESSION_SECRET_KEY').split(','))"
 # Should output: ['new_secret', 'old_secret']
 
 # Check code implementation
@@ -695,13 +695,13 @@ curl -k https://staging.YOUR-DOMAIN/login -c /tmp/cookies.txt
 # Save session cookie for later testing
 
 # Step 2: Backup current secret
-OLD_SECRET=$(kubectl exec deployment/web-console -- env | grep SESSION_ENCRYPTION_KEY | cut -d= -f2)
+OLD_SECRET=$(kubectl exec deployment/web-console -- env | grep SESSION_SECRET_KEY | cut -d= -f2)
 
 # Step 3: Generate new secret
 NEW_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
 # Step 4: Enable grace period
-kubectl set env deployment/web-console SESSION_ENCRYPTION_KEY="$NEW_SECRET,$OLD_SECRET"
+kubectl set env deployment/web-console SESSION_SECRET_KEY="$NEW_SECRET,$OLD_SECRET"
 
 # Step 5: Wait for rollout
 kubectl rollout status deployment/web-console
@@ -718,7 +718,7 @@ curl -k -b /tmp/cookies-new.txt https://staging.YOUR-DOMAIN/dashboard
 # Expected: HTTP 200 (authenticated with new cookie)
 
 # Step 9: Remove old secret (grace period exit)
-kubectl set env deployment/web-console SESSION_ENCRYPTION_KEY="$NEW_SECRET"
+kubectl set env deployment/web-console SESSION_SECRET_KEY="$NEW_SECRET"
 
 # Step 10: Wait for rollout
 kubectl rollout status deployment/web-console
@@ -750,7 +750,7 @@ curl -k -b /tmp/cookies-new.txt https://staging.YOUR-DOMAIN/dashboard
 ```bash
 # Step 1: Restore old secret IMMEDIATELY
 OLD_SECRET=$(cat /tmp/old_session_secret.txt)
-kubectl set env deployment/web-console SESSION_ENCRYPTION_KEY="$OLD_SECRET"
+kubectl set env deployment/web-console SESSION_SECRET_KEY="$OLD_SECRET"
 
 # Step 2: Force immediate restart
 kubectl rollout restart deployment/web-console

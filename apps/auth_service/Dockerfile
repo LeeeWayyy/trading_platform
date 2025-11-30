@@ -17,22 +17,15 @@ RUN pip install --no-cache-dir -r /app/apps/auth_service/requirements.txt
 # Copy auth service code
 COPY apps/auth_service /app/apps/auth_service
 
-# Copy shared libraries (network_utils, etc.)
-COPY libs /app/libs
-
 # Copy shared auth modules from web_console
-# NOTE: This creates a temporary dependency until auth modules are moved to libs/
 COPY apps/web_console/auth /app/apps/web_console/auth
-COPY apps/web_console/utils.py /app/apps/web_console/utils.py
 
 # Create __init__.py files for Python package structure
 RUN touch /app/apps/__init__.py && \
     touch /app/apps/auth_service/__init__.py && \
     touch /app/apps/auth_service/routes/__init__.py && \
     touch /app/apps/web_console/__init__.py && \
-    touch /app/apps/web_console/auth/__init__.py && \
-    touch /app/libs/__init__.py && \
-    touch /app/libs/common/__init__.py
+    touch /app/apps/web_console/auth/__init__.py
 
 # Set PYTHONPATH to include /app for imports
 ENV PYTHONPATH=/app

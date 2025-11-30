@@ -165,7 +165,7 @@ IdPHealthChecker(
 │ Session Cookie (HTTP-only, Secure, SameSite=Lax)           │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  session_id → HMAC-SHA256(payload, SESSION_ENCRYPTION_KEY) │
+│  session_id → HMAC-SHA256(payload, SESSION_SECRET_KEY)     │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
          │
@@ -467,8 +467,7 @@ AUTH0_API_AUDIENCE=https://api.trading-platform.local
 
 # Session Management
 SESSION_COOKIE_NAME=trading_platform_session
-# Generate with: python3 -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"
-SESSION_ENCRYPTION_KEY=your_base64_encoded_32_byte_key_here
+SESSION_SECRET_KEY=generate_with_secrets_token_hex_32
 SESSION_COOKIE_MAX_AGE=3600  # 1 hour
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_HTTPONLY=true
