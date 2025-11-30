@@ -13,7 +13,7 @@ See ADR-0014 for architecture decisions.
 import logging
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TypeVar
 
@@ -214,7 +214,7 @@ class DatabaseClient:
         try:
             with psycopg.connect(self.db_conn_string) as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
-                    submitted_at = datetime.now() if status != "dry_run" else None
+                    submitted_at = datetime.now(UTC) if status != "dry_run" else None
 
                     cur.execute(
                         """
@@ -756,7 +756,7 @@ class DatabaseClient:
                     # Determine filled_at timestamp
                     filled_at = None
                     if status == "filled" and filled_qty is not None:
-                        filled_at = datetime.now()
+                        filled_at = datetime.now(UTC)
 
                     # C8 Fix: Don't use COALESCE for error_message
                     # COALESCE prevents clearing error_message by passing None

@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 # ==============================================================================
 # Signal Service Models (from T3)
@@ -195,6 +195,11 @@ class HealthResponse(BaseModel):
     database_connected: bool
     details: dict[str, Any] | None = None
 
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize timestamp with Z suffix for UTC consistency."""
+        return value.isoformat().replace("+00:00", "Z")
+
 
 class ConfigResponse(BaseModel):
     """
@@ -241,6 +246,11 @@ class ConfigResponse(BaseModel):
             ]
         }
     }
+
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize timestamp with Z suffix for UTC consistency."""
+        return value.isoformat().replace("+00:00", "Z")
 
 
 # ==============================================================================

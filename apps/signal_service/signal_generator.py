@@ -40,7 +40,7 @@ See Also:
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -282,7 +282,7 @@ class SignalGenerator:
         # Step 2: Default to latest available date
         # ====================================================================
         if as_of_date is None:
-            as_of_date = datetime.now()
+            as_of_date = datetime.now(UTC)
 
         # Convert to date string for feature generation
         date_str = as_of_date.strftime("%Y-%m-%d")

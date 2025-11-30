@@ -37,7 +37,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import uvicorn
@@ -783,7 +783,7 @@ async def health_check() -> HealthResponse:
             model_info=None,
             redis_status=redis_status_str,
             feature_cache_enabled=False,
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             service="signal_service",
         )
 
@@ -806,7 +806,7 @@ async def health_check() -> HealthResponse:
             model_info=None,
             redis_status=redis_status_str,
             feature_cache_enabled=False,
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             service="signal_service",
         )
 
@@ -830,7 +830,7 @@ async def health_check() -> HealthResponse:
         },
         redis_status=redis_status_str,
         feature_cache_enabled=(feature_cache is not None),
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         service="signal_service",
     )
 
@@ -949,7 +949,7 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
                     detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD.",
                 ) from None
         else:
-            as_of_date = datetime.now()
+            as_of_date = datetime.now(UTC)
 
         # Override top_n/bottom_n if provided
         top_n = request.top_n if request.top_n is not None else signal_generator.top_n
@@ -1034,7 +1034,7 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
                     else "unknown"
                 ),
                 "num_signals": len(signals),
-                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 "top_n": top_n,
                 "bottom_n": bottom_n,
             },

@@ -359,7 +359,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Validation error", detail=str(exc), timestamp=datetime.now()
+            error="Validation error", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -370,7 +370,7 @@ async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content=ErrorResponse(
-            error="Order validation failed", detail=str(exc), timestamp=datetime.now()
+            error="Order validation failed", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -381,7 +381,7 @@ async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError) 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Order rejected by broker", detail=str(exc), timestamp=datetime.now()
+            error="Order rejected by broker", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -392,7 +392,7 @@ async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content=ErrorResponse(
-            error="Broker connection error", detail=str(exc), timestamp=datetime.now()
+            error="Broker connection error", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -714,7 +714,7 @@ async def health_check() -> HealthResponse:
         dry_run=DRY_RUN,
         database_connected=db_connected,
         alpaca_connected=alpaca_connected,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         details={
             "strategy_id": STRATEGY_ID,
             "alpaca_base_url": ALPACA_BASE_URL if not DRY_RUN else None,

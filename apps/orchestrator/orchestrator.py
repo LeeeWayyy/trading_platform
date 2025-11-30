@@ -12,7 +12,7 @@ Coordinates the complete trading flow:
 import asyncio
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -285,7 +285,7 @@ class TradingOrchestrator:
             ... )
         """
         run_id = uuid.uuid4()
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
 
         # Normalize strategy_id to list for consistent handling
         strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
@@ -340,7 +340,7 @@ class TradingOrchestrator:
                 1 for m in mappings if m.order_status in ("rejected", "cancelled")
             )
 
-            completed_at = datetime.now()
+            completed_at = datetime.now(UTC)
             duration_seconds = (completed_at - started_at).total_seconds()
 
             # Determine final status
@@ -395,7 +395,7 @@ class TradingOrchestrator:
                 extra={"run_id": str(run_id)},
             )
 
-            completed_at = datetime.now()
+            completed_at = datetime.now(UTC)
             duration_seconds = (completed_at - started_at).total_seconds()
 
             return OrchestrationResult(

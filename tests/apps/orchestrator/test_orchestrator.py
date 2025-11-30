@@ -572,7 +572,9 @@ class TestGetCurrentPrice:
 
     @pytest.mark.asyncio()
     async def test_get_price_default_when_not_in_cache(self):
-        """Test getting default price when symbol not in cache."""
+        """Test that price unavailable error is raised when symbol not in cache."""
+        from apps.orchestrator.orchestrator import PriceUnavailableError
+
         orchestrator = TradingOrchestrator(
             signal_service_url="http://localhost:8001",
             execution_gateway_url="http://localhost:8002",
@@ -581,9 +583,8 @@ class TestGetCurrentPrice:
             price_cache={},
         )
 
-        price = await orchestrator._get_current_price("UNKNOWN")
-
-        assert price == Decimal("100.00")  # Default price
+        with pytest.raises(PriceUnavailableError):
+            await orchestrator._get_current_price("UNKNOWN")
 
 
 class TestCalculatePositionSize:

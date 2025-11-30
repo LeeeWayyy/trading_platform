@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 # ============================================================================
 # Type Aliases
@@ -471,6 +471,11 @@ class HealthResponse(BaseModel):
         }
     }
 
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize timestamp with Z suffix for UTC consistency."""
+        return value.isoformat().replace("+00:00", "Z")
+
 
 # ============================================================================
 # Configuration Schema
@@ -522,6 +527,11 @@ class ConfigResponse(BaseModel):
             ]
         }
     }
+
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize timestamp with Z suffix for UTC consistency."""
+        return value.isoformat().replace("+00:00", "Z")
 
 
 # ============================================================================
@@ -820,3 +830,8 @@ class ErrorResponse(BaseModel):
             ]
         }
     }
+
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize timestamp with Z suffix for UTC consistency."""
+        return value.isoformat().replace("+00:00", "Z")
