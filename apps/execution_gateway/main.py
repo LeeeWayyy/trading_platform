@@ -1071,6 +1071,49 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             },
         ) from e
 
+    # C7 Fix: Check circuit breaker (automatic risk-based halt)
+    # Circuit breaker trips on drawdown breach, broker errors, data staleness
+    # When tripped, only risk-reducing exits are allowed (not new entries)
+    if circuit_breaker:
+        try:
+            if circuit_breaker.is_tripped():
+                trip_reason = circuit_breaker.get_trip_reason()
+                logger.error(
+                    f"🔴 Order blocked by CIRCUIT BREAKER: {client_order_id}",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "circuit_breaker_tripped": True,
+                        "trip_reason": trip_reason,
+                    },
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error": "Circuit breaker tripped",
+                        "message": f"Trading halted due to: {trip_reason}",
+                        "trip_reason": trip_reason,
+                    },
+                )
+        except RedisError as e:
+            # Circuit breaker state unavailable (fail-closed for safety)
+            logger.error(
+                f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "circuit_breaker_unavailable": True,
+                    "fail_closed": True,
+                    "error": str(e),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Circuit breaker unavailable",
+                    "message": "Circuit breaker state unknown (fail-closed for safety)",
+                    "fail_closed": True,
+                },
+            ) from e
+
     # Check if order already exists (idempotency)
     existing_order = db_client.get_order_by_client_id(client_order_id)
     if existing_order:
