@@ -203,50 +203,69 @@ DO NOT reference or build upon Gemini's review - provide completely fresh perspe
 
 ### Step 3: Handle Findings
 
-**Severity Handling:**
+**⚠️ ZERO TOLERANCE POLICY: Fix ALL issues including LOW severity**
 
 | Severity | Action |
 |----------|--------|
-| **HIGH/CRITICAL** | ❌ MUST fix before commit (non-negotiable) |
-| **MEDIUM** | ⚠️ Fix immediately OR defer with justification |
-| **LOW** | ℹ️ Fix if trivial OR note in TODO |
+| **HIGH/CRITICAL** | ❌ MUST fix immediately - blocks commit |
+| **MEDIUM** | ❌ MUST fix immediately - no deferral allowed |
+| **LOW** | ❌ MUST fix if issue genuinely exists - no exceptions |
 
-**For progressive commits:**
-- Fix ALL HIGH/CRITICAL immediately (context is fresh!)
-- Fix MEDIUM if <5 min each
-- Don't spend >15 min total on review fixes
+**Why fix ALL issues (including LOW)?**
+- LOW issues compound into technical debt
+- "Minor" issues often hide deeper problems
+- Reviewers only flag issues they believe are real
+- Skipping LOW teaches bad habits and erodes quality standards
+- Past incidents: Skipped LOW issues caused production bugs
 
-**For PR creation:**
-- Fix ALL HIGH/CRITICAL
-- Fix ALL MEDIUM (no deferral - zero tolerance)
-- Fix or create follow-up task for LOW
+**For ALL commits (progressive or PR):**
+- Fix ALL HIGH/CRITICAL immediately
+- Fix ALL MEDIUM immediately
+- Fix ALL LOW that genuinely exist (if reviewer correctly identified an issue)
+- Only skip LOW if you can prove it's a **false positive** (document why)
 
 ### Step 4: Fix-and-Verify Iteration Loop
 
-**If ANY issues found (even MEDIUM):**
+**If ANY issues found (any severity including LOW):**
 
 ```bash
-# 1. Fix all issues
+# 1. Fix ALL issues (HIGH, MEDIUM, AND LOW)
 git add <fixed-files>
 git commit -m "fix: Address review findings - iteration N"
 
-# 2. RESTART with FRESH independent reviews (no memory of previous iteration)
-# → Phase 1: Fresh Gemini review of complete changes
-# → Phase 2: Fresh Codex synthesis
+# 2. RESTART with COMPLETELY FRESH reviews (NO MEMORY of previous reviews)
+# → Phase 1: Fresh Gemini review of ENTIRE codebase/changes
+# → Phase 2: Fresh Codex review of ENTIRE codebase/changes
 
-# 3. Repeat until BOTH reviewers approve with ZERO issues
+# 3. Repeat until BOTH reviewers approve with ZERO issues of ANY severity
 ```
 
-**Why independent reviews each iteration?**
-- Fresh perspective prevents "fix fatigue"
-- Ensures fixes didn't introduce new issues
-- No memory of "what was already checked" - complete re-validation
-- Example: Fresh Codex review found CLI wiring issues Gemini missed
+**⚠️ CRITICAL: Reviews MUST be FRESH with NO MEMORY**
 
-**Why restart after fixes?**
-- Gemini → Codex synthesis can miss issues if carrying blind spots forward
-- Independent reviews catch different issue types
-- Complete branch re-validation ensures nothing broken
+Each review iteration MUST be completely independent:
+- **NO continuation of previous review sessions**
+- **NO reference to what was "already checked"**
+- **NO assumption that previous approvals still apply**
+- Reviewer must analyze the ENTIRE change, not just "what was fixed"
+
+**Why FRESH reviews are mandatory?**
+1. **Approval scope problem**: A review that "continues" from previous session only validates the FIX, not the entire commit/PR
+2. **Blind spot inheritance**: Continuing reviews carry forward blind spots from previous iterations
+3. **Fix-induced bugs**: Fixes can introduce NEW issues that only fresh eyes catch
+4. **Context drift**: Reviewers with memory may unconsciously skip areas they "already approved"
+5. **Real example**: Fresh Codex review found CLI wiring issues that continuation-based review missed
+
+**What "FRESH review" means:**
+- Start a NEW zen-mcp session (new continuation_id)
+- DO NOT pass previous continuation_id
+- DO NOT say "review my fixes" - say "review all changes"
+- Reviewer sees complete diff from scratch
+- Previous approval is VOID - must re-earn approval
+
+**Why this matters:**
+- An "approval" from a continuation review only approves the delta (fixes)
+- The commit/PR includes ALL code, not just the fixes
+- Only a fresh review of ALL code can approve ALL code
 
 ### Step 5: Commit or Create PR
 
@@ -410,36 +429,32 @@ codex-continuation-id: fa10318a-2b4b-4b22-b79d-9b379dff5033"
 
 ### Too many issues to fix?
 
-**Progressive commits:**
-- Fix ALL HIGH/CRITICAL
-- Fix MEDIUM if <5 min each
-- Don't spend >15 min total
+**⚠️ ZERO TOLERANCE - Fix ALL issues regardless of count:**
 
-**PR creation:**
-- Fix ALL HIGH/CRITICAL
-- Fix ALL MEDIUM (zero tolerance)
-- Defer LOW with justification only
+- Fix ALL HIGH/CRITICAL immediately
+- Fix ALL MEDIUM immediately
+- Fix ALL LOW that genuinely exist
+- No time limits - quality over speed
+- If overwhelmed, break into smaller commits (each still requires full review)
 
-### Should I defer MEDIUM issues?
+### Should I defer ANY issues?
 
-**For progressive commits: Yes, if:**
-- Requires separate investigation (>5 min)
-- Out of scope for current commit
-- Will be fixed in next commit
+**❌ NO DEFERRAL ALLOWED for any severity**
 
-**For PR creation: No**
-- ALL MEDIUM must be fixed
-- Zero-tolerance before PR
-- No deferral allowed
+- ALL issues must be fixed before commit
+- This applies to HIGH, MEDIUM, AND LOW
+- The only exception: proven false positives (document why)
 
-**Document any deferral (commits only):**
-```markdown
-## Deferred from Zen Review
-- **MEDIUM:** Optimize query in get_positions()
-- Reason: Requires profiling analysis
-- Follow-up: Next commit in 30min
-- Continuation-id: abc123
-```
+**Why no deferral?**
+- Deferred issues are forgotten issues
+- "I'll fix it later" becomes "it never got fixed"
+- Past incidents caused by deferred "minor" issues
+- Each commit should be production-ready
+
+**If an issue seems out of scope:**
+- It's still YOUR code being committed
+- Fix it, or don't commit that code yet
+- Split the commit if needed
 
 ---
 
@@ -617,12 +632,20 @@ $ "Request comprehensive review from Codex (fresh, complete branch)"
 ## Validation Checklist
 
 **Comprehensive review succeeded:**
-- [ ] Two-phase review requested and completed (~3-5 min)
+- [ ] FRESH two-phase review requested (NO continuation from previous reviews)
+- [ ] Review completed (~3-5 min per iteration)
 - [ ] ALL HIGH/CRITICAL issues fixed
-- [ ] ALL MEDIUM fixed (for PR) OR deferred with justification (for commits)
-- [ ] Explicit "approved" from both Gemini AND Codex
+- [ ] ALL MEDIUM issues fixed (zero tolerance)
+- [ ] ALL LOW issues fixed (if genuinely exist - zero tolerance)
+- [ ] Explicit "APPROVED" with ZERO issues from BOTH Gemini AND Codex
+- [ ] Continuation IDs are from FINAL approved iteration (not intermediate)
 - [ ] Both continuation IDs in commit message / PR description
-- [ ] All tests pass (`make ci-local` for PR)
+- [ ] All tests pass (`make ci-local`)
+
+**Fresh review verification:**
+- [ ] Did NOT continue from previous review session
+- [ ] Reviewer analyzed ENTIRE change (not just fixes)
+- [ ] New continuation_id generated (not reused from previous iteration)
 
 ---
 

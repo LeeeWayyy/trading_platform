@@ -68,9 +68,9 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 2. **For task documents:** Request task creation review (see [Workflows/02-planning.md](./Workflows/02-planning.md))
 
-3. **Record planning artifacts** (Phase 1.5: enforced by hard gates)
-   - Record analysis completion: `./scripts/workflow_gate.py record-analysis-complete`
-   - Set component breakdown (≥2): `./scripts/workflow_gate.py set-components "Name 1" "Name 2" ...`
+3. **Start task and set component:**
+   - Start task: `./scripts/workflow_gate.py start-task docs/TASKS/TASK.md feature/branch`
+   - Set component: `./scripts/workflow_gate.py set-component "Component-Name"`
 
 4. **Break feature into logical components** — Use 6-step pattern (see below)
    - For large tasks (>8h), decompose into subfeatures: [Workflows/02-planning.md](./Workflows/02-planning.md)
@@ -232,9 +232,8 @@ make kill-switch  # Cancel all orders, flatten positions, block new signals
 ./scripts/context_checkpoint.py cleanup --older-than 7d  # Clean old checkpoints
 
 # Context monitoring (auto-delegation at 70%+ usage)
-./scripts/workflow_gate.py check-context         # Check current usage
-./scripts/workflow_gate.py suggest-delegation    # Get recommendations
-./scripts/workflow_gate.py record-delegation "..." # Record delegation (resets context)
+# Context monitoring is manual - check token usage in status
+./scripts/workflow_gate.py status                 # Check current workflow state
 ```
 
 **Thresholds:** <70% OK | 70-84% delegation recommended | ≥85% delegation mandatory.
@@ -294,38 +293,35 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 ### Quick Start
 
 ```bash
-# 1. Plan & start task
-./scripts/workflow_gate.py create-task --id P1T14 --title "Feature Title" --description "Detailed description" --hours 6
-./scripts/workflow_gate.py start-task P1T14 feature/P1T14-task-branch
+# 1. Start task (create task file first, then register)
+./scripts/workflow_gate.py start-task docs/TASKS/P1T14_TASK.md feature/P1T14-task-branch
 
-# 2. Complete planning steps (Phase 1.5: enforced by hard gates)
-./scripts/workflow_gate.py record-analysis-complete  # After completing analysis checklist
-./scripts/workflow_gate.py set-components "Component 1" "Component 2" ...  # ≥2 components required
-
-# 3. For each component (6-step pattern)
-./scripts/workflow_gate.py set-component "Component Name"
-./scripts/workflow_gate.py advance plan-review  # Request plan review
+# 2. For each component (6-step pattern)
+./scripts/workflow_gate.py set-component "Component-Name"  # Use alphanumeric, dots, hyphens
+./scripts/workflow_gate.py advance plan-review             # Request plan review via zen-mcp
 # → After plan approval:
-./scripts/workflow_gate.py advance implement  # Transition to implementation
+./scripts/workflow_gate.py advance implement               # Transition to implementation
 # → Implement + test (TDD)
 ./scripts/workflow_gate.py advance test
 ./scripts/workflow_gate.py advance review
-./scripts/workflow_gate.py request-review commit  # Auto-delegates if context ≥70%
-./scripts/workflow_gate.py run-ci commit          # Smart test selection
-git commit -m "message"                          # Pre-commit hook enforces gates
-# → Post-commit hook automatically resets to "plan" for next component
+# → Request review via zen-mcp (mcp__zen__clink)
+./scripts/workflow_gate.py record-review gemini approved   # Record approval
+./scripts/workflow_gate.py record-review codex approved    # Record approval
+./scripts/workflow_gate.py record-ci passed                # After make ci-local passes
+./scripts/workflow_gate.py check-commit                    # Verify gates met
+git commit -m "message"                                    # Pre-commit hook enforces gates
+./scripts/workflow_gate.py record-commit                   # Record completion
 
-# 4. Before PR
-./scripts/workflow_gate.py request-review pr  # Multi-iteration comprehensive review
+# 3. Before PR
+./scripts/workflow_gate.py start-pr-phase                  # Switch to PR review phase
 ```
 
 ### Key Principles
 
 - **Analysis first:** Complete [Workflows/00-analysis-checklist.md](./Workflows/00-analysis-checklist.md) before coding (saves 3-11 hours)
-- **Planning discipline (Phase 1.5):** Hard gates enforce task file, analysis completion, component breakdown, and plan review
+- **Planning discipline:** Create task file, set component, follow 6-step pattern
 - **TDD:** Write tests before implementation
 - **6-step pattern:** Plan → Plan Review → Implement → Test → Code Review → Commit
-- **Context monitoring:** Auto-delegation at 70%+ context usage (≥85% blocks commits)
 - **No bypasses:** NEVER use `git commit --no-verify` (detected by CI)
 
 **See [Workflows/README.md](./Workflows/README.md) for detailed workflows**

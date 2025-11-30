@@ -40,7 +40,7 @@ test: ## Run tests
 	PYTHONPATH=. poetry run pytest
 
 test-cov: ## Run tests with coverage report
-	PYTHONPATH=. poetry run pytest --cov=libs --cov=apps --cov-report=html --cov-report=term
+	PYTHONPATH=. poetry run pytest --cov=libs --cov=apps --cov=scripts/ai_workflow --cov-report=html --cov-report=term
 
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
