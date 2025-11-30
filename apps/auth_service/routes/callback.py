@@ -7,7 +7,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from apps.auth_service.dependencies import get_config, get_oauth2_handler, get_rate_limiters
-from apps.web_console.utils import extract_client_ip_from_fastapi, extract_user_agent_from_fastapi
+from libs.common.network_utils import (
+    extract_client_ip_from_fastapi,
+    extract_user_agent_from_fastapi,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

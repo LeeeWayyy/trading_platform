@@ -256,7 +256,7 @@ groups:
 
             **Next Steps:**
             1. Check recent session secret rotation logs
-            2. Verify SESSION_SECRET_KEY environment variable
+            2. Verify SESSION_ENCRYPTION_KEY environment variable
             3. Confirm service restarted after secret update
             4. Review logs for attack patterns (IPs, user agents)
             5. Re-enable grace period if rotation issue
