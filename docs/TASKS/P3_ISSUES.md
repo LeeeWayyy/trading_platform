@@ -41,34 +41,30 @@ This document consolidates **47+ implementation issues** into a prioritized acti
 
 ## CRITICAL Issues (P0 - Must Fix Before Production)
 
-### C1: P&L Calculation Bug for Short Positions ⚠️ NEW
-**Reviewer:** Claude (Critical)
+### C1: P&L Calculation for Short Positions - Verification Required
+**Reviewer:** Claude (initially flagged as Critical - requires verification)
 **Location:** `apps/execution_gateway/database.py:889-922`
 
-**Problem:** Short position closing calculates profit incorrectly - gives **positive P&L when covering at a loss**. The formula `(old_avg_price - fill_price) * abs(fill_qty)` is inverted.
+**Status:** NEEDS VERIFICATION - Formula may be correct but documentation is unclear.
 
 **Current Code:**
 ```python
 elif side == "buy" and old_qty < 0:
     # Closing short position
-    pnl = (old_avg_price - fill_price) * abs(fill_qty)  # BUG: Sign is wrong
-```
-
-**Impact:**
-- All short trading strategies show incorrect P&L
-- Portfolio value reporting is wrong
-- Risk calculations are based on incorrect data
-
-**Fix:**
-```python
-elif side == "buy" and old_qty < 0:
-    # Closing short: profit if buying BELOW entry (old_avg_price)
-    # Loss if buying ABOVE entry
     pnl = (old_avg_price - fill_price) * abs(fill_qty)
-    # This is actually CORRECT for shorts - verify with test cases
 ```
 
-**Note:** Verify with unit tests - the formula may be correct but needs documentation.
+**Analysis:**
+The formula `(old_avg_price - fill_price) * abs(fill_qty)` is actually **CORRECT** for short positions:
+- Short at $100, cover at $90 → profit = ($100 - $90) * qty = positive ✓
+- Short at $100, cover at $110 → profit = ($100 - $110) * qty = negative ✓
+
+**Action Required:**
+1. Add unit tests to verify the formula works correctly for all cases
+2. Add clear documentation explaining the P&L calculation logic
+3. Consider adding inline comments to prevent future confusion
+
+**Note:** This was initially flagged as a bug but analysis shows the formula is correct. Task is to verify with tests and document clearly.
 
 **Effort:** 2-4 hours (including test verification)
 **Priority:** P0

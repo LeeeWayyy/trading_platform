@@ -300,13 +300,14 @@ class TestRecordCommitAndPush:
                 f,
             )
 
-        # Mock git verify and push success
+        # Mock git verify, branch name, and push success
         mock_verify = MagicMock(returncode=0, stdout="abc123\n", stderr="")
+        mock_branch = MagicMock(returncode=0, stdout="feature/test\n", stderr="")
         mock_push = MagicMock(returncode=0, stdout="", stderr="")
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("subprocess.run") as mock_run:
-                mock_run.side_effect = [mock_verify, mock_push]
+                mock_run.side_effect = [mock_verify, mock_branch, mock_push]
                 handler = PRWorkflowHandler(state)
                 success, message = handler.record_commit_and_push("abc123", "fix: issue")
 
@@ -334,13 +335,14 @@ class TestRecordCommitAndPush:
             )
 
         mock_verify = MagicMock(returncode=0, stdout="abc123\n", stderr="")
+        mock_branch = MagicMock(returncode=0, stdout="feature/test\n", stderr="")
         mock_push = MagicMock(
             returncode=1, stdout="", stderr="error: conflict detected"
         )
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("subprocess.run") as mock_run:
-                mock_run.side_effect = [mock_verify, mock_push]
+                mock_run.side_effect = [mock_verify, mock_branch, mock_push]
                 handler = PRWorkflowHandler(state)
                 success, message = handler.record_commit_and_push("abc123", "fix")
 

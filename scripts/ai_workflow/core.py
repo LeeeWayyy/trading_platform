@@ -58,7 +58,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, TYPE_CHECKING
 
 from .constants import (
     PROJECT_ROOT,
@@ -805,6 +805,13 @@ class WorkflowGate:
         checks = status["checks"]
         cfg = status["config"]
 
+        # Codex P1 fix: Check component is set
+        if not checks["component_set"]:
+            raise WorkflowGateBlockedError(
+                "No component set. Use 'set-component' before commit",
+                {"reason": "no_component"}
+            )
+
         # Check current step
         if not checks["in_review_step"]:
             raise WorkflowGateBlockedError(
@@ -979,5 +986,5 @@ class WorkflowGate:
 
 
 # Import WorkflowConfig for type hints (avoid circular import)
-if False:  # TYPE_CHECKING equivalent without import
+if TYPE_CHECKING:
     from .config import WorkflowConfig

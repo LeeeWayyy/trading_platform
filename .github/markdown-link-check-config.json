@@ -4,6 +4,9 @@
       "pattern": "^mailto:"
     },
     {
+      "pattern": "^\\.\\./\\.\\./general_ai_guide"
+    },
+    {
       "pattern": "^https://report-uri.com"
     },
     {

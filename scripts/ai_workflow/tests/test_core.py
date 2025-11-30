@@ -510,13 +510,29 @@ class TestSetComponentV2:
 class TestCheckCommitV2:
     """Tests for check_commit method - V2 schema."""
 
+    def test_blocks_when_no_component_set_v2(self, temp_dir):
+        """Should raise WorkflowGateBlockedError when no component set (Codex P1 fix)."""
+        state_file = temp_dir / "state.json"
+        with open(state_file, "w") as f:
+            json.dump({
+                "version": "2.0",
+                "component": {"current": "", "step": "review"},
+            }, f)
+
+        gate = WorkflowGate(state_file=state_file)
+
+        with pytest.raises(WorkflowGateBlockedError) as exc_info:
+            gate.check_commit()
+        assert "No component set" in str(exc_info.value)
+        assert exc_info.value.details["reason"] == "no_component"
+
     def test_blocks_when_not_in_review_v2(self, temp_dir):
         """Should raise WorkflowGateBlockedError when not in review step."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
             json.dump({
                 "version": "2.0",
-                "component": {"step": "implement"},
+                "component": {"current": "TestComp", "step": "implement"},
             }, f)
 
         gate = WorkflowGate(state_file=state_file)

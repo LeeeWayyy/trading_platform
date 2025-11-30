@@ -338,9 +338,24 @@ class PRWorkflowHandler:
         # Try to push with retry
         max_retries = self.config.config["git"].get("push_retry_count", 3)
 
+        # Gemini MEDIUM fix: Get explicit branch name for push
+        branch = self.state.get("git", {}).get("branch")
+        if not branch:
+            # Fallback to current branch
+            branch_result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True
+            )
+            branch = branch_result.stdout.strip() if branch_result.returncode == 0 else None
+
         for attempt in range(max_retries):
+            # Use explicit remote and branch if available
+            push_cmd = ["git", "push"]
+            if branch:
+                push_cmd.extend(["origin", branch])
+
             result = subprocess.run(
-                ["git", "push"],
+                push_cmd,
                 capture_output=True, text=True, timeout=120
             )
 

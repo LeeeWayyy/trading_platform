@@ -2,19 +2,19 @@
 Integration tests for workflow_gate.py CLI.
 
 Tests the CLI commands for the AI workflow enforcement system.
+
+Note: pytest.ini configures pythonpath = . which adds project root to sys.path.
+This enables imports like 'from scripts.workflow_gate import ...' without sys.path manipulation.
 """
 
 import json
 import os
 import subprocess
-import sys
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Add scripts directory to path for imports
-scripts_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(scripts_dir))
+# Gemini MEDIUM fix: Removed sys.path manipulation - pytest.ini handles pythonpath
 
 
 class TestCLIStatus:

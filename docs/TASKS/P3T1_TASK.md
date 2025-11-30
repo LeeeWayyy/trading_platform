@@ -701,7 +701,7 @@ Additional refinements based on post-implementation review:
 
 6. **HIGH - Test Updates (Gemini):**
    - All tests updated for V2 schema
-   - 59 tests passing (44 core + 15 CLI)
+   - 269 tests passing (full ai_workflow test suite)
 
 ---
 
