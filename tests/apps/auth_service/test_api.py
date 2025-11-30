@@ -24,6 +24,8 @@ os.environ["COOKIE_DOMAIN"] = ".test.local"
 os.environ["SESSION_ENCRYPTION_KEY"] = test_key
 os.environ["REDIS_HOST"] = "localhost"  # Not used, but prevents config errors
 os.environ["REDIS_PORT"] = "6379"
+os.environ["TRUSTED_PROXY_IPS"] = "127.0.0.1"
+os.environ["INTERNAL_REFRESH_SECRET"] = "test-internal-secret"
 
 from apps.auth_service.main import app
 
@@ -239,6 +241,39 @@ def test_refresh_rate_limit_exceeded(client, mock_oauth2_handler, mock_rate_limi
 
     # Should NOT have called refresh_tokens
     mock_oauth2_handler.refresh_tokens.assert_not_called()
+
+
+def test_refresh_internal_bypass_uses_shared_secret(client, mock_oauth2_handler, mock_rate_limiters):
+    """Internal callers with shared secret should bypass binding validation."""
+
+    response = client.post(
+        "/refresh",
+        cookies={"session_id": "session_id_123"},
+        headers={"X-Internal-Auth": "test-internal-secret"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+
+    mock_oauth2_handler.refresh_tokens.assert_called_with(
+        session_id="session_id_123",
+        ip_address=None,
+        user_agent=None,
+    )
+
+
+def test_refresh_internal_invalid_secret_rejected(client, mock_oauth2_handler, mock_rate_limiters):
+    """Invalid internal secret should not bypass binding and returns 401."""
+
+    response = client.post(
+        "/refresh",
+        cookies={"session_id": "session_id_123"},
+        headers={"X-Internal-Auth": "wrong-secret"},
+    )
+
+    assert response.status_code == 401
+    assert "invalid internal auth" in response.json()["detail"].lower()
 
 
 def test_refresh_invalid_session(client, mock_oauth2_handler, mock_rate_limiters):

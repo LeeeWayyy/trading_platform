@@ -108,12 +108,19 @@ http {
         resolver 127.0.0.11 valid=30s;
         resolver_timeout 5s;
 
-        # Trusted proxy configuration (Codex Review Issue #4)
-        # Validates X-Forwarded-For headers from trusted proxy subnet
-        # Prevents IP spoofing attacks
-        set_real_ip_from 172.28.0.0/24;  # Docker oauth2_network subnet
-        real_ip_header X-Forwarded-For;
-        real_ip_recursive on;
+    # Trusted proxy configuration (Codex Review Issue #4)
+    # Validates X-Forwarded-For headers from trusted proxy subnet
+    # Prevents IP spoofing attacks
+    set_real_ip_from ${TRUSTED_PROXY_SUBNET};  # Configurable Docker subnet
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # mTLS fallback (Components 6 & 7)
+    # Allows mTLS-authenticated clients while keeping OAuth2 as primary path
+    ssl_verify_client optional;
+    ssl_client_certificate /etc/nginx/certs/ca.crt;
+    ssl_crl /etc/nginx/certs/crl.pem;
+    ssl_verify_depth 2;
 
         # Security headers
         add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
@@ -139,6 +146,8 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto https;
             proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-SSL-Client-S-DN $ssl_client_s_dn;
+            proxy_set_header X-SSL-Client-Verify $ssl_client_verify;
 
             # Timeouts
             proxy_connect_timeout 60s;
@@ -161,6 +170,8 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto https;
             proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-SSL-Client-S-DN $ssl_client_s_dn;
+            proxy_set_header X-SSL-Client-Verify $ssl_client_verify;
 
             # Timeouts
             proxy_connect_timeout 60s;
@@ -183,6 +194,8 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto https;
             proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-SSL-Client-S-DN $ssl_client_s_dn;
+            proxy_set_header X-SSL-Client-Verify $ssl_client_verify;
 
             # Timeouts
             proxy_connect_timeout 60s;
@@ -205,6 +218,8 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto https;
             proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-SSL-Client-S-DN $ssl_client_s_dn;
+            proxy_set_header X-SSL-Client-Verify $ssl_client_verify;
 
             # Timeouts
             proxy_connect_timeout 60s;
@@ -278,7 +293,15 @@ http {
 
             # CSP header for Streamlit pages (Component 5 - Streamlit CSP Integration)
             # Codex Iteration 2: Documented WHY each directive is needed (see table above)
-            # LIMITATION: 'unsafe-inline' required for Streamlit (no nonce support)
+            #
+            # LIMITATION (Codex Review Iteration 2 - MEDIUM): 'unsafe-inline' required for Streamlit
+            # - Streamlit generates inline <script> tags dynamically without nonce support
+            # - Framework limitation: No official nonce injection mechanism available as of v1.28
+            # - Mitigation: Aggressive rate limiting on Streamlit endpoints (see limit_req zones above)
+            # - Mitigation: Session binding + HTTPS + strict authentication reduce XSS attack surface
+            # - Mitigation: CSP report-uri monitors violations for early detection
+            # - Future: Track Streamlit GitHub issue for nonce support (planned for future release)
+            #
             # ROLLBACK: Set CSP_REPORT_ONLY=true if Streamlit breaks
             # NOTE: entrypoint.sh transforms CSP_REPORT_ONLY boolean to header suffix
             # If CSP_REPORT_ONLY=true, ${CSP_REPORT_ONLY}="-Report-Only" → "Content-Security-Policy-Report-Only"

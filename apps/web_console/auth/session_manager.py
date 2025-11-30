@@ -13,10 +13,13 @@ Usage in Streamlit pages:
         st.write(f"Welcome, {user_info['email']}")
 """
 
+import asyncio
 import logging
-from functools import wraps
+import os
+from functools import lru_cache, wraps
 from typing import Any
 
+import redis.asyncio
 import streamlit as st
 
 from apps.web_console.auth.session_store import RedisSessionStore
@@ -140,33 +143,16 @@ def require_auth(func: Any) -> Any:
         # Get client info for session binding
         # Import _get_client_ip and _get_request_headers from auth module
         # These functions properly validate trusted proxies and extract headers
-        import asyncio
-        import os
-
-        import redis.asyncio
-
         # CRITICAL: Import from parent module to access trusted proxy validation
         # This prevents hardcoded fallbacks that would bypass session binding
         from apps.web_console.auth import _get_client_ip, _get_request_headers
-        from apps.web_console.auth.session_store import RedisSessionStore
 
         # Get client IP and User-Agent with trusted proxy validation
         client_ip = _get_client_ip()
         user_agent = _get_request_headers().get("User-Agent", "unknown")
 
         async def _validate() -> dict[str, Any] | None:
-            # TODO (Codex Medium #2): Reuse Redis client instead of creating new connection
-            # on every request. Requires module-level client management for Streamlit context.
-            redis_client = redis.asyncio.Redis(
-                host=os.getenv("REDIS_HOST", "redis"),
-                port=int(os.getenv("REDIS_PORT", "6379")),
-                db=1,  # Sessions DB
-                decode_responses=False,
-            )
-            session_store = RedisSessionStore(
-                redis_client=redis_client,
-                encryption_key=_get_encryption_key(),
-            )
+            session_store = _get_session_store()
             # Pass IP/UA for session binding validation
             return await validate_session(session_id, session_store, client_ip, user_agent)
 
@@ -244,3 +230,25 @@ def _get_encryption_key() -> bytes:
         raise ValueError(f"SESSION_ENCRYPTION_KEY must decode to 32 bytes (got {len(key_bytes)})")
 
     return key_bytes
+
+
+@lru_cache
+def _get_redis_client() -> redis.asyncio.Redis:
+    """Module-level Redis client to avoid per-request connections."""
+
+    return redis.asyncio.Redis(
+        host=os.getenv("REDIS_HOST", "redis"),
+        port=int(os.getenv("REDIS_PORT", "6379")),
+        db=1,
+        decode_responses=False,
+    )
+
+
+@lru_cache
+def _get_session_store() -> RedisSessionStore:
+    """Shared session store backed by the cached Redis client."""
+
+    return RedisSessionStore(
+        redis_client=_get_redis_client(),
+        encryption_key=_get_encryption_key(),
+    )

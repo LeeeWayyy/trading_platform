@@ -18,10 +18,15 @@ Usage in Streamlit:
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_REFRESH_URL = "https://nginx_oauth2/refresh"
+INTERNAL_REFRESH_SECRET = os.getenv("INTERNAL_REFRESH_SECRET")
+INTERNAL_CA_BUNDLE = os.getenv("INTERNAL_CA_BUNDLE", "/etc/nginx/certs/ca.crt")
 
 
 def parse_iso_datetime(iso_string: str) -> datetime:
@@ -102,15 +107,22 @@ class TokenRefreshMonitor:
         Returns:
             True if refresh successful, False otherwise
         """
-        # FIX (Codex Medium #1): Use environment variable instead of hardcoded URL
-        auth_service_url = os.getenv("AUTH_SERVICE_URL", "http://auth_service:8000")
-        refresh_url = f"{auth_service_url}/refresh"
+        refresh_url = os.getenv("AUTH_REFRESH_URL", DEFAULT_REFRESH_URL)
+        headers = {}
+        if INTERNAL_REFRESH_SECRET:
+            headers["X-Internal-Auth"] = INTERNAL_REFRESH_SECRET
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        verify: bool | str = True
+        ca_path = Path(INTERNAL_CA_BUNDLE)
+        if ca_path.exists():
+            verify = str(ca_path)
+
+        async with httpx.AsyncClient(timeout=10.0, verify=verify) as client:
             try:
                 response = await client.post(
                     refresh_url,
                     cookies={"session_id": session_id},
+                    headers=headers,
                 )
                 response.raise_for_status()
                 logger.info("Access token refreshed automatically")

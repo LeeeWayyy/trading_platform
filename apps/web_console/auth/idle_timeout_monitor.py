@@ -22,6 +22,7 @@ import logging
 import os
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import streamlit as st
@@ -114,8 +115,10 @@ def render_idle_timeout_warning(last_activity_str: str) -> None:
         "Interact with the page to extend your session."
     )
 
-    # Use st.rerun() with sleep instead of meta-refresh (CSP-friendly)
-    # Refreshes page every 5 seconds to update countdown
+    # Refresh every 5 seconds to update countdown
+    # NOTE: time.sleep blocks Streamlit execution, but is reliable for this use case
+    # (countdown warning banner). threading.Timer approach fails because st.rerun()
+    # requires an active Streamlit script context (not available from background thread).
     time.sleep(5)
     st.rerun()
 
@@ -134,15 +137,24 @@ async def extend_session_via_refresh() -> None:
         st.error("No session cookie found")
         return
 
-    # FIX (Codex Medium): Use AUTH_SERVICE_URL env var instead of hardcoded URL
-    auth_service_url = os.getenv("AUTH_SERVICE_URL", "http://auth_service:8000")
-    refresh_url = f"{auth_service_url}/refresh"
+    # Route through nginx to enforce rate limiting, trusted proxy, and TLS
+    refresh_url = os.getenv("AUTH_REFRESH_URL", "https://nginx_oauth2/refresh")
+    headers = {}
+    internal_secret = os.getenv("INTERNAL_REFRESH_SECRET")
+    if internal_secret:
+        headers["X-Internal-Auth"] = internal_secret
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    ca_bundle = Path(os.getenv("INTERNAL_CA_BUNDLE", "/etc/nginx/certs/ca.crt"))
+    verify: bool | str = True
+    if ca_bundle.exists():
+        verify = str(ca_bundle)
+
+    async with httpx.AsyncClient(timeout=10.0, verify=verify) as client:
         try:
             response = await client.post(
                 refresh_url,
                 cookies={"session_id": session_id},
+                headers=headers,
             )
             response.raise_for_status()
             st.success("✅ Session extended successfully")

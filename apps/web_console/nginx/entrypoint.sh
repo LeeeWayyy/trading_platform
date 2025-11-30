@@ -18,6 +18,8 @@ set -e
 
 # Default CSP_REPORT_ONLY to "false" (enforcement mode) if not set
 export CSP_REPORT_ONLY=${CSP_REPORT_ONLY:-false}
+# Allow configurable trusted proxy subnet for real_ip
+export TRUSTED_PROXY_SUBNET=${TRUSTED_PROXY_SUBNET:-172.28.0.0/24}
 
 echo "========================================="
 echo "Nginx OAuth2 Entrypoint"
@@ -55,8 +57,8 @@ case "$CSP_REPORT_ONLY_NORMALIZED" in
         ;;
 esac
 
-# Run envsubst to replace ${CSP_REPORT_ONLY} in template
-envsubst '${CSP_REPORT_ONLY}' < /etc/nginx/nginx-oauth2.conf.template > /etc/nginx/nginx.conf
+# Run envsubst to replace placeholders in template
+envsubst '${CSP_REPORT_ONLY} ${TRUSTED_PROXY_SUBNET}' < /etc/nginx/nginx-oauth2.conf.template > /etc/nginx/nginx.conf
 
 echo ""
 echo "Generated nginx.conf:"

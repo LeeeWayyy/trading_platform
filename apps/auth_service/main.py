@@ -165,9 +165,88 @@ async def echo_ip(request: Request) -> dict[str, str]:
     }
 
 
+def _validate_trusted_proxy_ips() -> list[str]:
+    """Ensure TRUSTED_PROXY_IPS is configured to prevent header spoofing.
+
+    Fail-closed in prod-like environments to avoid accidental misconfiguration.
+    """
+
+    trusted_proxies = [ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()]
+    env = os.getenv("ENVIRONMENT", "dev").lower()
+
+    if not trusted_proxies:
+        if env in {"prod", "production", "staging"}:
+            raise RuntimeError("TRUSTED_PROXY_IPS must be configured in production/staging")
+        logger.warning(
+            "TRUSTED_PROXY_IPS not set - header spoofing protection disabled (dev/test only)",
+            extra={"environment": env},
+        )
+
+    return trusted_proxies
+
+
+def _validate_internal_refresh_secret() -> str | None:
+    """Ensure INTERNAL_REFRESH_SECRET is configured to prevent bypass with default secret.
+
+    Fail-closed in prod-like environments to avoid accidental misconfiguration.
+    The refresh endpoint allows bypassing IP/UA binding when this secret is provided,
+    so it must be strong and unique in production.
+
+    Returns:
+        Configured secret or None (indicating feature disabled)
+
+    Raises:
+        RuntimeError: If secret not configured in production/staging
+    """
+    secret = os.getenv("INTERNAL_REFRESH_SECRET", "").strip()
+    env = os.getenv("ENVIRONMENT", "dev").lower()
+
+    # Empty secret = feature disabled
+    # In prod/staging: FAIL CLOSED - background refresh won't work without this secret,
+    # causing users to lose sessions when tokens expire. This is a critical misconfiguration.
+    if not secret:
+        if env in {"prod", "production", "staging"}:
+            raise RuntimeError(
+                "INTERNAL_REFRESH_SECRET not set in production/staging - "
+                "background token refresh will fail, causing session loss. "
+                "Set a strong unique secret (min 32 chars recommended)."
+            )
+        logger.info(
+            "INTERNAL_REFRESH_SECRET not set - internal refresh bypass disabled (dev/test)",
+            extra={"environment": env},
+        )
+        return None
+
+    # Reject known insecure defaults
+    INSECURE_DEFAULTS = {"dev-internal-refresh-secret", "test", "secret", "password"}
+    if secret in INSECURE_DEFAULTS:
+        if env in {"prod", "production", "staging"}:
+            raise RuntimeError(
+                f"INTERNAL_REFRESH_SECRET uses insecure default '{secret}' - "
+                "must use strong unique secret in production/staging"
+            )
+        logger.warning(
+            f"INTERNAL_REFRESH_SECRET uses insecure default '{secret}' (dev/test only)",
+            extra={"environment": env},
+        )
+
+    # Enforce minimum strength in prod/staging (32 chars ≈ 192 bits entropy if random)
+    MIN_SECRET_LENGTH = 32
+    if env in {"prod", "production", "staging"} and len(secret) < MIN_SECRET_LENGTH:
+        raise RuntimeError(
+            f"INTERNAL_REFRESH_SECRET too short ({len(secret)} chars) - "
+            f"must be at least {MIN_SECRET_LENGTH} chars in production/staging. "
+            "Use: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+
+    return secret
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
-    """Log startup event."""
+    """Log startup event and validate critical config."""
+    _validate_trusted_proxy_ips()
+    _validate_internal_refresh_secret()
     logger.info("Auth service started")
 
 
