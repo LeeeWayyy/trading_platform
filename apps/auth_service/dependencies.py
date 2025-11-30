@@ -115,7 +115,7 @@ def get_encryption_key() -> bytes:
 
     try:
         key_bytes = base64.b64decode(key_b64)
-    except Exception as e:
+    except (ValueError, TypeError) as e:
         raise ValueError(f"SESSION_ENCRYPTION_KEY must be base64-encoded: {e}") from e
 
     if len(key_bytes) != 32:
