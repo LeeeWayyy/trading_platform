@@ -121,7 +121,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
         # Start subscription sync loop in background
-        asyncio.create_task(subscription_manager.start_sync_loop())
+        # M2 Fix: Store task handle for proper cancellation on shutdown
+        sync_task = asyncio.create_task(subscription_manager.start_sync_loop())
+        subscription_manager.set_task(sync_task)
 
         logger.info(f"Market Data Service started successfully on port {settings.port}")
         logger.info(
@@ -139,8 +141,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Shutting down Market Data Service...")
 
         # Stop subscription manager
+        # M2 Fix: Use async shutdown() for clean task cancellation
         if subscription_manager:
-            subscription_manager.stop()
+            await subscription_manager.shutdown(timeout=5.0)
 
         # Stop WebSocket
         if stream:
