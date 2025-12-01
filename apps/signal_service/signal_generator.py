@@ -587,6 +587,166 @@ class SignalGenerator:
 
         return results
 
+    def precompute_features(
+        self,
+        symbols: list[str],
+        as_of_date: datetime | None = None,
+    ) -> dict[str, int | list[str]]:
+        """
+        Pre-compute and cache features without generating signals.
+
+        M5 Fix: Allows cache warming at day start to avoid blocking
+        signal generation requests with disk I/O. Call this endpoint
+        before market open via cron/scheduler.
+
+        Args:
+            symbols: List of stock symbols to pre-compute features for
+            as_of_date: Date to compute features for (default: today)
+
+        Returns:
+            Dictionary with:
+                - cached_count: Number of symbols successfully cached
+                - skipped_count: Number of symbols skipped (already cached or error)
+                - symbols_cached: List of newly cached symbols
+                - symbols_skipped: List of skipped symbols
+
+        Example:
+            >>> generator = SignalGenerator(registry, Path("data/adjusted"))
+            >>> result = generator.precompute_features(
+            ...     symbols=["AAPL", "MSFT", "GOOGL"],
+            ...     as_of_date=datetime(2024, 1, 15)
+            ... )
+            >>> result
+            {'cached_count': 3, 'skipped_count': 0, 'symbols_cached': ['AAPL', 'MSFT', 'GOOGL']}
+
+        Notes:
+            - Does NOT require model to be loaded (features only)
+            - Returns immediately if feature_cache is None (no-op)
+            - Gracefully handles errors per-symbol (continues with others)
+        """
+        if as_of_date is None:
+            as_of_date = datetime.now(UTC)
+
+        date_str = as_of_date.strftime("%Y-%m-%d")
+
+        # If no cache, nothing to pre-compute
+        if self.feature_cache is None:
+            logger.info("Feature cache not enabled, skipping precompute")
+            return {
+                "cached_count": 0,
+                "skipped_count": len(symbols),
+                "symbols_cached": [],
+                "symbols_skipped": symbols,
+            }
+
+        logger.info(
+            f"Pre-computing features for {len(symbols)} symbols on {date_str}",
+            extra={"symbols": symbols, "date": date_str},
+        )
+
+        # Check which symbols are already cached
+        symbols_to_generate = []
+        symbols_already_cached = []
+
+        for symbol in symbols:
+            try:
+                cached = self.feature_cache.get(symbol, date_str)
+                if cached is not None:
+                    symbols_already_cached.append(symbol)
+                else:
+                    symbols_to_generate.append(symbol)
+            except Exception as e:
+                logger.warning(f"Cache check error for {symbol}: {e}")
+                symbols_to_generate.append(symbol)
+
+        if symbols_already_cached:
+            logger.debug(f"Already cached: {len(symbols_already_cached)} symbols")
+
+        if not symbols_to_generate:
+            logger.info("All symbols already cached, nothing to precompute")
+            return {
+                "cached_count": 0,
+                "skipped_count": len(symbols),
+                "symbols_cached": [],
+                "symbols_skipped": symbols,
+            }
+
+        # Generate features for uncached symbols
+        symbols_cached: list[str] = []
+        symbols_failed: list[str] = []
+
+        try:
+            # Use the same feature generation as generate_signals
+            fresh_features = get_alpha158_features(
+                symbols=symbols_to_generate,
+                start_date=date_str,
+                end_date=date_str,
+                fit_start_date=date_str,
+                fit_end_date=date_str,
+                data_dir=self.data_provider.data_dir,
+            )
+
+            # Cache each symbol's features
+            for symbol in symbols_to_generate:
+                try:
+                    symbol_features = fresh_features.xs(
+                        symbol, level="instrument", drop_level=False
+                    )
+                    if not symbol_features.empty:
+                        features_dict = symbol_features.iloc[0].to_dict()
+                        self.feature_cache.set(symbol, date_str, features_dict)
+                        symbols_cached.append(symbol)
+                        logger.debug(f"Cached features for {symbol}")
+                    else:
+                        symbols_failed.append(symbol)
+                        logger.warning(f"No features generated for {symbol}")
+                except (KeyError, IndexError) as e:
+                    symbols_failed.append(symbol)
+                    logger.warning(f"Failed to cache {symbol}: {e}")
+                except Exception as e:
+                    symbols_failed.append(symbol)
+                    logger.warning(f"Cache write error for {symbol}: {e}")
+
+        except Exception as e:
+            # Fallback to mock features if real features fail
+            logger.warning(f"Feature generation failed, trying mock: {e}")
+            try:
+                mock_features = get_mock_alpha158_features(
+                    symbols=symbols_to_generate,
+                    start_date=date_str,
+                    end_date=date_str,
+                    data_dir=self.data_provider.data_dir,
+                )
+
+                for symbol in symbols_to_generate:
+                    try:
+                        symbol_features = mock_features.xs(
+                            symbol, level="instrument", drop_level=False
+                        )
+                        if not symbol_features.empty:
+                            features_dict = symbol_features.iloc[0].to_dict()
+                            self.feature_cache.set(symbol, date_str, features_dict)
+                            symbols_cached.append(symbol)
+                    except Exception as cache_err:
+                        symbols_failed.append(symbol)
+                        logger.warning(f"Mock cache error for {symbol}: {cache_err}")
+
+            except Exception as mock_err:
+                logger.error(f"Mock feature generation also failed: {mock_err}")
+                symbols_failed = symbols_to_generate
+
+        logger.info(
+            f"Feature precompute complete: {len(symbols_cached)} cached, "
+            f"{len(symbols_failed)} failed, {len(symbols_already_cached)} already cached"
+        )
+
+        return {
+            "cached_count": len(symbols_cached),
+            "skipped_count": len(symbols_failed) + len(symbols_already_cached),
+            "symbols_cached": symbols_cached,
+            "symbols_skipped": symbols_failed + symbols_already_cached,
+        }
+
     def validate_weights(self, signals: pd.DataFrame) -> bool:
         """
         Validate that portfolio weights are correct.

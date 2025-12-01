@@ -39,7 +39,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, status
@@ -1106,6 +1106,126 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
         elapsed = time.time() - request_started
         signal_requests_total.labels(status=request_status).inc()
         signal_generation_duration.observe(elapsed)
+
+
+class PrecomputeRequest(BaseModel):
+    """
+    Request body for feature pre-computation.
+
+    M5 Fix: Allows cache warming at day start to reduce signal generation latency.
+
+    Attributes:
+        symbols: List of stock symbols to pre-compute features for
+        as_of_date: Optional date for feature computation (ISO format, default: today)
+    """
+
+    symbols: list[str] = Field(
+        ...,
+        min_length=1,
+        description="List of stock symbols to pre-compute features for",
+        examples=[["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]],
+    )
+
+    as_of_date: str | None = Field(
+        default=None,
+        description="Date for feature computation (ISO format: YYYY-MM-DD). Defaults to today.",
+        examples=["2024-12-31"],
+    )
+
+
+class PrecomputeResponse(BaseModel):
+    """Response body for feature pre-computation."""
+
+    cached_count: int = Field(..., description="Number of symbols successfully cached")
+    skipped_count: int = Field(
+        ..., description="Number of symbols skipped (already cached or error)"
+    )
+    symbols_cached: list[str] = Field(..., description="List of newly cached symbols")
+    symbols_skipped: list[str] = Field(..., description="List of skipped symbols")
+    as_of_date: str = Field(..., description="Date features were computed for")
+
+
+@app.post(
+    "/api/v1/features/precompute",
+    response_model=PrecomputeResponse,
+    tags=["Features"],
+    status_code=status.HTTP_200_OK,
+)
+async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
+    """
+    Pre-compute and cache features without generating signals.
+
+    M5 Fix: Call this endpoint before market open (via cron/scheduler) to warm
+    the feature cache. This reduces signal generation latency by avoiding
+    disk I/O during request handling.
+
+    Args:
+        request: PrecomputeRequest with symbols and optional date
+
+    Returns:
+        PrecomputeResponse with cache statistics
+
+    Status Codes:
+        - 200: Pre-computation completed (even if some symbols failed)
+        - 400: Invalid request (bad date format)
+        - 503: Service unavailable (signal generator not initialized)
+
+    Example:
+        POST /api/v1/features/precompute
+        {
+            "symbols": ["AAPL", "MSFT", "GOOGL"],
+            "as_of_date": "2024-12-31"
+        }
+
+        Response (200 OK):
+        {
+            "cached_count": 3,
+            "skipped_count": 0,
+            "symbols_cached": ["AAPL", "MSFT", "GOOGL"],
+            "symbols_skipped": [],
+            "as_of_date": "2024-12-31"
+        }
+
+    Notes:
+        - Does NOT require model to be loaded (features only)
+        - Idempotent: calling multiple times is safe (skips already cached)
+        - Gracefully handles per-symbol errors (continues with others)
+    """
+    # Validate signal generator exists (but don't require model)
+    if signal_generator is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Signal generator not initialized",
+        )
+
+    # Parse date
+    if request.as_of_date:
+        try:
+            as_of_date = datetime.fromisoformat(request.as_of_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid date format: {request.as_of_date}. Use YYYY-MM-DD.",
+            ) from None
+    else:
+        as_of_date = datetime.now(UTC)
+
+    # Normalize symbols to uppercase
+    symbols = [s.upper() for s in request.symbols]
+
+    # Pre-compute features
+    result = signal_generator.precompute_features(
+        symbols=symbols,
+        as_of_date=as_of_date,
+    )
+
+    return PrecomputeResponse(
+        cached_count=cast(int, result["cached_count"]),
+        skipped_count=cast(int, result["skipped_count"]),
+        symbols_cached=cast(list[str], result["symbols_cached"]),
+        symbols_skipped=cast(list[str], result["symbols_skipped"]),
+        as_of_date=as_of_date.date().isoformat(),
+    )
 
 
 @app.get("/api/v1/model/info", tags=["Model"])

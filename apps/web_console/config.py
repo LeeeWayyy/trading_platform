@@ -124,3 +124,16 @@ LAYOUT: Literal["centered", "wide"] = "wide"
 # Audit log display configuration
 AUDIT_LOG_DISPLAY_LIMIT = 10
 AUDIT_LOG_DETAILS_TRUNCATE_LENGTH = 100
+
+# ============================================================================
+# Database Connection Pool Configuration (M7 Fix)
+# ============================================================================
+
+# Pool size configuration - defaults optimized for Streamlit's per-session model
+# Each Streamlit session may share the pool via module-level singleton
+DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
+DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
+
+# Pool timeout configuration (seconds)
+# How long to wait for a connection from the pool before raising error
+DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "5.0"))
