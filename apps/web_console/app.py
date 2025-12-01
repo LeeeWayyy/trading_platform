@@ -23,19 +23,75 @@ Environment Variables:
 """
 
 import hashlib
+import logging
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+if TYPE_CHECKING:
+    import psycopg_pool
+
 from apps.web_console import auth, config
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.session_status import render_session_status
+
+logger = logging.getLogger(__name__)
+
+# M7 Fix: Use st.cache_resource for connection pool to persist across Streamlit reruns
+# Streamlit re-executes the script on every interaction, so global variables reset.
+# @st.cache_resource ensures the pool is created once and shared across all reruns/sessions.
+
+
+@st.cache_resource(ttl=300)  # TTL=5min to recover from transient DB issues
+def _get_db_pool() -> "psycopg_pool.ConnectionPool | None":
+    """
+    Get or initialize the database connection pool.
+
+    M7 Fix: Uses @st.cache_resource to persist the pool across Streamlit reruns.
+    This is critical because Streamlit re-executes the entire script on every
+    user interaction - without caching, a new pool would be created each time.
+
+    Returns:
+        ConnectionPool instance or None if initialization failed
+    """
+    try:
+        import psycopg_pool
+
+        logger.info(
+            f"Initializing database connection pool "
+            f"(min={config.DB_POOL_MIN_SIZE}, max={config.DB_POOL_MAX_SIZE})"
+        )
+
+        pool = psycopg_pool.ConnectionPool(
+            config.DATABASE_URL,
+            min_size=config.DB_POOL_MIN_SIZE,
+            max_size=config.DB_POOL_MAX_SIZE,
+            timeout=config.DB_POOL_TIMEOUT,
+            # Open pool immediately to verify connection works
+            open=True,
+        )
+
+        logger.info("Database connection pool initialized successfully")
+        return pool
+
+    except ImportError:
+        logger.warning(
+            "psycopg_pool not installed - falling back to per-connection mode"
+        )
+        return None
+    except Exception as e:
+        logger.warning(
+            f"Failed to initialize connection pool: {e} - "
+            "falling back to per-connection mode"
+        )
+        return None
+
 
 # ============================================================================
 # Page Configuration
@@ -630,12 +686,8 @@ def render_audit_log() -> None:
     """
     Render audit log viewer with database integration.
 
-    Connection Pooling Note:
-        MVP implementation creates a new connection per query.
-        For production, consider implementing connection pooling using:
-        - psycopg.pool.ConnectionPool for sync operations
-        - psycopg_pool.AsyncConnectionPool for async operations
-        This will reduce connection overhead and improve performance under load.
+    M7 Fix: Uses connection pooling for efficient database access.
+    Falls back to per-connection mode if pool initialization fails.
     """
     st.header("Audit Log")
 
@@ -659,38 +711,61 @@ def render_audit_log() -> None:
     try:
         import psycopg
 
-        # MVP: New connection per render. Production TODO: Use connection pool
-        with psycopg.connect(
-            config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT
-        ) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT timestamp, user_id, action, details::text, reason, ip_address
-                    FROM audit_log
-                    ORDER BY timestamp DESC
-                    LIMIT %s
-                    """,
-                    (config.AUDIT_LOG_DISPLAY_LIMIT,),
-                )
-                rows = cur.fetchall()
+        rows: list[tuple[Any, ...]] = []
+
+        # M7 Fix: Try to use connection pool first
+        pool = _get_db_pool()
+        if pool is not None:
+            # Use pooled connection
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT timestamp, user_id, action, details::text, reason, ip_address
+                        FROM audit_log
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                        """,
+                        (config.AUDIT_LOG_DISPLAY_LIMIT,),
+                    )
+                    rows = cur.fetchall()
+        else:
+            # Fallback: New connection per render (graceful degradation)
+            with psycopg.connect(
+                config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT
+            ) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT timestamp, user_id, action, details::text, reason, ip_address
+                        FROM audit_log
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                        """,
+                        (config.AUDIT_LOG_DISPLAY_LIMIT,),
+                    )
+                    rows = cur.fetchall()
 
         if rows:
-            audit_data = [
-                {
-                    "Timestamp": row[0].strftime("%Y-%m-%d %H:%M:%S") if row[0] else "N/A",
-                    "User": row[1],
-                    "Action": row[2],
-                    "Details": (
-                        row[3][: config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH - 3] + "..."
-                        if len(row[3]) > config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH
-                        else row[3]
-                    ),
-                    "Reason": row[4] or "N/A",
-                    "IP": row[5] or "N/A",
-                }
-                for row in rows
-            ]
+            audit_data = []
+            for row in rows:
+                # Guard against NULL details (Codex review feedback)
+                details_str = row[3] if row[3] is not None else ""
+                audit_data.append(
+                    {
+                        "Timestamp": row[0].strftime("%Y-%m-%d %H:%M:%S") if row[0] else "N/A",
+                        "User": row[1],
+                        "Action": row[2],
+                        "Details": (
+                            details_str[: config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH - 3] + "..."
+                            if len(details_str) > config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH
+                            else details_str
+                        )
+                        or "N/A",
+                        "Reason": row[4] or "N/A",
+                        "IP": row[5] or "N/A",
+                    }
+                )
             st.table(audit_data)
         else:
             st.info("No audit log entries yet. Take some actions to populate the audit trail!")

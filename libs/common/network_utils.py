@@ -163,3 +163,58 @@ def extract_user_agent_from_fastapi(request: Request) -> str:
         str: User-Agent header value or "unknown"
     """
     return request.headers.get("User-Agent", "unknown")
+
+
+def get_trusted_proxy_ips(
+    env: str | None = None,
+    fail_closed_envs: set[str] | None = None,
+) -> list[str]:
+    """Get trusted proxy IPs with environment-aware defaults.
+
+    DRY-compliant shared function for both auth_service and web_console.
+
+    Behavior:
+    - If TRUSTED_PROXY_IPS env var is set: use it (override defaults)
+    - If dev/test environment: use safe localhost defaults (127.0.0.1, ::1)
+    - If prod/staging: raises RuntimeError if not configured (fail-closed)
+
+    Args:
+        env: Environment name (defaults to ENVIRONMENT env var or 'dev')
+        fail_closed_envs: Set of environments that require explicit config.
+                         Defaults to {'prod', 'production', 'staging'}
+
+    Returns:
+        List of trusted proxy IP addresses
+
+    Raises:
+        RuntimeError: If fail_closed_envs require config but none provided
+    """
+    if env is None:
+        env = os.getenv("ENVIRONMENT", "dev").lower()
+
+    if fail_closed_envs is None:
+        fail_closed_envs = {"prod", "production", "staging"}
+
+    dev_envs = {"dev", "test", "development", "testing"}
+
+    # Check if env var is explicitly set
+    env_proxy_ips = os.getenv("TRUSTED_PROXY_IPS")
+
+    if env_proxy_ips is not None:
+        # Env var explicitly set - use it (override any defaults)
+        raw_ips = env_proxy_ips
+    elif env in dev_envs:
+        # Dev/test: use safe localhost defaults
+        raw_ips = "127.0.0.1,::1"
+    else:
+        # Prod/staging: no defaults, must be configured
+        raw_ips = ""
+
+    trusted_proxies = [ip.strip() for ip in raw_ips.split(",") if ip.strip()]
+
+    if not trusted_proxies and env in fail_closed_envs:
+        raise RuntimeError(
+            f"TRUSTED_PROXY_IPS must be configured in {env} environment"
+        )
+
+    return trusted_proxies

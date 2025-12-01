@@ -45,7 +45,6 @@ from apps.web_console.auth.session_manager import (
     get_session_cookie,
     validate_session,
 )
-from apps.web_console.auth.session_store import RedisSessionStore
 from apps.web_console.config import (
     AUTH_TYPE,
     DATABASE_CONNECT_TIMEOUT,
@@ -83,7 +82,7 @@ if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
     from prometheus_client import CollectorRegistry, multiprocess
 
     registry = CollectorRegistry()
-    multiprocess.MultiProcessCollector(registry)
+    multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
 else:
     from prometheus_client import REGISTRY as registry
 
@@ -191,7 +190,8 @@ def _update_active_sessions_count() -> None:
         session_count = 0
         cursor = 0
         while True:
-            cursor, keys = _redis_client.scan(
+            # Sync Redis client - scan returns tuple directly (not awaitable)
+            cursor, keys = _redis_client.scan(  # type: ignore[misc]
                 cursor=cursor, match="web_console:session:*", count=100
             )
             session_count += len(keys)
@@ -320,9 +320,9 @@ def _get_mtls_fallback_validator() -> "MtlsFallbackValidator":
 
     if _mtls_fallback_validator is None:
         from apps.web_console.auth.mtls_fallback import (
+            MtlsFallbackValidator,
             get_admin_cn_allowlist,
             get_crl_url,
-            MtlsFallbackValidator,
         )
 
         admin_cn_allowlist = get_admin_cn_allowlist()
@@ -648,7 +648,6 @@ def _oauth2_auth() -> bool:
 
     # Component 6: Check mTLS fallback mode
     # Import fallback functions here to avoid circular imports
-
     from apps.web_console.auth.mtls_fallback import is_fallback_enabled
 
     # Component 6: Check if mTLS fallback should activate
@@ -741,7 +740,7 @@ def _oauth2_auth() -> bool:
     try:
         # Run async validation
         user_info = asyncio.run(_validate())
-    except RuntimeError as e:
+    except RuntimeError:
         # If event loop already running (e.g., in Jupyter), use nest_asyncio
         try:
             import nest_asyncio

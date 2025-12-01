@@ -22,6 +22,7 @@ from apps.auth_service.dependencies import get_config, get_oauth2_handler
 from apps.auth_service.middleware.csp_middleware import CSPMiddleware
 from apps.auth_service.routes import callback, csp_report, example_page, logout, refresh
 from apps.auth_service.utils.csp_policy import build_csp_policy
+from libs.common.network_utils import get_trusted_proxy_ips
 
 # Configure logging
 logging.basicConfig(
@@ -168,17 +169,16 @@ async def echo_ip(request: Request) -> dict[str, str]:
 def _validate_trusted_proxy_ips() -> list[str]:
     """Ensure TRUSTED_PROXY_IPS is configured to prevent header spoofing.
 
-    Fail-closed in prod-like environments to avoid accidental misconfiguration.
+    Uses shared get_trusted_proxy_ips() from libs/common/network_utils.
+    M6 Fix: Dev/test environments get safe localhost defaults (127.0.0.1, ::1).
+    Prod/staging requires explicit configuration (fail-closed).
     """
-
-    trusted_proxies = [ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()]
     env = os.getenv("ENVIRONMENT", "dev").lower()
+    trusted_proxies = get_trusted_proxy_ips()
 
     if not trusted_proxies:
-        if env in {"prod", "production", "staging"}:
-            raise RuntimeError("TRUSTED_PROXY_IPS must be configured in production/staging")
         logger.warning(
-            "TRUSTED_PROXY_IPS not set - header spoofing protection disabled (dev/test only)",
+            "TRUSTED_PROXY_IPS not set - using empty list (dev/test only)",
             extra={"environment": env},
         )
 

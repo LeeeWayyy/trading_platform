@@ -45,31 +45,19 @@ test-cov: ## Run tests with coverage report
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
 
-install-hooks: ## Install git hooks (workflow gate enforcement + commit marker automation)
+install-hooks: ## Install git hooks (workflow gate enforcement)
 	@echo "Installing workflow gate hooks..."
 	@chmod +x scripts/workflow_gate.py
 	@chmod +x scripts/pre-commit-hook.sh
-	@chmod +x scripts/prepare-commit-msg-hook.sh
-	@chmod +x scripts/post-commit-hook.sh
 	@ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit
-	@ln -sf ../../scripts/prepare-commit-msg-hook.sh .git/hooks/prepare-commit-msg
-	@ln -sf ../../scripts/post-commit-hook.sh .git/hooks/post-commit
 	@echo "✓ Pre-commit hook installed successfully!"
-	@echo "✓ Prepare-commit-msg hook installed successfully!"
-	@echo "✓ Post-commit hook installed successfully!"
 	@echo ""
-	@echo "The hooks enforce the 4-step workflow pattern:"
+	@echo "The hook enforces the workflow pattern:"
 	@echo "  implement → test → review → commit"
 	@echo ""
-	@echo "Installed hooks:"
-	@echo "  • pre-commit: Validates workflow gates (review approval + CI passing)"
-	@echo "  • prepare-commit-msg: Automatically adds zen-mcp review markers"
-	@echo "  • post-commit: Resets workflow state for next component"
-	@echo ""
 	@echo "Prerequisites for commit:"
-	@echo "  1. Zen-MCP review approved (clink + gemini → codex)"
+	@echo "  1. Zen-MCP review approved"
 	@echo "  2. CI passing (make ci-local)"
-	@echo "  3. Current step is 'review'"
 	@echo ""
 	@echo "⚠️  WARNING: DO NOT use 'git commit --no-verify'"
 	@echo "   Bypassing gates defeats quality system and will be detected by CI"
@@ -77,11 +65,11 @@ install-hooks: ## Install git hooks (workflow gate enforcement + commit marker a
 	@echo "To test the hook: make ci-local"
 
 check-hooks: ## Verify git hooks are installed
-	@if [ ! -f .git/hooks/pre-commit ] || [ ! -f .git/hooks/prepare-commit-msg ] || [ ! -f .git/hooks/post-commit ]; then \
-		echo "❌ One or more git hooks are not installed. Run: make install-hooks"; \
+	@if [ ! -f .git/hooks/pre-commit ]; then \
+		echo "❌ Pre-commit hook is not installed. Run: make install-hooks"; \
 		exit 1; \
 	fi
-	@echo "✅ All git hooks installed (pre-commit, prepare-commit-msg, post-commit)"
+	@echo "✅ Pre-commit hook installed"
 
 ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "🔍 Running CI checks locally..."

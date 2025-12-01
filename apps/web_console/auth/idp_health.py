@@ -35,7 +35,7 @@ if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
     from prometheus_client import CollectorRegistry, multiprocess
 
     registry = CollectorRegistry()
-    multiprocess.MultiProcessCollector(registry)
+    multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
 else:
     from prometheus_client import REGISTRY as registry
 

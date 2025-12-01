@@ -18,17 +18,14 @@ References:
 - docs/TASKS/P2T3-Phase3_Component6-7_Plan.md
 """
 
-import base64
 import hashlib
 import logging
 import os
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import httpx
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
-from cryptography.x509.oid import ExtensionOID
+from cryptography.hazmat.primitives.serialization import Encoding
 from prometheus_client import Counter, Gauge, Histogram
 from pydantic import BaseModel
 
@@ -42,7 +39,7 @@ if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
     from prometheus_client import CollectorRegistry, multiprocess
 
     registry = CollectorRegistry()
-    multiprocess.MultiProcessCollector(registry)
+    multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
 else:
     from prometheus_client import REGISTRY as registry
 
@@ -360,7 +357,7 @@ class MtlsFallbackValidator:
             lifetime_days = lifetime.total_seconds() / 86400
 
             # Compute fingerprint (SHA256)
-            fingerprint = hashlib.sha256(cert.public_bytes(encoding=x509.Encoding.DER)).hexdigest()
+            fingerprint = hashlib.sha256(cert.public_bytes(encoding=Encoding.DER)).hexdigest()
 
             # Step 3: Validate certificate lifetime (reject long-lived certs)
             if lifetime > self.max_cert_lifetime:
@@ -549,7 +546,9 @@ class MtlsFallbackValidator:
             cn_oid = x509.oid.NameOID.COMMON_NAME
             cn_attrs = cert.subject.get_attributes_for_oid(cn_oid)
             if cn_attrs:
-                return cn_attrs[0].value
+                value = cn_attrs[0].value
+                # CN value may be str or bytes depending on encoding
+                return value if isinstance(value, str) else value.decode("utf-8")
         except Exception as e:
             logger.warning("Failed to extract CN from certificate", extra={"error": str(e)})
 

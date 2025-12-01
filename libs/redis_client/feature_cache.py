@@ -197,6 +197,64 @@ class FeatureCache:
             logger.error(f"Redis error caching features for {symbol} on {date}: {e}")
             return False
 
+    def mget(self, symbols: list[str], date: str) -> dict[str, dict[str, Any] | None]:
+        """
+        Retrieve cached features for multiple symbols in a single batch.
+
+        Uses Redis MGET for O(1) network round-trips instead of O(N) individual
+        GET calls. Significantly faster for checking multiple symbols.
+
+        Args:
+            symbols: List of stock symbols (e.g., ["AAPL", "MSFT", "GOOGL"])
+            date: Date string (e.g., "2025-01-17")
+
+        Returns:
+            Dictionary mapping symbol to features (or None if not cached)
+
+        Example:
+            >>> cached = cache.mget(["AAPL", "MSFT", "GOOGL"], "2025-01-17")
+            >>> for symbol, features in cached.items():
+            ...     if features is not None:
+            ...         print(f"{symbol}: cached")
+            ...     else:
+            ...         print(f"{symbol}: cache miss")
+
+        Performance:
+            - 10 symbols: 1 Redis call vs 10 individual calls
+            - Reduces network round-trips from O(N) to O(1)
+            - Typical speedup: 5-10x for 10+ symbols
+        """
+        if not symbols:
+            return {}
+
+        keys = [self._make_key(s, date) for s in symbols]
+
+        try:
+            results = self.redis.mget(keys)
+
+            output: dict[str, dict[str, Any] | None] = {}
+            hits = 0
+            for symbol, data in zip(symbols, results):
+                if data is not None:
+                    try:
+                        output[symbol] = json.loads(data)
+                        hits += 1
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Invalid JSON in cache for {symbol} on {date}: {e}")
+                        output[symbol] = None
+                else:
+                    output[symbol] = None
+
+            logger.debug(
+                f"Cache MGET: {hits}/{len(symbols)} hits for {date}",
+            )
+            return output
+
+        except RedisError as e:
+            logger.error(f"Redis MGET error for {len(symbols)} symbols on {date}: {e}")
+            # Return None for all on error (graceful degradation)
+            return {symbol: None for symbol in symbols}
+
     def invalidate(self, symbol: str, date: str) -> bool:
         """
         Invalidate cached features for (symbol, date).

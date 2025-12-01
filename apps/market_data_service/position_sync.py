@@ -59,6 +59,10 @@ class PositionBasedSubscription:
 
         self._running = False
         self._last_position_symbols: set[str] = set()
+        # M2 Fix: Use asyncio.Event for clean shutdown instead of long sleep()
+        self._shutdown_event: asyncio.Event = asyncio.Event()
+        # M2 Fix: Store task handle for proper cancellation
+        self._sync_task: asyncio.Task[None] | None = None
 
         logger.info(
             f"PositionBasedSubscription initialized: "
@@ -78,37 +82,100 @@ class PositionBasedSubscription:
         self._running = True
         logger.info("Starting position-based subscription sync loop")
 
-        # Run initial sync immediately
-        if self.initial_sync:
-            try:
-                await self._sync_subscriptions()
-            except Exception as e:
-                logger.error(f"Initial subscription sync failed: {e}")
-
-        # Main sync loop
-        while self._running:
-            try:
-                # Wait for next sync interval
-                await asyncio.sleep(self.sync_interval)
-
-                # Sync subscriptions
-                if self._running:  # Check again after sleep
+        try:
+            # Run initial sync immediately
+            if self.initial_sync:
+                try:
                     await self._sync_subscriptions()
+                except Exception as e:
+                    logger.error(f"Initial subscription sync failed: {e}")
 
-            except asyncio.CancelledError:
-                logger.info("Subscription sync loop cancelled")
-                break
+            # Main sync loop
+            # M2 Fix: Use Event.wait() with timeout instead of sleep() for clean shutdown
+            while self._running:
+                try:
+                    # Wait for shutdown event OR timeout (whichever comes first)
+                    # This replaces asyncio.sleep() allowing immediate shutdown response
+                    try:
+                        await asyncio.wait_for(
+                            self._shutdown_event.wait(),
+                            timeout=float(self.sync_interval),
+                        )
+                        # If we get here, shutdown event was set
+                        logger.info("Subscription sync loop received shutdown signal")
+                        break
+                    except asyncio.TimeoutError:
+                        # Normal timeout - time for next sync
+                        pass
 
-            except Exception as e:
-                logger.error(f"Subscription sync error: {e}", exc_info=True)
-                # Continue loop even on error
+                    # Sync subscriptions (only if still running after wait)
+                    if self._running:
+                        await self._sync_subscriptions()
 
-        logger.info("Subscription sync loop stopped")
+                except asyncio.CancelledError:
+                    logger.info("Subscription sync loop cancelled")
+                    raise  # Re-raise to exit the loop
+
+                except Exception as e:
+                    logger.error(f"Subscription sync error: {e}", exc_info=True)
+                    # Continue loop even on error
+
+        finally:
+            # Ensure _running is always reset regardless of exit path
+            # This fixes health reporting after cancellation
+            self._running = False
+            logger.info("Subscription sync loop stopped")
 
     def stop(self) -> None:
-        """Stop background sync loop."""
+        """Stop background sync loop (non-blocking, signals shutdown)."""
         logger.info("Stopping subscription sync loop")
         self._running = False
+        # M2 Fix: Set shutdown event to immediately interrupt any wait()
+        self._shutdown_event.set()
+
+    async def shutdown(self, timeout: float = 5.0) -> None:
+        """
+        Gracefully shutdown the sync loop with task cancellation.
+
+        M2 Fix: Proper async shutdown that:
+        1. Sets shutdown event to interrupt Event.wait()
+        2. Waits for task to complete or cancels on timeout
+
+        Args:
+            timeout: Max seconds to wait for graceful shutdown before cancel
+        """
+        logger.info("Initiating graceful shutdown of subscription sync loop")
+
+        # Signal shutdown via stop()
+        self.stop()
+
+        # Wait for task to complete gracefully
+        if self._sync_task is not None and not self._sync_task.done():
+            try:
+                await asyncio.wait_for(self._sync_task, timeout=timeout)
+                logger.info("Subscription sync task completed gracefully")
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Subscription sync task did not complete within {timeout}s, cancelling"
+                )
+                self._sync_task.cancel()
+                try:
+                    await self._sync_task
+                except asyncio.CancelledError:
+                    logger.info("Subscription sync task cancelled")
+            except asyncio.CancelledError:
+                logger.info("Subscription sync task already cancelled")
+
+    def set_task(self, task: asyncio.Task[None]) -> None:
+        """
+        Store the task handle for shutdown management.
+
+        M2 Fix: Called by main.py after create_task() to enable proper cancellation.
+
+        Args:
+            task: The asyncio.Task running start_sync_loop()
+        """
+        self._sync_task = task
 
     async def _sync_subscriptions(self) -> None:
         """

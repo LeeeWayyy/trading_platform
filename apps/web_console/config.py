@@ -53,10 +53,11 @@ SESSION_ABSOLUTE_TIMEOUT_HOURS = int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_HOURS",
 # IP address tracking for audit log
 # Comma-separated list of trusted proxy IPs (e.g., "10.0.0.1,10.0.0.2")
 # If set, X-Forwarded-For header will be trusted for requests from these IPs
-# If not set, all audit log entries will show "localhost" (safe default for dev)
-TRUSTED_PROXY_IPS = [
-    ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()
-]
+# M6 Fix: Uses shared get_trusted_proxy_ips() from libs/common/network_utils
+# Dev/test environments get safe localhost defaults (127.0.0.1, ::1)
+from libs.common.network_utils import get_trusted_proxy_ips
+
+TRUSTED_PROXY_IPS = get_trusted_proxy_ips()
 
 # ============================================================================
 # Database Configuration (for audit log)
@@ -102,3 +103,16 @@ LAYOUT: Literal["centered", "wide"] = "wide"
 # Audit log display configuration
 AUDIT_LOG_DISPLAY_LIMIT = 10
 AUDIT_LOG_DETAILS_TRUNCATE_LENGTH = 100
+
+# ============================================================================
+# Database Connection Pool Configuration (M7 Fix)
+# ============================================================================
+
+# Pool size configuration - defaults optimized for Streamlit's per-session model
+# Each Streamlit session may share the pool via module-level singleton
+DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
+DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
+
+# Pool timeout configuration (seconds)
+# How long to wait for a connection from the pool before raising error
+DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "5.0"))
