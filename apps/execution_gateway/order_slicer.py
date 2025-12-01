@@ -6,7 +6,8 @@ to minimize market impact. This is a standard algorithmic execution strategy.
 
 Algorithm:
     1. Determine slice count from duration and requested interval spacing
-    2. Distribute remainder using front-loaded approach (first slices get +1)
+    2. H6 Fix: Distribute remainder uniformly using deterministic randomization
+       (seed derived from order params ensures idempotency while hiding pattern)
     3. Generate deterministic client_order_id for parent and each slice
     4. Calculate scheduled execution times at the configured interval spacing
 
@@ -22,15 +23,17 @@ Example:
     >>> len(plan.slices)
     5
     >>> [s.qty for s in plan.slices]
-    [21, 21, 21, 20, 20]  # Front-loaded remainder distribution
+    [21, 20, 21, 20, 21]  # H6: Uniform remainder distribution (deterministic but not front-loaded)
 
 See Also:
     - docs/TASKS/P2_PLANNING.md#p2t0-twap-order-slicer
     - docs/CONCEPTS/execution-algorithms.md#twap
 """
 
+import hashlib
 import logging
 import math
+import random
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -66,7 +69,7 @@ class TWAPSlicer:
         20
 
     Notes:
-        - Slice quantity distribution is front-loaded (first slices get remainder)
+        - H6: Slice quantity distribution is uniform (deterministic random, not front-loaded)
         - All client_order_ids are deterministic (same inputs = same IDs)
         - Scheduled times honor configurable slice interval spacing
         - All slices initially have status="pending_new"
@@ -154,16 +157,30 @@ class TWAPSlicer:
         if order_type in ("stop", "stop_limit") and stop_price is None:
             raise ValueError(f"{order_type} orders require stop_price")
 
-        # Calculate slice quantities with front-loaded remainder distribution
+        # H6 Fix: Calculate slice quantities with uniform remainder distribution
+        # Use deterministic seed based on order params for idempotency
+        # This hides the pattern from market makers while ensuring same inputs = same output
         base_qty = qty // num_slices
         remainder = qty % num_slices
 
-        slice_qtys = []
-        for i in range(num_slices):
-            if i < remainder:
-                slice_qtys.append(base_qty + 1)  # Front-loaded
-            else:
-                slice_qtys.append(base_qty)
+        slice_qtys = [base_qty] * num_slices
+
+        if remainder > 0:
+            # Create deterministic seed from order parameters using stable hash
+            # IMPORTANT: Use hashlib.sha256 instead of hash() because hash() is
+            # randomized per process via PYTHONHASHSEED, breaking idempotency
+            seed_string = f"{symbol}_{side}_{qty}_{duration_minutes}_{interval_seconds}"
+            if trade_date:
+                seed_string += f"_{trade_date.isoformat()}"
+            # SHA256 provides stable, cross-process deterministic seed
+            seed_bytes = hashlib.sha256(seed_string.encode()).digest()
+            seed = int.from_bytes(seed_bytes[:4], "big")  # Use first 4 bytes as 32-bit seed
+
+            # Use seeded random to select which slices get +1
+            rng = random.Random(seed)
+            indices_for_extra = rng.sample(range(num_slices), remainder)
+            for idx in indices_for_extra:
+                slice_qtys[idx] += 1
 
         # Generate parent order ID using deterministic trade date
         now = datetime.now(UTC)

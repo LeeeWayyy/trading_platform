@@ -38,6 +38,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -162,7 +163,25 @@ except (RedisError, RedisConnectionError) as e:
 
 # Kill-switch (operator-controlled emergency halt)
 kill_switch: KillSwitch | None = None
-kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
+
+# H3 Fix: Thread-safe kill-switch unavailable flag
+# Use threading.Lock to protect read/write operations on global state
+_kill_switch_lock = threading.Lock()
+_kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
+
+
+def is_kill_switch_unavailable() -> bool:
+    """Thread-safe check if kill-switch is unavailable."""
+    with _kill_switch_lock:
+        return _kill_switch_unavailable
+
+
+def set_kill_switch_unavailable(value: bool) -> None:
+    """Thread-safe set kill-switch unavailable state."""
+    global _kill_switch_unavailable
+    with _kill_switch_lock:
+        _kill_switch_unavailable = value
+
 
 if redis_client:
     try:
@@ -172,12 +191,12 @@ if redis_client:
         logger.error(
             f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all trading blocked until Redis available."
         )
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)
 else:
     logger.error(
         "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all trading blocked until Redis available."
     )
-    kill_switch_unavailable = True
+    set_kill_switch_unavailable(True)
 
 # Alpaca client (only if not in dry run mode and credentials provided)
 alpaca_client: AlpacaExecutor | None = None
@@ -647,7 +666,7 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-10-17T16:30:00Z"
         }
     """
-    global kill_switch_unavailable, kill_switch, circuit_breaker, slice_scheduler
+    global kill_switch, circuit_breaker, slice_scheduler  # H3: Removed kill_switch_unavailable (now thread-safe function)
 
     # Check database connection
     db_connected = db_client.check_connection()
@@ -658,7 +677,7 @@ async def health_check() -> HealthResponse:
         redis_connected = redis_client.health_check()
 
         # Attempt to recover kill-switch, circuit breaker, and slice scheduler if Redis is back
-        if kill_switch_unavailable and redis_connected:
+        if is_kill_switch_unavailable() and redis_connected:
             try:
                 # Re-initialize kill-switch if it was None at startup
                 if kill_switch is None:
@@ -705,7 +724,7 @@ async def health_check() -> HealthResponse:
                 # Test kill-switch availability by checking its state
                 kill_switch.is_engaged()
                 # If we get here, kill-switch is available again
-                kill_switch_unavailable = False
+                set_kill_switch_unavailable(False)
                 logger.info(
                     "Infrastructure recovered - resuming normal operations",
                     extra={
@@ -743,7 +762,7 @@ async def health_check() -> HealthResponse:
 
     # Determine overall status
     overall_status: Literal["healthy", "degraded", "unhealthy"]
-    if kill_switch_unavailable:
+    if is_kill_switch_unavailable():
         # Kill-switch unavailable means we're in fail-closed mode - report degraded
         overall_status = "degraded"
     elif db_connected and (DRY_RUN or alpaca_connected):
@@ -853,8 +872,7 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         ) from e
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        global kill_switch_unavailable
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)  # H3: Thread-safe update
         logger.error(
             "Kill-switch engage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -914,8 +932,7 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         ) from e
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        global kill_switch_unavailable
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)  # H3: Thread-safe update
         logger.error(
             "Kill-switch disengage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -960,8 +977,7 @@ async def get_kill_switch_status() -> dict[str, Any]:
         return kill_switch.get_status()
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        global kill_switch_unavailable
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)  # H3: Thread-safe update
         logger.error(
             "Kill-switch status unavailable: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -1037,7 +1053,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         ...     }
         ... )
     """
-    global kill_switch_unavailable
+    # H3: Removed global kill_switch_unavailable - now using thread-safe functions
     # Start timing for metrics
     start_time = time.time()
 
@@ -1056,7 +1072,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
     )
 
     # Check kill-switch unavailable (fail closed for safety)
-    if kill_switch_unavailable:
+    if is_kill_switch_unavailable():
         logger.error(
             f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
             extra={
@@ -1100,7 +1116,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             )
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)  # H3: Thread-safe update
         logger.error(
             f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
             extra={
@@ -1343,7 +1359,7 @@ def _check_twap_prerequisites() -> None:
         )
 
     # Check kill-switch availability (fail closed)
-    if kill_switch_unavailable:
+    if is_kill_switch_unavailable():
         logger.error("Kill-switch unavailable - cannot accept TWAP orders (fail closed)")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -2407,6 +2423,10 @@ async def shutdown_event() -> None:
         logger.info("Shutting down slice scheduler...")
         slice_scheduler.shutdown(wait=True)
         logger.info("Slice scheduler shutdown complete")
+
+    # H2 Fix: Close database connection pool for clean shutdown
+    db_client.close()
+    logger.info("Database connection pool closed")
 
 
 if __name__ == "__main__":

@@ -214,7 +214,12 @@ class TestAlpacaMarketDataStream:
 
     def test_get_subscribed_symbols(self, stream):
         """Test getting list of subscribed symbols."""
-        stream.subscribed_symbols = {"AAPL", "MSFT", "GOOGL"}
+        # H5 Fix: subscribed_symbols is now a read-only property backed by _subscription_sources
+        stream._subscription_sources = {
+            "AAPL": {"manual"},
+            "MSFT": {"manual"},
+            "GOOGL": {"manual"},
+        }
 
         symbols = stream.get_subscribed_symbols()
 
@@ -224,7 +229,8 @@ class TestAlpacaMarketDataStream:
         """Test getting connection statistics."""
         stream._running = True
         stream._reconnect_attempts = 2
-        stream.subscribed_symbols = {"AAPL", "MSFT"}
+        # H5 Fix: subscribed_symbols is now a read-only property backed by _subscription_sources
+        stream._subscription_sources = {"AAPL": {"manual"}, "MSFT": {"manual"}}
 
         stats = stream.get_connection_stats()
 

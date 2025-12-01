@@ -66,8 +66,10 @@ class AlpacaMarketDataStream:
         # Initialize Alpaca WebSocket client
         self.stream = StockDataStream(api_key, secret_key)
 
-        # Track subscribed symbols
-        self.subscribed_symbols: set[str] = set()
+        # H5 Fix: Track subscribed symbols with source ref-counting
+        # Maps symbol -> set of sources (e.g., "manual", "position")
+        # Only unsubscribe when all sources have unsubscribed
+        self._subscription_sources: dict[str, set[str]] = {}
         self._subscription_lock = asyncio.Lock()  # Prevent concurrent subscription/unsubscription
 
         # Connection state
@@ -78,61 +80,151 @@ class AlpacaMarketDataStream:
 
         logger.info("AlpacaMarketDataStream initialized")
 
-    async def subscribe_symbols(self, symbols: list[str]) -> None:
+    @property
+    def subscribed_symbols(self) -> set[str]:
         """
-        Subscribe to real-time quotes for symbols.
+        Get set of currently subscribed symbols (backwards compatibility).
+
+        Returns:
+            Set of symbol strings that have at least one active subscription source.
+
+        Note:
+            This property is maintained for backwards compatibility.
+            The underlying implementation now uses ref-counting with source tracking.
+        """
+        return set(self._subscription_sources.keys())
+
+    async def subscribe_symbols(self, symbols: list[str], source: str = "manual") -> None:
+        """
+        Subscribe to real-time quotes for symbols with source tracking.
+
+        H5 Fix: Uses ref-counting to track subscription sources. A symbol is only
+        actually subscribed to Alpaca when the first source subscribes, and only
+        unsubscribed when all sources have unsubscribed.
 
         Args:
             symbols: List of symbols (e.g., ["AAPL", "MSFT"])
+            source: Subscription source identifier (e.g., "manual", "position").
+                    Default is "manual" for backwards compatibility.
 
         Raises:
             SubscriptionError: If subscription fails
+
+        Example:
+            # Manual subscription
+            await stream.subscribe_symbols(["AAPL"], source="manual")
+
+            # Position-based auto-subscription
+            await stream.subscribe_symbols(["AAPL"], source="position")
+
+            # Now AAPL has two sources: {"manual", "position"}
+            # Unsubscribing one source won't unsubscribe from Alpaca
         """
         if not symbols:
             logger.warning("subscribe_symbols called with empty list")
             return
 
         async with self._subscription_lock:
-            # Filter out already subscribed symbols
-            new_symbols = [s for s in symbols if s not in self.subscribed_symbols]
+            # Find symbols that need actual Alpaca subscription (not already subscribed)
+            new_alpaca_symbols = [s for s in symbols if s not in self._subscription_sources]
 
-            if not new_symbols:
-                logger.debug(f"All symbols already subscribed: {symbols}")
-                return
+            # Find symbols that just need source tracking update
+            existing_symbols = [s for s in symbols if s in self._subscription_sources]
 
             try:
-                # Subscribe to quotes via Alpaca SDK
-                self.stream.subscribe_quotes(self._handle_quote, *new_symbols)
+                # Subscribe to new symbols via Alpaca SDK
+                if new_alpaca_symbols:
+                    self.stream.subscribe_quotes(self._handle_quote, *new_alpaca_symbols)
+                    logger.info(
+                        f"Subscribed to {len(new_alpaca_symbols)} new symbols via Alpaca: "
+                        f"{new_alpaca_symbols}"
+                    )
 
-                # Update tracking
-                self.subscribed_symbols.update(new_symbols)
+                # Update ref-counting for all symbols
+                for symbol in symbols:
+                    if symbol not in self._subscription_sources:
+                        self._subscription_sources[symbol] = set()
+                    self._subscription_sources[symbol].add(source)
 
-                logger.info(f"Subscribed to {len(new_symbols)} symbols: {new_symbols}")
+                # Log source tracking updates
+                if existing_symbols:
+                    logger.debug(
+                        f"Added source '{source}' to {len(existing_symbols)} existing subscriptions: "
+                        f"{existing_symbols}"
+                    )
+
+                logger.info(
+                    f"Subscription update: {len(symbols)} symbols, source='{source}', "
+                    f"new_alpaca={len(new_alpaca_symbols)}, existing={len(existing_symbols)}"
+                )
 
             except Exception as e:
-                logger.error(f"Failed to subscribe to symbols {new_symbols}: {e}")
-                raise SubscriptionError(f"Failed to subscribe to symbols {new_symbols}: {e}") from e
+                logger.error(f"Failed to subscribe to symbols {symbols}: {e}")
+                raise SubscriptionError(f"Failed to subscribe to symbols {symbols}: {e}") from e
 
-    async def unsubscribe_symbols(self, symbols: list[str]) -> None:
+    async def unsubscribe_symbols(self, symbols: list[str], source: str = "manual") -> None:
         """
-        Unsubscribe from symbols.
+        Unsubscribe from symbols with source tracking.
+
+        H5 Fix: Uses ref-counting to track subscription sources. Only actually
+        unsubscribes from Alpaca when ALL sources have unsubscribed from a symbol.
 
         Args:
             symbols: List of symbols to unsubscribe from
+            source: Subscription source identifier (e.g., "manual", "position").
+                    Default is "manual" for backwards compatibility.
 
         Raises:
             SubscriptionError: If unsubscription fails
+
+        Example:
+            # AAPL has sources: {"manual", "position"}
+            await stream.unsubscribe_symbols(["AAPL"], source="position")
+            # Now AAPL has sources: {"manual"} - still subscribed to Alpaca!
+
+            await stream.unsubscribe_symbols(["AAPL"], source="manual")
+            # Now AAPL has no sources - actually unsubscribed from Alpaca
         """
         if not symbols:
             return
 
         async with self._subscription_lock:
+            actually_unsubscribed: list[str] = []
+            source_removed: list[str] = []
+            not_found: list[str] = []
+
             try:
                 for symbol in symbols:
-                    if symbol in self.subscribed_symbols:
+                    if symbol not in self._subscription_sources:
+                        not_found.append(symbol)
+                        continue
+
+                    # Remove this source from the symbol
+                    self._subscription_sources[symbol].discard(source)
+                    source_removed.append(symbol)
+
+                    # If no more sources, actually unsubscribe from Alpaca
+                    if not self._subscription_sources[symbol]:
+                        del self._subscription_sources[symbol]
                         self.stream.unsubscribe_quotes(symbol)
-                        self.subscribed_symbols.remove(symbol)
-                        logger.info(f"Unsubscribed from {symbol}")
+                        actually_unsubscribed.append(symbol)
+                        logger.info(f"Unsubscribed from {symbol} (no remaining sources)")
+
+                # Log summary
+                if actually_unsubscribed:
+                    logger.info(
+                        f"Actually unsubscribed from Alpaca: {len(actually_unsubscribed)} symbols: "
+                        f"{actually_unsubscribed}"
+                    )
+
+                if source_removed and not actually_unsubscribed:
+                    logger.debug(
+                        f"Removed source '{source}' from {len(source_removed)} symbols "
+                        f"(still subscribed via other sources)"
+                    )
+
+                if not_found:
+                    logger.debug(f"Symbols not found in subscriptions: {not_found}")
 
             except Exception as e:
                 logger.error(f"Failed to unsubscribe from symbols {symbols}: {e}")
@@ -306,3 +398,16 @@ class AlpacaMarketDataStream:
             "reconnect_attempts": self._reconnect_attempts,
             "max_reconnect_attempts": self._max_reconnect_attempts,
         }
+
+    def get_subscription_sources(self) -> dict[str, list[str]]:
+        """
+        Get subscription sources for each symbol (H5 fix debugging).
+
+        Returns:
+            Dictionary mapping symbol -> list of sources
+
+        Example:
+            >>> stream.get_subscription_sources()
+            {"AAPL": ["manual", "position"], "MSFT": ["position"]}
+        """
+        return {symbol: sorted(sources) for symbol, sources in self._subscription_sources.items()}

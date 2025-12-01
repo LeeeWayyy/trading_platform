@@ -70,7 +70,7 @@ class TestHealthEndpoint:
 
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
         ):
             response = test_client.get("/health")
 
@@ -86,7 +86,7 @@ class TestHealthEndpoint:
 
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
         ):
             response = test_client.get("/health")
 
@@ -131,7 +131,7 @@ class TestSubmitOrderEndpoint:
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
             patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
         ):
             response = test_client.post(
                 "/api/v1/orders",
@@ -175,7 +175,7 @@ class TestSubmitOrderEndpoint:
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
             patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
         ):
             response = test_client.post(
                 "/api/v1/orders",

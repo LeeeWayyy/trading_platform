@@ -46,7 +46,7 @@ class TestFailClosedBehaviorExecutionGateway:
         with (
             patch("apps.execution_gateway.main.redis_client", None),
             patch("apps.execution_gateway.main.kill_switch", None),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", True),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", True),
         ):
             yield
 
@@ -122,7 +122,7 @@ class TestFailClosedBehaviorExecutionGateway:
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
             patch("apps.execution_gateway.main.kill_switch", None),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", True),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", True),
         ):
             yield mock_redis
 
@@ -169,7 +169,7 @@ class TestFailClosedBehaviorOrchestrator:
         with (
             patch("apps.orchestrator.main.redis_client", None),
             patch("apps.orchestrator.main.kill_switch", None),
-            patch("apps.orchestrator.main.kill_switch_unavailable", True),
+            patch("apps.orchestrator.main._kill_switch_unavailable", True),
         ):
             yield
 
@@ -267,7 +267,7 @@ class TestKillSwitchJSONBodyHandling:
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
             patch("apps.execution_gateway.main.kill_switch", mock_ks),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
         ):
             yield mock_redis, mock_ks
 
@@ -418,7 +418,7 @@ class TestKillSwitchJSONBodyHandling:
         with (
             patch("apps.orchestrator.main.redis_client", mock_redis),
             patch("apps.orchestrator.main.kill_switch", mock_ks),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main._kill_switch_unavailable", False),
         ):
             yield mock_redis, mock_ks
 
@@ -512,7 +512,7 @@ class TestKillSwitchEndToEnd:
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
             patch("apps.execution_gateway.main.kill_switch", mock_ks),
-            patch("apps.execution_gateway.main.kill_switch_unavailable", False),
+            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
             patch("apps.execution_gateway.database.DatabaseClient"),
         ):
             yield mock_redis, mock_ks

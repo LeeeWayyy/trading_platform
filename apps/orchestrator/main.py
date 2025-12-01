@@ -31,6 +31,7 @@ See ADR-0006 for architecture decisions.
 
 import logging
 import os
+import threading
 import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -112,7 +113,25 @@ except (Exception, RedisConnectionError) as e:
 
 # Kill-switch (operator-controlled emergency halt)
 kill_switch: KillSwitch | None = None
-kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
+
+# H3 Fix: Thread-safe kill-switch unavailable flag
+# Use threading.Lock to protect read/write operations on global state
+_kill_switch_lock = threading.Lock()
+_kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
+
+
+def is_kill_switch_unavailable() -> bool:
+    """Thread-safe check if kill-switch is unavailable."""
+    with _kill_switch_lock:
+        return _kill_switch_unavailable
+
+
+def set_kill_switch_unavailable(value: bool) -> None:
+    """Thread-safe setter for kill-switch unavailable flag."""
+    global _kill_switch_unavailable
+    with _kill_switch_lock:
+        _kill_switch_unavailable = value
+
 
 if redis_client:
     try:
@@ -122,12 +141,12 @@ if redis_client:
         logger.error(
             f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all orchestration blocked until Redis available."
         )
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)
 else:
     logger.error(
         "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all orchestration blocked until Redis available."
     )
-    kill_switch_unavailable = True
+    set_kill_switch_unavailable(True)
 
 
 # Orchestrator (initialized per request to support async context)
@@ -278,7 +297,7 @@ async def health_check() -> HealthResponse:
     execution_gateway_available.set(1 if execution_healthy else 0)
 
     # Determine overall status
-    if kill_switch_unavailable:
+    if is_kill_switch_unavailable():
         # Kill-switch unavailable means we're in fail-closed mode - report degraded
         overall_status = "degraded"
     elif db_connected and signal_healthy and execution_healthy:
@@ -374,8 +393,7 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         ) from e
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        global kill_switch_unavailable
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch engage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -426,8 +444,7 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         return kill_switch.get_status()
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        global kill_switch_unavailable
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch disengage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -470,8 +487,7 @@ async def get_kill_switch_status() -> dict[str, Any]:
         return kill_switch.get_status()
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        global kill_switch_unavailable
-        kill_switch_unavailable = True
+        set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch status check failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -528,7 +544,6 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
         >>> print(result["num_orders_submitted"])
         2
     """
-    global kill_switch_unavailable
     # Start timing for metrics
     run_started = time.time()
     run_status = "success"
@@ -544,7 +559,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
         )
 
         # Check kill-switch unavailable (fail closed for safety)
-        if kill_switch_unavailable:
+        if is_kill_switch_unavailable():
             logger.error(
                 "🔴 Orchestration blocked by unavailable kill-switch (FAIL CLOSED)",
                 extra={
@@ -584,7 +599,7 @@ async def run_orchestration(request: OrchestrationRequest) -> OrchestrationResul
                 )
         except RuntimeError as e:
             # Kill-switch state missing (fail-closed)
-            kill_switch_unavailable = True
+            set_kill_switch_unavailable(True)
             logger.error(
                 "🔴 Orchestration blocked by unavailable kill-switch (FAIL CLOSED)",
                 extra={
@@ -798,6 +813,10 @@ async def startup_event() -> None:
 async def shutdown_event() -> None:
     """Application shutdown."""
     logger.info("Orchestrator Service shutting down")
+
+    # H2 Fix: Close database connection pool for clean shutdown
+    db_client.close()
+    logger.info("Database connection pool closed")
 
 
 if __name__ == "__main__":
