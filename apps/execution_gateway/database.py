@@ -293,18 +293,18 @@ class DatabaseClient:
         """
         # H2 Fix: Use pool.connection() context manager for transaction control
         # psycopg_pool.ConnectionPool uses .connection() not .getconn()/.putconn()
+        # Use psycopg's built-in transaction context manager for automatic commit/rollback
         with self._pool.connection() as conn:
-            try:
-                yield conn
-                conn.commit()
-                logger.debug("Transaction committed successfully")
-            except Exception as e:
-                conn.rollback()
-                logger.warning(
-                    f"Transaction rolled back due to error: {e}",
-                    extra={"error_type": type(e).__name__, "error_message": str(e)},
-                )
-                raise
+            with conn.transaction():
+                try:
+                    yield conn
+                    logger.debug("Transaction committed successfully")
+                except Exception as e:
+                    logger.warning(
+                        f"Transaction rolled back due to error: {e}",
+                        extra={"error_type": type(e).__name__, "error_message": str(e)},
+                    )
+                    raise
 
     def create_order(
         self,

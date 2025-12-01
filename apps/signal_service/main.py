@@ -35,6 +35,7 @@ import asyncio
 import logging
 import os
 import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -83,8 +84,10 @@ feature_cache: FeatureCache | None = None
 # H8 Fix: Cache SignalGenerators by (top_n, bottom_n) to avoid per-request allocation
 # Key: (top_n, bottom_n) tuple, Value: SignalGenerator instance
 # Bounded to prevent memory leaks from arbitrary user-provided combinations
+# Uses OrderedDict + asyncio.Lock for thread-safe LRU eviction
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
-_generator_cache: dict[tuple[int, int], SignalGenerator] = {}
+_generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
+_generator_cache_lock = asyncio.Lock()
 
 
 # ==============================================================================
@@ -995,23 +998,34 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
         try:
             # H8 Fix: Use cached generator if top_n/bottom_n were overridden
             # This avoids creating a new SignalGenerator for each request
+            # Uses asyncio.Lock for thread-safety and LRU eviction policy
             if request.top_n is not None or request.bottom_n is not None:
                 cache_key = (top_n, bottom_n)
-                if cache_key not in _generator_cache:
-                    # Evict oldest entry if cache is full (simple FIFO eviction)
-                    if len(_generator_cache) >= _MAX_GENERATOR_CACHE_SIZE:
-                        oldest_key = next(iter(_generator_cache))
-                        del _generator_cache[oldest_key]
-                        logger.debug(f"Evicted cached SignalGenerator {oldest_key} (cache full)")
-                    logger.debug(f"Creating cached SignalGenerator for {cache_key}")
-                    _generator_cache[cache_key] = SignalGenerator(
-                        model_registry=model_registry,
-                        data_dir=signal_generator.data_provider.data_dir,
-                        top_n=top_n,
-                        bottom_n=bottom_n,
-                        feature_cache=feature_cache,  # Pass feature cache for consistency
-                    )
-                cached_generator = _generator_cache[cache_key]
+                cached_generator = None
+
+                async with _generator_cache_lock:
+                    if cache_key in _generator_cache:
+                        # Move to end to mark as recently used (LRU hit)
+                        _generator_cache.move_to_end(cache_key)
+                        cached_generator = _generator_cache[cache_key]
+                        logger.debug(f"Using cached SignalGenerator for {cache_key} (LRU hit)")
+                    else:
+                        # Evict least recently used if cache is full
+                        if len(_generator_cache) >= _MAX_GENERATOR_CACHE_SIZE:
+                            oldest_key, _ = _generator_cache.popitem(last=False)
+                            logger.debug(
+                                f"Evicted cached SignalGenerator {oldest_key} (LRU cache full)"
+                            )
+                        logger.debug(f"Creating cached SignalGenerator for {cache_key}")
+                        cached_generator = SignalGenerator(
+                            model_registry=model_registry,
+                            data_dir=signal_generator.data_provider.data_dir,
+                            top_n=top_n,
+                            bottom_n=bottom_n,
+                            feature_cache=feature_cache,  # Pass feature cache for consistency
+                        )
+                        _generator_cache[cache_key] = cached_generator
+
                 signals_df = cached_generator.generate_signals(
                     symbols=request.symbols,
                     as_of_date=as_of_date,
