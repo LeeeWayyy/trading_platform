@@ -116,6 +116,17 @@ CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() =
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
+# C3 Fix: Validate webhook secret is set in production environments
+# In non-dev/test environments with DRY_RUN=false, webhook secret is MANDATORY
+# This prevents webhook spoofing attacks in production
+# Strip whitespace to prevent whitespace-only secrets (which would be useless)
+WEBHOOK_SECRET = WEBHOOK_SECRET.strip()
+if not WEBHOOK_SECRET and ENVIRONMENT not in ("dev", "test") and not DRY_RUN:
+    raise RuntimeError(
+        "WEBHOOK_SECRET must be set for production/staging environments. "
+        "Set WEBHOOK_SECRET environment variable or use DRY_RUN=true for testing."
+    )
+
 # Redis configuration (for real-time price lookups)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -241,7 +252,7 @@ app = FastAPI(
 orders_total = Counter(
     "execution_gateway_orders_total",
     "Total number of orders submitted",
-    ["symbol", "side", "status"],  # status: success, failed, rejected
+    ["symbol", "side", "status"],  # status: success, failed, rejected, blocked
 )
 
 order_placement_duration = Histogram(
@@ -318,7 +329,7 @@ _position_metrics_lock = asyncio.Lock()
 def _record_order_metrics(
     order: "OrderRequest",
     start_time: float,
-    status: Literal["success", "rejected", "failed"],
+    status: Literal["success", "rejected", "failed", "blocked"],
 ) -> None:
     """
     Record Prometheus metrics for order placement.
@@ -326,15 +337,61 @@ def _record_order_metrics(
     Args:
         order: The order request that was submitted
         start_time: Time when order processing started (from time.time())
-        status: Order outcome (success, rejected, or failed)
+        status: Order outcome (success, rejected, failed, or blocked)
 
     Notes:
         This helper reduces code duplication across different order placement paths.
         Increments orders_total counter and records order_placement_duration histogram.
+        "blocked" status is used for orders rejected by safety mechanisms (circuit breaker).
     """
     duration = time.time() - start_time
     orders_total.labels(symbol=order.symbol, side=order.side, status=status).inc()
     order_placement_duration.labels(symbol=order.symbol, side=order.side).observe(duration)
+
+
+def _handle_idempotency_race(
+    client_order_id: str,
+    db_client: "DatabaseClient",
+) -> "OrderResponse":
+    """
+    Handle idempotency race condition by returning existing order.
+
+    When UniqueViolation is caught during order creation, this function
+    retrieves the existing order and returns an idempotent response.
+
+    Args:
+        client_order_id: The client order ID that caused the race condition
+        db_client: Database client for fetching existing order
+
+    Returns:
+        OrderResponse for the existing order
+
+    Raises:
+        HTTPException: If order not found after UniqueViolation (should never happen)
+    """
+    logger.info(
+        f"Concurrent order submission detected (UniqueViolation): {client_order_id}",
+        extra={"client_order_id": client_order_id},
+    )
+    existing_order = db_client.get_order_by_client_id(client_order_id)
+    if existing_order:
+        return OrderResponse(
+            client_order_id=client_order_id,
+            status=existing_order.status,
+            broker_order_id=existing_order.broker_order_id,
+            symbol=existing_order.symbol,
+            side=existing_order.side,
+            qty=existing_order.qty,
+            order_type=existing_order.order_type,
+            limit_price=existing_order.limit_price,
+            created_at=existing_order.created_at,
+            message="Order already submitted (race condition resolved)",
+        )
+    # Should never happen: UniqueViolation means order exists
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Database inconsistency: order not found after UniqueViolation",
+    )
 
 
 # ============================================================================
@@ -348,7 +405,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Validation error", detail=str(exc), timestamp=datetime.now()
+            error="Validation error", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -359,7 +416,7 @@ async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content=ErrorResponse(
-            error="Order validation failed", detail=str(exc), timestamp=datetime.now()
+            error="Order validation failed", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -370,7 +427,7 @@ async def alpaca_rejection_handler(request: Request, exc: AlpacaRejectionError) 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=ErrorResponse(
-            error="Order rejected by broker", detail=str(exc), timestamp=datetime.now()
+            error="Order rejected by broker", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -381,7 +438,7 @@ async def alpaca_connection_handler(request: Request, exc: AlpacaConnectionError
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content=ErrorResponse(
-            error="Broker connection error", detail=str(exc), timestamp=datetime.now()
+            error="Broker connection error", detail=str(exc), timestamp=datetime.now(UTC)
         ).model_dump(mode="json"),
     )
 
@@ -703,7 +760,7 @@ async def health_check() -> HealthResponse:
         dry_run=DRY_RUN,
         database_connected=db_connected,
         alpaca_connected=alpaca_connected,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         details={
             "strategy_id": STRATEGY_ID,
             "alpaca_base_url": ALPACA_BASE_URL if not DRY_RUN else None,
@@ -1029,6 +1086,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                     "engagement_reason": status_info.get("engagement_reason"),
                 },
             )
+            # Gemini suggestion: Record metrics for kill-switch blocked orders
+            _record_order_metrics(order, start_time, "blocked")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
@@ -1051,6 +1110,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 "error": str(e),
             },
         )
+        # Gemini suggestion: Record metrics for kill-switch blocked orders
+        _record_order_metrics(order, start_time, "blocked")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
@@ -1059,6 +1120,53 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 "fail_closed": True,
             },
         ) from e
+
+    # C7 Fix: Check circuit breaker (automatic risk-based halt)
+    # Circuit breaker trips on drawdown breach, broker errors, data staleness
+    # When tripped, only risk-reducing exits are allowed (not new entries)
+    if circuit_breaker:
+        try:
+            if circuit_breaker.is_tripped():
+                trip_reason = circuit_breaker.get_trip_reason()
+                logger.error(
+                    f"🔴 Order blocked by CIRCUIT BREAKER: {client_order_id}",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "circuit_breaker_tripped": True,
+                        "trip_reason": trip_reason,
+                    },
+                )
+                # Gemini MEDIUM fix: Record metrics for blocked orders (observability)
+                _record_order_metrics(order, start_time, "blocked")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error": "Circuit breaker tripped",
+                        "message": f"Trading halted due to: {trip_reason}",
+                        "trip_reason": trip_reason,
+                    },
+                )
+        except RedisError as e:
+            # Circuit breaker state unavailable (fail-closed for safety)
+            logger.error(
+                f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "circuit_breaker_unavailable": True,
+                    "fail_closed": True,
+                    "error": str(e),
+                },
+            )
+            # Gemini MEDIUM fix: Record metrics for blocked orders (observability)
+            _record_order_metrics(order, start_time, "blocked")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Circuit breaker unavailable",
+                    "message": "Circuit breaker state unknown (fail-closed for safety)",
+                    "fail_closed": True,
+                },
+            ) from e
 
     # Check if order already exists (idempotency)
     existing_order = db_client.get_order_by_client_id(client_order_id)
@@ -1093,13 +1201,17 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             extra={"client_order_id": client_order_id},
         )
 
-        order_detail = db_client.create_order(
-            client_order_id=client_order_id,
-            strategy_id=STRATEGY_ID,
-            order_request=order,
-            status="dry_run",
-            broker_order_id=None,
-        )
+        # C4 Fix: Handle race condition where concurrent requests both pass idempotency check
+        try:
+            order_detail = db_client.create_order(
+                client_order_id=client_order_id,
+                strategy_id=STRATEGY_ID,
+                order_request=order,
+                status="dry_run",
+                broker_order_id=None,
+            )
+        except UniqueViolation:
+            return _handle_idempotency_race(client_order_id, db_client)
 
         # Track metrics for dry run order
         _record_order_metrics(order, start_time, "success")
@@ -1139,14 +1251,19 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                     operation="submit_order", status=alpaca_api_status
                 ).inc()
 
-            # Save order to database
-            order_detail = db_client.create_order(
-                client_order_id=client_order_id,
-                strategy_id=STRATEGY_ID,
-                order_request=order,
-                status=alpaca_response["status"],
-                broker_order_id=alpaca_response["id"],
-            )
+            # C4 Fix: Handle race condition in live mode
+            # Alpaca handles duplicate client_order_ids idempotently
+            # But we need to handle the DB race condition
+            try:
+                order_detail = db_client.create_order(
+                    client_order_id=client_order_id,
+                    strategy_id=STRATEGY_ID,
+                    order_request=order,
+                    status=alpaca_response["status"],
+                    broker_order_id=alpaca_response["id"],
+                )
+            except UniqueViolation:
+                return _handle_idempotency_race(client_order_id, db_client)
 
             logger.info(
                 f"Order submitted to Alpaca: {client_order_id}",

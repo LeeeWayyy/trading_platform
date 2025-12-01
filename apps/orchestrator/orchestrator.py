@@ -12,7 +12,7 @@ Coordinates the complete trading flow:
 import asyncio
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -32,6 +32,35 @@ from libs.allocation import MultiAlphaAllocator
 from libs.allocation.multi_alpha import AllocMethod
 
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# Exceptions
+# ==============================================================================
+
+
+class PriceUnavailableError(Exception):
+    """
+    Raised when current price cannot be retrieved for a symbol.
+
+    C2 Fix: This exception replaces the dangerous $100 fallback price.
+    Callers must handle this explicitly to avoid wrong position sizing.
+
+    Attributes:
+        symbol: The stock symbol for which price is unavailable
+
+    Example:
+        >>> try:
+        ...     price = await orchestrator._get_current_price("AAPL")
+        ... except PriceUnavailableError as e:
+        ...     logger.warning(f"Skipping {e.symbol}: no price available")
+    """
+
+    def __init__(self, symbol: str, message: str | None = None) -> None:
+        self.symbol = symbol
+        self.message = message or f"Price unavailable for {symbol}"
+        super().__init__(self.message)
+
 
 # Prometheus metrics
 DATE_MISMATCH_COUNTER = Counter(
@@ -256,7 +285,7 @@ class TradingOrchestrator:
             ... )
         """
         run_id = uuid.uuid4()
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
 
         # Normalize strategy_id to list for consistent handling
         strategy_ids = [strategy_id] if isinstance(strategy_id, str) else strategy_id
@@ -311,7 +340,7 @@ class TradingOrchestrator:
                 1 for m in mappings if m.order_status in ("rejected", "cancelled")
             )
 
-            completed_at = datetime.now()
+            completed_at = datetime.now(UTC)
             duration_seconds = (completed_at - started_at).total_seconds()
 
             # Determine final status
@@ -366,7 +395,7 @@ class TradingOrchestrator:
                 extra={"run_id": str(run_id)},
             )
 
-            completed_at = datetime.now()
+            completed_at = datetime.now(UTC)
             duration_seconds = (completed_at - started_at).total_seconds()
 
             return OrchestrationResult(
@@ -740,7 +769,7 @@ class TradingOrchestrator:
         """
         Get current market price for symbol.
 
-        In MVP, uses a simple price cache or defaults to $100.
+        C2 Fix: Raises PriceUnavailableError if price not in cache.
         In production, would fetch from market data API.
 
         Args:
@@ -748,6 +777,9 @@ class TradingOrchestrator:
 
         Returns:
             Current price as Decimal
+
+        Raises:
+            PriceUnavailableError: If price is not available in cache
 
         Example:
             >>> price = await orchestrator._get_current_price("AAPL")
@@ -758,13 +790,12 @@ class TradingOrchestrator:
         if symbol in self.price_cache:
             return self.price_cache[symbol]
 
-        # For MVP, use simple default
+        # C2 Fix: Raise error instead of using dangerous $100 default
+        # Using a hardcoded price would cause wrong position sizing
+        # (e.g., if real price is $500, we'd buy 5x too many shares)
         # TODO: Fetch from Alpaca market data API or use last close price
-        default_price = Decimal("100.00")
-
-        logger.warning(f"No price available for {symbol}, using default ${default_price}")
-
-        return default_price
+        logger.error(f"Price unavailable for {symbol} - no fallback allowed")
+        raise PriceUnavailableError(symbol)
 
 
 # ==============================================================================

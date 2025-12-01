@@ -292,7 +292,7 @@ async def health_check() -> HealthResponse:
         status=overall_status,
         service="orchestrator",
         version=__version__,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(UTC),
         signal_service_url=SIGNAL_SERVICE_URL,
         execution_gateway_url=EXECUTION_GATEWAY_URL,
         signal_service_healthy=signal_healthy,

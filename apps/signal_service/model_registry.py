@@ -33,7 +33,7 @@ See Also:
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -400,7 +400,7 @@ class ModelRegistry:
                 # Update state (only after successful load and validation)
                 self._current_model = new_model
                 self._current_metadata = new_metadata
-                self._last_check = datetime.now()
+                self._last_check = datetime.now(UTC)
 
                 logger.info(
                     f"Model reloaded successfully: {new_metadata.strategy_name} v{new_metadata.version}",
@@ -414,7 +414,7 @@ class ModelRegistry:
                 return True
 
             # No version change - update last check time and return False
-            self._last_check = datetime.now()
+            self._last_check = datetime.now(UTC)
             return False
 
         except Exception as e:

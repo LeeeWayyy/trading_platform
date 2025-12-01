@@ -11,6 +11,57 @@
 
 **PR Operations:** See [Git Commands Reference](./_common/git-commands.md)
 **Review Process:** See [01-git.md](./01-git.md) (Step 9 - Address Review Feedback)
+**Pre-commit Reviews:** See [03-reviews.md](./03-reviews.md) (zen-mcp reviews)
+
+---
+
+## Transition to PR Phase
+
+**⚠️ IMPORTANT:** After creating a PR, transition to PR review phase:
+
+```bash
+# After PR created, switch to PR review phase
+./scripts/workflow_gate.py start-pr-phase --pr-url <pr-url>
+
+# Example:
+./scripts/workflow_gate.py start-pr-phase --pr-url https://github.com/owner/repo/pull/68
+```
+
+This sets the workflow state to `pr-review`, which:
+- Indicates you're now addressing PR reviewer feedback (not pre-commit review)
+- Registers the PR URL/number for GitHub API queries
+- Enables PR-specific commands: `pr-check`, `pr-record-commit`
+- Uses different step flow than component phase (see state machine below)
+
+---
+
+## Types of PR Reviewers
+
+### Automated GitHub Reviewers
+
+These reviewers post comments directly on PRs via GitHub:
+
+| Reviewer | Focus | Response Time |
+|----------|-------|---------------|
+| **@gemini-code-assist** | Comprehensive code review, architecture | ~2-3 min |
+| **@codex** | Code quality, testing, trading safety | ~1-2 min |
+| **GitHub Actions CI** | Automated tests, linting, type checks | Varies |
+
+### Human Reviewers
+
+Team members who may review the PR:
+- Product/Engineering leads
+- Domain experts
+- Security reviewers
+
+### Pre-commit vs PR Reviews
+
+| Stage | Tool | When | Focus |
+|-------|------|------|-------|
+| **Pre-commit** | zen-mcp (via clink) | Before each commit | Trading safety, code quality |
+| **PR Review** | GitHub reviewers | After PR created | Integration, architecture, policy |
+
+**Note:** Automated GitHub reviewers may find issues that zen-mcp reviews missed - this is EXPECTED and valuable as they provide independent perspective.
 
 ---
 
@@ -240,9 +291,57 @@ gh pr view <PR-number> --web
 
 ### How do PR feedback fixes follow workflow gates?
 
-**PR feedback commits MUST follow standard gates:**
-- **MANDATORY: Request zen-mcp review** (clink + codex) before committing fixes
-  - Reuse continuation_id from PR discussion for context continuity
+**PR phase uses different workflow commands than component phase.**
+
+**Step 1: Transition to PR phase:**
+```bash
+# After PR created, switch to PR review phase
+./scripts/workflow_gate.py start-pr-phase --pr-url <pr-url>
+# State: pr-pending
+```
+
+**Step 2: Check PR status (fetches from GitHub):**
+```bash
+./scripts/workflow_gate.py pr-check
+# Shows: unresolved comments, CI status, reviewer approvals
+# State: pr-review-check
+```
+
+**Step 3: Fix-and-verify cycle:**
+```bash
+# 1. Collect ALL issues (as described in Step 1 above)
+
+# 2. Fix all issues locally
+
+# 3. Run local CI
+make ci-local
+
+# 4. Request fresh zen-mcp reviews (NOT the same continuation ID)
+# Request Gemini review → then Codex review (independent, no continuation)
+
+# 5. After BOTH approve with zero issues, record reviews:
+./scripts/workflow_gate.py record-review gemini approved
+./scripts/workflow_gate.py record-review codex approved
+
+# 6. Commit with review markers
+git commit -m "fix: Address PR reviewer feedback
+
+zen-mcp-review: approved
+gemini-continuation-id: <uuid>
+codex-continuation-id: <uuid>"
+
+# 7. Record commit AND push (PR phase auto-pushes)
+./scripts/workflow_gate.py pr-record-commit --hash $(git rev-parse HEAD) --message "PR feedback fixes"
+# State: back to pr-review-check
+
+# 8. Re-check PR status
+./scripts/workflow_gate.py pr-check
+```
+
+**Key principles:**
+- **Use PR-specific commands:** `pr-check`, `pr-record-commit` (NOT `set-component`, `advance`)
+- **MANDATORY: Request fresh zen-mcp review** (gemini + codex) before committing fixes
+  - DO NOT reuse previous continuation IDs
   - Reviewers verify all feedback addressed comprehensively
 - **MANDATORY: Run `make ci-local`** before committing
   - Even documentation-only changes require CI validation
@@ -252,6 +351,16 @@ gh pr view <PR-number> --web
   - No exceptions for "feedback commits" — gates ALWAYS apply
 
 **NEVER use `--no-verify` to bypass gates** — it defeats the entire quality system
+
+**PR Phase Steps (State Machine):**
+```
+pr-pending → pr-review-check → pr-review-fix → pr-local-review → pr-local-test → pr-commit
+                   ↑                                                                    ↓
+                   └────────────────────────────────────────────────────────────────────┘
+                                        (cycle until approved)
+
+pr-review-check → pr-approved → pr-ready → merged
+```
 
 ---
 

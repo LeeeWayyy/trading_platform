@@ -56,7 +56,7 @@ import tempfile
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Optional, TYPE_CHECKING
 
@@ -114,7 +114,7 @@ def _migrate_review_helper(v1_review: dict) -> dict:
     return {
         "status": v1_review.get("status", ""),
         "continuation_id": v1_review.get("continuation_id", ""),
-        "at": v1_review.get("at", datetime.now(timezone.utc).isoformat()),
+        "at": v1_review.get("at", datetime.now(UTC).isoformat()),
     }
 
 
@@ -181,7 +181,7 @@ def migrate_v1_to_v2(v1_state: dict) -> dict:
         "context": v1_state.get("context", {
             "current_tokens": 0,
             "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
-            "last_check_timestamp": datetime.now(timezone.utc).isoformat(),
+            "last_check_timestamp": datetime.now(UTC).isoformat(),
         }),
     }
 
@@ -275,7 +275,7 @@ class WorkflowGate:
             "context": {
                 "current_tokens": 0,
                 "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
-                "last_check_timestamp": datetime.now(timezone.utc).isoformat(),
+                "last_check_timestamp": datetime.now(UTC).isoformat(),
             },
         }
 
@@ -522,11 +522,37 @@ class WorkflowGate:
             # Special logic for review steps
             if next_step == "plan-review":
                 print("Requesting plan review...")
-                print("   Follow @docs/AI/Workflows/03-reviews.md for review process")
+                print("")
+                print("   ⚠️  CRITICAL REVIEW REQUIREMENTS:")
+                print("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("   1. ZERO TOLERANCE: Fix ALL issues (HIGH, MEDIUM, AND LOW severity)")
+                print("   2. FRESH REVIEWS REQUIRED: Each iteration needs NEW review sessions")
+                print("      - Do NOT continue from previous review (no reusing continuation IDs)")
+                print("      - Approval only counts when reviewer finds ZERO issues")
+                print("      - 'Fix required' response = NOT approved, must iterate")
+                print("   3. REQUIRED APPROVALS: Check ./scripts/workflow_gate.py config-show")
+                print("      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config")
+                print("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("")
+                print("   📚 READ FIRST: @docs/AI/Workflows/03-reviews.md")
+                print("")
 
             if next_step == "review":
                 print("Requesting code review...")
-                print("   Follow @docs/AI/Workflows/03-reviews.md for review process")
+                print("")
+                print("   ⚠️  CRITICAL REVIEW REQUIREMENTS:")
+                print("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("   1. ZERO TOLERANCE: Fix ALL issues (HIGH, MEDIUM, AND LOW severity)")
+                print("   2. FRESH REVIEWS REQUIRED: Each iteration needs NEW review sessions")
+                print("      - Do NOT continue from previous review (no reusing continuation IDs)")
+                print("      - Approval only counts when reviewer finds ZERO issues")
+                print("      - 'Fix required' response = NOT approved, must iterate")
+                print("   3. REQUIRED APPROVALS: Check ./scripts/workflow_gate.py config-show")
+                print("      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config")
+                print("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print("")
+                print("   📚 READ FIRST: @docs/AI/Workflows/03-reviews.md")
+                print("")
 
             state["component"]["step"] = next_step
 
@@ -541,7 +567,7 @@ class WorkflowGate:
         try:
             AUDIT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
             entry = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "event_type": event_type,
                 "continuation_id": continuation_id,
             }
@@ -556,7 +582,7 @@ class WorkflowGate:
         try:
             AUDIT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
             entry = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "event_type": "EMERGENCY_OVERRIDE",
                 "user": user,
                 "env_var": os.environ.get("ZEN_REVIEW_OVERRIDE", ""),
@@ -645,7 +671,7 @@ class WorkflowGate:
             review_data = {
                 "status": status,
                 "continuation_id": continuation_id,
-                "at": datetime.now(timezone.utc).isoformat(),
+                "at": datetime.now(UTC).isoformat(),
             }
 
             # Gemini MEDIUM fix: Handle PR phase vs component phase
@@ -690,6 +716,7 @@ class WorkflowGate:
         Get commit prerequisites status as a structured dict.
 
         Gemini HIGH fix: Shared logic for both CLI check and pre-commit hook.
+        PR phase fix: Handles pr-review phase with different state keys.
 
         Returns:
             dict with keys:
@@ -735,20 +762,37 @@ class WorkflowGate:
             "min_required": effective_min_required,
         }
 
-        # Check component set
-        component = state.get("component", {}).get("current", "")
-        result["checks"]["component_set"] = bool(component)
+        # PR phase fix: Handle pr-review phase differently from component phase
+        phase = state.get("phase", "component")
+        result["checks"]["phase"] = phase
 
-        # Check current step
-        current_step = state["component"]["step"]
-        result["checks"]["in_review_step"] = current_step == "review"
-        result["checks"]["current_step"] = current_step
+        if phase == "pr-review":
+            # PR phase: Skip component checks, use reviewers dict and pr_ci_passed
+            result["checks"]["component_set"] = True  # N/A for PR phase
+            result["checks"]["in_review_step"] = True  # N/A for PR phase
+            result["checks"]["current_step"] = "pr-review"
 
-        # Check CI pass
-        result["checks"]["ci_passed"] = state.get("ci", {}).get("component_passed", False)
+            # Check CI pass (PR phase uses pr_ci_passed)
+            result["checks"]["ci_passed"] = state.get("ci", {}).get("pr_ci_passed", False)
 
-        # Check review approvals
-        reviews = state.get("reviews", {})
+            # Check review approvals (PR phase uses reviewers dict)
+            reviews = state.get("reviewers", {})
+        else:
+            # Component phase: Check component set and step
+            component = state.get("component", {}).get("current", "")
+            result["checks"]["component_set"] = bool(component)
+
+            # Check current step
+            current_step = state.get("component", {}).get("step", "plan")
+            result["checks"]["in_review_step"] = current_step == "review"
+            result["checks"]["current_step"] = current_step
+
+            # Check CI pass (component phase uses component_passed)
+            result["checks"]["ci_passed"] = state.get("ci", {}).get("component_passed", False)
+
+            # Check review approvals (component phase uses reviews dict)
+            reviews = state.get("reviews", {})
+
         approved_reviewers = []
 
         for reviewer in enabled_reviewers:
@@ -879,7 +923,7 @@ class WorkflowGate:
             state["git"]["commits"].append({
                 "component": component,
                 "hash": commit_hash,
-                "at": datetime.now(timezone.utc).isoformat(),
+                "at": datetime.now(UTC).isoformat(),
             })
 
             # Keep last 100 commits

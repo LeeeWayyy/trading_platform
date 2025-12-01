@@ -12,6 +12,8 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from libs.common import TimestampSerializerMixin
+
 # ============================================================================
 # Type Aliases
 # ============================================================================
@@ -442,7 +444,7 @@ class WebhookEvent(BaseModel):
 # ============================================================================
 
 
-class HealthResponse(BaseModel):
+class HealthResponse(TimestampSerializerMixin, BaseModel):
     """Health check response."""
 
     status: Literal["healthy", "degraded", "unhealthy"]
@@ -477,7 +479,7 @@ class HealthResponse(BaseModel):
 # ============================================================================
 
 
-class ConfigResponse(BaseModel):
+class ConfigResponse(TimestampSerializerMixin, BaseModel):
     """
     Configuration verification response.
 
@@ -493,7 +495,7 @@ class ConfigResponse(BaseModel):
         ...     dry_run=True,
         ...     alpaca_paper=True,
         ...     circuit_breaker_enabled=True,
-        ...     timestamp=datetime.now(timezone.utc)
+        ...     timestamp=datetime.now(UTC)
         ... )
         >>> assert config.dry_run is True  # Staging safety check
         >>> assert config.alpaca_paper is True
@@ -802,7 +804,7 @@ class SlicingPlan(BaseModel):
 # ============================================================================
 
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(TimestampSerializerMixin, BaseModel):
     """Standard error response."""
 
     error: str

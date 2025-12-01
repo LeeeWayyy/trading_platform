@@ -14,6 +14,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from libs.common import TimestampSerializerMixin
+
 # ==============================================================================
 # Signal Service Models (from T3)
 # ==============================================================================
@@ -181,7 +183,7 @@ class OrchestrationRunsResponse(BaseModel):
     offset: int
 
 
-class HealthResponse(BaseModel):
+class HealthResponse(TimestampSerializerMixin, BaseModel):
     """Health check response."""
 
     status: str  # "healthy", "degraded", "unhealthy"
@@ -196,7 +198,7 @@ class HealthResponse(BaseModel):
     details: dict[str, Any] | None = None
 
 
-class ConfigResponse(BaseModel):
+class ConfigResponse(TimestampSerializerMixin, BaseModel):
     """
     Configuration verification response.
 
@@ -212,7 +214,7 @@ class ConfigResponse(BaseModel):
         ...     dry_run=True,
         ...     alpaca_paper=True,
         ...     circuit_breaker_enabled=True,
-        ...     timestamp=datetime.now(timezone.utc)
+        ...     timestamp=datetime.now(UTC)
         ... )
         >>> assert config.dry_run is True  # Staging safety check
         >>> assert config.alpaca_paper is True
