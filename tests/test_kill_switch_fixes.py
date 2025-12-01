@@ -169,7 +169,7 @@ class TestFailClosedBehaviorOrchestrator:
         with (
             patch("apps.orchestrator.main.redis_client", None),
             patch("apps.orchestrator.main.kill_switch", None),
-            patch("apps.orchestrator.main.kill_switch_unavailable", True),
+            patch("apps.orchestrator.main._kill_switch_unavailable", True),
         ):
             yield
 
@@ -418,7 +418,7 @@ class TestKillSwitchJSONBodyHandling:
         with (
             patch("apps.orchestrator.main.redis_client", mock_redis),
             patch("apps.orchestrator.main.kill_switch", mock_ks),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main._kill_switch_unavailable", False),
         ):
             yield mock_redis, mock_ks
 
