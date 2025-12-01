@@ -81,14 +81,18 @@ def calculate_position_update(
         (old_qty < 0 and side == "sell")
     )
 
+    # Gemini MEDIUM fix: Extract P&L calculation into helper to reduce duplication
+    def _get_realized_pnl(qty_closed: int) -> Decimal:
+        """Calculate P&L for the portion of the position being closed."""
+        if side == "sell" and old_qty > 0:  # Closing a long
+            return (fill_price - old_avg_price) * qty_closed
+        if side == "buy" and old_qty < 0:  # Closing a short
+            return (old_avg_price - fill_price) * qty_closed
+        return Decimal("0")
+
     if new_qty == 0:
         # Position fully closed - realize all P&L
-        if side == "sell" and old_qty > 0:
-            pnl = (fill_price - old_avg_price) * abs(signed_fill_qty)
-        elif side == "buy" and old_qty < 0:
-            pnl = (old_avg_price - fill_price) * abs(signed_fill_qty)
-        else:
-            pnl = Decimal("0")
+        pnl = _get_realized_pnl(abs(signed_fill_qty))
 
         # Reset avg_entry_price to 0 for closed positions (intentional design choice)
         # Exit price is captured in realized_pl; no position = no entry price
@@ -111,25 +115,13 @@ def calculate_position_update(
         # Position FLIP - crossed through flat (e.g., long 50, sell 100)
         # Realize P&L only on closed portion (old_qty shares)
         # New position starts at fill price
-        if side == "sell" and old_qty > 0:
-            pnl = (fill_price - old_avg_price) * abs(old_qty)
-        elif side == "buy" and old_qty < 0:
-            pnl = (old_avg_price - fill_price) * abs(old_qty)
-        else:
-            pnl = Decimal("0")
-
+        pnl = _get_realized_pnl(abs(old_qty))
         new_avg_price = fill_price
         new_realized_pl = old_realized_pl + pnl
 
     else:
         # Partial close (same sign) - realize P&L on closed portion, keep avg price
-        if side == "sell" and old_qty > 0:
-            pnl = (fill_price - old_avg_price) * abs(signed_fill_qty)
-        elif side == "buy" and old_qty < 0:
-            pnl = (old_avg_price - fill_price) * abs(signed_fill_qty)
-        else:
-            pnl = Decimal("0")
-
+        pnl = _get_realized_pnl(abs(signed_fill_qty))
         new_avg_price = old_avg_price
         new_realized_pl = old_realized_pl + pnl
 
