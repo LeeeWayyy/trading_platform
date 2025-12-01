@@ -312,8 +312,20 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 git commit -m "message"                                    # Pre-commit hook enforces gates
 ./scripts/workflow_gate.py record-commit                   # Record completion
 
-# 3. Before PR
-./scripts/workflow_gate.py start-pr-phase                  # Switch to PR review phase
+# 3. Create PR and switch to PR phase
+gh pr create --title "..." --body "..."                    # Create the PR
+./scripts/workflow_gate.py start-pr-phase --pr-url <url>   # Switch to PR review phase
+
+# 4. PR review cycle (different commands than component phase!)
+./scripts/workflow_gate.py pr-check                        # Check PR status from GitHub
+# → Fix issues from reviewers
+make ci-local                                              # Run local CI
+# → Request fresh zen-mcp reviews (gemini + codex)
+./scripts/workflow_gate.py record-review gemini approved   # Record approval
+./scripts/workflow_gate.py record-review codex approved    # Record approval
+git commit -m "fix: Address PR feedback"                   # Commit fixes
+./scripts/workflow_gate.py pr-record-commit --hash $(git rev-parse HEAD)  # Push and record
+./scripts/workflow_gate.py pr-check                        # Re-check until approved
 ```
 
 ### Key Principles

@@ -28,6 +28,114 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def calculate_position_update(
+    old_qty: int,
+    old_avg_price: Decimal,
+    old_realized_pl: Decimal,
+    fill_qty: int,
+    fill_price: Decimal,
+    side: str,
+) -> tuple[int, Decimal, Decimal]:
+    """
+    Calculate new position state after a fill.
+
+    Pure function for P&L calculation, extracted for testability.
+    Handles all position update scenarios:
+    - Opening new positions
+    - Adding to existing positions (weighted average)
+    - Partial closes (realize P&L, keep avg price)
+    - Full closes (realize all P&L, reset avg price)
+    - Position flips (realize P&L on closed portion, new avg at fill price)
+
+    Args:
+        old_qty: Current position quantity (positive=long, negative=short, 0=flat)
+        old_avg_price: Current average entry price
+        old_realized_pl: Current realized P&L
+        fill_qty: Fill quantity (always positive, side determines direction)
+        fill_price: Fill price
+        side: Trade side ("buy" or "sell")
+
+    Returns:
+        Tuple of (new_qty, new_avg_price, new_realized_pl)
+
+    Examples:
+        >>> # Opening long position
+        >>> calculate_position_update(0, Decimal("0"), Decimal("0"), 100, Decimal("150"), "buy")
+        (100, Decimal('150'), Decimal('0'))
+
+        >>> # Partial close with profit
+        >>> calculate_position_update(100, Decimal("100"), Decimal("0"), 50, Decimal("120"), "sell")
+        (50, Decimal('100'), Decimal('1000'))
+
+        >>> # Position flip (long to short)
+        >>> calculate_position_update(50, Decimal("100"), Decimal("0"), 100, Decimal("120"), "sell")
+        (-50, Decimal('120'), Decimal('1000'))
+    """
+    # Convert side to signed qty
+    signed_fill_qty = fill_qty if side == "buy" else -fill_qty
+    new_qty = old_qty + signed_fill_qty
+
+    # Determine if this is adding to position or reducing it
+    is_adding_to_position = (
+        (old_qty > 0 and side == "buy") or
+        (old_qty < 0 and side == "sell")
+    )
+
+    if new_qty == 0:
+        # Position fully closed - realize all P&L
+        if side == "sell" and old_qty > 0:
+            pnl = (fill_price - old_avg_price) * abs(signed_fill_qty)
+        elif side == "buy" and old_qty < 0:
+            pnl = (old_avg_price - fill_price) * abs(signed_fill_qty)
+        else:
+            pnl = Decimal("0")
+
+        # Reset avg_entry_price to 0 for closed positions (intentional design choice)
+        # Exit price is captured in realized_pl; no position = no entry price
+        # If UI needs exit price, use last_trade_at timestamp to query order fills
+        new_avg_price = Decimal("0")
+        new_realized_pl = old_realized_pl + pnl
+
+    elif old_qty == 0:
+        # Opening new position
+        new_avg_price = fill_price
+        new_realized_pl = old_realized_pl
+
+    elif is_adding_to_position:
+        # Adding to existing position - update weighted average, no P&L
+        total_cost = (old_avg_price * abs(old_qty)) + (fill_price * abs(signed_fill_qty))
+        new_avg_price = total_cost / abs(new_qty)
+        new_realized_pl = old_realized_pl
+
+    elif old_qty * new_qty < 0:
+        # Position FLIP - crossed through flat (e.g., long 50, sell 100)
+        # Realize P&L only on closed portion (old_qty shares)
+        # New position starts at fill price
+        if side == "sell" and old_qty > 0:
+            pnl = (fill_price - old_avg_price) * abs(old_qty)
+        elif side == "buy" and old_qty < 0:
+            pnl = (old_avg_price - fill_price) * abs(old_qty)
+        else:
+            pnl = Decimal("0")
+
+        new_avg_price = fill_price
+        new_realized_pl = old_realized_pl + pnl
+
+    else:
+        # Partial close (same sign) - realize P&L on closed portion, keep avg price
+        if side == "sell" and old_qty > 0:
+            pnl = (fill_price - old_avg_price) * abs(signed_fill_qty)
+        elif side == "buy" and old_qty < 0:
+            pnl = (old_avg_price - fill_price) * abs(signed_fill_qty)
+        else:
+            pnl = Decimal("0")
+
+        new_avg_price = old_avg_price
+        new_realized_pl = old_realized_pl + pnl
+
+    return (new_qty, new_avg_price, new_realized_pl)
+
+
 class DatabaseClient:
     """
     Database client for orders and positions.
@@ -871,59 +979,23 @@ class DatabaseClient:
 
                     # Calculate new position
                     if current:
-                        old_qty = Decimal(str(current["qty"]))
+                        old_qty = int(current["qty"])
                         old_avg_price = Decimal(str(current["avg_entry_price"]))
                         old_realized_pl = Decimal(str(current["realized_pl"]))
                     else:
-                        old_qty = Decimal("0")
+                        old_qty = 0
                         old_avg_price = Decimal("0")
                         old_realized_pl = Decimal("0")
 
-                    # Apply fill (buy increases qty, sell decreases)
-                    fill_qty = Decimal(str(qty))
-                    if side == "sell":
-                        fill_qty = -fill_qty
-
-                    new_qty = old_qty + fill_qty
-                    fill_price = Decimal(str(price))
-
-                    # Calculate new avg_entry_price and realized P&L
-                    if new_qty == 0:
-                        # Position closed - realize P&L
-                        pnl = (fill_price - old_avg_price) * abs(fill_qty)
-                        if side == "sell" and old_qty > 0:
-                            # Closing long position
-                            pnl = (fill_price - old_avg_price) * abs(fill_qty)
-                        elif side == "buy" and old_qty < 0:
-                            # Closing short position
-                            pnl = (old_avg_price - fill_price) * abs(fill_qty)
-                        else:
-                            pnl = Decimal("0")
-
-                        new_avg_price = fill_price  # Use last fill price
-                        new_realized_pl = old_realized_pl + pnl
-
-                    elif (old_qty > 0 and new_qty > 0) or (old_qty < 0 and new_qty < 0):
-                        # Adding to position - update weighted average
-                        total_cost = (old_avg_price * abs(old_qty)) + (fill_price * abs(fill_qty))
-                        new_avg_price = total_cost / abs(new_qty)
-                        new_realized_pl = old_realized_pl
-
-                    elif old_qty == 0:
-                        # Opening new position
-                        new_avg_price = fill_price
-                        new_realized_pl = old_realized_pl
-
-                    else:
-                        # Reducing position (but not closing) - realize partial P&L
-                        pnl = (fill_price - old_avg_price) * abs(fill_qty)
-                        if side == "sell" and old_qty > 0:
-                            pnl = (fill_price - old_avg_price) * abs(fill_qty)
-                        elif side == "buy" and old_qty < 0:
-                            pnl = (old_avg_price - fill_price) * abs(fill_qty)
-
-                        new_avg_price = old_avg_price  # Keep same avg price
-                        new_realized_pl = old_realized_pl + pnl
+                    # Use pure function for P&L calculation (extracted for testability)
+                    new_qty, new_avg_price, new_realized_pl = calculate_position_update(
+                        old_qty=old_qty,
+                        old_avg_price=old_avg_price,
+                        old_realized_pl=old_realized_pl,
+                        fill_qty=qty,
+                        fill_price=Decimal(str(price)),
+                        side=side,
+                    )
 
                     # Upsert position
                     cur.execute(

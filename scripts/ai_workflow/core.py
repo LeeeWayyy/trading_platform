@@ -716,6 +716,7 @@ class WorkflowGate:
         Get commit prerequisites status as a structured dict.
 
         Gemini HIGH fix: Shared logic for both CLI check and pre-commit hook.
+        PR phase fix: Handles pr-review phase with different state keys.
 
         Returns:
             dict with keys:
@@ -761,20 +762,37 @@ class WorkflowGate:
             "min_required": effective_min_required,
         }
 
-        # Check component set
-        component = state.get("component", {}).get("current", "")
-        result["checks"]["component_set"] = bool(component)
+        # PR phase fix: Handle pr-review phase differently from component phase
+        phase = state.get("phase", "component")
+        result["checks"]["phase"] = phase
 
-        # Check current step
-        current_step = state["component"]["step"]
-        result["checks"]["in_review_step"] = current_step == "review"
-        result["checks"]["current_step"] = current_step
+        if phase == "pr-review":
+            # PR phase: Skip component checks, use reviewers dict and pr_ci_passed
+            result["checks"]["component_set"] = True  # N/A for PR phase
+            result["checks"]["in_review_step"] = True  # N/A for PR phase
+            result["checks"]["current_step"] = "pr-review"
 
-        # Check CI pass
-        result["checks"]["ci_passed"] = state.get("ci", {}).get("component_passed", False)
+            # Check CI pass (PR phase uses pr_ci_passed)
+            result["checks"]["ci_passed"] = state.get("ci", {}).get("pr_ci_passed", False)
 
-        # Check review approvals
-        reviews = state.get("reviews", {})
+            # Check review approvals (PR phase uses reviewers dict)
+            reviews = state.get("reviewers", {})
+        else:
+            # Component phase: Check component set and step
+            component = state.get("component", {}).get("current", "")
+            result["checks"]["component_set"] = bool(component)
+
+            # Check current step
+            current_step = state.get("component", {}).get("step", "plan")
+            result["checks"]["in_review_step"] = current_step == "review"
+            result["checks"]["current_step"] = current_step
+
+            # Check CI pass (component phase uses component_passed)
+            result["checks"]["ci_passed"] = state.get("ci", {}).get("component_passed", False)
+
+            # Check review approvals (component phase uses reviews dict)
+            reviews = state.get("reviews", {})
+
         approved_reviewers = []
 
         for reviewer in enabled_reviewers:

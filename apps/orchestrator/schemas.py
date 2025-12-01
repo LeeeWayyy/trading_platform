@@ -12,7 +12,9 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field
+
+from libs.common import TimestampSerializerMixin
 
 # ==============================================================================
 # Signal Service Models (from T3)
@@ -181,7 +183,7 @@ class OrchestrationRunsResponse(BaseModel):
     offset: int
 
 
-class HealthResponse(BaseModel):
+class HealthResponse(TimestampSerializerMixin, BaseModel):
     """Health check response."""
 
     status: str  # "healthy", "degraded", "unhealthy"
@@ -195,13 +197,8 @@ class HealthResponse(BaseModel):
     database_connected: bool
     details: dict[str, Any] | None = None
 
-    @field_serializer("timestamp")
-    def serialize_timestamp(self, value: datetime) -> str:
-        """Serialize timestamp with Z suffix for UTC consistency."""
-        return value.isoformat().replace("+00:00", "Z")
 
-
-class ConfigResponse(BaseModel):
+class ConfigResponse(TimestampSerializerMixin, BaseModel):
     """
     Configuration verification response.
 
@@ -217,7 +214,7 @@ class ConfigResponse(BaseModel):
         ...     dry_run=True,
         ...     alpaca_paper=True,
         ...     circuit_breaker_enabled=True,
-        ...     timestamp=datetime.now(timezone.utc)
+        ...     timestamp=datetime.now(UTC)
         ... )
         >>> assert config.dry_run is True  # Staging safety check
         >>> assert config.alpaca_paper is True
@@ -246,11 +243,6 @@ class ConfigResponse(BaseModel):
             ]
         }
     }
-
-    @field_serializer("timestamp")
-    def serialize_timestamp(self, value: datetime) -> str:
-        """Serialize timestamp with Z suffix for UTC consistency."""
-        return value.isoformat().replace("+00:00", "Z")
 
 
 # ==============================================================================
