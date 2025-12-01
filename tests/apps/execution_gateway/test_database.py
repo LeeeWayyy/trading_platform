@@ -19,6 +19,10 @@ from psycopg import DatabaseError, IntegrityError, OperationalError
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
 
+# Mark all tests as integration - they mock psycopg.connect but DatabaseClient uses ConnectionPool
+# which doesn't use psycopg.connect directly. These tests need proper ConnectionPool mocking.
+pytestmark = pytest.mark.integration()
+
 
 class TestDatabaseClientInitialization:
     """Tests for DatabaseClient initialization."""
