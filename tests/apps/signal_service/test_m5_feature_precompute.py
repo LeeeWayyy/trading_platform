@@ -48,8 +48,8 @@ class TestPrecomputeFeaturesMethod:
         mock_registry = MagicMock()
         mock_registry.is_loaded = True
         mock_cache = MagicMock()
-        # First call returns None (not cached), second call returns cached
-        mock_cache.get.return_value = None
+        # mget returns dict with None values (not cached) - uses batch MGET
+        mock_cache.mget.return_value = {"AAPL": None}
 
         with patch.object(SignalGenerator, "__init__", lambda self, **kw: None):
             generator = SignalGenerator()
@@ -78,8 +78,11 @@ class TestPrecomputeFeaturesMethod:
         from apps.signal_service.signal_generator import SignalGenerator
 
         mock_cache = MagicMock()
-        # Return non-None to indicate cached
-        mock_cache.get.return_value = {"feature1": 1.0}
+        # Return dict with non-None values to indicate cached - uses batch MGET
+        mock_cache.mget.return_value = {
+            "AAPL": {"feature1": 1.0},
+            "MSFT": {"feature1": 2.0},
+        }
 
         with patch.object(SignalGenerator, "__init__", lambda self, **kw: None):
             generator = SignalGenerator()

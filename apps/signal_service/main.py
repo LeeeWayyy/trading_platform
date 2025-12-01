@@ -39,7 +39,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, status
@@ -52,7 +52,7 @@ from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
 
 from .config import Settings
 from .model_registry import ModelRegistry
-from .signal_generator import SignalGenerator
+from .signal_generator import PrecomputeResult, SignalGenerator
 
 
 def _format_database_url_for_logging(database_url: str) -> str:
@@ -1220,10 +1220,10 @@ async def precompute_features(request: PrecomputeRequest) -> PrecomputeResponse:
     )
 
     return PrecomputeResponse(
-        cached_count=cast(int, result["cached_count"]),
-        skipped_count=cast(int, result["skipped_count"]),
-        symbols_cached=cast(list[str], result["symbols_cached"]),
-        symbols_skipped=cast(list[str], result["symbols_skipped"]),
+        cached_count=result["cached_count"],
+        skipped_count=result["skipped_count"],
+        symbols_cached=result["symbols_cached"],
+        symbols_skipped=result["symbols_skipped"],
         as_of_date=as_of_date.date().isoformat(),
     )
 

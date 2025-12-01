@@ -42,11 +42,27 @@ See Also:
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 import pandas as pd
 
 from libs.redis_client import FeatureCache
+
+
+class PrecomputeResult(TypedDict):
+    """Return type for precompute_features method.
+
+    Provides explicit type information for mypy, avoiding cast() calls
+    when accessing result dictionary fields.
+    """
+
+    cached_count: int
+    skipped_count: int
+    symbols_cached: list[str]
+    symbols_skipped: list[str]
+
+
 from strategies.alpha_baseline.data_loader import T1DataProvider
 from strategies.alpha_baseline.features import get_alpha158_features
 from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
@@ -591,7 +607,7 @@ class SignalGenerator:
         self,
         symbols: list[str],
         as_of_date: datetime | None = None,
-    ) -> dict[str, int | list[str]]:
+    ) -> PrecomputeResult:
         """
         Pre-compute and cache features without generating signals.
 
@@ -599,12 +615,14 @@ class SignalGenerator:
         signal generation requests with disk I/O. Call this endpoint
         before market open via cron/scheduler.
 
+        Uses batch MGET for O(1) cache lookups instead of O(N) individual calls.
+
         Args:
             symbols: List of stock symbols to pre-compute features for
             as_of_date: Date to compute features for (default: today)
 
         Returns:
-            Dictionary with:
+            PrecomputeResult TypedDict with:
                 - cached_count: Number of symbols successfully cached
                 - skipped_count: Number of symbols skipped (already cached or error)
                 - symbols_cached: List of newly cached symbols
@@ -632,31 +650,27 @@ class SignalGenerator:
         # If no cache, nothing to pre-compute
         if self.feature_cache is None:
             logger.info("Feature cache not enabled, skipping precompute")
-            return {
-                "cached_count": 0,
-                "skipped_count": len(symbols),
-                "symbols_cached": [],
-                "symbols_skipped": symbols,
-            }
+            return PrecomputeResult(
+                cached_count=0,
+                skipped_count=len(symbols),
+                symbols_cached=[],
+                symbols_skipped=list(symbols),
+            )
 
         logger.info(
             f"Pre-computing features for {len(symbols)} symbols on {date_str}",
             extra={"symbols": symbols, "date": date_str},
         )
 
-        # Check which symbols are already cached
-        symbols_to_generate = []
-        symbols_already_cached = []
+        # Check which symbols are already cached using batch MGET (O(1) vs O(N))
+        symbols_to_generate: list[str] = []
+        symbols_already_cached: list[str] = []
 
+        cached_results = self.feature_cache.mget(symbols, date_str)
         for symbol in symbols:
-            try:
-                cached = self.feature_cache.get(symbol, date_str)
-                if cached is not None:
-                    symbols_already_cached.append(symbol)
-                else:
-                    symbols_to_generate.append(symbol)
-            except Exception as e:
-                logger.warning(f"Cache check error for {symbol}: {e}")
+            if cached_results.get(symbol) is not None:
+                symbols_already_cached.append(symbol)
+            else:
                 symbols_to_generate.append(symbol)
 
         if symbols_already_cached:
@@ -664,12 +678,12 @@ class SignalGenerator:
 
         if not symbols_to_generate:
             logger.info("All symbols already cached, nothing to precompute")
-            return {
-                "cached_count": 0,
-                "skipped_count": len(symbols),
-                "symbols_cached": [],
-                "symbols_skipped": symbols,
-            }
+            return PrecomputeResult(
+                cached_count=0,
+                skipped_count=len(symbols),
+                symbols_cached=[],
+                symbols_skipped=list(symbols),
+            )
 
         # Generate features for uncached symbols
         symbols_cached: list[str] = []
@@ -740,12 +754,12 @@ class SignalGenerator:
             f"{len(symbols_failed)} failed, {len(symbols_already_cached)} already cached"
         )
 
-        return {
-            "cached_count": len(symbols_cached),
-            "skipped_count": len(symbols_failed) + len(symbols_already_cached),
-            "symbols_cached": symbols_cached,
-            "symbols_skipped": symbols_failed + symbols_already_cached,
-        }
+        return PrecomputeResult(
+            cached_count=len(symbols_cached),
+            skipped_count=len(symbols_failed) + len(symbols_already_cached),
+            symbols_cached=symbols_cached,
+            symbols_skipped=symbols_failed + symbols_already_cached,
+        )
 
     def validate_weights(self, signals: pd.DataFrame) -> bool:
         """
