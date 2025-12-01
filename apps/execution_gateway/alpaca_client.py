@@ -195,22 +195,23 @@ class AlpacaExecutor:
                     f"Expected Order object."
                 )
 
-            # Convert to dict for consistent return type
+            # H1 Fix: Convert to dict with Decimal for financial precision
+            # Using Decimal(str(x)) pattern to avoid float precision issues
             order_dict = {
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
                 "side": alpaca_order.side.value,
-                "qty": float(
-                    alpaca_order.qty or 0
-                ),  # Handle None case (alpaca-py types qty as str|float|None)
+                "qty": Decimal(str(alpaca_order.qty or 0)),  # H1: Decimal for precision
                 "order_type": alpaca_order.order_type.value,
                 "status": alpaca_order.status.value,
                 "created_at": alpaca_order.created_at,
                 "limit_price": (
-                    float(alpaca_order.limit_price) if alpaca_order.limit_price else None
+                    Decimal(str(alpaca_order.limit_price)) if alpaca_order.limit_price else None
                 ),
-                "stop_price": float(alpaca_order.stop_price) if alpaca_order.stop_price else None,
+                "stop_price": (
+                    Decimal(str(alpaca_order.stop_price)) if alpaca_order.stop_price else None
+                ),
             }
 
             logger.info(
@@ -359,17 +360,20 @@ class AlpacaExecutor:
                     f"Expected Order object."
                 )
 
+            # H1 Fix: Use Decimal for financial precision
             return {
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
                 "side": alpaca_order.side.value,
-                "qty": float(alpaca_order.qty),  # type: ignore[arg-type]  # alpaca-py types qty as str|float|None
+                "qty": Decimal(str(alpaca_order.qty or 0)),  # H1: Decimal for precision
                 "order_type": alpaca_order.order_type.value,
                 "status": alpaca_order.status.value,
-                "filled_qty": float(alpaca_order.filled_qty or 0),
+                "filled_qty": Decimal(str(alpaca_order.filled_qty or 0)),  # H1: Decimal
                 "filled_avg_price": (
-                    float(alpaca_order.filled_avg_price) if alpaca_order.filled_avg_price else None
+                    Decimal(str(alpaca_order.filled_avg_price))
+                    if alpaca_order.filled_avg_price
+                    else None
                 ),
                 "created_at": alpaca_order.created_at,
                 "updated_at": alpaca_order.updated_at,
@@ -452,13 +456,14 @@ class AlpacaExecutor:
                 )
                 return None
 
+            # H1 Fix: Use Decimal for financial precision
             return {
                 "account_number": account.account_number,
                 "status": account.status.value,
                 "currency": account.currency,
-                "buying_power": float(account.buying_power),  # type: ignore[arg-type]
-                "cash": float(account.cash),  # type: ignore[arg-type]
-                "portfolio_value": float(account.portfolio_value),  # type: ignore[arg-type]
+                "buying_power": Decimal(str(account.buying_power)),  # H1: Decimal
+                "cash": Decimal(str(account.cash)),  # H1: Decimal
+                "portfolio_value": Decimal(str(account.portfolio_value)),  # H1: Decimal
                 "pattern_day_trader": account.pattern_day_trader,
                 "trading_blocked": account.trading_blocked,
                 "transfers_blocked": account.transfers_blocked,

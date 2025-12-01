@@ -6,7 +6,7 @@ deterministic ID generation, and error handling.
 
 Test Coverage:
     - Standard TWAP slicing (even distribution)
-    - Remainder distribution (front-loaded)
+    - H6 Fix: Remainder distribution (uniform, deterministic random)
     - Edge cases (single slice, qty == num_slices)
     - Scheduled time accuracy
     - Deterministic client_order_id generation
@@ -60,14 +60,17 @@ class TestTWAPSlicer:
         total_qty = sum(s.qty for s in plan.slices)
         assert total_qty == 100
 
-    def test_remainder_distribution_front_loaded(self) -> None:
+    def test_remainder_distribution_uniform(self) -> None:
         """
-        Remainder distribution: 103 shares over 5 minutes → [21, 21, 21, 20, 20].
+        H6 Fix: Remainder distribution uses deterministic random (not front-loaded).
+
+        103 shares over 5 minutes → base_qty=20, remainder=3.
+        Remainder is distributed uniformly across slices using seeded random.
 
         Validates:
-            - Front-loaded remainder (first slices get +1)
             - Total quantity preserved
-            - Correct distribution pattern
+            - Exactly 3 slices get +1 (remainder count)
+            - Distribution is deterministic (same inputs = same outputs)
         """
         slicer = TWAPSlicer()
         plan = slicer.plan(
@@ -82,21 +85,37 @@ class TestTWAPSlicer:
         assert plan.total_slices == 5
         assert plan.interval_seconds == 60
 
-        # Expected: base_qty = 20, remainder = 3
-        # First 3 slices get +1 (front-loaded)
-        expected_qtys = [21, 21, 21, 20, 20]
         actual_qtys = [s.qty for s in plan.slices]
-        assert actual_qtys == expected_qtys
 
-        # Verify total
+        # H6 Fix: Remainder distributed uniformly (not front-loaded)
+        # Verify: exactly 3 slices get 21, exactly 2 slices get 20
+        assert actual_qtys.count(21) == 3
+        assert actual_qtys.count(20) == 2
+
+        # Verify total preserved
         assert sum(actual_qtys) == 103
+
+        # H6 Fix: Verify determinism - same inputs produce same outputs
+        plan2 = slicer.plan(
+            symbol="AAPL",
+            side="sell",
+            qty=103,
+            duration_minutes=5,
+            order_type="market",
+        )
+        actual_qtys2 = [s.qty for s in plan2.slices]
+        assert actual_qtys == actual_qtys2, "Distribution should be deterministic"
 
     def test_large_remainder_distribution(self) -> None:
         """
-        Large remainder: 109 shares over 5 minutes → [22, 22, 22, 22, 21].
+        H6 Fix: Large remainder uses uniform distribution (not front-loaded).
+
+        109 shares over 5 minutes → base_qty=21, remainder=4.
+        Remainder is distributed uniformly across slices.
 
         Validates:
-            - Front-loaded remainder with 4 slices getting +1
+            - Exactly 4 slices get +1 (22 shares)
+            - Exactly 1 slice gets base (21 shares)
             - Total quantity preserved
         """
         slicer = TWAPSlicer()
@@ -108,11 +127,11 @@ class TestTWAPSlicer:
             order_type="market",
         )
 
-        # Expected: base_qty = 21, remainder = 4
-        # First 4 slices get +1
-        expected_qtys = [22, 22, 22, 22, 21]
+        # H6 Fix: Remainder distributed uniformly
+        # Verify: exactly 4 slices get 22, exactly 1 slice gets 21
         actual_qtys = [s.qty for s in plan.slices]
-        assert actual_qtys == expected_qtys
+        assert actual_qtys.count(22) == 4
+        assert actual_qtys.count(21) == 1
         assert sum(actual_qtys) == 109
         assert plan.interval_seconds == 60
 

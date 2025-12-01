@@ -799,6 +799,10 @@ async def shutdown_event() -> None:
     """Application shutdown."""
     logger.info("Orchestrator Service shutting down")
 
+    # H2 Fix: Close database connection pool for clean shutdown
+    db_client.close()
+    logger.info("Database connection pool closed")
+
 
 if __name__ == "__main__":
     import uvicorn

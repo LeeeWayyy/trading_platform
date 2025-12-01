@@ -80,6 +80,12 @@ signal_generator: SignalGenerator | None = None
 redis_client: RedisClient | None = None
 feature_cache: FeatureCache | None = None
 
+# H8 Fix: Cache SignalGenerators by (top_n, bottom_n) to avoid per-request allocation
+# Key: (top_n, bottom_n) tuple, Value: SignalGenerator instance
+# Bounded to prevent memory leaks from arbitrary user-provided combinations
+_MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
+_generator_cache: dict[tuple[int, int], SignalGenerator] = {}
+
 
 # ==============================================================================
 # Background Tasks
@@ -126,9 +132,27 @@ async def model_reload_task() -> None:
             # Wait for configured interval
             await asyncio.sleep(settings.model_reload_interval_seconds)
 
+            # H7 Fix: Handle reload differently based on load state
+            # - If loaded: Skip DB query when version matches (hot path optimization)
+            # - If not loaded: Attempt cold-load recovery (self-healing after transient failures)
+            assert model_registry is not None, "model_registry should be initialized"
+            if not model_registry.is_loaded:
+                logger.info(
+                    "No model currently loaded - attempting cold-load recovery..."
+                )
+                # Attempt to load model (self-healing after startup failure)
+                try:
+                    model_registry.load_latest(strategy=settings.default_strategy)
+                    if model_registry.is_loaded:
+                        logger.info("Cold-load recovery successful - model now loaded")
+                    else:
+                        logger.warning("Cold-load recovery failed - will retry next interval")
+                except Exception as e:
+                    logger.warning(f"Cold-load recovery error: {e} - will retry next interval")
+                continue
+
             # Check for model updates
             logger.debug("Checking for model updates...")
-            assert model_registry is not None, "model_registry should be initialized"
             reloaded = model_registry.reload_if_changed(strategy=settings.default_strategy)
 
             if reloaded:
@@ -372,6 +396,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("Closing Redis connection...")
             redis_client.close()
 
+        # H2 Fix: Close database connection pool for clean shutdown
+        if model_registry is not None:
+            logger.info("Closing database connection pool...")
+            model_registry.close()
+
         logger.info("Signal Service shutting down...")
 
 
@@ -408,9 +437,9 @@ if ALLOWED_ORIGINS:
 elif ENVIRONMENT in ("dev", "test"):
     # Safe defaults for development/testing (localhost only)
     cors_origins = [
-        "http://localhost:8501",   # Streamlit default
+        "http://localhost:8501",  # Streamlit default
         "http://127.0.0.1:8501",
-        "http://localhost:3000",   # React dev server
+        "http://localhost:3000",  # React dev server
         "http://127.0.0.1:3000",
     ]
 else:
@@ -964,15 +993,26 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
 
         # Generate signals
         try:
-            # Create temporary generator if top_n/bottom_n were overridden
+            # H8 Fix: Use cached generator if top_n/bottom_n were overridden
+            # This avoids creating a new SignalGenerator for each request
             if request.top_n is not None or request.bottom_n is not None:
-                temp_generator = SignalGenerator(
-                    model_registry=model_registry,
-                    data_dir=signal_generator.data_provider.data_dir,
-                    top_n=top_n,
-                    bottom_n=bottom_n,
-                )
-                signals_df = temp_generator.generate_signals(
+                cache_key = (top_n, bottom_n)
+                if cache_key not in _generator_cache:
+                    # Evict oldest entry if cache is full (simple FIFO eviction)
+                    if len(_generator_cache) >= _MAX_GENERATOR_CACHE_SIZE:
+                        oldest_key = next(iter(_generator_cache))
+                        del _generator_cache[oldest_key]
+                        logger.debug(f"Evicted cached SignalGenerator {oldest_key} (cache full)")
+                    logger.debug(f"Creating cached SignalGenerator for {cache_key}")
+                    _generator_cache[cache_key] = SignalGenerator(
+                        model_registry=model_registry,
+                        data_dir=signal_generator.data_provider.data_dir,
+                        top_n=top_n,
+                        bottom_n=bottom_n,
+                        feature_cache=feature_cache,  # Pass feature cache for consistency
+                    )
+                cached_generator = _generator_cache[cache_key]
+                signals_df = cached_generator.generate_signals(
                     symbols=request.symbols,
                     as_of_date=as_of_date,
                 )

@@ -135,23 +135,25 @@ class PositionBasedSubscription:
             # (don't touch manually-subscribed symbols)
             closed_symbols = self._last_position_symbols - position_symbols
 
-            # Subscribe to new symbols
+            # H5 Fix: Subscribe with source="position" for ref-counting
+            # This ensures position-based subscriptions don't interfere with manual ones
             if new_symbols:
                 try:
-                    await self.stream.subscribe_symbols(list(new_symbols))
+                    await self.stream.subscribe_symbols(list(new_symbols), source="position")
                     logger.info(
-                        f"Auto-subscribed to {len(new_symbols)} new symbols: "
+                        f"Auto-subscribed to {len(new_symbols)} new symbols (source=position): "
                         f"{sorted(new_symbols)}"
                     )
                 except SubscriptionError as e:
                     logger.error(f"Failed to subscribe to new symbols: {e}")
 
-            # Unsubscribe from closed positions
+            # H5 Fix: Unsubscribe with source="position" - only removes position source
+            # If manual subscription exists, symbol stays subscribed
             if closed_symbols:
                 try:
-                    await self.stream.unsubscribe_symbols(list(closed_symbols))
+                    await self.stream.unsubscribe_symbols(list(closed_symbols), source="position")
                     logger.info(
-                        f"Auto-unsubscribed from {len(closed_symbols)} closed symbols: "
+                        f"Auto-unsubscribed from {len(closed_symbols)} closed symbols (source=position): "
                         f"{sorted(closed_symbols)}"
                     )
                 except SubscriptionError as e:
