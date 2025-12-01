@@ -168,17 +168,32 @@ async def echo_ip(request: Request) -> dict[str, str]:
 def _validate_trusted_proxy_ips() -> list[str]:
     """Ensure TRUSTED_PROXY_IPS is configured to prevent header spoofing.
 
-    Fail-closed in prod-like environments to avoid accidental misconfiguration.
+    M6 Fix: Dev/test environments get safe localhost defaults (127.0.0.1, ::1).
+    Prod/staging requires explicit configuration (fail-closed).
+    Env var always overrides defaults when explicitly set.
     """
-
-    trusted_proxies = [ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()]
     env = os.getenv("ENVIRONMENT", "dev").lower()
+
+    # Check if env var is explicitly set (vs using defaults)
+    env_proxy_ips = os.getenv("TRUSTED_PROXY_IPS")
+
+    if env_proxy_ips is not None:
+        # Env var explicitly set - use it (override any defaults)
+        raw_ips = env_proxy_ips
+    elif env in {"dev", "test", "development", "testing"}:
+        # Dev/test: use safe localhost defaults
+        raw_ips = "127.0.0.1,::1"
+    else:
+        # Prod/staging: no defaults, must be configured
+        raw_ips = ""
+
+    trusted_proxies = [ip.strip() for ip in raw_ips.split(",") if ip.strip()]
 
     if not trusted_proxies:
         if env in {"prod", "production", "staging"}:
             raise RuntimeError("TRUSTED_PROXY_IPS must be configured in production/staging")
         logger.warning(
-            "TRUSTED_PROXY_IPS not set - header spoofing protection disabled (dev/test only)",
+            "TRUSTED_PROXY_IPS not set - using empty list (dev/test only)",
             extra={"environment": env},
         )
 

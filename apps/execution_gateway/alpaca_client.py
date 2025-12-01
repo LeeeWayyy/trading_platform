@@ -535,17 +535,25 @@ class AlpacaExecutor:
                 if symbol in quotes_data:
                     quote = quotes_data[symbol]
 
-                    # Use last trade price if available, otherwise mid-quote
-                    if hasattr(quote, "ap") and hasattr(quote, "bp"):
-                        ask_price = Decimal(str(quote.ap))
-                        bid_price = Decimal(str(quote.bp))
+                    # M3 Fix: Check both attribute existence AND non-None values
+                    # hasattr alone is insufficient - Decimal(str(None)) raises InvalidOperation
+                    ap_value = getattr(quote, "ap", None)
+                    bp_value = getattr(quote, "bp", None)
+
+                    if ap_value is not None and bp_value is not None:
+                        ask_price = Decimal(str(ap_value))
+                        bid_price = Decimal(str(bp_value))
                         # Mid-quote as fallback
                         last_price = (ask_price + bid_price) / Decimal("2")
                     else:
-                        # Fallback if bid/ask not available
+                        # Fallback if bid/ask not available or None
                         ask_price = None
                         bid_price = None
                         last_price = None
+                        logger.debug(
+                            f"Missing or null bid/ask for {symbol}: "
+                            f"ap={ap_value}, bp={bp_value}"
+                        )
 
                     result[symbol] = {
                         "ask_price": ask_price,

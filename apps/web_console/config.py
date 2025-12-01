@@ -53,10 +53,32 @@ SESSION_ABSOLUTE_TIMEOUT_HOURS = int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_HOURS",
 # IP address tracking for audit log
 # Comma-separated list of trusted proxy IPs (e.g., "10.0.0.1,10.0.0.2")
 # If set, X-Forwarded-For header will be trusted for requests from these IPs
-# If not set, all audit log entries will show "localhost" (safe default for dev)
-TRUSTED_PROXY_IPS = [
-    ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()
-]
+# M6 Fix: Dev/test environments get safe localhost defaults
+
+
+def _get_trusted_proxy_ips() -> list[str]:
+    """Get trusted proxy IPs with safe dev defaults.
+
+    Dev/test environments get localhost defaults (127.0.0.1, ::1).
+    Env var always overrides defaults when explicitly set.
+    """
+    env = os.getenv("ENVIRONMENT", "dev").lower()
+    env_proxy_ips = os.getenv("TRUSTED_PROXY_IPS")
+
+    if env_proxy_ips is not None:
+        # Env var explicitly set - use it (override any defaults)
+        raw_ips = env_proxy_ips
+    elif env in {"dev", "test", "development", "testing"}:
+        # Dev/test: use safe localhost defaults
+        raw_ips = "127.0.0.1,::1"
+    else:
+        # Prod/staging: no defaults
+        raw_ips = ""
+
+    return [ip.strip() for ip in raw_ips.split(",") if ip.strip()]
+
+
+TRUSTED_PROXY_IPS = _get_trusted_proxy_ips()
 
 # ============================================================================
 # Database Configuration (for audit log)

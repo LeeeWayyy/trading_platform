@@ -222,9 +222,14 @@ class TradingOrchestrator:
         self.execution_client = ExecutionGatewayClient(execution_gateway_url)
         self.capital = capital
         self.max_position_size = max_position_size
-        self.price_cache = price_cache or {}
         self.allocation_method = allocation_method
         self.per_strategy_max = per_strategy_max
+
+        # M1 Fix: Validate and normalize price_cache to ensure all values are Decimal
+        self.price_cache: dict[str, Decimal] = {}
+        if price_cache:
+            for symbol, price in price_cache.items():
+                self.price_cache[symbol] = self._normalize_price(symbol, price)
 
         # Validate allocation method configuration
         if allocation_method == "inverse_vol":
@@ -240,6 +245,50 @@ class TradingOrchestrator:
         """Close HTTP clients."""
         await self.signal_client.close()
         await self.execution_client.close()
+
+    def _normalize_price(self, symbol: str, price: Any) -> Decimal:
+        """Convert price to Decimal with validation.
+
+        M1 Fix: Ensures all price_cache values are Decimal type to prevent
+        TypeError when performing Decimal arithmetic operations.
+
+        Only accepts numeric types: Decimal (passed through), int, or float
+        (converted via str() to preserve precision). Rejects strings, None,
+        and other non-numeric types.
+
+        Args:
+            symbol: Stock symbol for error messages
+            price: Price value (must be Decimal, int, or float)
+
+        Returns:
+            Decimal price
+
+        Raises:
+            TypeError: If price is not Decimal, int, or float
+
+        Example:
+            >>> orchestrator._normalize_price("AAPL", 150.50)
+            Decimal('150.5')
+            >>> orchestrator._normalize_price("AAPL", Decimal("150.50"))
+            Decimal('150.50')
+        """
+        if isinstance(price, Decimal):
+            return price
+        # Check bool before int/float: bool is subclass of int in Python,
+        # so isinstance(True, int) returns True. Decimal(str(True)) crashes.
+        if isinstance(price, bool):
+            raise TypeError(
+                f"price_cache value for {symbol} must be Decimal, int, or float, "
+                f"got bool (bool is not a valid price type)"
+            )
+        if isinstance(price, int | float):
+            logger.debug(f"Converting {type(price).__name__} price for {symbol} to Decimal")
+            return Decimal(str(price))
+        # Reject non-numeric types (strings, None, objects, etc.)
+        raise TypeError(
+            f"price_cache value for {symbol} must be Decimal, int, or float, "
+            f"got {type(price).__name__}"
+        )
 
     async def run(
         self,

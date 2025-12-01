@@ -345,6 +345,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-30, Task] [P3T1_TASK.md](./TASKS/P3T1_TASK.md) - P3T1: Workflow Modernization - ai_workflow package ✅ Complete
 - [CURRENT, 2025-11-30, Task] [P3T2_TASK.md](./TASKS/P3T2_TASK.md) - P3T2: Critical Fixes (P0) - Security, Trading Safety, Data Integrity ✅ Complete
 - [CURRENT, 2025-11-30, Task] [P3T3_TASK.md](./TASKS/P3T3_TASK.md) - P3T3: High Priority Fixes (P1) - Performance, Reliability, Code Quality
+- [CURRENT, 2025-11-30, Task] [P3T4_TASK.md](./TASKS/P3T4_TASK.md) - P3T4: Medium Priority Fixes (P2) - Type Safety, Lifecycle, Performance, Cleanup
 
 **Checking Current/Next Task:**
 ```bash

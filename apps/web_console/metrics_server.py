@@ -8,7 +8,6 @@ Component: P2T3-Phase3-Component6+7
 """
 
 import os
-from typing import Dict
 
 from fastapi import FastAPI, Response
 from prometheus_client import (
@@ -42,7 +41,7 @@ def metrics() -> Response:
     if multiproc_dir:
         # Production: Collect metrics from all worker processes
         registry = CollectorRegistry()
-        multiprocess.MultiProcessCollector(registry)
+        multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
     else:
         # Dev/single-process: Use default registry
         from prometheus_client import REGISTRY as registry
@@ -54,7 +53,7 @@ def metrics() -> Response:
 
 
 @app.get("/health")
-def health() -> Dict[str, str]:
+def health() -> dict[str, str]:
     """
     Health check endpoint for Docker/k8s readiness/liveness probes.
 
