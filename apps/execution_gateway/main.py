@@ -252,7 +252,7 @@ app = FastAPI(
 orders_total = Counter(
     "execution_gateway_orders_total",
     "Total number of orders submitted",
-    ["symbol", "side", "status"],  # status: success, failed, rejected
+    ["symbol", "side", "status"],  # status: success, failed, rejected, blocked
 )
 
 order_placement_duration = Histogram(
@@ -329,7 +329,7 @@ _position_metrics_lock = asyncio.Lock()
 def _record_order_metrics(
     order: "OrderRequest",
     start_time: float,
-    status: Literal["success", "rejected", "failed"],
+    status: Literal["success", "rejected", "failed", "blocked"],
 ) -> None:
     """
     Record Prometheus metrics for order placement.
@@ -337,11 +337,12 @@ def _record_order_metrics(
     Args:
         order: The order request that was submitted
         start_time: Time when order processing started (from time.time())
-        status: Order outcome (success, rejected, or failed)
+        status: Order outcome (success, rejected, failed, or blocked)
 
     Notes:
         This helper reduces code duplication across different order placement paths.
         Increments orders_total counter and records order_placement_duration histogram.
+        "blocked" status is used for orders rejected by safety mechanisms (circuit breaker).
     """
     duration = time.time() - start_time
     orders_total.labels(symbol=order.symbol, side=order.side, status=status).inc()
@@ -1085,6 +1086,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                     "engagement_reason": status_info.get("engagement_reason"),
                 },
             )
+            # Gemini suggestion: Record metrics for kill-switch blocked orders
+            _record_order_metrics(order, start_time, "blocked")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
@@ -1107,6 +1110,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 "error": str(e),
             },
         )
+        # Gemini suggestion: Record metrics for kill-switch blocked orders
+        _record_order_metrics(order, start_time, "blocked")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
@@ -1131,6 +1136,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                         "trip_reason": trip_reason,
                     },
                 )
+                # Gemini MEDIUM fix: Record metrics for blocked orders (observability)
+                _record_order_metrics(order, start_time, "blocked")
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail={
@@ -1150,6 +1157,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                     "error": str(e),
                 },
             )
+            # Gemini MEDIUM fix: Record metrics for blocked orders (observability)
+            _record_order_metrics(order, start_time, "blocked")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
