@@ -144,8 +144,9 @@ async def model_reload_task() -> None:
                     "No model currently loaded - attempting cold-load recovery..."
                 )
                 # Attempt to load model (self-healing after startup failure)
+                # Use reload_if_changed() which handles loading when no model is loaded
                 try:
-                    model_registry.load_latest(strategy=settings.default_strategy)
+                    model_registry.reload_if_changed(strategy=settings.default_strategy)
                     if model_registry.is_loaded:
                         logger.info("Cold-load recovery successful - model now loaded")
                     else:
