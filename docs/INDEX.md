@@ -346,6 +346,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-30, Task] [P3T2_TASK.md](./TASKS/P3T2_TASK.md) - P3T2: Critical Fixes (P0) - Security, Trading Safety, Data Integrity ✅ Complete
 - [CURRENT, 2025-11-30, Task] [P3T3_TASK.md](./TASKS/P3T3_TASK.md) - P3T3: High Priority Fixes (P1) - Performance, Reliability, Code Quality
 - [CURRENT, 2025-11-30, Task] [P3T4_TASK.md](./TASKS/P3T4_TASK.md) - P3T4: Medium Priority Fixes (P2) - Type Safety, Lifecycle, Performance, Cleanup
+- [CURRENT, 2025-12-01, Task] [P3T5_TASK.md](./TASKS/P3T5_TASK.md) - P3T5: External Review Findings - Risk Management Fixes (Kill Switch, Position Limits, Circuit Breaker)
 
 **Checking Current/Next Task:**
 ```bash

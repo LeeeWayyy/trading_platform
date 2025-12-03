@@ -249,19 +249,22 @@ class TestGenerateClientOrderId:
                 "e" not in quantized_str
             ), f"Price {price} produced scientific notation: {quantized_str}"
 
-    def test_generate_uses_today_by_default(self):
+    def test_generate_uses_utc_today_by_default(self):
         """
-        Should use today's date when as_of_date is None.
+        Should use today's UTC date when as_of_date is None.
 
-        This verifies default behavior.
+        This verifies default behavior uses UTC (not local time).
         """
         order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
 
         id_with_none = generate_client_order_id(order, "alpha_baseline", as_of_date=None)
-        id_with_today = generate_client_order_id(order, "alpha_baseline", as_of_date=date.today())
+        # Use UTC date (not local date.today()) to match implementation
+        id_with_utc_today = generate_client_order_id(
+            order, "alpha_baseline", as_of_date=datetime.now(UTC).date()
+        )
 
-        # Should be same (both use today)
-        assert id_with_none == id_with_today
+        # Should be same (both use UTC today)
+        assert id_with_none == id_with_utc_today
 
     def test_generate_with_large_qty(self):
         """Should handle large quantities correctly."""
@@ -362,6 +365,8 @@ class TestReconstructOrderParamsHash:
             qty=10,
             limit_price=None,
             stop_price=None,
+            order_type="market",
+            time_in_force="day",
             strategy_id="alpha_baseline",
             order_date=order_date,
         )
@@ -382,6 +387,8 @@ class TestReconstructOrderParamsHash:
             qty=50,
             limit_price=Decimal("250.00"),
             stop_price=None,
+            order_type="limit",
+            time_in_force="day",
             strategy_id="beta_strategy",
             order_date=order_date,
         )
@@ -407,6 +414,8 @@ class TestReconstructOrderParamsHash:
             qty=5,
             limit_price=Decimal("140.00"),
             stop_price=Decimal("138.00"),
+            order_type="stop_limit",
+            time_in_force="day",
             strategy_id="gamma_strategy",
             order_date=order_date,
         )
@@ -421,6 +430,8 @@ class TestReconstructOrderParamsHash:
             qty=100,
             limit_price=None,
             stop_price=None,
+            order_type="market",
+            time_in_force="day",
             strategy_id="alpha_baseline",
             order_date=date(2024, 10, 17),
         )
@@ -437,6 +448,8 @@ class TestReconstructOrderParamsHash:
             qty=100,
             limit_price=Decimal("150.25"),
             stop_price=Decimal("149.50"),
+            order_type="limit",
+            time_in_force="gtc",
             strategy_id="alpha_baseline",
             order_date=date(2024, 10, 17),
         )
@@ -525,6 +538,8 @@ class TestOrderIdGeneratorIntegration:
             qty=order.qty,
             limit_price=order.limit_price,
             stop_price=order.stop_price,
+            order_type=order.order_type,
+            time_in_force=order.time_in_force,
             strategy_id=strategy_id,
             order_date=order_date,
         )

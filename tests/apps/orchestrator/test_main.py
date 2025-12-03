@@ -92,7 +92,7 @@ class TestHealthCheckEndpoint:
         with (
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
         ):
             response = test_client.get("/health")
 
@@ -134,7 +134,7 @@ class TestHealthCheckEndpoint:
         with (
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.create_orchestrator", return_value=mock_orchestrator),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
         ):
             response = test_client.get("/health")
 
@@ -174,7 +174,7 @@ class TestRunOrchestrationEndpoint:
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
             patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
@@ -198,7 +198,7 @@ class TestRunOrchestrationEndpoint:
         """Test orchestration run with invalid date format returns 400."""
         with (
             patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
@@ -236,7 +236,7 @@ class TestRunOrchestrationEndpoint:
                 "apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator
             ) as mock_orch_class,
             patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",
@@ -281,7 +281,7 @@ class TestRunOrchestrationEndpoint:
             patch("apps.orchestrator.main.db_client", mock_db),
             patch("apps.orchestrator.main.TradingOrchestrator", return_value=mock_orchestrator),
             patch("apps.orchestrator.main.kill_switch", mock_kill_switch),
-            patch("apps.orchestrator.main.kill_switch_unavailable", False),
+            patch("apps.orchestrator.main.is_kill_switch_unavailable", return_value=False),
         ):
             response = test_client.post(
                 "/api/v1/orchestration/run",

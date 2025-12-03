@@ -36,6 +36,29 @@ See [Workflows/03-reviews.md](./Workflows/03-reviews.md#zen-mcp-server-unavailab
 
 ---
 
+## ⚠️ CRITICAL: CI-Local Single Instance Rule
+
+**AI agents MUST NEVER run multiple `make ci-local` instances simultaneously.**
+
+**Why this matters:**
+- Multiple CI instances consume excessive system resources (CPU, memory)
+- Tests may interfere with each other causing flaky failures
+- Background processes accumulate and become difficult to manage
+- User experience degrades significantly
+
+**Rules for CI execution:**
+1. **ONLY ONE** `make ci-local` at a time - the Makefile has a lock mechanism
+2. **NEVER** kill a running CI and immediately start another
+3. **WAIT** for the current CI to complete before starting a new one
+4. **DO NOT** run CI in background mode repeatedly - monitor ONE instance to completion
+
+**If CI fails or needs to be restarted:**
+1. Wait for current CI to finish OR
+2. Kill it cleanly: `pkill -f "make ci-local" && rm -f .ci-local.lock`
+3. Then start a fresh instance
+
+---
+
 ## Project Overview
 
 This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. The system produces signals using Qlib-based models and executes trades via Alpaca's API with emphasis on safety, idempotency, and parity between research and production.

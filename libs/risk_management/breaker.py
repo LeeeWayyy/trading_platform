@@ -105,32 +105,83 @@ class CircuitBreaker:
 
     QUIET_PERIOD_DURATION = 300  # 5 minutes in seconds
 
-    def __init__(self, redis_client: RedisClient):
+    def __init__(self, redis_client: RedisClient, auto_initialize: bool = False):
         """
         Initialize circuit breaker.
 
         Args:
             redis_client: Redis client for state persistence
+            auto_initialize: If True, auto-create OPEN state when missing.
+                SECURITY WARNING: Set to False in production to ensure fail-closed
+                behavior when Redis is flushed/restarted. Only set to True in tests
+                or when explicit operator verification has occurred.
 
         Example:
             >>> from libs.redis_client import RedisClient
             >>> redis = RedisClient(host="localhost", port=6379)
-            >>> breaker = CircuitBreaker(redis_client=redis)
+            >>> breaker = CircuitBreaker(redis_client=redis)  # Fail closed if state missing
+            >>>
+            >>> # For tests only - auto-initialize state
+            >>> breaker = CircuitBreaker(redis_client=redis, auto_initialize=True)
+
+        Security:
+            - Default auto_initialize=False ensures fail-closed behavior
+            - When Redis is flushed/restarted, get_state() will raise RuntimeError
+            - Operator must explicitly reinitialize via initialize_state() after verification
         """
         self.redis = redis_client
         self.state_key = "circuit_breaker:state"
         self.history_key = "circuit_breaker:trip_history"
         self.max_history_entries = 1000  # Keep last 1000 trip events
 
-        # Initialize state if not exists
-        if not self.redis.get(self.state_key):
+        # SECURITY: Do NOT auto-initialize state by default (fail-closed)
+        # Auto-initialization after Redis flush would silently resume trading
+        # without operator verification - a critical safety violation
+        if auto_initialize and not self.redis.get(self.state_key):
+            logger.warning(
+                "Circuit breaker auto-initializing to OPEN state. "
+                "This should only happen in tests or after explicit operator verification."
+            )
             self._initialize_state()
+
+    def initialize_state(self, force: bool = False) -> bool:
+        """
+        Explicitly initialize circuit breaker state in Redis.
+
+        This method should be called by operators after verifying system safety
+        following a Redis flush/restart. It creates the initial OPEN state.
+
+        Args:
+            force: If True, overwrite existing state. If False, only initialize
+                   if state doesn't exist.
+
+        Returns:
+            True if state was initialized, False if state already exists and force=False
+
+        Example:
+            >>> # After Redis restart, operator verifies system is safe
+            >>> breaker = CircuitBreaker(redis_client=redis)
+            >>> breaker.initialize_state()  # Explicitly initialize
+            True
+
+        Security:
+            - Call this ONLY after verifying no positions are at risk
+            - Consider tripping the breaker first for safety:
+              breaker.initialize_state() then breaker.trip("MANUAL", {"reason": "post-restart"})
+        """
+        if not force and self.redis.get(self.state_key):
+            logger.info("Circuit breaker state already exists, skipping initialization")
+            return False
+
+        self._initialize_state()
+        return True
 
     def _initialize_state(self) -> None:
         """
-        Initialize circuit breaker state in Redis.
+        Internal: Initialize circuit breaker state in Redis.
 
         Creates default OPEN state with zero trip count.
+        For external use, call initialize_state() instead.
         """
         default_state = {
             "state": CircuitBreakerState.OPEN.value,
@@ -153,14 +204,34 @@ class CircuitBreaker:
         Returns:
             Current state (OPEN, TRIPPED, or QUIET_PERIOD)
 
+        Raises:
+            RuntimeError: If circuit breaker state is missing from Redis (fail-closed).
+                This can happen after a Redis flush/restart. The system MUST fail closed
+                rather than silently resuming trading - operator must verify safety
+                and manually reinitialize if appropriate.
+
         Example:
             >>> breaker.get_state()
             <CircuitBreakerState.OPEN: 'OPEN'>
+
+        Notes:
+            - State should exist after __init__ - if missing, Redis was flushed/restarted
+            - FAIL CLOSED: Do not auto-reinitialize to OPEN (could resume trading unsafely)
+            - Operator must manually verify conditions and reinitialize if appropriate
         """
         state_json = self.redis.get(self.state_key)
         if not state_json:
-            self._initialize_state()
-            return CircuitBreakerState.OPEN
+            # State should exist after __init__ - if missing, Redis was flushed/restarted
+            # FAIL CLOSED: Do not auto-reinitialize to OPEN (could resume trading unsafely)
+            # This matches KillSwitch behavior (kill_switch.py:155-166)
+            logger.error(
+                "CRITICAL: Circuit breaker state missing from Redis (possible flush/restart). "
+                "Failing closed to prevent unsafe trading resumption."
+            )
+            raise RuntimeError(
+                "Circuit breaker state missing from Redis. System must fail closed - "
+                "operator must verify safety and manually reinitialize if appropriate."
+            )
 
         state_data = json.loads(state_json)
 
@@ -221,26 +292,31 @@ class CircuitBreaker:
             - Appends to trip history log
             - Retries automatically on concurrent modification (WatchError)
         """
-        # TODO: Consider exposing zadd/pipeline operations in RedisClient public API
-        # to avoid accessing private _client attribute (breaks encapsulation).
-        # Tracked for future PR to extend RedisClient interface.
-        redis_conn = self.redis._client
-
-        with redis_conn.pipeline() as pipe:
+        # Use public RedisClient pipeline() method (Gemini HIGH fix)
+        with self.redis.pipeline() as pipe:
             while True:
                 try:
                     # Watch the state key for changes from other clients
-                    pipe.watch(self.state_key)  # type: ignore[no-untyped-call]
+                    pipe.watch(self.state_key)
 
                     state_json = pipe.get(self.state_key)
                     if not state_json:
-                        self._initialize_state()
-                        state_json = pipe.get(self.state_key)
+                        # FAIL CLOSED: State missing during trip - do not auto-initialize to OPEN
+                        # Codex CRITICAL fix: trip() must fail-closed, not silently create OPEN state
+                        pipe.unwatch()
+                        logger.error(
+                            "CRITICAL: Circuit breaker state missing during trip. "
+                            "Failing closed - operator must reinitialize if appropriate."
+                        )
+                        raise RuntimeError(
+                            "Circuit breaker state missing from Redis during trip. "
+                            "System must fail closed - operator must verify safety and "
+                            "manually reinitialize if appropriate."
+                        )
 
-                    assert state_json is not None, "State should exist after initialization"
                     state_data: dict[str, Any] = json.loads(
                         cast(str, state_json)
-                    )  # Explicit cast for type narrowing
+                    )
 
                     # Check if already tripped (idempotent behavior)
                     if state_data["state"] == CircuitBreakerState.TRIPPED.value:
@@ -319,23 +395,31 @@ class CircuitBreaker:
             - Updates trip history with reset timestamp
             - Retries automatically on concurrent modification (WatchError)
         """
-        redis_conn = self.redis._client
-
-        with redis_conn.pipeline() as pipe:
+        # Use public RedisClient pipeline() method (Gemini HIGH fix)
+        with self.redis.pipeline() as pipe:
             while True:
                 try:
                     # Watch the state key for changes from other clients
-                    pipe.watch(self.state_key)  # type: ignore[no-untyped-call]
+                    pipe.watch(self.state_key)
 
                     state_json = pipe.get(self.state_key)
                     if not state_json:
-                        self._initialize_state()
-                        state_json = pipe.get(self.state_key)
+                        # FAIL CLOSED: State missing during reset - do not auto-initialize to OPEN
+                        # Codex CRITICAL fix: reset() must fail-closed, not silently reopen trading
+                        pipe.unwatch()
+                        logger.error(
+                            "CRITICAL: Circuit breaker state missing during reset. "
+                            "Failing closed - operator must reinitialize if appropriate."
+                        )
+                        raise RuntimeError(
+                            "Circuit breaker state missing from Redis during reset. "
+                            "System must fail closed - operator must verify safety and "
+                            "manually reinitialize if appropriate."
+                        )
 
-                    assert state_json is not None, "State should exist after initialization"
                     state_data: dict[str, Any] = json.loads(
                         cast(str, state_json)
-                    )  # Explicit cast for type narrowing
+                    )
 
                     # Validate current state
                     current_state = CircuitBreakerState(state_data["state"])
@@ -384,23 +468,32 @@ class CircuitBreaker:
 
         Called automatically when quiet period expires. Uses WATCH/MULTI/EXEC
         transaction to prevent race conditions.
-        """
-        redis_conn = self.redis._client
 
-        with redis_conn.pipeline() as pipe:
+        Raises:
+            RuntimeError: If circuit breaker state is missing from Redis (fail-closed).
+        """
+        # Use public RedisClient pipeline() method (Gemini HIGH fix)
+        with self.redis.pipeline() as pipe:
             while True:
                 try:
                     # Watch the state key for changes from other clients
-                    pipe.watch(self.state_key)  # type: ignore[no-untyped-call]
+                    pipe.watch(self.state_key)
 
                     state_json = pipe.get(self.state_key)
                     if not state_json:
-                        # State was deleted, just initialize and exit
+                        # FAIL CLOSED: State deleted during transition - do not auto-initialize
                         pipe.unwatch()
-                        self._initialize_state()
-                        return
+                        logger.error(
+                            "CRITICAL: Circuit breaker state missing during transition. "
+                            "Failing closed - operator must reinitialize."
+                        )
+                        raise RuntimeError(
+                            "Circuit breaker state missing from Redis during transition. "
+                            "System must fail closed - operator must verify safety and "
+                            "manually reinitialize if appropriate."
+                        )
 
-                    state_data: dict[str, Any] = json.loads(state_json)  # type: ignore[arg-type]
+                    state_data: dict[str, Any] = json.loads(cast(str, state_json))
 
                     # Start atomic transaction
                     pipe.multi()
@@ -488,19 +581,18 @@ class CircuitBreaker:
         history_json = json.dumps(entry)
 
         # Add to sorted set with timestamp as score
-        # RedisClient wraps redis-py, which supports zadd
-        redis_conn = self.redis._client  # Access underlying redis-py connection
-        redis_conn.zadd(self.history_key, {history_json: timestamp})
+        # Use public RedisClient zadd method (Gemini HIGH fix)
+        self.redis.zadd(self.history_key, {history_json: timestamp})
 
         # Trim to keep only last max_history_entries (oldest entries removed first)
         # Only trim if we exceed the limit
-        current_count: int = redis_conn.zcard(self.history_key)  # type: ignore[assignment]
+        current_count = self.redis.zcard(self.history_key)
         if current_count > self.max_history_entries:
             # Remove oldest entries (lowest scores/ranks)
             # Keep ranks from (current_count - max_history_entries) onwards
             # Example: 10 entries, keep last 5 → remove ranks 0-4, keep 5-9
             num_to_remove = current_count - self.max_history_entries
-            redis_conn.zremrangebyrank(self.history_key, 0, num_to_remove - 1)
+            self.redis.zremrangebyrank(self.history_key, 0, num_to_remove - 1)
 
     def get_status(self) -> dict[str, Any]:
         """
@@ -508,6 +600,9 @@ class CircuitBreaker:
 
         Returns:
             Dict with state, trip reason, timestamps, etc.
+
+        Raises:
+            RuntimeError: If circuit breaker state is missing from Redis (fail-closed).
 
         Example:
             >>> status = breaker.get_status()
@@ -524,8 +619,14 @@ class CircuitBreaker:
         """
         state_json = self.redis.get(self.state_key)
         if not state_json:
-            self._initialize_state()
-            state_json = self.redis.get(self.state_key)
+            # FAIL CLOSED: Do not auto-reinitialize (matches get_state behavior)
+            logger.error(
+                "CRITICAL: Circuit breaker state missing from Redis. "
+                "Failing closed - operator must reinitialize."
+            )
+            raise RuntimeError(
+                "Circuit breaker state missing from Redis. System must fail closed - "
+                "operator must verify safety and manually reinitialize if appropriate."
+            )
 
-        assert state_json is not None, "State should exist after initialization"
         return json.loads(state_json)  # type: ignore[no-any-return]

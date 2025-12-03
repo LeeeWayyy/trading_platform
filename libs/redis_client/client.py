@@ -301,6 +301,102 @@ class RedisClient:
         """
         return self._client.pubsub()  # type: ignore[no-untyped-call]
 
+    def pipeline(self, transaction: bool = True) -> Any:
+        """
+        Create a pipeline for atomic operations with WATCH/MULTI/EXEC.
+
+        Pipelines allow batching multiple commands and executing them atomically.
+        Use with context manager for automatic cleanup.
+
+        Args:
+            transaction: If True, wrap commands in MULTI/EXEC (default: True)
+
+        Returns:
+            Redis Pipeline object
+
+        Example:
+            >>> with client.pipeline() as pipe:
+            ...     pipe.watch("my_key")  # Watch for changes
+            ...     value = pipe.get("my_key")
+            ...     pipe.multi()  # Start transaction
+            ...     pipe.set("my_key", "new_value")
+            ...     pipe.execute()  # Execute atomically
+
+        Notes:
+            - Use watch() to detect concurrent modifications
+            - Call multi() to start the transaction block
+            - Call execute() to run all queued commands atomically
+            - WatchError is raised if watched key was modified by another client
+        """
+        return self._client.pipeline(transaction=transaction)
+
+    def zadd(self, key: str, mapping: dict[str, float]) -> int:
+        """
+        Add members to a sorted set with scores.
+
+        Args:
+            key: Redis sorted set key
+            mapping: Dictionary of {member: score} pairs
+
+        Returns:
+            Number of new members added
+
+        Example:
+            >>> client.zadd("my_zset", {"member1": 1.0, "member2": 2.0})
+            2
+        """
+        try:
+            result = self._client.zadd(key, mapping)
+            return cast(int, result)
+        except RedisError as e:
+            logger.error(f"Redis ZADD failed for key '{key}': {e}")
+            raise
+
+    def zcard(self, key: str) -> int:
+        """
+        Get the number of members in a sorted set.
+
+        Args:
+            key: Redis sorted set key
+
+        Returns:
+            Number of members in the sorted set
+
+        Example:
+            >>> client.zcard("my_zset")
+            5
+        """
+        try:
+            result = self._client.zcard(key)
+            return cast(int, result)
+        except RedisError as e:
+            logger.error(f"Redis ZCARD failed for key '{key}': {e}")
+            raise
+
+    def zremrangebyrank(self, key: str, start: int, stop: int) -> int:
+        """
+        Remove members from a sorted set by rank (index).
+
+        Args:
+            key: Redis sorted set key
+            start: Start rank (0-based, inclusive)
+            stop: Stop rank (0-based, inclusive)
+
+        Returns:
+            Number of members removed
+
+        Example:
+            >>> # Remove first 5 members (ranks 0-4)
+            >>> client.zremrangebyrank("my_zset", 0, 4)
+            5
+        """
+        try:
+            result = self._client.zremrangebyrank(key, start, stop)
+            return cast(int, result)
+        except RedisError as e:
+            logger.error(f"Redis ZREMRANGEBYRANK failed for key '{key}': {e}")
+            raise
+
     def health_check(self) -> bool:
         """
         Check Redis connectivity.

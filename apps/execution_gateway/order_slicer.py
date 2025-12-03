@@ -195,6 +195,8 @@ class TWAPSlicer:
             qty=qty,
             limit_price=limit_price,
             stop_price=stop_price,
+            order_type=order_type,
+            time_in_force=time_in_force,
             strategy_id=parent_strategy_id,
             order_date=_trade_date,
         )
@@ -215,6 +217,8 @@ class TWAPSlicer:
                 qty=slice_qty,
                 limit_price=limit_price,
                 stop_price=stop_price,
+                order_type=order_type,
+                time_in_force=time_in_force,
                 strategy_id=slice_strategy_id,
                 order_date=_trade_date,
             )

@@ -1075,6 +1075,52 @@ class DatabaseClient:
             logger.error(f"Database error updating position: {e}")
             raise
 
+    def get_position_by_symbol(self, symbol: str) -> int:
+        """
+        Get current position quantity for a symbol.
+
+        Used by position reservation to provide accurate fallback when Redis key
+        is missing (e.g., after Redis restart). This prevents the system from
+        incorrectly assuming position is 0 when it's not.
+
+        Args:
+            symbol: Stock symbol (e.g., "AAPL")
+
+        Returns:
+            Current position quantity (0 if no position exists)
+            Positive = long, Negative = short
+
+        Raises:
+            DatabaseError: If database operation fails
+
+        Examples:
+            >>> db = DatabaseClient("postgresql://localhost/trading_platform")
+            >>> qty = db.get_position_by_symbol("AAPL")
+            >>> print(f"Current AAPL position: {qty} shares")
+
+        Notes:
+            - Returns 0 if symbol not found in positions table
+            - Returns 0 if position qty is 0 (flat)
+            - Used as fallback for position reservation after Redis restart
+        """
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        "SELECT qty FROM positions WHERE symbol = %s",
+                        (symbol,),
+                    )
+                    row = cur.fetchone()
+
+                    if row is None:
+                        return 0
+
+                    return int(row["qty"])
+
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching position for {symbol}: {e}")
+            raise
+
     def get_all_positions(self) -> list[Position]:
         """
         Get all current positions.

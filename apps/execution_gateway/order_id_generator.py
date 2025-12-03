@@ -16,7 +16,7 @@ See ADR-0014 for design rationale.
 """
 
 import hashlib
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from apps.execution_gateway.schemas import OrderRequest
@@ -25,6 +25,11 @@ from apps.execution_gateway.schemas import OrderRequest
 # This ensures Decimal("150.00") and Decimal("150.0") produce same ID
 # while maintaining backwards compatibility (no scientific notation)
 PRICE_PRECISION = Decimal("0.01")
+
+# Maximum length of client order ID (Alpaca compatibility)
+# SHA256 hex digest truncated to this length provides sufficient entropy
+# while meeting Alpaca's client_order_id requirements
+ORDER_ID_MAX_LENGTH = 24
 
 
 def _format_price_for_id(price: Decimal | None) -> str:
@@ -97,41 +102,47 @@ def generate_client_order_id(
 
     Implementation Details:
         The raw string format is:
-            {symbol}|{side}|{qty}|{limit_price}|{stop_price}|{strategy_id}|{date}
+            {symbol}|{side}|{qty}|{limit_price}|{stop_price}|{order_type}|{time_in_force}|{strategy_id}|{date}
 
         For example:
-            AAPL|buy|10|None|None|alpha_baseline|2024-10-17
+            AAPL|buy|10|None|None|market|day|alpha_baseline|2024-10-17
 
         This is then hashed with SHA256 and truncated to 24 characters.
 
     Notes:
         - limit_price and stop_price are included to differentiate orders
           with different prices
-        - order_type and time_in_force are NOT included because they don't
-          affect order uniqueness for our use case
+        - order_type and time_in_force are included to differentiate orders
+          with different execution semantics (e.g., DAY vs GTC)
         - Date component ensures orders can be resubmitted on different days
+        - Date uses UTC timezone (not local time) for consistency across servers
     """
-    # Use provided date or default to today
-    order_date = as_of_date or date.today()
+    # Use provided date or default to today's UTC date
+    # NOTE: Using UTC ensures consistent IDs across servers in different timezones
+    order_date = as_of_date or datetime.now(UTC).date()
 
     # Convert prices to strings (quantize to fixed precision for idempotency)
     limit_price_str = _format_price_for_id(order.limit_price)
     stop_price_str = _format_price_for_id(order.stop_price)
 
     # Build raw string with all order parameters
+    # order_type and time_in_force included to prevent collisions between orders
+    # with same symbol/side/qty but different execution semantics
     raw = (
         f"{order.symbol}|"
         f"{order.side}|"
         f"{order.qty}|"
         f"{limit_price_str}|"
         f"{stop_price_str}|"
+        f"{order.order_type}|"
+        f"{order.time_in_force}|"
         f"{strategy_id}|"
         f"{order_date.isoformat()}"
     )
 
-    # Hash with SHA256 and take first 24 characters
+    # Hash with SHA256 and take first ORDER_ID_MAX_LENGTH characters
     hash_obj = hashlib.sha256(raw.encode("utf-8"))
-    client_order_id = hash_obj.hexdigest()[:24]
+    client_order_id = hash_obj.hexdigest()[:ORDER_ID_MAX_LENGTH]
 
     return client_order_id
 
@@ -157,7 +168,7 @@ def validate_client_order_id(client_order_id: str) -> bool:
     if not isinstance(client_order_id, str):
         return False
 
-    if len(client_order_id) != 24:
+    if len(client_order_id) != ORDER_ID_MAX_LENGTH:
         return False
 
     # Check if it's a valid hex string
@@ -174,6 +185,8 @@ def reconstruct_order_params_hash(
     qty: int,
     limit_price: Decimal | None,
     stop_price: Decimal | None,
+    order_type: str,
+    time_in_force: str,
     strategy_id: str,
     order_date: date,
 ) -> str:
@@ -189,6 +202,8 @@ def reconstruct_order_params_hash(
         qty: Order quantity
         limit_price: Limit price (if applicable)
         stop_price: Stop price (if applicable)
+        order_type: Order type (market/limit/stop/stop_limit)
+        time_in_force: Time in force (day/gtc/ioc/fok)
         strategy_id: Strategy identifier
         order_date: Order date
 
@@ -204,6 +219,8 @@ def reconstruct_order_params_hash(
         ...     qty=10,
         ...     limit_price=None,
         ...     stop_price=None,
+        ...     order_type="market",
+        ...     time_in_force="day",
         ...     strategy_id="alpha_baseline",
         ...     order_date=date(2024, 10, 17)
         ... )
@@ -214,20 +231,22 @@ def reconstruct_order_params_hash(
     limit_price_str = _format_price_for_id(limit_price)
     stop_price_str = _format_price_for_id(stop_price)
 
-    # Build raw string
+    # Build raw string (must match generate_client_order_id format)
     raw = (
         f"{symbol}|"
         f"{side}|"
         f"{qty}|"
         f"{limit_price_str}|"
         f"{stop_price_str}|"
+        f"{order_type}|"
+        f"{time_in_force}|"
         f"{strategy_id}|"
         f"{order_date.isoformat()}"
     )
 
     # Hash and truncate
     hash_obj = hashlib.sha256(raw.encode("utf-8"))
-    return hash_obj.hexdigest()[:24]
+    return hash_obj.hexdigest()[:ORDER_ID_MAX_LENGTH]
 
 
 def parse_order_date_from_timestamp(timestamp: datetime) -> date:

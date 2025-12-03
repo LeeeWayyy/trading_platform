@@ -8,27 +8,43 @@ See /docs/CONCEPTS/corporate-actions.md and ADR-0001 for context.
 """
 
 from datetime import UTC, datetime
+from typing import Literal
 
 import polars as pl
 
 from libs.common.exceptions import StalenessError
 
+# Type alias for check modes
+CheckMode = Literal["latest", "oldest", "median", "per_symbol"]
 
-def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
+
+def check_freshness(
+    df: pl.DataFrame,
+    max_age_minutes: int = 30,
+    check_mode: CheckMode = "latest",
+    min_fresh_pct: float = 0.9,
+) -> None:
     """
     Validate that data is fresh enough for trading.
 
-    Checks the most recent timestamp in the data and ensures it's not older
-    than the configured threshold. This prevents trading on stale data that
-    could lead to incorrect decisions.
+    Checks timestamps in the data and ensures they're not older than the
+    configured threshold. This prevents trading on stale data that could
+    lead to incorrect decisions.
 
     Args:
         df: DataFrame with 'timestamp' column (must be timezone-aware UTC)
         max_age_minutes: Maximum acceptable age in minutes (default: 30)
+        check_mode: How to evaluate freshness (default: "latest")
+            - "latest": Check only the most recent timestamp (max) - original behavior
+            - "oldest": Check the oldest timestamp (min) - catches any stale data
+            - "median": Check the median timestamp - robust to outliers
+            - "per_symbol": Check freshness per symbol - requires 'symbol' column
+        min_fresh_pct: Minimum percentage of fresh symbols for per_symbol mode (default: 0.9)
 
     Raises:
-        StalenessError: If latest timestamp exceeds max_age_minutes
-        ValueError: If 'timestamp' column is missing or not timezone-aware
+        StalenessError: If freshness check fails based on mode
+        ValueError: If 'timestamp' column is missing, not timezone-aware, or
+                   'symbol' column missing when using per_symbol mode
 
     Example:
         >>> # Fresh data (within 30 minutes)
@@ -36,22 +52,21 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
         ...     "symbol": ["AAPL"],
         ...     "timestamp": [datetime.now(timezone.utc)]
         ... })
-        >>> check_freshness(df, max_age_minutes=30)  # Passes
+        >>> check_freshness(df, max_age_minutes=30)  # Passes (default mode="latest")
 
-        >>> # Stale data (> 30 minutes old)
-        >>> old_time = datetime.now(timezone.utc) - timedelta(hours=2)
-        >>> df_stale = pl.DataFrame({
-        ...     "symbol": ["AAPL"],
-        ...     "timestamp": [old_time]
+        >>> # Mixed fresh/stale data - mode matters!
+        >>> df_mixed = pl.DataFrame({
+        ...     "symbol": ["AAPL", "MSFT"],
+        ...     "timestamp": [datetime.now(timezone.utc), two_hours_ago]
         ... })
-        >>> check_freshness(df_stale, max_age_minutes=30)  # Raises StalenessError
+        >>> check_freshness(df_mixed, check_mode="latest")  # Passes (AAPL is fresh)
+        >>> check_freshness(df_mixed, check_mode="oldest")  # Fails (MSFT is stale)
 
     Notes:
         - All timestamps must be UTC (timezone-aware)
-        - Uses the LATEST timestamp in the DataFrame (max)
-        - Threshold should be much looser than your trading frequency
-          (e.g., 30 min threshold for daily strategies)
-        - For intraday strategies, tighten to 1-5 minutes
+        - Default mode "latest" maintains backwards compatibility
+        - Use "oldest" or "per_symbol" to catch partially stale datasets
+        - For per_symbol mode, min_fresh_pct=0.9 means 90% of symbols must be fresh
 
     See Also:
         - ADR-0001: Data Pipeline Architecture (freshness threshold rationale)
@@ -66,8 +81,12 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
     if df.is_empty():
         raise ValueError("Cannot check freshness of empty DataFrame")
 
-    # Get latest timestamp
-    latest_timestamp = df["timestamp"].max()
+    # Validate per_symbol mode requirements
+    if check_mode == "per_symbol" and "symbol" not in df.columns:
+        raise ValueError(
+            "per_symbol mode requires 'symbol' column. "
+            "Available columns: " + ", ".join(df.columns)
+        )
 
     # Check if timestamp is timezone-aware
     # Polars stores timezone in dtype: pl.Datetime(time_unit, time_zone)
@@ -79,33 +98,122 @@ def check_freshness(df: pl.DataFrame, max_age_minutes: int = 30) -> None:
             "Use: pl.col('timestamp').dt.replace_time_zone('UTC')"
         )
 
-    # Convert Polars datetime to Python datetime for comparison
-    # Polars .max() returns the scalar value, but mypy types it as Any
-    # We need type narrowing to satisfy strict type checking
-    if not isinstance(latest_timestamp, datetime):
-        raise ValueError(
-            f"Expected datetime from timestamp.max(), got {type(latest_timestamp).__name__}"
-        )
-    latest_dt: datetime = latest_timestamp
-
     # Get current time in UTC
     now = datetime.now(UTC)
 
+    # Handle per_symbol mode specially
+    if check_mode == "per_symbol":
+        _check_freshness_per_symbol(df, max_age_minutes, min_fresh_pct, now)
+        return
+
+    # Get timestamp to check based on mode
+    if check_mode == "latest":
+        check_timestamp = df["timestamp"].max()
+        mode_desc = "latest"
+    elif check_mode == "oldest":
+        check_timestamp = df["timestamp"].min()
+        mode_desc = "oldest"
+    elif check_mode == "median":
+        check_timestamp = df["timestamp"].median()
+        mode_desc = "median"
+    else:
+        raise ValueError(f"Invalid check_mode: {check_mode}")
+
+    # Convert Polars datetime to Python datetime for comparison
+    # Polars aggregate functions return scalar values, but mypy types them as Any
+    # We need type narrowing to satisfy strict type checking
+    if not isinstance(check_timestamp, datetime):
+        raise ValueError(
+            f"Expected datetime from timestamp.{mode_desc}(), got {type(check_timestamp).__name__}"
+        )
+    check_dt: datetime = check_timestamp
+
     # Calculate age in seconds
-    age_seconds = (now - latest_dt).total_seconds()
+    age_seconds = (now - check_dt).total_seconds()
     age_minutes = age_seconds / 60
 
     # Check if data is stale
     if age_minutes > max_age_minutes:
         raise StalenessError(
-            f"Data is {age_minutes:.1f} minutes old, exceeds threshold of {max_age_minutes} minutes. "
-            f"Latest timestamp: {latest_dt.isoformat()}, "
+            f"Data is {age_minutes:.1f} minutes old ({mode_desc} timestamp), "
+            f"exceeds threshold of {max_age_minutes} minutes. "
+            f"Timestamp: {check_dt.isoformat()}, "
             f"Current time: {now.isoformat()}"
         )
 
 
+def _check_freshness_per_symbol(
+    df: pl.DataFrame,
+    max_age_minutes: int,
+    min_fresh_pct: float,
+    now: datetime,
+) -> None:
+    """
+    Check freshness per symbol and ensure minimum percentage are fresh.
+
+    Args:
+        df: DataFrame with 'timestamp' and 'symbol' columns
+        max_age_minutes: Maximum acceptable age in minutes
+        min_fresh_pct: Minimum percentage of symbols that must be fresh (0-1)
+        now: Current UTC time
+
+    Raises:
+        StalenessError: If fewer than min_fresh_pct symbols are fresh
+    """
+    # Get latest timestamp per symbol and calculate age vectorized
+    # Gemini LOW fix: Use vectorized Polars operations instead of iter_rows
+    symbol_freshness = (
+        df.group_by("symbol")
+        .agg(pl.col("timestamp").max().alias("latest_timestamp"))
+        .with_columns(
+            # Calculate age in minutes using vectorized datetime operations
+            ((pl.lit(now) - pl.col("latest_timestamp")).dt.total_seconds() / 60.0)
+            .alias("age_minutes")
+        )
+        .with_columns(
+            # Determine if each symbol is fresh
+            (pl.col("age_minutes") <= max_age_minutes).alias("is_fresh")
+        )
+    )
+
+    # Calculate totals using vectorized operations
+    total_symbols = symbol_freshness.height
+    fresh_symbols = symbol_freshness.filter(pl.col("is_fresh")).height
+
+    fresh_pct = fresh_symbols / total_symbols if total_symbols > 0 else 0.0
+
+    if fresh_pct < min_fresh_pct:
+        # Only collect stale symbol details when we need to report an error
+        stale_df = symbol_freshness.filter(~pl.col("is_fresh")).sort("age_minutes", descending=True)
+
+        # Format stale symbols for error message (limit to first 5)
+        stale_symbols_list: list[str] = []
+        for row in stale_df.head(5).iter_rows(named=True):
+            symbol = row["symbol"]
+            age_minutes = row["age_minutes"]
+            if age_minutes is not None:
+                stale_symbols_list.append(f"{symbol} ({age_minutes:.1f}m old)")
+            else:
+                stale_symbols_list.append(f"{symbol} (invalid timestamp)")
+
+        remaining_stale = stale_df.height - 5
+        if remaining_stale > 0:
+            stale_symbols_list.append(f"... and {remaining_stale} more")
+
+        raise StalenessError(
+            f"Only {fresh_pct * 100:.1f}% of symbols are fresh "
+            f"({fresh_symbols}/{total_symbols}), "
+            f"below threshold of {min_fresh_pct * 100:.1f}%. "
+            f"Stale symbols: {', '.join(stale_symbols_list)}"
+        )
+
+
 def check_freshness_safe(
-    df: pl.DataFrame, max_age_minutes: int = 30, default_to_stale: bool = True
+    df: pl.DataFrame,
+    max_age_minutes: int = 30,
+    check_mode: CheckMode = "latest",
+    min_fresh_pct: float = 0.9,
+    default_to_stale: bool = True,
 ) -> tuple[bool, str | None]:
     """
     Non-raising version of check_freshness for conditional logic.
@@ -116,6 +224,8 @@ def check_freshness_safe(
     Args:
         df: DataFrame with 'timestamp' column
         max_age_minutes: Maximum acceptable age in minutes
+        check_mode: How to evaluate freshness (see check_freshness)
+        min_fresh_pct: Minimum percentage of fresh symbols for per_symbol mode
         default_to_stale: If True, treat errors as stale (fail-safe)
 
     Returns:
@@ -130,7 +240,7 @@ def check_freshness_safe(
         ...     return None
     """
     try:
-        check_freshness(df, max_age_minutes)
+        check_freshness(df, max_age_minutes, check_mode, min_fresh_pct)
         return (True, None)
     except StalenessError as e:
         return (False, str(e))

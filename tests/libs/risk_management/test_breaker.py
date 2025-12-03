@@ -38,7 +38,7 @@ class TestCircuitBreakerInitialization:
         # Mock: No existing state
         mock_redis_client.get.return_value = None
 
-        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        breaker = CircuitBreaker(redis_client=mock_redis_client, auto_initialize=True)
 
         # Verify state key and history key set correctly
         assert breaker.state_key == "circuit_breaker:state"
@@ -151,6 +151,7 @@ class TestCircuitBreakerStateQueries:
         mock_pipeline.execute = Mock()
         mock_pipeline.unwatch = Mock()
         mock_redis_client._client.pipeline.return_value = mock_pipeline
+        mock_redis_client.pipeline.return_value = mock_pipeline
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         state = breaker.get_state()
@@ -270,6 +271,7 @@ class TestCircuitBreakerTripOperation:
         mock_pipeline = Mock()
         mock_redis._client = Mock()
         mock_redis._client.pipeline.return_value = mock_pipeline
+        mock_redis.pipeline.return_value = mock_pipeline  # Mock public method
         mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
         mock_pipeline.__exit__ = Mock(return_value=False)
         return mock_redis, mock_pipeline
@@ -291,8 +293,8 @@ class TestCircuitBreakerTripOperation:
         mock_pipeline.unwatch = Mock()
 
         # Mock history operations
-        mock_redis._client.zadd = Mock()
-        mock_redis._client.zcard = Mock(return_value=1)
+        mock_redis.zadd = Mock()
+        mock_redis.zcard = Mock(return_value=1)
 
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.trip("DAILY_LOSS_EXCEEDED", details={"daily_loss": -5234.56})
@@ -323,8 +325,8 @@ class TestCircuitBreakerTripOperation:
         mock_pipeline.execute = Mock()
 
         # Mock history operations
-        mock_redis._client.zadd = Mock()
-        mock_redis._client.zcard = Mock(return_value=1)
+        mock_redis.zadd = Mock()
+        mock_redis.zcard = Mock(return_value=1)
 
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.trip("MAX_DRAWDOWN")
@@ -369,8 +371,8 @@ class TestCircuitBreakerTripOperation:
         mock_pipeline.execute.side_effect = [WatchError("Concurrent modification"), None]
 
         # Mock history operations
-        mock_redis._client.zadd = Mock()
-        mock_redis._client.zcard = Mock(return_value=1)
+        mock_redis.zadd = Mock()
+        mock_redis.zcard = Mock(return_value=1)
 
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.trip("DATA_STALE")
@@ -390,15 +392,15 @@ class TestCircuitBreakerTripOperation:
         mock_pipeline.execute = Mock()
 
         # Mock history operations
-        mock_redis._client.zadd = Mock()
-        mock_redis._client.zcard = Mock(return_value=1)
+        mock_redis.zadd = Mock()
+        mock_redis.zcard = Mock(return_value=1)
 
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.trip("BROKER_ERRORS", details={"error": "503 Service Unavailable"})
 
         # Verify zadd was called to append to history
-        mock_redis._client.zadd.assert_called_once()
-        call_args = mock_redis._client.zadd.call_args
+        mock_redis.zadd.assert_called_once()
+        call_args = mock_redis.zadd.call_args
         assert call_args[0][0] == "circuit_breaker:trip_history"
 
         # Verify history entry contains trip details
@@ -418,6 +420,7 @@ class TestCircuitBreakerResetOperation:
         mock_pipeline = Mock()
         mock_redis._client = Mock()
         mock_redis._client.pipeline.return_value = mock_pipeline
+        mock_redis.pipeline.return_value = mock_pipeline  # Mock public method
         mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
         mock_pipeline.__exit__ = Mock(return_value=False)
         return mock_redis, mock_pipeline
@@ -499,6 +502,7 @@ class TestCircuitBreakerHistoryManagement:
         mock_pipeline = Mock()
         mock_redis._client = Mock()
         mock_redis._client.pipeline.return_value = mock_pipeline
+        mock_redis.pipeline.return_value = mock_pipeline  # Mock public method
         mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
         mock_pipeline.__exit__ = Mock(return_value=False)
         return mock_redis, mock_pipeline
@@ -515,16 +519,16 @@ class TestCircuitBreakerHistoryManagement:
         mock_pipeline.execute = Mock()
 
         # Mock history operations: 1500 entries (exceeds 1000 limit)
-        mock_redis._client.zadd = Mock()
-        mock_redis._client.zcard = Mock(return_value=1500)
-        mock_redis._client.zremrangebyrank = Mock()
+        mock_redis.zadd = Mock()
+        mock_redis.zcard = Mock(return_value=1500)
+        mock_redis.zremrangebyrank = Mock()
 
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.trip("MAX_DRAWDOWN")
 
         # Verify trim was triggered
-        mock_redis._client.zremrangebyrank.assert_called_once()
-        call_args = mock_redis._client.zremrangebyrank.call_args
+        mock_redis.zremrangebyrank.assert_called_once()
+        call_args = mock_redis.zremrangebyrank.call_args
 
         # Should remove oldest 500 entries (keep last 1000)
         assert call_args[0][0] == "circuit_breaker:trip_history"
@@ -543,15 +547,15 @@ class TestCircuitBreakerHistoryManagement:
         mock_pipeline.execute = Mock()
 
         # Mock history operations: 500 entries (below 1000 limit)
-        mock_redis._client.zadd = Mock()
-        mock_redis._client.zcard = Mock(return_value=500)
-        mock_redis._client.zremrangebyrank = Mock()
+        mock_redis.zadd = Mock()
+        mock_redis.zcard = Mock(return_value=500)
+        mock_redis.zremrangebyrank = Mock()
 
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.trip("DATA_STALE")
 
         # Verify trim was NOT triggered
-        mock_redis._client.zremrangebyrank.assert_not_called()
+        mock_redis.zremrangebyrank.assert_not_called()
 
 
 class TestCircuitBreakerEdgeCases:
@@ -564,22 +568,99 @@ class TestCircuitBreakerEdgeCases:
         mock_pipeline = Mock()
         mock_redis._client = Mock()
         mock_redis._client.pipeline.return_value = mock_pipeline
+        mock_redis.pipeline.return_value = mock_pipeline  # Mock public method
         mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
         mock_pipeline.__exit__ = Mock(return_value=False)
         return mock_redis, mock_pipeline
 
-    def test_get_state_initializes_when_state_missing(self, mock_redis_client):
-        """Test get_state initializes state when Redis key missing."""
+    def test_get_state_fails_closed_when_state_missing_after_init(self, mock_redis_client):
+        """Test get_state raises RuntimeError when Redis state missing after initialization.
+
+        This is the fail-closed pattern: if Redis state disappears (e.g., after flush/restart),
+        we should NOT auto-reinitialize to OPEN as that could resume trading unsafely.
+        """
         mock_redis, _ = mock_redis_client
-        mock_redis.get.return_value = None
-        mock_redis.set = Mock()
+
+        # During __init__, state exists (so no initialization needed)
+        initial_state = {"state": CircuitBreakerState.OPEN.value}
+        mock_redis.get.return_value = json.dumps(initial_state)
 
         breaker = CircuitBreaker(redis_client=mock_redis)
-        state = breaker.get_state()
 
-        # Should initialize and return OPEN
-        assert state == CircuitBreakerState.OPEN
-        assert mock_redis.set.call_count >= 1  # Called during init or get_state
+        # Now simulate Redis flush - state is missing on next get_state call
+        mock_redis.get.return_value = None
+
+        # Should raise RuntimeError (fail-closed)
+        with pytest.raises(RuntimeError, match="Circuit breaker state missing from Redis"):
+            breaker.get_state()
+
+    def test_get_status_fails_closed_when_state_missing(self, mock_redis_client):
+        """Test get_status raises RuntimeError when Redis state missing.
+
+        Matches get_state fail-closed behavior.
+        """
+        mock_redis, _ = mock_redis_client
+
+        # During __init__, state exists
+        initial_state = {"state": CircuitBreakerState.OPEN.value}
+        mock_redis.get.return_value = json.dumps(initial_state)
+
+        breaker = CircuitBreaker(redis_client=mock_redis)
+
+        # Now simulate Redis flush
+        mock_redis.get.return_value = None
+
+        # Should raise RuntimeError (fail-closed)
+        with pytest.raises(RuntimeError, match="Circuit breaker state missing from Redis"):
+            breaker.get_status()
+
+    def test_is_tripped_fails_closed_when_state_missing(self, mock_redis_client):
+        """Test is_tripped propagates RuntimeError when state missing.
+
+        is_tripped() calls get_state(), so it should also fail-closed.
+        """
+        mock_redis, _ = mock_redis_client
+
+        # During __init__, state exists
+        initial_state = {"state": CircuitBreakerState.OPEN.value}
+        mock_redis.get.return_value = json.dumps(initial_state)
+
+        breaker = CircuitBreaker(redis_client=mock_redis)
+
+        # Now simulate Redis flush
+        mock_redis.get.return_value = None
+
+        # Should raise RuntimeError (fail-closed via get_state)
+        with pytest.raises(RuntimeError, match="Circuit breaker state missing from Redis"):
+            breaker.is_tripped()
+
+    def test_transition_to_open_fails_closed_when_state_deleted(self, mock_redis_client):
+        """Test _transition_to_open raises RuntimeError when state deleted during transition.
+
+        If state is deleted during quiet period expiry transition, we should fail-closed
+        rather than auto-initializing to OPEN.
+        """
+        mock_redis, mock_pipeline = mock_redis_client
+
+        # During __init__, state is in QUIET_PERIOD with expired time
+        reset_at = datetime.now(UTC) - timedelta(seconds=600)  # 10 minutes ago
+        initial_state = {
+            "state": CircuitBreakerState.QUIET_PERIOD.value,
+            "reset_at": reset_at.isoformat(),
+            "trip_count_today": 1,
+        }
+        mock_redis.get.return_value = json.dumps(initial_state)
+
+        # Mock pipeline for _transition_to_open - state deleted during pipeline
+        mock_pipeline.watch = Mock()
+        mock_pipeline.get.return_value = None  # State deleted
+        mock_pipeline.unwatch = Mock()
+
+        breaker = CircuitBreaker(redis_client=mock_redis)
+
+        # get_state() should trigger transition, which should fail-closed
+        with pytest.raises(RuntimeError, match="Circuit breaker state missing"):
+            breaker.get_state()
 
     def test_trip_reason_enum_values(self, mock_redis_client):
         """Test all TripReason enum values are valid."""
@@ -601,8 +682,8 @@ class TestCircuitBreakerEdgeCases:
         mock_pipeline.execute = Mock()
 
         # Mock history operations
-        mock_redis._client.zadd = Mock()
-        mock_redis._client.zcard = Mock(return_value=1)
+        mock_redis.zadd = Mock()
+        mock_redis.zcard = Mock(return_value=1)
 
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.trip("CUSTOM_VIOLATION_TYPE")

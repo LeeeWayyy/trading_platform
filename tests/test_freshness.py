@@ -36,7 +36,7 @@ class TestCheckFreshness:
         df = pl.DataFrame({"symbol": ["AAPL"], "timestamp": [old_time]})
 
         with pytest.raises(
-            StalenessError, match=r"Data is.*minutes old, exceeds threshold"
+            StalenessError, match=r"Data is.*minutes old.*exceeds threshold"
         ) as exc_info:
             check_freshness(df, max_age_minutes=30)
 
@@ -140,3 +140,144 @@ class TestCheckFreshnessSafe:
 
         with pytest.raises(ValueError, match="timestamp"):
             check_freshness_safe(df, default_to_stale=False)
+
+
+class TestCheckModes:
+    """Tests for different check modes (T5.6 fix)."""
+
+    def test_latest_mode_passes_with_mixed_data(self):
+        """Latest mode should pass if most recent timestamp is fresh."""
+        now = datetime.now(UTC)
+        stale = now - timedelta(hours=2)
+
+        # 999 stale rows but 1 fresh - should pass with "latest" mode
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL"] * 10 + ["MSFT"],
+                "timestamp": [stale] * 10 + [now],
+            }
+        )
+
+        # Default mode "latest" should pass
+        check_freshness(df, max_age_minutes=30, check_mode="latest")
+
+    def test_oldest_mode_fails_with_mixed_data(self):
+        """Oldest mode should fail if any data is stale."""
+        now = datetime.now(UTC)
+        stale = now - timedelta(hours=2)
+
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "timestamp": [stale, now],
+            }
+        )
+
+        # "oldest" mode should fail because AAPL is stale
+        with pytest.raises(StalenessError, match="oldest timestamp"):
+            check_freshness(df, max_age_minutes=30, check_mode="oldest")
+
+    def test_oldest_mode_passes_when_all_fresh(self):
+        """Oldest mode should pass when all data is fresh."""
+        now = datetime.now(UTC)
+        recent = now - timedelta(minutes=5)
+
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "timestamp": [recent, now],
+            }
+        )
+
+        # All fresh, should pass
+        check_freshness(df, max_age_minutes=30, check_mode="oldest")
+
+    def test_median_mode_with_outliers(self):
+        """Median mode should be robust to outliers."""
+        now = datetime.now(UTC)
+        recent = now - timedelta(minutes=5)
+        very_stale = now - timedelta(days=1)
+
+        # 5 fresh, 1 very stale - median should be fresh
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "META"],
+                "timestamp": [recent, recent, recent, now, now, very_stale],
+            }
+        )
+
+        # Median is fresh, should pass
+        check_freshness(df, max_age_minutes=30, check_mode="median")
+
+    def test_per_symbol_mode_passes_when_enough_fresh(self):
+        """Per-symbol mode should pass when >= min_fresh_pct symbols are fresh."""
+        now = datetime.now(UTC)
+        stale = now - timedelta(hours=2)
+
+        # 9 fresh symbols, 1 stale = 90% fresh
+        symbols = [f"SYM{i}" for i in range(10)]
+        timestamps = [now] * 9 + [stale]
+
+        df = pl.DataFrame({"symbol": symbols, "timestamp": timestamps})
+
+        # Should pass with 90% threshold
+        check_freshness(df, max_age_minutes=30, check_mode="per_symbol", min_fresh_pct=0.9)
+
+    def test_per_symbol_mode_fails_when_too_many_stale(self):
+        """Per-symbol mode should fail when < min_fresh_pct symbols are fresh."""
+        now = datetime.now(UTC)
+        stale = now - timedelta(hours=2)
+
+        # 8 fresh symbols, 2 stale = 80% fresh
+        symbols = [f"SYM{i}" for i in range(10)]
+        timestamps = [now] * 8 + [stale, stale]
+
+        df = pl.DataFrame({"symbol": symbols, "timestamp": timestamps})
+
+        # Should fail with 90% threshold
+        with pytest.raises(StalenessError, match="80.0% of symbols are fresh"):
+            check_freshness(df, max_age_minutes=30, check_mode="per_symbol", min_fresh_pct=0.9)
+
+    def test_per_symbol_mode_requires_symbol_column(self):
+        """Per-symbol mode should require 'symbol' column."""
+        now = datetime.now(UTC)
+        df = pl.DataFrame({"timestamp": [now]})
+
+        with pytest.raises(ValueError, match="per_symbol mode requires 'symbol' column"):
+            check_freshness(df, max_age_minutes=30, check_mode="per_symbol")
+
+    def test_per_symbol_mode_groups_by_symbol(self):
+        """Per-symbol mode should use latest timestamp per symbol."""
+        now = datetime.now(UTC)
+        stale = now - timedelta(hours=2)
+
+        # AAPL has stale and fresh - should use fresh (latest per symbol)
+        # MSFT only has stale
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL", "MSFT"],
+                "timestamp": [stale, now, stale],
+            }
+        )
+
+        # 1/2 = 50% fresh, should fail at 90%
+        with pytest.raises(StalenessError, match="50.0% of symbols are fresh"):
+            check_freshness(df, max_age_minutes=30, check_mode="per_symbol", min_fresh_pct=0.9)
+
+        # Should pass at 50%
+        check_freshness(df, max_age_minutes=30, check_mode="per_symbol", min_fresh_pct=0.5)
+
+    def test_default_mode_is_latest(self):
+        """Default mode should be 'latest' for backwards compatibility."""
+        now = datetime.now(UTC)
+        stale = now - timedelta(hours=2)
+
+        df = pl.DataFrame(
+            {
+                "symbol": ["AAPL", "MSFT"],
+                "timestamp": [stale, now],  # One stale, one fresh
+            }
+        )
+
+        # Default should be "latest", which passes
+        check_freshness(df, max_age_minutes=30)  # No check_mode arg

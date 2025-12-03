@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "reviewers": {
+    "enabled": [
+      "gemini",
+      "codex"
+    ],
+    "available": [
+      "claude",
+      "gemini",
+      "codex"
+    ],
+    "min_required": 2,
+    "username_mapping": {}
+  },
+  "ci": {
+    "wait_timeout_seconds": 600,
+    "poll_interval_seconds": 30,
+    "retry_on_flaky": true
+  },
+  "git": {
+    "push_retry_count": 3,
+    "default_base_branch": "master"
+  },
+  "delegation": {
+    "comment_threshold": 10,
+    "file_threshold": 20
+  }
+}

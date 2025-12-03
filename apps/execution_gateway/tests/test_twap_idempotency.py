@@ -45,6 +45,8 @@ def _build_legacy_parent(
         qty=request.qty,
         limit_price=request.limit_price,
         stop_price=request.stop_price,
+        order_type=request.order_type,
+        time_in_force=request.time_in_force,
         strategy_id=legacy_strategy_id,
         order_date=trade_date,
     )
