@@ -123,4 +123,7 @@ apps/web_console/certs/jwt_private.key
 !apps/web_console/certs/ca.pem
 
 # repomix
-repomix-output.xml.ci-local.lock
+repomix-output.xml
+
+# locks
+.ci-local.lock

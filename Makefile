@@ -162,7 +162,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		if [ $$EXIT_CODE -eq 124 ]; then \
 			echo ""; \
 			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "❌ Tests TIMED OUT (no progress for 10 minutes)!"; \
+			echo "❌ Tests TIMED OUT (no progress for 2 minutes)!"; \
 			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 			echo ""; \
 			echo "A test is likely hanging. Check the last test output above."; \

@@ -148,6 +148,14 @@ def mock_redis():
 
     redis.get = MagicMock(side_effect=mock_get)
     redis.set = MagicMock(side_effect=mock_set)
+    # P3T5 fix: Also mock redis.pipeline() (breaker uses self.redis.pipeline())
+    redis.pipeline = MagicMock(side_effect=mock_pipeline)
+    # P3T5 fix: Also mock redis.zadd/zcard/zrange/zremrangebyrank directly
+    # (breaker uses self.redis.zadd() etc, not self.redis._client.zadd())
+    redis.zadd = MagicMock(side_effect=mock_zadd)
+    redis.zcard = MagicMock(side_effect=mock_zcard)
+    redis.zrange = MagicMock(side_effect=mock_zrange)
+    redis.zremrangebyrank = MagicMock(side_effect=mock_zremrangebyrank)
 
     # Create mock _client attribute with zadd/zremrangebyrank/pipeline support
     redis._client = MagicMock()
@@ -162,8 +170,9 @@ def mock_redis():
 
 @pytest.fixture()
 def breaker(mock_redis):
-    """Circuit breaker instance with mock Redis."""
-    return CircuitBreaker(redis_client=mock_redis)
+    """Circuit breaker instance with mock Redis and auto-initialize for tests."""
+    # P3T5 fix: Use auto_initialize=True for tests to allow testing without real Redis state
+    return CircuitBreaker(redis_client=mock_redis, auto_initialize=True)
 
 
 class TestCircuitBreakerInitialization:
@@ -171,7 +180,7 @@ class TestCircuitBreakerInitialization:
 
     def test_initialization_creates_default_state(self, mock_redis):
         """Test initialization creates OPEN state in Redis."""
-        CircuitBreaker(redis_client=mock_redis)
+        CircuitBreaker(redis_client=mock_redis, auto_initialize=True)
 
         # Verify state created in Redis
         state_json = mock_redis.get("circuit_breaker:state")
@@ -198,7 +207,8 @@ class TestCircuitBreakerInitialization:
         mock_redis._state["circuit_breaker:state"] = json.dumps(existing_state)
 
         # Initialize breaker
-        CircuitBreaker(redis_client=mock_redis)
+        # P3T5 fix: Use auto_initialize=True for tests
+        CircuitBreaker(redis_client=mock_redis, auto_initialize=True)
 
         # Verify state unchanged
         state_json = mock_redis.get("circuit_breaker:state")
@@ -519,7 +529,8 @@ class TestCircuitBreakerHistory:
     def test_history_automatically_trimmed_to_max_entries(self, mock_redis):
         """Test history is automatically trimmed to prevent unbounded growth."""
         # Create breaker with small max_history_entries for testing
-        breaker = CircuitBreaker(redis_client=mock_redis)
+        # P3T5 fix: Use auto_initialize=True for tests
+        breaker = CircuitBreaker(redis_client=mock_redis, auto_initialize=True)
         breaker.max_history_entries = 5  # Override to 5 for testing
 
         # Trip and reset 10 times (exceed max_history_entries)

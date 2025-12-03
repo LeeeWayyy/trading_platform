@@ -44,7 +44,7 @@ DEFAULT_RESERVATION_TTL = 60
 # ARGV[4]: TTL in seconds (for token key only)
 # ARGV[5]: current_position fallback (used when key missing, e.g., after restart)
 #
-# Returns: [1, token] on success, [0, "LIMIT_EXCEEDED"] on failure
+# Returns: {1, token, current_pos, new_pos} on success, {0, "LIMIT_EXCEEDED", current_pos, new_pos} on failure
 #
 # CRITICAL: Aggregate position key NEVER expires (only token keys expire).
 # This prevents position limits from resetting to 0 after TTL.
@@ -84,7 +84,7 @@ return {1, token, current, new_position}
 # KEYS[1]: position_reservation:{symbol}
 # ARGV[1]: reservation_token
 #
-# Returns: [1, "RELEASED"] on success, [0, "TOKEN_NOT_FOUND"] if already released
+# Returns: {1, "RELEASED", current_pos, new_pos} on success, {0, "TOKEN_NOT_FOUND"} if already released
 RELEASE_RESERVATION_LUA = """
 local token_key = KEYS[1] .. ":token:" .. ARGV[1]
 local delta = redis.call("GET", token_key)
