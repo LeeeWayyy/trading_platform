@@ -56,6 +56,32 @@ def mock_circuit_breaker():
     return mock_cb
 
 
+@pytest.fixture()
+def mock_position_reservation():
+    """Create a mock PositionReservation (always succeeds)."""
+    from libs.risk_management.position_reservation import ReleaseResult, ReservationResult
+
+    mock_pr = Mock()
+    # Return successful reservation result
+    mock_pr.reserve.return_value = ReservationResult(
+        success=True,
+        token="mock-token-123",
+        reason="",
+        previous_position=0,
+        new_position=10,
+    )
+    # confirm and release return ReleaseResult
+    mock_pr.confirm.return_value = ReleaseResult(
+        success=True,
+        reason="",
+    )
+    mock_pr.release.return_value = ReleaseResult(
+        success=True,
+        reason="",
+    )
+    return mock_pr
+
+
 class TestRootEndpoint:
     """Tests for root endpoint."""
 
@@ -112,7 +138,9 @@ class TestHealthEndpoint:
 class TestSubmitOrderEndpoint:
     """Tests for order submission endpoint."""
 
-    def test_submit_order_dry_run_mode(self, test_client, mock_db, mock_kill_switch, mock_circuit_breaker):
+    def test_submit_order_dry_run_mode(
+        self, test_client, mock_db, mock_kill_switch, mock_circuit_breaker, mock_position_reservation
+    ):
         """Test order submission in DRY_RUN mode logs order without broker submission."""
         # Mock: Order doesn't exist yet
         mock_db.get_order_by_client_id.return_value = None
@@ -145,6 +173,7 @@ class TestSubmitOrderEndpoint:
             patch("apps.execution_gateway.main.db_client", mock_db),
             patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
             patch("apps.execution_gateway.main.circuit_breaker", mock_circuit_breaker),
+            patch("apps.execution_gateway.main.position_reservation", mock_position_reservation),
             patch("apps.execution_gateway.main._kill_switch_unavailable", False),
             patch("apps.execution_gateway.main._circuit_breaker_unavailable", False),
             patch("apps.execution_gateway.main._position_reservation_unavailable", False),
@@ -162,7 +191,9 @@ class TestSubmitOrderEndpoint:
         assert data["qty"] == 10
         assert "Order logged (DRY_RUN mode)" in data["message"]
 
-    def test_submit_order_idempotent_returns_existing(self, test_client, mock_db, mock_kill_switch, mock_circuit_breaker):
+    def test_submit_order_idempotent_returns_existing(
+        self, test_client, mock_db, mock_kill_switch, mock_circuit_breaker, mock_position_reservation
+    ):
         """Test submitting duplicate order returns existing order (idempotent)."""
         # Mock: Order already exists
         existing_order = OrderDetail(
@@ -192,6 +223,7 @@ class TestSubmitOrderEndpoint:
             patch("apps.execution_gateway.main.db_client", mock_db),
             patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
             patch("apps.execution_gateway.main.circuit_breaker", mock_circuit_breaker),
+            patch("apps.execution_gateway.main.position_reservation", mock_position_reservation),
             patch("apps.execution_gateway.main._kill_switch_unavailable", False),
             patch("apps.execution_gateway.main._circuit_breaker_unavailable", False),
             patch("apps.execution_gateway.main._position_reservation_unavailable", False),
