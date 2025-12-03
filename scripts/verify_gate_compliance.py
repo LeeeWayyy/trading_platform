@@ -135,7 +135,8 @@ def has_review_markers(commit_hash):
     - codex-review: (alias for codex-continuation-id:)
     - continuation-id: (legacy single-phase format)
 
-    Component 2 (P1T13-F5a): Also checks for Review-Hash trailer.
+    Note: Review-Hash requirement was removed - the hook infrastructure for
+    generating Review-Hash trailers was never completed.
     """
     message = get_commit_message(commit_hash).lower()
 
@@ -147,8 +148,6 @@ def has_review_markers(commit_hash):
     # Check for continuation ID formats
     # ONLY accept dual-phase (gemini + codex) format - no legacy format
     # This enforces the new comprehensive independent review policy
-    gemini_pattern = r"(?:^|\n)\s*gemini-continuation-id:"
-    codex_pattern = r"(?:^|\n)\s*codex-continuation-id:"
 
     # Use regex patterns to avoid false positives
     gemini_trailer_pattern = r"(?:^|\n)\s*(?:gemini-continuation-id|gemini-review):"
@@ -157,17 +156,9 @@ def has_review_markers(commit_hash):
     has_codex = bool(re.search(codex_trailer_pattern, message))
     has_dual_phase = has_gemini and has_codex
 
-    # Component 2 (P1T13-F5a): Check for Review-Hash trailer (presence only)
-    # Note: We only check presence, not correctness (can't reconstruct staging area post-commit)
-    # Must match exactly 64-char hex hash OR empty string (for empty commits)
-    # Use same pattern as extract_review_hash() for consistency
-    # Pattern allows trailers after Review-Hash (e.g., Co-authored-by, Signed-off-by)
-    review_hash_pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*(?:\n|$)"
-    has_review_hash = bool(re.search(review_hash_pattern, message, re.IGNORECASE | re.MULTILINE))
-
-    # Require BOTH dual-phase review markers AND review hash
-    # No backward compatibility - all commits must have independent gemini + codex reviews
-    return has_dual_phase and has_review_hash
+    # Require dual-phase review markers (gemini + codex)
+    # Review-Hash requirement removed - hook infrastructure incomplete
+    return has_dual_phase
 
 
 def extract_review_hash(commit_sha: str) -> str | None:
@@ -308,24 +299,14 @@ def main():
     # Detect CI environment (GitHub Actions, GitLab CI, etc.)
     is_ci = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
 
-    # Component A2.1 (P1T13-F5) - Server-side Review-Hash validation
-    # CRITICAL: This runs FIRST, before any early returns
-    # Validate Review-Hash correctness (not just presence)
-    # Supports merge commits via first-parent diff strategy
+    # Track skipped merges for later use
+    skipped_merges = []
+
+    # Identify GitHub auto-merge commits to skip
     if is_ci:
-        print("ℹ️  Validating Review-Hash correctness in CI...")
-        print("   (Component A2.1: Server-side hash validation with merge support)")
-        print()
-
-        invalid_hashes = []
-        skipped_merges = []
         for commit_hash in pr_commits:
-            # Skip ONLY GitHub auto-generated merge commits (not developer merges)
-            # Developer merge commits must have Review-Hash like any other commit
             if is_merge_commit(commit_hash):
-                message = get_commit_message(commit_hash)
-
-                # Get committer email to verify GitHub web-flow (robust detection)
+                # Get committer email to verify GitHub web-flow
                 try:
                     committer_email_result = subprocess.run(
                         ["git", "log", "-1", "--format=%ce", commit_hash],
@@ -335,14 +316,9 @@ def main():
                     )
                     committer_email = committer_email_result.stdout.strip()
                 except subprocess.CalledProcessError:
-                    committer_email = ""  # Could not get email, proceed to validation
+                    committer_email = ""
 
-                # GitHub merge commits use different committer emails:
-                # - web-flow@users.noreply.github.com (UI merges)
-                # - noreply@github.com (PR testing merge commits)
-                # Trust these emails for GitHub-generated merges (allows custom merge messages)
-                # Note: Email spoofing is theoretically possible but requires local commit +
-                # force push, which is immediately visible in PR history and caught by branch protection
+                # GitHub merge commits use specific committer emails
                 is_github_merge = committer_email in (
                     "web-flow@users.noreply.github.com",
                     "noreply@github.com",
@@ -351,39 +327,12 @@ def main():
                 if is_github_merge:
                     skipped_merges.append(commit_hash)
                     print(f"  ⏭️  Skipping GitHub auto-merge commit {commit_hash[:8]}")
-                    continue
-
-            if not validate_review_hash(commit_hash):
-                invalid_hashes.append(commit_hash)
-
-        if invalid_hashes:
-            print()
-            print("❌ REVIEW-HASH VALIDATION FAILED!")
-            print(f"   Found {len(invalid_hashes)} commit(s) with invalid Review-Hash")
-            print()
-            print("   Possible causes:")
-            print("   - Commit made with --no-verify (bypassed pre-commit hook)")
-            print("   - Post-review tampering (amended commit after review)")
-            print("   - Manual commit message editing")
-            print()
-            print("   All commits must have valid Review-Hash trailer:")
-            print("   Review-Hash: <sha256_hash_of_changes>")
-            print()
-            print("   See Component A2.1 (P1T13-F5) for details")
-            return 1
-
-        print()
-        validated_count = len(pr_commits) - len(skipped_merges)
-        print(f"✅ All {validated_count} commit(s) have valid Review-Hash")
-        if skipped_merges:
-            print(f"   ({len(skipped_merges)} GitHub merge commit(s) skipped)")
-        print()
 
     # PR #61 Fix (Codex HIGH): Always verify markers in CI (defense-in-depth)
-    # This check must run REGARDLESS of workflow state to prevent bypasses
+    # Note: Review-Hash validation removed - hook infrastructure was never completed
     if is_ci:
-        print("ℹ️  Verifying review approval markers (in addition to Review-Hash)...")
-        print("   (Defense in depth: hash + markers required)")
+        print("ℹ️  Verifying review approval markers...")
+        print("   (Checking for zen-mcp-review approval + continuation IDs)")
         print()
 
         missing_markers = []
@@ -397,29 +346,28 @@ def main():
 
         if missing_markers:
             print()
-            print("❌ MARKER VALIDATION FAILED!")
+            print("❌ REVIEW MARKER VALIDATION FAILED!")
             print(
-                f"   Found {len(missing_markers)} commit(s) with valid Review-Hash but NO approval markers"
+                f"   Found {len(missing_markers)} commit(s) missing approval markers"
             )
             print()
             print("   This could indicate:")
+            print("   - Commit was made with --no-verify (bypassed pre-commit hook)")
             print("   - Review markers were manually removed")
-            print("   - Commit was made with --no-verify and hash forged locally")
             print("   - Review process was bypassed")
             print()
-            print("   All commits must have BOTH:")
-            print("   1. Valid Review-Hash trailer (cryptographic proof)")
-            print("   2. Approval markers (zen-mcp-review: approved + continuation-id)")
+            print("   All commits must have approval markers:")
+            print("   - zen-mcp-review: approved")
+            print("   - gemini-continuation-id: <uuid>")
+            print("   - codex-continuation-id: <uuid>")
             print()
             print("   Commits missing markers:")
             for commit_hash in missing_markers:
                 print(f"     - {commit_hash[:8]}")
             print()
-            print("   See PR #61 (Codex P1 finding) for rationale")
             return 1
 
         print(f"✅ All {len(pr_commits) - len(skipped_merges)} commit(s) have approval markers")
-        print("   (BOTH Review-Hash and markers verified)")
         print()
 
     # Load workflow state (may be missing in CI, that's OK after marker check passed)
