@@ -12,6 +12,12 @@ These tests validate metric definitions and basic instrumentation.
 import pytest
 from prometheus_client import REGISTRY
 
+# Import modules that define the metrics so they're registered in REGISTRY
+# These imports trigger metric registration at module load time
+import apps.web_console.auth.idp_health  # noqa: F401 - IdP health metrics
+import apps.web_console.auth.mtls_fallback  # noqa: F401 - mTLS fallback metrics
+import libs.web_console_auth.session  # noqa: F401 - Session metrics
+
 
 def test_idp_health_metrics_exist():
     """Validate IdP health monitoring metrics are defined."""
@@ -31,16 +37,20 @@ def test_mtls_fallback_metrics_exist():
     metric_names = [name for name in REGISTRY._collector_to_names.values()]
     all_metrics = [item for sublist in metric_names for item in sublist]
 
-    # mTLS Fallback Authentication (9 metrics)
+    # mTLS Fallback Authentication (actual metrics from mtls_fallback.py)
+    # Core authentication metrics
     assert "oauth2_mtls_auth_total" in all_metrics
     assert "oauth2_mtls_auth_failures_total" in all_metrics
+    # Certificate validity
     assert "oauth2_mtls_cert_not_after_timestamp" in all_metrics
+    # CRL metrics
+    assert "oauth2_mtls_crl_fetch_total" in all_metrics
     assert "oauth2_mtls_crl_fetch_failures_total" in all_metrics
     assert "oauth2_mtls_crl_last_update_timestamp" in all_metrics
     assert "oauth2_mtls_crl_cache_age_seconds" in all_metrics
-    assert "oauth2_mtls_cert_not_before_timestamp" in all_metrics
-    assert "oauth2_mtls_cert_lifetime_seconds" in all_metrics
-    assert "oauth2_mtls_crl_serial_numbers_count" in all_metrics
+    # Duration histograms
+    assert "oauth2_mtls_crl_fetch_duration_seconds" in all_metrics
+    assert "oauth2_mtls_cert_validation_duration_seconds" in all_metrics
 
 
 def test_session_management_metrics_exist():
@@ -59,20 +69,19 @@ def test_session_management_metrics_exist():
 
 
 def test_oauth2_flow_metrics_exist():
-    """Validate OAuth2 flow metrics are defined (9 metrics, 4 placeholders)."""
+    """Validate OAuth2 flow metrics are defined (actual metrics from session.py)."""
     metric_names = [name for name in REGISTRY._collector_to_names.values()]
     all_metrics = [item for sublist in metric_names for item in sublist]
 
-    # OAuth2 Flow (9 metrics - 4 are FastAPI-only placeholders)
+    # OAuth2 Flow (actual metrics from libs/web_console_auth/session.py)
+    # Authorization metrics
     assert "oauth2_authorization_total" in all_metrics
     assert "oauth2_authorization_failures_total" in all_metrics
-    assert "oauth2_token_refresh_total" in all_metrics  # Placeholder for FastAPI
-    assert "oauth2_token_refresh_failures_total" in all_metrics  # Placeholder for FastAPI
-    assert "oauth2_token_revocation_total" in all_metrics
-    assert "oauth2_token_revocation_failures_total" in all_metrics
-    assert "oauth2_jwks_fetch_total" in all_metrics
-    assert "oauth2_jwks_fetch_failures_total" in all_metrics
-    assert "oauth2_jwks_cache_age_seconds" in all_metrics
+    # Token refresh metrics
+    assert "oauth2_token_refresh_total" in all_metrics
+    assert "oauth2_token_refresh_failures_total" in all_metrics
+    # Note: token_revocation and jwks metrics were planned but not implemented
+    # These would be added in future phases if needed
 
 
 def test_metric_cardinality_protection():

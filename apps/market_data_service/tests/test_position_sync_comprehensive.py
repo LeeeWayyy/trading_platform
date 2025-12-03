@@ -213,8 +213,8 @@ class TestSyncSubscriptions:
 
         await position_sync._sync_subscriptions()
 
-        # Should unsubscribe from MSFT
-        mock_stream.unsubscribe_symbols.assert_called_once_with(["MSFT"])
+        # Should unsubscribe from MSFT with source="position" (H5 fix: ref-counting)
+        mock_stream.unsubscribe_symbols.assert_called_once_with(["MSFT"], source="position")
 
     @pytest.mark.asyncio()
     async def test_sync_no_changes(self, position_sync, mock_stream):
@@ -323,7 +323,7 @@ class TestSyncLoop:
 
     @pytest.mark.asyncio()
     async def test_sync_loop_handles_cancelled_error(self, position_sync):
-        """Should handle CancelledError gracefully."""
+        """Should handle CancelledError gracefully and clean up _running flag."""
         position_sync._sync_subscriptions = AsyncMock()
 
         loop_task = asyncio.create_task(position_sync.start_sync_loop())
@@ -335,9 +335,9 @@ class TestSyncLoop:
         except asyncio.CancelledError:
             pass  # Expected
 
-        # Loop should have been running when cancelled
-        # (stop() needs to be called to set _running=False)
-        assert position_sync._running is True  # Still true, just cancelled
+        # M2 Fix: _running is now properly cleaned up in finally block
+        # This ensures health checks report accurate status after cancellation
+        assert position_sync._running is False  # Cleaned up in finally block
 
     @pytest.mark.asyncio()
     async def test_sync_loop_continues_on_sync_error(self, position_sync):
