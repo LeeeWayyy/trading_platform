@@ -44,6 +44,9 @@ COPY --from=builder /build/packages /usr/local/lib/python3.11/site-packages
 # Copy application code
 COPY apps/web_console /app/apps/web_console
 
+# Copy shared libraries (required by config.py for network_utils)
+COPY libs /app/libs
+
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app
 
@@ -58,4 +61,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
 # Run Streamlit app as non-root user
-CMD ["streamlit", "run", "apps/web_console/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+# Use python -m streamlit since pip --target doesn't install scripts to PATH
+CMD ["python", "-m", "streamlit", "run", "apps/web_console/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

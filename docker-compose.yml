@@ -1,4 +1,5 @@
-version: "3.9"
+# Docker Compose configuration for trading platform infrastructure
+# Note: 'version' attribute removed - obsolete in Docker Compose V2
 
 services:
   postgres:
@@ -9,7 +10,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trader}
       POSTGRES_DB: ${POSTGRES_DB:-trader}
     ports:
-      - "5432:5432"
+      # Use 5433 to avoid conflict with local PostgreSQL installation
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,9 +23,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: trading_platform_redis
-    # SECURITY: No host port mapping by default (internal Docker network only)
-    # Prevents tampering with JTI revocation blacklist from host
-    # For dev access, use: docker exec -it trading_platform_redis redis-cli
+    # NOTE: Port exposed for local development. In production, remove port mapping.
+    # For dev access via CLI: docker exec -it trading_platform_redis redis-cli
+    ports:
+      - "6379:6379"
     command: redis-server --appendonly yes
     volumes:
       - redisdata:/data
@@ -64,8 +67,10 @@ services:
       - loki
 
   loki:
-    image: grafana/loki:2.9.0
+    image: grafana/loki:3.0.0
     container_name: trading_platform_loki
+    # Run as root to allow volume directory creation (local dev only)
+    user: "0"
     ports:
       - "3100:3100"
     volumes:
@@ -79,7 +84,7 @@ services:
       retries: 5
 
   promtail:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.0.0
     container_name: trading_platform_promtail
     volumes:
       - ./infra/promtail:/etc/promtail
@@ -189,8 +194,8 @@ services:
       # OAuth2 redirect URLs (for FastAPI auth service)
       - OAUTH2_LOGIN_URL=/login
       - OAUTH2_LOGOUT_URL=/logout
-      # Session encryption key (AES-256-GCM)
-      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY not set. Generate with: python3 -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())"}
+      # Session encryption key (AES-256-GCM) - Generate with: python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+      - SESSION_ENCRYPTION_KEY=${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY not set}
       # Shared secret for internal refresh (Streamlit → auth_service via nginx)
       # NO DEFAULT - must be explicitly configured in production
       - INTERNAL_REFRESH_SECRET=${INTERNAL_REFRESH_SECRET:-}

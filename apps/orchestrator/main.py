@@ -69,7 +69,7 @@ logger = logging.getLogger(__name__)
 SIGNAL_SERVICE_URL = os.getenv("SIGNAL_SERVICE_URL", "http://localhost:8001")
 EXECUTION_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+    "DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader"
 )
 CAPITAL = Decimal(os.getenv("CAPITAL", "100000"))
 MAX_POSITION_SIZE = Decimal(os.getenv("MAX_POSITION_SIZE", "20000"))

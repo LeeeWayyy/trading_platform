@@ -347,6 +347,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-30, Task] [P3T3_TASK.md](./TASKS/P3T3_TASK.md) - P3T3: High Priority Fixes (P1) - Performance, Reliability, Code Quality
 - [CURRENT, 2025-11-30, Task] [P3T4_TASK.md](./TASKS/P3T4_TASK.md) - P3T4: Medium Priority Fixes (P2) - Type Safety, Lifecycle, Performance, Cleanup
 - [CURRENT, 2025-12-01, Task] [P3T5_TASK.md](./TASKS/P3T5_TASK.md) - P3T5: External Review Findings - Risk Management Fixes (Kill Switch, Position Limits, Circuit Breaker)
+- [CURRENT, 2025-12-02, Task] [P3T6_TASK.md](./TASKS/P3T6_TASK.md) - P3T6: Docker Infrastructure and Runbook Fixes
 
 **Checking Current/Next Task:**
 ```bash
@@ -387,6 +388,7 @@ Operational procedures and troubleshooting:
 
 - [CURRENT, 2025-10-21, Runbook] [logging-queries.md](./RUNBOOKS/logging-queries.md) - Common LogQL queries for debugging production issues with Loki
 - [CURRENT, 2025-11-27, Runbook] [auth0-idp-outage.md](./RUNBOOKS/auth0-idp-outage.md) - Auth0 IdP outage response and mTLS fallback procedures
+- [CURRENT, 2025-12-02, Runbook] [MAIN_RUNBOOK.md](./RUNBOOKS/MAIN_RUNBOOK.md) - Main runbook for local development setup, Docker operations, and troubleshooting
 - [CURRENT, 2025-10-20, Runbook] [ops.md](./RUNBOOKS/ops.md) - Core operational procedures for deployment and troubleshooting
 - [CURRENT, 2025-11-27, Runbook] [mtls-fallback-admin-certs.md](./RUNBOOKS/mtls-fallback-admin-certs.md) - mTLS fallback emergency admin certificate generation and rotation
 - [CURRENT, 2025-11-27, Runbook] [oauth2-session-cleanup.md](./RUNBOOKS/oauth2-session-cleanup.md) - OAuth2 session cleanup and expired token removal procedures

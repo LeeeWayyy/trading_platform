@@ -41,8 +41,8 @@ class Settings(BaseSettings):
 
     # Database Configuration
     database_url: str = Field(
-        default="postgresql+psycopg://trader:trader@localhost:5432/trader",
-        description="PostgreSQL connection string",
+        default="postgresql://trader:trader@localhost:5433/trader",
+        description="PostgreSQL connection string (use postgresql:// for psycopg3)",
     )
 
     # Redis Configuration

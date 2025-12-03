@@ -97,14 +97,14 @@ class Settings(BaseSettings):
     # Database Configuration
     # ========================================================================
 
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/trading_platform"
+    database_url: str = "postgresql://trader:trader@localhost:5433/trader"
     """
     Postgres connection string.
 
     Format: postgresql://[user[:password]@][host][:port][/dbname]
 
     Example:
-        postgresql://postgres:postgres@localhost:5432/trading_platform
+        postgresql://trader:trader@localhost:5433/trader
 
     Notes:
         - Must have model_registry table (see migrations/001_create_model_registry.sql)

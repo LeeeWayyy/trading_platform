@@ -11,13 +11,17 @@ Core backend services (auth_service) should not depend on frontend applications 
 import logging
 import os
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from fastapi import HTTPException, Request
+# Lazy import FastAPI to avoid dependency in Streamlit apps
+# FastAPI is only needed for validate_trusted_proxy and extract_* functions
+if TYPE_CHECKING:
+    from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
 
-def validate_trusted_proxy(request: Request, get_remote_addr: Callable[[], str]) -> None:
+def validate_trusted_proxy(request: "Request", get_remote_addr: Callable[[], str]) -> None:
     """Validate request comes from trusted proxy.
 
     Prevents X-Forwarded-For header spoofing by checking the immediate
@@ -40,6 +44,8 @@ def validate_trusted_proxy(request: Request, get_remote_addr: Callable[[], str])
 
         validate_trusted_proxy(request, get_remote_addr)
     """
+    from fastapi import HTTPException  # Lazy import to avoid Streamlit dependency
+
     # Get trusted proxy IPs from environment (comma-separated)
     trusted_proxies_str = os.getenv("TRUSTED_PROXY_IPS", "")
 
@@ -75,7 +81,7 @@ def validate_trusted_proxy(request: Request, get_remote_addr: Callable[[], str])
 
 
 def extract_client_ip_from_fastapi(
-    request: Request,
+    request: "Request",
     get_remote_addr: Callable[[], str],
 ) -> str:
     """Extract client IP from FastAPI request with trusted proxy validation.
@@ -150,7 +156,7 @@ def extract_client_ip_from_fastapi(
     return remote_addr
 
 
-def extract_user_agent_from_fastapi(request: Request) -> str:
+def extract_user_agent_from_fastapi(request: "Request") -> str:
     """Extract User-Agent from FastAPI request.
 
     Simple helper to extract User-Agent header with a sensible default.
