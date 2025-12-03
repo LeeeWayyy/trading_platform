@@ -171,7 +171,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 6/6: Verifying workflow gate compliance (Review-Hash validation)"
+	@echo "Step 6/6: Verifying workflow gate compliance (review approval markers)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@CI=true PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
 		echo ""; \
@@ -180,14 +180,11 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo ""; \
 		echo "This check validates that all commits have:"; \
-		echo "  • Valid Review-Hash trailers (cryptographic proof of review)"; \
-		echo "  • Zen-MCP review approval markers"; \
+		echo "  • zen-mcp-review: approved marker"; \
+		echo "  • gemini-continuation-id: <uuid> trailer"; \
+		echo "  • codex-continuation-id: <uuid> trailer"; \
 		echo ""; \
-		echo "To fix missing Review-Hash trailers:"; \
-		echo "  1. Compute hash: python3 libs/common/hash_utils.py COMMIT_SHA"; \
-		echo "  2. Amend commit: git commit --amend --no-verify --trailer \"Review-Hash: <hash>\""; \
-		echo ""; \
-		echo "See Component A2.1 (P1T13-F5) for details"; \
+		echo "To fix missing markers, request a zen-mcp review before committing."; \
 		exit 1; \
 	}
 	@echo ""

@@ -120,6 +120,8 @@ class RiskChecker:
         current_position: int = 0,
         current_price: Decimal | None = None,
         portfolio_value: Decimal | None = None,
+        *,
+        _skip_position_limit: bool = False,  # Internal: skip when using atomic reservation
     ) -> tuple[bool, str]:
         """
         Validate order against all risk limits.
@@ -209,16 +211,18 @@ class RiskChecker:
         )
 
         # 3. Position size limit (absolute shares)
-        max_position_size = self.config.position_limits.max_position_size
-        if abs(new_position) > max_position_size:
-            reason = (
-                f"Position limit exceeded: {abs(new_position)} shares > " f"{max_position_size} max"
-            )
-            logger.warning(
-                f"Order blocked by position size limit: {symbol} {side} {qty}, "
-                f"new_position={new_position}, limit={max_position_size}"
-            )
-            return (False, reason)
+        # Skip if using atomic reservation (reservation does this check atomically)
+        if not _skip_position_limit:
+            max_position_size = self.config.position_limits.max_position_size
+            if abs(new_position) > max_position_size:
+                reason = (
+                    f"Position limit exceeded: {abs(new_position)} shares > " f"{max_position_size} max"
+                )
+                logger.warning(
+                    f"Order blocked by position size limit: {symbol} {side} {qty}, "
+                    f"new_position={new_position}, limit={max_position_size}"
+                )
+                return (False, reason)
 
         # 4. Position size limit (% of portfolio) - if price and portfolio_value provided
         if current_price is not None and portfolio_value is not None:
@@ -399,6 +403,8 @@ class RiskChecker:
             - Reservation auto-expires after TTL (default 60s) as safety net
         """
         # First run standard validation
+        # Skip position limit check if using atomic reservation (avoids redundant stateless check)
+        use_atomic_reservation = self.position_reservation is not None
         is_valid, reason = self.validate_order(
             symbol=symbol,
             side=side,
@@ -406,19 +412,22 @@ class RiskChecker:
             current_position=current_position,
             current_price=current_price,
             portfolio_value=portfolio_value,
+            _skip_position_limit=use_atomic_reservation,  # Atomic reservation does this check
         )
 
         if not is_valid:
             return (False, reason, None)
 
         # If position_reservation is not configured, return standard result
-        if self.position_reservation is None:
+        if not use_atomic_reservation:
             logger.debug(
                 "Position reservation not configured, using standard validation only"
             )
             return (True, "", None)
 
         # Attempt atomic position reservation
+        # Assert for mypy: we know position_reservation is not None at this point
+        assert self.position_reservation is not None  # Verified by use_atomic_reservation check
         max_position_size = self.config.position_limits.max_position_size
         reservation_result = self.position_reservation.reserve(
             symbol=symbol,
