@@ -48,6 +48,11 @@ from libs.risk_management.exceptions import (
     RiskViolation,
 )
 from libs.risk_management.kill_switch import KillSwitch, KillSwitchEngaged, KillSwitchState
+from libs.risk_management.position_reservation import (
+    PositionReservation,
+    ReleaseResult,
+    ReservationResult,
+)
 
 __all__ = [
     # Configuration
@@ -69,4 +74,8 @@ __all__ = [
     "RiskViolation",
     "CircuitBreakerTripped",
     "CircuitBreakerError",
+    # Position Reservation
+    "PositionReservation",
+    "ReservationResult",
+    "ReleaseResult",
 ]

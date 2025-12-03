@@ -72,15 +72,36 @@ check-hooks: ## Verify git hooks are installed
 	@echo "✅ Pre-commit hook installed"
 
 ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
-	@echo "🔍 Running CI checks locally..."
-	@echo ""
-	@echo "This mirrors the GitHub Actions CI workflow (docs, mypy, ruff, pytest, workflow gates)."
-	@echo "Note: CI also runs DB migrations - run those separately if needed."
-	@echo "If this passes, CI should pass too."
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 1/6: Validating documentation index"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@# Lock mechanism to prevent multiple CI instances
+	@if [ -f .ci-local.lock ]; then \
+		LOCK_PID=$$(cat .ci-local.lock 2>/dev/null); \
+		if kill -0 $$LOCK_PID 2>/dev/null; then \
+			echo ""; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo "⚠️  CI-LOCAL ALREADY RUNNING (PID: $$LOCK_PID)"; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo ""; \
+			echo "Only ONE ci-local instance is allowed at a time."; \
+			echo "Wait for the current run to complete or kill it:"; \
+			echo "  kill $$LOCK_PID"; \
+			echo "  rm -f .ci-local.lock"; \
+			echo ""; \
+			exit 1; \
+		else \
+			rm -f .ci-local.lock; \
+		fi; \
+	fi
+	@echo $$$$ > .ci-local.lock
+	@trap 'rm -f .ci-local.lock' EXIT INT TERM; \
+	echo "🔍 Running CI checks locally..."; \
+	echo ""; \
+	echo "This mirrors the GitHub Actions CI workflow (docs, mypy, ruff, pytest, workflow gates)."; \
+	echo "Note: CI also runs DB migrations - run those separately if needed."; \
+	echo "If this passes, CI should pass too."; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "Step 1/6: Validating documentation index"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@./scripts/validate_doc_index.sh || { \
 		echo ""; \
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
@@ -93,26 +114,33 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 2/6: Checking markdown links"
+	@echo "Step 2/6: Checking markdown links (timeout: 1min)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@command -v markdown-link-check >/dev/null 2>&1 || { \
 		echo "❌ markdown-link-check not found. Installing..."; \
 		npm install -g markdown-link-check; \
 	}
-	@find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" -print0 | \
-		xargs -0 markdown-link-check --config .github/markdown-link-check-config.json || { \
-		echo ""; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo "❌ Markdown link check failed!"; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo ""; \
-		echo "Common issues:"; \
-		echo "  • Broken internal links (wrong path depth)"; \
-		echo "  • Missing anchor links (heading text changed)"; \
-		echo "  • Files moved/renamed without updating references"; \
-		echo "  • External URLs changed or removed"; \
-		echo ""; \
-		echo "See error output above for specific broken links"; \
+	@HANG_TIMEOUT=60 ./scripts/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
+		EXIT_CODE=$$?; \
+		if [ $$EXIT_CODE -eq 124 ]; then \
+			echo ""; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo "❌ Markdown link check TIMED OUT!"; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		else \
+			echo ""; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo "❌ Markdown link check failed!"; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo ""; \
+			echo "Common issues:"; \
+			echo "  • Broken internal links (wrong path depth)"; \
+			echo "  • Missing anchor links (heading text changed)"; \
+			echo "  • Files moved/renamed without updating references"; \
+			echo "  • External URLs changed or removed"; \
+			echo ""; \
+			echo "See error output above for specific broken links"; \
+		fi; \
 		exit 1; \
 	}
 	@echo ""
@@ -127,12 +155,23 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	poetry run ruff check libs/ apps/ strategies/
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 5/6: Running tests (integration and e2e tests skipped)"
+	@echo "Step 5/6: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	PYTHONPATH=. poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=80
+	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=80 || { \
+		EXIT_CODE=$$?; \
+		if [ $$EXIT_CODE -eq 124 ]; then \
+			echo ""; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo "❌ Tests TIMED OUT (no progress for 2 minutes)!"; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo ""; \
+			echo "A test is likely hanging. Check the last test output above."; \
+		fi; \
+		exit $$EXIT_CODE; \
+	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 6/6: Verifying workflow gate compliance (Review-Hash validation)"
+	@echo "Step 6/6: Verifying workflow gate compliance (review approval markers)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@CI=true PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
 		echo ""; \
@@ -141,14 +180,11 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo ""; \
 		echo "This check validates that all commits have:"; \
-		echo "  • Valid Review-Hash trailers (cryptographic proof of review)"; \
-		echo "  • Zen-MCP review approval markers"; \
+		echo "  • zen-mcp-review: approved marker"; \
+		echo "  • gemini-continuation-id: <uuid> trailer"; \
+		echo "  • codex-continuation-id: <uuid> trailer"; \
 		echo ""; \
-		echo "To fix missing Review-Hash trailers:"; \
-		echo "  1. Compute hash: python3 libs/common/hash_utils.py COMMIT_SHA"; \
-		echo "  2. Amend commit: git commit --amend --no-verify --trailer \"Review-Hash: <hash>\""; \
-		echo ""; \
-		echo "See Component A2.1 (P1T13-F5) for details"; \
+		echo "To fix missing markers, request a zen-mcp review before committing."; \
 		exit 1; \
 	}
 	@echo ""

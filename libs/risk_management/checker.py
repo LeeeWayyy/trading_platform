@@ -33,6 +33,11 @@ from decimal import Decimal
 
 from libs.risk_management.breaker import CircuitBreaker
 from libs.risk_management.config import RiskConfig
+from libs.risk_management.kill_switch import KillSwitch
+from libs.risk_management.position_reservation import (
+    PositionReservation,
+    ReservationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +51,11 @@ class RiskChecker:
     Attributes:
         config: Risk configuration with all limits
         breaker: Circuit breaker instance
+        kill_switch: Kill switch instance (optional, but recommended for production)
+        position_reservation: Position reservation for atomic limit checking (optional)
 
     Example:
-        >>> checker = RiskChecker(config=config, breaker=breaker)
+        >>> checker = RiskChecker(config=config, breaker=breaker, kill_switch=kill_switch)
         >>> is_valid, reason = checker.validate_order(
         ...     symbol="AAPL",
         ...     side="buy",
@@ -61,27 +68,49 @@ class RiskChecker:
     Notes:
         - All checks are synchronous (<5ms total)
         - Returns (is_valid, reason) tuple (never raises)
-        - Circuit breaker check is highest priority
-        - Blacklist check is second priority
+        - Kill switch check is highest priority (absolute trading halt)
+        - Circuit breaker check is second priority
+        - Blacklist check is third priority
+        - Position reservation provides atomic limit checking (prevents race conditions)
     """
 
-    def __init__(self, config: RiskConfig, breaker: CircuitBreaker):
+    def __init__(
+        self,
+        config: RiskConfig,
+        breaker: CircuitBreaker,
+        kill_switch: KillSwitch | None = None,
+        position_reservation: PositionReservation | None = None,
+    ):
         """
         Initialize risk checker.
 
         Args:
             config: Risk configuration with all limits
             breaker: Circuit breaker instance
+            kill_switch: Kill switch instance (optional for backwards compatibility,
+                but strongly recommended for production use)
+            position_reservation: Position reservation for atomic limit checking (optional).
+                When provided, enables atomic position limit checks that prevent race
+                conditions from concurrent orders.
 
         Example:
             >>> from libs.redis_client import RedisClient
             >>> redis = RedisClient(host="localhost", port=6379)
             >>> config = RiskConfig()
             >>> breaker = CircuitBreaker(redis_client=redis)
-            >>> checker = RiskChecker(config=config, breaker=breaker)
+            >>> kill_switch = KillSwitch(redis_client=redis)
+            >>> position_res = PositionReservation(redis=redis)
+            >>> checker = RiskChecker(
+            ...     config=config,
+            ...     breaker=breaker,
+            ...     kill_switch=kill_switch,
+            ...     position_reservation=position_res
+            ... )
         """
         self.config = config
         self.breaker = breaker
+        self.kill_switch = kill_switch
+        self.position_reservation = position_reservation
 
     def validate_order(
         self,
@@ -91,12 +120,15 @@ class RiskChecker:
         current_position: int = 0,
         current_price: Decimal | None = None,
         portfolio_value: Decimal | None = None,
+        *,
+        _skip_position_limit: bool = False,  # Internal: skip when using atomic reservation
     ) -> tuple[bool, str]:
         """
         Validate order against all risk limits.
 
         Checks performed (in order):
-        1. Circuit breaker state (highest priority)
+        0. Kill switch state (HIGHEST priority - absolute trading halt)
+        1. Circuit breaker state (second priority)
         2. Symbol blacklist
         3. Position size limit (shares)
         4. Position size limit (% of portfolio) - if portfolio_value provided
@@ -140,9 +172,25 @@ class RiskChecker:
             - Returns (True, "") on success (empty reason string)
             - Never raises exceptions (safe to call in critical path)
             - Logs all blocked orders at WARNING level
-            - Circuit breaker check is always first (fail fast)
+            - Kill switch check is always first (absolute halt)
+            - Circuit breaker check is second (automatic risk-based halt)
         """
-        # 1. Circuit breaker check (highest priority - fail fast)
+        # 0. Kill switch check (HIGHEST priority - absolute trading halt)
+        # Kill switch is operator-controlled emergency stop - blocks ALL trading
+        if self.kill_switch is not None and self.kill_switch.is_engaged():
+            reason = "Kill switch ENGAGED: All trading halted by operator"
+            logger.critical(
+                f"Order blocked by KILL SWITCH: {symbol} {side} {qty}",
+                extra={
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": qty,
+                    "kill_switch_engaged": True,
+                },
+            )
+            return (False, reason)
+
+        # 1. Circuit breaker check (second priority - automatic risk halt)
         if self.breaker.is_tripped():
             reason = f"Circuit breaker TRIPPED: {self.breaker.get_trip_reason()}"
             logger.warning(
@@ -163,16 +211,18 @@ class RiskChecker:
         )
 
         # 3. Position size limit (absolute shares)
-        max_position_size = self.config.position_limits.max_position_size
-        if abs(new_position) > max_position_size:
-            reason = (
-                f"Position limit exceeded: {abs(new_position)} shares > " f"{max_position_size} max"
-            )
-            logger.warning(
-                f"Order blocked by position size limit: {symbol} {side} {qty}, "
-                f"new_position={new_position}, limit={max_position_size}"
-            )
-            return (False, reason)
+        # Skip if using atomic reservation (reservation does this check atomically)
+        if not _skip_position_limit:
+            max_position_size = self.config.position_limits.max_position_size
+            if abs(new_position) > max_position_size:
+                reason = (
+                    f"Position limit exceeded: {abs(new_position)} shares > " f"{max_position_size} max"
+                )
+                logger.warning(
+                    f"Order blocked by position size limit: {symbol} {side} {qty}, "
+                    f"new_position={new_position}, limit={max_position_size}"
+                )
+                return (False, reason)
 
         # 4. Position size limit (% of portfolio) - if price and portfolio_value provided
         if current_price is not None and portfolio_value is not None:
@@ -304,3 +354,151 @@ class RiskChecker:
 
         # All checks passed
         return (True, "")
+
+    def validate_order_with_reservation(
+        self,
+        symbol: str,
+        side: str,
+        qty: int,
+        current_position: int = 0,
+        current_price: Decimal | None = None,
+        portfolio_value: Decimal | None = None,
+    ) -> tuple[bool, str, ReservationResult | None]:
+        """
+        Validate order with atomic position reservation.
+
+        This method combines standard risk validation with atomic position reservation
+        to prevent race conditions from concurrent orders. Use this for production
+        order submission paths where multiple orders might be processed simultaneously.
+
+        Args:
+            symbol: Stock symbol (e.g., "AAPL")
+            side: Order side ("buy" or "sell")
+            qty: Order quantity (positive integer)
+            current_position: Current position in symbol (default: 0)
+            current_price: Current market price (optional, for % limit check)
+            portfolio_value: Total portfolio value (optional, for % limit check)
+
+        Returns:
+            (is_valid, reason, reservation_result):
+                - (True, "", ReservationResult) if order passes all checks with reservation
+                - (False, "reason", None) if blocked by risk checks
+                - (False, "reason", ReservationResult) if reservation failed (limit exceeded)
+
+        Example:
+            >>> # Atomic validation with reservation
+            >>> is_valid, reason, reservation = checker.validate_order_with_reservation(
+            ...     "AAPL", "buy", 100, current_position=0
+            ... )
+            >>> if is_valid and reservation and reservation.success:
+            ...     try:
+            ...         submit_order_to_broker(...)
+            ...         checker.confirm_reservation("AAPL", reservation.token)
+            ...     except BrokerError:
+            ...         checker.release_reservation("AAPL", reservation.token)
+
+        Notes:
+            - If position_reservation is not configured, falls back to standard validate_order
+            - Reservation token must be confirmed or released after broker submission
+            - Reservation auto-expires after TTL (default 60s) as safety net
+        """
+        # First run standard validation
+        # Skip position limit check if using atomic reservation (avoids redundant stateless check)
+        use_atomic_reservation = self.position_reservation is not None
+        is_valid, reason = self.validate_order(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            current_position=current_position,
+            current_price=current_price,
+            portfolio_value=portfolio_value,
+            _skip_position_limit=use_atomic_reservation,  # Atomic reservation does this check
+        )
+
+        if not is_valid:
+            return (False, reason, None)
+
+        # If position_reservation is not configured, return standard result
+        if not use_atomic_reservation:
+            logger.debug(
+                "Position reservation not configured, using standard validation only"
+            )
+            return (True, "", None)
+
+        # Attempt atomic position reservation
+        # Assert for mypy: we know position_reservation is not None at this point
+        assert self.position_reservation is not None  # Verified by use_atomic_reservation check
+        max_position_size = self.config.position_limits.max_position_size
+        reservation_result = self.position_reservation.reserve(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            max_limit=max_position_size,
+            current_position=current_position,
+        )
+
+        if not reservation_result.success:
+            logger.warning(
+                f"Position reservation failed: {symbol} {side} {qty}, "
+                f"reason={reservation_result.reason}"
+            )
+            return (False, reservation_result.reason, reservation_result)
+
+        logger.debug(
+            f"Position reserved: {symbol} {side} {qty}, "
+            f"token={reservation_result.token}"
+        )
+        return (True, "", reservation_result)
+
+    def confirm_reservation(self, symbol: str, token: str) -> bool:
+        """
+        Confirm a position reservation after successful order submission.
+
+        Call this after the broker accepts the order to finalize the reservation.
+
+        Args:
+            symbol: Stock symbol
+            token: Reservation token from validate_order_with_reservation()
+
+        Returns:
+            True if confirmed successfully, False otherwise
+
+        Notes:
+            - Safe to call multiple times (idempotent)
+            - Requires position_reservation to be configured
+        """
+        if self.position_reservation is None:
+            logger.warning(
+                "Cannot confirm reservation: position_reservation not configured"
+            )
+            return False
+
+        result = self.position_reservation.confirm(symbol, token)
+        return result.success
+
+    def release_reservation(self, symbol: str, token: str) -> bool:
+        """
+        Release a position reservation after order failure.
+
+        Call this when an order fails after reservation to return
+        the reserved position back to the pool.
+
+        Args:
+            symbol: Stock symbol
+            token: Reservation token from validate_order_with_reservation()
+
+        Returns:
+            True if released successfully, False otherwise
+
+        Notes:
+            - Safe to call multiple times (idempotent)
+            - Requires position_reservation to be configured
+        """
+        if self.position_reservation is None:
+            logger.warning(
+                "Cannot release reservation: position_reservation not configured"
+            )
+            return False
+
+        result = self.position_reservation.release(symbol, token)
+        return result.success

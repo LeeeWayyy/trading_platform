@@ -245,35 +245,37 @@ def test_refresh_rate_limit_exceeded(client, mock_oauth2_handler, mock_rate_limi
 
 def test_refresh_internal_bypass_uses_shared_secret(client, mock_oauth2_handler, mock_rate_limiters):
     """Internal callers with shared secret should bypass binding validation."""
+    # Patch the module-level constant directly (env var is evaluated at import time)
+    with patch("apps.auth_service.routes.refresh.INTERNAL_REFRESH_SECRET", "test-internal-secret"):
+        response = client.post(
+            "/refresh",
+            cookies={"session_id": "session_id_123"},
+            headers={"X-Internal-Auth": "test-internal-secret"},
+        )
 
-    response = client.post(
-        "/refresh",
-        cookies={"session_id": "session_id_123"},
-        headers={"X-Internal-Auth": "test-internal-secret"},
-    )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "success"
-
-    mock_oauth2_handler.refresh_tokens.assert_called_with(
-        session_id="session_id_123",
-        ip_address=None,
-        user_agent=None,
-    )
+        mock_oauth2_handler.refresh_tokens.assert_called_with(
+            session_id="session_id_123",
+            ip_address=None,
+            user_agent=None,
+        )
 
 
 def test_refresh_internal_invalid_secret_rejected(client, mock_oauth2_handler, mock_rate_limiters):
     """Invalid internal secret should not bypass binding and returns 401."""
+    # Patch the module-level constant directly (env var is evaluated at import time)
+    with patch("apps.auth_service.routes.refresh.INTERNAL_REFRESH_SECRET", "test-internal-secret"):
+        response = client.post(
+            "/refresh",
+            cookies={"session_id": "session_id_123"},
+            headers={"X-Internal-Auth": "wrong-secret"},
+        )
 
-    response = client.post(
-        "/refresh",
-        cookies={"session_id": "session_id_123"},
-        headers={"X-Internal-Auth": "wrong-secret"},
-    )
-
-    assert response.status_code == 401
-    assert "invalid internal auth" in response.json()["detail"].lower()
+        assert response.status_code == 401
+        assert "invalid internal auth" in response.json()["detail"].lower()
 
 
 def test_refresh_invalid_session(client, mock_oauth2_handler, mock_rate_limiters):

@@ -6,9 +6,11 @@ Tests verify:
 - Uniqueness: different parameters -> different IDs
 - Date sensitivity: same parameters, different dates -> different IDs
 - Format validation: 24-character hex string
+- UTC date usage: consistent IDs across timezones
+- Order type differentiation: different order_type/time_in_force -> different IDs
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from apps.execution_gateway.order_id_generator import (
@@ -117,15 +119,56 @@ class TestGenerateClientOrderId:
         assert len(client_order_id) == 24, "ID should be 24 characters"
         assert all(c in "0123456789abcdef" for c in client_order_id), "ID should be hexadecimal"
 
-    def test_defaults_to_today(self):
-        """Should default to today's date if not specified."""
+    def test_defaults_to_utc_today(self):
+        """Should default to today's UTC date if not specified."""
         order = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
         strategy_id = "alpha_baseline"
 
         id_default = generate_client_order_id(order, strategy_id)
-        id_explicit = generate_client_order_id(order, strategy_id, as_of_date=date.today())
+        # Use UTC date (not local time) for comparison
+        id_explicit = generate_client_order_id(
+            order, strategy_id, as_of_date=datetime.now(UTC).date()
+        )
 
-        assert id_default == id_explicit, "Should default to today's date"
+        assert id_default == id_explicit, "Should default to today's UTC date"
+
+    def test_different_order_type_generates_different_id(self):
+        """Different order types should generate different IDs (T5.5 fix)."""
+        order_market = OrderRequest(
+            symbol="AAPL", side="buy", qty=10, order_type="market"
+        )
+        order_limit = OrderRequest(
+            symbol="AAPL",
+            side="buy",
+            qty=10,
+            order_type="limit",
+            limit_price=Decimal("150.00"),
+        )
+
+        strategy_id = "alpha_baseline"
+        today = date(2024, 10, 17)
+
+        id_market = generate_client_order_id(order_market, strategy_id, as_of_date=today)
+        id_limit = generate_client_order_id(order_limit, strategy_id, as_of_date=today)
+
+        assert id_market != id_limit, "Different order types should generate different IDs"
+
+    def test_different_time_in_force_generates_different_id(self):
+        """Different time_in_force values should generate different IDs (T5.5 fix)."""
+        order_day = OrderRequest(
+            symbol="AAPL", side="buy", qty=10, order_type="market", time_in_force="day"
+        )
+        order_gtc = OrderRequest(
+            symbol="AAPL", side="buy", qty=10, order_type="market", time_in_force="gtc"
+        )
+
+        strategy_id = "alpha_baseline"
+        today = date(2024, 10, 17)
+
+        id_day = generate_client_order_id(order_day, strategy_id, as_of_date=today)
+        id_gtc = generate_client_order_id(order_gtc, strategy_id, as_of_date=today)
+
+        assert id_day != id_gtc, "Different time_in_force should generate different IDs"
 
     def test_different_strategy_ids(self):
         """Different strategy IDs should generate different IDs."""
@@ -171,7 +214,12 @@ class TestReconstructOrderParamsHash:
     def test_reconstruction_matches_generation(self):
         """Reconstructed hash should match generated ID."""
         order = OrderRequest(
-            symbol="AAPL", side="buy", qty=10, order_type="limit", limit_price=Decimal("150.00")
+            symbol="AAPL",
+            side="buy",
+            qty=10,
+            order_type="limit",
+            limit_price=Decimal("150.00"),
+            time_in_force="day",
         )
         strategy_id = "alpha_baseline"
         order_date = date(2024, 10, 17)
@@ -184,6 +232,8 @@ class TestReconstructOrderParamsHash:
             qty=order.qty,
             limit_price=order.limit_price,
             stop_price=order.stop_price,
+            order_type=order.order_type,
+            time_in_force=order.time_in_force,
             strategy_id=strategy_id,
             order_date=order_date,
         )
@@ -198,6 +248,8 @@ class TestReconstructOrderParamsHash:
             qty=10,
             limit_price=None,
             stop_price=None,
+            order_type="market",
+            time_in_force="day",
             strategy_id="alpha_baseline",
             order_date=date(2024, 10, 17),
         )

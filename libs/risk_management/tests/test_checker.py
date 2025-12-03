@@ -143,6 +143,14 @@ def mock_redis():
 
     redis.get = MagicMock(side_effect=mock_get)
     redis.set = MagicMock(side_effect=mock_set)
+    # P3T5 fix: Also mock redis.pipeline() (breaker uses self.redis.pipeline())
+    redis.pipeline = MagicMock(side_effect=mock_pipeline)
+    # P3T5 fix: Also mock redis.zadd/zcard/zrange/zremrangebyrank directly
+    # (breaker uses self.redis.zadd() etc, not self.redis._client.zadd())
+    redis.zadd = MagicMock(side_effect=mock_zadd)
+    redis.zcard = MagicMock(side_effect=mock_zcard)
+    redis.zrange = MagicMock(side_effect=mock_zrange)
+    redis.zremrangebyrank = MagicMock(side_effect=mock_zremrangebyrank)
 
     # Create mock _client attribute with zadd/zremrangebyrank/pipeline support
     redis._client = MagicMock()
@@ -157,8 +165,10 @@ def mock_redis():
 
 @pytest.fixture()
 def breaker(mock_redis):
-    """Circuit breaker instance."""
-    return CircuitBreaker(redis_client=mock_redis)
+    """Circuit breaker instance with auto-initialize for tests."""
+    # P3T5 fix: Use auto_initialize=True for tests to allow testing without real Redis state
+    # Production code uses auto_initialize=False for fail-closed behavior
+    return CircuitBreaker(redis_client=mock_redis, auto_initialize=True)
 
 
 @pytest.fixture()

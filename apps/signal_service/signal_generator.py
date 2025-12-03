@@ -63,11 +63,11 @@ class PrecomputeResult(TypedDict):
     symbols_skipped: list[str]
 
 
-from strategies.alpha_baseline.data_loader import T1DataProvider
-from strategies.alpha_baseline.features import get_alpha158_features
-from strategies.alpha_baseline.mock_features import get_mock_alpha158_features
+from strategies.alpha_baseline.data_loader import T1DataProvider  # noqa: E402
+from strategies.alpha_baseline.features import get_alpha158_features  # noqa: E402
+from strategies.alpha_baseline.mock_features import get_mock_alpha158_features  # noqa: E402
 
-from .model_registry import ModelRegistry
+from .model_registry import ModelRegistry  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -191,11 +191,14 @@ class CRLCache:
                 fetch_duration = (datetime.now(UTC) - fetch_start).total_seconds()
 
                 # Validate CRL freshness (fail-secure: reject if CRL too old)
-                if crl.next_update_utc:
-                    crl_age = datetime.now(UTC) - crl.last_update_utc
+                # Note: cryptography's standard attributes return naive datetimes (UTC),
+                # so we add tzinfo=UTC to make them timezone-aware for comparison
+                crl_last_update = crl.last_update.replace(tzinfo=UTC)
+                if crl.next_update:
+                    crl_age = datetime.now(UTC) - crl_last_update
                     if crl_age > self.max_crl_age:
                         raise ValueError(
-                            f"CRL too old: last_update={crl.last_update_utc}, "
+                            f"CRL too old: last_update={crl_last_update}, "
                             f"age={crl_age.total_seconds():.0f}s (max={self.max_crl_age.total_seconds():.0f}s)"
                         )
 
@@ -207,16 +210,19 @@ class CRLCache:
                 mtls_crl_fetch_total.labels(crl_url=self.crl_url, result="success").inc()
                 mtls_crl_fetch_duration.labels(crl_url=self.crl_url).observe(fetch_duration)
                 mtls_crl_last_update_timestamp.labels(crl_url=self.crl_url).set(
-                    crl.last_update_utc.timestamp()
+                    crl_last_update.timestamp()
                 )
                 mtls_crl_cache_age_seconds.labels(crl_url=self.crl_url).set(0)
 
+                crl_next_update = (
+                    crl.next_update.replace(tzinfo=UTC) if crl.next_update else None
+                )
                 logger.info(
                     "CRL fetched successfully",
                     extra={
-                        "last_update": crl.last_update_utc.isoformat(),
+                        "last_update": crl_last_update.isoformat(),
                         "next_update": (
-                            crl.next_update_utc.isoformat() if crl.next_update_utc else "N/A"
+                            crl_next_update.isoformat() if crl_next_update else "N/A"
                         ),
                         "revoked_count": len(list(crl)),
                     },
@@ -255,7 +261,8 @@ class CRLCache:
             # Check if certificate serial number is in CRL
             for revoked in crl:
                 if revoked.serial_number == cert.serial_number:
-                    revoke_date = revoked.revocation_date_utc
+                    # Make revocation_date timezone-aware (cryptography returns naive UTC)
+                    revoke_date = revoked.revocation_date.replace(tzinfo=UTC)
                     logger.warning(
                         "Certificate revoked",
                         extra={
@@ -351,8 +358,9 @@ class MtlsFallbackValidator:
             # Step 2: Extract certificate info
             cn = self._extract_cn(cert)
             dn = cert.subject.rfc4514_string()
-            not_before = cert.not_valid_before_utc
-            not_after = cert.not_valid_after_utc
+            # Make dates timezone-aware (cryptography returns naive UTC datetimes)
+            not_before = cert.not_valid_before.replace(tzinfo=UTC)
+            not_after = cert.not_valid_after.replace(tzinfo=UTC)
             lifetime = not_after - not_before
             lifetime_days = lifetime.total_seconds() / 86400
 

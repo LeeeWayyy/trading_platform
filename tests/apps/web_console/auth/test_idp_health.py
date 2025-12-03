@@ -25,7 +25,7 @@ def health_checker():
     """Create IdP health checker instance."""
     return IdPHealthChecker(
         auth0_domain="test.us.auth0.com",
-        check_interval_seconds=60,
+        normal_check_interval_seconds=60,
         failure_threshold=3,
         timeout_seconds=5.0,
     )
@@ -209,12 +209,17 @@ def test_should_fallback_to_mtls_below_threshold(health_checker):
 
 def test_should_fallback_to_mtls_at_threshold(health_checker):
     """Test fallback triggered at failure threshold."""
+    # should_fallback_to_mtls() returns self._fallback_mode, not based on _last_status
+    # The _fallback_mode is set when consecutive failures reach threshold during check_health()
+    health_checker._fallback_mode = True
+    health_checker._consecutive_failures = 3  # At threshold
     health_checker._last_status = IdPHealthStatus(
         healthy=False,
         checked_at=datetime.now(UTC),
         response_time_ms=100.0,
         error="Connection error",
         consecutive_failures=3,  # At threshold
+        fallback_mode=True,
     )
 
     assert health_checker.should_fallback_to_mtls() is True
@@ -222,12 +227,17 @@ def test_should_fallback_to_mtls_at_threshold(health_checker):
 
 def test_should_fallback_to_mtls_above_threshold(health_checker):
     """Test fallback triggered above failure threshold."""
+    # should_fallback_to_mtls() returns self._fallback_mode, not based on _last_status
+    # The _fallback_mode is set when consecutive failures reach threshold during check_health()
+    health_checker._fallback_mode = True
+    health_checker._consecutive_failures = 5  # Above threshold
     health_checker._last_status = IdPHealthStatus(
         healthy=False,
         checked_at=datetime.now(UTC),
         response_time_ms=100.0,
         error="Connection error",
         consecutive_failures=5,  # Above threshold
+        fallback_mode=True,
     )
 
     assert health_checker.should_fallback_to_mtls() is True

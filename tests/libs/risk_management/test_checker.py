@@ -22,12 +22,13 @@ from libs.risk_management.config import (
     PositionLimits,
     RiskConfig,
 )
+from libs.risk_management.kill_switch import KillSwitch
 
 
 class TestRiskCheckerInitialization:
     """Tests for RiskChecker initialization."""
 
-    def test_initialization(self):
+    def test_initialization(self) -> None:
         """Test RiskChecker initializes with config and breaker."""
         config = RiskConfig()
         breaker = Mock(spec=CircuitBreaker)
@@ -36,6 +37,103 @@ class TestRiskCheckerInitialization:
 
         assert checker.config == config
         assert checker.breaker == breaker
+        assert checker.kill_switch is None  # Optional, defaults to None
+
+    def test_initialization_with_kill_switch(self) -> None:
+        """Test RiskChecker initializes with optional kill switch."""
+        config = RiskConfig()
+        breaker = Mock(spec=CircuitBreaker)
+        kill_switch = Mock(spec=KillSwitch)
+
+        checker = RiskChecker(config=config, breaker=breaker, kill_switch=kill_switch)
+
+        assert checker.config == config
+        assert checker.breaker == breaker
+        assert checker.kill_switch == kill_switch
+
+
+class TestValidateOrderKillSwitch:
+    """Tests for kill switch integration (T5.1).
+
+    Kill switch is the HIGHEST priority check (step 0).
+    When engaged, ALL trading is blocked regardless of other checks.
+    """
+
+    @pytest.fixture()
+    def checker_with_kill_switch(self) -> tuple[RiskChecker, Mock, Mock]:
+        """Create RiskChecker with mock kill switch and circuit breaker."""
+        config = RiskConfig()
+        breaker = Mock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        kill_switch = Mock(spec=KillSwitch)
+        checker = RiskChecker(config=config, breaker=breaker, kill_switch=kill_switch)
+        return checker, breaker, kill_switch
+
+    def test_order_blocked_when_kill_switch_engaged(
+        self, checker_with_kill_switch: tuple[RiskChecker, Mock, Mock]
+    ) -> None:
+        """Test order blocked when kill switch is ENGAGED."""
+        risk_checker, _breaker, kill_switch = checker_with_kill_switch
+        kill_switch.is_engaged.return_value = True
+
+        is_valid, reason = risk_checker.validate_order(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        assert is_valid is False
+        assert "Kill switch ENGAGED" in reason
+        assert "All trading halted" in reason
+        kill_switch.is_engaged.assert_called_once()
+
+    def test_order_allowed_when_kill_switch_active(
+        self, checker_with_kill_switch: tuple[RiskChecker, Mock, Mock]
+    ) -> None:
+        """Test order allowed when kill switch is ACTIVE (not engaged)."""
+        risk_checker, _breaker, kill_switch = checker_with_kill_switch
+        kill_switch.is_engaged.return_value = False
+
+        is_valid, reason = risk_checker.validate_order(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        assert is_valid is True
+        assert reason == ""
+        kill_switch.is_engaged.assert_called_once()
+
+    def test_kill_switch_checked_before_circuit_breaker(
+        self, checker_with_kill_switch: tuple[RiskChecker, Mock, Mock]
+    ) -> None:
+        """Test kill switch is checked BEFORE circuit breaker (step 0 vs step 1)."""
+        risk_checker, breaker, kill_switch = checker_with_kill_switch
+        # Both are in "bad" state
+        kill_switch.is_engaged.return_value = True
+        breaker.is_tripped.return_value = True
+        breaker.get_trip_reason.return_value = "DAILY_LOSS_EXCEEDED"
+
+        is_valid, reason = risk_checker.validate_order(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        # Kill switch should be checked first, so its message should appear
+        assert is_valid is False
+        assert "Kill switch ENGAGED" in reason
+        # Circuit breaker message should NOT appear (kill switch blocks first)
+        assert "Circuit breaker" not in reason
+
+    def test_order_allowed_when_kill_switch_is_none(self) -> None:
+        """Test backwards compatibility: order allowed when kill_switch is None."""
+        config = RiskConfig()
+        breaker = Mock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        # No kill switch provided (backwards compatibility)
+        checker = RiskChecker(config=config, breaker=breaker)
+
+        is_valid, reason = checker.validate_order(
+            symbol="AAPL", side="buy", qty=100, current_position=0
+        )
+
+        assert is_valid is True
+        assert reason == ""
 
 
 class TestValidateOrderCircuitBreaker:

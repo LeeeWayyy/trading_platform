@@ -87,7 +87,12 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
 )
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
-from libs.risk_management import CircuitBreaker, KillSwitch
+from libs.risk_management import (
+    CircuitBreaker,
+    KillSwitch,
+    PositionReservation,
+    RiskConfig,
+)
 
 # ============================================================================
 # Configuration
@@ -169,6 +174,13 @@ kill_switch: KillSwitch | None = None
 _kill_switch_lock = threading.Lock()
 _kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
 
+_circuit_breaker_lock = threading.Lock()
+_circuit_breaker_unavailable = False  # Track if circuit breaker initialization failed (fail closed)
+
+# Gemini PR fix: Thread-safe position reservation unavailable flag (fail-closed pattern)
+_position_reservation_lock = threading.Lock()
+_position_reservation_unavailable = False  # Track if position reservation init failed (fail closed)
+
 
 def is_kill_switch_unavailable() -> bool:
     """Thread-safe check if kill-switch is unavailable."""
@@ -181,6 +193,32 @@ def set_kill_switch_unavailable(value: bool) -> None:
     global _kill_switch_unavailable
     with _kill_switch_lock:
         _kill_switch_unavailable = value
+
+
+def is_circuit_breaker_unavailable() -> bool:
+    """Thread-safe check if circuit breaker is unavailable."""
+    with _circuit_breaker_lock:
+        return _circuit_breaker_unavailable
+
+
+def set_circuit_breaker_unavailable(value: bool) -> None:
+    """Thread-safe set circuit breaker unavailable state."""
+    global _circuit_breaker_unavailable
+    with _circuit_breaker_lock:
+        _circuit_breaker_unavailable = value
+
+
+def is_position_reservation_unavailable() -> bool:
+    """Thread-safe check if position reservation is unavailable."""
+    with _position_reservation_lock:
+        return _position_reservation_unavailable
+
+
+def set_position_reservation_unavailable(value: bool) -> None:
+    """Thread-safe set position reservation unavailable state."""
+    global _position_reservation_unavailable
+    with _position_reservation_lock:
+        _position_reservation_unavailable = value
 
 
 if redis_client:
@@ -219,15 +257,52 @@ if not DRY_RUN:
             logger.error(f"Failed to initialize Alpaca client: {e}")
 
 # Circuit Breaker (for post-trade risk monitoring)
+# Codex CRITICAL fix: Track initialization failures and fail closed
 circuit_breaker: CircuitBreaker | None = None
 if redis_client:
     try:
         circuit_breaker = CircuitBreaker(redis_client=redis_client)
         logger.info("Circuit breaker initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize circuit breaker: {e}")
+        logger.error(
+            f"Failed to initialize circuit breaker: {e}. "
+            "FAILING CLOSED - all trading blocked until circuit breaker available."
+        )
+        set_circuit_breaker_unavailable(True)
 else:
-    logger.warning("Circuit breaker not initialized (Redis unavailable)")
+    logger.error(
+        "Circuit breaker not initialized (Redis unavailable). "
+        "FAILING CLOSED - all trading blocked until Redis available."
+    )
+    set_circuit_breaker_unavailable(True)
+
+# Risk Configuration (position limits, etc.)
+risk_config = RiskConfig()
+logger.info(
+    f"Risk config initialized: max_position_size={risk_config.position_limits.max_position_size}"
+)
+
+# Position Reservation (for atomic position limit checking - prevents race conditions)
+# Codex HIGH fix: Wire PositionReservation into production to prevent concurrent orders
+# from both passing position limit check before either executes
+# Gemini PR fix: Add fail-closed pattern to block trading when position reservation unavailable
+position_reservation: PositionReservation | None = None
+if redis_client:
+    try:
+        position_reservation = PositionReservation(redis=redis_client)
+        logger.info("Position reservation initialized successfully")
+    except Exception as e:
+        logger.error(
+            f"Failed to initialize position reservation: {e}. "
+            "FAILING CLOSED - all trading blocked until position reservation available."
+        )
+        set_position_reservation_unavailable(True)
+else:
+    logger.error(
+        "Position reservation not initialized (Redis unavailable). "
+        "FAILING CLOSED - all trading blocked until Redis available."
+    )
+    set_position_reservation_unavailable(True)
 
 # TWAP Order Slicer (stateless, no dependencies)
 twap_slicer = TWAPSlicer()
@@ -666,7 +741,7 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-10-17T16:30:00Z"
         }
     """
-    global kill_switch, circuit_breaker, slice_scheduler  # H3: Removed kill_switch_unavailable (now thread-safe function)
+    global kill_switch, circuit_breaker, slice_scheduler, position_reservation  # H3: Removed unavailable flags (now thread-safe functions)
 
     # Check database connection
     db_connected = db_client.check_connection()
@@ -676,28 +751,64 @@ async def health_check() -> HealthResponse:
     if redis_client:
         redis_connected = redis_client.health_check()
 
-        # Attempt to recover kill-switch, circuit breaker, and slice scheduler if Redis is back
-        if is_kill_switch_unavailable() and redis_connected:
+        # Attempt to recover kill-switch, circuit breaker, position reservation, and slice scheduler if Redis is back
+        # Check if ANY safety mechanism is unavailable
+        if redis_connected and (
+            is_kill_switch_unavailable()
+            or is_circuit_breaker_unavailable()
+            or is_position_reservation_unavailable()
+        ):
             try:
-                # Re-initialize kill-switch if it was None at startup
-                if kill_switch is None:
-                    kill_switch = KillSwitch(redis_client=redis_client)
-                    logger.info(
-                        "Kill-switch re-initialized after Redis recovery",
-                        extra={"kill_switch_recovered": True},
-                    )
+                # 1. Recover Kill Switch
+                if is_kill_switch_unavailable():
+                    if kill_switch is None:
+                        kill_switch = KillSwitch(redis_client=redis_client)
+                        logger.info(
+                            "Kill-switch re-initialized after Redis recovery",
+                            extra={"kill_switch_recovered": True},
+                        )
 
-                # Re-initialize circuit breaker if it was None at startup
-                if circuit_breaker is None:
-                    circuit_breaker = CircuitBreaker(redis_client=redis_client)
-                    logger.info(
-                        "Circuit breaker re-initialized after Redis recovery",
-                        extra={"breaker_recovered": True},
-                    )
+                    # Verify it works
+                    kill_switch.is_engaged()
+                    set_kill_switch_unavailable(False)
+                    logger.info("Kill-switch recovered and validated")
 
-                # Re-initialize slice scheduler if both kill switch and circuit breaker are now available
+                # 2. Recover Circuit Breaker
+                if is_circuit_breaker_unavailable():
+                    if circuit_breaker is None:
+                        circuit_breaker = CircuitBreaker(redis_client=redis_client)
+                        logger.info(
+                            "Circuit breaker re-initialized after Redis recovery",
+                            extra={"breaker_recovered": True},
+                        )
+
+                    # Verify it works (check trip status - throws if state missing)
+                    try:
+                        circuit_breaker.is_tripped()
+                        set_circuit_breaker_unavailable(False)
+                        logger.info("Circuit breaker recovered and validated")
+                    except RuntimeError:
+                        # Still missing state, keep unavailable
+                        logger.warning("Circuit breaker re-initialized but state still missing")
+
+                # 3. Recover Position Reservation (Gemini PR fix)
+                if is_position_reservation_unavailable():
+                    if position_reservation is None:
+                        position_reservation = PositionReservation(redis=redis_client)
+                        logger.info(
+                            "Position reservation re-initialized after Redis recovery",
+                            extra={"position_reservation_recovered": True},
+                        )
+
+                    # Position reservation is stateless - just clear the flag
+                    set_position_reservation_unavailable(False)
+                    logger.info("Position reservation recovered and validated")
+
+                # 4. Recover Slice Scheduler (needs both KS and CB)
                 if (
                     slice_scheduler is None
+                    and not is_kill_switch_unavailable()
+                    and not is_circuit_breaker_unavailable()
                     and kill_switch is not None
                     and circuit_breaker is not None
                 ):
@@ -707,8 +818,7 @@ async def health_check() -> HealthResponse:
                         db_client=db_client,
                         executor=alpaca_client,  # Can be None in DRY_RUN mode
                     )
-                    # Start the scheduler (same pattern as startup_event)
-                    # Guard against restarting a shutdown scheduler (APScheduler limitation)
+                    # Start the scheduler
                     if not slice_scheduler.scheduler.running:
                         slice_scheduler.start()
                         logger.info(
@@ -721,23 +831,25 @@ async def health_check() -> HealthResponse:
                             extra={"scheduler_recovered": True, "scheduler_already_running": True},
                         )
 
-                # Test kill-switch availability by checking its state
-                kill_switch.is_engaged()
-                # If we get here, kill-switch is available again
-                set_kill_switch_unavailable(False)
                 logger.info(
-                    "Infrastructure recovered - resuming normal operations",
+                    "Infrastructure recovery attempt completed",
                     extra={
-                        "kill_switch_recovered": True,
-                        "breaker_recovered": True,
-                        "scheduler_recovered": True,
+                        "kill_switch_available": not is_kill_switch_unavailable(),
+                        "breaker_available": not is_circuit_breaker_unavailable(),
+                        "position_reservation_available": not is_position_reservation_unavailable(),
                     },
                 )
+
             except Exception as e:
-                # Still unavailable, keep flag set
-                logger.debug(
-                    f"Infrastructure still unavailable during health check: {e}",
-                    extra={"kill_switch_unavailable": True},
+                # Still unavailable, keep flags set (fail closed)
+                logger.error(
+                    f"Infrastructure recovery failed: {e}",
+                    extra={
+                        "error": str(e),
+                        "kill_switch_unavailable": is_kill_switch_unavailable(),
+                        "breaker_unavailable": is_circuit_breaker_unavailable(),
+                        "position_reservation_unavailable": is_position_reservation_unavailable(),
+                    },
                 )
 
     # Check Alpaca connection (if not DRY_RUN)
@@ -762,8 +874,12 @@ async def health_check() -> HealthResponse:
 
     # Determine overall status
     overall_status: Literal["healthy", "degraded", "unhealthy"]
-    if is_kill_switch_unavailable():
-        # Kill-switch unavailable means we're in fail-closed mode - report degraded
+    if (
+        is_kill_switch_unavailable()
+        or is_circuit_breaker_unavailable()
+        or is_position_reservation_unavailable()
+    ):
+        # Safety mechanisms unavailable means we're in fail-closed mode - report degraded
         overall_status = "degraded"
     elif db_connected and (DRY_RUN or alpaca_connected):
         overall_status = "healthy"
@@ -1089,6 +1205,46 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             },
         )
 
+    # Codex CRITICAL fix: Check circuit breaker unavailable (fail closed for safety)
+    # This prevents trading when circuit breaker init failed or Redis unavailable
+    if is_circuit_breaker_unavailable():
+        logger.error(
+            f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
+            extra={
+                "client_order_id": client_order_id,
+                "circuit_breaker_unavailable": True,
+            },
+        )
+        _record_order_metrics(order, start_time, "blocked")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Circuit breaker unavailable",
+                "message": "All trading blocked - circuit breaker state unknown (initialization failed)",
+                "fail_closed": True,
+            },
+        )
+
+    # Gemini PR fix: Check position reservation unavailable (fail closed for safety)
+    # This prevents trading when position reservation init failed or Redis unavailable
+    if is_position_reservation_unavailable():
+        logger.error(
+            f"🔴 Order blocked by unavailable position reservation (FAIL CLOSED): {client_order_id}",
+            extra={
+                "client_order_id": client_order_id,
+                "position_reservation_unavailable": True,
+            },
+        )
+        _record_order_metrics(order, start_time, "blocked")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Position reservation unavailable",
+                "message": "All trading blocked - position reservation state unknown (initialization failed)",
+                "fail_closed": True,
+            },
+        )
+
     # Check kill-switch (operator-controlled emergency halt)
     try:
         if kill_switch and kill_switch.is_engaged():
@@ -1162,8 +1318,34 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                         "trip_reason": trip_reason,
                     },
                 )
+        except RuntimeError as e:
+            # Codex HIGH fix: Circuit breaker state missing (fail-closed for safety)
+            # RuntimeError is raised when circuit breaker state is missing from Redis
+            # (e.g., after Redis flush/restart without explicit reinitialization)
+            # Codex HIGH fix: Set unavailable flag to enable health check recovery
+            set_circuit_breaker_unavailable(True)
+            logger.error(
+                f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "circuit_breaker_unavailable": True,
+                    "fail_closed": True,
+                    "error": str(e),
+                },
+            )
+            _record_order_metrics(order, start_time, "blocked")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Circuit breaker unavailable",
+                    "message": "Circuit breaker state missing (fail-closed for safety)",
+                    "fail_closed": True,
+                },
+            ) from e
         except RedisError as e:
             # Circuit breaker state unavailable (fail-closed for safety)
+            # Codex HIGH fix: Set unavailable flag to enable health check recovery
+            set_circuit_breaker_unavailable(True)
             logger.error(
                 f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
                 extra={
@@ -1184,9 +1366,101 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 },
             ) from e
 
+    # Position reservation for atomic limit checking (prevents race conditions)
+    # Codex HIGH fix: Wire PositionReservation to prevent concurrent orders from both
+    # passing position limit check before either executes
+    #
+    # NOTE: PositionReservation maintains its own running total of reserved positions
+    # in Redis. It should be synced with actual positions during startup/reconciliation
+    # using sync_position(). During order submission, we pass current_position as fallback
+    # for when Redis key is missing (e.g., after Redis restart).
+    reservation_token: str | None = None
+    if position_reservation:
+        try:
+            # Codex CRITICAL fix: Get actual position from DB for fallback
+            # Without this, after Redis restart the system incorrectly assumes position=0
+            # which could allow orders that exceed position limits
+            current_position = db_client.get_position_by_symbol(order.symbol)
+
+            # Atomically reserve position change
+            # The reservation system tracks the running total of reserved positions
+            max_position_size = risk_config.position_limits.max_position_size
+            reservation_result = position_reservation.reserve(
+                symbol=order.symbol,
+                side=order.side,
+                qty=order.qty,
+                max_limit=max_position_size,
+                current_position=current_position,  # Fallback when Redis key missing
+            )
+
+            if not reservation_result.success:
+                logger.warning(
+                    f"🔴 Order blocked by position limit: {client_order_id}",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "symbol": order.symbol,
+                        "side": order.side,
+                        "qty": order.qty,
+                        "reserved_position": reservation_result.previous_position,
+                        "would_be_position": reservation_result.new_position,
+                        "reason": reservation_result.reason,
+                    },
+                )
+                _record_order_metrics(order, start_time, "blocked")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "Position limit exceeded",
+                        "message": reservation_result.reason,
+                        "symbol": order.symbol,
+                        "reserved_position": reservation_result.previous_position,
+                        "requested_qty": order.qty,
+                        "max_position_size": max_position_size,
+                    },
+                )
+
+            reservation_token = reservation_result.token
+            logger.debug(
+                f"Position reserved: {order.symbol} {order.side} {order.qty}, token={reservation_token}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "reservation_token": reservation_token,
+                    "reserved_position": reservation_result.new_position,
+                },
+            )
+        except HTTPException:
+            raise  # Re-raise position limit errors
+        except Exception as e:
+            # Codex HIGH fix: Fail-closed on reservation system error
+            # If Redis is unavailable, concurrent orders could race past position limits
+            # Codex MEDIUM fix: Latch unavailable flag so health check reflects degraded state
+            set_position_reservation_unavailable(True)
+            logger.error(
+                f"🔴 Order blocked by reservation system failure (FAIL CLOSED): {client_order_id}",
+                extra={
+                    "client_order_id": client_order_id,
+                    "error": str(e),
+                    "fail_closed": True,
+                },
+            )
+            _record_order_metrics(order, start_time, "blocked")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Position reservation unavailable",
+                    "message": f"Risk check system unavailable (fail-closed): {e}",
+                    "fail_closed": True,
+                },
+            ) from e
+
     # Check if order already exists (idempotency)
     existing_order = db_client.get_order_by_client_id(client_order_id)
     if existing_order:
+        # Release reservation since no new order is being created (idempotent return)
+        if position_reservation and reservation_token:
+            position_reservation.release(order.symbol, reservation_token)
+            logger.debug(f"Released reservation for idempotent order: {reservation_token}")
+
         logger.info(
             f"Order already exists (idempotent): {client_order_id}",
             extra={"client_order_id": client_order_id, "status": existing_order.status},
@@ -1227,7 +1501,28 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 broker_order_id=None,
             )
         except UniqueViolation:
+            # Release reservation on race condition (another request won)
+            if position_reservation and reservation_token:
+                position_reservation.release(order.symbol, reservation_token)
             return _handle_idempotency_race(client_order_id, db_client)
+        except Exception as e:
+            # Codex MEDIUM fix: Release reservation on any DB error to prevent leaks
+            # Other DB errors (connection drop, constraint failure, serialization error)
+            # would otherwise leak the reservation until TTL expiry
+            if position_reservation and reservation_token:
+                position_reservation.release(order.symbol, reservation_token)
+                logger.debug(f"Released reservation on DRY_RUN DB error: {reservation_token}")
+            logger.error(f"DRY_RUN order DB error: {e}", exc_info=True)
+            _record_order_metrics(order, start_time, "failed")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save DRY_RUN order: {str(e)}",
+            ) from e
+
+        # Confirm position reservation after successful order creation
+        if position_reservation and reservation_token:
+            position_reservation.confirm(order.symbol, reservation_token)
+            logger.debug(f"Confirmed reservation for DRY_RUN order: {reservation_token}")
 
         # Track metrics for dry run order
         _record_order_metrics(order, start_time, "success")
@@ -1248,6 +1543,9 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
     else:
         # Live mode - submit to Alpaca
         if not alpaca_client:
+            # Release reservation since we can't submit to broker
+            if position_reservation and reservation_token:
+                position_reservation.release(order.symbol, reservation_token)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Alpaca client not initialized. Check credentials.",
@@ -1279,7 +1577,15 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                     broker_order_id=alpaca_response["id"],
                 )
             except UniqueViolation:
+                # Release reservation on race condition (another request won)
+                if position_reservation and reservation_token:
+                    position_reservation.release(order.symbol, reservation_token)
                 return _handle_idempotency_race(client_order_id, db_client)
+
+            # Confirm position reservation after successful broker submission
+            if position_reservation and reservation_token:
+                position_reservation.confirm(order.symbol, reservation_token)
+                logger.debug(f"Confirmed reservation for live order: {reservation_token}")
 
             logger.info(
                 f"Order submitted to Alpaca: {client_order_id}",
@@ -1307,12 +1613,21 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             )
 
         except (AlpacaValidationError, AlpacaRejectionError, AlpacaConnectionError):
+            # Release reservation on broker rejection/error
+            if position_reservation and reservation_token:
+                position_reservation.release(order.symbol, reservation_token)
+                logger.debug(f"Released reservation on broker error: {reservation_token}")
             # Track metrics for rejected orders
             _record_order_metrics(order, start_time, "rejected")
             # These will be handled by exception handlers
             raise
 
         except Exception as e:
+            # Release reservation on unexpected error
+            if position_reservation and reservation_token:
+                position_reservation.release(order.symbol, reservation_token)
+                logger.debug(f"Released reservation on unexpected error: {reservation_token}")
+
             logger.error(f"Unexpected error submitting order: {e}", exc_info=True)
 
             # Save failed order to database
@@ -1496,6 +1811,8 @@ def _find_existing_twap_plan(
                 qty=request.qty,
                 limit_price=request.limit_price,
                 stop_price=request.stop_price,
+                order_type=request.order_type,
+                time_in_force=request.time_in_force,
                 strategy_id=strategy_id,
                 order_date=trade_date,
             )

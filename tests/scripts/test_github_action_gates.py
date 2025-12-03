@@ -80,10 +80,15 @@ Review-Hash: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
         ):
             assert has_review_markers(commit_hash) is True
 
-    def test_deep_review_without_review_hash_fails(self):
-        """Test deep review without Review-Hash fails."""
+    def test_deep_review_without_review_hash_passes(self):
+        """Test deep review passes (Review-Hash no longer required).
+
+        Note: Review-Hash requirement was removed - the hook infrastructure for
+        generating Review-Hash trailers was never completed. See
+        scripts/verify_gate_compliance.py has_review_markers() for details.
+        """
         commit_hash = "jkl012"
-        # Has approval + dual continuation IDs but missing Review-Hash
+        # Has approval + dual continuation IDs - Review-Hash not required
         commit_message = """feat: Add complex feature
 
 zen-mcp-review: approved
@@ -95,7 +100,8 @@ codex-continuation-id: dddd-eeee-ffff
         with patch(
             "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
-            assert has_review_markers(commit_hash) is False
+            # Should pass - approval + dual continuation IDs is sufficient
+            assert has_review_markers(commit_hash) is True
 
     def test_review_hash_presence_not_value(self):
         """Test that we only check presence of Review-Hash, not correctness (DUAL REVIEW FORMAT)."""

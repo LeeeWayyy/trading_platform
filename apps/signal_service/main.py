@@ -52,7 +52,7 @@ from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
 
 from .config import Settings
 from .model_registry import ModelRegistry
-from .signal_generator import PrecomputeResult, SignalGenerator
+from .signal_generator import SignalGenerator
 
 
 def _format_database_url_for_logging(database_url: str) -> str:

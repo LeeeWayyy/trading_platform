@@ -102,6 +102,11 @@ zen_precommit.changeset
 .claude/workflow-audit.log
 .claude/analysis/
 
+# ai_workflow
+.ai_workflow/*.lock
+.ai_workflow/workflow-audit.log
+.ai_workflow/workflow-state.json
+
 # backup (pattern to match all timestamped backup directories)
 docs-backup-*/
 
@@ -119,3 +124,6 @@ apps/web_console/certs/jwt_private.key
 
 # repomix
 repomix-output.xml
+
+# locks
+.ci-local.lock

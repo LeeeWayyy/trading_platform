@@ -55,7 +55,7 @@ SESSION_ABSOLUTE_TIMEOUT_HOURS = int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_HOURS",
 # If set, X-Forwarded-For header will be trusted for requests from these IPs
 # M6 Fix: Uses shared get_trusted_proxy_ips() from libs/common/network_utils
 # Dev/test environments get safe localhost defaults (127.0.0.1, ::1)
-from libs.common.network_utils import get_trusted_proxy_ips
+from libs.common.network_utils import get_trusted_proxy_ips  # noqa: E402
 
 TRUSTED_PROXY_IPS = get_trusted_proxy_ips()
 

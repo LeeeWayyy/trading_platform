@@ -234,7 +234,7 @@ class FeatureCache:
 
             output: dict[str, dict[str, Any] | None] = {}
             hits = 0
-            for symbol, data in zip(symbols, results):
+            for symbol, data in zip(symbols, results, strict=True):
                 if data is not None:
                     try:
                         output[symbol] = json.loads(data)

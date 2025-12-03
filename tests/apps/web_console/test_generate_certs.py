@@ -10,6 +10,10 @@ Tests certificate generation script for:
 - Key size validation (4096-bit RSA)
 - File permission validation (0600 for private keys)
 - Certificate expiration date validation
+
+NOTE: These tests are marked as 'integration' because they run actual subprocess
+calls that generate 4096-bit RSA keys (slow operation). They are excluded from
+regular CI runs. Run with: pytest -m integration tests/apps/web_console/test_generate_certs.py
 """
 
 import os
@@ -24,6 +28,9 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtensionOID, NameOID
+
+# Mark entire module as integration test (slow - generates 4096-bit RSA keys)
+pytestmark = pytest.mark.integration
 
 # RSA key size expected (from generate_certs.py)
 EXPECTED_RSA_KEY_SIZE = 4096

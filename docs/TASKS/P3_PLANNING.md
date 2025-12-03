@@ -23,7 +23,7 @@ With P0-P2 complete, the trading platform is production-ready for paper trading.
 
 ## 📊 Progress Summary
 
-**Overall:** 25% (1/4 tracks complete)
+**Overall:** 20% (1/5 tracks complete)
 
 | Track | Tasks | Progress | Status |
 |-------|-------|----------|--------|
@@ -32,6 +32,7 @@ With P0-P2 complete, the trading platform is production-ready for paper trading.
 | **Track 2: Critical Fixes (P0)** | T2.1-T2.4 | 0% | 📋 Planning |
 | **Track 3: High Priority Fixes (P1)** | T3.1-T3.4 | 0% | 📋 Planning |
 | **Track 4: Medium Priority Fixes (P2)** | T4.1-T4.4 | 0% | 📋 Planning |
+| **Track 5: External Review Findings** | T5.1-T5.6 | 0% | 📋 Verified (2025-12-01, 2 reviewers) |
 
 ---
 
@@ -835,6 +836,1069 @@ Examples:
 
 ---
 
-**Last Updated:** 2025-11-29
+## Track 5: External Review Findings (2025-12-01)
+
+**Source:** External AI Reviewer Analysis
+**Status:** 📋 Verified & Queued for Implementation
+
+### New Critical Issues Identified (P0)
+
+These issues were verified against the actual codebase and confirmed as genuine vulnerabilities:
+
+---
+
+### T5.1: Kill Switch Bypass Risk ⚠️ CRITICAL
+**Effort:** 2-4 hours
+**Status:** ⏳ Pending
+**Priority:** P0 (MUST FIX BEFORE PRODUCTION)
+
+**Finding:** `RiskChecker` class (`libs/risk_management/checker.py`) checks CircuitBreaker and Blacklists but does NOT check KillSwitch.
+
+**Impact:** If developers rely solely on `RiskChecker.validate_order()` as the "single source of truth" for trade safety, the Kill Switch will be effectively bypassed.
+
+**Evidence:**
+- `checker.py:34` - Only imports CircuitBreaker, not KillSwitch
+- `checker.py:68-84` - Constructor only accepts CircuitBreaker
+- `checker.py:146-152` - Only checks `self.breaker.is_tripped()`, no kill switch check
+
+**Fix:** Inject KillSwitch into RiskChecker and check `is_engaged()` as the FIRST step in `validate_order()`.
+
+**Implementation:**
+```python
+from libs.risk_management.kill_switch import KillSwitch
+
+class RiskChecker:
+    def __init__(self, config: RiskConfig, breaker: CircuitBreaker, kill_switch: KillSwitch | None = None):
+        self.config = config
+        self.breaker = breaker
+        self.kill_switch = kill_switch
+
+    def validate_order(self, ...):
+        # 0. Kill switch check (HIGHEST priority - absolute stop)
+        if self.kill_switch and self.kill_switch.is_engaged():
+            reason = "Kill switch ENGAGED: All trading halted"
+            logger.critical(f"Order blocked by kill switch: {symbol} {side} {qty}")
+            return (False, reason)
+
+        # 1. Circuit breaker check (second priority)
+        if self.breaker.is_tripped():
+            # ... existing code
+```
+
+**Test Cases:**
+- [ ] `test_kill_switch_blocks_order.py` - Verify order blocked when engaged
+- [ ] `test_kill_switch_allows_order.py` - Verify order proceeds when active
+- [ ] `test_risk_checker_integration.py` - Full integration with all risk checks
+
+---
+
+### T5.2: Position Limit Race Condition ⚠️ CRITICAL
+**Effort:** 6-8 hours
+**Status:** ⏳ Pending
+**Priority:** P0 (FINANCIAL RISK)
+
+**Finding:** `RiskChecker.validate_order` is stateless and suffers from a Check-Then-Act race condition.
+
+**Scenario:**
+1. Process A reads current position (0) and requests to buy 100 shares (Limit 150). Check passes.
+2. Process B reads current position (0) BEFORE Process A's trade executes. Check passes.
+3. Both trades execute. Resulting position: 200 (Exceeds limit of 150).
+
+**Evidence:**
+- `checker.py:91-92` - `current_position` passed as argument
+- `checker.py:161-175` - Stateless check with no atomic locking
+
+**Fix:** Use Redis to implement a "reservation" system or use Lua scripts to atomically check-and-update position limits.
+
+**Implementation:**
+```python
+def validate_order_atomic(self, symbol: str, side: str, qty: int) -> tuple[bool, str]:
+    """Atomic position validation using Redis reservation."""
+    reservation_key = f"position_reservation:{symbol}"
+
+    lua_script = """
+    local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+    local delta = tonumber(ARGV[1])
+    local limit = tonumber(ARGV[2])
+    local new_position = current + delta
+
+    if math.abs(new_position) > limit then
+        return {0, 'LIMIT_EXCEEDED'}
+    end
+
+    redis.call('SET', KEYS[1], new_position)
+    return {1, 'OK'}
+    """
+
+    delta = qty if side == "buy" else -qty
+    result = self.redis.eval(lua_script, 1, reservation_key, delta, self.config.max_position)
+
+    if result[0] == 0:
+        return (False, f"Position limit exceeded: {result[1]}")
+    return (True, "")
+```
+
+**Test Cases:**
+- [ ] `test_position_race_condition.py` - Simulate concurrent submissions
+- [ ] `test_atomic_reservation.py` - Verify Lua script atomicity
+- [ ] `test_reservation_rollback.py` - Verify cleanup on failed orders
+
+---
+
+### T5.3: Circuit Breaker Fail-Open Risk ⚠️ CRITICAL
+**Effort:** 2-4 hours
+**Status:** ⏳ Pending
+**Priority:** P0 (SAFETY CRITICAL)
+
+**Finding:** CircuitBreaker defaults to OPEN if Redis state is missing (e.g., after Redis crash/flush). KillSwitch correctly fails closed.
+
+**Evidence:**
+- `breaker.py:159-163` - `get_state()` calls `_initialize_state()` which defaults to OPEN
+- `kill_switch.py:155-166` - Correctly raises RuntimeError (fail-closed pattern)
+
+**Impact:** If the system is in a TRIPPED state and Redis restarts, the breaker silently resets to OPEN, potentially allowing trading to resume during a risk event.
+
+**Fix:** Modify `CircuitBreaker.get_state()` to raise an error or default to TRIPPED if Redis state is missing.
+
+**Implementation:**
+```python
+def get_state(self) -> CircuitBreakerState:
+    state_json = self.redis.get(self.state_key)
+    if not state_json:
+        # FAIL CLOSED: Do not auto-reinitialize to OPEN
+        logger.error(
+            "CRITICAL: Circuit breaker state missing from Redis (possible flush/restart). "
+            "Failing closed to prevent unsafe trading resumption."
+        )
+        raise RuntimeError(
+            "Circuit breaker state missing from Redis. System must fail closed - "
+            "operator must verify safety and manually reset if appropriate."
+        )
+    # ... rest of existing logic
+```
+
+**Test Cases:**
+- [ ] `test_breaker_missing_state_fails_closed.py` - Verify exception raised
+- [ ] `test_breaker_redis_restart.py` - Simulate Redis restart scenario
+- [ ] `test_breaker_manual_recovery.py` - Verify manual recovery workflow
+
+---
+
+### T5.4: Order ID Timezone Normalization
+**Effort:** 1-2 hours
+**Status:** ⏳ Pending
+**Priority:** P1 (DATA INTEGRITY)
+
+**Finding:** `order_id_generator.py` uses `date.today()` which uses system local time, not UTC.
+
+**Evidence:**
+- `order_id_generator.py:115` - `order_date = as_of_date or date.today()`
+
+**Impact:** If servers run in different timezones, or around midnight transitions, client_order_id generation becomes non-deterministic, potentially causing duplicate orders.
+
+**Fix:** Use `datetime.now(UTC).date()` instead.
+
+**Implementation:**
+```python
+from datetime import UTC, datetime
+
+def generate_client_order_id(order: OrderRequest, strategy_id: str, as_of_date: date | None = None) -> str:
+    # Use provided date or default to TODAY IN UTC
+    order_date = as_of_date or datetime.now(UTC).date()
+    # ... rest unchanged
+```
+
+**Test Cases:**
+- [ ] `test_order_id_utc.py` - Verify UTC date used
+- [ ] `test_order_id_midnight_transition.py` - Verify consistent IDs across midnight
+
+---
+
+### T5.5: Order ID Collision - Missing Order Type/TIF ⚠️ CRITICAL
+**Effort:** 2-3 hours
+**Status:** ⏳ Pending
+**Priority:** P0 (IDEMPOTENCY VIOLATION)
+**Source:** External Reviewer #2 (2025-12-01)
+
+**Finding:** `generate_client_order_id()` omits `order_type` and `time_in_force` fields from the hash, causing materially different orders to collide.
+
+**Evidence:**
+- `order_id_generator.py:107-111` - Explicitly states: "order_type and time_in_force are NOT included because they don't affect order uniqueness for our use case"
+- `order_id_generator.py:122-129` - Hash only includes: symbol, side, qty, limit_price, stop_price, strategy_id, date
+
+**Impact:** Two orders with identical parameters but different order semantics will get the SAME client_order_id:
+- Order A: AAPL, buy, 100, limit $150, `order_type=limit`, `time_in_force=day`
+- Order B: AAPL, buy, 100, limit $150, `order_type=limit`, `time_in_force=gtc`
+- Both generate identical ID → Alpaca rejects second order as duplicate
+
+**Scenario:**
+1. Submit limit order for AAPL, 100 shares at $150, DAY
+2. Order expires at market close (not filled)
+3. Next morning (same calendar day), submit SAME order as GTC
+4. Alpaca rejects as duplicate client_order_id
+5. Trading opportunity missed
+
+**Fix:** Include `order_type` and `time_in_force` in the hash.
+
+**Implementation:**
+```python
+def generate_client_order_id(
+    order: OrderRequest, strategy_id: str, as_of_date: date | None = None
+) -> str:
+    # Use provided date or default to TODAY IN UTC
+    order_date = as_of_date or datetime.now(UTC).date()
+
+    # Convert prices to strings (quantize to fixed precision for idempotency)
+    limit_price_str = _format_price_for_id(order.limit_price)
+    stop_price_str = _format_price_for_id(order.stop_price)
+
+    # Build raw string with all order parameters INCLUDING order_type and time_in_force
+    raw = (
+        f"{order.symbol}|"
+        f"{order.side}|"
+        f"{order.qty}|"
+        f"{limit_price_str}|"
+        f"{stop_price_str}|"
+        f"{order.order_type}|"      # NEW: Include order type
+        f"{order.time_in_force}|"   # NEW: Include time in force
+        f"{strategy_id}|"
+        f"{order_date.isoformat()}"
+    )
+
+    # Hash with SHA256 and take first 24 characters
+    hash_obj = hashlib.sha256(raw.encode("utf-8"))
+    client_order_id = hash_obj.hexdigest()[:24]
+
+    return client_order_id
+```
+
+**Test Cases:**
+- [ ] `test_order_id_different_order_type.py` - Verify market vs limit orders get different IDs
+- [ ] `test_order_id_different_tif.py` - Verify DAY vs GTC orders get different IDs
+- [ ] `test_order_id_backwards_compat.py` - Document/migrate existing order ID format
+
+---
+
+### T5.6: Data Freshness Partial Staleness Risk
+**Effort:** 3-4 hours
+**Status:** ⏳ Pending
+**Priority:** P1 (DATA INTEGRITY)
+**Source:** External Reviewer #2 (2025-12-01)
+
+**Finding:** `check_freshness()` only inspects the latest timestamp (`max()`), allowing mixed fresh/stale datasets to pass validation.
+
+**Evidence:**
+- `libs/data_pipeline/freshness.py:70` - `latest_timestamp = df["timestamp"].max()`
+
+**Impact:** If a batch contains:
+- 999 rows with timestamps from 2 hours ago (stale)
+- 1 row with timestamp from now (fresh)
+The check passes because max() returns the fresh timestamp, but 99.9% of the data is stale.
+
+**Scenario:**
+1. Market data pipeline partially fails, only updates 1 symbol
+2. AAPL data is 2 hours old, MSFT data is current
+3. Freshness check passes (MSFT is fresh)
+4. Signals generated for AAPL using 2-hour-old data
+5. Trading decision based on stale prices → potential loss
+
+**Fix:** Validate minimum/median timestamps or per-symbol max-age to catch partially stale batches.
+
+**Implementation:**
+```python
+def check_freshness(
+    df: pl.DataFrame,
+    max_age_minutes: int = 30,
+    check_mode: str = "latest",  # "latest", "oldest", "median", "per_symbol"
+    min_fresh_pct: float = 0.9,  # For "per_symbol" mode: 90% of symbols must be fresh
+) -> None:
+    """
+    Validate that data is fresh enough for trading.
+
+    Args:
+        df: DataFrame with 'timestamp' column (must be timezone-aware UTC)
+        max_age_minutes: Maximum acceptable age in minutes (default: 30)
+        check_mode: Validation strategy:
+            - "latest": Only check most recent timestamp (original behavior, fast)
+            - "oldest": Check oldest timestamp (strictest, catches any staleness)
+            - "median": Check median timestamp (balanced, resilient to outliers)
+            - "per_symbol": Check each symbol's latest timestamp (recommended)
+        min_fresh_pct: For "per_symbol" mode, minimum percentage of symbols
+                       that must be fresh (default: 90%)
+
+    Raises:
+        StalenessError: If freshness check fails
+    """
+    if check_mode == "oldest":
+        check_timestamp = df["timestamp"].min()
+        mode_desc = "oldest"
+    elif check_mode == "median":
+        check_timestamp = df["timestamp"].median()
+        mode_desc = "median"
+    elif check_mode == "per_symbol":
+        # Check per-symbol freshness
+        symbol_latest = df.group_by("symbol").agg(
+            pl.col("timestamp").max().alias("latest")
+        )
+        now = datetime.now(UTC)
+
+        stale_symbols = []
+        for row in symbol_latest.iter_rows(named=True):
+            age_minutes = (now - row["latest"]).total_seconds() / 60
+            if age_minutes > max_age_minutes:
+                stale_symbols.append((row["symbol"], age_minutes))
+
+        fresh_pct = 1 - (len(stale_symbols) / len(symbol_latest))
+        if fresh_pct < min_fresh_pct:
+            raise StalenessError(
+                f"Only {fresh_pct*100:.1f}% of symbols are fresh "
+                f"(threshold: {min_fresh_pct*100:.1f}%). "
+                f"Stale symbols: {stale_symbols[:5]}..."
+            )
+        return
+    else:  # "latest" (default)
+        check_timestamp = df["timestamp"].max()
+        mode_desc = "latest"
+
+    # ... existing age check logic using check_timestamp
+```
+
+**Test Cases:**
+- [ ] `test_freshness_mixed_stale.py` - Verify fails when most data is stale but one row is fresh
+- [ ] `test_freshness_per_symbol.py` - Verify per-symbol checking works correctly
+- [ ] `test_freshness_oldest_mode.py` - Verify strictest check catches any staleness
+- [ ] `test_freshness_backwards_compat.py` - Verify default "latest" mode maintains existing behavior
+
+---
+
+### Verified Positive Findings ✅
+
+The reviewer also correctly identified these as properly implemented:
+
+| Component | Finding | Evidence |
+|-----------|---------|----------|
+| **Webhook Security** | Uses `hmac.compare_digest` for constant-time comparison | `webhook_security.py:61` |
+| **Secret Redaction** | Explicitly forbids logging secret values | `manager.py:26-28,68-70` |
+| **KillSwitch Fail-Closed** | Raises RuntimeError on missing state | `kill_switch.py:155-166` |
+| **Lua Scripts for Atomicity** | KillSwitch uses Lua for atomic state transitions | `kill_switch.py:220-268` |
+
+---
+
+### Updated Priority Matrix
+
+**Track 5 Issues (New - Verified):**
+| ID | Issue | Severity | Effort | Location | Source |
+|----|-------|----------|--------|----------|--------|
+| T5.1 | Kill Switch Bypass | 🔴 P0 | 2-4h | `libs/risk_management/checker.py` | Reviewer #1 |
+| T5.2 | Position Limit Race | 🔴 P0 | 6-8h | `libs/risk_management/checker.py` | Reviewer #1, #2 |
+| T5.3 | Breaker Fail-Open | 🔴 P0 | 2-4h | `libs/risk_management/breaker.py` | Reviewer #1, #2 |
+| T5.4 | Timezone Bug | 🟡 P1 | 1-2h | `execution_gateway/order_id_generator.py` | Reviewer #1 |
+| T5.5 | Order ID Collision | 🔴 P0 | 2-3h | `execution_gateway/order_id_generator.py` | Reviewer #2 |
+| T5.6 | Partial Staleness | 🟡 P1 | 3-4h | `libs/data_pipeline/freshness.py` | Reviewer #2 |
+
+**Updated Totals:**
+- P0 (Critical): 8 existing + 4 new = **12 issues**
+- P1 (High): 11 existing + 2 new = **13 issues**
+
+**Recommended Test Priorities (from Reviewer #2):**
+1. Circuit breaker fail-closed behavior tests
+2. Atomic position limit tests
+3. Order ID uniqueness across order types tests
+4. Per-symbol freshness validation tests
+
+---
+
+## Appendix A: Complete Operational Runbook
+
+This runbook provides step-by-step instructions for operating the trading platform. All commands are verified against the actual codebase.
+
+---
+
+### A.1 Prerequisites
+
+#### Hardware Requirements
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| **CPU** | 4 vCPUs | 8 vCPUs |
+| **RAM** | 16GB | 32GB |
+| **Storage** | 50GB SSD | 100GB NVMe SSD |
+| **Network** | Stable internet | Low-latency connection to Alpaca |
+
+#### Software Requirements
+| Software | Version | Installation |
+|----------|---------|--------------|
+| **Python** | 3.11+ | `brew install python@3.11` or `apt install python3.11` |
+| **Docker** | 24.0+ | https://docs.docker.com/get-docker/ |
+| **Docker Compose** | 2.20+ | Included with Docker Desktop |
+| **Poetry** | 1.7+ | `curl -sSL https://install.python-poetry.org \| python3 -` |
+| **Make** | 4.0+ | Pre-installed on macOS/Linux |
+| **Node.js** | 18+ | Required for markdown-link-check (CI) |
+
+#### External Accounts Required
+| Service | Purpose | Setup Link |
+|---------|---------|------------|
+| **Alpaca Markets** | Paper/Live trading API | https://alpaca.markets/ |
+| **Auth0** (Optional) | OAuth2 authentication | https://auth0.com/ |
+
+#### Network Requirements
+Ensure the following ports are accessible:
+
+| Port | Service | Protocol | Access |
+|------|---------|----------|--------|
+| 5432 | PostgreSQL | TCP | Internal only |
+| 6379 | Redis | TCP | Internal only (no host mapping by default) |
+| 8001 | Signal Service | HTTP | Internal/localhost |
+| 8002 | Execution Gateway | HTTP | Internal/localhost |
+| 8003 | Orchestrator | HTTP | Internal/localhost |
+| 8004 | Market Data Service | HTTP | Internal/localhost |
+| 8501 | Web Console (dev) | HTTP | localhost |
+| 3000 | Grafana | HTTP | localhost |
+| 9090 | Prometheus | HTTP | localhost |
+| 3100 | Loki | HTTP | Internal |
+| 443 | nginx (mTLS/OAuth2) | HTTPS | External (production) |
+| 80 | nginx redirect | HTTP | External (production) |
+
+**Firewall Notes:**
+- Database/Redis ports should NEVER be exposed to public internet
+- Use Docker internal network for inter-service communication
+- Only expose web-facing services (nginx, Grafana) via reverse proxy in production
+
+---
+
+### A.2 Environment Configuration
+
+#### Step 1: Create Environment File
+```bash
+cp .env.example .env
+```
+
+#### Step 2: Configure Required Variables
+Edit `.env` with your values:
+
+```ini
+# ═══════════════════════════════════════════════════════════════════
+# REQUIRED: Alpaca API Credentials
+# ═══════════════════════════════════════════════════════════════════
+# Get from: https://app.alpaca.markets/paper/dashboard/overview
+ALPACA_API_KEY_ID=PK...your_key...
+ALPACA_API_SECRET_KEY=...your_secret...
+ALPACA_BASE_URL=https://paper-api.alpaca.markets  # Paper trading (recommended)
+# ALPACA_BASE_URL=https://api.alpaca.markets      # Live trading (CAUTION!)
+
+# ═══════════════════════════════════════════════════════════════════
+# REQUIRED: Database Configuration
+# ═══════════════════════════════════════════════════════════════════
+DATABASE_URL=postgresql+psycopg://trader:trader@localhost:5432/trader
+POSTGRES_USER=trader
+POSTGRES_PASSWORD=trader
+POSTGRES_DB=trader
+
+# ═══════════════════════════════════════════════════════════════════
+# REQUIRED: Redis Configuration
+# ═══════════════════════════════════════════════════════════════════
+REDIS_URL=redis://localhost:6379/0
+
+# ═══════════════════════════════════════════════════════════════════
+# APPLICATION CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════
+# Strategy
+STRATEGY_ID=alpha_baseline
+
+# Safety Mode (IMPORTANT!)
+DRY_RUN=true  # true = simulate orders, false = real orders to Alpaca
+
+# Capital & Position Limits
+CAPITAL=100000
+MAX_POSITION_SIZE=20000
+
+# Data Quality
+DATA_FRESHNESS_MINUTES=30
+OUTLIER_THRESHOLD=0.30
+
+# ═══════════════════════════════════════════════════════════════════
+# SERVICE URLS (Internal)
+# ═══════════════════════════════════════════════════════════════════
+SIGNAL_SERVICE_URL=http://localhost:8001
+EXECUTION_GATEWAY_URL=http://localhost:8002
+ORCHESTRATOR_URL=http://localhost:8003
+
+# ═══════════════════════════════════════════════════════════════════
+# PAPER RUN DEFAULTS
+# ═══════════════════════════════════════════════════════════════════
+PAPER_RUN_SYMBOLS=AAPL,MSFT,GOOGL
+PAPER_RUN_CAPITAL=100000
+PAPER_RUN_MAX_POSITION_SIZE=20000
+
+# ═══════════════════════════════════════════════════════════════════
+# MLFLOW / QLIB
+# ═══════════════════════════════════════════════════════════════════
+QLIB_DATA_DIR=./data/qlib_data
+MLFLOW_TRACKING_URI=file:./artifacts/mlruns
+MLFLOW_EXPERIMENT_NAME=alpha_baseline
+
+# ═══════════════════════════════════════════════════════════════════
+# LOGGING
+# ═══════════════════════════════════════════════════════════════════
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
+
+# ═══════════════════════════════════════════════════════════════════
+# WEB CONSOLE (Optional - for development)
+# ═══════════════════════════════════════════════════════════════════
+WEB_CONSOLE_USER=admin
+WEB_CONSOLE_PASSWORD=changeme  # CHANGE THIS!
+```
+
+#### Variable Reference (Comprehensive)
+
+**Legend:** 🔐 = Secret (never log/commit), ⚠️ = Critical (wrong value = financial risk), 💰 = Financial impact
+
+| Variable | Required | Valid Values | Security | Notes |
+|----------|----------|--------------|----------|-------|
+| **Alpaca API** |||||
+| `ALPACA_API_KEY_ID` | ✅ | 20+ char string from Alpaca | 🔐 Secret | Never log or commit |
+| `ALPACA_API_SECRET_KEY` | ✅ | 40+ char secret from Alpaca | 🔐 Secret | Store in secrets manager |
+| `ALPACA_BASE_URL` | ✅ | `https://paper-api.alpaca.markets` (paper) or `https://api.alpaca.markets` (live) | ⚠️ Critical | Wrong URL = real money trades! |
+| **Database** |||||
+| `DATABASE_URL` | ✅ | `postgresql+psycopg://user:pass@host:port/db` | 🔐 Secret | Prefer TLS, non-superuser |
+| `POSTGRES_USER` | ✅ | String | 🔐 Secret | Default: `trader` |
+| `POSTGRES_PASSWORD` | ✅ | String | 🔐 Secret | Rotate regularly |
+| **Redis** |||||
+| `REDIS_URL` | ✅ | `redis://host:port/db_index` | 🔐 Secret | Enable AUTH in production |
+| **Trading Safety** |||||
+| `DRY_RUN` | ✅ | `true` / `false` | ⚠️ Critical | `true` = no real orders |
+| `CAPITAL` | ✅ | Positive integer (USD) | 💰 Financial | Match broker account equity |
+| `MAX_POSITION_SIZE` | ✅ | Positive integer (shares) | 💰 Financial | Hard limit per position |
+| `DATA_FRESHNESS_MINUTES` | ❌ | Integer (default: 30) | ⚠️ Critical | Too high = stale signals |
+| **Strategy** |||||
+| `STRATEGY_ID` | ✅ | Slug string (e.g., `alpha_baseline`) | - | Affects order IDs |
+| `OUTLIER_THRESHOLD` | ❌ | 0-1 decimal (default: 0.30) | - | Data quality filter |
+| **Service URLs** |||||
+| `SIGNAL_SERVICE_URL` | ✅ | `http://localhost:8001` | - | Internal service |
+| `EXECUTION_GATEWAY_URL` | ✅ | `http://localhost:8002` | - | Controls order path |
+| `ORCHESTRATOR_URL` | ✅ | `http://localhost:8003` | - | Workflow controller |
+| **OAuth2 (Optional)** |||||
+| `AUTH0_DOMAIN` | ❌ | `tenant.us.auth0.com` | - | Required if auth_type=oauth2 |
+| `AUTH0_CLIENT_ID` | ❌ | UUID string | - | Non-secret but sensitive |
+| `AUTH0_CLIENT_SECRET` | ❌ | Confidential string | 🔐 Secret | Never commit |
+| `SESSION_ENCRYPTION_KEY` | ❌ | Base64 32-byte key | 🔐 Secret | Generate: `python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"` |
+| **Logging** |||||
+| `LOG_LEVEL` | ❌ | `DEBUG`, `INFO`, `WARNING`, `ERROR` | - | Avoid DEBUG in prod (PII risk) |
+
+---
+
+### A.3 Installation & Setup
+
+#### Step 1: Clone Repository
+```bash
+git clone https://github.com/LeeeWayyy/trading_platform.git
+cd trading_platform
+```
+
+#### Step 2: Create Virtual Environment
+```bash
+# Create virtual environment
+python3.11 -m venv .venv
+
+# Activate virtual environment (REQUIRED before any Python command)
+source .venv/bin/activate
+
+# Verify activation
+which python3
+# Should output: /path/to/trading_platform/.venv/bin/python3
+```
+
+#### Step 3: Install Dependencies
+```bash
+# Option A: Using Poetry (recommended)
+poetry install
+
+# Option B: Using pip
+pip install -r requirements.txt
+```
+
+#### Step 4: Install Git Hooks
+```bash
+make install-hooks
+```
+
+#### Step 5: Start Infrastructure Services
+```bash
+# Start PostgreSQL, Redis, Prometheus, Grafana, Loki, Promtail
+make up
+
+# Verify all services are running
+docker compose ps
+```
+
+Expected output:
+```
+NAME                           STATUS          PORTS
+trading_platform_postgres      Up (healthy)    5432/tcp
+trading_platform_redis         Up (healthy)    6379/tcp
+trading_platform_prometheus    Up              9090/tcp
+trading_platform_grafana       Up              3000/tcp
+trading_platform_loki          Up (healthy)    3100/tcp
+trading_platform_promtail      Up              -
+```
+
+#### Step 6: Apply Database Migrations
+```bash
+# Connect to PostgreSQL and run migrations
+docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/001_create_model_registry.sql
+docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/002_create_execution_tables.sql
+docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/003_create_orchestration_tables.sql
+```
+
+#### Step 7: Verify Installation
+```bash
+# Run tests (should all pass)
+make test
+
+# Run full CI suite
+make ci-local
+```
+
+---
+
+### A.4 Starting the Trading System
+
+#### Service Startup Sequence
+
+**Important:** Services must be started in order due to dependencies.
+
+```bash
+# Step 1: Ensure virtual environment is active
+source .venv/bin/activate
+
+# Step 2: Verify infrastructure is running
+docker compose ps
+
+# Step 3: Start Signal Service (port 8001)
+PYTHONPATH=. poetry run uvicorn apps.signal_service.main:app --host 0.0.0.0 --port 8001 &
+
+# Step 4: Start Execution Gateway (port 8002)
+PYTHONPATH=. poetry run uvicorn apps.execution_gateway.main:app --host 0.0.0.0 --port 8002 &
+
+# Step 5: Start Orchestrator (port 8003)
+PYTHONPATH=. poetry run uvicorn apps.orchestrator.main:app --host 0.0.0.0 --port 8003 &
+
+# Step 6: Start Market Data Service (port 8004) - Optional
+make market-data &
+```
+
+#### Service Health Verification
+```bash
+# Check Signal Service
+curl http://localhost:8001/health
+
+# Check Execution Gateway
+curl http://localhost:8002/health
+
+# Check Orchestrator
+curl http://localhost:8003/health
+```
+
+Expected response for each:
+```json
+{"status": "healthy", "service": "...", "timestamp": "..."}
+```
+
+#### Starting Web Console (Optional)
+```bash
+# Development mode (port 8501)
+docker compose --profile dev up -d web_console_dev
+
+# Access at: http://localhost:8501
+```
+
+---
+
+### A.5 Daily Operations
+
+#### Pre-Market Checklist (Before 9:30 AM ET)
+```bash
+# 1. Verify infrastructure is healthy
+docker compose ps
+
+# 2. Check service health
+curl http://localhost:8001/health  # Signal Service
+curl http://localhost:8002/health  # Execution Gateway
+curl http://localhost:8003/health  # Orchestrator
+
+# 3. Verify data freshness (should be < 30 minutes old)
+PYTHONPATH=. python3 -c "
+from libs.data_pipeline.freshness import check_data_freshness
+result = check_data_freshness()
+print(f'Data age: {result.age_minutes} minutes')
+print(f'Fresh: {result.is_fresh}')
+"
+
+# 4. Check circuit breaker state (should be OPEN)
+docker exec trading_platform_redis redis-cli GET circuit_breaker:state
+
+# 5. Check kill switch state (should be ACTIVE)
+docker exec trading_platform_redis redis-cli GET kill_switch:state
+
+# 6. Verify Alpaca connection
+PYTHONPATH=. python3 -c "
+from apps.execution_gateway.alpaca_client import AlpacaExecutor
+executor = AlpacaExecutor()
+print(f'Account status: {executor.get_account_status()}')
+print(f'Buying power: ${executor.get_buying_power()}')
+"
+```
+
+#### Running Paper Trading
+```bash
+# Basic run with defaults from .env
+PYTHONPATH=. python3 scripts/paper_run.py
+
+# Custom symbols
+PYTHONPATH=. python3 scripts/paper_run.py --symbols AAPL MSFT GOOGL AMZN
+
+# Custom capital and position size
+PYTHONPATH=. python3 scripts/paper_run.py --capital 50000 --max-position-size 10000
+
+# Dry run (check dependencies without executing)
+PYTHONPATH=. python3 scripts/paper_run.py --dry-run
+
+# Save results to JSON
+PYTHONPATH=. python3 scripts/paper_run.py --output results_$(date +%Y%m%d).json
+
+# Verbose mode for debugging
+PYTHONPATH=. python3 scripts/paper_run.py --verbose
+```
+
+#### Checking System Status
+```bash
+# View current positions, orders, P&L
+make status
+
+# View logs from all services
+make logs
+
+# View logs from specific service
+docker compose logs -f loki
+```
+
+---
+
+### A.6 Monitoring & Observability
+
+#### Dashboards
+
+| Dashboard | URL | Purpose |
+|-----------|-----|---------|
+| **Grafana** | http://localhost:3000 | Metrics, logs, alerts |
+| **Prometheus** | http://localhost:9090 | Raw metrics, queries |
+| **Loki** | (via Grafana) | Centralized logging |
+
+**Grafana Login:**
+- Username: `admin`
+- Password: `admin` (or as set in `.env`)
+
+#### Key Metrics to Monitor
+| Metric | Location | Alert Threshold |
+|--------|----------|-----------------|
+| Order latency | Grafana → Trading Dashboard | > 500ms |
+| Signal generation time | Grafana → Signal Service | > 5s |
+| Open orders count | Grafana → Execution Dashboard | > 10 |
+| Circuit breaker state | Redis `circuit_breaker:state` | `TRIPPED` |
+| Kill switch state | Redis `kill_switch:state` | `ENGAGED` |
+
+#### Log Queries (Loki via Grafana)
+```logql
+# All errors in last hour
+{job="trading_platform"} |= "ERROR"
+
+# Signal generation logs
+{service="signal_service"} |~ "signal"
+
+# Order submissions
+{service="execution_gateway"} |~ "order"
+
+# Circuit breaker events
+{job="trading_platform"} |~ "circuit_breaker"
+```
+
+---
+
+### A.7 Risk Management Operations
+
+#### Circuit Breaker Management
+```bash
+# Check current state
+docker exec trading_platform_redis redis-cli GET circuit_breaker:state
+
+# View trip reason (if tripped)
+docker exec trading_platform_redis redis-cli GET circuit_breaker:trip_reason
+
+# Manual reset (CAUTION - verify conditions first!)
+docker exec trading_platform_redis redis-cli SET circuit_breaker:state \
+  '{"state": "OPEN", "reset_by": "operator", "reset_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}'
+```
+
+#### Kill Switch Operations
+```bash
+# Check current state
+docker exec trading_platform_redis redis-cli GET kill_switch:state
+
+# ENGAGE Kill Switch (EMERGENCY - stops ALL trading)
+PYTHONPATH=. python3 -c "
+from libs.redis_client import RedisClient
+from libs.risk_management.kill_switch import KillSwitch
+redis = RedisClient()
+ks = KillSwitch(redis)
+ks.engage(reason='Manual engagement - <describe reason>', operator='<your_name>')
+print('🔴 KILL SWITCH ENGAGED')
+"
+
+# DISENGAGE Kill Switch (resume trading)
+PYTHONPATH=. python3 -c "
+from libs.redis_client import RedisClient
+from libs.risk_management.kill_switch import KillSwitch
+redis = RedisClient()
+ks = KillSwitch(redis)
+ks.disengage(operator='<your_name>', notes='Conditions normalized')
+print('✅ Kill switch disengaged')
+"
+
+# View kill switch history
+docker exec trading_platform_redis redis-cli LRANGE kill_switch:history -10 -1
+```
+
+---
+
+### A.8 Model Management
+
+#### Training New Models
+```bash
+# Train Alpha158 baseline model
+PYTHONPATH=. python3 strategies/alpha_baseline/train.py
+
+# Train with custom date range
+PYTHONPATH=. python3 strategies/alpha_baseline/train.py \
+  --start-date 2023-01-01 \
+  --end-date 2024-01-01
+
+# Register model in MLflow
+PYTHONPATH=. python3 strategies/alpha_baseline/train.py --register
+```
+
+#### Model Registry Operations
+```bash
+# List registered models
+PYTHONPATH=. python3 -c "
+import mlflow
+mlflow.set_tracking_uri('file:./artifacts/mlruns')
+client = mlflow.tracking.MlflowClient()
+for rm in client.search_registered_models():
+    print(f'{rm.name}: {rm.latest_versions}')
+"
+
+# Get active model version
+docker exec -i trading_platform_postgres psql -U trader -d trader -c \
+  "SELECT strategy_name, version, status, created_at FROM model_registry WHERE status = 'active';"
+```
+
+#### Hot Reload Model (Zero Downtime)
+```bash
+# Trigger model reload via API
+curl -X POST http://localhost:8001/api/v1/models/reload \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "alpha_baseline", "version": "latest"}'
+```
+
+---
+
+### A.9 Emergency Procedures
+
+#### 🚨 EMERGENCY: Stop All Trading
+```bash
+# Step 1: ENGAGE KILL SWITCH (immediate effect)
+PYTHONPATH=. python3 -c "
+from libs.redis_client import RedisClient
+from libs.risk_management.kill_switch import KillSwitch
+redis = RedisClient()
+ks = KillSwitch(redis)
+ks.engage(reason='EMERGENCY: <describe situation>', operator='<your_name>')
+print('🔴 KILL SWITCH ENGAGED - All trading stopped')
+"
+
+# Step 2: Cancel all open orders
+curl -X POST http://localhost:8002/api/v1/orders/cancel-all
+
+# Step 3: Verify no open orders
+curl http://localhost:8002/api/v1/orders?status=open
+```
+
+#### 🚨 EMERGENCY: Flatten All Positions
+```bash
+# Step 1: Engage kill switch first (prevent new orders)
+# ... (see above)
+
+# Step 2: Close all positions
+curl -X POST http://localhost:8002/api/v1/positions/close-all
+
+# Step 3: Verify positions closed
+curl http://localhost:8002/api/v1/positions
+```
+
+#### 🚨 EMERGENCY: Full System Shutdown
+```bash
+# Step 1: Engage kill switch
+# ... (see above)
+
+# Step 2: Cancel all orders
+curl -X POST http://localhost:8002/api/v1/orders/cancel-all
+
+# Step 3: Stop application services
+pkill -f "uvicorn apps"  # Stop all FastAPI services
+
+# Step 4: Stop infrastructure (preserves data)
+make down
+
+# Step 5: Stop infrastructure AND remove data (DESTRUCTIVE)
+# make down-v  # Only if you want to reset everything
+```
+
+---
+
+### A.10 Troubleshooting Guide
+
+#### Service Won't Start
+```bash
+# Check if port is already in use
+lsof -i :8001  # Signal Service
+lsof -i :8002  # Execution Gateway
+lsof -i :8003  # Orchestrator
+
+# Kill process on port
+kill -9 $(lsof -t -i:8001)
+
+# Check for import errors
+PYTHONPATH=. python3 -c "from apps.signal_service.main import app"
+```
+
+#### Database Connection Failed
+```bash
+# Check PostgreSQL is running
+docker compose ps postgres
+
+# Test connection
+docker exec trading_platform_postgres psql -U trader -d trader -c "SELECT 1;"
+
+# Check logs
+docker compose logs postgres
+
+# Restart if needed
+docker compose restart postgres
+```
+
+#### Redis Connection Failed
+```bash
+# Check Redis is running
+docker compose ps redis
+
+# Test connection
+docker exec trading_platform_redis redis-cli ping
+# Should return: PONG
+
+# Check if state keys exist
+docker exec trading_platform_redis redis-cli KEYS "*"
+
+# Restart if needed
+docker compose restart redis
+```
+
+#### Circuit Breaker Won't Reset
+```bash
+# Check current state and trip reason
+docker exec trading_platform_redis redis-cli GET circuit_breaker:state
+docker exec trading_platform_redis redis-cli GET circuit_breaker:trip_reason
+
+# Common causes:
+# - DATA_STALE: Run ETL pipeline to refresh data
+# - DAILY_LOSS_EXCEEDED: Wait until next day or manually reset
+# - BROKER_ERROR: Check Alpaca API status
+
+# Force reset (ONLY if conditions are verified safe)
+docker exec trading_platform_redis redis-cli SET circuit_breaker:state \
+  '{"state": "OPEN", "reset_by": "operator", "reset_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'", "note": "Manual reset after verification"}'
+```
+
+#### Alpaca API Errors
+```bash
+# Test API credentials
+PYTHONPATH=. python3 -c "
+from apps.execution_gateway.alpaca_client import AlpacaExecutor
+executor = AlpacaExecutor()
+try:
+    account = executor.get_account()
+    print(f'Account ID: {account.id}')
+    print(f'Status: {account.status}')
+    print(f'Buying Power: \${account.buying_power}')
+except Exception as e:
+    print(f'ERROR: {e}')
+"
+
+# Check Alpaca status page: https://status.alpaca.markets/
+```
+
+---
+
+### A.11 Backup & Recovery
+
+#### Database Backup
+```bash
+# Create backup
+docker exec trading_platform_postgres pg_dumpall -U trader > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Restore from backup
+docker exec -i trading_platform_postgres psql -U trader < backup_YYYYMMDD_HHMMSS.sql
+```
+
+#### Redis State Backup
+```bash
+# Redis AOF is enabled by default, but you can trigger manual save
+docker exec trading_platform_redis redis-cli BGSAVE
+
+# Backup Redis data directory
+docker cp trading_platform_redis:/data ./redis_backup_$(date +%Y%m%d)
+```
+
+#### Configuration Backup
+```bash
+# Backup all configuration
+tar -czvf config_backup_$(date +%Y%m%d).tar.gz \
+  .env \
+  docker-compose.yml \
+  infra/ \
+  migrations/
+```
+
+---
+
+### A.12 Quick Reference Commands
+
+| Action | Command |
+|--------|---------|
+| **Start infrastructure** | `make up` |
+| **Stop infrastructure** | `make down` |
+| **View logs** | `make logs` |
+| **Run tests** | `make test` |
+| **Run CI locally** | `make ci-local` |
+| **Format code** | `make fmt` |
+| **Check linting** | `make lint` |
+| **Check status** | `make status` |
+| **Run paper trading** | `PYTHONPATH=. python3 scripts/paper_run.py` |
+| **Start Signal Service** | `PYTHONPATH=. poetry run uvicorn apps.signal_service.main:app --port 8001` |
+| **Start Execution Gateway** | `PYTHONPATH=. poetry run uvicorn apps.execution_gateway.main:app --port 8002` |
+| **Start Orchestrator** | `PYTHONPATH=. poetry run uvicorn apps.orchestrator.main:app --port 8003` |
+| **Start Market Data** | `make market-data` |
+
+---
+
+**Last Updated:** 2025-12-01
 **Author:** Claude Code
-**Version:** 4.0 (Reorganized with workflow first, 4 subtasks per track, test cases)
+**Version:** 5.2 (Added T5.5/T5.6 from Reviewer #2, enhanced runbook with network requirements and detailed env var table)
