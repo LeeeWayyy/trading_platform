@@ -12,3 +12,4 @@ cryptography>=41.0.0  # Phase 2: mTLS + JWT certificate generation
 pyjwt[crypto]>=2.8.0  # Phase 2: JWT-DN binding for mTLS authentication + Phase 3: JWKS RS256/ES256 validation
 httpx>=0.25.0  # Phase 3: OAuth2 IdP health checks
 pydantic>=2.0.0  # Phase 3: OAuth2 session data models
+prometheus-client>=0.17.0  # Metrics: auth counters and gauges

@@ -64,7 +64,7 @@ TRUSTED_PROXY_IPS = get_trusted_proxy_ips()
 # ============================================================================
 
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trading_platform"
+    "DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader"
 )
 
 # ============================================================================
