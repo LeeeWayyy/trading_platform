@@ -38,7 +38,6 @@ jobs:
       contents: read
       pull-requests: write
       checks: write
-      administration: read  # Required for branch protection check
 
     services:
       redis:
