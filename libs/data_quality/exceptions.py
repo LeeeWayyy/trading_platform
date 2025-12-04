@@ -89,3 +89,15 @@ class DiskSpaceError(DataQualityError):
     """
 
     pass
+
+
+class DataNotFoundError(DataQualityError):
+    """Raised when requested data is not available.
+
+    This can occur when:
+    - No manifest exists for a dataset (run sync first)
+    - Requested PERMNO/ticker is not found
+    - No data available for the specified date range
+    """
+
+    pass

@@ -5,8 +5,14 @@ This module provides:
 - AtomicFileLock: OS-atomic file locking for single-writer access
 - WRDSClient: Connection wrapper with pooling and rate limiting
 - SyncManager: Bulk data sync with atomic writes and progress tracking
+- CRSPLocalProvider: Read-only CRSP data access with DuckDB
 """
 
+from libs.data_providers.crsp_local_provider import (
+    AmbiguousTickerError,
+    CRSPLocalProvider,
+    ManifestVersionChangedError,
+)
 from libs.data_providers.locking import (
     AtomicFileLock,
     LockAcquisitionError,
@@ -18,6 +24,10 @@ from libs.data_providers.sync_manager import SyncManager, SyncProgress
 from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
 
 __all__ = [
+    # CRSP Local Provider
+    "CRSPLocalProvider",
+    "AmbiguousTickerError",
+    "ManifestVersionChangedError",
     # Locking
     "AtomicFileLock",
     "atomic_lock",

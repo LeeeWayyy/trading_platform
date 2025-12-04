@@ -11,6 +11,7 @@ This module provides:
 
 from libs.data_quality.exceptions import (
     ChecksumMismatchError,
+    DataNotFoundError,
     DiskSpaceError,
     LockNotHeldError,
     QuarantineError,
@@ -51,4 +52,5 @@ __all__ = [
     "QuarantineError",
     "LockNotHeldError",
     "DiskSpaceError",
+    "DataNotFoundError",
 ]
