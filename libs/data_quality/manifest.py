@@ -17,10 +17,11 @@ import shutil
 import socket
 import tempfile
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Generator, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -252,9 +253,11 @@ class ManifestManager:
         """
         lock_path = self._lock_path(dataset)
         now = datetime.now(UTC)
+        pid = os.getpid()
+        hostname = socket.gethostname()
         lock_data = {
-            "pid": os.getpid(),
-            "hostname": socket.gethostname(),
+            "pid": pid,
+            "hostname": hostname,
             "writer_id": writer_id,
             "acquired_at": now.isoformat(),
             "expires_at": (now + timedelta(hours=self.LOCK_MAX_AGE_HOURS)).isoformat(),
@@ -290,8 +293,8 @@ class ManifestManager:
 
         # Create token
         token = LockToken(
-            pid=lock_data["pid"],
-            hostname=lock_data["hostname"],
+            pid=pid,
+            hostname=hostname,
             writer_id=writer_id,
             acquired_at=now,
             expires_at=now + timedelta(hours=self.LOCK_MAX_AGE_HOURS),
@@ -884,7 +887,7 @@ class ManifestManager:
             files_to_delete: list[Path] = []
 
             # Use pre-validated resolved paths to prevent TOCTOU
-            for resolved_path, original_str in validated_files:
+            for resolved_path, _original_str in validated_files:
                 # Use unique destination name to prevent basename collisions
                 # e.g., data/2024-01/part-0.parquet and data/2024-02/part-0.parquet
                 # would otherwise both become part-0.parquet
