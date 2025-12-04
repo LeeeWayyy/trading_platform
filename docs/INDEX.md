@@ -206,6 +206,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0016](./ADRs/0016-multi-alpha-allocation.md) | Multi-alpha capital allocation system | ✅ Accepted |
 | [0017](./ADRs/0017-secrets-management.md) | Secrets management with Google Cloud Secret Manager | ✅ Accepted |
 | [0018](./ADRs/0018-web-console-mtls-authentication.md) | Web console mTLS authentication with JWT session management | ✅ Accepted |
+| [0019](./ADRs/0019-data-quality-framework.md) | Data quality and validation framework for WRDS data syncs | ✅ Accepted |
 | [ADR-015](./ADRs/ADR-015-auth0-idp-selection.md) | Auth0 for Production OAuth2/OIDC Identity Provider | 🚧 Proposed |
 
 **Architecture Documentation:**
@@ -348,6 +349,11 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-11-30, Task] [P3T4_TASK.md](./TASKS/P3T4_TASK.md) - P3T4: Medium Priority Fixes (P2) - Type Safety, Lifecycle, Performance, Cleanup
 - [CURRENT, 2025-12-01, Task] [P3T5_TASK.md](./TASKS/P3T5_TASK.md) - P3T5: External Review Findings - Risk Management Fixes (Kill Switch, Position Limits, Circuit Breaker)
 - [CURRENT, 2025-12-02, Task] [P3T6_TASK.md](./TASKS/P3T6_TASK.md) - P3T6: Docker Infrastructure and Runbook Fixes
+
+**Phase 4 Tasks:**
+- [CURRENT, 2025-12-03, Planning] [P4_PLANNING.md](./TASKS/P4_PLANNING.md) - P4 Data Infrastructure phase planning
+- [CURRENT, 2025-12-03, Task] [P4T1_TASK.md](./TASKS/P4T1_TASK.md) - P4T1: Data Infrastructure - Local Data Warehouse with WRDS Data Sources
+- [CURRENT, 2025-12-03, Component] [components/P4T1.1-data-quality-plan.md](./TASKS/components/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 
 **Checking Current/Next Task:**
 ```bash

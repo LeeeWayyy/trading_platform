@@ -357,6 +357,8 @@ git commit -m "fix: Address PR feedback"                   # Commit fixes
 - **Planning discipline:** Create task file, set component, follow 6-step pattern
 - **TDD:** Write tests before implementation
 - **6-step pattern:** Plan → Plan Review → Implement → Test → Code Review → Commit
+- **Always Request Fresh Review:** You are requesting approval for entire plan or commit codes, NOT for the previous fix. ALWAYS request fresh review without previous memory (DO NOT reuse continuation-id)
+- **No duplicate review:** If one reviewer appoves, record it and no need to send more reviews in the next iteration.
 - **No bypasses:** NEVER use `git commit --no-verify` (detected by CI)
 
 **See [Workflows/README.md](./Workflows/README.md) for detailed workflows**
