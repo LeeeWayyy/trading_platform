@@ -151,6 +151,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.3-CRSP-Local-Provider.md](../.claude/plans/T1.3-CRSP-Local-Provider.md) - T1.3 CRSP Local Provider implementation plan
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.4-Compustat-Local-Provider.md](../.claude/plans/T1.4-Compustat-Local-Provider.md) - T1.4 Compustat Local Provider implementation plan
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.5-Fama-French-Local-Provider.md](../.claude/plans/T1.5-Fama-French-Local-Provider.md) - T1.5 Fama-French Local Provider implementation plan
+- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.6-dataset-versioning.md](../.claude/plans/T1.6-dataset-versioning.md) - T1.6 Dataset Versioning & Reproducibility implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index

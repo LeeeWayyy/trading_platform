@@ -50,6 +50,17 @@ FF5_COLUMNS = ("date", "mkt_rf", "smb", "hml", "rmw", "cma", "rf")
 FF6_COLUMNS = ("date", "mkt_rf", "smb", "hml", "rmw", "cma", "umd", "rf")
 MOM_COLUMNS = ("date", "umd")
 
+# Dataset name to required columns mapping
+DATASET_SCHEMAS: dict[str, tuple[str, ...]] = {
+    "factors_3_daily": FF3_COLUMNS,
+    "factors_3_monthly": FF3_COLUMNS,
+    "factors_5_daily": FF5_COLUMNS,
+    "factors_5_monthly": FF5_COLUMNS,
+    "momentum_daily": MOM_COLUMNS,
+    "momentum_monthly": MOM_COLUMNS,
+    # Industry datasets require 'date' column - others are industry names
+}
+
 
 class FamaFrenchLocalProvider:
     """Provider for Fama-French factor data with sync capability.
@@ -225,16 +236,16 @@ class FamaFrenchLocalProvider:
                 f"Factor data not found: {filename}. Run sync_data() first."
             )
 
-        # Query with DuckDB for efficient date filtering
+        # Query with DuckDB for efficient date filtering (parameterized)
         conn = duckdb.connect(":memory:")
         try:
-            query = f"""
+            query = """
                 SELECT *
-                FROM read_parquet('{file_path}')
-                WHERE date >= '{start_date}' AND date <= '{end_date}'
+                FROM read_parquet($1)
+                WHERE date >= $2 AND date <= $3
                 ORDER BY date
             """
-            result = conn.execute(query).pl()
+            result = conn.execute(query, [str(file_path), start_date, end_date]).pl()
             return result
         finally:
             conn.close()
@@ -277,16 +288,16 @@ class FamaFrenchLocalProvider:
                 f"Industry data not found: {filename}. Run sync_data() first."
             )
 
-        # Query with DuckDB for efficient date filtering
+        # Query with DuckDB for efficient date filtering (parameterized)
         conn = duckdb.connect(":memory:")
         try:
-            query = f"""
+            query = """
                 SELECT *
-                FROM read_parquet('{file_path}')
-                WHERE date >= '{start_date}' AND date <= '{end_date}'
+                FROM read_parquet($1)
+                WHERE date >= $2 AND date <= $3
                 ORDER BY date
             """
-            result = conn.execute(query).pl()
+            result = conn.execute(query, [str(file_path), start_date, end_date]).pl()
             return result
         finally:
             conn.close()
@@ -365,13 +376,35 @@ class FamaFrenchLocalProvider:
                         "Skipping existing dataset",
                         extra={"dataset": name, "path": str(target_path)},
                     )
-                    # Preserve existing manifest entry (already in manifest_entries)
+                    # Ensure manifest entry exists - regenerate if missing
+                    if target_path.name not in manifest_entries:
+                        try:
+                            df = pl.read_parquet(target_path)
+                            checksum = self._compute_checksum(target_path)
+                            date_col = df.get_column("date")
+                            min_date = date_col.min()
+                            max_date = date_col.max()
+                            manifest_entries[target_path.name] = {
+                                "checksum": checksum,
+                                "row_count": df.height,
+                                "start_date": str(min_date) if min_date else None,
+                                "end_date": str(max_date) if max_date else None,
+                            }
+                            logger.info(
+                                "Regenerated manifest entry for existing file",
+                                extra={"dataset": name, "rows": df.height},
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to regenerate manifest entry",
+                                extra={"dataset": name, "error": str(e)},
+                            )
                     continue
 
                 # Download with retries
-                df = self._download_with_retry(web, source, name)
+                downloaded_df = self._download_with_retry(web, source, name)
 
-                if df is None or df.height == 0:
+                if downloaded_df is None or downloaded_df.height == 0:
                     logger.warning(
                         "Download failed or empty dataset",
                         extra={"dataset": name},
@@ -379,8 +412,19 @@ class FamaFrenchLocalProvider:
                     failed_datasets.append(name)
                     continue
 
+                # Validate schema before writing
+                try:
+                    self._validate_schema(downloaded_df, name)
+                except ValueError as e:
+                    logger.error(
+                        "Schema validation failed",
+                        extra={"dataset": name, "error": str(e)},
+                    )
+                    failed_datasets.append(name)
+                    continue
+
                 # Normalize returns (percent → decimal)
-                df = self._normalize_returns(df)
+                df = self._normalize_returns(downloaded_df)
 
                 # Atomic write
                 checksum = self._atomic_write_parquet(df, target_path)
@@ -408,12 +452,51 @@ class FamaFrenchLocalProvider:
 
             # Generate 6-factor files by joining 5-factor + momentum
             for freq in ["daily", "monthly"]:
-                ff6_path = self._factors_dir / f"factors_6_{freq}.parquet"
+                ff6_name = f"factors_6_{freq}"
+                ff6_path = self._factors_dir / f"{ff6_name}.parquet"
                 ff5_path = self._factors_dir / f"factors_5_{freq}.parquet"
                 mom_path = self._factors_dir / f"momentum_{freq}.parquet"
 
-                if ff5_path.exists() and mom_path.exists():
-                    if not ff6_path.exists() or force:
+                # Check prerequisites exist
+                if not ff5_path.exists() or not mom_path.exists():
+                    if not ff6_path.exists():
+                        # Prerequisites missing and no existing FF6 - report failure
+                        missing = []
+                        if not ff5_path.exists():
+                            missing.append(f"factors_5_{freq}")
+                        if not mom_path.exists():
+                            missing.append(f"momentum_{freq}")
+                        logger.warning(
+                            "Cannot create 6-factor file: missing prerequisites",
+                            extra={"frequency": freq, "missing": missing},
+                        )
+                        failed_datasets.append(ff6_name)
+                    else:
+                        # FF6 exists but prerequisites missing - ensure manifest entry
+                        if ff6_path.name not in manifest_entries:
+                            try:
+                                df = pl.read_parquet(ff6_path)
+                                checksum = self._compute_checksum(ff6_path)
+                                date_col = df.get_column("date")
+                                manifest_entries[ff6_path.name] = {
+                                    "checksum": checksum,
+                                    "row_count": df.height,
+                                    "start_date": str(date_col.min()),
+                                    "end_date": str(date_col.max()),
+                                }
+                                logger.info(
+                                    "Regenerated manifest entry for existing FF6 file",
+                                    extra={"frequency": freq, "rows": df.height},
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "Failed to regenerate manifest entry for FF6",
+                                    extra={"frequency": freq, "error": str(e)},
+                                )
+                    continue
+
+                if not ff6_path.exists() or force:
+                    try:
                         ff6_df = self._create_ff6(ff5_path, mom_path)
                         checksum = self._atomic_write_parquet(ff6_df, ff6_path)
 
@@ -429,6 +512,34 @@ class FamaFrenchLocalProvider:
                             "6-factor file created",
                             extra={"frequency": freq, "rows": ff6_df.height},
                         )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to create 6-factor file",
+                            extra={"frequency": freq, "error": str(e)},
+                        )
+                        failed_datasets.append(ff6_name)
+                else:
+                    # FF6 exists and not forcing - ensure manifest entry exists
+                    if ff6_path.name not in manifest_entries:
+                        try:
+                            df = pl.read_parquet(ff6_path)
+                            checksum = self._compute_checksum(ff6_path)
+                            date_col = df.get_column("date")
+                            manifest_entries[ff6_path.name] = {
+                                "checksum": checksum,
+                                "row_count": df.height,
+                                "start_date": str(date_col.min()),
+                                "end_date": str(date_col.max()),
+                            }
+                            logger.info(
+                                "Regenerated manifest entry for existing FF6 file",
+                                extra={"frequency": freq, "rows": df.height},
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to regenerate manifest entry for FF6",
+                                extra={"frequency": freq, "error": str(e)},
+                            )
 
             # Calculate total rows from all manifest entries
             for entry in manifest_entries.values():
@@ -567,6 +678,40 @@ class FamaFrenchLocalProvider:
             (pl.col(c) / 100.0).alias(c)
             for c in return_cols
         ])
+
+    def _validate_schema(self, df: pl.DataFrame, dataset_name: str) -> bool:
+        """Validate DataFrame has required columns for dataset type.
+
+        Args:
+            df: DataFrame to validate.
+            dataset_name: Dataset name (e.g., 'factors_3_daily').
+
+        Returns:
+            True if schema is valid.
+
+        Raises:
+            ValueError: If required columns are missing.
+        """
+        # Get expected schema
+        expected_cols = DATASET_SCHEMAS.get(dataset_name)
+
+        if expected_cols is None:
+            # Industry datasets - just require 'date' column
+            if "date" not in df.columns:
+                raise ValueError(f"Dataset {dataset_name} missing required 'date' column")
+            return True
+
+        # Check all required columns present
+        actual_cols = set(df.columns)
+        missing = set(expected_cols) - actual_cols
+
+        if missing:
+            raise ValueError(
+                f"Dataset {dataset_name} schema mismatch: missing columns {missing}. "
+                f"Expected: {expected_cols}, got: {list(df.columns)}"
+            )
+
+        return True
 
     def _create_ff6(self, ff5_path: Path, mom_path: Path) -> pl.DataFrame:
         """Create 6-factor DataFrame by joining 5-factor + momentum.

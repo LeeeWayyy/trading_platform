@@ -659,6 +659,51 @@ class TestManifest:
         results = provider.verify_data()
         assert results["test.parquet"] is False
 
+    def test_manifest_regenerated_for_existing_files_without_entry(
+        self, provider: FamaFrenchLocalProvider, mock_ff3_data: pl.DataFrame
+    ) -> None:
+        """Test manifest entries are regenerated for existing files missing from manifest.
+
+        This covers the case where:
+        1. Files exist on disk (e.g., manual copy or manifest loss)
+        2. Manifest is missing or doesn't have entry for these files
+        3. On sync (not forced), entries should be regenerated from existing files
+        """
+        # Write a file directly (simulating existing file without manifest)
+        target_path = provider._factors_dir / "factors_3_daily.parquet"
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        mock_ff3_data.write_parquet(target_path)
+
+        # No manifest exists at this point
+        assert provider.get_manifest() is None
+
+        # Mock pandas-datareader to avoid actual network calls
+        with patch("pandas_datareader.data") as mock_pdr:
+            # Setup mock - sync should skip existing file
+            mock_pdr.DataReader = MagicMock()
+
+            # Sync with specific datasets (not forcing)
+            result = provider.sync_data(
+                datasets=["factors_3_daily"],
+                force=False,
+            )
+
+        # Manifest should now have entry for the existing file
+        manifest = provider.get_manifest()
+        assert manifest is not None
+        assert "factors_3_daily.parquet" in manifest["files"]
+
+        # Verify entry has all required fields
+        entry = manifest["files"]["factors_3_daily.parquet"]
+        assert "checksum" in entry
+        assert "row_count" in entry
+        assert entry["row_count"] == mock_ff3_data.height
+        assert "start_date" in entry
+        assert "end_date" in entry
+
+        # Total row count should include regenerated entry
+        assert result["total_row_count"] == mock_ff3_data.height
+
 
 # =============================================================================
 # Path Traversal Prevention Tests
@@ -694,16 +739,18 @@ class TestSyncData:
         self, provider: FamaFrenchLocalProvider
     ) -> None:
         """Test sync raises error if pandas-datareader not available."""
-        with patch.dict("sys.modules", {"pandas_datareader": None}):
-            # Force reimport to trigger ImportError
-            with patch(
-                "libs.data_providers.fama_french_local_provider.FamaFrenchLocalProvider.sync_data"
-            ) as mock_sync:
-                mock_sync.side_effect = FamaFrenchSyncError(
-                    "pandas-datareader not installed"
-                )
-                with pytest.raises(FamaFrenchSyncError, match="pandas-datareader"):
-                    provider.sync_data()
+        import builtins
+
+        original_import = builtins.__import__
+
+        def mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "pandas_datareader.data" or name == "pandas_datareader":
+                raise ImportError("No module named 'pandas_datareader'")
+            return original_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=mock_import):
+            with pytest.raises(FamaFrenchSyncError, match="pandas-datareader"):
+                provider.sync_data()
 
     def test_sync_invalid_datasets_raises_error(
         self, provider: FamaFrenchLocalProvider

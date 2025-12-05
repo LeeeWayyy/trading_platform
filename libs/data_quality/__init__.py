@@ -6,16 +6,23 @@ This module provides:
 - ManifestManager: Atomic manifest operations with locking
 - DataValidator: Data validation (row counts, nulls, schema, dates)
 - SchemaRegistry: Schema versioning and drift detection
+- DatasetVersionManager: Dataset versioning for reproducibility (T1.6)
 - Various exceptions for error handling
 """
 
 from libs.data_quality.exceptions import (
     ChecksumMismatchError,
     DataNotFoundError,
+    DatasetNotInSnapshotError,
     DiskSpaceError,
     LockNotHeldError,
     QuarantineError,
     SchemaError,
+    SnapshotCorruptedError,
+    SnapshotInconsistentError,
+    SnapshotNotFoundError,
+    SnapshotRecoveryError,
+    SnapshotReferencedError,
     SyncValidationError,
 )
 from libs.data_quality.manifest import ManifestManager, SyncManifest
@@ -27,6 +34,17 @@ from libs.data_quality.types import (
     TradingCalendar,
 )
 from libs.data_quality.validation import AnomalyAlert, DataValidator, ValidationError
+from libs.data_quality.versioning import (
+    BacktestLinkage,
+    CASEntry,
+    CASIndex,
+    DatasetSnapshot,
+    DatasetVersionManager,
+    DiffFileEntry,
+    FileStorageInfo,
+    SnapshotDiff,
+    SnapshotManifest,
+)
 
 __all__ = [
     # Manifest
@@ -40,6 +58,16 @@ __all__ = [
     "SchemaRegistry",
     "DatasetSchema",
     "SchemaDrift",
+    # Versioning (T1.6)
+    "DatasetVersionManager",
+    "SnapshotManifest",
+    "DatasetSnapshot",
+    "FileStorageInfo",
+    "BacktestLinkage",
+    "CASEntry",
+    "CASIndex",
+    "SnapshotDiff",
+    "DiffFileEntry",
     # Types
     "LockToken",
     "DiskSpaceStatus",
@@ -53,4 +81,11 @@ __all__ = [
     "LockNotHeldError",
     "DiskSpaceError",
     "DataNotFoundError",
+    # Versioning Exceptions
+    "SnapshotNotFoundError",
+    "SnapshotReferencedError",
+    "SnapshotCorruptedError",
+    "SnapshotInconsistentError",
+    "DatasetNotInSnapshotError",
+    "SnapshotRecoveryError",
 ]
