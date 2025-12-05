@@ -1,5 +1,5 @@
 """
-Data providers for WRDS academic data sources and Fama-French factors.
+Data providers for WRDS academic data sources, Fama-French factors, and yfinance.
 
 This module provides:
 - AtomicFileLock: OS-atomic file locking for single-writer access
@@ -8,6 +8,7 @@ This module provides:
 - CRSPLocalProvider: Read-only CRSP data access with DuckDB
 - CompustatLocalProvider: Read-only Compustat fundamental data access with DuckDB
 - FamaFrenchLocalProvider: Read-only Fama-French factor data access
+- YFinanceProvider: Free market data for development (NOT for production)
 """
 
 from libs.data_providers.compustat_local_provider import (
@@ -36,6 +37,12 @@ from libs.data_providers.locking import (
 )
 from libs.data_providers.sync_manager import SyncManager, SyncProgress
 from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
+from libs.data_providers.yfinance_provider import (
+    DriftDetectedError,
+    ProductionGateError,
+    YFinanceError,
+    YFinanceProvider,
+)
 
 __all__ = [
     # CRSP Local Provider
@@ -62,4 +69,9 @@ __all__ = [
     # Sync Manager
     "SyncManager",
     "SyncProgress",
+    # yfinance Provider (dev-only)
+    "YFinanceProvider",
+    "YFinanceError",
+    "ProductionGateError",
+    "DriftDetectedError",
 ]
