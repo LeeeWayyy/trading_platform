@@ -1171,7 +1171,7 @@ class SyncManager:
             """
         elif dataset == "compustat_annual":
             return f"""
-                SELECT datadate, gvkey, at, lt, sale, ni, ceq
+                SELECT datadate, gvkey, tic, conm, at, lt, sale, ni, ceq
                 FROM comp.funda
                 WHERE datadate >= '{start_date}' AND datadate <= '{end_date}'
                 AND indfmt = 'INDL' AND datafmt = 'STD' AND popsrc = 'D' AND consol = 'C'
@@ -1179,7 +1179,7 @@ class SyncManager:
             """
         elif dataset == "compustat_quarterly":
             return f"""
-                SELECT datadate, gvkey, atq, ltq, saleq, niq
+                SELECT datadate, gvkey, tic, conm, atq, ltq, saleq, niq
                 FROM comp.fundq
                 WHERE datadate >= '{start_date}' AND datadate <= '{end_date}'
                 AND indfmt = 'INDL' AND datafmt = 'STD' AND popsrc = 'D' AND consol = 'C'

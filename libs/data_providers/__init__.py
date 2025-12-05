@@ -6,8 +6,16 @@ This module provides:
 - WRDSClient: Connection wrapper with pooling and rate limiting
 - SyncManager: Bulk data sync with atomic writes and progress tracking
 - CRSPLocalProvider: Read-only CRSP data access with DuckDB
+- CompustatLocalProvider: Read-only Compustat fundamental data access with DuckDB
 """
 
+from libs.data_providers.compustat_local_provider import (
+    AmbiguousGVKEYError,
+    CompustatLocalProvider,
+)
+from libs.data_providers.compustat_local_provider import (
+    ManifestVersionChangedError as CompustatManifestVersionChangedError,
+)
 from libs.data_providers.crsp_local_provider import (
     AmbiguousTickerError,
     CRSPLocalProvider,
@@ -28,6 +36,10 @@ __all__ = [
     "CRSPLocalProvider",
     "AmbiguousTickerError",
     "ManifestVersionChangedError",
+    # Compustat Local Provider
+    "CompustatLocalProvider",
+    "AmbiguousGVKEYError",
+    "CompustatManifestVersionChangedError",
     # Locking
     "AtomicFileLock",
     "atomic_lock",
