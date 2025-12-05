@@ -150,6 +150,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-11-21, Index] [Implementation/README.md](./AI/Implementation/README.md) - Implementation plan artifacts index
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.3-CRSP-Local-Provider.md](../.claude/plans/T1.3-CRSP-Local-Provider.md) - T1.3 CRSP Local Provider implementation plan
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.4-Compustat-Local-Provider.md](../.claude/plans/T1.4-Compustat-Local-Provider.md) - T1.4 Compustat Local Provider implementation plan
+- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.5-Fama-French-Local-Provider.md](../.claude/plans/T1.5-Fama-French-Local-Provider.md) - T1.5 Fama-French Local Provider implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -244,6 +245,7 @@ Educational explanations of trading and ML concepts:
 | [distributed-tracing.md](./CONCEPTS/distributed-tracing.md) | Distributed tracing for microservices | Advanced |
 | [duckdb-basics.md](./CONCEPTS/duckdb-basics.md) | DuckDB embedded analytics | Beginner |
 | [execution-algorithms.md](./CONCEPTS/execution-algorithms.md) | Order execution strategies (TWAP, VWAP) | Intermediate |
+| [fama-french-factors.md](./CONCEPTS/fama-french-factors.md) | Fama-French factor models (3F, 5F, 6F) | Intermediate |
 | [hot-reload.md](./CONCEPTS/hot-reload.md) | Zero-downtime model updates | Advanced |
 | [feature-parity.md](./CONCEPTS/feature-parity.md) | Research-production consistency | Advanced |
 | [mtls-jwt-authentication.md](./CONCEPTS/mtls-jwt-authentication.md) | Mutual TLS and JWT authentication concepts | Advanced |
