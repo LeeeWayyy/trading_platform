@@ -589,7 +589,7 @@ class YFinanceProvider:
         """
         # Import yfinance lazily to avoid import errors if not installed
         try:
-            import yfinance as yf
+            import yfinance as yf  # type: ignore[import-untyped]
         except ImportError as e:
             raise YFinanceError(
                 "yfinance not installed. Run: pip install yfinance"

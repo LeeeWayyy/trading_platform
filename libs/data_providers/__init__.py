@@ -9,6 +9,8 @@ This module provides:
 - CompustatLocalProvider: Read-only Compustat fundamental data access with DuckDB
 - FamaFrenchLocalProvider: Read-only Fama-French factor data access
 - YFinanceProvider: Free market data for development (NOT for production)
+- UnifiedDataFetcher: Unified interface for data access with provider switching
+- DataProvider: Protocol for data provider implementations
 """
 
 from libs.data_providers.compustat_local_provider import (
@@ -35,7 +37,26 @@ from libs.data_providers.locking import (
     MalformedLockFileError,
     atomic_lock,
 )
+
+# Unified Data Fetcher (P4T1.8)
+from libs.data_providers.protocols import (
+    UNIFIED_COLUMNS,
+    UNIFIED_SCHEMA,
+    ConfigurationError,
+    CRSPDataProviderAdapter,
+    DataProvider,
+    DataProviderError,
+    ProductionProviderRequiredError,
+    ProviderNotSupportedError,
+    ProviderUnavailableError,
+    YFinanceDataProviderAdapter,
+)
 from libs.data_providers.sync_manager import SyncManager, SyncProgress
+from libs.data_providers.unified_fetcher import (
+    FetcherConfig,
+    ProviderType,
+    UnifiedDataFetcher,
+)
 from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
 from libs.data_providers.yfinance_provider import (
     DriftDetectedError,
@@ -74,4 +95,18 @@ __all__ = [
     "YFinanceError",
     "ProductionGateError",
     "DriftDetectedError",
+    # Unified Data Fetcher (P4T1.8)
+    "UnifiedDataFetcher",
+    "FetcherConfig",
+    "ProviderType",
+    "DataProvider",
+    "DataProviderError",
+    "ProviderUnavailableError",
+    "ProviderNotSupportedError",
+    "ProductionProviderRequiredError",
+    "ConfigurationError",
+    "CRSPDataProviderAdapter",
+    "YFinanceDataProviderAdapter",
+    "UNIFIED_COLUMNS",
+    "UNIFIED_SCHEMA",
 ]
