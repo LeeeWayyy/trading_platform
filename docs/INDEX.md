@@ -153,6 +153,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.5-Fama-French-Local-Provider.md](../.claude/plans/T1.5-Fama-French-Local-Provider.md) - T1.5 Fama-French Local Provider implementation plan
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.6-dataset-versioning.md](../.claude/plans/T1.6-dataset-versioning.md) - T1.6 Dataset Versioning & Reproducibility implementation plan
 - [CURRENT, 2025-12-05, Plan] [../.claude/plans/P4T1.9-ETL-Pipeline.md](../.claude/plans/P4T1.9-ETL-Pipeline.md) - P4T1.9 ETL Pipeline implementation plan
+- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.1-factor-model-plan.md](../.claude/plans/T2.1-factor-model-plan.md) - T2.1 Multi-Factor Model Construction implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -365,6 +366,7 @@ Current and future work items organized by phase:
 **Phase 4 Tasks:**
 - [CURRENT, 2025-12-03, Planning] [P4_PLANNING.md](./TASKS/P4_PLANNING.md) - P4 Data Infrastructure phase planning
 - [CURRENT, 2025-12-03, Task] [P4T1_TASK.md](./TASKS/P4T1_TASK.md) - P4T1: Data Infrastructure - Local Data Warehouse with WRDS Data Sources
+- [CURRENT, 2025-12-07, Task] [P4T2_TASK.md](./TASKS/P4T2_TASK.md) - P4T2: Analytics Infrastructure - Multi-Factor Model Construction
 - [CURRENT, 2025-12-03, Component] [components/P4T1.1-data-quality-plan.md](./TASKS/components/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 - [CURRENT, 2025-12-04, Component] [components/P4T1.2-wrds-sync-manager-plan.md](./TASKS/components/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan

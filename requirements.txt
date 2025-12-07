@@ -6,6 +6,7 @@
 polars>=1.0.0,<2.0.0
 pydantic>=2.5.0,<3.0.0
 pydantic-settings>=2.1.0,<3.0.0
+scipy>=1.11.0,<2.0.0  # Statistical functions for factor analytics (Spearman correlation)
 
 # Qlib and ML
 pyqlib>=0.9.5,<1.0.0
