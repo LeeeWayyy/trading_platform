@@ -753,12 +753,17 @@ class CRSPLocalProvider:
         return self._security_metadata
 
     def _ensure_connection(self) -> duckdb.DuckDBPyConnection:
-        """Get or create thread-local DuckDB connection.
+        """Get or create thread-local DuckDB in-memory connection.
 
         Thread Safety:
             DuckDB connections are NOT thread-safe. This method uses thread-local
             storage to provide each thread with its own connection, preventing
             data corruption when multiple threads access the provider concurrently.
+
+        Note:
+            Uses in-memory connection with read_only=False because DuckDB requires
+            write access for some in-memory operations (PRAGMA settings, temp tables).
+            The provider is logically read-only (never modifies Parquet files).
 
         Uses PRAGMA disable_object_cache to ensure fresh data
         after syncs (per P4T1 DuckDB Operational Safety).

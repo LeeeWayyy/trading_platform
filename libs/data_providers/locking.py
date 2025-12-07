@@ -170,23 +170,55 @@ class AtomicFileLock:
                 f"Token does not match current lock for {self.dataset}"
             )
 
-        try:
-            # Verify on-disk ownership before unlinking to prevent deleting
-            # a lock that was recovered by another process after timeout
-            if self.lock_path.exists():
-                content = self.lock_path.read_text()
-                data = json.loads(content)
-                if (
-                    data.get("writer_id") != token.writer_id
-                    or data.get("hostname") != token.hostname
-                    or data.get("pid") != token.pid
-                ):
-                    self._current_token = None
-                    raise LockNotHeldError(
-                        f"Lock was recovered by another process for {self.dataset}"
-                    )
+        # Use atomic rename to prevent TOCTOU race condition:
+        # 1. Atomically rename lock file to .releasing (claims exclusive access)
+        # 2. Verify ownership in the renamed file
+        # 3. Delete if ours, or rename back if not
+        release_path = self.lock_path.with_suffix(".releasing")
 
-            self.lock_path.unlink()
+        try:
+            # Atomic rename claims the file exclusively
+            self.lock_path.rename(release_path)
+        except FileNotFoundError:
+            # Lock already gone, treat as released
+            self._current_token = None
+            return
+        except OSError as e:
+            # Cannot claim lock file for release - this is a serious error
+            # that could leave stale locks blocking future writers
+            self._current_token = None
+            logger.error(
+                "Cannot claim lock file for release - lock may be stale",
+                extra={
+                    "event": "sync.lock.release_failed",
+                    "dataset": self.dataset,
+                    "lock_path": str(self.lock_path),
+                    "error": str(e),
+                },
+            )
+            raise LockNotHeldError(
+                f"Failed to release lock for {self.dataset}: {e}. "
+                f"Lock file at {self.lock_path} may be stale and require manual cleanup."
+            ) from e
+
+        try:
+            # Now we own the file exclusively, verify ownership
+            content = release_path.read_text()
+            data = json.loads(content)
+            if (
+                data.get("writer_id") != token.writer_id
+                or data.get("hostname") != token.hostname
+                or data.get("pid") != token.pid
+            ):
+                # Not our lock! Atomically restore it
+                release_path.rename(self.lock_path)
+                self._current_token = None
+                raise LockNotHeldError(
+                    f"Lock was recovered by another process for {self.dataset}"
+                )
+
+            # It's our lock, delete it
+            release_path.unlink()
             # fsync parent directory for crash safety
             self._fsync_directory(self.lock_path.parent)
             self._current_token = None
@@ -198,14 +230,18 @@ class AtomicFileLock:
                     "writer_id": self.writer_id,
                 },
             )
-        except FileNotFoundError:
-            # Lock already gone, treat as released
-            self._current_token = None
+        except LockNotHeldError:
+            raise
         except (json.JSONDecodeError, OSError) as e:
-            # Lock file corrupted or unreadable - don't delete it
+            # Lock file corrupted or unreadable - try to restore it
+            try:
+                if release_path.exists():
+                    release_path.rename(self.lock_path)
+            except OSError:
+                pass  # Best effort restore
             self._current_token = None
             logger.warning(
-                "Cannot verify lock ownership, not releasing",
+                "Cannot verify lock ownership, attempted restore",
                 extra={
                     "event": "sync.lock.release_failed",
                     "dataset": self.dataset,

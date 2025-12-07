@@ -721,11 +721,10 @@ class HistoricalETL:
             content = path.read_text()
             return ETLProgressManifest.model_validate_json(content)
         except (json.JSONDecodeError, ValidationError) as e:
-            # Corrupted progress file - backup, delete original, and start fresh
+            # Corrupted progress file - atomically move to backup and start fresh
+            # Using shutil.move for atomic rename on same filesystem
             backup_path = path.with_suffix(f".json.corrupted.{int(time.time())}")
-            shutil.copy2(path, backup_path)
-            # Delete the corrupted original to prevent repeated warnings on each run
-            path.unlink()
+            shutil.move(str(path), str(backup_path))
             logger.warning(
                 "Corrupted ETL progress file backed up and removed, starting fresh",
                 extra={

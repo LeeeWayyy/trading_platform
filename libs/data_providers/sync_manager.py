@@ -659,8 +659,8 @@ class SyncManager:
         Returns:
             Tuple of (file_path, row_count).
         """
-        # Build query based on dataset
-        query = self._build_query(dataset, year, incremental, last_date)
+        # Build parameterized query
+        query, params = self._build_query(dataset, year, incremental, last_date)
 
         logger.debug(
             "Syncing year partition",
@@ -671,8 +671,8 @@ class SyncManager:
             },
         )
 
-        # Execute query
-        new_df = self.wrds_client.execute_query(query)
+        # Execute query with params (prevents SQL injection)
+        new_df = self.wrds_client.execute_query(query, params)
 
         if new_df.is_empty() and not incremental:
             logger.warning(
@@ -1191,8 +1191,11 @@ class SyncManager:
         year: int,
         incremental: bool,
         last_date: datetime.date | None = None,
-    ) -> str:
-        """Build SQL query for dataset sync.
+    ) -> tuple[str, dict[str, str]]:
+        """Build SQL query for dataset sync with parameterized dates.
+
+        Uses parameterized queries to prevent SQL injection, even though
+        date values are internally generated. This follows security best practices.
 
         Args:
             dataset: Dataset name.
@@ -1201,7 +1204,7 @@ class SyncManager:
             last_date: For incremental, start date for query.
 
         Returns:
-            SQL query string.
+            Tuple of (SQL query with :param placeholders, params dict).
 
         Raises:
             ValueError: If dataset is not explicitly supported.
@@ -1222,40 +1225,45 @@ class SyncManager:
             start_date = f"{year}-01-01"
         end_date = f"{year}-12-31"
 
-        # Dataset-specific queries with proper date columns
+        params = {"start_date": start_date, "end_date": end_date}
+
+        # Dataset-specific queries with parameterized date columns
         # ORDER BY primary keys for deterministic deduplication (keep="last" requires order)
         if dataset == "crsp_daily":
-            return f"""
+            query = """
                 SELECT date, permno, cusip, ticker, ret, prc, vol, shrout
                 FROM crsp.dsf
-                WHERE date >= '{start_date}' AND date <= '{end_date}'
+                WHERE date >= :start_date AND date <= :end_date
                 ORDER BY date, permno
             """
         elif dataset == "compustat_annual":
-            return f"""
+            query = """
                 SELECT datadate, gvkey, tic, conm, at, lt, sale, ni, ceq
                 FROM comp.funda
-                WHERE datadate >= '{start_date}' AND datadate <= '{end_date}'
+                WHERE datadate >= :start_date AND datadate <= :end_date
                 AND indfmt = 'INDL' AND datafmt = 'STD' AND popsrc = 'D' AND consol = 'C'
                 ORDER BY datadate, gvkey
             """
         elif dataset == "compustat_quarterly":
-            return f"""
+            query = """
                 SELECT datadate, gvkey, tic, conm, atq, ltq, saleq, niq
                 FROM comp.fundq
-                WHERE datadate >= '{start_date}' AND datadate <= '{end_date}'
+                WHERE datadate >= :start_date AND datadate <= :end_date
                 AND indfmt = 'INDL' AND datafmt = 'STD' AND popsrc = 'D' AND consol = 'C'
                 ORDER BY datadate, gvkey
             """
         elif dataset == "fama_french":
-            return f"""
+            query = """
                 SELECT date, mktrf, smb, hml, rf, umd
                 FROM ff.factors_daily
-                WHERE date >= '{start_date}' AND date <= '{end_date}'
+                WHERE date >= :start_date AND date <= :end_date
                 ORDER BY date
             """
-        # Should never reach here due to check above
-        raise ValueError(f"No query template for {dataset}")
+        else:
+            # Should never reach here due to check above
+            raise ValueError(f"No query template for {dataset}")
+
+        return query, params
 
     def _fsync_directory(self, dir_path: Path) -> None:
         """Sync directory for crash safety.
