@@ -305,6 +305,5 @@ Each dataset has its own manifest for independent consistency.
 
 ## Related Documentation
 
-- [CRSP Data](./market-data.md) - Daily price data concepts
-- [Data Sync](./data-sync.md) - How data is synced from WRDS
-- [Backtesting](./backtesting.md) - Using data in backtests
+- [CRSP Data](./crsp-data.md) - Daily price data concepts
+- [Parquet Format](./parquet-format.md) - How data is stored locally

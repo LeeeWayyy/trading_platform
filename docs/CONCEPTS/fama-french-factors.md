@@ -264,6 +264,5 @@ factor_variances = factors.select([
 
 ## Related Documentation
 
-- [Market Data (CRSP)](./market-data.md) - Daily price data concepts
+- [CRSP Data](./crsp-data.md) - Daily price data concepts
 - [Fundamental Data (Compustat)](./fundamental-data.md) - Financial statement data
-- [Data Sync](./data-sync.md) - How data is synced from sources

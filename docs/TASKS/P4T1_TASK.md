@@ -1099,7 +1099,7 @@ The following items are implementation considerations, not blocking issues:
 ## References
 
 - [P4_PLANNING.md](./P4_PLANNING.md) - Full P4 specification
-- [CLAUDE.md](../AI/CLAUDE.md) - AI workflow guidance
+- [AI_GUIDE.md](../AI/AI_GUIDE.md) - AI workflow guidance
 - [Workflows/03-reviews.md](../AI/Workflows/03-reviews.md) - Review workflow
 
 ---

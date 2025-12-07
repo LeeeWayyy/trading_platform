@@ -462,8 +462,7 @@ with CRSPLocalProvider(...) as provider:
 
 ## Further Reading
 
-- [CRSP Data Description](https://www.crsp.org/products/documentation/stock-file-guides)
-- [WRDS CRSP Research Documentation](https://wrds-www.wharton.upenn.edu/pages/support/data-overview/wrds-overview-crsp-us-stock-database/)
+- [CRSP Official Documentation](https://www.crsp.org/) - Official CRSP website
 - [Survivorship Bias in Finance](https://en.wikipedia.org/wiki/Survivorship_bias)
 
 ## Related Concepts

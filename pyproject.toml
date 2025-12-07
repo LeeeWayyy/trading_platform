@@ -123,7 +123,7 @@ module = "polars.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*", "pandas_datareader.*"]
+module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*", "pandas_datareader.*", "yfinance.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
