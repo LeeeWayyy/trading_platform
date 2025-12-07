@@ -762,7 +762,7 @@ class FamaFrenchLocalProvider:
             expected_checksum: Optional expected checksum for validation.
 
         Returns:
-            MD5 checksum of written file.
+            SHA-256 checksum of written file.
 
         Raises:
             ChecksumError: If checksum validation fails.
@@ -823,19 +823,22 @@ class FamaFrenchLocalProvider:
         return dest
 
     def _compute_checksum(self, file_path: Path) -> str:
-        """Compute MD5 checksum of file.
+        """Compute SHA-256 checksum of file.
+
+        Uses SHA-256 for consistency with the CAS (Content-Addressable Storage)
+        subsystem in libs/data_quality/versioning.py.
 
         Args:
             file_path: Path to file.
 
         Returns:
-            MD5 hex digest.
+            SHA-256 hex digest.
         """
-        md5 = hashlib.md5()
+        hasher = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
-                md5.update(chunk)
-        return md5.hexdigest()
+                hasher.update(chunk)
+        return hasher.hexdigest()
 
     def _fsync_directory(self, dir_path: Path) -> None:
         """Sync directory for crash safety.

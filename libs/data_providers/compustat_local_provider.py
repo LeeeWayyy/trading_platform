@@ -215,7 +215,8 @@ class CompustatLocalProvider:
         start_date: date,
         end_date: date,
         gvkeys: list[str] | None = None,
-        as_of_date: date | None = None,
+        *,
+        as_of_date: date,
         filing_lag_days: int | None = None,
         columns: list[str] | None = None,
     ) -> pl.DataFrame:
@@ -230,10 +231,12 @@ class CompustatLocalProvider:
             start_date: Start of datadate range (inclusive).
             end_date: End of datadate range (inclusive).
             gvkeys: Filter by GVKEYs (None = all).
-            as_of_date: Point-in-time filter - only return data AVAILABLE by this date.
-                       A record with datadate is available when:
+            as_of_date: REQUIRED Point-in-time filter - only return data AVAILABLE
+                       by this date. A record with datadate is available when:
                        as_of_date >= datadate + filing_lag_days
-                       If None, returns all data (WARNING: may cause look-ahead bias).
+                       This parameter is required to prevent look-ahead bias.
+                       For backtests, pass the simulation date.
+                       For live trading, pass date.today().
             filing_lag_days: Override default 90-day filing lag.
             columns: Columns to return (None = all). Validated against schema.
 
@@ -263,7 +266,8 @@ class CompustatLocalProvider:
         start_date: date,
         end_date: date,
         gvkeys: list[str] | None = None,
-        as_of_date: date | None = None,
+        *,
+        as_of_date: date,
         filing_lag_days: int | None = None,
         columns: list[str] | None = None,
     ) -> pl.DataFrame:
@@ -278,10 +282,12 @@ class CompustatLocalProvider:
             start_date: Start of datadate range (inclusive).
             end_date: End of datadate range (inclusive).
             gvkeys: Filter by GVKEYs (None = all).
-            as_of_date: Point-in-time filter - only return data AVAILABLE by this date.
-                       A record with datadate is available when:
+            as_of_date: REQUIRED Point-in-time filter - only return data AVAILABLE
+                       by this date. A record with datadate is available when:
                        as_of_date >= datadate + filing_lag_days
-                       If None, returns all data (WARNING: may cause look-ahead bias).
+                       This parameter is required to prevent look-ahead bias.
+                       For backtests, pass the simulation date.
+                       For live trading, pass date.today().
             filing_lag_days: Override default 45-day filing lag.
             columns: Columns to return (None = all). Validated against schema.
 
@@ -312,7 +318,7 @@ class CompustatLocalProvider:
         start_date: date,
         end_date: date,
         gvkeys: list[str] | None,
-        as_of_date: date | None,
+        as_of_date: date,
         filing_lag_days: int,
         columns: list[str] | None,
         valid_columns: set[str],
@@ -322,25 +328,16 @@ class CompustatLocalProvider:
         """Internal method for fundamentals queries.
 
         Handles both annual and quarterly with parameterized dataset.
+
+        Args:
+            as_of_date: REQUIRED point-in-time filter. This prevents look-ahead bias
+                       by only returning data that was available on the given date.
         """
         # Validate columns
         if columns is not None:
             invalid = set(columns) - valid_columns
             if invalid:
                 raise ValueError(f"Invalid columns: {invalid}. Valid: {valid_columns}")
-
-        # Warn if no PIT filtering (potential look-ahead bias)
-        if as_of_date is None:
-            logger.warning(
-                "No as_of_date specified - returning all data without PIT filtering. "
-                "This may introduce look-ahead bias in backtesting.",
-                extra={
-                    "event": "compustat.query.no_pit",
-                    "dataset": dataset,
-                    "start_date": str(start_date),
-                    "end_date": str(end_date),
-                },
-            )
 
         # Pin manifest version for snapshot consistency
         manifest = self._get_manifest(dataset)

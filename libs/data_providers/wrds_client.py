@@ -264,29 +264,37 @@ class WRDSClient:
             "row_count_estimate": count_df["estimate"][0] if len(count_df) > 0 else 0,
         }
 
-    def check_credential_expiry(self) -> tuple[bool, int]:
+    def check_credential_expiry(self) -> tuple[bool, int | None]:
         """Check if credentials are expiring soon.
 
         Returns:
             Tuple of (is_expiring_soon, days_until_expiry).
-            is_expiring_soon is True if <30 days to expiry.
+            - is_expiring_soon: Always False (expiry check not implemented)
+            - days_until_expiry: None (not available from WRDS API)
+
+        Note:
+            WRDS does not expose credential expiry via API. Users must monitor
+            their WRDS account page directly for renewal deadlines.
+            This method returns sentinel values to indicate "unknown" status.
+
+        Warning:
+            Do NOT rely on this method for monitoring. Set up external
+            calendar reminders for WRDS subscription renewal dates.
         """
-        # TODO: Implement actual credential expiry check against WRDS account
-        # metadata. Current implementation returns a hardcoded 90 days.
-        # WRDS may provide account info via API or web scraping may be needed.
-        expiry_days = 90  # Placeholder - needs implementation
-        is_expiring = expiry_days < 30
+        # WRDS does not expose credential expiry via any public API.
+        # Web scraping the account page would be fragile and potentially
+        # violate terms of service. Return explicit "unknown" values.
+        logger.info(
+            "Credential expiry check not available - WRDS API limitation",
+            extra={
+                "event": "sync.credential.check_unavailable",
+                "recommendation": "Monitor WRDS account page directly",
+            },
+        )
 
-        if is_expiring:
-            logger.warning(
-                "WRDS credentials expiring soon",
-                extra={
-                    "event": "sync.credential.expiring",
-                    "days_until_expiry": expiry_days,
-                },
-            )
-
-        return is_expiring, expiry_days
+        # Return (False, None) to indicate "not expiring" with "unknown" days
+        # Callers should check for None and handle appropriately
+        return False, None
 
     def _get_credentials(self) -> tuple[str, SecretStr]:
         """Load credentials from secrets manager.

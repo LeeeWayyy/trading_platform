@@ -370,6 +370,21 @@ class YFinanceProvider:
         # Fetch missing symbols
         symbols_fetched: set[str] = set()
         if symbols_to_fetch:
+            # PERFORMANCE WARNING: Fetching uncached symbols hits yfinance API.
+            # This data is NOT cached by this method. For workflows that repeatedly
+            # need the same data, call fetch_and_cache() first to populate the cache.
+            # Repeated uncached fetches may trigger yfinance rate limits.
+            if len(symbols_to_fetch) > 10:
+                logger.warning(
+                    "Fetching many uncached symbols from yfinance API - consider using "
+                    "fetch_and_cache() to populate cache first",
+                    extra={
+                        "event": "yfinance.uncached_fetch",
+                        "uncached_count": len(symbols_to_fetch),
+                        "total_symbols": len(symbols),
+                        "recommendation": "Call fetch_and_cache() before get_daily_prices()",
+                    },
+                )
             fetched = self._fetch_symbols(symbols_to_fetch, start_date, end_date)
             for df in fetched:
                 if not df.is_empty() and "symbol" in df.columns:

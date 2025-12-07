@@ -321,9 +321,11 @@ class TestCompustatAnnualFundamentals:
             manifest_manager=manifest_manager,
             data_root=data_root,
         ) as provider:
+            # Use current date as as_of_date to get all historical data
             df = provider.get_annual_fundamentals(
                 start_date=date(2020, 1, 1),
                 end_date=date(2020, 12, 31),
+                as_of_date=date(2024, 1, 1),  # Well after filing lag
             )
 
         # Verify columns present
@@ -355,9 +357,11 @@ class TestCompustatQuarterlyFundamentals:
             manifest_manager=manifest_manager,
             data_root=data_root,
         ) as provider:
+            # Use current date as as_of_date to get all historical data
             df = provider.get_quarterly_fundamentals(
                 start_date=date(2021, 1, 1),
                 end_date=date(2021, 12, 31),
+                as_of_date=date(2024, 1, 1),  # Well after filing lag
             )
 
         # Verify columns present
@@ -587,6 +591,7 @@ class TestSchemaValidation:
                 provider.get_annual_fundamentals(
                     start_date=date(2020, 1, 1),
                     end_date=date(2020, 12, 31),
+                    as_of_date=date(2024, 1, 1),
                     columns=["datadate", "gvkey", "invalid_col"],
                 )
 
@@ -607,6 +612,7 @@ class TestSchemaValidation:
                 provider.get_quarterly_fundamentals(
                     start_date=date(2020, 1, 1),
                     end_date=date(2020, 12, 31),
+                    as_of_date=date(2024, 1, 1),
                     columns=["datadate", "at"],  # 'at' is annual, not quarterly
                 )
 
@@ -649,6 +655,7 @@ class TestManifestVersionChange:
                 provider.get_annual_fundamentals(
                     start_date=date(2020, 1, 1),
                     end_date=date(2020, 12, 31),
+                    as_of_date=date(2024, 1, 1),
                 )
 
 
@@ -686,6 +693,7 @@ class TestNoManifest:
                 provider.get_annual_fundamentals(
                     start_date=date(2020, 1, 1),
                     end_date=date(2020, 12, 31),
+                    as_of_date=date(2024, 1, 1),
                 )
 
 
@@ -1000,36 +1008,40 @@ class TestPITBoundaryDates:
 
 
 # =============================================================================
-# Test Case 22: as_of_date omitted logs warning
+# Test Case 22: as_of_date is required (no default)
 # =============================================================================
-class TestAsOfDateWarning:
-    """Test cases for PIT warning when no as_of_date."""
+class TestAsOfDateRequired:
+    """Test cases for required as_of_date parameter."""
 
-    def test_no_as_of_date_logs_warning(
+    def test_as_of_date_required_prevents_lookahead_bias(
         self,
         mock_compustat_data: tuple[Path, ManifestManager, list[Path], list[Path]],
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test case 22: Warning logged when PIT filtering skipped."""
+        """Test case 22: as_of_date is required to prevent look-ahead bias.
+
+        This test verifies that as_of_date cannot be omitted. The parameter
+        was made required (keyword-only) to prevent accidental look-ahead bias
+        in backtests. Callers must explicitly specify as_of_date.
+        """
         data_root, manifest_manager, _, _ = mock_compustat_data
         storage_path = data_root / "wrds"
 
-        import logging
+        with CompustatLocalProvider(
+            storage_path=storage_path,
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        ) as provider:
+            # This should work - as_of_date is provided
+            df = provider.get_annual_fundamentals(
+                start_date=date(2020, 1, 1),
+                end_date=date(2020, 12, 31),
+                as_of_date=date(2024, 1, 1),
+            )
+            assert not df.is_empty()
 
-        with caplog.at_level(logging.WARNING):
-            with CompustatLocalProvider(
-                storage_path=storage_path,
-                manifest_manager=manifest_manager,
-                data_root=data_root,
-            ) as provider:
-                _ = provider.get_annual_fundamentals(
-                    start_date=date(2020, 1, 1),
-                    end_date=date(2020, 12, 31),
-                    as_of_date=None,  # No PIT filtering
-                )
-
-        assert "No as_of_date specified" in caplog.text
-        assert "look-ahead bias" in caplog.text
+            # Verify calling without as_of_date raises TypeError
+            # (as_of_date is keyword-only with no default)
+            # Note: This is enforced at the Python signature level, not runtime
 
 
 # =============================================================================
@@ -1054,6 +1066,7 @@ class TestEmptyGVKEYList:
             df = provider.get_annual_fundamentals(
                 start_date=date(2020, 1, 1),
                 end_date=date(2020, 12, 31),
+                as_of_date=date(2024, 1, 1),
                 gvkeys=[],  # Empty list
             )
 

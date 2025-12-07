@@ -208,11 +208,16 @@ class TestWRDSClientCredentialExpiry:
     def test_check_credential_expiry(
         self, config: WRDSConfig, mock_secret_manager: MagicMock
     ) -> None:
-        """Test credential expiry check."""
+        """Test credential expiry check returns unknown status.
+
+        WRDS does not expose credential expiry via API, so the method
+        returns sentinel values indicating "unknown" status.
+        """
         client = WRDSClient(config, mock_secret_manager)
 
         is_expiring, days = client.check_credential_expiry()
 
-        # Default placeholder returns 90 days, not expiring
+        # Returns (False, None) to indicate "not expiring" with "unknown" days
+        # Callers should not rely on this for monitoring - use external reminders
         assert not is_expiring
-        assert days == 90
+        assert days is None

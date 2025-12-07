@@ -250,7 +250,15 @@ class SchemaRegistry:
                                 process_alive = False
                                 if owner_pid:
                                     try:
-                                        os.kill(owner_pid, 0)  # Signal 0 checks existence
+                                        # Signal 0 checks if process exists (doesn't send signal)
+                                        # KNOWN LIMITATION: PID reuse risk
+                                        # If the original process crashes and its PID is recycled
+                                        # by a new (unrelated) process before lock recovery runs,
+                                        # this check will incorrectly think the owner is still alive.
+                                        # Mitigation: Hard timeout (30 min) provides upper bound.
+                                        # Alternative: Use psutil.Process(pid).create_time() to
+                                        # verify process identity, but adds external dependency.
+                                        os.kill(owner_pid, 0)
                                         process_alive = True
                                     except (OSError, ProcessLookupError):
                                         process_alive = False

@@ -136,6 +136,53 @@ class SyncManager:
         self.QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
         self.TMP_DIR.mkdir(parents=True, exist_ok=True)
 
+    def _validate_dataset_name(self, dataset: str) -> str:
+        """Validate and sanitize dataset name to prevent path traversal.
+
+        SECURITY: Dataset names are used in path construction. Without validation,
+        a malicious dataset name like "../tmp/evil" could write files outside
+        the intended storage directory.
+
+        Args:
+            dataset: Dataset name to validate.
+
+        Returns:
+            Sanitized dataset name (just the base name, no path components).
+
+        Raises:
+            ValueError: If dataset name is invalid or contains path separators.
+        """
+        if not dataset:
+            raise ValueError("Dataset name cannot be empty")
+
+        # Get just the base name - strips any path components
+        sanitized = Path(dataset).name
+
+        # Reject if name was modified (contained path separators)
+        if sanitized != dataset:
+            raise ValueError(
+                f"Invalid dataset name '{dataset}': contains path separators. "
+                f"Dataset names must be simple identifiers without '/' or '..'."
+            )
+
+        # Reject names that are just dots (., ..)
+        if sanitized in (".", ".."):
+            raise ValueError(
+                f"Invalid dataset name '{dataset}': reserved path component."
+            )
+
+        # Verify resolved path stays within storage_path
+        resolved = (self.storage_path / sanitized).resolve()
+        storage_resolved = self.storage_path.resolve()
+        # Use pathlib containment check to avoid prefix-matching bypasses
+        # (e.g., /data and /data_evil would incorrectly pass a startswith check).
+        if not resolved.is_relative_to(storage_resolved):
+            raise ValueError(
+                f"Invalid dataset name '{dataset}': resolves outside storage path."
+            )
+
+        return sanitized
+
     def full_sync(
         self,
         dataset: str,
@@ -156,10 +203,14 @@ class SyncManager:
             SyncManifest for the completed sync.
 
         Raises:
+            ValueError: If dataset name is invalid (path traversal attempt).
             LockAcquisitionError: If cannot acquire exclusive lock.
             DiskSpaceError: If disk space is insufficient.
             SchemaError: If breaking schema drift detected.
         """
+        # SECURITY: Validate dataset name to prevent path traversal
+        dataset = self._validate_dataset_name(dataset)
+
         sync_start = datetime.datetime.now(datetime.UTC)
         end_year = end_year or datetime.datetime.now().year
         years = list(range(start_year, end_year + 1))
@@ -326,8 +377,12 @@ class SyncManager:
             Updated SyncManifest.
 
         Raises:
-            ValueError: If no existing manifest (run full_sync first).
+            ValueError: If dataset name is invalid (path traversal attempt)
+                       or if no existing manifest (run full_sync first).
         """
+        # SECURITY: Validate dataset name to prevent path traversal
+        dataset = self._validate_dataset_name(dataset)
+
         sync_start = datetime.datetime.now(datetime.UTC)
 
         # Load existing manifest
@@ -820,7 +875,7 @@ class SyncManager:
             target_path: Final destination path.
 
         Returns:
-            MD5 checksum of written file.
+            SHA-256 checksum of written file.
 
         Raises:
             DiskSpaceError: If disk full during write.
@@ -864,33 +919,37 @@ class SyncManager:
                 temp_path.unlink(missing_ok=True)
 
     def _compute_checksum(self, path: Path) -> str:
-        """Compute MD5 checksum of file.
+        """Compute SHA-256 checksum of file.
+
+        Uses SHA-256 for consistency with the CAS (Content-Addressable Storage)
+        subsystem in libs/data_quality/versioning.py.
 
         Args:
             path: File path.
 
         Returns:
-            Hex digest of MD5 hash.
+            Hex digest of SHA-256 hash.
         """
-        hasher = hashlib.md5()
+        hasher = hashlib.sha256()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 hasher.update(chunk)
         return hasher.hexdigest()
 
     def _compute_checksum_and_fsync(self, path: Path) -> str:
-        """Compute MD5 checksum and fsync in single file operation.
+        """Compute SHA-256 checksum and fsync in single file operation.
 
         Optimized version that reads file once for checksum then fsyncs,
-        avoiding two separate file opens.
+        avoiding two separate file opens. Uses SHA-256 for consistency
+        with the CAS subsystem.
 
         Args:
             path: File path.
 
         Returns:
-            Hex digest of MD5 hash.
+            Hex digest of SHA-256 hash.
         """
-        hasher = hashlib.md5()
+        hasher = hashlib.sha256()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 hasher.update(chunk)
@@ -1082,8 +1141,8 @@ class SyncManager:
         schema = self.schema_registry.get_expected_schema(dataset)
         schema_version = schema.version if schema else "v1.0.0"
 
-        # Compute query hash (placeholder)
-        query_hash = hashlib.md5(f"{dataset}:{start_date}:{end_date}".encode()).hexdigest()
+        # Compute query hash using SHA-256 for consistency with CAS
+        query_hash = hashlib.sha256(f"{dataset}:{start_date}:{end_date}".encode()).hexdigest()
 
         return SyncManifest(
             dataset=dataset,
@@ -1101,13 +1160,16 @@ class SyncManager:
     def _compute_combined_checksum(self, file_paths: list[str]) -> str:
         """Compute combined checksum for multiple files.
 
+        Uses SHA-256 for consistency with the CAS (Content-Addressable Storage)
+        subsystem in libs/data_quality/versioning.py.
+
         Args:
             file_paths: List of file paths.
 
         Returns:
-            Combined MD5 hex digest.
+            Combined SHA-256 hex digest.
         """
-        hasher = hashlib.md5()
+        hasher = hashlib.sha256()
         for path_str in sorted(file_paths):
             path = Path(path_str)
             if path.exists():

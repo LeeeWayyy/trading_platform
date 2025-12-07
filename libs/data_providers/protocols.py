@@ -217,9 +217,16 @@ class DataProvider(Protocol):
 
         Returns:
             DataFrame with unified schema columns in canonical order.
+            Empty DataFrame (0 rows) if no data found for the date range.
 
         Raises:
             ValueError: If symbols list is empty.
+
+        Edge Cases:
+            - start_date > end_date: Returns empty DataFrame (no error).
+            - Symbol not found: Silently omitted from results (check row count).
+            - Weekend/holiday dates: Returns data for nearest trading days.
+            - Future dates: Provider-dependent behavior (may return empty or error).
         """
         ...
 
@@ -231,9 +238,16 @@ class DataProvider(Protocol):
 
         Returns:
             List of ticker symbols available on the given date.
+            Empty list if no symbols match criteria.
 
         Raises:
-            ProviderNotSupportedError: If provider doesn't support universe.
+            ProviderNotSupportedError: If provider doesn't support universe
+                                       (e.g., yfinance has no universe concept).
+
+        Edge Cases:
+            - Future date: Returns current universe (no forecasting).
+            - Weekend/holiday: Returns universe from nearest trading day.
+            - Very old date: May have limited or no data.
         """
         ...
 

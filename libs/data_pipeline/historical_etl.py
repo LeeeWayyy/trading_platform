@@ -512,12 +512,27 @@ class HistoricalETL:
                 if symbol in actual_max_dates:
                     symbol_last_dates[symbol] = actual_max_dates[symbol]
                 else:
-                    # DESIGN DECISION: Advance cursor on successful empty fetch.
-                    # Rationale: Provider outages throw exceptions (not empty data).
-                    # Empty = successful fetch, symbol has no data (delisted, holiday).
-                    # NOT advancing causes infinite re-queries for delisted symbols.
-                    # If concerned about outages, monitor exceptions/logs separately.
-                    symbol_last_dates[symbol] = today
+                    # CONSERVATIVE DESIGN: Do NOT advance cursor if no data returned.
+                    # Rationale: We cannot distinguish between:
+                    #   a) Legitimate "no data" (delisted, holiday)
+                    #   b) Transient provider failure returning empty instead of exception
+                    # Advancing on (b) creates permanent data gaps.
+                    #
+                    # Trade-off: Delisted symbols will be re-queried each run until
+                    # their cursor catches up naturally via date advancement.
+                    # This is acceptable because:
+                    #   1. Most symbols DO return data (low overhead)
+                    #   2. Data gaps are worse than extra queries
+                    #   3. Monitoring can identify persistently empty symbols
+                    logger.warning(
+                        "Symbol returned no data - cursor NOT advanced (prevents data gaps)",
+                        extra={
+                            "event": "etl.incremental.no_data",
+                            "symbol": symbol,
+                            "requested_start": str(symbol_last_dates.get(symbol, self.DEFAULT_START_DATE) + timedelta(days=1)),
+                            "action": "cursor_unchanged",
+                        },
+                    )
 
             # Update manifest
             all_partition_paths = list((self.storage_path / "daily").glob("*.parquet"))
@@ -616,6 +631,12 @@ class HistoricalETL:
 
         # Step 1: Read existing partition (if exists)
         # CRITICAL: Halt on corruption - silent data loss is unacceptable for trading
+        # MEMORY NOTE: This reads the full partition into memory. For daily price data
+        # with yearly partitions (~252 trading days * N symbols), this is typically
+        # manageable (tens of MB). If partitions grow to GBs, consider:
+        # - Using pl.scan_parquet() with streaming
+        # - Splitting into monthly partitions
+        # - Using sink_parquet() for streaming writes
         if partition_path.exists():
             try:
                 existing_df = pl.read_parquet(partition_path)

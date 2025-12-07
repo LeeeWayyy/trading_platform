@@ -162,8 +162,8 @@ class TestChecksum:
 
         checksum = sync_manager._atomic_write_parquet(df, target)
 
-        # Verify checksum is valid MD5
-        assert len(checksum) == 32
+        # Verify checksum is valid SHA-256 (64 hex chars)
+        assert len(checksum) == 64
         assert all(c in "0123456789abcdef" for c in checksum)
 
         # Verify checksum matches file
