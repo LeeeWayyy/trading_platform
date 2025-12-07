@@ -12,6 +12,7 @@ This module provides:
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -100,8 +101,9 @@ class CRSPLocalProvider:
         - shrout: Shares outstanding
 
     Thread Safety:
-        This provider is thread-safe for read operations.
-        Each query pins the manifest version at start.
+        This provider is thread-safe for concurrent read operations.
+        Each thread gets its own DuckDB connection via thread-local storage.
+        Each query pins the manifest version at start for consistency.
 
     Example:
         provider = CRSPLocalProvider(
@@ -145,7 +147,9 @@ class CRSPLocalProvider:
                 f"storage_path '{storage_path}' must be within data_root '{self.data_root}'"
             )
 
-        self._conn: duckdb.DuckDBPyConnection | None = None
+        # Thread-local storage for DuckDB connections.
+        # DuckDB connections are NOT thread-safe, so each thread needs its own connection.
+        self._thread_local: threading.local = threading.local()
         self._security_metadata: pl.DataFrame | None = None
         self._security_metadata_version: int | None = None  # Manifest version when cache was built
 
@@ -749,21 +753,29 @@ class CRSPLocalProvider:
         return self._security_metadata
 
     def _ensure_connection(self) -> duckdb.DuckDBPyConnection:
-        """Get or create read-only DuckDB connection.
+        """Get or create thread-local DuckDB connection.
+
+        Thread Safety:
+            DuckDB connections are NOT thread-safe. This method uses thread-local
+            storage to provide each thread with its own connection, preventing
+            data corruption when multiple threads access the provider concurrently.
 
         Uses PRAGMA disable_object_cache to ensure fresh data
         after syncs (per P4T1 DuckDB Operational Safety).
         """
-        if self._conn is None:
-            self._conn = duckdb.connect(":memory:", read_only=False)
+        # Use thread-local storage for thread-safe connection management
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is None:
+            conn = duckdb.connect(":memory:", read_only=False)
             # Disable object cache for long-lived sessions
-            self._conn.execute("PRAGMA disable_object_cache")
+            conn.execute("PRAGMA disable_object_cache")
             # Set reasonable memory limit
-            self._conn.execute("PRAGMA memory_limit='2GB'")
+            conn.execute("PRAGMA memory_limit='2GB'")
             # Limit threads for reader
-            self._conn.execute("PRAGMA threads=4")
+            conn.execute("PRAGMA threads=4")
+            self._thread_local.conn = conn
 
-        return self._conn
+        return conn
 
     def _empty_result(self, columns: list[str] | None) -> pl.DataFrame:
         """Return empty DataFrame with correct schema."""
@@ -787,11 +799,17 @@ class CRSPLocalProvider:
         logger.debug("Security metadata cache invalidated")
 
     def close(self) -> None:
-        """Close DuckDB connection."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
-            logger.debug("DuckDB connection closed")
+        """Close thread-local DuckDB connection.
+
+        Note: This closes only the connection for the calling thread.
+        Other threads' connections remain open until those threads call close()
+        or the provider is garbage collected.
+        """
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            conn.close()
+            self._thread_local.conn = None
+            logger.debug("DuckDB connection closed for current thread")
 
     def __enter__(self) -> CRSPLocalProvider:
         """Context manager entry."""

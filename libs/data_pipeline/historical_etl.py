@@ -640,7 +640,18 @@ class HistoricalETL:
         if partition_path.exists():
             try:
                 existing_df = pl.read_parquet(partition_path)
-                combined = pl.concat([existing_df, new_df])
+                # Tag existing data with _source=0 (lower priority) and row sequence
+                # _seq preserves original order for tie-breaking within same source
+                existing_df = existing_df.with_columns(
+                    pl.lit(0, dtype=pl.UInt8).alias("_source"),
+                    pl.arange(0, pl.len(), dtype=pl.UInt32).alias("_seq"),
+                )
+                # Tag new data with _source=1 (higher priority, will win in dedup)
+                new_df_tagged = new_df.with_columns(
+                    pl.lit(1, dtype=pl.UInt8).alias("_source"),
+                    pl.arange(0, pl.len(), dtype=pl.UInt32).alias("_seq"),
+                )
+                combined = pl.concat([existing_df, new_df_tagged])
             except Exception as e:
                 # Corrupt partition - quarantine it but HALT the pipeline
                 # Proceeding with only new_df would silently drop years of history
@@ -662,12 +673,22 @@ class HistoricalETL:
         else:
             combined = new_df
 
-        # Step 2: Deduplicate BEFORE sorting to preserve concat order (new data last)
-        # CRITICAL: Using keep="last" on unsorted data ensures new data wins
-        # because new_df is concatenated AFTER existing_df
-        combined = combined.unique(subset=self.PRIMARY_KEYS, keep="last")
+        # Step 2: Deduplicate using explicit _source and _seq priority for determinism
+        # CRITICAL: Sort by PRIMARY_KEYS, then _source DESC (new wins over existing),
+        # then _seq DESC (later rows win within same source - preserves "last wins" behavior).
+        # This is fully deterministic regardless of polars internal optimizations.
+        if "_source" in combined.columns:
+            combined = combined.sort(
+                self.PRIMARY_KEYS + ["_source", "_seq"],
+                descending=[False] * len(self.PRIMARY_KEYS) + [True, True],
+            )
+            combined = combined.unique(subset=self.PRIMARY_KEYS, keep="first")
+            combined = combined.drop(["_source", "_seq"])
+        else:
+            # No existing data, just deduplicate within new_df
+            combined = combined.unique(subset=self.PRIMARY_KEYS, keep="last")
 
-        # Step 3: Sort for deterministic output (maintain_order not needed after dedup)
+        # Step 3: Sort for deterministic output
         combined = combined.sort(self.PRIMARY_KEYS)
 
         # Step 5: Validate before write

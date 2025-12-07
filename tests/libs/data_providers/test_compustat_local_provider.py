@@ -750,10 +750,11 @@ class TestContextManagerCleanup:
         with provider:
             # Force connection creation
             _ = provider._ensure_connection()
-            assert provider._conn is not None
+            # Thread-local connection should be set
+            assert getattr(provider._thread_local, "conn", None) is not None
 
-        # After context exit
-        assert provider._conn is None
+        # After context exit, thread-local connection should be cleared
+        assert getattr(provider._thread_local, "conn", None) is None
 
 
 # =============================================================================
