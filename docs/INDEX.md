@@ -148,6 +148,11 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-11-17, Plan] [Implementation/P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
 - [CURRENT, 2025-11-21, Plan] [Implementation/P2T3_PHASE2_PLAN.md](./AI/Implementation/P2T3_PHASE2_PLAN.md) - P2T3 Phase 2 Web Console mTLS + JWT authentication implementation plan
 - [CURRENT, 2025-11-21, Index] [Implementation/README.md](./AI/Implementation/README.md) - Implementation plan artifacts index
+- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.3-CRSP-Local-Provider.md](../.claude/plans/T1.3-CRSP-Local-Provider.md) - T1.3 CRSP Local Provider implementation plan
+- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.4-Compustat-Local-Provider.md](../.claude/plans/T1.4-Compustat-Local-Provider.md) - T1.4 Compustat Local Provider implementation plan
+- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.5-Fama-French-Local-Provider.md](../.claude/plans/T1.5-Fama-French-Local-Provider.md) - T1.5 Fama-French Local Provider implementation plan
+- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.6-dataset-versioning.md](../.claude/plans/T1.6-dataset-versioning.md) - T1.6 Dataset Versioning & Reproducibility implementation plan
+- [CURRENT, 2025-12-05, Plan] [../.claude/plans/P4T1.9-ETL-Pipeline.md](../.claude/plans/P4T1.9-ETL-Pipeline.md) - P4T1.9 ETL Pipeline implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -206,7 +211,10 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0016](./ADRs/0016-multi-alpha-allocation.md) | Multi-alpha capital allocation system | ✅ Accepted |
 | [0017](./ADRs/0017-secrets-management.md) | Secrets management with Google Cloud Secret Manager | ✅ Accepted |
 | [0018](./ADRs/0018-web-console-mtls-authentication.md) | Web console mTLS authentication with JWT session management | ✅ Accepted |
+| [0019](./ADRs/0019-data-quality-framework.md) | Data quality and validation framework for WRDS data syncs | ✅ Accepted |
+| [ADR-012](./ADRs/ADR-012-local-data-warehouse.md) | Local data warehouse architecture (Single-Writer Multi-Reader) | ✅ Accepted |
 | [ADR-015](./ADRs/ADR-015-auth0-idp-selection.md) | Auth0 for Production OAuth2/OIDC Identity Provider | 🚧 Proposed |
+| [ADR-016](./ADRs/ADR-016-data-provider-protocol.md) | Data Provider Protocol for unified market data access | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -229,6 +237,8 @@ Educational explanations of trading and ML concepts:
 | Concept | Topic | Complexity |
 |---------|-------|------------|
 | [corporate-actions.md](./CONCEPTS/corporate-actions.md) | Stock splits, dividends | Beginner |
+| [crsp-data.md](./CONCEPTS/crsp-data.md) | CRSP data, PERMNOs, survivorship bias | Intermediate |
+| [fundamental-data.md](./CONCEPTS/fundamental-data.md) | Compustat fundamentals, GVKEY, PIT correctness | Intermediate |
 | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) | Notional, realized, unrealized P&L | Beginner |
 | [alpha158-features.md](./CONCEPTS/alpha158-features.md) | Alpha158 feature set | Intermediate |
 | [qlib-data-providers.md](./CONCEPTS/qlib-data-providers.md) | Qlib integration patterns | Intermediate |
@@ -238,6 +248,9 @@ Educational explanations of trading and ML concepts:
 | [distributed-tracing.md](./CONCEPTS/distributed-tracing.md) | Distributed tracing for microservices | Advanced |
 | [duckdb-basics.md](./CONCEPTS/duckdb-basics.md) | DuckDB embedded analytics | Beginner |
 | [execution-algorithms.md](./CONCEPTS/execution-algorithms.md) | Order execution strategies (TWAP, VWAP) | Intermediate |
+| [fama-french-factors.md](./CONCEPTS/fama-french-factors.md) | Fama-French factor models (3F, 5F, 6F) | Intermediate |
+| [yfinance-limitations.md](./CONCEPTS/yfinance-limitations.md) | yfinance limitations and production gating | Beginner |
+| [unified-data-fetcher.md](./CONCEPTS/unified-data-fetcher.md) | Unified Data Fetcher for provider-agnostic data access | Intermediate |
 | [hot-reload.md](./CONCEPTS/hot-reload.md) | Zero-downtime model updates | Advanced |
 | [feature-parity.md](./CONCEPTS/feature-parity.md) | Research-production consistency | Advanced |
 | [mtls-jwt-authentication.md](./CONCEPTS/mtls-jwt-authentication.md) | Mutual TLS and JWT authentication concepts | Advanced |
@@ -349,6 +362,14 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-01, Task] [P3T5_TASK.md](./TASKS/P3T5_TASK.md) - P3T5: External Review Findings - Risk Management Fixes (Kill Switch, Position Limits, Circuit Breaker)
 - [CURRENT, 2025-12-02, Task] [P3T6_TASK.md](./TASKS/P3T6_TASK.md) - P3T6: Docker Infrastructure and Runbook Fixes
 
+**Phase 4 Tasks:**
+- [CURRENT, 2025-12-03, Planning] [P4_PLANNING.md](./TASKS/P4_PLANNING.md) - P4 Data Infrastructure phase planning
+- [CURRENT, 2025-12-03, Task] [P4T1_TASK.md](./TASKS/P4T1_TASK.md) - P4T1: Data Infrastructure - Local Data Warehouse with WRDS Data Sources
+- [CURRENT, 2025-12-03, Component] [components/P4T1.1-data-quality-plan.md](./TASKS/components/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
+- [CURRENT, 2025-12-04, Component] [components/P4T1.2-wrds-sync-manager-plan.md](./TASKS/components/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
+- [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
+- [CURRENT, 2025-12-05, Plan] [P4T1.8_PLAN.md](./TASKS/P4T1.8_PLAN.md) - P4T1.8: Unified Data Fetcher Protocol Implementation Plan
+
 **Checking Current/Next Task:**
 ```bash
 # Show current task in progress
@@ -399,6 +420,11 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-11-17, Runbook] [web-console-user-guide.md](./RUNBOOKS/web-console-user-guide.md) - Web console usage, authentication, manual order entry, kill switch operations
 - [CURRENT, 2025-11-21, Runbook] [web-console-cert-rotation.md](./RUNBOOKS/web-console-cert-rotation.md) - Certificate rotation procedures for web console mTLS authentication
 - [CURRENT, 2025-11-22, Runbook] [web-console-mtls-setup.md](./RUNBOOKS/web-console-mtls-setup.md) - Web console mTLS setup guide with certificate generation and nginx configuration
+- [CURRENT, 2025-12-04, Runbook] [wrds-lock-recovery.md](./RUNBOOKS/wrds-lock-recovery.md) - WRDS sync lock recovery and stale lock handling procedures
+- [CURRENT, 2025-12-04, Runbook] [data-backup-restore.md](./RUNBOOKS/data-backup-restore.md) - WRDS data backup and restore procedures
+- [CURRENT, 2025-12-04, Runbook] [duckdb-operations.md](./RUNBOOKS/duckdb-operations.md) - DuckDB cache management and reader configuration during syncs
+- [CURRENT, 2025-12-04, Runbook] [wrds-credentials.md](./RUNBOOKS/wrds-credentials.md) - WRDS credential management, rotation, and expiry monitoring
+- [CURRENT, 2025-12-04, Runbook] [data-storage.md](./RUNBOOKS/data-storage.md) - Disk monitoring, cleanup procedures, and storage expansion
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 
