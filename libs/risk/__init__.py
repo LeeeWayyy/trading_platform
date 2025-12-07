@@ -1,20 +1,34 @@
 """
-Risk analytics module for factor covariance and specific risk estimation.
+Risk analytics module for factor covariance, specific risk, and portfolio risk.
 
 This module provides:
 - FactorCovarianceEstimator: Estimate factor covariance matrices
 - SpecificRiskEstimator: Estimate stock-level idiosyncratic risk
+- BarraRiskModel: Barra-style multi-factor risk model
+- RiskDecomposer: Portfolio risk decomposition with MCTR/CCTR
 
 All computations are point-in-time (PIT) correct and include
 dataset versioning metadata for reproducibility.
 """
 
+from libs.risk.barra_model import (
+    BarraRiskModel,
+    BarraRiskModelConfig,
+    InsufficientCoverageError,
+)
 from libs.risk.factor_covariance import (
     CANONICAL_FACTOR_ORDER,
     CovarianceConfig,
     CovarianceResult,
     FactorCovarianceEstimator,
     InsufficientDataError,
+)
+from libs.risk.risk_decomposition import (
+    FactorContribution,
+    PortfolioRiskResult,
+    RiskDecomposer,
+    compute_cvar_parametric,
+    compute_var_parametric,
 )
 from libs.risk.specific_risk import (
     CRSPProviderProtocol,
@@ -33,4 +47,14 @@ __all__ = [
     "CRSPProviderProtocol",
     "SpecificRiskEstimator",
     "SpecificRiskResult",
+    # Barra Risk Model
+    "BarraRiskModel",
+    "BarraRiskModelConfig",
+    "InsufficientCoverageError",
+    # Risk Decomposition
+    "PortfolioRiskResult",
+    "FactorContribution",
+    "RiskDecomposer",
+    "compute_var_parametric",
+    "compute_cvar_parametric",
 ]

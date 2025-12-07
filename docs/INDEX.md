@@ -154,6 +154,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.6-dataset-versioning.md](../.claude/plans/T1.6-dataset-versioning.md) - T1.6 Dataset Versioning & Reproducibility implementation plan
 - [CURRENT, 2025-12-05, Plan] [../.claude/plans/P4T1.9-ETL-Pipeline.md](../.claude/plans/P4T1.9-ETL-Pipeline.md) - P4T1.9 ETL Pipeline implementation plan
 - [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.1-factor-model-plan.md](../.claude/plans/T2.1-factor-model-plan.md) - T2.1 Multi-Factor Model Construction implementation plan
+- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.2-plan.md](../.claude/plans/T2.2-plan.md) - T2.2 Covariance Estimation implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -263,6 +264,7 @@ Educational explanations of trading and ML concepts:
 | [python-testing-tools.md](./CONCEPTS/python-testing-tools.md) | pytest and testing frameworks | Beginner |
 | [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |
 | [risk-management.md](./CONCEPTS/risk-management.md) | Position limits and circuit breakers | Intermediate |
+| [risk-models.md](./CONCEPTS/risk-models.md) | Multi-factor Barra-style risk model methodology | Advanced |
 | [sql-analytics-patterns.md](./CONCEPTS/sql-analytics-patterns.md) | SQL window functions and CTEs | Intermediate |
 | [structured-logging.md](./CONCEPTS/structured-logging.md) | JSON logging with context | Intermediate |
 | [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |

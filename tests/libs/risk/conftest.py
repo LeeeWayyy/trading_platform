@@ -300,3 +300,71 @@ def sample_covariance_result(mock_factor_returns: pl.DataFrame) -> CovarianceRes
         effective_observations=126,
         reproducibility_hash="test123",
     )
+
+
+def create_mock_specific_risks(
+    n_stocks: int = 100,
+    as_of_date: date | None = None,
+) -> pl.DataFrame:
+    """Create mock specific risk data."""
+    if as_of_date is None:
+        as_of_date = date(2023, 6, 30)
+
+    np.random.seed(42)
+
+    permnos = list(range(10001, 10001 + n_stocks))
+
+    data = []
+    for permno in permnos:
+        # Daily specific variance (~1-5% daily idiosyncratic vol)
+        daily_vol = np.random.uniform(0.01, 0.05)
+        specific_variance = daily_vol ** 2
+        specific_vol = daily_vol * np.sqrt(252)  # Annualized
+
+        data.append({
+            "permno": permno,
+            "specific_variance": specific_variance,
+            "specific_vol": specific_vol,
+        })
+
+    return pl.DataFrame(data)
+
+
+def create_mock_portfolio(
+    n_stocks: int = 50,
+    start_permno: int = 10001,
+) -> pl.DataFrame:
+    """Create mock portfolio with weights summing to 1."""
+    np.random.seed(42)
+
+    permnos = list(range(start_permno, start_permno + n_stocks))
+    weights = np.random.uniform(0.01, 0.05, n_stocks)
+    weights = weights / weights.sum()  # Normalize to sum to 1
+
+    return pl.DataFrame({
+        "permno": permnos,
+        "weight": weights.tolist(),
+    })
+
+
+@pytest.fixture
+def mock_specific_risks() -> pl.DataFrame:
+    """Fixture for mock specific risk data."""
+    return create_mock_specific_risks()
+
+
+@pytest.fixture
+def mock_portfolio() -> pl.DataFrame:
+    """Fixture for mock portfolio."""
+    return create_mock_portfolio()
+
+
+@pytest.fixture
+def mock_factor_loadings_wide() -> pl.DataFrame:
+    """Fixture for factor loadings in wide format."""
+    exposures = create_mock_factor_exposures()
+    return exposures.pivot(
+        index="permno",
+        on="factor_name",
+        values="zscore",
+    )
