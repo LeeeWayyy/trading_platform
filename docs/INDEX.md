@@ -238,6 +238,7 @@ Educational explanations of trading and ML concepts:
 | Concept | Topic | Complexity |
 |---------|-------|------------|
 | [corporate-actions.md](./CONCEPTS/corporate-actions.md) | Stock splits, dividends | Beginner |
+| [covariance-estimation.md](./CONCEPTS/covariance-estimation.md) | Factor covariance estimation for risk models | Advanced |
 | [crsp-data.md](./CONCEPTS/crsp-data.md) | CRSP data, PERMNOs, survivorship bias | Intermediate |
 | [fundamental-data.md](./CONCEPTS/fundamental-data.md) | Compustat fundamentals, GVKEY, PIT correctness | Intermediate |
 | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) | Notional, realized, unrealized P&L | Beginner |
