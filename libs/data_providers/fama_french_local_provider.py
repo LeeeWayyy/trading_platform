@@ -623,8 +623,11 @@ class FamaFrenchLocalProvider:
                     pdf = pdf.reset_index()
                     pdf.columns = ["date"] + list(pdf.columns[1:])
                 else:
-                    pdf = pdf.reset_index()
-                    pdf.columns = ["date"] + list(pdf.columns[1:])
+                    # Reject unexpected index types to prevent data corruption
+                    raise FamaFrenchSyncError(
+                        f"Unexpected index type '{type(pdf.index).__name__}' for dataset '{name}'. "
+                        "Expected DatetimeIndex or PeriodIndex from pandas-datareader."
+                    )
 
                 # Normalize column names to lowercase
                 pdf.columns = [c.lower().replace("-", "_").replace(" ", "_") for c in pdf.columns]

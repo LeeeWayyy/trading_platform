@@ -101,6 +101,9 @@ class AtomicFileLock:
         Attempts atomic lock creation. If lock exists, checks for staleness
         and attempts recovery. Retries with backoff until timeout.
 
+        Also checks for stale .releasing files left by processes that crashed
+        during lock release.
+
         Args:
             timeout_seconds: Maximum time to wait for lock acquisition.
 
@@ -113,6 +116,9 @@ class AtomicFileLock:
         self.lock_dir.mkdir(parents=True, exist_ok=True)
         start_time = time.monotonic()
         attempt = 0
+
+        # Check for stale .releasing files from crashed release operations
+        self._cleanup_stale_releasing_file()
 
         while time.monotonic() - start_time < timeout_seconds:
             try:
@@ -517,6 +523,75 @@ class AtomicFileLock:
             and token.writer_id == self._current_token.writer_id
             and token.lock_path == self._current_token.lock_path
         )
+
+    def _cleanup_stale_releasing_file(self) -> None:
+        """Clean up stale .releasing files from crashed release operations.
+
+        If a process crashes after renaming lock to .releasing but before
+        unlinking, the .releasing file remains and could block new acquisitions.
+
+        This method checks for .releasing files and cleans them up if the
+        releasing process is dead (on same host) or if they're older than
+        a reasonable timeout (for cross-host scenarios).
+        """
+        release_path = self.lock_path.with_suffix(".releasing")
+
+        if not release_path.exists():
+            return
+
+        try:
+            content = release_path.read_text()
+            data = json.loads(content)
+
+            # Check if releasing process is dead (same host only)
+            current_hostname = socket.gethostname()
+            releasing_hostname = data.get("hostname", "")
+            releasing_pid = data.get("pid", 0)
+
+            is_stale = False
+            reason = ""
+
+            if releasing_hostname == current_hostname:
+                if not self._is_pid_alive(releasing_pid):
+                    is_stale = True
+                    reason = f"Releasing process PID {releasing_pid} is dead"
+            else:
+                # For cross-host, check file age (use mtime as proxy)
+                # If file is older than 60 seconds, assume release crashed
+                file_age = time.time() - release_path.stat().st_mtime
+                if file_age > 60:
+                    is_stale = True
+                    reason = f"Releasing file is {file_age:.1f}s old (cross-host)"
+
+            if is_stale:
+                logger.warning(
+                    "Cleaning up stale .releasing file",
+                    extra={
+                        "event": "sync.lock.releasing_cleanup",
+                        "dataset": self.dataset,
+                        "reason": reason,
+                        "releasing_pid": releasing_pid,
+                        "releasing_hostname": releasing_hostname,
+                    },
+                )
+                release_path.unlink(missing_ok=True)
+                self._fsync_directory(release_path.parent)
+
+        except (json.JSONDecodeError, OSError, KeyError) as e:
+            # Corrupted or unreadable .releasing file - safe to delete
+            logger.warning(
+                "Removing corrupted .releasing file",
+                extra={
+                    "event": "sync.lock.releasing_cleanup",
+                    "dataset": self.dataset,
+                    "error": str(e),
+                },
+            )
+            try:
+                release_path.unlink(missing_ok=True)
+                self._fsync_directory(release_path.parent)
+            except OSError:
+                pass  # Best effort cleanup
 
     def _fsync_directory(self, dir_path: Path) -> None:
         """Sync directory for crash safety.

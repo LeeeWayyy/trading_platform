@@ -78,9 +78,9 @@ python scripts/wrds_sync.py full-sync --dataset crsp --start-year 2000
    rclone sync remote:backups/wrds/ /tmp/restore_test/
    ```
 
-3. **Verify checksums:**
+3. **Verify checksums (SHA-256 per ADR-0019):**
    ```bash
-   cd /tmp/restore_test && md5sum -c manifest_checksums.txt
+   cd /tmp/restore_test && sha256sum -c manifest_checksums.txt
    ```
 
 4. **Success criteria:**
