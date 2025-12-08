@@ -155,6 +155,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-05, Plan] [../.claude/plans/P4T1.9-ETL-Pipeline.md](../.claude/plans/P4T1.9-ETL-Pipeline.md) - P4T1.9 ETL Pipeline implementation plan
 - [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.1-factor-model-plan.md](../.claude/plans/T2.1-factor-model-plan.md) - T2.1 Multi-Factor Model Construction implementation plan
 - [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.2-plan.md](../.claude/plans/T2.2-plan.md) - T2.2 Covariance Estimation implementation plan
+- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.4-plan.md](../.claude/plans/T2.4-plan.md) - T2.4 Portfolio Optimizer & Stress Testing implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -217,6 +218,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-012](./ADRs/ADR-012-local-data-warehouse.md) | Local data warehouse architecture (Single-Writer Multi-Reader) | ✅ Accepted |
 | [ADR-015](./ADRs/ADR-015-auth0-idp-selection.md) | Auth0 for Production OAuth2/OIDC Identity Provider | 🚧 Proposed |
 | [ADR-016](./ADRs/ADR-016-data-provider-protocol.md) | Data Provider Protocol for unified market data access | ✅ Accepted |
+| [ADR-0021](./ADRs/ADR-0021-risk-model-implementation.md) | Risk Model Implementation (Portfolio Optimizer & Stress Testing) | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption

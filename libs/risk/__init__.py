@@ -6,6 +6,8 @@ This module provides:
 - SpecificRiskEstimator: Estimate stock-level idiosyncratic risk
 - BarraRiskModel: Barra-style multi-factor risk model
 - RiskDecomposer: Portfolio risk decomposition with MCTR/CCTR
+- PortfolioOptimizer: Mean-variance optimization with constraints
+- StressTester: Historical and hypothetical stress testing
 
 All computations are point-in-time (PIT) correct and include
 dataset versioning metadata for reproducibility.
@@ -23,6 +25,21 @@ from libs.risk.factor_covariance import (
     FactorCovarianceEstimator,
     InsufficientDataError,
 )
+from libs.risk.portfolio_optimizer import (
+    BoxConstraint,
+    BudgetConstraint,
+    Constraint,
+    FactorExposureConstraint,
+    GrossLeverageConstraint,
+    InfeasibleOptimizationError,
+    InsufficientUniverseCoverageError,
+    OptimizationResult,
+    OptimizerConfig,
+    PortfolioOptimizer,
+    ReturnTargetConstraint,
+    SectorConstraint,
+    TurnoverConstraint,
+)
 from libs.risk.risk_decomposition import (
     FactorContribution,
     PortfolioRiskResult,
@@ -34,6 +51,12 @@ from libs.risk.specific_risk import (
     CRSPProviderProtocol,
     SpecificRiskEstimator,
     SpecificRiskResult,
+)
+from libs.risk.stress_testing import (
+    MissingHistoricalDataError,
+    StressScenario,
+    StressTester,
+    StressTestResult,
 )
 
 __all__ = [
@@ -57,4 +80,23 @@ __all__ = [
     "RiskDecomposer",
     "compute_var_parametric",
     "compute_cvar_parametric",
+    # Portfolio Optimizer
+    "OptimizerConfig",
+    "OptimizationResult",
+    "Constraint",
+    "BudgetConstraint",
+    "GrossLeverageConstraint",
+    "BoxConstraint",
+    "SectorConstraint",
+    "FactorExposureConstraint",
+    "TurnoverConstraint",
+    "ReturnTargetConstraint",
+    "PortfolioOptimizer",
+    "InfeasibleOptimizationError",
+    "InsufficientUniverseCoverageError",
+    # Stress Testing
+    "StressScenario",
+    "StressTestResult",
+    "StressTester",
+    "MissingHistoricalDataError",
 ]
