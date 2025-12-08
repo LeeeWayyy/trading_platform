@@ -156,6 +156,8 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.1-factor-model-plan.md](../.claude/plans/T2.1-factor-model-plan.md) - T2.1 Multi-Factor Model Construction implementation plan
 - [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.2-plan.md](../.claude/plans/T2.2-plan.md) - T2.2 Covariance Estimation implementation plan
 - [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.4-plan.md](../.claude/plans/T2.4-plan.md) - T2.4 Portfolio Optimizer & Stress Testing implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track1_T1.7_T1.8.md](./PLANS/P4T2_Track1_T1.7_T1.8.md) - P4T2 Track 1: Fama-French Integration (T1.7) and yfinance Integration (T1.8)
+- [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -267,6 +269,8 @@ Educational explanations of trading and ML concepts:
 | [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |
 | [risk-management.md](./CONCEPTS/risk-management.md) | Position limits and circuit breakers | Intermediate |
 | [risk-models.md](./CONCEPTS/risk-models.md) | Multi-factor Barra-style risk model methodology | Advanced |
+| [microstructure.md](./CONCEPTS/microstructure.md) | Market microstructure analysis (VPIN, RV, spread/depth) | Intermediate |
+| [realized-volatility.md](./CONCEPTS/realized-volatility.md) | Realized volatility and HAR forecasting models | Intermediate |
 | [sql-analytics-patterns.md](./CONCEPTS/sql-analytics-patterns.md) | SQL window functions and CTEs | Intermediate |
 | [structured-logging.md](./CONCEPTS/structured-logging.md) | JSON logging with context | Intermediate |
 | [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |

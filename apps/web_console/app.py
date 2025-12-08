@@ -29,9 +29,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
-import requests
+import requests  # type: ignore[import-untyped]
 import streamlit as st
-from requests.adapters import HTTPAdapter
+from requests.adapters import HTTPAdapter  # type: ignore[import-untyped]
 from urllib3.util.retry import Retry
 
 if TYPE_CHECKING:

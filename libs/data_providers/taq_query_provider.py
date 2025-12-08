@@ -39,14 +39,14 @@ from libs.data_providers.taq_storage import (
     TAQ_SPREAD_STATS_SCHEMA,
     TAQ_TICKS_SCHEMA,
 )
-from libs.data_quality.exceptions import DataNotFoundError
-from libs.data_quality.manifest import ManifestManager, SyncManifest
-from libs.data_quality.validation import DataValidator
-from libs.data_quality.versioning import (
+from libs.data_quality.exceptions import (
+    DataNotFoundError,
     DatasetNotInSnapshotError,
-    DatasetVersionManager,
     SnapshotNotFoundError,
 )
+from libs.data_quality.manifest import ManifestManager, SyncManifest
+from libs.data_quality.validation import DataValidator
+from libs.data_quality.versioning import DatasetVersionManager
 
 logger = logging.getLogger(__name__)
 
