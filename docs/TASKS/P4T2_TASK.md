@@ -5,9 +5,34 @@
 **Timeline:** Phase 2 - Analytics (Weeks 5-10, 6 weeks with buffer)
 **Priority:** P0 - Core research infrastructure for alpha development
 **Estimated Effort:** 39-49 days (13 subtasks across 3 parallel tracks)
-**Status:** Approved (v1.9 - Gemini ✓ Codex ✓ - Ready for implementation)
+**Status:** 🚧 In Progress (v2.4 - Performance SLAs & Write Coordination)
 **Created:** 2025-12-07
-**Last Updated:** 2025-12-07 (v1.9 - Approved by Gemini + Codex after 9 review iterations)
+**Last Updated:** 2025-12-08 (v2.4 - Added tiered performance SLAs with hardware assumptions, global write coordination policy, capacity plan with cut-lines)
+
+---
+
+## Progress Tracker
+
+| Task | Status | PR | Notes |
+|------|--------|-----|-------|
+| **Track 1: TAQ Completion** | | | |
+| T1.7 TAQ Storage | ✅ Complete | `feat(P4T2): TAQ Storage and Query Implementation` | |
+| T1.8 TAQ Query | ✅ Complete | (same PR) | |
+| **Track 2: Factor & Risk** | | | |
+| T2.1 Multi-Factor Model | ✅ Complete | `feat(P4T2): Multi-Factor Model Construction` | |
+| T2.2 Factor Covariance | ✅ Complete | `feat(P4T2): Factor Covariance & Specific Risk Estimation` | |
+| T2.3 Risk Analytics | ✅ Complete | `feat(P4T2): Portfolio Risk Analytics` | |
+| T2.4 Optimizer & Stress | ✅ Complete | `feat(P4T2): Portfolio Optimizer & Stress Testing` | |
+| T2.5 Alpha Framework | ⏳ Pending | | Qlib optional dependency |
+| T2.6 Alpha Advanced | ⏳ Pending | | |
+| T2.7 Factor Attribution | ⏳ Pending | | |
+| T2.8 Model Registry | ⏳ Pending | | +DiskExpressionCache |
+| **Track 3: Microstructure** | | | |
+| T3.1 Microstructure | ✅ Complete | `feat(P4T2): Microstructure Analytics Library` | |
+| T3.2 Execution Quality | ⏳ Pending | | |
+| T3.3 Event Study | ⏳ Pending | | |
+
+**Progress:** 7/13 tasks complete (~54%)
 
 ---
 
@@ -267,6 +292,231 @@ version_manager.link_backtest(backtest_id, snapshot_version_tag)
 - If drift detected AND `STRICT_VERSION_MODE=false`: **warn** via logger + metric, continue
 - Default: `STRICT_VERSION_MODE=true` in production, `false` in development
 - Circuit breaker triggers after 3 consecutive drift blocks
+
+---
+
+## Qlib Integration Strategy
+
+> **Reference:** See [docs/CONCEPTS/qlib-comparison.md](../CONCEPTS/qlib-comparison.md) for comprehensive analysis of Qlib vs our platform.
+
+**Philosophy:** Leverage Qlib's optimized components where beneficial while maintaining platform independence and PIT correctness.
+
+**Key Findings from Analysis:**
+- **ADOPT:** Alpha Metrics (IC/ICIR/Rank IC), DiskExpressionCache, Config Hash
+- **KEEP OURS:** PIT/Versioning, Atomic Writes, Polars/DuckDB for TAQ, Barra Risk Model
+- **DEFER:** FormulaicFactor (Phase 3)
+
+### Integration Boundaries
+
+| Component | Approach | Rationale |
+|-----------|----------|-----------|
+| **Factor Definitions** | Static Python classes (current) | PIT-safe, explicit control |
+| **FormulaicFactor** | **Phase 3** - Qlib expression adapter | Enables rapid research iteration |
+| **Alpha Metrics** | Wrap `qlib.contrib.evaluate` with fallback | Battle-tested IC/ICIR, grouped analysis |
+| **TAQ/Microstructure** | Polars/DuckDB only, export daily aggregates | Avoid serialization overhead |
+| **Model Training** | Optional Qlib DumpData cache | Performance for heavy workloads |
+
+### FormulaicFactor (Phase 3 Enhancement)
+
+**Deferred to Phase 3** to avoid disrupting current T2.1 implementation. Placeholder `feature_formulas` field added to T2.8 Model Registry.
+
+```python
+# libs/factors/formulaic_factor.py (PHASE 3)
+class FormulaicFactor(FactorDefinition):
+    """Adapter for Qlib expression DSL."""
+
+    def __init__(self, name: str, formula: str):
+        self._name = name
+        self._formula = formula  # e.g., "Mean($close, 5) / $close"
+
+    def compute(self, prices, fundamentals, as_of_date) -> pl.DataFrame:
+        # CRITICAL: Must receive pre-fetched DataFrames from DatasetVersionManager
+        # NEVER use Qlib auto-loader (look-ahead risk)
+        return qlib_expression_engine.evaluate(self._formula, data)
+```
+
+**PIT Safeguards Required (Phase 3):**
+- Expression allowlist (no future-looking refs like `Ref($close, -1)`)
+- Pre-fetched data from DatasetVersionManager only
+- Sandbox validation before production use
+- `reproducibility_hash` in outputs
+
+### Polars/DuckDB Boundary (Architectural Constraint)
+
+**Decision:** All high-frequency TAQ feature generation (RV, VPIN, spread, depth) happens in **Polars/DuckDB only**. Qlib receives **daily aggregates** via Parquet.
+
+```
+TAQ Tick Data
+     │
+     ▼
+┌─────────────────────────────────┐
+│  Polars/DuckDB Processing       │
+│  (RV, VPIN, spread, depth)      │
+└─────────────────────────────────┘
+     │
+     ▼ Export daily aggregates
+┌─────────────────────────────────┐
+│  data/analytics/microstructure/ │
+│  ├── rv_daily.parquet           │
+│  ├── rv_30min.parquet (future)  │
+│  └── vpin_daily.parquet         │
+└─────────────────────────────────┘
+     │
+     ▼ Ingest as features
+┌─────────────────────────────────┐
+│  Qlib Models (daily features)   │
+└─────────────────────────────────┘
+```
+
+**Rationale:**
+- Avoids Pandas/Polars ↔ Qlib serialization overhead
+- TAQ data volume too large for Qlib's standard interfaces
+- Daily aggregates sufficient for most factor models
+- Intraday horizons (5m, 30m) available for execution analytics
+
+### DiskExpressionCache (T2.8 Enhancement)
+
+**Adopted from Qlib:** Qlib's `DiskExpressionCache` pattern caches computed features to disk to avoid redundant computation. We adapt this for T2.8 Model Registry.
+
+```python
+# libs/data_quality/cache.py (T2.8 deliverable)
+class DiskExpressionCache:
+    """Cache computed factors/features to disk for reuse.
+
+    Key format: "{factor_name}:{as_of_date}:{dataset_version_id}:{snapshot_id}:{config_hash}"
+    Example: "momentum_12_1:2024-01-15:crsp_v1.2.3:snap_20241215:a1b2c3d4"
+
+    CRITICAL: All components MUST be included to ensure PIT safety:
+    - snapshot_id: Prevents stale data from wrong time-travel context
+    - config_hash: Prevents stale data from changed hyperparameters
+    Cache miss occurs if any component differs.
+    """
+
+    def __init__(self, cache_dir: Path, ttl_days: int = 7):
+        self.cache_dir = cache_dir
+        self.ttl_days = ttl_days
+
+    def get_or_compute(
+        self,
+        factor_name: str,
+        as_of_date: date,
+        snapshot_id: str,  # REQUIRED: DatasetVersionManager snapshot
+        version_ids: dict[str, str],  # PIT tracking
+        config_hash: str,  # REQUIRED: SHA-256 of computation config
+        compute_fn: Callable[[], pl.DataFrame],
+    ) -> tuple[pl.DataFrame, bool]:  # (data, was_cached)
+        """Return cached result or compute and cache."""
+        key = self._build_key(factor_name, as_of_date, version_ids, snapshot_id, config_hash)
+        cache_path = self._key_to_path(key)
+        if cache_path.exists() and not self._is_stale(cache_path):
+            return pl.read_parquet(cache_path), True
+        result = compute_fn()
+        self._write_with_metadata(cache_path, result, version_ids, snapshot_id, config_hash)
+        return result, False
+
+    def invalidate_by_snapshot(self, snapshot_id: str) -> int:
+        """Invalidate all cache entries for a specific snapshot."""
+        ...
+
+    def invalidate_by_dataset_update(self, dataset: str, new_version: str) -> int:
+        """Hook called when DatasetVersionManager detects version update."""
+        ...
+
+    def invalidate_by_config_change(self, factor_name: str) -> int:
+        """Invalidate cache when factor config changes."""
+        ...
+```
+
+**Use Cases:**
+- Factor exposures that don't change daily
+- Risk model outputs for stable universes
+- Alpha signal caches during research
+
+### Qlib Optional Dependencies Handling (from Codex review)
+
+**Problem:** Qlib should be an optional dependency - production services (execution_gateway, signal_service) should NOT require Qlib installation.
+
+**Installation Strategy:**
+```bash
+# Base install (no Qlib)
+pip install .
+
+# Research install (with Qlib)
+pip install .[qlib]  # or poetry install --with qlib
+```
+
+**pyproject.toml Configuration:**
+```toml
+[project.optional-dependencies]
+qlib = ["qlib>=0.9.0"]
+
+# Or with Poetry:
+[tool.poetry.group.qlib]
+optional = true
+
+[tool.poetry.group.qlib.dependencies]
+qlib = "^0.9.0"
+```
+
+**Runtime Handling:**
+```python
+# libs/alpha/metrics.py
+def _qlib_available() -> bool:
+    """Check if Qlib is installed."""
+    try:
+        import qlib.contrib.evaluate
+        return True
+    except ImportError:
+        return False
+
+QLIB_INSTALLED = _qlib_available()
+
+class AlphaMetricsAdapter:
+    def __init__(self, prefer_qlib: bool = True):
+        self._use_qlib = prefer_qlib and QLIB_INSTALLED
+        if prefer_qlib and not QLIB_INSTALLED:
+            logger.info("Qlib not installed, using local metrics implementation")
+```
+
+**Test Handling:**
+```python
+# tests/libs/alpha/test_metrics_contract.py
+import pytest
+
+qlib = pytest.importorskip("qlib", reason="Qlib not installed")
+
+@pytest.mark.parametrize("backend", ["qlib", "polars"])
+def test_ic_parity(backend):
+    """Test IC calculation parity between backends."""
+    if backend == "qlib":
+        pytest.importorskip("qlib")
+    ...
+```
+
+**CI Configuration:**
+```yaml
+# .github/workflows/test.yml
+jobs:
+  test-base:
+    # Tests without Qlib (production-like)
+    steps:
+      - run: pip install .
+      - run: pytest tests/ -m "not requires_qlib"
+
+  test-qlib:
+    # Tests with Qlib (research-like)
+    steps:
+      - run: pip install .[qlib]
+      - run: pytest tests/ -m "qlib_contract"
+```
+
+**Acceptance Criteria (Cross-cutting):**
+- [ ] Base install works without Qlib (`pip install .` succeeds)
+- [ ] Qlib install via extra (`pip install .[qlib]` succeeds)
+- [ ] All adapters gracefully handle `ImportError`
+- [ ] Contract tests skip with clear message when Qlib unavailable
+- [ ] CI runs both base and Qlib test suites
+- [ ] Production services never import Qlib directly
 
 ---
 
@@ -647,7 +897,7 @@ rclone sync remote:backups/analytics/2024-12-06/ data/analytics/
 
 ### T1.7: TAQ Data Storage & Sync
 **Effort:** 3-4 days | **PR:** `feat(p4): taq storage`
-**Status:** Pending
+**Status:** ✅ Complete
 **Priority:** P1 (Enables microstructure analytics)
 **Dependencies:** T1.2 (WRDS Sync Manager) - COMPLETE from P4T1
 
@@ -850,7 +1100,11 @@ class TAQStorage:
 - [ ] Sample day download capability
 - [ ] Storage manifest tracking sync status with dataset_version_id
 - [ ] Uses same locking pattern as P4T1 providers (LockManager)
-- [ ] **Performance test**: Download 1 month of aggregates for 500 stocks in <30 minutes
+- [ ] **Performance test**: Download 1 month of aggregates for 500 stocks (tiered SLAs below)
+  - **Tier 1 (Baseline)**: <60 minutes on 4-core/16GB with 10 Mbps WRDS connection
+  - **Tier 2 (Target)**: <30 minutes on 8-core/32GB with 50 Mbps WRDS connection
+  - **Fallback**: If WRDS rate-limited, reduce to top 100 symbols + retry with exponential backoff
+  - **Hardware assumptions**: Requires SSD storage, minimum 50GB free disk
 - [ ] **Lock contention test**: Simulated dual writers correctly blocked
 - [ ] >90% test coverage
 
@@ -858,7 +1112,7 @@ class TAQStorage:
 
 ### T1.8: TAQ Query Interface
 **Effort:** 2-3 days | **PR:** `feat(p4): taq query interface`
-**Status:** Pending
+**Status:** ✅ Complete
 **Priority:** P1 (Enables on-demand analysis)
 **Dependencies:** T1.7 (TAQ Storage)
 
@@ -983,7 +1237,7 @@ class TAQQueryProvider:
 
 ### T2.1: Multi-Factor Model Construction
 **Effort:** 4-5 days | **PR:** `feat(p4): factor builder`
-**Status:** Pending
+**Status:** ✅ Complete
 **Priority:** P0 (Foundation for all analytics)
 **Dependencies:** T1.3 (CRSP), T1.4 (Compustat) - COMPLETE from P4T1
 
@@ -1113,11 +1367,13 @@ class FactorBuilder:
 - [ ] Outputs stored with dataset_version_id metadata for reproducibility
 - [ ] >90% test coverage
 
+**Phase 3 Enhancement:** FormulaicFactor adapter for Qlib expression DSL (see [Qlib Integration Strategy](#qlib-integration-strategy)). Current implementation uses static Python classes for PIT safety. Phase 3 will add dynamic formula support with expression allowlist validation.
+
 ---
 
 ### T2.2: Risk Model - Covariance Estimation
 **Effort:** 4-5 days | **PR:** `feat(p4): factor covariance estimation`
-**Status:** Pending
+**Status:** ✅ Complete
 **Priority:** P0 (Foundation for portfolio optimization)
 **Dependencies:** T2.1 (Factor Builder)
 
@@ -1210,7 +1466,7 @@ class SpecificRiskEstimator:
 
 ### T2.3: Risk Model - Portfolio Analytics
 **Effort:** 3-4 days | **PR:** `feat(p4): portfolio risk analytics`
-**Status:** Pending
+**Status:** ✅ Complete
 **Dependencies:** T2.2
 
 **Deliverables:**
@@ -1230,7 +1486,7 @@ class SpecificRiskEstimator:
 
 ### T2.4: Portfolio Optimizer & Stress Testing
 **Effort:** 3-4 days | **PR:** `feat(p4): portfolio optimizer`
-**Status:** Pending
+**Status:** ✅ Complete
 **Dependencies:** T2.3, cvxpy solver availability
 
 **Gating Dependencies:**
@@ -1266,22 +1522,81 @@ class SpecificRiskEstimator:
 ---
 
 ### T2.5: Alpha Research Framework
-**Effort:** 3-4 days | **PR:** `feat(p4): alpha framework`
+**Effort:** 4-5 days | **PR:** `feat(p4): alpha framework`
 **Status:** Pending
-**Dependencies:** T2.1
+**Dependencies:** T2.1, Qlib installed (for metrics adapter), Sector Classifier (GICS or FF48)
+
+> **Note:** Effort increased from 3-4d to 4-5d per Gemini/Codex review due to dual-backend parity testing complexity.
 
 **Deliverables:**
 - Alpha signal definition framework
 - Point-in-time backtesting engine
-- IC and ICIR analysis
+- IC and ICIR analysis via Qlib Analysis adapter (with local fallback)
+- **Grouped IC** (per sector/industry) - Qlib `qlib.contrib.evaluate`
+- **Rank IC** (more robust than Pearson) - Qlib Analysis module
 - Alpha decay curve analysis
+- Turnover analysis
+- **NEW (from review):** Signal Autocorrelation (essential for cost estimation)
+- **NEW (from review):** Hit Rate / Positive Rate
+- **NEW (from review):** Coverage % (universe coverage by signal)
+- **NEW (from review):** Long/Short Spread (Top vs Bottom decile)
+
+**Dependency Management:**
+- Qlib should be installed as an **optional** dependency group:
+  ```bash
+  poetry add qlib --group research --optional
+  ```
+- Production environments (execution gateway, signal service) will NOT install this group.
+- `AlphaMetricsAdapter` must gracefully handle `ImportError`.
+
+**Qlib Metrics Adapter:**
+```python
+# libs/alpha/metrics.py
+class AlphaMetricsAdapter:
+    """Wrap Qlib Analysis module with local fallback."""
+
+    def __init__(self, use_qlib: bool = True):
+        self._use_qlib = use_qlib and self._qlib_available()
+
+    def compute_ic(
+        self,
+        signal: pl.DataFrame,
+        returns: pl.DataFrame,
+        method: Literal["pearson", "rank"] = "rank"
+    ) -> float:
+        """Compute IC with Qlib or local fallback."""
+        if self._use_qlib:
+            return qlib_ic_adapter(signal, returns, method)
+        return self._local_ic(signal, returns, method)
+
+    def compute_grouped_ic(
+        self,
+        signal: pl.DataFrame,
+        returns: pl.DataFrame,
+        groups: pl.DataFrame  # sector/industry mapping
+    ) -> pl.DataFrame:
+        """Compute IC per group (sector, industry)."""
+        if self._use_qlib:
+            return qlib_grouped_ic(signal, returns, groups)
+        return self._local_grouped_ic(signal, returns, groups)
+
+    def _qlib_available(self) -> bool:
+        """Check if Qlib Analysis module is available."""
+        try:
+            import qlib.contrib.evaluate
+            return True
+        except ImportError:
+            return False
+```
 
 **Files to Create:**
 - `libs/alpha/__init__.py`
 - `libs/alpha/research_platform.py`
 - `libs/alpha/alpha_library.py`
+- `libs/alpha/metrics.py` - **NEW: Qlib metrics adapter**
 - `tests/libs/alpha/__init__.py`
 - `tests/libs/alpha/test_research_platform.py`
+- `tests/libs/alpha/test_metrics.py` - **NEW: Adapter tests**
 - `docs/CONCEPTS/alpha-research.md`
 
 **PIT/Versioning Requirements:**
@@ -1293,42 +1608,323 @@ class SpecificRiskEstimator:
 - [ ] Alpha signal definition framework with Protocol
 - [ ] Point-in-time backtesting engine respecting dataset versions
 - [ ] IC and ICIR analysis with statistical significance
+- [ ] **Qlib metrics adapter** with `qlib.contrib.evaluate` wrapper
+- [ ] **Grouped IC** (per sector) analysis
+- [ ] **Rank IC** computation (more robust than Pearson)
+- [ ] **Local fallback** when Qlib unavailable
+- [ ] **Parity test**: Qlib rank IC vs local IC on same sample within tolerance
 - [ ] Alpha decay curve analysis
-- [ ] **Throughput test**: Backtest 5 years / 3000 symbols with PIT cache in <5 minutes
+- [ ] **NEW:** Signal Autocorrelation (lag-1, lag-5, lag-20)
+- [ ] **NEW:** Hit Rate / Positive Rate (% of correct direction predictions)
+- [ ] **NEW:** Coverage % (% of universe with valid signal)
+- [ ] **NEW:** Long/Short Spread (top decile - bottom decile returns)
+- [ ] **Throughput test**: Backtest with PIT cache (tiered SLAs below)
+  - **Tier 1 (Baseline)**: 3 years / 500 symbols in <5 minutes on 4-core/16GB
+  - **Tier 2 (Target)**: 5 years / 3000 symbols in <5 minutes on 8-core/32GB with warm cache
+  - **Fallback**: If memory-limited, process in date-batches (252 days per batch)
+  - **Hardware assumptions**: 8GB RAM per worker, ProcessPoolExecutor with 4 workers
 - [ ] PIT validation tests (T vs T-1 delta checks)
 - [ ] >90% test coverage
+
+**Validation Gates (from Gemini/Codex review):**
+- [ ] **Benchmark gate**: Per-metric tolerance thresholds (NOT blanket ≤5%)
+  | Metric | Tolerance | Rationale |
+  |--------|-----------|-----------|
+  | Pearson IC | ≤3% | Sensitive to outliers |
+  | Rank IC | ≤1% | More stable, tighter tolerance |
+  | Grouped IC | ≤5% | Sector grouping adds variance |
+  | ICIR | ≤5% | Ratio metric, moderate tolerance |
+  | Autocorrelation | ≤2% | Direct correlation, tight |
+  | Hit Rate | ≤1% | Binary metric, very stable |
+  | Coverage | ≤0.5% | Count-based, near-exact |
+  - Golden fixtures: `tests/fixtures/alpha_metrics_golden.parquet` (min 252 days, 500 symbols)
+  - Snapshot requirement: Must use same `snapshot_id` for both backends
+  - Sample size: Minimum 10,000 signal-return pairs for statistical validity
+- [ ] **Packaging gate**: Wheel installs without Qlib by default; `pip install .[qlib]` enables adapter
+- [ ] **Contract tests**: Shared test suite runs against both backends with same assertions
+  - Test file: `tests/libs/alpha/test_metrics_contract.py`
+  - Parametrized over `backend=["qlib", "polars"]`
+  - Tests skip gracefully when Qlib not installed (`pytest.importorskip("qlib")`)
+- [ ] **Prioritize Qlib**: Trust Qlib math initially if divergence detected; investigate local impl
+
+**Metric Definitions & NaN Handling (from Codex review):**
+```python
+# Precise formulas and NaN treatment
+class MetricDefinitions:
+    """Canonical metric definitions for parity testing."""
+
+    @staticmethod
+    def hit_rate(signal: pl.Series, returns: pl.Series) -> float:
+        """% of correct direction predictions. NaN signals excluded."""
+        valid = signal.is_not_null() & returns.is_not_null()
+        correct = (signal.filter(valid).sign() == returns.filter(valid).sign()).sum()
+        return correct / valid.sum() if valid.sum() > 0 else float("nan")
+
+    @staticmethod
+    def coverage(signal: pl.Series, universe_size: int) -> float:
+        """% of universe with valid (non-NaN, non-zero) signal."""
+        valid = signal.is_not_null() & (signal != 0)
+        return valid.sum() / universe_size
+
+    @staticmethod
+    def autocorrelation(signal: pl.Series, lag: int = 1) -> float:
+        """Signal autocorrelation at specified lag. NaN-aware."""
+        return signal.drop_nulls().to_pandas().autocorr(lag=lag)
+
+    @staticmethod
+    def long_short_spread(
+        signal: pl.Series, returns: pl.Series, decile: int = 10
+    ) -> float:
+        """Top decile mean return - Bottom decile mean return."""
+        # Exclude NaN signals from ranking
+        valid_mask = signal.is_not_null()
+        # ... quantile-based implementation
+```
+
+**Caching & Performance Strategy (from Codex review):**
+- Use `DiskExpressionCache` (T2.8) for computed signals/factors
+- Prefetch PIT snapshots for date ranges before batch computation
+- Parallelize cross-sectional IC computation across dates (ProcessPoolExecutor)
+- Memory ceiling: 8GB per worker for fixture runs
+- Target: 5y × 3000 symbols < 5 minutes with warm cache
 
 ---
 
 ### T2.6: Alpha Advanced Analytics
 **Effort:** 2-3 days | **PR:** `feat(p4): alpha advanced`
 **Status:** Pending
-**Dependencies:** T2.5
+**Dependencies:** T2.5 (metrics adapter, PIT cache), DatasetVersionManager
 
-**Deliverables:**
-- Overfitting detection (OOS testing)
-- Multiple testing correction (Bonferroni, FDR)
+**Deliverables (Core):**
 - Alpha combiner (composite signals)
 - Signal correlation analysis
+- Qlib turnover analysis integration
+
+**Deliverables (STRETCH - defer if behind at Week 9 checkpoint):**
+- Overfitting detection (OOS testing)
+- Multiple testing correction (Bonferroni, FDR)
+
+**Decision Gate:** End of Week 9 - if T2.5+T2.6 combined exceed 7 days, defer overfitting/OOS to Phase 3.
+
+**Alpha Combiner Specification (from Codex review):**
+```python
+# libs/alpha/alpha_combiner.py
+class AlphaCombiner:
+    """Combine multiple alpha signals into composite."""
+
+    def __init__(self, weighting: Literal["equal", "ic", "ir", "vol_parity"] = "ic"):
+        """
+        Weighting methods:
+        - equal: Simple average
+        - ic: Weight by trailing IC (information coefficient)
+        - ir: Weight by trailing IR (IC / IC_std)
+        - vol_parity: Weight by inverse signal volatility
+        """
+        self.weighting = weighting
+
+    def combine(
+        self,
+        signals: dict[str, pl.DataFrame],  # {signal_name: signal_df}
+        lookback_days: int = 252,
+        normalize: bool = True,  # Cross-sectional z-score before combining
+    ) -> pl.DataFrame:
+        """
+        Combine signals with specified weighting.
+
+        Input contract:
+        - Each signal_df has columns: ["date", "symbol", "signal"]
+        - Signals are cross-sectionally z-scored if normalize=True
+        - NaN signals excluded from weighting calculation
+
+        Output contract:
+        - Returns DataFrame with ["date", "symbol", "composite_signal", "weights"]
+        """
+        ...
+```
+
+**Correlation Analysis (from Codex review):**
+- Apply winsorization (1st/99th percentile) before correlation to handle outliers
+- Handle async symbols (different trading calendars) via inner join on dates
+- Report both Pearson and Spearman correlations
+- Flag highly correlated pairs (|corr| > 0.7) for redundancy warning
+
+**Overfitting Detection (STRETCH - from Codex review):**
+```python
+class OverfittingDetector:
+    """Detect overfitted alpha signals."""
+
+    def __init__(
+        self,
+        split_method: Literal["rolling", "blocked_cv", "purged_cv"] = "rolling",
+        n_splits: int = 5,
+        embargo_days: int = 5,  # Gap between train/test to prevent leakage
+    ):
+        """
+        Split methods:
+        - rolling: Expanding window train, fixed test
+        - blocked_cv: Time-blocked cross-validation
+        - purged_cv: Purged k-fold with embargo (de Prado)
+        """
+        ...
+
+    def detect(
+        self,
+        signal: pl.DataFrame,
+        returns: pl.DataFrame,
+        min_oos_ic: float = 0.02,  # Minimum OOS IC to pass
+        max_is_oos_gap: float = 0.5,  # Max (IS_IC - OOS_IC) / IS_IC
+    ) -> OverfittingResult:
+        """Returns IS/OOS metrics and overfitting probability."""
+        ...
+```
+
+**Turnover Contract (from Codex review):**
+- Input: Signal DataFrame with ["date", "symbol", "signal"]
+- Output: Daily turnover = sum(|weight_t - weight_t-1|) / 2
+- Qlib fallback: Use local implementation if Qlib unavailable
+- Validate against manual calculation on golden fixture
 
 **Files to Create:**
 - `libs/alpha/alpha_combiner.py`
-- `libs/alpha/overfitting_detection.py`
+- `libs/alpha/overfitting_detection.py` - **STRETCH**
 - `tests/libs/alpha/test_alpha_combiner.py`
-- `docs/CONCEPTS/alpha-overfitting.md`
+- `docs/CONCEPTS/alpha-overfitting.md` - **STRETCH**
+
+**Acceptance Criteria (Core):**
+- [ ] Alpha combiner with equal/IC-weighted/IR-weighted/vol-parity methods
+- [ ] Signal correlation matrix with winsorization
+- [ ] Async symbol handling (inner join on dates)
+- [ ] Redundancy warning for |corr| > 0.7 pairs
+- [ ] Qlib turnover metric validated against manual calculation
+- [ ] Turnover local fallback when Qlib unavailable
+
+**Acceptance Criteria (STRETCH):**
+- [ ] Overfitting detection via OOS testing with rolling/blocked_cv/purged_cv
+- [ ] Embargo period to prevent train/test leakage
+- [ ] Multiple testing correction (Bonferroni, FDR)
+- [ ] >90% test coverage
 
 ---
 
 ### T2.7: Factor Attribution Analysis
 **Effort:** 3-4 days | **PR:** `feat(p4): factor attribution`
 **Status:** Pending
-**Dependencies:** T2.1, T1.5 (Fama-French) - COMPLETE
+**Dependencies:** T2.1, T1.5 (Fama-French) - COMPLETE, Sector Classifier (GICS/FF48), DatasetVersionManager
 
-**Deliverables:**
-- Fama-French regression (3/5/6-factor)
+**Deliverables (Core):**
+- Fama-French regression (3/5/6-factor) - reuses T1.5 provider
 - Rolling factor exposure tracking
-- Conditional attribution (up/down markets)
 - Performance attribution output
+
+**Deliverables (STRETCH):**
+- Conditional attribution (up/down markets)
+
+**Note:** Leverages existing Fama-French provider from T1.5. Focus on core FF regression; conditional analysis is stretch.
+
+**Regression Specification (from Codex review):**
+```python
+# libs/analytics/attribution.py
+from statsmodels.regression.linear_model import OLS
+from statsmodels.stats.sandwich_covariance import cov_hac_simple  # Newey-West
+
+class FactorAttribution:
+    """Fama-French factor attribution with robust standard errors."""
+
+    def __init__(
+        self,
+        model: Literal["ff3", "ff5", "ff6"] = "ff5",
+        window_days: int = 252,
+        rebalance_freq: Literal["daily", "weekly", "monthly"] = "monthly",
+        std_errors: Literal["ols", "hc3", "newey_west"] = "newey_west",
+        newey_west_lags: int = 5,  # sqrt(T) rule of thumb
+    ):
+        """
+        Regression specification:
+        - OLS: Standard errors assume homoskedasticity
+        - HC3: Heteroskedasticity-consistent (White)
+        - Newey-West: HAC for serial correlation (recommended)
+
+        Window vs Rebalance:
+        - window_days: Lookback for regression
+        - rebalance_freq: How often to re-estimate (affects output granularity)
+        """
+        self.model = model
+        self.window_days = window_days
+        self.rebalance_freq = rebalance_freq
+        self.std_errors = std_errors
+        self.nw_lags = newey_west_lags
+
+    def fit(
+        self,
+        portfolio_returns: pl.DataFrame,  # ["date", "return"]
+        ff_factors: pl.DataFrame,  # ["date", "mkt_rf", "smb", "hml", ...]
+        min_obs: int = 60,  # Minimum observations for valid regression
+    ) -> AttributionResult:
+        """
+        Run factor attribution regression.
+
+        Returns AttributionResult with:
+        - alpha: Annualized alpha (bps)
+        - betas: Factor loadings dict
+        - t_stats: T-statistics for each coefficient
+        - r_squared: Adjusted R²
+        - residual_vol: Idiosyncratic volatility
+        """
+        ...
+
+    def check_multicollinearity(
+        self,
+        ff_factors: pl.DataFrame,
+        vif_threshold: float = 5.0,
+    ) -> list[str]:
+        """
+        Check for factor multicollinearity using VIF.
+        Returns list of warnings for VIF > threshold.
+        """
+        ...
+```
+
+**Data Filters (from Codex review):**
+- **Microcap filter**: Exclude stocks below 20th percentile market cap (or $100M)
+- **Currency filter**: USD-denominated only (or specify currency)
+- **Minimum history**: Require 60+ daily observations for regression
+- **Survivorship**: Use PIT universe from DatasetVersionManager
+
+**Output Schema for Dashboard/Registry (from Codex review):**
+```python
+@dataclass
+class AttributionResult:
+    """Factor attribution output for dashboard and registry."""
+    # Identification
+    portfolio_id: str
+    as_of_date: date
+    dataset_version_id: str
+    regression_config: dict  # {model, window, std_errors, ...}
+
+    # Core metrics
+    alpha_annualized_bps: float
+    alpha_t_stat: float
+    r_squared_adj: float
+    residual_vol_annualized: float
+
+    # Factor loadings
+    betas: dict[str, float]  # {"mkt_rf": 1.05, "smb": -0.2, ...}
+    beta_t_stats: dict[str, float]
+    beta_p_values: dict[str, float]
+
+    # Diagnostics
+    n_observations: int
+    multicollinearity_warnings: list[str]
+    durbin_watson: float  # Autocorrelation diagnostic
+
+    def to_registry_dict(self) -> dict:
+        """Serialize for model registry storage."""
+        ...
+
+    def to_dashboard_dict(self) -> dict:
+        """Serialize for web dashboard display."""
+        ...
+```
 
 **Files to Create:**
 - `libs/analytics/__init__.py`
@@ -1337,12 +1933,30 @@ class SpecificRiskEstimator:
 - `tests/libs/analytics/test_attribution.py`
 - `docs/CONCEPTS/performance-attribution.md`
 
+**Acceptance Criteria (Core):**
+- [ ] Fama-French 3/5/6-factor regression
+- [ ] Rolling factor exposure (252-day window)
+- [ ] Performance attribution output with alpha, betas, R²
+- [ ] Robust standard errors (Newey-West default)
+- [ ] Multicollinearity check (VIF)
+- [ ] Microcap/currency filters
+- [ ] Output schema for dashboard and registry
+- [ ] Uses T1.5 FamaFrenchLocalProvider
+- [ ] Uses DatasetVersionManager for PIT universe
+- [ ] >90% test coverage
+
+**Acceptance Criteria (STRETCH):**
+- [ ] Conditional attribution (up/down market regimes)
+- [ ] Regime detector for market state classification
+
 ---
 
 ### T2.8: Model Registry Integration
-**Effort:** 3-4 days | **PR:** `feat(p4): model registry`
+**Effort:** 5-6 days | **PR:** `feat(p4): model registry`
 **Status:** Pending
 **Dependencies:** T2.4, T2.6, T1.6 (Dataset Versioning)
+
+> **Note:** Effort increased from 3-4d to 5-6d per Gemini/Codex review due to schema additions, migration complexity, CLI wiring, and E2E integration tests.
 
 **Problem:** No clear path to deploy trained risk models, factor definitions, or alpha weights to production. Need versioned storage with provenance tracking.
 
@@ -1351,6 +1965,11 @@ class SpecificRiskEstimator:
 - Versioned model storage with immutable versions
 - Production model loader with compatibility checks
 - Integration contract for signal_service
+- **NEW:** Training config capture (`config` blob + `config_hash`)
+- **NEW:** Feature formula tracking (`feature_formulas` - Phase 3 placeholder)
+- **NEW:** DatasetVersionManager snapshot linkage (`snapshot_id`)
+- **NEW (from review):** Qlib recorder-style experiment metadata (`experiment_id`, `run_id`)
+- **NEW (from review):** E2E integration tests (alpha → registry → signal_service load)
 
 **Storage Backend Specification:**
 ```
@@ -1440,6 +2059,7 @@ class ModelMetadata:
     created_at: datetime
     # Provenance tracking (FULL linkage to P4T1 versioning)
     dataset_version_ids: dict[str, str]  # {'crsp': 'v1.2.3', 'compustat': 'v1.0.1', 'taq': 'v1.0.0'}
+    snapshot_id: str           # NEW: DatasetVersionManager snapshot ID
     factor_list: list[str]     # Factors included
     parameters: dict           # Model parameters/config
     # Validation
@@ -1447,6 +2067,31 @@ class ModelMetadata:
     metrics: dict[str, float]  # Performance metrics (R², IC, etc.)
     # Environment
     env: EnvironmentMetadata   # Python version, deps hash, etc.
+    # NEW: Training config for reproducibility
+    config: dict               # NEW: Training config blob (hyperparams, settings)
+    config_hash: str           # NEW: SHA-256 of config for integrity
+    feature_formulas: list[str] | None  # NEW: Phase 3 placeholder for FormulaicFactor
+    # NEW (from review): Qlib recorder-style experiment tracking
+    experiment_id: str | None  # NEW: Experiment grouping ID (e.g., "alpha_research_2024Q1")
+    run_id: str | None         # NEW: Individual training run ID (UUID)
+    dataset_uri: str | None    # NEW: Reference to dataset location for Qlib compatibility
+    qlib_version: str | None   # NEW: Qlib version if used during training
+```
+
+**Config Field Contents:**
+```python
+# Example config blob for risk_model
+{
+    "model_type": "barra_risk_model",
+    "hyperparameters": {
+        "halflife_days": 60,
+        "shrinkage_intensity": 0.2,
+        "min_observations": 126
+    },
+    "feature_definitions": ["momentum_12m", "value_btm", "quality_roe"],
+    "training_window": {"start": "2020-01-01", "end": "2024-12-01"},
+    "qlib_version": "0.9.0"  # If Qlib used
+}
 ```
 
 **PIT Enforcement During Registration:**
@@ -1922,6 +2567,204 @@ execution_gateway    risk_manager       RiskModel      Optimizer
 - [ ] **E2E corruption/rollback test**: Full scenario validation (see spec below)
 - [ ] >90% test coverage
 
+**DiskExpressionCache Acceptance Criteria (from Gemini/Codex review):**
+- [ ] Cache key format: `{factor}:{date}:{version}:{snapshot_id}:{config_hash}` - ALL components required
+- [ ] Cache invalidation hooks tied to dataset version updates
+- [ ] Cache invalidation on config_hash change
+- [ ] TTL-based expiration (default 7 days, configurable)
+- [ ] Atomic writes using existing `_atomic_write_parquet` helper
+- [ ] **Property tests**: Key canonicalization produces deterministic hashes
+- [ ] **Concurrency test**: Parallel cache writers maintain atomicity
+- [ ] **PIT safety test**: Cache miss on snapshot_id mismatch (no stale data)
+- [ ] **Config safety test**: Cache miss on config_hash mismatch
+
+**E2E Integration Tests (from review):**
+- [ ] **E2E path test**: alpha → registry → signal_service load
+- [ ] **Migration dry-run**: Test on copy of registry.db before production
+- [ ] **Rollback test**: Verify rollback to previous version works
+
+**Migration Plan for Existing Artifacts (from Codex review):**
+```python
+# scripts/migrate_registry.py
+class RegistryMigration:
+    """Migrate existing model artifacts to new registry schema."""
+
+    def __init__(self, legacy_path: Path, new_registry_path: Path):
+        self.legacy_path = legacy_path
+        self.new_path = new_registry_path
+
+    def discover_legacy_artifacts(self) -> list[LegacyArtifact]:
+        """Scan for existing model files without registry entries."""
+        ...
+
+    def generate_metadata(self, artifact: LegacyArtifact) -> ModelMetadata:
+        """
+        Generate metadata for legacy artifacts:
+        - Infer model_type from path/filename
+        - Set dataset_version_ids to "UNKNOWN_LEGACY"
+        - Set config_hash to hash of artifact file
+        - Mark experiment_id as "migration_batch_{date}"
+        """
+        ...
+
+    def migrate_artifact(
+        self,
+        artifact: LegacyArtifact,
+        dry_run: bool = True,
+    ) -> MigrationResult:
+        """
+        Migrate single artifact:
+        1. Copy artifact to new artifacts/ directory
+        2. Generate metadata JSON
+        3. Register in DuckDB catalog
+        4. Verify checksum after copy
+        """
+        ...
+
+    def run_migration(self, dry_run: bool = True) -> MigrationReport:
+        """
+        Full migration workflow:
+        1. Backup existing registry.db (if exists)
+        2. Discover legacy artifacts
+        3. Generate migration plan
+        4. If dry_run: print plan, don't execute
+        5. If not dry_run: execute migration
+        6. Verify all artifacts accessible via registry
+        """
+        ...
+```
+
+**Migration CLI:**
+```bash
+# Discover what would be migrated
+python scripts/migrate_registry.py --dry-run
+
+# Execute migration (creates backup first)
+python scripts/migrate_registry.py --execute
+
+# Verify migration success
+python scripts/migrate_registry.py --verify
+```
+
+**Migration Acceptance Criteria:**
+- [ ] Legacy artifact discovery (scan artifacts/ for unregistered models)
+- [ ] Metadata inference for legacy models (best-effort)
+- [ ] Dry-run mode shows migration plan without executing
+- [ ] Automatic backup of registry.db before migration
+- [ ] Verification step confirms all migrated artifacts loadable
+- [ ] Rollback script if migration fails
+
+**Semantic Versioning for Compatibility (from Gemini/Codex review):**
+```python
+# libs/models/compatibility.py
+from packaging.version import Version
+
+class VersionCompatibilityChecker:
+    """
+    Semantic versioning logic for dataset compatibility.
+
+    Policy:
+    - MAJOR version change: BLOCK (breaking schema changes)
+    - MINOR version change: WARN (new columns, backward compatible)
+    - PATCH version change: ALLOW (bug fixes, no schema change)
+    """
+
+    def check_compatibility(
+        self,
+        model_versions: dict[str, str],  # Versions model was trained on
+        current_versions: dict[str, str],  # Current data versions
+        strict_mode: bool = False,  # Production = True
+    ) -> CompatibilityResult:
+        """
+        Check if model is compatible with current data versions.
+
+        Returns:
+        - compatible: bool
+        - level: "exact" | "patch_drift" | "minor_drift" | "major_drift"
+        - warnings: list[str]
+        """
+        results = {}
+        for dataset, model_ver in model_versions.items():
+            current_ver = current_versions.get(dataset)
+            if current_ver is None:
+                results[dataset] = ("missing", f"{dataset} not available")
+                continue
+
+            model_v = Version(model_ver)
+            current_v = Version(current_ver)
+
+            if model_v == current_v:
+                results[dataset] = ("exact", None)
+            elif model_v.major != current_v.major:
+                results[dataset] = ("major_drift", f"{dataset}: {model_ver} → {current_ver}")
+            elif model_v.minor != current_v.minor:
+                results[dataset] = ("minor_drift", f"{dataset}: {model_ver} → {current_ver}")
+            else:  # Only patch differs
+                results[dataset] = ("patch_drift", f"{dataset}: {model_ver} → {current_ver}")
+
+        # Determine overall compatibility
+        has_major = any(r[0] == "major_drift" for r in results.values())
+        has_minor = any(r[0] == "minor_drift" for r in results.values())
+
+        if has_major:
+            return CompatibilityResult(
+                compatible=False,
+                level="major_drift",
+                warnings=[r[1] for r in results.values() if r[1]],
+            )
+        elif has_minor and strict_mode:
+            return CompatibilityResult(
+                compatible=False,
+                level="minor_drift",
+                warnings=[r[1] for r in results.values() if r[1]],
+            )
+        else:
+            return CompatibilityResult(
+                compatible=True,
+                level="patch_drift" if has_minor or any(r[0] == "patch_drift" for r in results.values()) else "exact",
+                warnings=[r[1] for r in results.values() if r[1]],
+            )
+```
+
+**Compatibility Acceptance Criteria:**
+- [ ] Semantic version parsing using `packaging.version`
+- [ ] MAJOR drift blocks load in all modes
+- [ ] MINOR drift blocks in strict_mode, warns otherwise
+- [ ] PATCH drift always allowed with warning
+- [ ] Missing dataset blocks load with clear error
+
+**Cache/Registry Boundary Clarification (from Codex review):**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    CACHE vs REGISTRY OWNERSHIP                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  DiskExpressionCache (libs/factors/cache.py)                            │
+│  ├── Owns: Computed factor/signal values (intermediate results)         │
+│  ├── Key generation: Factor computation layer generates keys            │
+│  ├── Key format: {factor}:{date}:{version}:{snapshot_id}:{config_hash} │
+│  ├── Eviction: TTL-based (7 days default)                               │
+│  └── NOT owned by: Model registry                                        │
+│                                                                          │
+│  ModelRegistry (libs/models/registry.py)                                │
+│  ├── Owns: Trained model artifacts (final outputs)                      │
+│  ├── Key generation: Registry generates model_id                        │
+│  ├── Key format: {model_type}:{semantic_version}                        │
+│  ├── Eviction: Policy-based (staged: 30d, archived: 90d)               │
+│  └── NOT owned by: Factor cache                                          │
+│                                                                          │
+│  Integration Point:                                                      │
+│  └── ModelMetadata.dataset_version_ids REFERENCES cache keys            │
+│      (allows cache invalidation when model data requirements change)    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**FastAPI Auth/ACL (from Codex review):**
+- All registry endpoints require JWT service token
+- Scopes: `model:read` (GET), `model:write` (POST/PUT), `model:admin` (DELETE)
+- Audit log for all write operations
+
 **E2E Corruption & Rollback Test Specification:**
 ```python
 # tests/e2e/test_registry_resilience.py
@@ -1967,15 +2810,262 @@ def test_version_drift_detection_and_handling():
 
 ---
 
+### T2.9: Covariance Synthetic Verification (Enhancement)
+**Effort:** 1-2 days | **PR:** `feat(p4): covariance verification`
+**Status:** Pending
+**Priority:** P2 (Quality assurance for T2.2)
+**Dependencies:** T2.2 (Covariance Estimation) - COMPLETE
+
+> **Note:** This is an enhancement task from Gemini review to add synthetic data verification for the already-implemented covariance estimators.
+
+**Problem:** Complex estimators (Ledoit-Wolf, Newey-West) are prone to subtle implementation errors. Need verification against known ground truth.
+
+**Deliverables:**
+- Synthetic covariance matrix generator with known properties
+- Verification tests that estimators recover known matrices
+- Property-based tests for edge cases
+
+**Implementation:**
+```python
+# tests/libs/risk/test_covariance_synthetic.py
+import numpy as np
+from hypothesis import given, strategies as st
+
+class SyntheticCovarianceGenerator:
+    """Generate synthetic data with known covariance for verification."""
+
+    @staticmethod
+    def generate_known_covariance(
+        n_factors: int = 5,
+        n_days: int = 500,
+        condition_number: float = 10.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Generate returns with known factor covariance.
+
+        Returns:
+        - true_cov: Known ground truth covariance matrix
+        - returns: Simulated returns drawn from this covariance
+        """
+        # Generate positive definite covariance with controlled condition number
+        # This ensures we know the "true" answer
+        ...
+
+    @staticmethod
+    def generate_with_autocorrelation(
+        n_factors: int = 5,
+        n_days: int = 500,
+        ar_coef: float = 0.3,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Generate returns with known autocorrelation for Newey-West testing."""
+        ...
+
+
+class TestCovarianceRecovery:
+    """Verify estimators recover known covariance matrices."""
+
+    def test_ledoit_wolf_recovers_known_cov(self):
+        """Ledoit-Wolf should recover true covariance within tolerance."""
+        true_cov, returns = SyntheticCovarianceGenerator.generate_known_covariance(
+            n_factors=5, n_days=1000, condition_number=10.0
+        )
+        estimator = FactorCovarianceEstimator(config=CovarianceConfig())
+        estimated_cov, shrinkage = estimator.estimate_with_shrinkage_from_returns(returns)
+
+        # Frobenius norm relative error should be < 10%
+        rel_error = np.linalg.norm(estimated_cov - true_cov) / np.linalg.norm(true_cov)
+        assert rel_error < 0.10, f"Recovery error too high: {rel_error:.2%}"
+
+    def test_newey_west_with_autocorrelation(self):
+        """Newey-West should handle autocorrelated returns."""
+        true_cov, returns = SyntheticCovarianceGenerator.generate_with_autocorrelation(
+            n_factors=5, n_days=500, ar_coef=0.3
+        )
+        # Without HAC correction, standard errors are biased
+        # With HAC correction, should recover true standard errors
+        ...
+
+    @given(st.integers(min_value=3, max_value=20))
+    def test_positive_definite_for_any_dimension(self, n_factors: int):
+        """Property test: output is always positive semi-definite."""
+        _, returns = SyntheticCovarianceGenerator.generate_known_covariance(
+            n_factors=n_factors, n_days=max(n_factors * 10, 100)
+        )
+        estimator = FactorCovarianceEstimator()
+        cov = estimator.estimate_from_returns(returns)
+        eigenvalues = np.linalg.eigvalsh(cov)
+        assert all(ev >= -1e-10 for ev in eigenvalues), "Not positive semi-definite"
+```
+
+**Files to Create:**
+- `tests/libs/risk/test_covariance_synthetic.py`
+- `tests/libs/risk/synthetic_generators.py`
+
+**Acceptance Criteria:**
+- [ ] Synthetic covariance generator with controlled condition number
+- [ ] Ledoit-Wolf recovery test (< 10% Frobenius error on 1000 samples)
+- [ ] Newey-West autocorrelation handling test
+- [ ] Property test: output always positive semi-definite
+- [ ] Edge case: near-singular matrix handling
+- [ ] Edge case: high condition number (ill-conditioned) handling
+
+---
+
+### T1.9: TAQ Storage Quota Management (Enhancement)
+**Effort:** 1-2 days | **PR:** `feat(p4): taq quota management`
+**Status:** Pending
+**Priority:** P2 (Operational safety for T1.7)
+**Dependencies:** T1.7 (TAQ Storage) - COMPLETE
+
+> **Note:** This is an enhancement task from Gemini review to add disk usage quota and retention policy for TAQ storage.
+
+**Problem:** Uncompressed tick data can rapidly exhaust disk space. Need quota enforcement and retention policies.
+
+**Deliverables:**
+- Disk usage monitoring for TAQ storage
+- Configurable quota limits with alerts
+- Retention policy enforcer (age-based, size-based)
+- Cleanup CLI commands
+
+**Implementation:**
+```python
+# libs/data_providers/taq_quota_manager.py
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class TAQQuotaConfig:
+    """Configuration for TAQ storage quotas."""
+    max_total_gb: float = 500.0           # Total storage limit
+    max_per_symbol_gb: float = 10.0       # Per-symbol limit
+    warn_threshold_pct: float = 80.0      # Warn at 80% usage
+    critical_threshold_pct: float = 95.0  # Block new writes at 95%
+    retention_days: int = 365             # Keep data for 1 year
+    min_free_space_gb: float = 50.0       # Minimum free disk space
+
+class TAQQuotaManager:
+    """Manage TAQ storage quotas and retention."""
+
+    def __init__(self, storage_path: Path, config: TAQQuotaConfig):
+        self.storage_path = storage_path
+        self.config = config
+
+    def get_usage_stats(self) -> TAQUsageStats:
+        """
+        Get current storage usage statistics.
+
+        Returns:
+        - total_gb: Total storage used
+        - by_symbol: dict[symbol, size_gb]
+        - by_tier: dict[tier, size_gb]
+        - oldest_data: date of oldest data
+        - newest_data: date of newest data
+        """
+        ...
+
+    def check_quota(self, estimated_write_gb: float) -> QuotaCheckResult:
+        """
+        Check if write would exceed quota.
+
+        Returns:
+        - allowed: bool
+        - current_usage_pct: float
+        - message: str (warning or error)
+        """
+        ...
+
+    def enforce_retention(self, dry_run: bool = True) -> RetentionReport:
+        """
+        Delete data older than retention_days.
+
+        Returns report of what was/would be deleted.
+        """
+        ...
+
+    def cleanup_by_size(
+        self,
+        target_free_gb: float,
+        strategy: Literal["oldest_first", "largest_first"] = "oldest_first",
+        dry_run: bool = True,
+    ) -> CleanupReport:
+        """
+        Free up space by deleting data.
+
+        Prioritizes Tier 3 (sample data) over Tier 1 (aggregates).
+        """
+        ...
+
+    def emit_alerts(self, usage_stats: TAQUsageStats) -> list[Alert]:
+        """Generate alerts for quota thresholds."""
+        if usage_stats.usage_pct >= self.config.critical_threshold_pct:
+            return [Alert(level="critical", message=f"TAQ storage at {usage_stats.usage_pct:.1f}%")]
+        elif usage_stats.usage_pct >= self.config.warn_threshold_pct:
+            return [Alert(level="warning", message=f"TAQ storage at {usage_stats.usage_pct:.1f}%")]
+        return []
+```
+
+**CLI Commands:**
+```bash
+# Check current usage
+python scripts/taq_quota.py status
+
+# Dry-run retention enforcement
+python scripts/taq_quota.py enforce-retention --dry-run
+
+# Actually enforce retention
+python scripts/taq_quota.py enforce-retention --execute
+
+# Free up space (oldest first)
+python scripts/taq_quota.py cleanup --target-free-gb 100 --dry-run
+```
+
+**Files to Create:**
+- `libs/data_providers/taq_quota_manager.py`
+- `scripts/taq_quota.py`
+- `tests/libs/data_providers/test_taq_quota_manager.py`
+- `docs/RUNBOOKS/taq-storage-management.md`
+
+**Acceptance Criteria:**
+- [ ] Disk usage calculation by symbol, tier, and total
+- [ ] Quota check before new writes (block at critical threshold)
+- [ ] Warning alerts at configurable threshold
+- [ ] Age-based retention enforcement
+- [ ] Size-based cleanup with tier prioritization
+- [ ] Dry-run mode for all destructive operations
+- [ ] CLI for operational management
+- [ ] Integration with existing TAQStorageManager
+
+---
+
 ## Track 3: Market Microstructure (T3.1-T3.3)
 
 ### T3.1: Microstructure Analytics
 **Effort:** 4-5 days | **PR:** `feat(p4): microstructure analytics`
-**Status:** Pending
+**Status:** ✅ Complete
 **Priority:** P1 (Advanced analytics)
 **Dependencies:** T1.7 (TAQ Storage), T1.8 (TAQ Query Interface) - MUST complete T1.8 before starting
 
 **Problem:** Need realized volatility, intraday patterns, and order flow analytics for execution and alpha.
+
+**⚠️ Architectural Constraint: Polars/DuckDB Boundary**
+
+> **All TAQ feature generation (RV, VPIN, spread, depth) is implemented in Polars/DuckDB only.**
+> Qlib receives daily aggregates via Parquet export. See [Qlib Integration Strategy](#qlib-integration-strategy).
+
+**Rationale:**
+- Avoids Pandas/Polars ↔ Qlib serialization overhead
+- TAQ data volume too large for Qlib's standard interfaces
+- Daily aggregates sufficient for factor models; intraday available for execution
+
+**Output Schema (Multi-Horizon):**
+```
+data/analytics/microstructure/
+├── rv_daily.parquet      # Daily RV → Qlib models
+├── rv_30min.parquet      # 30-min RV → Execution analytics
+├── rv_5min.parquet       # 5-min RV → Research only
+├── vpin_daily.parquet    # Daily VPIN → Qlib models
+└── spread_stats.parquet  # Daily spread/depth stats
+```
 
 **Deliverables:**
 - Realized volatility calculation (5-min sampling)
@@ -1983,6 +3073,7 @@ def test_version_drift_detection_and_handling():
 - HAR volatility forecasting model
 - VPIN (Volume-synchronized PIN) calculation using Bulk Volume Classification (BVC)
 - Spread and depth analysis
+- **Multi-horizon Parquet exports** (daily, 30min, 5min)
 
 **VPIN Trade Classification:**
 Uses **Bulk Volume Classification (BVC)** method per Easley et al. (2012):
@@ -2102,6 +3193,56 @@ class HARVolatilityModel:
 
 ```python
 # libs/analytics/execution_quality.py
+from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import Literal
+
+# NEW (from review): Fills Schema Contract for execution_gateway integration
+class Fill(BaseModel):
+    """Single fill from execution_gateway.
+
+    This schema defines the contract between execution_gateway and
+    the execution quality analyzer. Any changes MUST be coordinated
+    with execution_gateway team.
+    """
+    timestamp: datetime = Field(..., description="Fill execution timestamp (UTC)")
+    price: float = Field(..., gt=0, description="Fill price per share")
+    quantity: int = Field(..., gt=0, description="Number of shares filled")
+    exchange: str | None = Field(None, description="Exchange where fill occurred")
+    order_id: str = Field(..., description="Parent order ID from execution_gateway")
+    client_order_id: str = Field(..., description="Idempotent client order ID")
+
+    # Optional fields for advanced analysis
+    liquidity_flag: Literal["add", "remove"] | None = Field(
+        None, description="Whether fill added or removed liquidity"
+    )
+    rebate_bps: float | None = Field(None, description="Exchange rebate/fee in bps")
+
+
+class FillBatch(BaseModel):
+    """Batch of fills for a single order execution.
+
+    Provided by execution_gateway for quality analysis.
+    """
+    symbol: str
+    side: Literal["buy", "sell"]
+    fills: list[Fill]
+    decision_time: datetime = Field(..., description="When order decision was made")
+    submission_time: datetime = Field(..., description="When order was submitted to broker")
+    total_target_qty: int = Field(..., description="Total quantity intended to fill")
+
+    @property
+    def total_filled_qty(self) -> int:
+        return sum(f.quantity for f in self.fills)
+
+    @property
+    def avg_fill_price(self) -> float:
+        if not self.fills:
+            return 0.0
+        total_value = sum(f.price * f.quantity for f in self.fills)
+        return total_value / self.total_filled_qty
+
+
 @dataclass
 class ExecutionAnalysis:
     """Results of execution quality analysis."""
@@ -2112,6 +3253,11 @@ class ExecutionAnalysis:
     implementation_shortfall_bps: float
     market_impact_bps: float
     timing_cost_bps: float
+    # NEW: Additional metrics
+    fill_rate: float  # total_filled_qty / total_target_qty
+    execution_duration_seconds: float
+    avg_fill_latency_ms: float | None  # If timing data available
+
 
 class ExecutionQualityAnalyzer:
     """Analyze execution quality against benchmarks."""
@@ -2121,10 +3267,7 @@ class ExecutionQualityAnalyzer:
 
     def analyze_execution(
         self,
-        symbol: str,
-        side: Literal["buy", "sell"],
-        fills: list[dict],  # [{"time": ..., "price": ..., "qty": ...}]
-        decision_time: datetime
+        fill_batch: FillBatch,  # NEW: Typed contract instead of loose dict
     ) -> ExecutionAnalysis:
         """
         Analyze execution quality for a series of fills.
@@ -2172,12 +3315,127 @@ class ExecutionQualityAnalyzer:
 - [ ] Integration with execution_gateway order data
 - [ ] >90% test coverage
 
+**Fills Schema Contract (from review):**
+- [ ] `Fill` and `FillBatch` Pydantic models defined in shared location
+- [ ] Schema versioning strategy documented (for future changes)
+- [ ] execution_gateway exports fills in `FillBatch` format
+- [ ] Validation tests for schema edge cases (partial fills, multi-exchange)
+- [ ] Contract documented in `docs/CONCEPTS/execution-analysis.md`
+
+**Extended Fills Schema (from Codex review):**
+```python
+# libs/analytics/execution_quality.py - Extended fill handling
+
+class FillStatus(str, Enum):
+    """Fill lifecycle status."""
+    FILLED = "filled"           # Normal fill
+    PARTIAL = "partial"         # Partial fill (more fills expected)
+    CANCELLED = "cancelled"     # Order cancelled before full fill
+    AMENDED = "amended"         # Price/qty amended (ref to previous)
+
+class ExtendedFill(BaseModel):
+    """Extended fill with lifecycle and timing details."""
+
+    # Core fields (from basic Fill)
+    timestamp: datetime = Field(..., description="Fill execution timestamp (UTC)")
+    price: float = Field(..., gt=0)
+    quantity: int = Field(..., gt=0)
+    order_id: str
+    client_order_id: str
+
+    # Lifecycle fields (from Codex review)
+    status: FillStatus = FillStatus.FILLED
+    amends_fill_id: str | None = Field(None, description="ID of amended fill (if status=amended)")
+    cancel_reason: str | None = Field(None, description="Reason if cancelled")
+
+    # Venue details
+    exchange: str | None = None
+    venue_order_id: str | None = Field(None, description="Exchange's internal order ID")
+    liquidity_flag: Literal["add", "remove"] | None = None
+
+    # Cost details
+    fee_amount: float = Field(0.0, description="Total fee/rebate (negative = rebate)")
+    fee_currency: str = "USD"
+
+    # Timing details (for latency analysis)
+    broker_received_at: datetime | None = Field(None, description="When broker received order")
+    exchange_ack_at: datetime | None = Field(None, description="Exchange acknowledgment time")
+    fill_reported_at: datetime | None = Field(None, description="When fill was reported to us")
+
+
+class FillBatchExtended(BaseModel):
+    """Extended fill batch with clock sync and validation."""
+
+    symbol: str
+    side: Literal["buy", "sell"]
+    fills: list[ExtendedFill]
+    decision_time: datetime
+    submission_time: datetime
+    total_target_qty: int
+
+    # Clock sync (from Codex review)
+    clock_source: Literal["ntp", "exchange", "local"] = "ntp"
+    clock_drift_ms: float | None = Field(None, description="Estimated clock drift at fill time")
+
+    # Symbol mapping (from Codex review)
+    exchange_symbol: str | None = Field(None, description="Symbol as used on exchange (may differ)")
+    symbol_mapping_version: str | None = Field(None, description="Version of symbol mapping used")
+
+    @validator("fills")
+    def validate_fill_sequence(cls, fills: list[ExtendedFill]) -> list[ExtendedFill]:
+        """Validate fills are in timestamp order and quantities make sense."""
+        if not fills:
+            return fills
+        # Check timestamp ordering
+        for i in range(1, len(fills)):
+            if fills[i].timestamp < fills[i-1].timestamp:
+                raise ValueError(f"Fills not in timestamp order at index {i}")
+        return fills
+
+    @property
+    def has_cancels(self) -> bool:
+        return any(f.status == FillStatus.CANCELLED for f in self.fills)
+
+    @property
+    def has_amendments(self) -> bool:
+        return any(f.status == FillStatus.AMENDED for f in self.fills)
+
+    @property
+    def net_filled_qty(self) -> int:
+        """Net filled quantity (excludes cancelled/amended)."""
+        return sum(
+            f.quantity for f in self.fills
+            if f.status in (FillStatus.FILLED, FillStatus.PARTIAL)
+        )
+```
+
+**Timezone & Clock Sync Requirements (from Codex review):**
+- All timestamps MUST be UTC (enforce via Pydantic validator)
+- Arrival price timestamp: Use `decision_time` for IS calculation
+- If `broker_received_at` available, use for broker latency analysis
+- Clock drift >100ms triggers warning in analysis output
+- Symbol mapping: Some symbols differ between data sources (SPY vs SPY.P)
+
+**Arrival Timestamp Source:**
+- Primary: `decision_time` from signal_service (when signal was generated)
+- Fallback: `submission_time` - 50ms (estimated decision-to-submit latency)
+- Document source in analysis output for auditability
+
+**Extended Acceptance Criteria (from Codex review):**
+- [ ] Handle partial fills (track cumulative fill progress)
+- [ ] Handle cancelled orders (exclude from quality metrics)
+- [ ] Handle amended fills (use latest price/qty for analysis)
+- [ ] Clock drift detection and warning
+- [ ] Symbol mapping validation (execution_gateway symbol → TAQ symbol)
+- [ ] Timezone enforcement (reject non-UTC timestamps)
+- [ ] Join with T3.1 microstructure spreads for realistic IS calculation
+
 ---
 
 ### T3.3: Event Study Framework
 **Effort:** 3-4 days | **PR:** `feat(p4): event study framework`
 **Status:** Pending
-**Dependencies:** T1.3 (CRSP) - COMPLETE
+**Dependencies:** T1.3 (CRSP) - COMPLETE, T1.5 (Fama-French), Corporate Actions Calendar, Earnings Calendar
 
 **Problem:** Need framework for analyzing stock price reactions to events (earnings, index changes).
 
@@ -2268,6 +3526,162 @@ class EventStudyFramework:
 - [ ] Index rebalance effect analysis
 - [ ] T-statistics and significance testing
 - [ ] >90% test coverage
+
+**Methodology Specification (from Codex review):**
+```python
+# libs/analytics/event_study.py - Extended methodology
+
+class ExpectedReturnModel(str, Enum):
+    """Models for expected return estimation."""
+    MARKET_MODEL = "market_model"       # R_i = alpha + beta * R_m + epsilon
+    MEAN_ADJUSTED = "mean_adjusted"     # R_i = mean(R_i) + epsilon
+    FF3 = "fama_french_3"               # 3-factor model
+    FF5 = "fama_french_5"               # 5-factor model
+
+
+class SignificanceTest(str, Enum):
+    """Statistical tests for abnormal returns."""
+    T_TEST = "t_test"                   # Standard parametric t-test
+    PATELL = "patell"                   # Standardized residual test
+    BMP = "bmp"                         # Boehmer-Musumeci-Poulsen (robust to cross-correlation)
+    SIGN = "sign"                       # Non-parametric sign test
+    RANK = "rank"                       # Non-parametric rank test (Corrado)
+
+
+class EventStudyConfig(BaseModel):
+    """Configuration for event study methodology."""
+
+    # Estimation window (from Codex review)
+    estimation_window_days: int = Field(
+        120,
+        ge=60,
+        le=252,
+        description="Trading days for model estimation (min 60 for stability)"
+    )
+    gap_days: int = Field(
+        10,
+        ge=0,
+        description="Gap between estimation and event window (prevents leakage)"
+    )
+
+    # Event window
+    pre_event_days: int = Field(5, ge=0)
+    post_event_days: int = Field(20, ge=1)
+
+    # Model selection (from Codex review)
+    expected_return_model: ExpectedReturnModel = ExpectedReturnModel.MARKET_MODEL
+    significance_test: SignificanceTest = SignificanceTest.BMP  # Robust default
+
+    # Multiple testing (from Codex review)
+    multiple_testing_correction: Literal["none", "bonferroni", "fdr", "holm"] = "fdr"
+    significance_level: float = Field(0.05, gt=0, lt=1)
+
+    # Overlap handling (from Codex review)
+    handle_overlapping_events: Literal["drop_later", "drop_both", "aggregate", "allow"] = "drop_later"
+    min_days_between_events: int = Field(
+        10,
+        description="Events closer than this are considered overlapping"
+    )
+
+
+class EventStudyFrameworkExtended:
+    """Extended event study framework with methodology options."""
+
+    def __init__(
+        self,
+        crsp_provider: CRSPLocalProvider,
+        ff_provider: FamaFrenchLocalProvider,
+        config: EventStudyConfig | None = None,
+    ):
+        self.crsp = crsp_provider
+        self.ff = ff_provider
+        self.config = config or EventStudyConfig()
+
+    def estimate_expected_returns(
+        self,
+        symbol: str,
+        estimation_end: date,
+    ) -> ExpectedReturnParams:
+        """
+        Estimate expected return model parameters.
+
+        Uses config.estimation_window_days ending at estimation_end,
+        with config.gap_days before the event window starts.
+        """
+        ...
+
+    def compute_abnormal_returns(
+        self,
+        symbol: str,
+        event_date: date,
+        model_params: ExpectedReturnParams,
+    ) -> pl.DataFrame:
+        """
+        Compute abnormal returns: AR_t = R_t - E[R_t]
+
+        Returns DataFrame: [date, return, expected_return, abnormal_return, t_from_event]
+        """
+        ...
+
+    def test_significance(
+        self,
+        abnormal_returns: pl.DataFrame,
+        test: SignificanceTest,
+    ) -> SignificanceResult:
+        """
+        Test statistical significance of abnormal returns.
+
+        BMP test (default): Robust to cross-sectional correlation
+        Patell test: Standardized by estimation-period variance
+        """
+        ...
+
+    def correct_multiple_testing(
+        self,
+        p_values: list[float],
+        method: str,
+    ) -> list[float]:
+        """
+        Apply multiple testing correction.
+
+        FDR (default): Benjamini-Hochberg false discovery rate control
+        Bonferroni: Conservative, controls family-wise error rate
+        Holm: Step-down Bonferroni (more powerful)
+        """
+        ...
+
+    def filter_overlapping_events(
+        self,
+        events: pl.DataFrame,
+    ) -> pl.DataFrame:
+        """
+        Handle overlapping events per config.handle_overlapping_events.
+
+        Returns filtered events with 'overlap_flag' column.
+        """
+        ...
+```
+
+**Calendar Dependencies (from Codex review):**
+- **Earnings Calendar**: Required for PEAD analysis
+  - Source: Compustat or external provider (Alpha Vantage, etc.)
+  - Fields: `symbol`, `announcement_date`, `fiscal_quarter`, `eps_actual`, `eps_estimate`
+- **Corporate Actions Calendar**: Required for index changes, splits, dividends
+  - Source: CRSP or external provider
+  - Fields: `symbol`, `date`, `action_type`, `details`
+- **Trading Calendar**: US market holidays for window calculations
+  - Source: `pandas_market_calendars` or equivalent
+
+**Extended Acceptance Criteria (from Codex review):**
+- [ ] Configurable estimation window (60-252 days)
+- [ ] Gap between estimation and event window (default 10 days)
+- [ ] Market model AND Fama-French model options
+- [ ] BMP robust significance test (default)
+- [ ] Multiple testing correction (FDR default)
+- [ ] Overlapping event detection and handling
+- [ ] Earnings calendar integration for PEAD
+- [ ] Trading calendar for window calculations
+- [ ] Daily horizon only (intraday deferred to future)
 
 ---
 
