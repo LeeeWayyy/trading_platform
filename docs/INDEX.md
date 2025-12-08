@@ -158,6 +158,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.4-plan.md](../.claude/plans/T2.4-plan.md) - T2.4 Portfolio Optimizer & Stress Testing implementation plan
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track1_T1.7_T1.8.md](./PLANS/P4T2_Track1_T1.7_T1.8.md) - P4T2 Track 1: Fama-French Integration (T1.7) and yfinance Integration (T1.8)
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
+- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -221,6 +222,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-015](./ADRs/ADR-015-auth0-idp-selection.md) | Auth0 for Production OAuth2/OIDC Identity Provider | 🚧 Proposed |
 | [ADR-016](./ADRs/ADR-016-data-provider-protocol.md) | Data Provider Protocol for unified market data access | ✅ Accepted |
 | [ADR-0021](./ADRs/ADR-0021-risk-model-implementation.md) | Risk Model Implementation (Portfolio Optimizer & Stress Testing) | ✅ Accepted |
+| [ADR-0022](./ADRs/ADR-0022-qlib-integration.md) | Qlib Integration Strategy | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -265,6 +267,7 @@ Educational explanations of trading and ML concepts:
 | [oauth2-mtls-fallback-architecture.md](./CONCEPTS/oauth2-mtls-fallback-architecture.md) | OAuth2/OIDC with mTLS fallback architecture | Advanced |
 | [multi-alpha-allocation.md](./CONCEPTS/multi-alpha-allocation.md) | Multi-strategy capital allocation | Advanced |
 | [parquet-format.md](./CONCEPTS/parquet-format.md) | Columnar storage format | Beginner |
+| [qlib-comparison.md](./CONCEPTS/qlib-comparison.md) | Qlib vs custom implementation comparison | Intermediate |
 | [python-testing-tools.md](./CONCEPTS/python-testing-tools.md) | pytest and testing frameworks | Beginner |
 | [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |
 | [risk-management.md](./CONCEPTS/risk-management.md) | Position limits and circuit breakers | Intermediate |
