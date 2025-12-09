@@ -161,6 +161,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.3_event_study_plan.md](./TASKS/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/T2.5_PLAN.md](./TASKS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
+- [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.6-alpha-advanced-plan.md](../.claude/plans/T2.6-alpha-advanced-plan.md) - T2.6 Alpha Advanced Analytics implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index

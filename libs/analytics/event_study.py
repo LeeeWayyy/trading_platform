@@ -21,7 +21,6 @@ References:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -30,9 +29,9 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import polars as pl
-from scipy.stats import norm, t as t_dist  # type: ignore[import-untyped]
+from scipy.stats import t as t_dist  # type: ignore[import-untyped]
 
-from libs.analytics.microstructure import CompositeVersionInfo, MicrostructureResult
+from libs.analytics.microstructure import CompositeVersionInfo
 from libs.data_quality.exceptions import DataNotFoundError
 
 if TYPE_CHECKING:

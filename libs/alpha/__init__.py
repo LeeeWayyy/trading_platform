@@ -70,6 +70,14 @@ PIT (Point-in-Time) Safety:
 - Compustat uses 90-day filing lag for PIT correctness
 """
 
+from libs.alpha.alpha_combiner import (
+    AlphaCombiner,
+    CombinerConfig,
+    CombineResult,
+    CorrelationAnalysisResult,
+    TurnoverAdapter,
+    WeightingMethod,
+)
 from libs.alpha.alpha_definition import (
     AlphaDefinition,
     AlphaResult,
@@ -149,4 +157,11 @@ __all__ = [
     "MissingForwardReturnError",
     "InsufficientDataError",
     "AlphaValidationError",
+    # Alpha Combiner
+    "AlphaCombiner",
+    "CombinerConfig",
+    "CombineResult",
+    "CorrelationAnalysisResult",
+    "TurnoverAdapter",
+    "WeightingMethod",
 ]
