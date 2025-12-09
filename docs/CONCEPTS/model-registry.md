@@ -4,13 +4,68 @@
 
 A model registry is a database that keeps track of all trained machine learning models in your trading system. Think of it like a library catalog - instead of tracking books, it tracks:
 
-- **Which models exist** (e.g., "alpha_baseline version 1.0.0")
-- **Where they're stored** (file path or MLflow location)
-- **Which model is currently active** (being used for live trading)
-- **How well they performed** (backtesting metrics like Sharpe ratio, IC)
+- **Which models exist** (e.g., "risk_model version v1.0.0")
+- **Where they're stored** (artifact path with SHA-256 checksums)
+- **Which model is currently active** (status: `staged`, `production`, `archived`, `failed`)
+- **How well they performed** (metrics: IC, Sharpe, max drawdown)
 - **When they were deployed** (timestamps for auditing)
+- **Which data they were trained on** (dataset_version_ids linked to P4T1)
 
 Without a model registry, you'd have models scattered across different directories with no way to know which one is "live" or how to roll back to a previous version if something goes wrong.
+
+## Our Implementation (T2.8)
+
+Our model registry uses **DuckDB** as an embedded catalog with a file-based artifact store:
+
+```
+data/models/
+├── registry.db           # DuckDB catalog (query index)
+├── manifest.json         # Registry manifest (DR/discoverability)
+├── artifacts/
+│   ├── risk_model/
+│   │   ├── v1.0.0/
+│   │   │   ├── model.pkl
+│   │   │   ├── metadata.json   # AUTHORITATIVE source
+│   │   │   └── checksum.sha256
+│   │   └── v1.1.0/
+│   ├── alpha_weights/
+│   └── factor_definitions/
+└── backups/              # Daily backups
+```
+
+### Key Features
+
+| Feature | Implementation |
+|---------|----------------|
+| Storage | DuckDB (embedded, ACID-compliant) |
+| Artifacts | Pickle/joblib with SHA-256 checksums |
+| Versioning | Semantic versions (immutable) |
+| Provenance | Linked to P4T1 dataset versions |
+| Hot-reload | ProductionModelLoader with polling |
+| API | FastAPI with JWT authentication |
+
+### Model Types
+
+```python
+class ModelType(str, Enum):
+    risk_model = "risk_model"           # BarraRiskModel
+    alpha_weights = "alpha_weights"     # Alpha combination weights
+    factor_definitions = "factor_definitions"  # Factor configs
+    feature_transforms = "feature_transforms"  # Normalization params
+```
+
+### Model Status Lifecycle
+
+```
+staged → production → archived
+           ↓
+         failed (on validation failure)
+```
+
+- **staged**: Newly registered, awaiting validation/promotion
+- **production**: Currently active in signal_service
+- **archived**: Demoted, kept for audit trail
+- **failed**: Validation failed, cannot be promoted
 
 ## Why It Matters
 
@@ -66,31 +121,127 @@ Without a model registry, you'd have models scattered across different directori
 Result: Lost $2K (4 minutes), avoided disaster
 ```
 
+## Promotion Gates
+
+Before a model can be promoted to production, it must pass these gates:
+
+| Gate | Threshold | Purpose |
+|------|-----------|---------|
+| Information Coefficient (IC) | > 0.02 | Minimum predictive power |
+| Sharpe Ratio | > 0.5 | Risk-adjusted performance |
+| Paper Trading Period | >= 24 hours | Live validation |
+
+```python
+# Promotion gates are enforced automatically
+from libs.models import ModelRegistry
+
+registry = ModelRegistry(Path("data/models"))
+
+# This will raise PromotionGateError if gates not met
+result = registry.promote_model("risk_model", "v1.0.0")
+```
+
+## Version Compatibility
+
+Models are trained on specific dataset versions. When loading a model, the registry checks version compatibility:
+
+**STRICT_VERSION_MODE=true (production default):**
+- ANY dataset version drift → BLOCK load
+- Missing dataset → BLOCK always
+
+**STRICT_VERSION_MODE=false (development):**
+- ANY dataset version drift → WARN, allow load
+- Missing dataset → BLOCK always
+
+```python
+from libs.models import VersionCompatibilityChecker
+
+checker = VersionCompatibilityChecker(strict_mode=True)
+result = checker.check_compatibility(
+    model_versions={"crsp": "v1.2.3", "compustat": "v1.0.1"},
+    current_versions={"crsp": "v1.2.4", "compustat": "v1.0.1"}
+)
+# result.compatible = False (crsp version drift)
+# result.level = "drift"
+# result.warnings = ["crsp: model trained on v1.2.3, current is v1.2.4"]
+```
+
+## DiskExpressionCache
+
+Computed factors are cached with a 5-component key for PIT safety:
+
+```
+{factor_name}:{as_of_date}:{dataset_version_id}:{snapshot_id}:{config_hash}
+```
+
+This ensures:
+- **Factor identity** - Different factors don't collide
+- **Date safety** - Point-in-time correctness
+- **Dataset safety** - Invalidates on dataset updates
+- **Snapshot safety** - Invalidates on snapshot changes
+- **Config safety** - Invalidates on config changes
+
+```python
+from libs.factors.cache import DiskExpressionCache
+
+cache = DiskExpressionCache(Path("data/cache"), ttl_days=7)
+
+df, was_cached = cache.get_or_compute(
+    factor_name="momentum_12m",
+    as_of_date=date(2024, 1, 15),
+    snapshot_id="snap_abc123",
+    version_ids={"crsp": "v1.2.3"},
+    config_hash="cfg_def456",
+    compute_fn=compute_momentum
+)
+```
+
 ## Common Pitfalls
 
-### 1. Forgetting to Update Registry After Training
+### 1. Forgetting to Register After Training
 
-**Symptom:** You train a new model, save it to disk, but forget to register it. Service keeps using old model.
+**Symptom:** You train a new model, save it to disk, but forget to register it.
 
 **Solution:**
 ```python
-# BAD: Train and save, but don't register
-trainer.train()
-trainer.save_model("artifacts/models/alpha_baseline_v2.txt")
-# Service has no idea new model exists!
+from libs.models import (
+    ModelRegistry,
+    ModelMetadata,
+    ModelType,
+    capture_environment,
+    compute_config_hash,
+    generate_model_id,
+)
+from datetime import datetime, UTC
 
-# GOOD: Automatically register after successful training
-trainer.train()
-model_path = trainer.save_model("artifacts/models/alpha_baseline_v2.txt")
+registry = ModelRegistry(Path("data/models"))
 
-# Register in database
-db.execute("""
-    INSERT INTO model_registry (strategy_name, version, model_path, status, ...)
-    VALUES ('alpha_baseline', 'v2.0.0', %s, 'inactive', ...)
-""", (model_path,))
+# Create metadata with full provenance
+env = capture_environment(created_by="training_pipeline")
+config = {"learning_rate": 0.01, "epochs": 100}
 
-# Manually activate when ready
-activate_model('alpha_baseline', 'v2.0.0')
+metadata = ModelMetadata(
+    model_id=generate_model_id(),
+    model_type=ModelType.risk_model,
+    version="v1.0.0",
+    created_at=datetime.now(UTC),
+    dataset_version_ids={"crsp": "v1.2.3", "compustat": "v1.0.1"},
+    snapshot_id="snap_20240101",
+    factor_list=["momentum", "value", "size"],
+    parameters={
+        "factor_list": ["momentum", "value", "size"],
+        "halflife_days": 60,
+        "shrinkage_intensity": 0.5,
+    },
+    checksum_sha256="",  # Computed during registration
+    metrics={"ic": 0.05, "sharpe": 1.2},
+    env=env,
+    config=config,
+    config_hash=compute_config_hash(config),
+)
+
+# Register the model
+model_id = registry.register_model(risk_model, metadata)
 ```
 
 ### 2. Multiple Services Reading Same Registry Without Locks
@@ -348,18 +499,49 @@ ORDER BY (performance_metrics->>'sharpe')::float DESC;
 
 **Insight:** v20250117 (current) has best Sharpe (1.52) and IC (0.085). v20241220 was marked 'failed' (never activated, failed validation).
 
+## CLI Commands
+
+```bash
+# Register a new model
+python scripts/model_cli.py register risk_model path/to/model.pkl --version v1.0.0
+
+# List models by status
+python scripts/model_cli.py list risk_model --status staged
+
+# Promote to production (enforces gates)
+python scripts/model_cli.py promote risk_model v1.0.0
+
+# Rollback to previous version
+python scripts/model_cli.py rollback risk_model
+
+# Validate model integrity
+python scripts/model_cli.py validate risk_model v1.0.0
+
+# Run garbage collection
+python scripts/model_cli.py gc --dry-run
+```
+
+## API Endpoints
+
+| Endpoint | Method | Scope | Description |
+|----------|--------|-------|-------------|
+| `/api/v1/models/{type}/current` | GET | model:read | Current production version |
+| `/api/v1/models/{type}/{version}` | GET | model:read | Full metadata |
+| `/api/v1/models/{type}/{version}/validate` | POST | model:write | Validate artifact |
+| `/api/v1/models/{type}` | GET | model:read | List all versions |
+
 ## Further Reading
+
+### Internal Documentation
+- [ADR-0023-model-deployment.md](../ADRs/ADR-0023-model-deployment.md) - Architecture decisions
+- [model-registry-dr.md](../RUNBOOKS/model-registry-dr.md) - Disaster recovery procedures
+- [hot-reload.md](./hot-reload.md) - How hot reload works with model registry
+- [feature-parity.md](./feature-parity.md) - Ensuring research models match production
 
 ### Academic & Industry References
 - [MLOps: Model Registry Best Practices (Google)](https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning)
 - [MLflow Model Registry Documentation](https://mlflow.org/docs/latest/model-registry.html)
 - [Uber Michelangelo: ML Platform at Scale](https://www.uber.com/blog/michelangelo-machine-learning-platform/)
-
-### Related Documentation
-- `/docs/ADRs/0004-signal-service-architecture.md` - Why we chose database registry over MLflow-only
-- `/docs/TASKS/P0T3_DONE.md` - Step-by-step implementation
-- `/docs/CONCEPTS/hot-reload.md` - How hot reload works with model registry
-- `/docs/CONCEPTS/feature-parity.md` - Ensuring research models match production
 
 ### Trading-Specific Considerations
 - [Quantitative Trading Model Deployment (QuantConnect)](https://www.quantconnect.com/docs/)
@@ -368,17 +550,26 @@ ORDER BY (performance_metrics->>'sharpe')::float DESC;
 
 ## Summary
 
-A model registry is essential infrastructure for production ML systems. It provides:
+Our T2.8 model registry provides production-ready ML model management:
 
-- ✅ **Version control** - Track all model versions
-- ✅ **Audit trail** - Know which model was live when
-- ✅ **Hot deployment** - Update models without downtime
-- ✅ **Rollback capability** - Revert to previous version in seconds
-- ✅ **Performance tracking** - Compare models objectively
-- ✅ **Disaster recovery** - Know exactly which model to restore
+| Capability | Implementation |
+|------------|----------------|
+| **Version control** | DuckDB with immutable semantic versions |
+| **Audit trail** | promotion_history table with timestamps |
+| **Hot deployment** | ProductionModelLoader with 60s polling |
+| **Rollback capability** | Single CLI command, <1 min recovery |
+| **Performance tracking** | IC, Sharpe, metrics stored with each version |
+| **Disaster recovery** | manifest.json + daily backups |
+| **Data provenance** | Linked to P4T1 dataset versions |
+| **Promotion gates** | IC > 0.02, Sharpe > 0.5, 24h paper trade |
+| **Cache safety** | DiskExpressionCache with 5-component keys |
 
-**Cost of not having it:** Manual file management, downtime during deploys, no audit trail, difficult rollbacks, production incidents.
+**Key files:**
+- `libs/models/` - Core registry implementation
+- `libs/factors/cache.py` - DiskExpressionCache
+- `apps/model_registry/` - FastAPI endpoints
+- `scripts/model_cli.py` - CLI tool
 
-**Cost of building it:** 2-4 hours to implement database schema and client library.
-
-**ROI:** Pays for itself the first time you need to rollback a bad model.
+**See also:**
+- [ADR-0023](../ADRs/ADR-0023-model-deployment.md) - Architecture decisions
+- [DR Runbook](../RUNBOOKS/model-registry-dr.md) - Recovery procedures

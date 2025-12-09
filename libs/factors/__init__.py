@@ -21,6 +21,7 @@ Example:
     >>> print(result.exposures.head())
 """
 
+from libs.factors.cache import CacheCorruptionError, CacheError, DiskExpressionCache
 from libs.factors.factor_analytics import FactorAnalytics, ICAnalysis
 from libs.factors.factor_builder import FactorBuilder
 from libs.factors.factor_definitions import (
@@ -51,4 +52,8 @@ __all__ = [
     "SizeFactor",
     "RealizedVolFactor",
     "CANONICAL_FACTORS",
+    # Cache
+    "DiskExpressionCache",
+    "CacheError",
+    "CacheCorruptionError",
 ]

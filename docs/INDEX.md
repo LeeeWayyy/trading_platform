@@ -160,7 +160,8 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.3_event_study_plan.md](./TASKS/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
-- [CURRENT, 2025-12-08, Plan] [TASKS/T2.5_PLAN.md](./TASKS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
+- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.5_PLAN.md](./TASKS/PLANS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
+- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.8_PLAN.md](./TASKS/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
 - [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.6-alpha-advanced-plan.md](../.claude/plans/T2.6-alpha-advanced-plan.md) - T2.6 Alpha Advanced Analytics implementation plan
 - [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.7-factor-attribution-plan.md](../.claude/plans/T2.7-factor-attribution-plan.md) - T2.7 Factor Attribution Analysis implementation plan
 
@@ -227,6 +228,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-016](./ADRs/ADR-016-data-provider-protocol.md) | Data Provider Protocol for unified market data access | ✅ Accepted |
 | [ADR-0021](./ADRs/ADR-0021-risk-model-implementation.md) | Risk Model Implementation (Portfolio Optimizer & Stress Testing) | ✅ Accepted |
 | [ADR-0022](./ADRs/ADR-0022-qlib-integration.md) | Qlib Integration Strategy | ✅ Accepted |
+| [ADR-0023](./ADRs/ADR-0023-model-deployment.md) | Model Registry & Deployment Versioning | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -443,6 +445,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-12-04, Runbook] [duckdb-operations.md](./RUNBOOKS/duckdb-operations.md) - DuckDB cache management and reader configuration during syncs
 - [CURRENT, 2025-12-04, Runbook] [wrds-credentials.md](./RUNBOOKS/wrds-credentials.md) - WRDS credential management, rotation, and expiry monitoring
 - [CURRENT, 2025-12-04, Runbook] [data-storage.md](./RUNBOOKS/data-storage.md) - Disk monitoring, cleanup procedures, and storage expansion
+- [CURRENT, 2025-12-08, Runbook] [model-registry-dr.md](./RUNBOOKS/model-registry-dr.md) - Model registry disaster recovery and backup procedures
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 
