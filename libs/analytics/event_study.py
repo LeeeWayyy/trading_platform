@@ -1211,11 +1211,23 @@ class EventStudyFramework:
                         as_of_date=as_of,
                     )
                     if delist_info is not None:
-                        dlret = delist_info.get("dlret")
+                        dlret_raw = delist_info.get("dlret")
                         dlstcd = delist_info.get("dlstcd")
 
-                        if dlret is not None and not np.isnan(dlret):
-                            delisting_return = float(dlret)
+                        # Normalize dlret to a scalar while being robust to arrays/Series
+                        dlret_scalar: float | None
+                        if dlret_raw is None:
+                            dlret_scalar = None
+                        else:
+                            dlret_arr = np.asarray(dlret_raw)
+                            if dlret_arr.size == 0:
+                                dlret_scalar = None
+                            else:
+                                # Use first element if array/Series, otherwise cast directly
+                                dlret_scalar = float(dlret_arr.flat[0])
+
+                        if dlret_scalar is not None and not np.isnan(dlret_scalar):
+                            delisting_return = dlret_scalar
                         elif dlstcd is not None:
                             # Use fallback based on delisting code
                             delisting_return = _get_dlret_fallback(dlstcd)

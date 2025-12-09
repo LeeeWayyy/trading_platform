@@ -5,9 +5,9 @@
 **Timeline:** Phase 2 - Analytics (Weeks 5-10, 6 weeks with buffer)
 **Priority:** P0 - Core research infrastructure for alpha development
 **Estimated Effort:** 39-49 days (13 subtasks across 3 parallel tracks)
-**Status:** 🚧 In Progress (v2.4 - Performance SLAs & Write Coordination)
+**Status:** ✅ Complete
 **Created:** 2025-12-07
-**Last Updated:** 2025-12-08 (v2.4 - Added tiered performance SLAs with hardware assumptions, global write coordination policy, capacity plan with cut-lines)
+**Last Updated:** 2025-12-09 (All 13 tasks complete - Ready for PR)
 
 ---
 
@@ -23,16 +23,16 @@
 | T2.2 Factor Covariance | ✅ Complete | `feat(P4T2): Factor Covariance & Specific Risk Estimation` | |
 | T2.3 Risk Analytics | ✅ Complete | `feat(P4T2): Portfolio Risk Analytics` | |
 | T2.4 Optimizer & Stress | ✅ Complete | `feat(P4T2): Portfolio Optimizer & Stress Testing` | |
-| T2.5 Alpha Framework | ⏳ Pending | | Qlib optional dependency |
-| T2.6 Alpha Advanced | ⏳ Pending | | |
-| T2.7 Factor Attribution | ⏳ Pending | | |
-| T2.8 Model Registry | ⏳ Pending | | +DiskExpressionCache |
+| T2.5 Alpha Framework | ✅ Complete | `feat(P4T2): Alpha Research Framework` | Qlib optional dependency |
+| T2.6 Alpha Advanced | ✅ Complete | `feat(P4T2): Alpha Advanced Analytics` | |
+| T2.7 Factor Attribution | ✅ Complete | `feat(P4T2): Factor Attribution Analysis Library` | |
+| T2.8 Model Registry | ✅ Complete | `feat(P4T2): Model Registry & Deployment Versioning` | +DiskExpressionCache |
 | **Track 3: Microstructure** | | | |
 | T3.1 Microstructure | ✅ Complete | `feat(P4T2): Microstructure Analytics Library` | |
-| T3.2 Execution Quality | ⏳ Pending | | |
-| T3.3 Event Study | ⏳ Pending | | |
+| T3.2 Execution Quality | ✅ Complete | `feat(P4T2): Execution Quality Analysis Library` | |
+| T3.3 Event Study | ✅ Complete | `feat(P4T2): Event Study Framework` | |
 
-**Progress:** 7/13 tasks complete (~54%)
+**Progress:** 13/13 tasks complete (100%)
 
 ---
 
@@ -4015,6 +4015,42 @@ This planning document defines WHAT to build. ADRs define HOW to build it.
 
 ---
 
+## Known Limitations & Tech Debt
+
+### TD-001: Factor Builder `snapshot_date` Not Implemented (Phase 3)
+
+**Location:** `libs/alpha/factor_builder.py:118-122`
+
+**Current Behavior:**
+```python
+if snapshot_date is not None:
+    raise NotImplementedError(
+        "snapshot_date for point-in-time factor retrieval is Phase 3 scope. "
+        "Requires integration with DatasetVersionManager.query_as_of()."
+    )
+```
+
+**Impact:**
+- Factor builder currently only supports current-date factor retrieval
+- Cannot perform point-in-time factor lookups for backtesting reproducibility
+- Does not affect production forward-looking factor generation
+
+**Why Deferred:**
+- Core factor building functionality works for research and production use cases
+- PIT factor retrieval requires deeper integration with DatasetVersionManager
+- T1.6 versioning infrastructure exists but factor-level PIT requires additional work
+
+**Resolution Path (Phase 3):**
+1. Add `snapshot_date` parameter handling in `_build_factor_expr()`
+2. Integrate with `DatasetVersionManager.query_as_of()` for historical data paths
+3. Add PIT test coverage for factor builder
+4. Estimated effort: 2-3 days
+
+**Workaround:**
+For backtesting with PIT compliance, use the data provider layer directly with `as_of` parameters before passing to factor builder.
+
+---
+
 ## Related Documents
 
 - [P4T1_TASK.md](./P4T1_TASK.md) - Data Infrastructure (Dependency - COMPLETE)
@@ -4023,6 +4059,6 @@ This planning document defines WHAT to build. ADRs define HOW to build it.
 
 ---
 
-**Last Updated:** 2025-12-07
-**Status:** Draft (Pending Review)
-**Next Step:** Request planning reviews from Gemini and Codex
+**Last Updated:** 2025-12-09
+**Status:** ✅ Complete (Ready for PR)
+**Next Step:** Final CI validation and PR creation

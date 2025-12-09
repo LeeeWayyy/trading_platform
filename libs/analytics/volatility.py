@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import numpy as np
@@ -190,7 +190,10 @@ class HARVolatilityModel:
         rv_forecast = max(0.0, rv_forecast)
 
         latest_date = current_rv["date"].to_list()[-1]
-        forecast_date = latest_date
+        # Forecast is t + h (calendar days). We do not assume trading calendar
+        # here to avoid importing heavy dependencies; callers should align to
+        # their session calendar if needed.
+        forecast_date = latest_date + timedelta(days=self.horizon)
 
         assert self._r_squared is not None
         assert self._dataset_version_id is not None
@@ -207,6 +210,9 @@ class HARVolatilityModel:
     ) -> np.ndarray[Any, np.dtype[np.floating[Any]]]:
         """Forward-fill NaN values up to max_consecutive.
 
+        Optimized implementation using pure NumPy vectorized operations.
+        No external dependencies beyond numpy.
+
         Args:
             arr: Input array.
             max_consecutive: Maximum consecutive NaNs to fill.
@@ -217,32 +223,62 @@ class HARVolatilityModel:
         Raises:
             ValueError: If more than max_consecutive consecutive NaNs.
         """
-        result = arr.copy()
-        consecutive_nan = 0
-        last_valid = None
+        nan_mask = np.isnan(arr)
 
-        for i in range(len(result)):
-            if np.isnan(result[i]):
-                consecutive_nan += 1
-                if consecutive_nan > max_consecutive:
-                    raise ValueError(
-                        f"More than {max_consecutive} consecutive NaN values"
-                    )
-                if last_valid is not None:
-                    result[i] = last_valid
-            else:
-                consecutive_nan = 0
-                last_valid = result[i]
+        # Fast path: no NaNs to fill
+        if not np.any(nan_mask):
+            return arr.astype(np.float64)
+
+        # Check for consecutive NaN runs exceeding threshold using vectorized run-length encoding
+        # Mark boundaries where nan_mask changes value
+        padded = np.concatenate([[False], nan_mask, [False]])
+        boundaries = np.diff(padded.astype(int))
+        starts = np.where(boundaries == 1)[0]
+        ends = np.where(boundaries == -1)[0]
+        run_lengths = ends - starts
+
+        max_run = run_lengths.max() if len(run_lengths) > 0 else 0
+        if max_run > max_consecutive:
+            raise ValueError(
+                f"More than {max_consecutive} consecutive NaN values"
+            )
+
+        # Vectorized forward fill using index propagation
+        result = arr.copy().astype(np.float64)
+        valid_mask = ~nan_mask
+        valid_indices = np.where(valid_mask)[0]
+        nan_indices = np.where(nan_mask)[0]
+
+        # Use searchsorted to find the previous valid index for each NaN
+        insert_positions = np.searchsorted(valid_indices, nan_indices, side="right")
+
+        # Filter to NaNs that have a previous valid value
+        has_prev = insert_positions > 0
+        fillable_nan_idx = nan_indices[has_prev]
+        prev_valid_positions = insert_positions[has_prev] - 1
+        prev_valid_idx = valid_indices[prev_valid_positions]
+
+        # Check gap constraint (distance from previous valid value)
+        gaps = fillable_nan_idx - prev_valid_idx
+        within_limit = gaps <= max_consecutive
+
+        # Apply fills vectorized
+        fill_targets = fillable_nan_idx[within_limit]
+        fill_sources = prev_valid_idx[within_limit]
+        result[fill_targets] = result[fill_sources]
 
         return result
 
     def _construct_har_features(self, rv_values: np.ndarray[Any, np.dtype[np.floating[Any]]]) -> dict[str, np.ndarray[Any, np.dtype[np.floating[Any]]]]:
         """Construct HAR features from RV series.
 
-        All lags exclude RV_t to prevent look-ahead bias:
-        - rv_d: RV_{t-1} (lag-1 daily RV)
-        - rv_w: mean(RV_{t-5}, ..., RV_{t-1}) (5-day average of lags 1-5)
-        - rv_m: mean(RV_{t-22}, ..., RV_{t-1}) (22-day average of lags 1-22)
+        Standard HAR-RV model (Corsi 2009) uses information available at time t
+        to predict RV at t+h:
+        - rv_d: RV_t (current daily RV)
+        - rv_w: mean(RV_{t-4}, ..., RV_t) (5-day average ending at t)
+        - rv_m: mean(RV_{t-21}, ..., RV_t) (22-day average ending at t)
+
+        This aligns with forecast() which uses the latest available RV.
 
         Args:
             rv_values: Array of RV values.
@@ -257,12 +293,12 @@ class HARVolatilityModel:
         rv_m = np.full(n, np.nan)
         rv_target = np.full(n, np.nan)
 
-        for t in range(22, n - self.horizon):
-            rv_d[t] = rv_values[t - 1]
+        for t in range(21, n - self.horizon):
+            rv_d[t] = rv_values[t]
 
-            rv_w[t] = np.mean(rv_values[t - 5 : t])
+            rv_w[t] = np.mean(rv_values[t - 4 : t + 1])
 
-            rv_m[t] = np.mean(rv_values[t - 22 : t])
+            rv_m[t] = np.mean(rv_values[t - 21 : t + 1])
 
             rv_target[t] = rv_values[t + self.horizon]
 

@@ -483,13 +483,19 @@ class TestVPIN:
     def test_vpin_pit_failure(
         self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock
     ) -> None:
-        """Test PIT failure raises DataNotFoundError."""
+        """Test PIT failure returns empty result with warning (graceful degradation)."""
         mock_version_manager = MagicMock(spec=DatasetVersionManager)
         mock_taq_provider.version_manager = mock_version_manager
         mock_version_manager.query_as_of.side_effect = DataNotFoundError("no snapshot")
 
-        with pytest.raises(DataNotFoundError):
-            analyzer.compute_vpin("AAPL", date(2024, 1, 15), as_of=date(2024, 2, 1))
+        result = analyzer.compute_vpin("AAPL", date(2024, 1, 15), as_of=date(2024, 2, 1))
+
+        # Graceful degradation: returns empty result with warning instead of raising
+        assert result.num_buckets == 0
+        assert result.dataset_version_id == "snapshot_unavailable"
+        assert len(result.warnings) == 1
+        assert "PIT snapshot unavailable" in result.warnings[0]
+        assert math.isnan(result.avg_vpin)
 
     def test_vpin_insufficient_buckets(
         self, analyzer: MicrostructureAnalyzer, mock_taq_provider: MagicMock

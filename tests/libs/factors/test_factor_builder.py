@@ -185,25 +185,109 @@ class TestFactorBuilderComposite:
 class TestFactorBuilderPIT:
     """Tests for point-in-time correctness."""
 
-    def test_snapshot_date_raises_not_implemented(
+    def test_snapshot_date_uses_version_manager(
         self,
-        mock_crsp_provider,
-        mock_compustat_provider,
+        tmp_path,
         mock_manifest_manager,
     ):
-        """snapshot_date raises NotImplementedError until feature is supported."""
-        builder = FactorBuilder(
-            mock_crsp_provider,
-            mock_compustat_provider,
-            mock_manifest_manager,
+        """snapshot_date resolves PIT versions via DatasetVersionManager."""
+
+        from libs.data_quality.versioning import DatasetSnapshot, FileStorageInfo, SnapshotManifest
+        from unittest.mock import MagicMock
+
+        from tests.libs.factors.conftest import MockCompustatProvider, MockCRSPProvider
+
+        prices = pl.DataFrame(
+            {
+                "date": [date(2024, 6, 28), date(2024, 6, 30)],
+                "permno": [10001, 10002],
+                "prc": [10.0, 20.0],
+                "ret": [0.01, -0.02],
+                "vol": [1000.0, 2000.0],
+                "shrout": [1000.0, 2000.0],
+            }
         )
 
-        with pytest.raises(NotImplementedError, match="snapshot_date time-travel not yet supported"):
-            builder.compute_factor(
-                "log_market_cap",
-                as_of_date=date(2023, 6, 30),
-                snapshot_date=date(2023, 12, 31),
-            )
+        fundamentals = pl.DataFrame(
+            {
+                "datadate": [date(2023, 12, 31), date(2024, 3, 31)],
+                "permno": [10001, 10002],
+                "gvkey": ["10001", "10002"],
+                "ceq": [60.0, 120.0],
+                "at": [100.0, 200.0],
+                "lt": [50.0, 80.0],
+            }
+        )
+
+        snapshot_created = datetime(2024, 7, 1, tzinfo=UTC)
+        crsp_snapshot = DatasetSnapshot(
+            dataset="crsp_daily",
+            sync_manifest_version=1,
+            files=[
+                FileStorageInfo(
+                    path="crsp_daily/2024.parquet",
+                    original_path="crsp_daily/2024.parquet",
+                    storage_mode="copy",
+                    target="crsp_daily/2024.parquet",
+                    size_bytes=1,
+                    checksum="crspchk",
+                )
+            ],
+            row_count=prices.height,
+            date_range_start=prices["date"].min(),
+            date_range_end=prices["date"].max(),
+        )
+
+        comp_snapshot = DatasetSnapshot(
+            dataset="compustat_annual",
+            sync_manifest_version=2,
+            files=[
+                FileStorageInfo(
+                    path="compustat_annual/2024.parquet",
+                    original_path="compustat_annual/2024.parquet",
+                    storage_mode="copy",
+                    target="compustat_annual/2024.parquet",
+                    size_bytes=1,
+                    checksum="compchk",
+                )
+            ],
+            row_count=fundamentals.height,
+            date_range_start=fundamentals["datadate"].min(),
+            date_range_end=fundamentals["datadate"].max(),
+        )
+
+        snapshot_manifest = SnapshotManifest(
+            version_tag="2024-07-01",
+            created_at=snapshot_created,
+            datasets={"crsp_daily": crsp_snapshot, "compustat_annual": comp_snapshot},
+            total_size_bytes=2,
+            aggregate_checksum="snapshot123",
+            referenced_by=[],
+        )
+
+        version_manager = MagicMock()
+        version_manager.query_as_of.return_value = (tmp_path, snapshot_manifest)
+
+        crsp_provider = MockCRSPProvider(prices)
+        comp_provider = MockCompustatProvider(fundamentals)
+
+        builder = FactorBuilder(
+            crsp_provider=crsp_provider,
+            compustat_provider=comp_provider,
+            manifest_manager=mock_manifest_manager,
+            version_manager=version_manager,
+        )
+
+        result = builder.compute_factor(
+            "book_to_market",
+            as_of_date=date(2024, 6, 30),
+            snapshot_date=date(2024, 6, 30),
+        )
+
+        assert result.dataset_version_ids["crsp"] == "v1"
+        assert result.dataset_version_ids["compustat"] == "v2"
+        assert result.dataset_version_ids["snapshot"] == "snapshot123"
+        version_manager.query_as_of.assert_called_with("compustat_annual", date(2024, 6, 30))
 
     def test_reproducibility_hash_same_inputs(
         self,

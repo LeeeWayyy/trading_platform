@@ -91,8 +91,10 @@ def _parse_token_scopes(token: str) -> list[str]:
     if expected and secrets.compare_digest(token, expected):
         return ["model:read", "model:write", "model:admin"]
 
-    # These branches are unreachable with current verify_token logic
-    # but kept for potential future JWT implementation
+    # NOTE: The branches below are intentionally kept for future JWT-based
+    # scoped tokens. Today verify_token enforces an exact match to the
+    # MODEL_REGISTRY_TOKEN, so these paths are unreachable and effectively
+    # serve as documentation/placeholders for that future implementation.
     if ":" in token:
         parts = token.split(":", 1)
         if len(parts) == 2:

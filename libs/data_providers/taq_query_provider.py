@@ -258,12 +258,17 @@ class TAQLocalProvider:
         self,
         sample_date: date,
         symbols: list[str],
+        as_of: date | None = None,
     ) -> pl.DataFrame:
         """Fetch tick samples for a specific date.
 
         Args:
             sample_date: Trading date of the tick sample directory.
             symbols: List of symbols to load.
+            as_of: Optional PIT date. When provided, resolves paths using the
+                latest snapshot on or before ``as_of`` via
+                ``DatasetVersionManager.query_as_of``. Used for backtesting
+                reproducibility and T3.2 Execution Quality analysis.
 
         Returns:
             DataFrame with tick-level fields sorted by ts and symbol.
@@ -271,13 +276,24 @@ class TAQLocalProvider:
 
         self._validate_symbols(symbols)
         dataset = f"{self.DATASET_SAMPLES_PREFIX}_{sample_date.strftime('%Y%m%d')}"
-        manifest = self._get_manifest(dataset)
+        symbols_u = {s.upper() for s in symbols}
 
-        paths = self._filter_symbol_paths(
-            manifest.file_paths,
-            symbols={s.upper() for s in symbols},
-            base_dir=self.storage_path / "samples" / sample_date.strftime("%Y-%m-%d"),
-        )
+        if as_of is not None:
+            if self.version_manager is None:
+                raise ValueError("version_manager is required for PIT queries")
+            paths = self._tick_paths_from_snapshot(
+                dataset=dataset,
+                sample_date=sample_date,
+                symbols=symbols_u,
+                as_of=as_of,
+            )
+        else:
+            manifest = self._get_manifest(dataset)
+            paths = self._filter_symbol_paths(
+                manifest.file_paths,
+                symbols=symbols_u,
+                base_dir=self.storage_path / "samples" / sample_date.strftime("%Y-%m-%d"),
+            )
 
         if not paths:
             return self._empty_result("taq_ticks")
@@ -287,7 +303,7 @@ class TAQLocalProvider:
             date_col=None,
             start_date=None,
             end_date=None,
-            symbols=[s.upper() for s in symbols],
+            symbols=list(symbols_u),
             order_by=["ts", "symbol"],
         )
 
@@ -425,6 +441,65 @@ class TAQLocalProvider:
                 paths.append(candidate)
             else:
                 logger.warning("Skipping snapshot path outside data_root: %s", candidate)
+
+        return paths
+
+    def _tick_paths_from_snapshot(
+        self,
+        dataset: str,
+        sample_date: date,
+        symbols: set[str],
+        as_of: date,
+    ) -> list[Path]:
+        """Resolve tick sample paths from a PIT snapshot.
+
+        Unlike _paths_from_snapshot (which filters by month), this method
+        filters by symbol for tick samples stored by date.
+
+        Args:
+            dataset: Dataset identifier (e.g., taq_samples_20240115).
+            sample_date: The trading date for tick samples.
+            symbols: Set of uppercase ticker symbols to load.
+            as_of: PIT date for snapshot resolution.
+
+        Returns:
+            List of resolved Parquet file paths.
+        """
+        assert self.version_manager is not None  # Caller must check
+
+        try:
+            data_path, snapshot = self.version_manager.query_as_of(dataset, as_of)
+        except (SnapshotNotFoundError, DatasetNotInSnapshotError) as exc:
+            raise DataNotFoundError(
+                f"No snapshot available for dataset '{dataset}' as of {as_of}"
+            ) from exc
+
+        if dataset not in snapshot.datasets:
+            raise DataNotFoundError(f"Snapshot missing dataset '{dataset}' for as_of {as_of}")
+
+        files = snapshot.datasets[dataset].files
+        paths: list[Path] = []
+        expected_root = (self.storage_path / "samples" / sample_date.strftime("%Y-%m-%d")).resolve()
+
+        for file_info in files:
+            # Extract symbol from filename (e.g., AAPL.parquet -> AAPL)
+            symbol = Path(file_info.original_path).stem.upper()
+            if symbol not in symbols:
+                continue
+
+            candidate = (data_path / file_info.path).resolve()
+
+            # Security: ensure path is under data_root
+            if not candidate.is_relative_to(self.data_root):
+                logger.warning("Skipping snapshot path outside data_root: %s", candidate)
+                continue
+
+            # Defense in depth: ensure path is under expected sample date directory
+            if not candidate.is_relative_to(expected_root):
+                logger.warning("Skipping unexpected sample path: %s", candidate)
+                continue
+
+            paths.append(candidate)
 
         return paths
 

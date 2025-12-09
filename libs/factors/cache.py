@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import sqlite3
 import shutil
 import tempfile
 import threading
@@ -90,9 +91,11 @@ class DiskExpressionCache:
         self.cache_dir = Path(cache_dir)
         self.ttl_days = ttl_days
         self._lock = threading.RLock()
+        self._index_db_path = self.cache_dir / ".cache_index.sqlite"
 
         # Ensure cache directory exists
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_index()
 
     # =========================================================================
     # Key Building
@@ -344,24 +347,22 @@ class DiskExpressionCache:
             Number of entries invalidated.
         """
         count = 0
-
         with self._lock:
-            # Load index inside lock for atomic read-modify-write
-            index = self._load_metadata_index()
+            with self._index_connection() as conn:
+                rows = conn.execute(
+                    "SELECT filename FROM cache_index WHERE snapshot_id = ?", (snapshot_id,)
+                ).fetchall()
+                filenames = [row[0] for row in rows]
 
-            for path in self.cache_dir.glob(f"*{self.FILE_EXTENSION}"):
-                filename = path.name
-                if filename in index:
-                    entry = index[filename]
-                    if entry.get("snapshot_id") == snapshot_id:
-                        try:
-                            path.unlink()
-                            del index[filename]
-                            count += 1
-                        except OSError as e:
-                            logger.warning(f"Failed to delete {path}: {e}")
+            for filename in filenames:
+                path = self.cache_dir / filename
+                try:
+                    path.unlink()
+                    count += 1
+                except OSError as e:
+                    logger.warning(f"Failed to delete {path}: {e}")
 
-            self._save_metadata_index(index)
+            self._delete_index_entries(filenames)
 
         logger.info(f"Invalidated {count} entries for snapshot {snapshot_id}")
         return count
@@ -382,25 +383,26 @@ class DiskExpressionCache:
         count = 0
 
         with self._lock:
-            # Load index inside lock for atomic read-modify-write
-            index = self._load_metadata_index()
+            with self._index_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT ci.filename, cv.version FROM cache_index ci
+                    JOIN cache_versions cv ON ci.filename = cv.filename
+                    WHERE cv.dataset = ? AND cv.version != ?
+                    """,
+                    (dataset, new_version),
+                ).fetchall()
+                filenames = [row[0] for row in rows]
 
-            for path in self.cache_dir.glob(f"*{self.FILE_EXTENSION}"):
-                filename = path.name
-                if filename in index:
-                    entry = index[filename]
-                    version_ids_raw = entry.get("version_ids", {})
-                    # version_ids is always a dict if present
-                    version_ids = version_ids_raw if isinstance(version_ids_raw, dict) else {}
-                    if dataset in version_ids and version_ids.get(dataset) != new_version:
-                        try:
-                            path.unlink()
-                            del index[filename]
-                            count += 1
-                        except OSError as e:
-                            logger.warning(f"Failed to delete {path}: {e}")
+            for filename in filenames:
+                path = self.cache_dir / filename
+                try:
+                    path.unlink()
+                    count += 1
+                except OSError as e:
+                    logger.warning(f"Failed to delete {path}: {e}")
 
-            self._save_metadata_index(index)
+            self._delete_index_entries(filenames)
 
         logger.info(
             f"Invalidated {count} entries for dataset {dataset}={new_version}"
@@ -440,17 +442,25 @@ class DiskExpressionCache:
         """
         count = 0
         with self._lock:
-            if factor_name:
-                pattern = f"{factor_name}_*{self.FILE_EXTENSION}"
-            else:
-                pattern = f"*{self.FILE_EXTENSION}"
+            query = "SELECT filename FROM cache_index"
+            params: tuple[str, ...] = ()
 
-            for path in self.cache_dir.glob(pattern):
+            if factor_name:
+                query += " WHERE filename LIKE ?"
+                params = (f"{factor_name}_%{self.FILE_EXTENSION}",)
+
+            with self._index_connection() as conn:
+                filenames = [row[0] for row in conn.execute(query, params).fetchall()]
+
+            for filename in filenames:
+                path = self.cache_dir / filename
                 try:
                     path.unlink()
                     count += 1
                 except OSError as e:
                     logger.warning(f"Failed to delete {path}: {e}")
+
+            self._delete_index_entries(filenames)
         logger.info(f"Invalidated {count} cache entries")
         return count
 
@@ -468,14 +478,24 @@ class DiskExpressionCache:
         count = 0
 
         with self._lock:
-            for path in self.cache_dir.glob(f"*{self.FILE_EXTENSION}"):
+            cutoff_ts = int(cutoff.timestamp())
+            with self._index_connection() as conn:
+                filenames = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT filename FROM cache_index WHERE created_at < ?", (cutoff_ts,)
+                    ).fetchall()
+                ]
+
+            for filename in filenames:
+                path = self.cache_dir / filename
                 try:
-                    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
-                    if mtime < cutoff:
-                        path.unlink()
-                        count += 1
+                    path.unlink()
+                    count += 1
                 except OSError as e:
                     logger.warning(f"Failed to check/delete {path}: {e}")
+
+            self._delete_index_entries(filenames)
 
         logger.info(f"Cleaned up {count} expired cache entries (TTL: {ttl} days)")
         return count
@@ -556,53 +576,110 @@ class DiskExpressionCache:
     # Metadata Index
     # =========================================================================
 
-    def _get_index_path(self) -> Path:
-        """Get path to metadata index file."""
-        return self.cache_dir / ".cache_index.json"
+    # SQLite-backed metadata index
 
-    def _load_metadata_index(self) -> dict[str, dict[str, str | dict[str, str]]]:
-        """Load metadata index from disk.
+    def _ensure_index(self) -> None:
+        """Initialize SQLite index if missing and migrate legacy JSON index."""
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        with self._index_connection() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA foreign_keys=ON;")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cache_index (
+                    filename TEXT PRIMARY KEY,
+                    snapshot_id TEXT,
+                    config_hash TEXT,
+                    created_at INTEGER
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cache_versions (
+                    filename TEXT NOT NULL,
+                    dataset TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    PRIMARY KEY (filename, dataset),
+                    FOREIGN KEY (filename) REFERENCES cache_index(filename) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cache_versions_dataset ON cache_versions(dataset);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cache_index_snapshot ON cache_index(snapshot_id);"
+            )
 
-        Returns:
-            Dict mapping filename -> {snapshot_id, version_ids, config_hash}.
-        """
-        import json
+        self._migrate_legacy_index()
 
-        index_path = self._get_index_path()
-        if not index_path.exists():
-            return {}
+    def _index_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._index_db_path)
+        conn.execute("PRAGMA foreign_keys=ON;")
+        return conn
+
+    def _write_index_entry(
+        self, filename: str, snapshot_id: str, version_ids: dict[str, str], config_hash: str
+    ) -> None:
+        """Upsert metadata entry inside locked section."""
+
+        now_ts = int(datetime.now(UTC).timestamp())
+        with self._index_connection() as conn:
+            conn.execute(
+                "REPLACE INTO cache_index(filename, snapshot_id, config_hash, created_at) VALUES (?, ?, ?, ?)",
+                (filename, snapshot_id, config_hash, now_ts),
+            )
+            conn.execute("DELETE FROM cache_versions WHERE filename = ?", (filename,))
+            if version_ids:
+                conn.executemany(
+                    "INSERT INTO cache_versions(filename, dataset, version) VALUES (?, ?, ?)",
+                    [(filename, ds, ver) for ds, ver in version_ids.items()],
+                )
+
+    def _delete_index_entries(self, filenames: list[str]) -> None:
+        if not filenames:
+            return
+        with self._index_connection() as conn:
+            conn.executemany("DELETE FROM cache_index WHERE filename = ?", [(f,) for f in filenames])
+
+    def _migrate_legacy_index(self) -> None:
+        """One-time migration from JSON index to SQLite for backward compatibility."""
+
+        legacy_path = self.cache_dir / ".cache_index.json"
+        if not legacy_path.exists():
+            return
+
         try:
-            with open(index_path) as f:
-                data: dict[str, dict[str, str | dict[str, str]]] = json.load(f)
-                return data
-        except (json.JSONDecodeError, OSError):
-            return {}
+            import json
 
-    def _save_metadata_index(self, index: dict[str, dict[str, str | dict[str, str]]]) -> None:
-        """Save metadata index to disk atomically.
-
-        Args:
-            index: Dict mapping filename -> metadata.
-
-        Note: Caller must hold self._lock.
-        """
-        import json
-        import tempfile
-        import shutil
-
-        index_path = self._get_index_path()
-        # Atomic write: temp file + rename
-        fd, temp_path = tempfile.mkstemp(dir=self.cache_dir, prefix=".index_tmp_")
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(index, f)
-            shutil.move(temp_path, index_path)
+            with open(legacy_path) as f:
+                data = json.load(f)
         except Exception:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
-            raise
+            return
+
+        with self._index_connection() as conn:
+            now_ts = int(datetime.now(UTC).timestamp())
+            for filename, meta in data.items():
+                snapshot_id = meta.get("snapshot_id", "unknown")
+                config_hash = meta.get("config_hash", "")
+                conn.execute(
+                    "REPLACE INTO cache_index(filename, snapshot_id, config_hash, created_at) VALUES (?, ?, ?, ?)",
+                    (filename, snapshot_id, config_hash, now_ts),
+                )
+
+                version_ids = meta.get("version_ids", {}) or {}
+                if isinstance(version_ids, dict) and version_ids:
+                    conn.executemany(
+                        "INSERT OR REPLACE INTO cache_versions(filename, dataset, version) VALUES (?, ?, ?)",
+                        [(filename, ds, ver) for ds, ver in version_ids.items()],
+                    )
+
+        # Cleanup legacy file after successful migration
+        try:
+            legacy_path.unlink()
+        except OSError:
+            pass
 
     def _update_index(
         self,
@@ -611,19 +688,7 @@ class DiskExpressionCache:
         version_ids: dict[str, str],
         config_hash: str,
     ) -> None:
-        """Update metadata index with cache entry info (thread-safe).
+        """Update metadata index with cache entry info (thread-safe)."""
 
-        Args:
-            filename: Cache filename.
-            snapshot_id: Snapshot ID.
-            version_ids: Dataset version IDs.
-            config_hash: Config hash.
-        """
         with self._lock:
-            index = self._load_metadata_index()
-            index[filename] = {
-                "snapshot_id": snapshot_id,
-                "version_ids": version_ids,
-                "config_hash": config_hash,
-            }
-            self._save_metadata_index(index)
+            self._write_index_entry(filename, snapshot_id, version_ids, config_hash)

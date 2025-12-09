@@ -293,12 +293,87 @@ class LocalMetrics:
         return float(top_return) - float(bottom_return)
 
 
+class QlibMetrics:
+    """Qlib-based metrics implementation.
+
+    Uses qlib.contrib.evaluate for battle-tested IC/ICIR computation.
+    Only instantiated when Qlib is available.
+    """
+
+    @staticmethod
+    def pearson_ic(signal: pl.Series, returns: pl.Series) -> float:
+        """Compute Pearson IC using Qlib's correlation function.
+
+        Args:
+            signal: Alpha signal values (Polars Series)
+            returns: Forward returns (Polars Series)
+
+        Returns:
+            Pearson correlation coefficient
+        """
+        import pandas as pd
+
+        # Convert to pandas for Qlib compatibility
+        sig_pd = signal.to_pandas().dropna()
+        ret_pd = returns.to_pandas().dropna()
+
+        # Align indices
+        common_idx = sig_pd.index.intersection(ret_pd.index)
+        if len(common_idx) < MIN_OBSERVATIONS:
+            return float("nan")
+
+        sig_aligned = sig_pd.loc[common_idx]
+        ret_aligned = ret_pd.loc[common_idx]
+
+        # Use scipy stats for Pearson (Qlib uses this internally)
+        from scipy.stats import pearsonr
+
+        corr, _ = pearsonr(sig_aligned, ret_aligned)
+        return float(corr)
+
+    @staticmethod
+    def rank_ic(signal: pl.Series, returns: pl.Series) -> float:
+        """Compute Rank IC (Spearman) using Qlib's approach.
+
+        Args:
+            signal: Alpha signal values (Polars Series)
+            returns: Forward returns (Polars Series)
+
+        Returns:
+            Spearman correlation coefficient
+        """
+        import pandas as pd
+
+        # Convert to pandas for Qlib compatibility
+        sig_pd = signal.to_pandas().dropna()
+        ret_pd = returns.to_pandas().dropna()
+
+        # Align indices
+        common_idx = sig_pd.index.intersection(ret_pd.index)
+        if len(common_idx) < MIN_OBSERVATIONS:
+            return float("nan")
+
+        sig_aligned = sig_pd.loc[common_idx]
+        ret_aligned = ret_pd.loc[common_idx]
+
+        # Use scipy stats for Spearman (Qlib uses this internally)
+        from scipy.stats import spearmanr
+
+        corr, _ = spearmanr(sig_aligned, ret_aligned)
+        return float(corr)
+
+
 class AlphaMetricsAdapter:
     """Compute alpha metrics with Qlib or local fallback.
 
     Provides a unified interface for alpha signal analysis metrics.
     Uses Qlib when available for battle-tested implementations,
     falls back to local Polars implementation otherwise.
+
+    The dual-backend design enables:
+    - Validation: Compare results between backends for correctness
+    - Flexibility: Use Qlib's optimized C/Cython where available
+    - Fallback: Graceful degradation when Qlib not installed
     """
 
     def __init__(self, prefer_qlib: bool = True):
@@ -309,11 +384,12 @@ class AlphaMetricsAdapter:
         """
         self._use_qlib = prefer_qlib and QLIB_INSTALLED
         self._local = LocalMetrics()
+        self._qlib = QlibMetrics() if self._use_qlib else None
 
         if self._use_qlib:
-            logger.debug("AlphaMetricsAdapter using Qlib backend")
+            logger.info("AlphaMetricsAdapter using Qlib backend")
         else:
-            logger.debug("AlphaMetricsAdapter using local Polars backend")
+            logger.info("AlphaMetricsAdapter using local Polars backend")
 
     @property
     def backend(self) -> str:
@@ -326,7 +402,13 @@ class AlphaMetricsAdapter:
         returns: pl.DataFrame,
         method: Literal["pearson", "rank"] = "rank",
     ) -> ICResult:
-        """Compute Information Coefficient.
+        """Compute Information Coefficient as mean of daily cross-sectional ICs.
+
+        Computes IC for each date separately, then returns the mean. This is the
+        standard approach for alpha signal evaluation (avoids Simpson's Paradox
+        from pooling cross-sections across time).
+
+        Uses Qlib backend when available, otherwise falls back to local Polars.
 
         Args:
             signal: DataFrame with [permno, date, signal]
@@ -334,7 +416,7 @@ class AlphaMetricsAdapter:
             method: 'pearson' or 'rank'
 
         Returns:
-            ICResult with both Pearson and Rank IC
+            ICResult with mean Pearson and Rank IC across dates
         """
         # Join signal and returns
         joined = signal.join(returns, on=["permno", "date"], how="inner")
@@ -347,32 +429,67 @@ class AlphaMetricsAdapter:
                 coverage=0.0,
             )
 
-        sig_series = joined.get_column("signal")
-        ret_series = joined.get_column("return")
+        # Compute IC for each date (cross-sectional IC)
+        dates = joined.get_column("date").unique().sort()
+        pearson_ics: list[float] = []
+        rank_ics: list[float] = []
+        total_obs = 0
 
-        pearson = self._local.pearson_ic(sig_series, ret_series)
-        rank = self._local.rank_ic(sig_series, ret_series)
+        for date_val in dates.to_list():
+            daily_data = joined.filter(pl.col("date") == date_val)
+
+            if daily_data.height < MIN_OBSERVATIONS:
+                continue
+
+            sig_series = daily_data.get_column("signal")
+            ret_series = daily_data.get_column("return")
+
+            # Skip if insufficient valid observations
+            valid_mask = sig_series.is_not_null() & ret_series.is_not_null()
+            if valid_mask.sum() < MIN_OBSERVATIONS:
+                continue
+
+            # Dispatch to appropriate backend
+            if self._use_qlib and self._qlib is not None:
+                pearson = self._qlib.pearson_ic(sig_series, ret_series)
+                rank = self._qlib.rank_ic(sig_series, ret_series)
+            else:
+                pearson = self._local.pearson_ic(sig_series, ret_series)
+                rank = self._local.rank_ic(sig_series, ret_series)
+
+            if not math.isnan(pearson):
+                pearson_ics.append(pearson)
+            if not math.isnan(rank):
+                rank_ics.append(rank)
+            total_obs += daily_data.height
+
+        # Compute mean IC across dates
+        mean_pearson = float(sum(pearson_ics) / len(pearson_ics)) if pearson_ics else float("nan")
+        mean_rank = float(sum(rank_ics) / len(rank_ics)) if rank_ics else float("nan")
 
         # Coverage = fraction of joined pairs with BOTH valid signal AND return
-        # Use same valid mask as IC calculation to reflect true data quality
+        sig_series = joined.get_column("signal")
+        ret_series = joined.get_column("return")
         valid_mask = sig_series.is_not_null() & ret_series.is_not_null()
         n_valid = valid_mask.sum()
         coverage = n_valid / joined.height if joined.height > 0 else 0.0
 
         logger.debug(
-            "IC computed",
+            "IC computed (daily cross-sectional mean)",
             extra={
-                "pearson_ic": pearson,
-                "rank_ic": rank,
+                "pearson_ic": mean_pearson,
+                "rank_ic": mean_rank,
                 "method": method,
+                "n_dates": len(dates),
                 "coverage": coverage,
+                "backend": self.backend,
             },
         )
 
         return ICResult(
-            pearson_ic=pearson,
-            rank_ic=rank,
-            n_observations=joined.height,
+            pearson_ic=mean_pearson,
+            rank_ic=mean_rank,
+            n_observations=total_obs,
             coverage=coverage,
         )
 

@@ -322,7 +322,7 @@ class TestNeweyWest:
     def test_deterministic_vs_statsmodels(self) -> None:
         """Validate Newey-West SE against statsmodels if available."""
         statsmodels = pytest.importorskip("statsmodels")
-        from statsmodels.stats.stattools import acovf  # type: ignore[import-untyped]
+        from statsmodels.tsa.stattools import acovf  # type: ignore[import-untyped]
 
         np.random.seed(42)
         ar = np.random.normal(0, 0.02, 100)

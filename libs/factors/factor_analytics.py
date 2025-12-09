@@ -85,22 +85,16 @@ class FactorAnalytics:
                     how="inner",
                 )
 
-                # Compute IC for each date using numpy
-                ic_values_list = []
-                dates_list = []
-                for dt in merged["date"].unique().to_list():
-                    date_df = merged.filter(pl.col("date") == dt)
-                    if date_df.height < 10:
-                        continue
-                    ic = self._compute_rank_corr(
-                        date_df["zscore"].to_numpy(),
-                        date_df[ret_col].to_numpy(),
+                ic_by_date = (
+                    merged.drop_nulls(["zscore", ret_col])
+                    .group_by("date")
+                    .agg(
+                        pl.len().alias("n"),
+                        pl.corr("zscore", ret_col, method="spearman").alias("ic"),
                     )
-                    if not np.isnan(ic):
-                        ic_values_list.append(ic)
-                        dates_list.append(dt)
-
-                ic_by_date = pl.DataFrame({"date": dates_list, "ic": ic_values_list})
+                    .filter(pl.col("n") >= 10)
+                    .drop_nulls("ic")
+                )
 
                 if ic_by_date.height == 0:
                     logger.warning(
@@ -108,7 +102,6 @@ class FactorAnalytics:
                     )
                     continue
 
-                # Compute IC statistics
                 ic_values = ic_by_date["ic"].to_numpy()
                 ic_mean = float(np.nanmean(ic_values))
                 ic_std = float(np.nanstd(ic_values, ddof=1))

@@ -9,14 +9,18 @@ All computations are point-in-time (PIT) correct with full reproducibility.
 
 import hashlib
 import logging
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Literal
+from pathlib import Path
+from typing import Literal, NamedTuple, Protocol, cast
 
 import polars as pl
 
 from libs.data_providers.compustat_local_provider import CompustatLocalProvider
 from libs.data_providers.crsp_local_provider import CRSPLocalProvider
-from libs.data_quality.manifest import ManifestManager
+from libs.data_quality.manifest import ManifestManager, SyncManifest
+from libs.data_quality.versioning import DatasetVersionManager, SnapshotManifest
 from libs.factors.factor_definitions import (
     CANONICAL_FACTORS,
     FactorConfig,
@@ -45,6 +49,7 @@ class FactorBuilder:
         crsp_provider: CRSPLocalProvider,
         compustat_provider: CompustatLocalProvider,
         manifest_manager: ManifestManager,
+        version_manager: DatasetVersionManager | None = None,
         config: FactorConfig | None = None,
     ):
         """
@@ -59,6 +64,7 @@ class FactorBuilder:
         self.crsp = crsp_provider
         self.compustat = compustat_provider
         self.manifest = manifest_manager
+        self.version_manager = version_manager
         self.config = config or FactorConfig()
         self._registry: dict[str, FactorDefinition] = {}
 
@@ -113,21 +119,31 @@ class FactorBuilder:
 
         factor_def = self._registry[factor_name]
 
-        # Get manifest versions
-        # snapshot_date time-travel requires ManifestManager.load_manifest_at_date
+        # Resolve PIT snapshot context if requested
+        snapshot_ctx: _SnapshotContext | None = None
         if snapshot_date is not None:
-            raise NotImplementedError(
-                "snapshot_date time-travel not yet supported. "
-                "ManifestManager.load_manifest_at_date is required for this feature."
-            )
-        crsp_manifest = self.manifest.load_manifest("crsp_daily")
-        compustat_manifest = self.manifest.load_manifest("compustat_annual")
+            if self.version_manager is None:
+                raise ValueError(
+                    "snapshot_date requires DatasetVersionManager for PIT time-travel"
+                )
+            snapshot_ctx = self._build_snapshot_context(snapshot_date, factor_def)
+
+        crsp_manifest: SyncManifest | None
+        compustat_manifest: SyncManifest | None
+
+        if snapshot_ctx:
+            crsp_manifest = snapshot_ctx.crsp_manifest
+            compustat_manifest = snapshot_ctx.compustat_manifest
+        else:
+            crsp_manifest = self.manifest.load_manifest("crsp_daily")
+            compustat_manifest = self.manifest.load_manifest("compustat_annual")
 
         # Get version strings (handle None manifests)
         crsp_version = crsp_manifest.manifest_version if crsp_manifest else "unknown"
         compustat_version = (
             compustat_manifest.manifest_version if compustat_manifest else "unknown"
         )
+        snapshot_id = snapshot_ctx.snapshot_id if snapshot_ctx else None
 
         # Compute reproducibility hash (includes config and universe for full reproducibility)
         universe_hash = hashlib.sha256(
@@ -137,38 +153,48 @@ class FactorBuilder:
             f"{self.config.winsorize_pct}:{self.config.neutralize_sector}:"
             f"{self.config.min_stocks_per_sector}:{self.config.lookback_days}".encode()
         ).hexdigest()[:16]
+        snapshot_component = f":{snapshot_id}" if snapshot_id else ""
+        snapshot_date_component = f":{snapshot_date}" if snapshot_date else ""
         input_hash = hashlib.sha256(
             f"{factor_name}:{as_of_date}:{crsp_version}:"
-            f"{compustat_version}:{config_hash}:{universe_hash}".encode()
+            f"{compustat_version}:{config_hash}:{universe_hash}"
+            f"{snapshot_component}{snapshot_date_component}".encode()
         ).hexdigest()
 
-        # Get price data with PIT correctness
-        prices = self.crsp.get_daily_prices(
-            start_date=as_of_date - timedelta(days=self.config.lookback_days),
-            end_date=as_of_date,
-            as_of_date=as_of_date,
-        ).sort(["permno", "date"])
+        manifest_cm = (
+            self._use_snapshot_manifests(snapshot_ctx.manifest_adapter)
+            if snapshot_ctx
+            else nullcontext()
+        )
 
-        # Filter universe if specified
-        if universe is not None:
-            prices = prices.filter(pl.col("permno").is_in(universe))
-
-        # Get fundamentals if needed
-        fundamentals = None
-        if factor_def.requires_fundamentals:
-            fundamentals = self.compustat.get_annual_fundamentals(
-                start_date=as_of_date - timedelta(days=365 * 3),
+        with manifest_cm:
+            # Get price data with PIT correctness
+            prices = self.crsp.get_daily_prices(
+                start_date=as_of_date - timedelta(days=self.config.lookback_days),
                 end_date=as_of_date,
                 as_of_date=as_of_date,
-            )
-            # Sort fundamentals for deterministic aggregation
-            if "datadate" in fundamentals.columns:
-                fundamentals = fundamentals.sort(["permno", "datadate"])
-            elif "date" in fundamentals.columns:
-                fundamentals = fundamentals.sort(["permno", "date"])
+            ).sort(["permno", "date"])
 
+            # Filter universe if specified
             if universe is not None:
-                fundamentals = fundamentals.filter(pl.col("permno").is_in(universe))
+                prices = prices.filter(pl.col("permno").is_in(universe))
+
+            # Get fundamentals if needed
+            fundamentals = None
+            if factor_def.requires_fundamentals:
+                fundamentals = self.compustat.get_annual_fundamentals(
+                    start_date=as_of_date - timedelta(days=365 * 3),
+                    end_date=as_of_date,
+                    as_of_date=as_of_date,
+                )
+                # Sort fundamentals for deterministic aggregation
+                if "datadate" in fundamentals.columns:
+                    fundamentals = fundamentals.sort(["permno", "datadate"])
+                elif "date" in fundamentals.columns:
+                    fundamentals = fundamentals.sort(["permno", "date"])
+
+                if universe is not None:
+                    fundamentals = fundamentals.filter(pl.col("permno").is_in(universe))
 
         # Compute raw factor values
         raw_values = factor_def.compute(prices, fundamentals, as_of_date)
@@ -191,6 +217,7 @@ class FactorBuilder:
             dataset_version_ids={
                 "crsp": f"v{crsp_version}",
                 "compustat": f"v{compustat_version}",
+                **({"snapshot": snapshot_id} if snapshot_id else {}),
             },
             computation_timestamp=datetime.now(UTC),
             reproducibility_hash=input_hash,
@@ -579,3 +606,129 @@ class FactorBuilder:
         ).drop("gics_sector")
 
         return result
+
+    # =========================================================================
+    # Snapshot helpers
+    # =========================================================================
+
+    def _build_snapshot_context(
+        self, snapshot_date: date, factor_def: FactorDefinition
+    ) -> "_SnapshotContext":
+        """Build PIT snapshot context using DatasetVersionManager.
+
+        Returns manifest adapter that rewires providers to snapshot file paths
+        without mutating the underlying provider instances.
+        """
+
+        assert self.version_manager is not None  # enforced by caller
+
+        crsp_path, crsp_snapshot = self.version_manager.query_as_of(
+            "crsp_daily", snapshot_date
+        )
+        if "crsp_daily" not in crsp_snapshot.datasets:
+            raise ValueError("crsp_daily not present in snapshot for PIT query")
+
+        comp_snapshot: SnapshotManifest | None = None
+        comp_path: Path | None = None
+        if factor_def.requires_fundamentals:
+            comp_path, comp_snapshot = self.version_manager.query_as_of(
+                "compustat_annual", snapshot_date
+            )
+            if "compustat_annual" not in comp_snapshot.datasets:
+                raise ValueError("compustat_annual not present in snapshot")
+
+        adapter = SnapshotManifestAdapter(
+            manifests={
+                "crsp_daily": _build_sync_manifest_from_snapshot(
+                    dataset="crsp_daily",
+                    snapshot=crsp_snapshot,
+                    data_path=crsp_path,
+                ),
+                **(
+                    {
+                        "compustat_annual": _build_sync_manifest_from_snapshot(
+                            dataset="compustat_annual",
+                            snapshot=cast(SnapshotManifest, comp_snapshot),
+                            data_path=cast(Path, comp_path),
+                        )
+                    }
+                    if comp_snapshot is not None and comp_path is not None
+                    else {}
+                ),
+            }
+        )
+
+        return _SnapshotContext(
+            manifest_adapter=adapter,
+            snapshot_id=crsp_snapshot.aggregate_checksum,
+            crsp_manifest=adapter.manifests["crsp_daily"],
+            compustat_manifest=adapter.manifests.get("compustat_annual"),
+        )
+
+    @contextmanager
+    def _use_snapshot_manifests(self, adapter: "SnapshotManifestAdapter"):
+        """Temporarily swap provider manifest managers to snapshot adapter."""
+
+        original_crsp = getattr(self.crsp, "manifest_manager", None)
+        original_comp = getattr(self.compustat, "manifest_manager", None)
+
+        self.crsp.manifest_manager = adapter
+        self.compustat.manifest_manager = adapter
+
+        try:
+            yield
+        finally:
+            if original_crsp is not None:
+                self.crsp.manifest_manager = original_crsp
+            if original_comp is not None:
+                self.compustat.manifest_manager = original_comp
+
+
+class SnapshotManifestAdapter:
+    """Minimal manifest adapter that serves snapshot-backed SyncManifests."""
+
+    def __init__(self, manifests: dict[str, SyncManifest]):
+        self.manifests = manifests
+
+    def load_manifest(self, dataset_name: str) -> SyncManifest | None:  # pragma: no cover - trivial
+        return self.manifests.get(dataset_name)
+
+
+@dataclass
+class _SnapshotContext:
+    """Resolved snapshot state for PIT factor computation."""
+
+    manifest_adapter: SnapshotManifestAdapter
+    snapshot_id: str
+    crsp_manifest: SyncManifest
+    compustat_manifest: SyncManifest | None
+
+
+def _build_sync_manifest_from_snapshot(
+    dataset: str, snapshot: SnapshotManifest, data_path: Path
+) -> SyncManifest:
+    """Convert DatasetSnapshot to SyncManifest for provider consumption."""
+
+    if dataset not in snapshot.datasets:
+        raise ValueError(f"Dataset {dataset} missing from snapshot {snapshot.version_tag}")
+
+    ds_snapshot = snapshot.datasets[dataset]
+    file_paths = [str((data_path / f.path).resolve()) for f in ds_snapshot.files]
+
+    checksum = snapshot.aggregate_checksum
+
+    return SyncManifest(
+        dataset=dataset,
+        sync_timestamp=snapshot.created_at,
+        start_date=ds_snapshot.date_range_start,
+        end_date=ds_snapshot.date_range_end,
+        row_count=ds_snapshot.row_count,
+        checksum=checksum,
+        checksum_algorithm="sha256",
+        schema_version="snapshot",
+        wrds_query_hash="snapshot",
+        file_paths=file_paths,
+        validation_status="passed",
+        manifest_version=ds_snapshot.sync_manifest_version,
+        previous_checksum=None,
+    )

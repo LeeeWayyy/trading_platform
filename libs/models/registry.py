@@ -23,6 +23,7 @@ import fcntl
 import json
 import logging
 import shutil
+import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -105,7 +106,7 @@ class IntegrityError(Exception):
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS models (
-    model_id VARCHAR PRIMARY KEY,
+    model_id VARCHAR NOT NULL,
     model_type VARCHAR NOT NULL,
     version VARCHAR NOT NULL,
     status VARCHAR NOT NULL DEFAULT 'staged',
@@ -125,12 +126,11 @@ CREATE TABLE IF NOT EXISTS models (
     experiment_id VARCHAR,
     run_id VARCHAR,
     dataset_uri VARCHAR,
-    qlib_version VARCHAR,
-    UNIQUE(model_type, version)
+    qlib_version VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS promotion_history (
-    id INTEGER PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid(),
     model_id VARCHAR NOT NULL,
     from_status VARCHAR NOT NULL,
     to_status VARCHAR NOT NULL,
@@ -194,6 +194,8 @@ class ModelRegistry:
         self.manifest_manager = RegistryManifestManager(self.registry_dir)
         # Path to restore lock file (used by RegistryBackupManager)
         self._restore_lock_path = self.registry_dir / ".restore.lock"
+        self._lock_file_path = self.registry_dir / ".registry.lock"
+        self._lock_tls: threading.local = threading.local()
 
         # Ensure directories exist
         self.registry_dir.mkdir(parents=True, exist_ok=True)
@@ -236,6 +238,20 @@ class ModelRegistry:
                 "Registry backup in progress. Writes are blocked until backup completes."
             )
 
+    def _get_lock_file(self) -> Any:
+        """Get (and cache) the lock file handle per thread.
+
+        Using a persistent handle avoids repeatedly opening/closing the lock file
+        while still providing correct flock semantics (each thread keeps its own
+        open file description).
+        """
+
+        lock_file = getattr(self._lock_tls, "handle", None)
+        if lock_file is None:
+            lock_file = open(self._lock_file_path, "a+")
+            self._lock_tls.handle = lock_file
+        return lock_file
+
     @contextmanager
     def _get_connection(
         self, *, read_only: bool = False
@@ -264,8 +280,7 @@ class ModelRegistry:
         # Enforce single-writer, multi-reader pattern with file locks.
         # DuckDB allows multiple writers but we explicitly serialize writes to
         # avoid races between concurrent registrations/promotions.
-        lock_path = self.registry_dir / ".registry.lock"
-        lock_file = open(lock_path, "a+")
+        lock_file = self._get_lock_file()
         lock_mode = fcntl.LOCK_SH if read_only else fcntl.LOCK_EX
         fcntl.flock(lock_file.fileno(), lock_mode)
 
@@ -276,8 +291,8 @@ class ModelRegistry:
             conn.close()
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            finally:
-                lock_file.close()
+            except OSError:
+                pass
 
     # =========================================================================
     # Registration
@@ -878,12 +893,17 @@ class ModelRegistry:
         self,
         model_type: str | None = None,
         status: ModelStatus | None = None,
+        *,
+        lightweight: bool = True,
     ) -> list[ModelMetadata]:
         """List models with optional filtering.
 
         Args:
             model_type: Filter by type.
             status: Filter by status.
+            lightweight: If True (default), load metadata without checksum
+                verification for faster responses. Set to False to verify
+                metadata checksums on disk for integrity-sensitive paths.
 
         Returns:
             List of ModelMetadata.
@@ -902,6 +922,9 @@ class ModelRegistry:
 
         with self._get_connection(read_only=True) as conn:
             results = conn.execute(query, params).fetchall()
+
+        if lightweight:
+            return [load_metadata(Path(row[0])) for row in results]
 
         return [
             self._load_verified_metadata(Path(row[0]), row[1])

@@ -109,7 +109,13 @@ class TestHARFitting:
         assert result.r_squared > 0.1
 
     def test_har_lag_construction(self) -> None:
-        """Test HAR lags are constructed correctly without look-ahead bias."""
+        """Test HAR lags are constructed correctly per Corsi (2009).
+
+        Standard HAR-RV uses information available at time t to predict t+h:
+        - rv_d: RV_t (current daily RV)
+        - rv_w: mean(RV_{t-4}, ..., RV_t) (5-day average ending at t)
+        - rv_m: mean(RV_{t-21}, ..., RV_t) (22-day average ending at t)
+        """
         df = _create_rv_dataframe(100, seed=123)
         model = HARVolatilityModel(forecast_horizon=1)
         rv_values = df["rv"].to_numpy()
@@ -118,11 +124,15 @@ class TestHARFitting:
         features = model._construct_har_features(rv_values)
 
         t = 50
-        assert features["rv_d"][t] == rv_values[t - 1]
-        expected_rv_w = np.mean(rv_values[t - 5 : t])
+        # Daily: current day's RV
+        assert features["rv_d"][t] == rv_values[t]
+        # Weekly: 5-day average ending at t (t-4 to t inclusive)
+        expected_rv_w = np.mean(rv_values[t - 4 : t + 1])
         assert abs(features["rv_w"][t] - expected_rv_w) < 1e-10
-        expected_rv_m = np.mean(rv_values[t - 22 : t])
+        # Monthly: 22-day average ending at t (t-21 to t inclusive)
+        expected_rv_m = np.mean(rv_values[t - 21 : t + 1])
         assert abs(features["rv_m"][t] - expected_rv_m) < 1e-10
+        # Target: h-day ahead RV
         assert features["rv_target"][t] == rv_values[t + 1]
 
     def test_har_version_id_stored(self) -> None:

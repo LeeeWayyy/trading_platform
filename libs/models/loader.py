@@ -154,6 +154,9 @@ class ProductionModelLoader:
         self._cache: dict[str, CachedModel] = {}
         self._cache_lock = threading.RLock()
 
+        # In-flight load tracking to prevent thundering herd on cache miss
+        self._inflight: dict[str, threading.Event] = {}
+
         # Last-known good versions {model_type: (model, metadata)}
         self._last_good: dict[str, tuple[Any, ModelMetadata]] = {}
 
@@ -304,18 +307,39 @@ class ProductionModelLoader:
 
         # Check cache
         cache_key = f"{model_type}/{version}"
-        with self._cache_lock:
-            cached = self._cache.get(cache_key)
-            if cached and not cached.is_expired:
-                return cached.model
+        is_loader = False
+        event: threading.Event | None = None
 
-        # Load from registry
+        # Coordination loop to avoid thundering herd on cache miss
+        while True:
+            with self._cache_lock:
+                cached = self._cache.get(cache_key)
+                if cached and not cached.is_expired:
+                    return cached.model
+
+                event = self._inflight.get(cache_key)
+                if event is None:
+                    event = threading.Event()
+                    self._inflight[cache_key] = event
+                    is_loader = True
+                    break
+
+            # Another thread is loading this model; wait for completion
+            assert event is not None
+            event.wait()
+
+        # Load from registry (single loader per cache key)
         try:
             model, metadata = self._load_from_registry(model_type, version)
             self._record_success(model_type, model, metadata, cache_key)
             return model
         except Exception as e:
             return self._handle_load_failure(model_type, version, e)
+        finally:
+            if event is not None:
+                event.set()
+            with self._cache_lock:
+                self._inflight.pop(cache_key, None)
 
     def _load_from_registry(
         self, model_type: str, version: str
@@ -401,7 +425,7 @@ class ProductionModelLoader:
             },
         )
 
-        return model, metadata
+        return loaded_model, metadata
 
     def _record_success(
         self,
