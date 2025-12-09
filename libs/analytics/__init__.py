@@ -1,15 +1,27 @@
-"""Analytics library for market microstructure, volatility, and event study analysis.
+"""Analytics library for market microstructure, volatility, event study, and factor attribution.
 
 This module provides tools for analyzing high-frequency TAQ data and corporate events:
 - MicrostructureAnalyzer: VPIN, realized volatility, spread/depth statistics
 - HARVolatilityModel: Heterogeneous Autoregressive model for volatility forecasting
 - EventStudyFramework: Event study analysis (CAR, PEAD, index rebalance)
+- FactorAttribution: Fama-French factor attribution with robust standard errors
 
 All outputs include dataset_version_id for reproducibility.
 """
 
 from __future__ import annotations
 
+from libs.analytics.attribution import (
+    AttributionResult,
+    DataMismatchError,
+    FactorAttribution,
+    FactorAttributionConfig,
+    FactorAttributionError,
+    InsufficientObservationsError,
+    PITViolationError,
+    ReturnDecompositionResult,
+    RollingExposureResult,
+)
 from libs.analytics.event_study import (
     ClusteringMitigation,
     EventStudyAnalysis,
@@ -68,4 +80,14 @@ __all__ = [
     "IndexRebalanceResult",
     # Event Study framework
     "EventStudyFramework",
+    # Factor Attribution
+    "FactorAttribution",
+    "FactorAttributionConfig",
+    "AttributionResult",
+    "RollingExposureResult",
+    "ReturnDecompositionResult",
+    "FactorAttributionError",
+    "InsufficientObservationsError",
+    "DataMismatchError",
+    "PITViolationError",
 ]
