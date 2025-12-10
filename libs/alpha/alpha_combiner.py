@@ -824,7 +824,7 @@ class AlphaCombiner:
 
         if ic_std == 0 or math.isnan(ic_std):
             return 0.0
-        return ic_mean / ic_std
+        return float(ic_mean / ic_std)
 
     def _compute_vol_parity_weights(
         self,
