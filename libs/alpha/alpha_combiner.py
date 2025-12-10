@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 import polars as pl
@@ -504,11 +504,16 @@ class AlphaCombiner:
 
         # Compute condition number
         try:
-            # Use nan_to_num for stability while preserving NaN intent in warning above
-            corr_matrix_filled = np.nan_to_num(corr_matrix, nan=0.0)
-            eigenvalues = np.linalg.eigvalsh(corr_matrix_filled)
-            min_eig = max(min(eigenvalues), 1e-10)
-            condition_number = float(max(eigenvalues) / min_eig)
+            if np.isnan(corr_matrix).any():
+                condition_number = float("nan")
+                warnings.append(
+                    "Condition number not computed because correlation matrix "
+                    "contains NaN values from non-overlapping signals"
+                )
+            else:
+                eigenvalues = np.linalg.eigvalsh(corr_matrix)
+                min_eig = max(min(eigenvalues), 1e-10)
+                condition_number = float(max(eigenvalues) / min_eig)
         except np.linalg.LinAlgError:
             condition_number = float("inf")
             warnings.append("Failed to compute condition number")
@@ -754,27 +759,13 @@ class AlphaCombiner:
 
         Formula: w_i = max(mean(daily_IC_i), 0) / sum(max(mean(daily_IC_j), 0))
         """
-        ics: dict[str, float] = {}
-        daily_ic = self._collect_daily_ic_values(
-            signals, returns, as_of_date, lookback_days
+        return self._compute_weights_from_daily_ic(
+            signals,
+            returns,
+            as_of_date,
+            lookback_days,
+            score_fn=lambda values: sum(values) / len(values),
         )
-
-        for name, values in daily_ic.items():
-            if len(values) < self.config.min_lookback_days:
-                ics[name] = 0.0
-                continue
-
-            # Mean of daily IC values
-            ics[name] = sum(values) / len(values)
-
-        # Convert to weights (clip negative IC to 0)
-        positive_ics = {k: max(v, 0.0) for k, v in ics.items()}
-        total = sum(positive_ics.values())
-
-        if total == 0:
-            return self._compute_equal_weights(list(signals.keys()))
-
-        return {k: v / total for k, v in positive_ics.items()}
 
     def _compute_ir_weights(
         self,
@@ -788,35 +779,52 @@ class AlphaCombiner:
         Formula: IR_i = mean(daily_IC_i) / std(daily_IC_i)
         w_i = max(IR_i, 0) / sum(max(IR_j, 0))
         """
-        irs: dict[str, float] = {}
+        return self._compute_weights_from_daily_ic(
+            signals,
+            returns,
+            as_of_date,
+            lookback_days,
+            score_fn=self._compute_ir_score,
+        )
+
+    def _compute_weights_from_daily_ic(
+        self,
+        signals: dict[str, pl.DataFrame],
+        returns: pl.DataFrame,
+        as_of_date: date,
+        lookback_days: int,
+        score_fn: Callable[[list[float]], float],
+    ) -> dict[str, float]:
+        """Shared helper to derive weights from daily IC statistics."""
+        scores: dict[str, float] = {}
         daily_ic = self._collect_daily_ic_values(
             signals, returns, as_of_date, lookback_days
         )
 
         for name, values in daily_ic.items():
             if len(values) < self.config.min_lookback_days:
-                irs[name] = 0.0
+                scores[name] = 0.0
                 continue
 
-            # IR = mean(IC) / std(IC)
-            ic_mean = sum(values) / len(values)
-            ic_std = (
-                sum((x - ic_mean) ** 2 for x in values) / len(values)
-            ) ** 0.5
+            scores[name] = score_fn(values)
 
-            if ic_std == 0 or math.isnan(ic_std):
-                irs[name] = 0.0
-            else:
-                irs[name] = ic_mean / ic_std
-
-        # Convert to weights (clip negative IR to 0)
-        positive_irs = {k: max(v, 0.0) for k, v in irs.items()}
-        total = sum(positive_irs.values())
+        positive_scores = {k: max(v, 0.0) for k, v in scores.items()}
+        total = sum(positive_scores.values())
 
         if total == 0:
             return self._compute_equal_weights(list(signals.keys()))
 
-        return {k: v / total for k, v in positive_irs.items()}
+        return {k: v / total for k, v in positive_scores.items()}
+
+    @staticmethod
+    def _compute_ir_score(values: list[float]) -> float:
+        """Compute information ratio score from daily IC series."""
+        ic_mean = sum(values) / len(values)
+        ic_std = (sum((x - ic_mean) ** 2 for x in values) / len(values)) ** 0.5
+
+        if ic_std == 0 or math.isnan(ic_std):
+            return 0.0
+        return ic_mean / ic_std
 
     def _compute_vol_parity_weights(
         self,

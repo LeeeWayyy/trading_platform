@@ -97,6 +97,9 @@ TAQ_TICKS_SCHEMA: dict[str, str] = {
 }
 
 # Map dataset names to schemas
+# NOTE: Keep these definitions in sync with the schemas persisted via
+# libs.data_quality.schema.SchemaRegistry. The registration helper below
+# registers the canonical schemas used by data quality checks.
 TAQ_SCHEMAS: dict[str, dict[str, str]] = {
     "taq_1min_bars": TAQ_1MIN_BARS_SCHEMA,
     "taq_daily_rv": TAQ_DAILY_RV_SCHEMA,

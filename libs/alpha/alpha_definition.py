@@ -301,39 +301,38 @@ class BaseAlpha(ABC):
             logger.warning(f"No {market_cap_col} column, returning all stocks")
             return df
 
-        # Compute quintiles
-        df_ranked = df.with_columns([
+        # Compute rank-based percentiles for quintiles
+        df_ranked = df.with_columns(
             pl.col(market_cap_col)
             .rank(method="ordinal")
-            .over(pl.lit(1))  # Cross-sectional rank
+            .over(pl.lit(1))
             .alias("_mkt_cap_rank")
-        ])
+        )
 
         n_stocks = df_ranked.height
         if n_stocks < 5:
             return df
 
-        quintile_size = math.ceil(n_stocks / 5)
+        percentile_col = (pl.col("_mkt_cap_rank") / pl.lit(float(n_stocks))).alias(
+            "_mkt_cap_pct"
+        )
+        df_ranked = df_ranked.with_columns(percentile_col)
 
         if filter_type == "large_cap":
-            # Top quintile
-            threshold = n_stocks - quintile_size
-            return df_ranked.filter(pl.col("_mkt_cap_rank") > threshold).drop(
-                "_mkt_cap_rank"
+            # Top quintile (80-100%)
+            return df_ranked.filter(pl.col("_mkt_cap_pct") > 0.8).drop(
+                ["_mkt_cap_rank", "_mkt_cap_pct"]
             )
         elif filter_type == "mid_cap":
-            # Middle 3 quintiles
-            lower = quintile_size
-            upper = n_stocks - quintile_size
+            # Middle 3 quintiles (20-80%)
             return df_ranked.filter(
-                (pl.col("_mkt_cap_rank") > lower)
-                & (pl.col("_mkt_cap_rank") <= upper)
-            ).drop("_mkt_cap_rank")
+                (pl.col("_mkt_cap_pct") > 0.2)
+                & (pl.col("_mkt_cap_pct") <= 0.8)
+            ).drop(["_mkt_cap_rank", "_mkt_cap_pct"])
         elif filter_type == "small_cap":
-            # Bottom quintile
-            threshold = quintile_size
-            return df_ranked.filter(pl.col("_mkt_cap_rank") <= threshold).drop(
-                "_mkt_cap_rank"
+            # Bottom quintile (0-20%)
+            return df_ranked.filter(pl.col("_mkt_cap_pct") <= 0.2).drop(
+                ["_mkt_cap_rank", "_mkt_cap_pct"]
             )
 
         return df

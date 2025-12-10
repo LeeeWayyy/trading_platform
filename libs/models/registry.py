@@ -446,7 +446,7 @@ class ModelRegistry:
                 if artifact_dir.exists():
                     shutil.rmtree(artifact_dir, ignore_errors=True)
                 raise
-            except duckdb.IntegrityError as e:
+            except (duckdb.ConstraintException, duckdb.IntegrityError) as e:
                 conn.execute("ROLLBACK")
                 if artifact_dir.exists():
                     logger.warning(
@@ -457,7 +457,7 @@ class ModelRegistry:
                         },
                     )
                     shutil.rmtree(artifact_dir, ignore_errors=True)
-                if "unique" in str(e).lower():
+                if _is_unique_constraint_error(e):
                     raise VersionExistsError(
                         metadata.model_type.value, metadata.version
                     ) from e
@@ -1199,6 +1199,15 @@ class ModelRegistry:
     def get_manifest(self) -> RegistryManifest:
         """Get current registry manifest."""
         return self.manifest_manager.load_manifest()
+
+
+def _is_unique_constraint_error(exc: Exception) -> bool:
+    """Detect DuckDB unique/primary key constraint violations robustly."""
+    if isinstance(exc, duckdb.ConstraintException):
+        return True
+
+    msg = str(exc).lower()
+    return "unique" in msg or "duplicate key" in msg
 
 
 def generate_model_id() -> str:
