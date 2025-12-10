@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -88,7 +87,7 @@ def set_registry(registry: ModelRegistry) -> None:
 
 def _metadata_to_response(
     metadata: Any,
-    status: str | None = None,
+    model_status: str | None = None,
     artifact_path: str | None = None,
     promoted_at: datetime | None = None,
 ) -> ModelMetadataResponse:
@@ -96,7 +95,7 @@ def _metadata_to_response(
 
     Args:
         metadata: ModelMetadata instance.
-        status: Model status from registry DB (if available).
+        model_status: Model status from registry DB (if available).
         artifact_path: Actual artifact path from registry DB (if available).
         promoted_at: Promotion timestamp from registry DB (if available).
 
@@ -116,7 +115,7 @@ def _metadata_to_response(
         model_id=metadata.model_id,
         model_type=metadata.model_type.value,
         version=metadata.version,
-        status=status or "staged",  # Default to staged if not provided
+        status=model_status or "staged",  # Default to staged if not provided
         artifact_path=artifact_path,
         checksum_sha256=metadata.checksum_sha256,
         dataset_version_ids=metadata.dataset_version_ids,
@@ -283,7 +282,7 @@ def get_model_metadata(
 
     return _metadata_to_response(
         metadata,
-        status=model_info["status"] if model_info else None,
+        model_status=model_info["status"] if model_info else None,
         artifact_path=model_info["artifact_path"] if model_info else None,
         promoted_at=model_info["promoted_at"] if model_info else None,
     )
@@ -438,7 +437,7 @@ def list_models(
         responses.append(
             _metadata_to_response(
                 m,
-                status=info.get("status"),
+                model_status=info.get("status"),
                 artifact_path=info.get("artifact_path"),
                 promoted_at=info.get("promoted_at"),
             )
