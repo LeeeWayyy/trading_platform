@@ -1158,6 +1158,44 @@ class ModelRegistry:
             "promoted_at": promoted_at,
         }
 
+    def get_model_info_bulk(
+        self, model_type: str, versions: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Bulk-fetch model status/path info to avoid N+1 queries.
+
+        Args:
+            model_type: Type of model.
+            versions: Versions to fetch.
+
+        Returns:
+            Mapping of version -> info dict (status, artifact_path, promoted_at).
+        """
+
+        if not versions:
+            return {}
+
+        placeholders = ",".join(["?"] * len(versions))
+        query = (
+            "SELECT version, status, artifact_path, promoted_at "
+            "FROM models WHERE model_type = ? AND version IN (" + placeholders + ")"
+        )
+
+        with self._get_connection(read_only=True) as conn:
+            rows = conn.execute(query, [model_type, *versions]).fetchall()
+
+        info: dict[str, dict[str, Any]] = {}
+        for version, status_val, artifact_path, promoted_at_str in rows:
+            promoted_at = None
+            if promoted_at_str:
+                promoted_at = datetime.fromisoformat(promoted_at_str)
+            info[str(version)] = {
+                "status": status_val,
+                "artifact_path": artifact_path,
+                "promoted_at": promoted_at,
+            }
+
+        return info
+
     def get_manifest(self) -> RegistryManifest:
         """Get current registry manifest."""
         return self.manifest_manager.load_manifest()

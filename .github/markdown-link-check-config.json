@@ -98,6 +98,9 @@
     },
     {
       "pattern": "^https://github.com"
+    },
+    {
+      "pattern": "^https://papers.ssrn.com"
     }
   ],
   "replacementPatterns": [

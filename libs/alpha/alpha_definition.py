@@ -313,7 +313,7 @@ class BaseAlpha(ABC):
         if n_stocks < 5:
             return df
 
-        quintile_size = n_stocks // 5
+        quintile_size = math.ceil(n_stocks / 5)
 
         if filter_type == "large_cap":
             # Top quintile

@@ -9,7 +9,6 @@ This service provides REST API endpoints for:
 Configuration via environment variables:
 - MODEL_REGISTRY_DIR: Path to registry directory
 - MODEL_REGISTRY_TOKEN: Bearer token for authentication
-- MODEL_REGISTRY_AUTH_DISABLED: Set to "true" to disable auth (dev only)
 
 Example:
     Start the service:
@@ -56,7 +55,8 @@ def get_settings() -> dict[str, Any]:
         "registry_dir": Path(os.environ.get("MODEL_REGISTRY_DIR", "data/models")),
         "host": os.environ.get("MODEL_REGISTRY_HOST", "0.0.0.0"),
         "port": int(os.environ.get("MODEL_REGISTRY_PORT", "8003")),
-        "auth_disabled": os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true",
+        # Auth disable flag was removed for security: always enforce auth
+        "auth_disabled": False,
     }
 
 
@@ -84,6 +84,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("=" * 60)
 
     try:
+        if os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true":
+            # Fail closed: auth bypass is not permitted; require proper tokens even in dev
+            raise RuntimeError(
+                "MODEL_REGISTRY_AUTH_DISABLED is unsupported. Remove the flag and use dev tokens instead."
+            )
+
         # Initialize registry
         registry_dir = settings["registry_dir"]
         logger.info(f"Initializing registry: {registry_dir}")
@@ -109,8 +115,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         message="Manifest checksum does not match registry state"
                     )
                 logger.info("Manifest integrity verified")
-            except ManifestIntegrityError:
-                raise
             except Exception as e:
                 logger.error(f"Manifest integrity check failed: {e}")
                 raise ManifestIntegrityError(message=f"Integrity check failed: {e}") from e
@@ -127,7 +131,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info(f"  - Registry: {registry_dir}")
         logger.info(f"  - Artifacts: {manifest.artifact_count}")
         logger.info(f"  - Production: {list(manifest.production_models.keys())}")
-        logger.info(f"  - Auth: {'DISABLED' if settings['auth_disabled'] else 'ENABLED'}")
+        logger.info("  - Auth: ENFORCED (MODEL_REGISTRY_AUTH_DISABLED removed)")
         logger.info("=" * 60)
 
         yield
@@ -161,7 +165,7 @@ app = FastAPI(
 
 
 # CORS configuration
-ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "production").lower()
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "")
 
 if ALLOWED_ORIGINS:

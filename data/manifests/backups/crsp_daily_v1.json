@@ -1,0 +1,18 @@
+{
+  "dataset": "crsp_daily",
+  "sync_timestamp": "2025-12-10 00:37:24.316914+00:00",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "row_count": 2,
+  "checksum": "802843c1b4cd59ede5fe85ba49fe7e56267b01f12e46285136438784a91b67a1",
+  "checksum_algorithm": "sha256",
+  "schema_version": "v1.0.0",
+  "wrds_query_hash": "358526dd38f59917f74bbdefdce113b1f05be09546eac90547f94a0f2dcd2d7f",
+  "file_paths": [
+    "/private/var/folders/qd/x49ytt5x6xd_wcr9sgk_dz600000gn/T/pytest-of-leeewayyy/pytest-293/test_partial_year_rerun_idempo0/wrds/crsp_daily/2024.parquet"
+  ],
+  "validation_status": "passed",
+  "quarantine_path": null,
+  "manifest_version": 1,
+  "previous_checksum": null
+}

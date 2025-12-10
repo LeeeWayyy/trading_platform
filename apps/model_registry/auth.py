@@ -155,44 +155,6 @@ async def verify_token(
     Raises:
         HTTPException 401: If token is missing or invalid.
     """
-    # In development mode, allow requests without token
-    # CRITICAL: Auth disable requires BOTH explicit ENVIRONMENT=dev/test AND the disable flag
-    # This prevents accidental auth bypass if ENVIRONMENT is unset (fails closed)
-    auth_disabled = os.environ.get("MODEL_REGISTRY_AUTH_DISABLED", "").lower() == "true"
-    environment = os.environ.get("ENVIRONMENT", "").lower()  # Empty default - must be explicit
-
-    if auth_disabled:
-        # Block auth disable unless ENVIRONMENT is EXPLICITLY set to dev/test
-        if environment in ("prod", "production"):
-            logger.error(
-                "SECURITY VIOLATION: MODEL_REGISTRY_AUTH_DISABLED=true in production environment. "
-                "Auth disable is blocked in production."
-            )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication cannot be disabled in production environment",
-            )
-        elif environment not in ("dev", "development", "test", "testing"):
-            # ENVIRONMENT not explicitly set or set to unknown value - fail closed
-            logger.error(
-                "SECURITY: MODEL_REGISTRY_AUTH_DISABLED=true but ENVIRONMENT is not explicitly "
-                f"set to dev/test (got: '{environment or 'unset'}'). Auth disable requires "
-                "explicit ENVIRONMENT=dev or ENVIRONMENT=test."
-            )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Auth disable requires explicit ENVIRONMENT=dev or ENVIRONMENT=test",
-            )
-        logger.warning(
-            f"Auth disabled via MODEL_REGISTRY_AUTH_DISABLED (ENVIRONMENT={environment}) - "
-            "this should ONLY be used in dev/test"
-        )
-        return ServiceToken(
-            token="dev-token",
-            scopes=["model:read", "model:write", "model:admin"],
-            service_name="dev",
-        )
-
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

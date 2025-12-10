@@ -177,7 +177,7 @@ class PRWorkflowHandler:
             # Use gh_api helper for consistency (addresses Gemini review)
             result = gh_api(
                 f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/reviews",
-                jq=".[].{author: .user.login, state: .state}"
+                jq=".[] | {author: .user.login, state: .state}"
             )
 
             if result.returncode != 0:

@@ -306,17 +306,22 @@ class TurnoverCalculator:
         # Aggregate by date
         daily_turnover = (
             weight_changes.group_by("date")
-            .agg([(pl.col("weight_change").sum() / 2).alias("turnover")])
+            .agg(
+                [
+                    (pl.col("weight_change").sum() / 2).alias("turnover"),
+                    pl.col("weight_change").sum().alias("_gross_weight_change"),
+                ]
+            )
             .sort("date")
         )
 
-        # First date has no "turnover" in traditional sense (portfolio just formed)
+        # First date: portfolio formed from cash, turnover equals gross allocation
         daily_turnover = daily_turnover.with_columns([
             pl.when(pl.col("date") == first_date)
-            .then(0.0)
+            .then(pl.col("_gross_weight_change"))
             .otherwise(pl.col("turnover"))
             .alias("turnover")
-        ])
+        ]).drop("_gross_weight_change")
 
         return daily_turnover
 

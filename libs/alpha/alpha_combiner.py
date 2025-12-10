@@ -485,7 +485,7 @@ class AlphaCombiner:
                 pearson = float(r["pearson"])
                 if math.isnan(pearson):
                     missing_overlap_count += 1
-                    # Leave as 0 (no correlation assumed when no overlap)
+                    corr_matrix[i, j] = np.nan
                 else:
                     corr_matrix[i, j] = pearson
 
@@ -496,10 +496,17 @@ class AlphaCombiner:
                 f"Insufficient overlap for {missing_overlap_count}/{n_off_diag} "
                 "signal pairs - condition number may be unreliable"
             )
+        elif missing_overlap_count > 0:
+            warnings.append(
+                f"{missing_overlap_count} signal pairs have no overlapping dates; "
+                "correlations recorded as NaN"
+            )
 
         # Compute condition number
         try:
-            eigenvalues = np.linalg.eigvalsh(corr_matrix)
+            # Use nan_to_num for stability while preserving NaN intent in warning above
+            corr_matrix_filled = np.nan_to_num(corr_matrix, nan=0.0)
+            eigenvalues = np.linalg.eigvalsh(corr_matrix_filled)
             min_eig = max(min(eigenvalues), 1e-10)
             condition_number = float(max(eigenvalues) / min_eig)
         except np.linalg.LinAlgError:
@@ -701,6 +708,39 @@ class AlphaCombiner:
             return {}
         return {name: 1.0 / n for name in signal_names}
 
+    def _collect_daily_ic_values(
+        self,
+        signals: dict[str, pl.DataFrame],
+        returns: pl.DataFrame,
+        as_of_date: date,
+        lookback_days: int,
+    ) -> dict[str, list[float]]:
+        """Compute per-signal daily IC values over the lookback window."""
+
+        lookback_start = as_of_date - timedelta(days=lookback_days)
+        daily_ics: dict[str, list[float]] = {}
+
+        for name, sig in signals.items():
+            sig_window = sig.filter(
+                (pl.col("date") >= lookback_start) & (pl.col("date") < as_of_date)
+            )
+            unique_dates = (
+                sig_window.select("date").unique().sort("date").to_series().to_list()
+            )
+
+            values: list[float] = []
+            for day in unique_dates:
+                sig_day = sig_window.filter(pl.col("date") == day)
+                ret_day = returns.filter(pl.col("date") == day)
+
+                ic_result = self.metrics.compute_ic(sig_day, ret_day, method="rank")
+                if not math.isnan(ic_result.rank_ic):
+                    values.append(ic_result.rank_ic)
+
+            daily_ics[name] = values
+
+        return daily_ics
+
     def _compute_ic_weights(
         self,
         signals: dict[str, pl.DataFrame],
@@ -715,33 +755,17 @@ class AlphaCombiner:
         Formula: w_i = max(mean(daily_IC_i), 0) / sum(max(mean(daily_IC_j), 0))
         """
         ics: dict[str, float] = {}
-        lookback_start = as_of_date - timedelta(days=lookback_days)
+        daily_ic = self._collect_daily_ic_values(
+            signals, returns, as_of_date, lookback_days
+        )
 
-        for name, sig in signals.items():
-            # Compute DAILY IC values over lookback window
-            daily_ic_values: list[float] = []
-
-            sig_window = sig.filter(
-                (pl.col("date") >= lookback_start) & (pl.col("date") < as_of_date)
-            )
-            unique_dates = (
-                sig_window.select("date").unique().sort("date").to_series().to_list()
-            )
-
-            for day in unique_dates:
-                sig_day = sig_window.filter(pl.col("date") == day)
-                ret_day = returns.filter(pl.col("date") == day)
-
-                ic_result = self.metrics.compute_ic(sig_day, ret_day, method="rank")
-                if not math.isnan(ic_result.rank_ic):
-                    daily_ic_values.append(ic_result.rank_ic)
-
-            if len(daily_ic_values) < self.config.min_lookback_days:
+        for name, values in daily_ic.items():
+            if len(values) < self.config.min_lookback_days:
                 ics[name] = 0.0
                 continue
 
             # Mean of daily IC values
-            ics[name] = sum(daily_ic_values) / len(daily_ic_values)
+            ics[name] = sum(values) / len(values)
 
         # Convert to weights (clip negative IC to 0)
         positive_ics = {k: max(v, 0.0) for k, v in ics.items()}
@@ -765,36 +789,19 @@ class AlphaCombiner:
         w_i = max(IR_i, 0) / sum(max(IR_j, 0))
         """
         irs: dict[str, float] = {}
-        lookback_start = as_of_date - timedelta(days=lookback_days)
+        daily_ic = self._collect_daily_ic_values(
+            signals, returns, as_of_date, lookback_days
+        )
 
-        for name, sig in signals.items():
-            # Compute DAILY IC values over lookback window
-            daily_ic_values: list[float] = []
-
-            sig_window = sig.filter(
-                (pl.col("date") >= lookback_start) & (pl.col("date") < as_of_date)
-            )
-            unique_dates = (
-                sig_window.select("date").unique().sort("date").to_series().to_list()
-            )
-
-            for day in unique_dates:
-                sig_day = sig_window.filter(pl.col("date") == day)
-                ret_day = returns.filter(pl.col("date") == day)
-
-                ic_result = self.metrics.compute_ic(sig_day, ret_day, method="rank")
-                if not math.isnan(ic_result.rank_ic):
-                    daily_ic_values.append(ic_result.rank_ic)
-
-            if len(daily_ic_values) < self.config.min_lookback_days:
+        for name, values in daily_ic.items():
+            if len(values) < self.config.min_lookback_days:
                 irs[name] = 0.0
                 continue
 
             # IR = mean(IC) / std(IC)
-            ic_mean = sum(daily_ic_values) / len(daily_ic_values)
+            ic_mean = sum(values) / len(values)
             ic_std = (
-                sum((x - ic_mean) ** 2 for x in daily_ic_values)
-                / len(daily_ic_values)
+                sum((x - ic_mean) ** 2 for x in values) / len(values)
             ) ** 0.5
 
             if ic_std == 0 or math.isnan(ic_std):

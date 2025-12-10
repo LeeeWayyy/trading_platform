@@ -103,12 +103,21 @@ def _metadata_to_response(
     Returns:
         ModelMetadataResponse.
     """
+    if artifact_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "detail": "Artifact path missing for model metadata",
+                "code": ERROR_CHECKSUM_MISMATCH,
+            },
+        )
+
     return ModelMetadataResponse(
         model_id=metadata.model_id,
         model_type=metadata.model_type.value,
         version=metadata.version,
         status=status or "staged",  # Default to staged if not provided
-        artifact_path=artifact_path or str(Path("artifacts") / metadata.model_type.value / metadata.version),
+        artifact_path=artifact_path,
         checksum_sha256=metadata.checksum_sha256,
         dataset_version_ids=metadata.dataset_version_ids,
         snapshot_id=metadata.snapshot_id,
@@ -410,21 +419,30 @@ def list_models(
         ) from e
 
     # Fetch DB info (status, artifact_path, promoted_at) for accurate responses
-    responses = []
+    versions = [m.version for m in models]
+    db_info = registry.get_model_info_bulk(model_type.value, versions)
+
+    responses: list[ModelMetadataResponse] = []
     for m in models:
-        db_info = registry.get_model_info(m.model_type.value, m.version)
-        if db_info:
-            responses.append(
-                _metadata_to_response(
-                    m,
-                    status=db_info.get("status"),
-                    artifact_path=db_info.get("artifact_path"),
-                    promoted_at=db_info.get("promoted_at"),
-                )
+        info = db_info.get(m.version)
+        if not info:
+            logger.error(
+                "Missing DB metadata for model listed in manifest",
+                extra={"model_type": m.model_type.value, "version": m.version},
             )
-        else:
-            # Fallback if DB info not found (shouldn't happen)
-            responses.append(_metadata_to_response(m))
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"detail": "Registry metadata incomplete", "code": ERROR_CHECKSUM_MISMATCH},
+            )
+
+        responses.append(
+            _metadata_to_response(
+                m,
+                status=info.get("status"),
+                artifact_path=info.get("artifact_path"),
+                promoted_at=info.get("promoted_at"),
+            )
+        )
 
     logger.info(
         "Listed models",
