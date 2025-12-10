@@ -153,6 +153,17 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.5-Fama-French-Local-Provider.md](../.claude/plans/T1.5-Fama-French-Local-Provider.md) - T1.5 Fama-French Local Provider implementation plan
 - [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.6-dataset-versioning.md](../.claude/plans/T1.6-dataset-versioning.md) - T1.6 Dataset Versioning & Reproducibility implementation plan
 - [CURRENT, 2025-12-05, Plan] [../.claude/plans/P4T1.9-ETL-Pipeline.md](../.claude/plans/P4T1.9-ETL-Pipeline.md) - P4T1.9 ETL Pipeline implementation plan
+- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.1-factor-model-plan.md](../.claude/plans/T2.1-factor-model-plan.md) - T2.1 Multi-Factor Model Construction implementation plan
+- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.2-plan.md](../.claude/plans/T2.2-plan.md) - T2.2 Covariance Estimation implementation plan
+- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.4-plan.md](../.claude/plans/T2.4-plan.md) - T2.4 Portfolio Optimizer & Stress Testing implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track1_T1.7_T1.8.md](./PLANS/P4T2_Track1_T1.7_T1.8.md) - P4T2 Track 1: Fama-French Integration (T1.7) and yfinance Integration (T1.8)
+- [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
+- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
+- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.3_event_study_plan.md](./TASKS/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
+- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.5_PLAN.md](./TASKS/PLANS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
+- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.8_PLAN.md](./TASKS/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
+- [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.6-alpha-advanced-plan.md](../.claude/plans/T2.6-alpha-advanced-plan.md) - T2.6 Alpha Advanced Analytics implementation plan
+- [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.7-factor-attribution-plan.md](../.claude/plans/T2.7-factor-attribution-plan.md) - T2.7 Factor Attribution Analysis implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -215,6 +226,9 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-012](./ADRs/ADR-012-local-data-warehouse.md) | Local data warehouse architecture (Single-Writer Multi-Reader) | ✅ Accepted |
 | [ADR-015](./ADRs/ADR-015-auth0-idp-selection.md) | Auth0 for Production OAuth2/OIDC Identity Provider | 🚧 Proposed |
 | [ADR-016](./ADRs/ADR-016-data-provider-protocol.md) | Data Provider Protocol for unified market data access | ✅ Accepted |
+| [ADR-0021](./ADRs/ADR-0021-risk-model-implementation.md) | Risk Model Implementation (Portfolio Optimizer & Stress Testing) | ✅ Accepted |
+| [ADR-0022](./ADRs/ADR-0022-qlib-integration.md) | Qlib Integration Strategy | ✅ Accepted |
+| [ADR-0023](./ADRs/ADR-0023-model-deployment.md) | Model Registry & Deployment Versioning | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -237,6 +251,7 @@ Educational explanations of trading and ML concepts:
 | Concept | Topic | Complexity |
 |---------|-------|------------|
 | [corporate-actions.md](./CONCEPTS/corporate-actions.md) | Stock splits, dividends | Beginner |
+| [covariance-estimation.md](./CONCEPTS/covariance-estimation.md) | Factor covariance estimation for risk models | Advanced |
 | [crsp-data.md](./CONCEPTS/crsp-data.md) | CRSP data, PERMNOs, survivorship bias | Intermediate |
 | [fundamental-data.md](./CONCEPTS/fundamental-data.md) | Compustat fundamentals, GVKEY, PIT correctness | Intermediate |
 | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) | Notional, realized, unrealized P&L | Beginner |
@@ -258,9 +273,13 @@ Educational explanations of trading and ML concepts:
 | [oauth2-mtls-fallback-architecture.md](./CONCEPTS/oauth2-mtls-fallback-architecture.md) | OAuth2/OIDC with mTLS fallback architecture | Advanced |
 | [multi-alpha-allocation.md](./CONCEPTS/multi-alpha-allocation.md) | Multi-strategy capital allocation | Advanced |
 | [parquet-format.md](./CONCEPTS/parquet-format.md) | Columnar storage format | Beginner |
+| [qlib-comparison.md](./CONCEPTS/qlib-comparison.md) | Qlib vs custom implementation comparison | Intermediate |
 | [python-testing-tools.md](./CONCEPTS/python-testing-tools.md) | pytest and testing frameworks | Beginner |
 | [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |
 | [risk-management.md](./CONCEPTS/risk-management.md) | Position limits and circuit breakers | Intermediate |
+| [risk-models.md](./CONCEPTS/risk-models.md) | Multi-factor Barra-style risk model methodology | Advanced |
+| [microstructure.md](./CONCEPTS/microstructure.md) | Market microstructure analysis (VPIN, RV, spread/depth) | Intermediate |
+| [realized-volatility.md](./CONCEPTS/realized-volatility.md) | Realized volatility and HAR forecasting models | Intermediate |
 | [sql-analytics-patterns.md](./CONCEPTS/sql-analytics-patterns.md) | SQL window functions and CTEs | Intermediate |
 | [structured-logging.md](./CONCEPTS/structured-logging.md) | JSON logging with context | Intermediate |
 | [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |
@@ -365,6 +384,7 @@ Current and future work items organized by phase:
 **Phase 4 Tasks:**
 - [CURRENT, 2025-12-03, Planning] [P4_PLANNING.md](./TASKS/P4_PLANNING.md) - P4 Data Infrastructure phase planning
 - [CURRENT, 2025-12-03, Task] [P4T1_TASK.md](./TASKS/P4T1_TASK.md) - P4T1: Data Infrastructure - Local Data Warehouse with WRDS Data Sources
+- [CURRENT, 2025-12-07, Task] [P4T2_TASK.md](./TASKS/P4T2_TASK.md) - P4T2: Analytics Infrastructure - Multi-Factor Model Construction
 - [CURRENT, 2025-12-03, Component] [components/P4T1.1-data-quality-plan.md](./TASKS/components/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 - [CURRENT, 2025-12-04, Component] [components/P4T1.2-wrds-sync-manager-plan.md](./TASKS/components/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
@@ -425,6 +445,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-12-04, Runbook] [duckdb-operations.md](./RUNBOOKS/duckdb-operations.md) - DuckDB cache management and reader configuration during syncs
 - [CURRENT, 2025-12-04, Runbook] [wrds-credentials.md](./RUNBOOKS/wrds-credentials.md) - WRDS credential management, rotation, and expiry monitoring
 - [CURRENT, 2025-12-04, Runbook] [data-storage.md](./RUNBOOKS/data-storage.md) - Disk monitoring, cleanup procedures, and storage expansion
+- [CURRENT, 2025-12-08, Runbook] [model-registry-dr.md](./RUNBOOKS/model-registry-dr.md) - Model registry disaster recovery and backup procedures
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 

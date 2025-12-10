@@ -2,9 +2,9 @@
 
 **Phase:** P4 (Advanced Features & Research)
 **Timeline:** Days 181-315 (~19 weeks / 133 days with parallel execution)
-**Status:** 📋 Planning
-**Previous Phase:** P3 (Issue Remediation - In Progress)
-**Last Updated:** 2025-12-03
+**Status:** 🚧 In Progress
+**Previous Phase:** P3 (Issue Remediation - Complete)
+**Last Updated:** 2025-12-08
 
 ---
 
@@ -63,6 +63,76 @@ With P0-P2 complete and P3 addressing critical issues, **P4 focuses on advanced 
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Global Write Coordination Policy (All Analytics/Model Outputs)
+
+**CRITICAL:** Beyond WRDS sync, all analytics and model outputs also write to shared locations. To prevent corruption during parallel track execution:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    GLOBAL WRITE COORDINATION                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  WRITE DOMAINS (each has dedicated lock):                               │
+│                                                                          │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐     │
+│  │ data/wrds/      │    │ data/analytics/ │    │ data/models/    │     │
+│  │ WRDS Sync Lock  │    │ Analytics Lock  │    │ Registry Lock   │     │
+│  │ (sync_lock.json)│    │ (analytics.lock)│    │ (registry.lock) │     │
+│  └─────────────────┘    └─────────────────┘    └─────────────────┘     │
+│         │                      │                      │                 │
+│         ▼                      ▼                      ▼                 │
+│  Writers: wrds_sync    Writers: T2.x,T3.x    Writers: T2.8 registry    │
+│                        factor, risk, alpha    model promotion          │
+│                        microstructure                                   │
+│                                                                          │
+│  COORDINATION RULES:                                                    │
+│  1. Each domain has ONE lock file (same pattern as WRDS)               │
+│  2. Writer acquires lock before ANY write to domain                    │
+│  3. Atomic write pattern: temp file → validate → rename                │
+│  4. Stale lock recovery: 4hr timeout + PID validation                  │
+│  5. Cross-domain reads: always allowed (snapshot isolation)            │
+│                                                                          │
+│  PARALLEL TRACK SAFETY:                                                 │
+│  - Track 1 (TAQ): writes data/wrds/ only                               │
+│  - Track 2 (Factor/Risk): writes data/analytics/, data/models/         │
+│  - Track 3 (Microstructure): writes data/analytics/microstructure/     │
+│  - Tracks do NOT contend for same lock during normal operation         │
+│  - If contention occurs: second writer waits or fails gracefully       │
+│                                                                          │
+│  RECOVERY:                                                              │
+│  - Corrupt detection: checksum validation on every read                │
+│  - Corrupt recovery: restore from backup + invalidate downstream cache │
+│  - Lock stuck: kill writer PID, auto-release after 4hr                 │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Pattern (shared across all domains):**
+```python
+# libs/common/lock_manager.py
+class DomainLockManager:
+    """Shared lock manager for all write domains."""
+
+    DOMAINS = {
+        "wrds": Path("data/wrds/sync_lock.json"),
+        "analytics": Path("data/analytics/analytics.lock"),
+        "models": Path("data/models/registry.lock"),
+    }
+    LOCK_TIMEOUT_HOURS = 4
+
+    def acquire(self, domain: str) -> bool:
+        """Acquire domain lock with stale recovery."""
+        ...
+
+    def release(self, domain: str) -> None:
+        """Release domain lock."""
+        ...
+
+    def with_lock(self, domain: str):
+        """Context manager for lock acquisition."""
+        ...
+```
+
 ### Data Service vs Library Clarification
 
 | Component | Type | Concurrency |
@@ -75,19 +145,35 @@ With P0-P2 complete and P3 addressing critical issues, **P4 focuses on advanced 
 
 ## 📊 Progress Summary
 
-**Overall:** 0% (0/9 tracks complete)
+**Overall:** ~33% (P4T1 Complete, P4T2 54% Complete)
 
 | Track | Tasks | Effort | Progress | Status |
 |-------|-------|--------|----------|--------|
-| **Track 1: Data Infrastructure** | T1.1-T1.8 | ~23-28 days | 0% | 📋 Planning |
-| **Track 2: Factor & Risk Analytics** | T2.1-T2.8 | ~26-33 days | 0% | 📋 Planning |
-| **Track 3: Market Microstructure** | T3.1-T3.3 | ~10-13 days | 0% | 📋 Planning |
-| **Track 4: Historical Data Service** | T4.1-T4.3 | ~9-12 days | 0% | 📋 Planning |
+| **Track 1: Data Infrastructure** | T1.1-T1.8 | ~23-28 days | ✅ 100% | Complete (P4T1 + T1.7-T1.8 in P4T2) |
+| **Track 2: Factor & Risk Analytics** | T2.1-T2.8 | ~26-33 days | 🚧 50% | T2.1-T2.4 ✅, T2.5-T2.8 ⏳ |
+| **Track 3: Market Microstructure** | T3.1-T3.3 | ~10-13 days | 🚧 33% | T3.1 ✅, T3.2-T3.3 ⏳ |
+| **Track 4: Historical Data Service** | T4.1-T4.3 | ~9-12 days | ✅ 100% | Complete (P4T1) |
 | **Track 5: Backtest Enhancement** | T5.1-T5.6 | ~18-23 days | 0% | 📋 Planning |
 | **Track 6: Web Console - Core Analytics** | T6.1-T6.6 | ~17-21 days | 0% | 📋 Planning |
 | **Track 7: Web Console - Operations** | T7.1-T7.5 | ~12-16 days | 0% | 📋 Planning |
 | **Track 8: Web Console - Data Management** | T8.1-T8.3 | ~7-10 days | 0% | 📋 Planning |
 | **Track 9: Web Console - Research & Reporting** | T9.1-T9.6 | ~14-19 days | 0% | 📋 Planning |
+
+**P4T2 Task Status (Phase 2 Analytics):**
+| Task | Status | Notes |
+|------|--------|-------|
+| T1.7-T1.8 TAQ Storage/Query | ✅ Complete | |
+| T2.1 Multi-Factor Model | ✅ Complete | |
+| T2.2 Factor Covariance | ✅ Complete | |
+| T2.3 Risk Analytics | ✅ Complete | |
+| T2.4 Optimizer & Stress | ✅ Complete | |
+| T2.5 Alpha Framework | ⏳ Pending | +Qlib metrics adapter |
+| T2.6 Alpha Advanced | ⏳ Pending | |
+| T2.7 Factor Attribution | ⏳ Pending | |
+| T2.8 Model Registry | ⏳ Pending | +DiskExpressionCache |
+| T3.1 Microstructure | ✅ Complete | |
+| T3.2 Execution Quality | ⏳ Pending | |
+| T3.3 Event Study | ⏳ Pending | |
 
 **Total Estimated Effort:** ~135-174 days sequential
 **Parallel Execution:** ~133 days / 19 weeks (assuming 2 developers on parallel tracks)
@@ -97,6 +183,48 @@ With P0-P2 complete and P3 addressing critical issues, **P4 focuses on advanced 
 - Parallel track execution requires 2+ developers or alternating focus
 - Critical path: Track 1 → Track 2 → Track 5 (Data → Analytics → Backtest)
 - Stretch items (can defer to P4b if needed): T3.3 Event Study, T9.3 Notebook Launcher, T9.6 Tax Advanced
+
+### Capacity Plan & Cut-Lines
+
+**Resource Model (2 Developers):**
+
+| Phase | Dev A Focus | Dev B Focus | Dev-Weeks | Buffer |
+|-------|-------------|-------------|-----------|--------|
+| **Phase 1** (Weeks 1-4) | Track 1: T1.1-T1.6 | Track 4: T4.1-T4.3 | 8 dev-weeks | 1 week |
+| **Phase 2** (Weeks 5-10) | Track 2: T2.1-T2.7 | Track 1/3: T1.7-T1.8, T3.1-T3.3, T2.8 | 12 dev-weeks | 2 weeks |
+| **Phase 3** (Weeks 11-14) | Track 5: T5.1-T5.6 | Track 6: T6.1-T6.6 | 8 dev-weeks | 1 week |
+| **Phase 4** (Weeks 15-17) | Track 7: T7.1-T7.5 | Track 8: T8.1-T8.3 | 6 dev-weeks | 1 week |
+| **Phase 5** (Weeks 18-19) | Track 9: T9.1-T9.4 | Track 9: T9.5-T9.6 + Integration | 4 dev-weeks | 1 week |
+
+**Total:** 38 dev-weeks + 6 weeks buffer = 44 dev-weeks (~22 calendar weeks with 2 devs)
+
+**Cut-Line Policy:**
+If burndown exceeds capacity at any phase checkpoint, defer items in this priority order:
+
+| Priority | Items to Defer | Trigger Condition |
+|----------|----------------|-------------------|
+| **Cut-1** (First) | T9.3 Notebook, T9.6 Tax Advanced | Phase 4 >20% over budget |
+| **Cut-2** | T3.3 Event Study, T5.5 Monte Carlo | Phase 3 >20% over budget |
+| **Cut-3** | T6.4 Strategy Compare, T6.5 Trade Journal | Phase 3 >30% over budget |
+| **Cut-4** (Last Resort) | T7.3 Alert Config, T8.3 Data Quality | Phase 2 >40% over budget |
+
+**Integration & Test Buffers (included in phase buffers):**
+- Each phase includes 1-2 weeks buffer for:
+  - Cross-track integration testing
+  - Security review for web console endpoints
+  - Performance benchmarking
+  - Documentation updates
+
+**Burndown Checkpoints:**
+- **Week 4:** Track 1/4 complete → Proceed or escalate
+- **Week 10:** Track 2/3 complete → Cut-1 decision point
+- **Week 14:** Track 5/6 complete → Cut-2 decision point
+- **Week 17:** Track 7/8 complete → Cut-3 decision point
+
+**Related Documentation:**
+- [P4T2_TASK.md](./P4T2_TASK.md) - Detailed Phase 2 task specifications
+- [qlib-comparison.md](../CONCEPTS/qlib-comparison.md) - Qlib integration analysis
+- [ADR-0022-qlib-integration.md](../ADRs/ADR-0022-qlib-integration.md) - Integration architecture decision
 
 ---
 
@@ -110,7 +238,7 @@ Each task is designed as **one PR** with clear boundaries.
 
 ### T1.1: Data Quality & Validation Framework
 **Effort:** 3-4 days | **PR:** `feat(p4): data quality framework`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Priority:** P0 (Foundation - prevents silent corruption)
 
 **Problem:** Bulk downloads can have partial loads, schema changes, or data corruption. Without validation, analytics will produce wrong results silently.
@@ -179,7 +307,7 @@ class DataValidator:
 
 ### T1.2: WRDS Connection & Bulk Sync Manager
 **Effort:** 3-4 days | **PR:** `feat(p4): wrds sync manager`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Priority:** P0 (Foundation for all WRDS data)
 **Dependencies:** T1.1
 
@@ -263,7 +391,7 @@ python scripts/wrds_sync.py --status
 
 ### T1.3: CRSP Local Provider
 **Effort:** 3-4 days | **PR:** `feat(p4): crsp local provider`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Dependencies:** T1.2
 
 **Deliverables:**
@@ -296,7 +424,7 @@ data/wrds/crsp/
 
 ### T1.4: Compustat Local Provider
 **Effort:** 3-4 days | **PR:** `feat(p4): compustat local provider`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Dependencies:** T1.2
 
 **Deliverables:**
@@ -316,7 +444,7 @@ data/wrds/crsp/
 
 ### T1.5: Fama-French Local Provider
 **Effort:** 2-3 days | **PR:** `feat(p4): fama-french local provider`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Dependencies:** T1.2
 
 **Deliverables:**
@@ -335,7 +463,7 @@ data/wrds/crsp/
 
 ### T1.6: Dataset Versioning & Reproducibility
 **Effort:** 3-4 days | **PR:** `feat(p4): dataset versioning`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Priority:** P1 (Critical for research reproducibility)
 **Dependencies:** T1.1
 
@@ -377,8 +505,8 @@ class DatasetVersionManager:
 ---
 
 ### T1.7: TAQ Data Storage & Sync
-**Effort:** 3-4 days | **PR:** `feat(p4): taq storage`
-**Status:** ⏳ Pending
+**Effort:** 3-4 days | **PR:** `feat(P4T2): TAQ Storage and Query Implementation`
+**Status:** ✅ Complete
 **Dependencies:** T1.2
 
 **Note:** Split from original TAQ Pipeline task. This handles storage only.
@@ -410,8 +538,8 @@ TIER 3: SAMPLE DATASETS (Local, ~5-10GB per sample day)
 ---
 
 ### T1.8: TAQ Query Interface
-**Effort:** 2-3 days | **PR:** `feat(p4): taq query interface`
-**Status:** ⏳ Pending
+**Effort:** 2-3 days | **PR:** `feat(P4T2): TAQ Storage and Query Implementation`
+**Status:** ✅ Complete (combined with T1.7)
 **Dependencies:** T1.7
 
 **Deliverables:**
@@ -457,11 +585,16 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 
 **Goal:** Build factor models, risk analytics, and alpha research tools
 
+**Qlib Integration Strategy:** See [P4T2_TASK.md](./P4T2_TASK.md#qlib-integration-strategy) and [qlib-comparison.md](../CONCEPTS/qlib-comparison.md) for comprehensive analysis.
+- **Factor Definitions:** Static Python classes (PIT-safe); FormulaicFactor adapter deferred to Phase 3
+- **Alpha Metrics:** Wrap `qlib.contrib.evaluate` (grouped IC, rank IC) with local fallback
+- **Microstructure:** Polars/DuckDB only; daily aggregates exported to Qlib
+
 ---
 
 ### T2.1: Multi-Factor Model Construction
-**Effort:** 4-5 days | **PR:** `feat(p4): factor builder`
-**Status:** ⏳ Pending
+**Effort:** 4-5 days | **PR:** `feat(P4T2): Multi-Factor Model Construction`
+**Status:** ✅ Complete
 **Dependencies:** T1.3, T1.4
 
 **Deliverables:**
@@ -481,8 +614,8 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 ---
 
 ### T2.2: Risk Model - Covariance Estimation
-**Effort:** 4-5 days | **PR:** `feat(p4): factor covariance estimation`
-**Status:** ⏳ Pending
+**Effort:** 4-5 days | **PR:** `feat(P4T2): Factor Covariance & Specific Risk Estimation`
+**Status:** ✅ Complete
 **Dependencies:** T2.1
 
 **Deliverables:**
@@ -500,8 +633,8 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 ---
 
 ### T2.3: Risk Model - Portfolio Analytics
-**Effort:** 3-4 days | **PR:** `feat(p4): portfolio risk analytics`
-**Status:** ⏳ Pending
+**Effort:** 3-4 days | **PR:** `feat(P4T2): Portfolio Risk Analytics`
+**Status:** ✅ Complete
 **Dependencies:** T2.2
 
 **Note:** Split from original Risk Optimizer task. Analytics only.
@@ -521,8 +654,8 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 ---
 
 ### T2.4: Portfolio Optimizer & Stress Testing
-**Effort:** 3-4 days | **PR:** `feat(p4): portfolio optimizer`
-**Status:** ⏳ Pending
+**Effort:** 3-4 days | **PR:** `feat(P4T2): Portfolio Optimizer & Stress Testing`
+**Status:** ✅ Complete
 **Dependencies:** T2.3
 
 **Deliverables:**
@@ -540,21 +673,23 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 ---
 
 ### T2.5: Alpha Research Framework
-**Effort:** 3-4 days | **PR:** `feat(p4): alpha framework`
+**Effort:** 4-5 days | **PR:** `feat(p4): alpha framework`
 **Status:** ⏳ Pending
-**Dependencies:** T2.1
+**Dependencies:** T2.1, Qlib (for metrics adapter)
 
 **Note:** Split from original Alpha Research task. Framework + core analytics.
 
 **Deliverables:**
 - Alpha signal definition framework
 - Point-in-time backtesting engine
-- Information coefficient (IC) analysis
+- IC/ICIR analysis via **Qlib Analysis adapter** with local fallback
+- **Grouped IC** (per sector) and **Rank IC** (more robust than Pearson)
 - Alpha decay analysis
 
 **Files to Create:**
 - `libs/alpha/research_platform.py`
 - `libs/alpha/alpha_library.py`
+- `libs/alpha/metrics.py` - **Qlib metrics adapter**
 - `tests/libs/alpha/test_research_platform.py`
 - `docs/CONCEPTS/alpha-research.md`
 
@@ -565,30 +700,35 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 **Status:** ⏳ Pending
 **Dependencies:** T2.5
 
-**Deliverables:**
-- Overfitting detection (out-of-sample testing)
+**Deliverables (Core):**
 - Alpha combiner (composite signal construction)
 - Signal correlation analysis
+- Qlib turnover analysis integration
+
+**Deliverables (STRETCH - defer if behind at Week 9):**
+- Overfitting detection (out-of-sample testing)
 - Multiple testing correction (Bonferroni, FDR)
 
 **Files to Create:**
 - `libs/alpha/alpha_combiner.py`
-- `libs/alpha/overfitting_detection.py`
+- `libs/alpha/overfitting_detection.py` - **STRETCH**
 - `tests/libs/alpha/test_alpha_combiner.py`
-- `docs/CONCEPTS/alpha-overfitting.md`
+- `docs/CONCEPTS/alpha-overfitting.md` - **STRETCH**
 
 ---
 
 ### T2.7: Factor Attribution Analysis
 **Effort:** 3-4 days | **PR:** `feat(p4): factor attribution`
 **Status:** ⏳ Pending
-**Dependencies:** T2.1, T1.5
+**Dependencies:** T2.1, T1.5 (Fama-French provider)
 
-**Deliverables:**
-- Fama-French regression for strategy returns
+**Deliverables (Core):**
+- Fama-French regression (3/5/6-factor) - reuses T1.5 provider
 - Rolling factor exposure tracking
-- Conditional attribution (up/down markets)
 - Attribution dashboard output
+
+**Deliverables (STRETCH):**
+- Conditional attribution (up/down markets)
 
 **Files to Create:**
 - `libs/analytics/attribution.py`
@@ -598,10 +738,12 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 ---
 
 ### T2.8: Model Registry Integration
-**Effort:** 3-4 days | **PR:** `feat(p4): model registry`
+**Effort:** 5-6 days | **PR:** `feat(p4): model registry`
 **Status:** ⏳ Pending
 **Priority:** P1 (Research-to-Production bridge)
-**Dependencies:** T2.4, T2.6
+**Dependencies:** T2.4, T2.6, T1.6 (Dataset Versioning)
+
+**Note:** Effort increased from 3-4d to 4-5d due to schema additions.
 
 **Problem:** No clear path to deploy trained risk models or factor definitions to production.
 
@@ -610,10 +752,14 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 - Model registry (versioned storage)
 - Production model loader
 - Integration with signal_service
+- **NEW:** Training config capture (`config` + `config_hash`)
+- **NEW:** DatasetVersionManager snapshot linkage
+- **NEW:** `feature_formulas` placeholder (Phase 3)
 
 **Files to Create:**
 - `libs/models/registry.py`
 - `libs/models/serialization.py`
+- `libs/models/loader.py` - Production model loader
 - `tests/libs/models/test_registry.py`
 - `docs/CONCEPTS/model-registry.md`
 - `docs/ADRs/ADR-XXX-model-deployment.md`
@@ -628,12 +774,12 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 | T2.2 Covariance Est. | 4-5d | Risk model math | `feat(p4): factor covariance estimation` |
 | T2.3 Risk Analytics | 3-4d | Portfolio analytics | `feat(p4): portfolio risk analytics` |
 | T2.4 Risk Optimizer | 3-4d | Optimization | `feat(p4): portfolio optimizer` |
-| T2.5 Alpha Framework | 3-4d | Alpha platform | `feat(p4): alpha framework` |
-| T2.6 Alpha Advanced | 2-3d | Overfitting/combiner | `feat(p4): alpha advanced` |
-| T2.7 Attribution | 3-4d | Factor attribution | `feat(p4): factor attribution` |
-| T2.8 Model Registry | 3-4d | Deployment bridge | `feat(p4): model registry` |
+| T2.5 Alpha Framework | **4-5d** | Alpha + Qlib metrics | `feat(p4): alpha framework` |
+| T2.6 Alpha Advanced | 2-3d | Combiner (stretch: overfitting) | `feat(p4): alpha advanced` |
+| T2.7 Attribution | 3-4d | FF regression (stretch: conditional) | `feat(p4): factor attribution` |
+| T2.8 Model Registry | **5-6d** | Deployment + config tracking | `feat(p4): model registry` |
 
-**Total Track 2:** ~23-29 days
+**Total Track 2:** ~28-36 days (increased due to T2.5 metrics and T2.8 schema additions)
 
 ---
 
@@ -644,9 +790,11 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 ---
 
 ### T3.1: Microstructure Analytics
-**Effort:** 4-5 days | **PR:** `feat(p4): microstructure analytics`
-**Status:** ⏳ Pending
-**Dependencies:** T1.7
+**Effort:** 4-5 days | **PR:** `feat(P4T2): Microstructure Analytics Library`
+**Status:** ✅ Complete
+**Dependencies:** T1.7, T1.8
+
+**⚠️ Architectural Constraint:** All TAQ feature generation (RV, VPIN, spread, depth) implemented in **Polars/DuckDB only**. Daily aggregates exported to Qlib via Parquet. See [P4T2_TASK.md](./P4T2_TASK.md#qlib-integration-strategy).
 
 **Deliverables:**
 - Realized volatility calculation (5-min sampling)
@@ -654,6 +802,7 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 - HAR volatility forecasting model
 - VPIN (Volume-synchronized PIN) calculation
 - Spread and depth analysis
+- **Multi-horizon Parquet exports** (daily, 30min, 5min)
 
 **Files to Create:**
 - `libs/analytics/microstructure.py`
@@ -721,7 +870,7 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 
 ### T4.1: yfinance Integration
 **Effort:** 3-4 days | **PR:** `feat(p4): yfinance provider`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Priority:** P0 (Free data source for development)
 
 **Important:** yfinance lacks survivorship handling and corporate actions. Gate to dev-only; production backtests must use CRSP.
@@ -741,7 +890,7 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 
 ### T4.2: Unified Data Fetcher
 **Effort:** 3-4 days | **PR:** `feat(p4): unified data fetcher`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Dependencies:** T4.1, T1.3
 
 **Deliverables:**
@@ -762,7 +911,7 @@ TIER 2: ON-DEMAND QUERIES (WRDS Direct, no local storage)
 
 ### T4.3: Data Storage & ETL Pipeline
 **Effort:** 3-4 days | **PR:** `feat(p4): historical etl pipeline`
-**Status:** ⏳ Pending
+**Status:** ✅ Complete (P4T1)
 **Dependencies:** T4.2
 
 **Deliverables:**
@@ -1690,6 +1839,9 @@ The following strategy implementations will be built in P5 using the P4 research
 
 ---
 
+## Known Limitations & Tech Debt
+All P4 tech-debt items TD-001 through TD-005 were addressed on 2025-12-09. No outstanding items remain for this phase.
+
 ## Related Documents
 
 - [P3_PLANNING.md](./P3_PLANNING.md) - Previous phase (Issue Remediation)
@@ -1700,6 +1852,6 @@ The following strategy implementations will be built in P5 using the P4 research
 
 ---
 
-**Last Updated:** 2025-12-03
-**Status:** Planning (0% complete, 0/9 tracks, 48 PRs)
-**Next Review:** After P3 completion
+**Last Updated:** 2025-12-09
+**Status:** In Progress (P4T2 Complete, Track 1 ✅, Track 2 ✅, Track 3 ✅)
+**Next Review:** PR Review for P4T2

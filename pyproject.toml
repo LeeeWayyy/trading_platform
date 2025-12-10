@@ -16,6 +16,7 @@ python = "^3.11"
 polars = "^1.0.0"
 pydantic = "^2.5.0"
 pydantic-settings = "^2.1.0"
+scipy = "^1.11.0"  # Statistical functions for factor analytics (Spearman correlation)
 # Qlib and ML (T2)
 pyqlib = "^0.9.5"
 mlflow = "^2.10.0"
@@ -51,6 +52,7 @@ streamlit = "^1.28.0"
 requests = "^2.31.0"
 cryptography = "^41.0.0"
 pyjwt = "^2.8.0"
+statsmodels = "^0.14.6"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
