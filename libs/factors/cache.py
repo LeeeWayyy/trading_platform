@@ -233,16 +233,28 @@ class DiskExpressionCache:
         )
         df = compute_fn()
 
-        # Store in cache
+        # Store in cache with rollback on index failure to prevent orphaned files
         self._atomic_write_parquet(cache_path, df)
 
-        # Update metadata index for invalidation support
-        self._update_index(
-            filename=cache_path.name,
-            snapshot_id=snapshot_id,
-            version_ids=version_ids,
-            config_hash=config_hash,
-        )
+        try:
+            # Update metadata index for invalidation support
+            self._update_index(
+                filename=cache_path.name,
+                snapshot_id=snapshot_id,
+                version_ids=version_ids,
+                config_hash=config_hash,
+            )
+        except Exception as idx_err:
+            # Rollback: delete orphaned parquet file if index update fails
+            logger.error(
+                f"Index update failed, rolling back cache file: {idx_err}",
+                extra={"path": str(cache_path)},
+            )
+            try:
+                cache_path.unlink(missing_ok=True)
+            except OSError as del_err:
+                logger.error(f"Failed to rollback cache file {cache_path}: {del_err}")
+            raise  # Re-raise original error
 
         logger.info(
             "Cached computed factor",
@@ -465,13 +477,17 @@ class DiskExpressionCache:
         return count
 
     def cleanup_expired(self, ttl_days: int | None = None) -> int:
-        """Remove expired cache entries.
+        """Remove expired cache entries and orphaned files.
+
+        This method handles both:
+        1. Expired entries (based on TTL)
+        2. Orphaned files (files on disk not in index, e.g., from failed index updates)
 
         Args:
             ttl_days: Override TTL for cleanup (default: self.ttl_days).
 
         Returns:
-            Number of entries removed.
+            Number of entries removed (includes orphans).
         """
         ttl = ttl_days if ttl_days is not None else self.ttl_days
         cutoff = datetime.now(UTC) - timedelta(days=ttl)
@@ -489,6 +505,13 @@ class DiskExpressionCache:
                     ).fetchall()
                 ]
 
+                # Get all indexed filenames for orphan detection
+                indexed_files = {
+                    row[0]
+                    for row in conn.execute("SELECT filename FROM cache_index").fetchall()
+                }
+
+            # Remove expired entries from disk
             for filename in filenames:
                 path = self.cache_dir / filename
                 try:
@@ -499,8 +522,22 @@ class DiskExpressionCache:
 
             self._delete_index_entries(filenames)
 
+            # Clean up orphaned files (files on disk but not in index)
+            orphan_count = 0
+            for path in self.cache_dir.glob(f"*{self.FILE_EXTENSION}"):
+                if path.name not in indexed_files:
+                    try:
+                        path.unlink()
+                        orphan_count += 1
+                        logger.debug(f"Removed orphaned cache file: {path.name}")
+                    except OSError as e:
+                        logger.warning(f"Failed to delete orphan {path}: {e}")
+
+            if orphan_count > 0:
+                logger.info(f"Cleaned up {orphan_count} orphaned cache files")
+
         logger.info(f"Cleaned up {count} expired cache entries (TTL: {ttl} days)")
-        return count
+        return count + orphan_count
 
     # =========================================================================
     # Statistics

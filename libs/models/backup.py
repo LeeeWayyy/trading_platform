@@ -120,8 +120,8 @@ class RegistryBackupManager:
         self._restore_lock_file = open(self._restore_lock_path, "a+")
         try:
             logger.info("Acquiring restore lock")
-            # Use LOCK_NB to fail fast if locked. Waiting is dangerous because the
-            # previous owner will unlink the file, and we would lock a deleted file.
+            # Use LOCK_NB to fail fast if locked. This provides immediate feedback
+            # rather than blocking indefinitely when another restore is in progress.
             fcntl.flock(self._restore_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
             # Truncate and write info after acquiring lock
@@ -146,7 +146,7 @@ class RegistryBackupManager:
                 self._restore_lock_file = None
             raise
         finally:
-            if self._restore_lock_depth == 1: # Only releasing if we acquired it
+            if self._restore_lock_depth == 1:  # Only releasing if we acquired it
                 self._restore_lock_depth = 0
                 if self._restore_lock_file:
                     try:
@@ -155,11 +155,10 @@ class RegistryBackupManager:
                     except Exception as e:
                         logger.error(f"Error releasing restore lock: {e}")
                     self._restore_lock_file = None
-                    # Remove lock file after successful release
-                    try:
-                        self._restore_lock_path.unlink()
-                    except FileNotFoundError:
-                        pass
+                    # NOTE: Do NOT unlink lock file. Unlinking after LOCK_UN creates
+                    # a race where another process can acquire lock on deleted inode,
+                    # then a third process creates new file and acquires its own lock.
+                    # Keeping the file ensures all processes lock the same inode.
                     logger.info("Released restore lock")
             elif self._restore_lock_depth > 1:
                 # Reentrant release - just decrement
@@ -220,10 +219,10 @@ class RegistryBackupManager:
                     except Exception as e:
                         logger.error(f"Error releasing backup lock: {e}")
                     self._backup_lock_file = None
-                    try:
-                        self._backup_lock_path.unlink()
-                    except FileNotFoundError:
-                        pass
+                    # NOTE: Do NOT unlink lock file. Unlinking after LOCK_UN creates
+                    # a race where another process can acquire lock on deleted inode,
+                    # then a third process creates new file and acquires its own lock.
+                    # Keeping the file ensures all processes lock the same inode.
                     logger.info("Released backup lock")
             elif self._backup_lock_depth > 1:
                 self._backup_lock_depth -= 1

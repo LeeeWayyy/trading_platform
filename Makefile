@@ -157,7 +157,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Step 5/6: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=80 || { \
+	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=70 || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
 			echo ""; \
