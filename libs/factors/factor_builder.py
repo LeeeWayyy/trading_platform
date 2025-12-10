@@ -9,11 +9,12 @@ All computations are point-in-time (PIT) correct with full reproducibility.
 
 import hashlib
 import logging
+from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Literal, NamedTuple, Protocol, cast
+from typing import Literal
 
 import polars as pl
 
@@ -151,7 +152,8 @@ class FactorBuilder:
         ).hexdigest()[:16]
         config_hash = hashlib.sha256(
             f"{self.config.winsorize_pct}:{self.config.neutralize_sector}:"
-            f"{self.config.min_stocks_per_sector}:{self.config.lookback_days}".encode()
+            f"{self.config.min_stocks_per_sector}:{self.config.lookback_days}:"
+            f"{self.config.report_date_column or ''}".encode()
         ).hexdigest()[:16]
         snapshot_component = f":{snapshot_id}" if snapshot_id else ""
         snapshot_date_component = f":{snapshot_date}" if snapshot_date else ""
@@ -316,10 +318,9 @@ class FactorBuilder:
         if weights == "equal":
             w = [1.0 / len(factor_names)] * len(factor_names)
         elif weights == "ic_weighted":
-            # TODO: Implement IC-weighted combination
-            # For now, fall back to equal weights
-            logger.warning("IC-weighted not yet implemented, using equal weights")
-            w = [1.0 / len(factor_names)] * len(factor_names)
+            raise NotImplementedError(
+                "IC-weighted composite not implemented; supply explicit weights or use 'equal'."
+            )
         else:
             if len(weights) != len(factor_names):
                 raise ValueError(
@@ -487,19 +488,25 @@ class FactorBuilder:
         )
 
     def _get_pit_sector_mappings(
-        self, permnos: list[int], as_of_date: date
+        self,
+        permnos: list[int],
+        as_of_date: date,
+        report_date_column: str | None = None,
     ) -> pl.DataFrame:
         """
         Get point-in-time sector mappings for securities.
 
         PIT Sector Retrieval:
         - Uses Compustat GICS codes from the most recent AVAILABLE filing
-        - Respects filing lag: sector = sector from filing where datadate + lag <= as_of_date
-        - This prevents leaking future sector reclassifications into historical analysis
+        - Uses the provided report date column when available to gate PIT exposure
+        - Falls back to a conservative filing lag when report dates are unavailable
 
         Args:
             permnos: List of CRSP PERMNOs
             as_of_date: Point-in-time date
+            report_date_column: Optional actual report/public date column (e.g., rdq).
+                When provided and present, PIT filtering uses this column; otherwise a
+                conservative 90-day filing lag is applied.
 
         Returns:
             DataFrame with columns: permno, gics_sector (2-digit code)
@@ -520,11 +527,25 @@ class FactorBuilder:
             fundamentals = fundamentals.filter(pl.col("permno").is_in(permnos))
 
         # CRITICAL: Apply filing lag to prevent look-ahead bias in sector assignments
-        # Only use fundamentals where datadate <= filing_cutoff (90 days before as_of_date)
-        if "datadate" in fundamentals.columns:
-            fundamentals = fundamentals.filter(pl.col("datadate") <= filing_cutoff)
-        elif "date" in fundamentals.columns:
-            fundamentals = fundamentals.filter(pl.col("date") <= filing_cutoff)
+        # Prefer actual report/public dates when available; otherwise use filing lag.
+        if report_date_column and report_date_column in fundamentals.columns:
+            fundamentals = fundamentals.filter(
+                pl.col(report_date_column).is_not_null()
+                & (pl.col(report_date_column) <= pl.lit(as_of_date))
+            )
+        else:
+            if report_date_column:
+                logger.warning(
+                    "report_date_column '%s' not found; applying %s-day filing lag fallback",
+                    report_date_column,
+                    FILING_LAG_DAYS,
+                )
+
+            # Only use fundamentals where datadate <= filing_cutoff (90 days before as_of_date)
+            if "datadate" in fundamentals.columns:
+                fundamentals = fundamentals.filter(pl.col("datadate") <= filing_cutoff)
+            elif "date" in fundamentals.columns:
+                fundamentals = fundamentals.filter(pl.col("date") <= filing_cutoff)
 
         # Handle empty fundamentals
         if fundamentals.height == 0:
@@ -578,7 +599,11 @@ class FactorBuilder:
             DataFrame with sector-neutralized values
         """
         permnos = df.select("permno").to_series().to_list()
-        sectors = self._get_pit_sector_mappings(permnos, as_of_date)
+        sectors = self._get_pit_sector_mappings(
+            permnos,
+            as_of_date,
+            report_date_column=self.config.report_date_column,
+        )
 
         # Join sector mappings
         df_with_sector = df.join(sectors, on="permno", how="left")
@@ -648,8 +673,8 @@ class FactorBuilder:
                     {
                         "compustat_annual": _build_sync_manifest_from_snapshot(
                             dataset="compustat_annual",
-                            snapshot=cast(SnapshotManifest, comp_snapshot),
-                            data_path=cast(Path, comp_path),
+                            snapshot=comp_snapshot,  # Narrowed by conditional
+                            data_path=comp_path,
                         )
                     }
                     if comp_snapshot is not None and comp_path is not None
@@ -666,14 +691,16 @@ class FactorBuilder:
         )
 
     @contextmanager
-    def _use_snapshot_manifests(self, adapter: "SnapshotManifestAdapter"):
+    def _use_snapshot_manifests(
+        self, adapter: "SnapshotManifestAdapter"
+    ) -> Iterator[None]:
         """Temporarily swap provider manifest managers to snapshot adapter."""
 
         original_crsp = getattr(self.crsp, "manifest_manager", None)
         original_comp = getattr(self.compustat, "manifest_manager", None)
 
-        self.crsp.manifest_manager = adapter
-        self.compustat.manifest_manager = adapter
+        self.crsp.manifest_manager = adapter  # type: ignore[assignment]
+        self.compustat.manifest_manager = adapter  # type: ignore[assignment]
 
         try:
             yield

@@ -24,8 +24,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import sqlite3
 import shutil
+import sqlite3
 import tempfile
 import threading
 from collections.abc import Callable
@@ -480,10 +480,12 @@ class DiskExpressionCache:
         with self._lock:
             cutoff_ts = int(cutoff.timestamp())
             with self._index_connection() as conn:
+                # Use <= to ensure entries at the cutoff boundary (e.g., TTL=0)
+                # are treated as expired rather than lingering.
                 filenames = [
                     row[0]
                     for row in conn.execute(
-                        "SELECT filename FROM cache_index WHERE created_at < ?", (cutoff_ts,)
+                        "SELECT filename FROM cache_index WHERE created_at <= ?", (cutoff_ts,)
                     ).fetchall()
                 ]
 

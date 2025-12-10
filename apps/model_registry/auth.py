@@ -26,15 +26,16 @@ logger = logging.getLogger(__name__)
 MODEL_REGISTRY_CONFIG: dict[str, dict[str, str | float | int | list[str]]] = {
     "auth": {
         "type": "bearer",
-        "token_env": "MODEL_REGISTRY_TOKEN",
+        "token_env": "MODEL_REGISTRY_READ_TOKEN",
         "scopes_required": ["model:read"],  # default scope
     },
     "timeout": {"connect": 5.0, "read": 30.0, "write": 60.0},
     "retry": {"max_attempts": 3, "backoff_base": 1.0, "backoff_factor": 2.0},
 }
 
-
-_AUTH_TOKEN_ENV_VAR = "MODEL_REGISTRY_TOKEN"
+_AUTH_TOKEN_ENV_VAR = "MODEL_REGISTRY_TOKEN"  # Legacy shared token (read-only fallback)
+_READ_TOKEN_ENV_VAR = "MODEL_REGISTRY_READ_TOKEN"
+_ADMIN_TOKEN_ENV_VAR = "MODEL_REGISTRY_ADMIN_TOKEN"
 
 
 # =============================================================================
@@ -59,23 +60,37 @@ class ServiceToken:
 security = HTTPBearer(auto_error=False)
 
 
-def _get_expected_token() -> str | None:
-    """Get expected token from environment."""
-    return os.environ.get(_AUTH_TOKEN_ENV_VAR)
+def _get_expected_tokens() -> dict[str, str]:
+    """Get configured tokens keyed by access level."""
+
+    tokens: dict[str, str] = {}
+
+    admin_token = os.environ.get(_ADMIN_TOKEN_ENV_VAR)
+    read_token = os.environ.get(_READ_TOKEN_ENV_VAR)
+    legacy_token = os.environ.get(_AUTH_TOKEN_ENV_VAR)
+
+    if admin_token:
+        tokens["admin"] = admin_token
+    if read_token:
+        tokens["read"] = read_token
+    if legacy_token:
+        # Legacy shared token is treated as read-only for safety
+        tokens["legacy_read"] = legacy_token
+
+    return tokens
 
 
 def _parse_token_scopes(token: str) -> list[str]:
     """Parse scopes from token.
 
-    DESIGN NOTE: This simple bearer token auth grants admin scope to all
-    authenticated requests. For production systems requiring granular
-    scope separation, implement JWT-based auth with scope claims.
+    DESIGN NOTE: For production systems requiring granular scope separation,
+    implement JWT-based auth with scope claims. This helper only supports
+    shared bearer tokens with two tiers of access.
 
     Current behavior:
-    - Token matches MODEL_REGISTRY_TOKEN -> all scopes (admin)
-    - Token format "service:scope1,scope2" -> parsed scopes (unreachable
-      since verify_token rejects non-matching tokens)
-    - Other -> read-only (unreachable for same reason)
+    - MODEL_REGISTRY_ADMIN_TOKEN -> admin scopes
+    - MODEL_REGISTRY_READ_TOKEN or legacy MODEL_REGISTRY_TOKEN -> read-only
+    - Unknown/unsigned tokens -> no scopes (fail closed)
 
     Args:
         token: Bearer token string.
@@ -83,24 +98,28 @@ def _parse_token_scopes(token: str) -> list[str]:
     Returns:
         List of scopes.
     """
-    # For simple bearer token auth, if token matches env var, grant all scopes
-    # NOTE: This means scope checks only prevent unauthenticated access,
-    # not unauthorized scope access. Use JWT for real scope separation.
-    expected = _get_expected_token()
-    # Use constant-time comparison to prevent timing attacks
-    if expected and secrets.compare_digest(token, expected):
+    expected_tokens = _get_expected_tokens()
+    admin_token = expected_tokens.get("admin")
+    read_tokens = [
+        expected_tokens.get("read"),
+        expected_tokens.get("legacy_read"),
+    ]
+
+    # Admin token is explicitly configured and grants full scopes
+    if admin_token and secrets.compare_digest(token, admin_token):
         return ["model:read", "model:write", "model:admin"]
 
-    # NOTE: The branches below are intentionally kept for future JWT-based
-    # scoped tokens. Today verify_token enforces an exact match to the
-    # MODEL_REGISTRY_TOKEN, so these paths are unreachable and effectively
-    # serve as documentation/placeholders for that future implementation.
-    if ":" in token:
-        parts = token.split(":", 1)
-        if len(parts) == 2:
-            return parts[1].split(",")
+    # Shared/legacy tokens are read-only for safety
+    for candidate in read_tokens:
+        if candidate and secrets.compare_digest(token, candidate):
+            return ["model:read"]
 
-    return ["model:read"]
+    # Unknown token -> no scopes.  IMPORTANT: Do **not** accept arbitrary
+    # "service:scope" bearer tokens here because the token value has not been
+    # authenticated. Allowing free-form scopes would let any caller mint an
+    # admin token by sending `foo:model:admin`. Until we introduce signed JWTs
+    # or HMAC tokens, only configured secrets are trusted.
+    return []
 
 
 def _parse_service_name(token: str) -> str:
@@ -183,23 +202,24 @@ async def verify_token(
 
     token = credentials.credentials
 
-    # Verify token against expected value - REQUIRED in production
-    expected = _get_expected_token()
-    if not expected:
+    configured_tokens = _get_expected_tokens()
+    if not configured_tokens:
         # Fail closed: reject all requests if no token is configured
         logger.error(
-            "Authentication failed: MODEL_REGISTRY_TOKEN environment variable not set"
+            "Authentication failed: no MODEL_REGISTRY_* tokens configured"
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Authentication not configured - MODEL_REGISTRY_TOKEN required",
+            detail=(
+                "Authentication not configured - set MODEL_REGISTRY_READ_TOKEN and/or "
+                "MODEL_REGISTRY_ADMIN_TOKEN"
+            ),
         )
 
-    # Use constant-time comparison to prevent timing attacks
-    if not secrets.compare_digest(token, expected):
-        # Reject non-matching tokens
+    scopes = _parse_token_scopes(token)
+    if not scopes:
         logger.warning(
-            "Token verification failed: token does not match expected value",
+            "Token verification failed: token not recognized for configured scopes",
             extra={"token_prefix": token[:8] + "..." if len(token) > 8 else "***"},
         )
         raise HTTPException(
@@ -208,7 +228,6 @@ async def verify_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    scopes = _parse_token_scopes(token)
     service = _parse_service_name(token)
 
     return ServiceToken(token=token, scopes=scopes, service_name=service)

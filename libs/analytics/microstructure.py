@@ -19,16 +19,19 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from numpy.typing import NDArray
 import polars as pl
+from numpy.lib.stride_tricks import sliding_window_view
+from numpy.typing import NDArray
 from scipy.stats import norm  # type: ignore[import-untyped]
+
 try:  # Optional acceleration path
-    from numba import List as NumbaList, njit
+    from numba import List as NumbaList  # type: ignore[import-not-found]
+    from numba import njit
 
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - fallback when numba not installed
     NUMBA_AVAILABLE = False
-    njit = None  # type: ignore
+    njit = None
 
 from libs.data_quality.exceptions import DataNotFoundError
 
@@ -495,8 +498,6 @@ class MicrostructureAnalyzer:
         sigma and BVC probabilities to minimize per-iteration overhead.
         The bucket filling loop remains sequential due to volume split logic.
         """
-        n = len(log_returns)
-
         # Pre-compute rolling sigma using vectorized operations (PERFORMANCE CRITICAL)
         # This replaces O(n * sigma_lookback) with O(n) complexity
         sigma_arr = self._compute_rolling_sigma_vectorized(log_returns, sigma_lookback)
@@ -685,27 +686,11 @@ class MicrostructureAnalyzer:
         if n < lookback or lookback < 2:
             return sigma_arr
 
-        # Pad with zeros for consistent indexing at boundaries
-        padded = np.concatenate([np.zeros(lookback), log_returns])
+        # Two-pass approach using sliding windows to avoid catastrophic cancellation
+        windows = sliding_window_view(log_returns.astype(np.float64), lookback)
+        window_variances = windows.var(axis=1, ddof=1)
 
-        # Compute cumulative sums once (O(n))
-        cumsum = np.cumsum(padded)
-        cumsum_sq = np.cumsum(padded ** 2)
-
-        # Vectorized rolling sum computation using array slicing
-        # window_sum[i] = cumsum[i + lookback] - cumsum[i] for positions in padded
-        # Which corresponds to original positions 0..n-1
-        window_sum = cumsum[lookback:] - cumsum[:-lookback]
-        window_sum_sq = cumsum_sq[lookback:] - cumsum_sq[:-lookback]
-
-        # Compute variance with Bessel correction (ddof=1)
-        mean = window_sum / lookback
-        variance = (window_sum_sq / lookback) - (mean ** 2)
-        variance = variance * lookback / (lookback - 1)
-
-        # Handle numerical precision issues (small negative values)
-        variance = np.maximum(variance, 0.0)
-        sigma_arr = np.sqrt(variance)
+        sigma_arr[lookback - 1 :] = np.sqrt(np.maximum(window_variances, 0.0))
 
         return sigma_arr
 
@@ -1104,8 +1089,8 @@ def _bucket_arrays_to_dicts(
 
 if NUMBA_AVAILABLE:
 
-    @njit  # type: ignore[misc]
-    def _compute_vpin_buckets_numba(
+    @njit
+    def _compute_vpin_buckets_numba(  # type: ignore[no-untyped-def]
         v_buy_arr,
         v_sell_arr,
         sizes,
@@ -1129,8 +1114,8 @@ if NUMBA_AVAILABLE:
         current_bucket_v_sell = 0.0
         sigma_zero_contaminated = False
 
-        v_buy_history = NumbaList()  # type: ignore[var-annotated]
-        v_sell_history = NumbaList()  # type: ignore[var-annotated]
+        v_buy_history = NumbaList()
+        v_sell_history = NumbaList()
 
         n = len(v_buy_arr)
         for i in range(sigma_lookback, n):
@@ -1238,5 +1223,5 @@ if NUMBA_AVAILABLE:
 
 else:
 
-    def _compute_vpin_buckets_numba(*_args: Any, **_kwargs: Any):  # pragma: no cover - fallback stub
+    def _compute_vpin_buckets_numba(*_args: Any, **_kwargs: Any) -> None:  # pragma: no cover - fallback stub
         raise RuntimeError("Numba not available")

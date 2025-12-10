@@ -72,6 +72,7 @@ class FactorConfig:
     neutralize_sector: bool = True  # Sector-neutralize factors
     min_stocks_per_sector: int = 5  # Minimum for neutralization
     lookback_days: int = 365  # Calendar days for price data fetch (supports 12-month momentum)
+    report_date_column: str | None = None  # Optional actual report/public date for PIT filtering
 
 
 @dataclass

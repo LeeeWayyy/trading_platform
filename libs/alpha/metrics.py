@@ -311,7 +311,6 @@ class QlibMetrics:
         Returns:
             Pearson correlation coefficient
         """
-        import pandas as pd
 
         # Convert to pandas for Qlib compatibility
         sig_pd = signal.to_pandas().dropna()
@@ -326,7 +325,7 @@ class QlibMetrics:
         ret_aligned = ret_pd.loc[common_idx]
 
         # Use scipy stats for Pearson (Qlib uses this internally)
-        from scipy.stats import pearsonr
+        from scipy.stats import pearsonr  # type: ignore[import-untyped]
 
         corr, _ = pearsonr(sig_aligned, ret_aligned)
         return float(corr)
@@ -342,7 +341,6 @@ class QlibMetrics:
         Returns:
             Spearman correlation coefficient
         """
-        import pandas as pd
 
         # Convert to pandas for Qlib compatibility
         sig_pd = signal.to_pandas().dropna()

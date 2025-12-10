@@ -21,6 +21,8 @@ def acquire_lock_worker(
     writer_id: str,
     result_queue: multiprocessing.Queue,  # type: ignore[type-arg]
     timeout: float = 5.0,
+    hold_time: float = 0.5,
+    acquired_event: multiprocessing.Event | None = None,
 ) -> None:
     """Worker function to acquire lock from separate process."""
     # Import inside worker to avoid pickle issues
@@ -29,13 +31,15 @@ def acquire_lock_worker(
     lock = AtomicFileLock(Path(lock_dir), dataset, writer_id)
     try:
         token = lock.acquire(timeout_seconds=timeout)
+        if acquired_event is not None:
+            acquired_event.set()
         result_queue.put({
             "success": True,
             "pid": os.getpid(),
             "writer_id": writer_id,
         })
         # Hold lock briefly
-        time.sleep(0.5)
+        time.sleep(hold_time)
         lock.release(token)
     except LockAcquisitionError:
         result_queue.put({
@@ -89,20 +93,25 @@ class TestLockContention:
         result_queue: multiprocessing.Queue[dict[str, Any]] = multiprocessing.Queue()
 
         # Start two processes trying to acquire the same lock
-        # Use short timeout (0.3s) which is less than hold time (0.5s)
-        # so second process times out while first holds the lock
+        # Use handshake to ensure the first process holds the lock before starting
+        # the second. Hold time is longer than the second process timeout so the
+        # second process deterministically times out while waiting.
+        acquired_event = multiprocessing.Event()
+
         p1 = multiprocessing.Process(
             target=acquire_lock_worker,
-            args=(str(mp_lock_dir), "test_dataset", "writer1", result_queue, 0.3),
+            args=(str(mp_lock_dir), "test_dataset", "writer1", result_queue),
+            kwargs={"timeout": 2.0, "hold_time": 1.0, "acquired_event": acquired_event},
         )
         p2 = multiprocessing.Process(
             target=acquire_lock_worker,
-            args=(str(mp_lock_dir), "test_dataset", "writer2", result_queue, 0.3),
+            args=(str(mp_lock_dir), "test_dataset", "writer2", result_queue),
+            kwargs={"timeout": 0.2},
         )
 
         p1.start()
-        # Small delay to ensure p1 acquires first
-        time.sleep(0.05)
+        # Wait for first process to acquire lock before starting second
+        assert acquired_event.wait(2.0), "First process failed to acquire lock in time"
         p2.start()
 
         p1.join(timeout=10)

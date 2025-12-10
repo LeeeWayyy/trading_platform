@@ -307,7 +307,6 @@ class ProductionModelLoader:
 
         # Check cache
         cache_key = f"{model_type}/{version}"
-        is_loader = False
         event: threading.Event | None = None
 
         # Coordination loop to avoid thundering herd on cache miss
@@ -321,8 +320,7 @@ class ProductionModelLoader:
                 if event is None:
                     event = threading.Event()
                     self._inflight[cache_key] = event
-                    is_loader = True
-                    break
+                    break  # This thread becomes the loader
 
             # Another thread is loading this model; wait for completion
             assert event is not None

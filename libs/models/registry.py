@@ -126,7 +126,8 @@ CREATE TABLE IF NOT EXISTS models (
     experiment_id VARCHAR,
     run_id VARCHAR,
     dataset_uri VARCHAR,
-    qlib_version VARCHAR
+    qlib_version VARCHAR,
+    CONSTRAINT models_model_type_version_unique UNIQUE (model_type, version)
 );
 
 CREATE TABLE IF NOT EXISTS promotion_history (
@@ -138,7 +139,7 @@ CREATE TABLE IF NOT EXISTS promotion_history (
     changed_by VARCHAR NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_models_type_status ON models(model_type, status);
+CREATE INDEX IF NOT EXISTS idx_models_model_type ON models(model_type);
 CREATE INDEX IF NOT EXISTS idx_models_snapshot ON models(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_promotion_history_model ON promotion_history(model_id);
 """
@@ -212,6 +213,9 @@ class ModelRegistry:
         """Initialize database schema."""
         with self._get_connection() as conn:
             conn.execute(SCHEMA_SQL)
+            # Drop legacy index that conflicts with DuckDB unique constraint updates
+            # (see DuckDB 0.9.2 unique + secondary index bug). Safe to run repeatedly.
+            conn.execute("DROP INDEX IF EXISTS idx_models_type_status")
 
     def _check_restore_lock(self) -> None:
         """Check if restore is in progress and fail fast if so.
@@ -371,11 +375,7 @@ class ModelRegistry:
                         f"snapshot has {snapshot_version}",
                     )
 
-        # 3. Check version doesn't exist
-        if self._version_exists(metadata.model_type.value, metadata.version):
-            raise VersionExistsError(metadata.model_type.value, metadata.version)
-
-        # 4. Serialize artifact
+        # 3. Serialize artifact
         artifact_dir = (
             self.artifacts_dir / metadata.model_type.value / metadata.version
         )
@@ -390,12 +390,18 @@ class ModelRegistry:
         metadata_dict = metadata.model_dump()
         metadata_dict["checksum_sha256"] = artifact_info.checksum
 
-        # 5. Insert into database (with cleanup on failure)
+        # 4. Insert into database (with cleanup on failure)
         # Use explicit transaction so both inserts succeed or fail together
         # Cleanup orphan artifacts if DB operations fail
         with self._get_connection() as conn:
             try:
                 conn.execute("BEGIN TRANSACTION")
+                if self._version_exists(
+                    metadata.model_type.value, metadata.version, conn=conn
+                ):
+                    raise VersionExistsError(
+                        metadata.model_type.value, metadata.version
+                    )
                 conn.execute(
                     """
                     INSERT INTO models (
@@ -435,6 +441,27 @@ class ModelRegistry:
                     [metadata.model_id, "", ModelStatus.staged.value, changed_by],
                 )
                 conn.execute("COMMIT")
+            except VersionExistsError:
+                conn.execute("ROLLBACK")
+                if artifact_dir.exists():
+                    shutil.rmtree(artifact_dir, ignore_errors=True)
+                raise
+            except duckdb.IntegrityError as e:
+                conn.execute("ROLLBACK")
+                if artifact_dir.exists():
+                    logger.warning(
+                        "Cleaning up orphan artifacts after integrity failure",
+                        extra={
+                            "artifact_dir": str(artifact_dir),
+                            "error": str(e),
+                        },
+                    )
+                    shutil.rmtree(artifact_dir, ignore_errors=True)
+                if "unique" in str(e).lower():
+                    raise VersionExistsError(
+                        metadata.model_type.value, metadata.version
+                    ) from e
+                raise
             except Exception as e:
                 conn.execute("ROLLBACK")
                 # Cleanup orphan artifacts on DB failure
@@ -464,14 +491,31 @@ class ModelRegistry:
 
         return metadata.model_id
 
-    def _version_exists(self, model_type: str, version: str) -> bool:
-        """Check if version already exists."""
-        with self._get_connection(read_only=True) as conn:
+    def _version_exists(
+        self,
+        model_type: str,
+        version: str,
+        *,
+        conn: duckdb.DuckDBPyConnection | None = None,
+    ) -> bool:
+        """Check if version already exists.
+
+        When a connection is provided, the caller is responsible for
+        transaction handling (used to avoid race conditions during writes).
+        """
+        if conn is None:
+            with self._get_connection(read_only=True) as conn_ro:
+                result = conn_ro.execute(
+                    "SELECT 1 FROM models WHERE model_type = ? AND version = ?",
+                    [model_type, version],
+                ).fetchone()
+        else:
             result = conn.execute(
                 "SELECT 1 FROM models WHERE model_type = ? AND version = ?",
                 [model_type, version],
             ).fetchone()
-            return result is not None
+
+        return result is not None
 
     # =========================================================================
     # Promotion

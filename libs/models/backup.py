@@ -86,6 +86,8 @@ class RegistryBackupManager:
         self.artifacts_dir = self.registry_dir / "artifacts"
         self._restore_lock_path = self.registry_dir / ".restore.lock"
         self._backup_lock_path = self.registry_dir / ".backup.lock"
+        # Registry main lock - used to wait for in-progress writers
+        self._registry_lock_path = self.registry_dir / ".registry.lock"
         # Track lock depth for reentrant locking (nested calls don't delete file early)
         self._restore_lock_depth = 0
         self._restore_lock_file: Any = None
@@ -252,25 +254,37 @@ class RegistryBackupManager:
         # Uses separate lock from restore - reads can continue during backup
         # Only writes are blocked to ensure consistency in the snapshot
         with self._backup_lock():
-            # Create backup directory
-            backup_path.mkdir(parents=True, exist_ok=True)
+            # Also acquire shared lock on registry's main lock to wait for
+            # in-progress writers to finish. The backup lock prevents NEW
+            # writers from starting, but we need this to wait for EXISTING
+            # writers to complete their transactions.
+            self._registry_lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._registry_lock_path, "a+") as registry_lock:
+                # LOCK_SH = shared lock - waits for exclusive lock holders (writers)
+                # to release, but allows other shared lock holders (readers)
+                fcntl.flock(registry_lock.fileno(), fcntl.LOCK_SH)
+                try:
+                    # Create backup directory
+                    backup_path.mkdir(parents=True, exist_ok=True)
 
-            # Copy database
-            if self.db_path.exists():
-                shutil.copy2(self.db_path, backup_path / "registry.db")
+                    # Copy database
+                    if self.db_path.exists():
+                        shutil.copy2(self.db_path, backup_path / "registry.db")
 
-            # Copy manifest
-            manifest_path = self.registry_dir / "manifest.json"
-            if manifest_path.exists():
-                shutil.copy2(manifest_path, backup_path / "manifest.json")
+                    # Copy manifest
+                    manifest_path = self.registry_dir / "manifest.json"
+                    if manifest_path.exists():
+                        shutil.copy2(manifest_path, backup_path / "manifest.json")
 
-            # Copy artifacts directory
-            if self.artifacts_dir.exists():
-                shutil.copytree(
-                    self.artifacts_dir,
-                    backup_path / "artifacts",
-                    dirs_exist_ok=True,
-                )
+                    # Copy artifacts directory
+                    if self.artifacts_dir.exists():
+                        shutil.copytree(
+                            self.artifacts_dir,
+                            backup_path / "artifacts",
+                            dirs_exist_ok=True,
+                        )
+                finally:
+                    fcntl.flock(registry_lock.fileno(), fcntl.LOCK_UN)
 
         # Compute checksum of backup
         total_size = 0
