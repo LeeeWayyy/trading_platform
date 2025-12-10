@@ -64,6 +64,7 @@ async def validate_session(
     session_store: RedisSessionStore,
     client_ip: str,
     user_agent: str,
+    db_pool: Any | None = None,
 ) -> dict[str, Any] | None:
     """Validate session ID and return ONLY non-sensitive metadata.
 
@@ -85,6 +86,7 @@ async def validate_session(
         return None
 
     try:
+        db_pool = db_pool or _maybe_get_db_pool()
         # Validate session with IP/UA binding enforcement
         session_data = await session_store.get_session(
             session_id,
@@ -96,6 +98,32 @@ async def validate_session(
         if not session_data:
             logger.info("Invalid or expired session", extra={"session_id": session_id[:8] + "..."})
             return None
+
+        # Optional session_version validation (RBAC invalidation)
+        if hasattr(session_data, "session_version"):
+            if db_pool is None:
+                # Fail closed when RBAC validation cannot be performed
+                logger.error(
+                    "session_version_validation_skipped_db_unavailable",
+                    extra={"user_id": session_data.user_id},
+                )
+                await session_store.delete_session(session_id)
+                return None
+
+            from apps.web_console.auth.session_invalidation import validate_session_version
+
+            is_valid = await validate_session_version(
+                session_data.user_id,
+                session_data.session_version,
+                db_pool,
+            )
+            if not is_valid:
+                logger.warning(
+                    "session_version_mismatch",
+                    extra={"user_id": session_data.user_id, "session_version": session_data.session_version},
+                )
+                await session_store.delete_session(session_id)
+                return None
 
         # CRITICAL: Return ONLY non-sensitive metadata (NO TOKENS!)
         # Component 3 - Codex Critical #1 Fix
@@ -113,6 +141,9 @@ async def validate_session(
             "created_at": session_data.created_at.isoformat(),
             "last_activity": session_data.last_activity.isoformat(),
             "access_token_expires_at": expires_at.isoformat(),
+            "role": getattr(session_data, "role", None),
+            "strategies": getattr(session_data, "strategies", []),
+            "session_version": getattr(session_data, "session_version", 1),
             # NEVER include: access_token, refresh_token, id_token
         }
     except Exception as e:
@@ -154,7 +185,8 @@ def require_auth(func: Any) -> Any:
         async def _validate() -> dict[str, Any] | None:
             session_store = _get_session_store()
             # Pass IP/UA for session binding validation
-            return await validate_session(session_id, session_store, client_ip, user_agent)
+            db_pool = _maybe_get_db_pool()
+            return await validate_session(session_id, session_store, client_ip, user_agent, db_pool)
 
         try:
             # Run async validation
@@ -230,6 +262,23 @@ def _get_encryption_key() -> bytes:
         raise ValueError(f"SESSION_ENCRYPTION_KEY must decode to 32 bytes (got {len(key_bytes)})")
 
     return key_bytes
+
+
+def _maybe_get_db_pool() -> Any | None:
+    """Best-effort fetch of the Streamlit DB pool without hard dependency.
+
+    Uses the cached `_get_db_pool` from `apps.web_console.app` when available.
+    Returns None if the pool cannot be initialized (e.g., missing dependency).
+    """
+
+    try:
+        from apps.web_console.app import _get_db_pool as app_get_db_pool
+
+        return app_get_db_pool()
+    except Exception:
+        # Avoid blocking auth flows if DB is unavailable; caller handles None.
+        logger.debug("db_pool_unavailable", exc_info=True)
+        return None
 
 
 @lru_cache

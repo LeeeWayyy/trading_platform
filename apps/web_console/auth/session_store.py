@@ -24,10 +24,11 @@ import base64
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import redis.asyncio
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,12 @@ class SessionData(BaseModel):
         ip_address: Client IP address for session binding
         user_agent: Client User-Agent for session binding
         access_token_expires_at: Access token expiry timestamp for auto-refresh (Component 3)
+        role: RBAC role (viewer/operator/admin)
+        strategies: List of authorized strategy IDs
+        session_version: Session invalidation counter (increments on role change)
+        step_up_claims: Claims from recent MFA step-up ID token
+        step_up_requested_at: When a step-up was initiated (for timeout)
+        pending_action: Post-step-up redirect hint
     """
 
     access_token: str
@@ -60,6 +67,14 @@ class SessionData(BaseModel):
     # NEW: Component 3 - Track token expiry for auto-refresh
     # Optional for backward compatibility with existing sessions (defaults to created_at + 1h)
     access_token_expires_at: datetime | None = None
+    # RBAC fields
+    role: str = "viewer"
+    strategies: list[str] = Field(default_factory=list)
+    session_version: int = 1
+    # Step-up / MFA fields
+    step_up_claims: dict[str, Any] | None = None
+    step_up_requested_at: datetime | None = None
+    pending_action: str | None = None
 
 
 class RedisSessionStore:
@@ -325,6 +340,62 @@ class RedisSessionStore:
             await self.redis.setex(key, remaining_seconds, encrypted_updated)
 
         return session_data
+
+    async def _persist_session(self, session_id: str, session_data: SessionData) -> None:
+        """Encrypt and persist session without extending absolute lifetime."""
+
+        key = f"session:{session_id}"
+        now = datetime.now(UTC)
+        remaining_absolute = self.absolute_timeout - (now - session_data.created_at)
+        remaining_seconds = max(1, int(remaining_absolute.total_seconds()))
+        encrypted = self._encrypt(session_data.model_dump_json())
+        await self.redis.setex(key, remaining_seconds, encrypted)
+
+    async def update_session_fields(self, session_id: str, **updates: object) -> bool:
+        """Generic in-place session update (fails closed on missing session)."""
+
+        session = await self.get_session(session_id, update_activity=False)
+        if not session:
+            return False
+
+        for key, value in updates.items():
+            if hasattr(session, key):
+                setattr(session, key, value)
+
+        await self._persist_session(session_id, session)
+        return True
+
+    async def set_step_up_request(
+        self, session_id: str, pending_action: str | None, requested_at: datetime | None
+    ) -> bool:
+        return await self.update_session_fields(
+            session_id,
+            pending_action=pending_action,
+            step_up_requested_at=requested_at,
+            step_up_claims=None,
+        )
+
+    async def update_step_up_claims(
+        self, session_id: str, step_up_claims: dict[str, Any] | None
+    ) -> bool:
+        return await self.update_session_fields(
+            session_id,
+            step_up_claims=step_up_claims,
+        )
+
+    async def clear_step_up_state(self, session_id: str) -> bool:
+        return await self.update_session_fields(
+            session_id,
+            step_up_claims=None,
+            step_up_requested_at=None,
+            pending_action=None,
+        )
+
+    async def clear_step_up_request_timestamp(self, session_id: str) -> bool:
+        return await self.update_session_fields(
+            session_id,
+            step_up_requested_at=None,
+        )
 
     async def delete_session(self, session_id: str) -> None:
         """Delete session from Redis.

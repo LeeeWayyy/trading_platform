@@ -13,6 +13,8 @@ References:
 """
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -28,6 +30,7 @@ from apps.web_console.auth.pkce import (
     generate_session_id,
     generate_state,
 )
+from apps.web_console.auth.session_invalidation import validate_session_version
 from apps.web_console.auth.session_store import RedisSessionStore, SessionData
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,7 @@ class OAuth2FlowHandler:
         session_store: RedisSessionStore,
         state_store: OAuth2StateStore,
         jwks_validator: JWKSValidator,
+        db_pool: Any | None = None,
     ):
         """Initialize OAuth2 flow handler.
 
@@ -66,6 +70,7 @@ class OAuth2FlowHandler:
         self.session_store = session_store
         self.state_store = state_store
         self.jwks_validator = jwks_validator
+        self.db_pool = db_pool
 
         # Auth0 endpoints
         self.authorization_endpoint = f"https://{config.auth0_domain}/authorize"
@@ -118,6 +123,8 @@ class OAuth2FlowHandler:
         state: str,
         ip_address: str,
         user_agent: str,
+        db_pool: Any | None = None,
+        audit_logger: Any | None = None,
     ) -> tuple[str, SessionData]:
         """Handle OAuth2 callback from Auth0.
 
@@ -133,6 +140,8 @@ class OAuth2FlowHandler:
         Raises:
             ValueError: If state validation fails or token exchange fails
         """
+        db_pool = db_pool or self.db_pool
+
         # CRITICAL: Retrieve and DELETE state (single-use enforcement)
         oauth_state = await self.state_store.get_and_delete_state(state)
         if not oauth_state:
@@ -173,6 +182,23 @@ class OAuth2FlowHandler:
             logger.error(f"Token exchange response missing required fields: {missing_keys}")
             raise ValueError(f"Token exchange response incomplete: missing {missing_keys}")
 
+        # Fetch RBAC provisioning data if available
+        user_id = id_token_claims["sub"]
+        role_data = None
+        strategies: list[str] = []
+        if db_pool is not None:
+            role_data = await _fetch_user_role_data(user_id, db_pool)
+            if role_data is None:
+                if audit_logger:
+                    await audit_logger.log_auth_event(
+                        user_id=user_id,
+                        action="login",
+                        outcome="denied",
+                        details={"reason": "user_not_provisioned"},
+                    )
+                raise ValueError("User not provisioned. Contact administrator.")
+            strategies = await _fetch_user_strategies(user_id, db_pool)
+
         # Create session
         session_id = generate_session_id()
         now = datetime.now(UTC)
@@ -186,18 +212,22 @@ class OAuth2FlowHandler:
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
             id_token=tokens["id_token"],
-            user_id=id_token_claims["sub"],
+            user_id=user_id,
             email=id_token_claims.get("email", "unknown@example.com"),
             created_at=now,
             last_activity=now,
             ip_address=ip_address,
             user_agent=user_agent,
             access_token_expires_at=access_token_expires_at,  # Component 3
+            role=role_data["role"] if role_data else "viewer",
+            session_version=int(role_data["session_version"]) if role_data else 1,
+            strategies=strategies,
         )
 
         await self.session_store.create_session(session_id, session_data)
 
         return session_id, session_data
+
 
     async def _exchange_code_for_tokens(
         self,
@@ -237,6 +267,7 @@ class OAuth2FlowHandler:
         session_id: str,
         ip_address: str | None = None,
         user_agent: str | None = None,
+        db_pool: Any | None = None,
     ) -> SessionData:
         """Refresh access token using refresh token.
 
@@ -259,6 +290,8 @@ class OAuth2FlowHandler:
         Raises:
             ValueError: If session not found, binding fails, or absolute timeout exceeded
         """
+        db_pool = db_pool or self.db_pool
+
         # Retrieve session with optional binding validation
         session_data = await self.session_store.get_session(
             session_id,
@@ -269,6 +302,23 @@ class OAuth2FlowHandler:
 
         if not session_data:
             raise ValueError("Session not found or invalid")
+
+        if db_pool is not None and hasattr(session_data, "session_version"):
+            is_current = await validate_session_version(
+                session_data.user_id,
+                session_data.session_version,
+                db_pool,
+            )
+            if not is_current:
+                logger.warning(
+                    "session_version_mismatch_on_refresh",
+                    extra={
+                        "user_id": session_data.user_id,
+                        "session_version": session_data.session_version,
+                    },
+                )
+                await self.session_store.delete_session(session_id)
+                raise ValueError("Session invalidated. Please sign in again.")
 
         # Refresh token exchange
         try:
@@ -448,3 +498,35 @@ class OAuth2FlowHandler:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             response.raise_for_status()
+
+
+@asynccontextmanager
+async def _acquire(db_pool: Any) -> AsyncIterator[Any]:
+    if hasattr(db_pool, "acquire"):
+        async with db_pool.acquire() as conn:
+            yield conn
+    elif hasattr(db_pool, "connection"):
+        async with db_pool.connection() as conn:
+            yield conn
+    else:
+        raise RuntimeError("Unsupported db_pool interface")
+
+
+async def _fetch_user_role_data(user_id: str, db_pool: Any) -> dict[str, Any] | None:
+    async with _acquire(db_pool) as conn:
+        row = await conn.fetchrow(
+            "SELECT role, session_version FROM user_roles WHERE user_id = $1",
+            user_id,
+        )
+    if not row:
+        return None
+    return {"role": row["role"], "session_version": row["session_version"]}
+
+
+async def _fetch_user_strategies(user_id: str, db_pool: Any) -> list[str]:
+    async with _acquire(db_pool) as conn:
+        rows = await conn.fetch(
+            "SELECT strategy_id FROM user_strategy_access WHERE user_id = $1",
+            user_id,
+        )
+    return [row["strategy_id"] for row in rows]

@@ -3,9 +3,12 @@
 Uses functools.lru_cache for singleton pattern (similar to @st.cache_resource).
 """
 
+from __future__ import annotations
+
 import base64
 import os
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 import redis.asyncio
 
@@ -14,6 +17,9 @@ from apps.web_console.auth.oauth2_flow import OAuth2Config, OAuth2FlowHandler
 from apps.web_console.auth.oauth2_state import OAuth2StateStore
 from apps.web_console.auth.rate_limiter import RedisRateLimiter
 from apps.web_console.auth.session_store import RedisSessionStore
+
+if TYPE_CHECKING:
+    from psycopg_pool import AsyncConnectionPool
 
 
 # UNIFIED CONFIG: Combines Auth0 params + cookie domain
@@ -53,6 +59,30 @@ def get_redis_client() -> redis.asyncio.Redis:
 
 
 @lru_cache
+def get_db_pool() -> AsyncConnectionPool | None:
+    """Get async database connection pool for session invalidation checks."""
+
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        return None
+
+    try:
+        import psycopg_pool
+
+        min_size = int(os.getenv("DB_POOL_MIN_SIZE", "1"))
+        max_size = int(os.getenv("DB_POOL_MAX_SIZE", "5"))
+        return psycopg_pool.AsyncConnectionPool(
+            dsn,
+            min_size=min_size,
+            max_size=max_size,
+            open=False,
+        )
+    except Exception:
+        # Fail-open to preserve existing behaviour if psycopg_pool unavailable
+        return None
+
+
+@lru_cache
 def get_config() -> AuthServiceConfig:
     """Get auth service config singleton."""
     return AuthServiceConfig()
@@ -79,6 +109,7 @@ def get_oauth2_handler() -> OAuth2FlowHandler:
         session_store=session_store,
         state_store=state_store,
         jwks_validator=jwks_validator,
+        db_pool=get_db_pool(),
     )
 
 
