@@ -134,12 +134,12 @@ class TestTurnoverCalculator:
 
         daily = turnover_calc.compute_daily_turnover(weights)
 
-        # First day turnover equals gross allocation (portfolio formed from cash)
-        # |0.5| + |-0.5| = 1.0
+        # First day: consistent formula sum(|w_t - w_{t-1}|) / 2 = sum(|w_t|) / 2
+        # (|0.5| + |-0.5|) / 2 = 1.0 / 2 = 0.5
         first_turnover = daily.filter(
             pl.col("date") == date(2024, 1, 1)
         ).select("turnover").item()
-        assert first_turnover == pytest.approx(1.0)
+        assert first_turnover == pytest.approx(0.5)
 
         # Second day: |0.3 - 0.5| + |-0.3 - (-0.5)| = 0.2 + 0.2 = 0.4 / 2 = 0.2
         second_turnover = daily.filter(

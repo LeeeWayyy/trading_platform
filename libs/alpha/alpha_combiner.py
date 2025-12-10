@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
@@ -366,6 +367,8 @@ class AlphaCombiner:
         warnings: list[str] = []
         signal_names = list(signals.keys())
         n_signals = len(signal_names)
+        # Precompute name->index map for O(1) lookups (avoids O(n) list.index() calls)
+        name_to_idx: dict[str, int] = {name: idx for idx, name in enumerate(signal_names)}
 
         if n_signals == 0:
             return CorrelationAnalysisResult(
@@ -392,11 +395,25 @@ class AlphaCombiner:
                 (pl.col("date") >= lookback_start) & (pl.col("date") < as_of_date)
             )
 
-        # Build FULL correlation matrix (all pairs)
+        # Build correlation matrix - only compute upper triangle (i < j) for O(n²/2)
+        # Diagonal entries are 1.0 (self-correlation)
         correlations: list[dict[str, str | float]] = []
-        for name_i in signal_names:
-            for name_j in signal_names:
-                # Join signals on (date, permno)
+
+        # Add diagonal entries (self-correlation = 1.0)
+        for name in signal_names:
+            correlations.append(
+                {
+                    "signal_i": name,
+                    "signal_j": name,
+                    "pearson": 1.0,
+                    "spearman": 1.0,
+                }
+            )
+
+        # Compute only upper triangle (i < j), then mirror for symmetry
+        for idx_i, name_i in enumerate(signal_names):
+            for idx_j in range(idx_i + 1, len(signal_names)):
+                name_j = signal_names[idx_j]
                 sig_i = signals_windowed[name_i]
                 sig_j = signals_windowed[name_j]
 
@@ -409,13 +426,14 @@ class AlphaCombiner:
                 )
 
                 if joined.height == 0:
+                    # Add both (i,j) and (j,i) as NaN
                     correlations.append(
-                        {
-                            "signal_i": name_i,
-                            "signal_j": name_j,
-                            "pearson": float("nan"),
-                            "spearman": float("nan"),
-                        }
+                        {"signal_i": name_i, "signal_j": name_j,
+                         "pearson": float("nan"), "spearman": float("nan")}
+                    )
+                    correlations.append(
+                        {"signal_i": name_j, "signal_j": name_i,
+                         "pearson": float("nan"), "spearman": float("nan")}
                     )
                     continue
 
@@ -436,13 +454,17 @@ class AlphaCombiner:
                 )
                 spearman = df_rank.select(pl.corr("sig_i_rank", "sig_j_rank")).item()
 
+                pearson_val = pearson if pearson is not None else float("nan")
+                spearman_val = spearman if spearman is not None else float("nan")
+
+                # Add both (i,j) and (j,i) - symmetric matrix
                 correlations.append(
-                    {
-                        "signal_i": name_i,
-                        "signal_j": name_j,
-                        "pearson": pearson if pearson is not None else float("nan"),
-                        "spearman": spearman if spearman is not None else float("nan"),
-                    }
+                    {"signal_i": name_i, "signal_j": name_j,
+                     "pearson": pearson_val, "spearman": spearman_val}
+                )
+                correlations.append(
+                    {"signal_i": name_j, "signal_j": name_i,
+                     "pearson": pearson_val, "spearman": spearman_val}
                 )
 
         corr_df = pl.DataFrame(correlations)
@@ -478,9 +500,10 @@ class AlphaCombiner:
         corr_matrix = np.eye(n_signals)  # Start with identity (1s on diagonal)
         missing_overlap_count = 0
 
+        # Use precomputed name_to_idx for O(1) lookups instead of O(n) list.index()
         for r in correlations:
-            i = signal_names.index(str(r["signal_i"]))
-            j = signal_names.index(str(r["signal_j"]))
+            i = name_to_idx[str(r["signal_i"])]
+            j = name_to_idx[str(r["signal_j"])]
             if i != j:  # Only set off-diagonal entries
                 pearson = float(r["pearson"])
                 if math.isnan(pearson):
@@ -818,9 +841,17 @@ class AlphaCombiner:
 
     @staticmethod
     def _compute_ir_score(values: list[float]) -> float:
-        """Compute information ratio score from daily IC series."""
-        ic_mean = sum(values) / len(values)
-        ic_std = (sum((x - ic_mean) ** 2 for x in values) / len(values)) ** 0.5
+        """Compute information ratio score from daily IC series.
+
+        Uses sample standard deviation (n-1 denominator) for unbiased estimation.
+        """
+        n = len(values)
+        if n < 2:
+            return 0.0
+
+        ic_mean = sum(values) / n
+        # Use sample std (n-1) for unbiased estimation
+        ic_std = (sum((x - ic_mean) ** 2 for x in values) / (n - 1)) ** 0.5
 
         if ic_std == 0 or math.isnan(ic_std):
             return 0.0

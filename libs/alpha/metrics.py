@@ -406,7 +406,8 @@ class AlphaMetricsAdapter:
         standard approach for alpha signal evaluation (avoids Simpson's Paradox
         from pooling cross-sections across time).
 
-        Uses Qlib backend when available, otherwise falls back to local Polars.
+        Uses vectorized Polars operations for performance. Falls back to Qlib
+        backend when available for specific computations.
 
         Args:
             signal: DataFrame with [permno, date, signal]
@@ -427,58 +428,78 @@ class AlphaMetricsAdapter:
                 coverage=0.0,
             )
 
-        # Compute IC for each date (cross-sectional IC)
-        dates = joined.get_column("date").unique().sort()
-        pearson_ics: list[float] = []
-        rank_ics: list[float] = []
-        total_obs = 0
+        # Filter to valid observations only
+        valid_data = joined.filter(
+            pl.col("signal").is_not_null() & pl.col("return").is_not_null()
+        )
 
-        for date_val in dates.to_list():
-            daily_data = joined.filter(pl.col("date") == date_val)
-
-            if daily_data.height < MIN_OBSERVATIONS:
-                continue
-
-            sig_series = daily_data.get_column("signal")
-            ret_series = daily_data.get_column("return")
-
-            # Skip if insufficient valid observations
-            valid_mask = sig_series.is_not_null() & ret_series.is_not_null()
-            if valid_mask.sum() < MIN_OBSERVATIONS:
-                continue
-
-            # Dispatch to appropriate backend
-            if self._use_qlib and self._qlib is not None:
-                pearson = self._qlib.pearson_ic(sig_series, ret_series)
-                rank = self._qlib.rank_ic(sig_series, ret_series)
-            else:
-                pearson = self._local.pearson_ic(sig_series, ret_series)
-                rank = self._local.rank_ic(sig_series, ret_series)
-
-            if not math.isnan(pearson):
-                pearson_ics.append(pearson)
-            if not math.isnan(rank):
-                rank_ics.append(rank)
-            total_obs += daily_data.height
-
-        # Compute mean IC across dates
-        mean_pearson = float(sum(pearson_ics) / len(pearson_ics)) if pearson_ics else float("nan")
-        mean_rank = float(sum(rank_ics) / len(rank_ics)) if rank_ics else float("nan")
+        if valid_data.height == 0:
+            return ICResult(
+                pearson_ic=float("nan"),
+                rank_ic=float("nan"),
+                n_observations=0,
+                coverage=0.0,
+            )
 
         # Coverage = fraction of joined pairs with BOTH valid signal AND return
-        sig_series = joined.get_column("signal")
-        ret_series = joined.get_column("return")
-        valid_mask = sig_series.is_not_null() & ret_series.is_not_null()
-        n_valid = valid_mask.sum()
-        coverage = n_valid / joined.height if joined.height > 0 else 0.0
+        # Compute BEFORE filtering to dates with sufficient observations
+        total_valid_obs = valid_data.height
+        coverage = total_valid_obs / joined.height if joined.height > 0 else 0.0
+
+        # Count observations per date and filter to dates with sufficient data
+        date_counts = valid_data.group_by("date").agg(pl.len().alias("n"))
+        valid_dates = date_counts.filter(pl.col("n") >= MIN_OBSERVATIONS)
+
+        if valid_dates.height == 0:
+            return ICResult(
+                pearson_ic=float("nan"),
+                rank_ic=float("nan"),
+                n_observations=total_valid_obs,
+                coverage=coverage,
+            )
+
+        # Filter to valid dates only (for IC computation, not coverage)
+        valid_data = valid_data.join(
+            valid_dates.select("date"), on="date", how="semi"
+        )
+
+        # Add ranks for Spearman correlation (computed per-date using over())
+        valid_data = valid_data.with_columns([
+            pl.col("signal").rank(method="average").over("date").alias("signal_rank"),
+            pl.col("return").rank(method="average").over("date").alias("return_rank"),
+        ])
+
+        # Compute daily IC using vectorized group_by operations
+        # Pearson: corr(signal, return) per date
+        # Spearman: corr(signal_rank, return_rank) per date
+        daily_ic = valid_data.group_by("date").agg([
+            pl.corr("signal", "return").alias("pearson_ic"),
+            pl.corr("signal_rank", "return_rank").alias("rank_ic"),
+            pl.len().alias("n_obs"),
+        ])
+
+        # Compute mean IC across dates (excluding NaN)
+        mean_pearson_raw = daily_ic.select(
+            pl.col("pearson_ic").filter(pl.col("pearson_ic").is_not_nan()).mean()
+        ).item()
+        mean_rank_raw = daily_ic.select(
+            pl.col("rank_ic").filter(pl.col("rank_ic").is_not_nan()).mean()
+        ).item()
+
+        mean_pearson = float(mean_pearson_raw) if mean_pearson_raw is not None else float("nan")
+        mean_rank = float(mean_rank_raw) if mean_rank_raw is not None else float("nan")
+
+        # Total observations (only from dates with sufficient data for IC)
+        total_obs_raw = daily_ic.select(pl.col("n_obs").sum()).item()
+        total_obs = int(total_obs_raw) if total_obs_raw is not None else 0
 
         logger.debug(
-            "IC computed (daily cross-sectional mean)",
+            "IC computed (vectorized daily cross-sectional mean)",
             extra={
                 "pearson_ic": mean_pearson,
                 "rank_ic": mean_rank,
                 "method": method,
-                "n_dates": len(dates),
+                "n_dates": daily_ic.height,
                 "coverage": coverage,
                 "backend": self.backend,
             },

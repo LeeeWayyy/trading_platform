@@ -274,7 +274,6 @@ class TurnoverCalculator:
         # Get unique dates and permnos
         dates = weights.select("date").unique().sort("date")
         permnos = weights.select("permno").unique()
-        first_date = dates.select(pl.col("date").min()).item()
 
         # Create full date × permno grid to capture exits/re-entries
         full_grid = dates.join(permnos, how="cross")
@@ -304,24 +303,17 @@ class TurnoverCalculator:
         ])
 
         # Aggregate by date
+        # Turnover = sum(|w_t - w_{t-1}|) / 2, consistent for all dates including first
+        # First date: w_{t-1} = 0 (cash), so turnover = sum(|w_t|) / 2
         daily_turnover = (
             weight_changes.group_by("date")
             .agg(
                 [
                     (pl.col("weight_change").sum() / 2).alias("turnover"),
-                    pl.col("weight_change").sum().alias("_gross_weight_change"),
                 ]
             )
             .sort("date")
         )
-
-        # First date: portfolio formed from cash, turnover equals gross allocation
-        daily_turnover = daily_turnover.with_columns([
-            pl.when(pl.col("date") == first_date)
-            .then(pl.col("_gross_weight_change"))
-            .otherwise(pl.col("turnover"))
-            .alias("turnover")
-        ]).drop("_gross_weight_change")
 
         return daily_turnover
 
