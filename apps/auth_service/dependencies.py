@@ -77,7 +77,7 @@ def get_db_pool() -> AsyncConnectionPool | None:
             max_size=max_size,
             open=False,
         )
-    except Exception:
+    except ImportError:
         # Fail-open to preserve existing behaviour if psycopg_pool unavailable
         return None
 

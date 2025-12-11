@@ -13,8 +13,6 @@ References:
 """
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -22,6 +20,7 @@ from urllib.parse import urlencode
 import httpx
 from pydantic import BaseModel
 
+from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.auth.jwks_validator import JWKSValidator
 from apps.web_console.auth.oauth2_state import OAuth2State, OAuth2StateStore
 from apps.web_console.auth.pkce import (
@@ -32,6 +31,7 @@ from apps.web_console.auth.pkce import (
 )
 from apps.web_console.auth.session_invalidation import validate_session_version
 from apps.web_console.auth.session_store import RedisSessionStore, SessionData
+from apps.web_console.utils.db import acquire_connection
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,7 @@ class OAuth2FlowHandler:
         state_store: OAuth2StateStore,
         jwks_validator: JWKSValidator,
         db_pool: Any | None = None,
+        audit_logger: AuditLogger | None = None,
     ):
         """Initialize OAuth2 flow handler.
 
@@ -71,6 +72,7 @@ class OAuth2FlowHandler:
         self.state_store = state_store
         self.jwks_validator = jwks_validator
         self.db_pool = db_pool
+        self.audit_logger = audit_logger or AuditLogger(db_pool)
 
         # Auth0 endpoints
         self.authorization_endpoint = f"https://{config.auth0_domain}/authorize"
@@ -140,93 +142,116 @@ class OAuth2FlowHandler:
         Raises:
             ValueError: If state validation fails or token exchange fails
         """
+        audit_logger = audit_logger or self.audit_logger
         db_pool = db_pool or self.db_pool
+        audit_logged = False
+        user_id: str | None = None
 
-        # CRITICAL: Retrieve and DELETE state (single-use enforcement)
-        oauth_state = await self.state_store.get_and_delete_state(state)
-        if not oauth_state:
-            raise ValueError("Invalid or expired state parameter")
-
-        # Exchange authorization code for tokens and validate ID token
         try:
-            tokens = await self._exchange_code_for_tokens(
-                authorization_code=code,
-                code_verifier=oauth_state.code_verifier,
-            )
+            # CRITICAL: Retrieve and DELETE state (single-use enforcement)
+            oauth_state = await self.state_store.get_and_delete_state(state)
+            if not oauth_state:
+                raise ValueError("Invalid or expired state parameter")
 
-            # Validate ID token
-            id_token_claims = await self.jwks_validator.validate_id_token(
+            # Exchange authorization code for tokens and validate ID token
+            try:
+                tokens = await self._exchange_code_for_tokens(
+                    authorization_code=code,
+                    code_verifier=oauth_state.code_verifier,
+                )
+
+                # Validate ID token
+                id_token_claims = await self.jwks_validator.validate_id_token(
+                    id_token=tokens["id_token"],
+                    expected_nonce=oauth_state.nonce,
+                    expected_audience=self.config.client_id,
+                    expected_issuer=f"https://{self.config.auth0_domain}/",
+                )
+            except httpx.HTTPStatusError as e:
+                # Auth0 returned 4xx/5xx error during token exchange
+                logger.error(f"Token exchange failed: HTTP {e.response.status_code}")
+                raise ValueError(f"Token exchange failed: {e.response.status_code}") from e
+            except httpx.RequestError as e:
+                # Network error during token exchange
+                logger.error(f"Token exchange network error: {e}")
+                raise ValueError(f"Token exchange network error: {str(e)}") from e
+            except Exception as e:
+                # JWT validation error or other unexpected errors
+                logger.error(f"Callback validation failed: {e}")
+                raise ValueError(f"Authentication validation failed: {str(e)}") from e
+
+            # Validate token response contains required fields
+            if not all(key in tokens for key in ["access_token", "refresh_token", "id_token"]):
+                missing_keys = [
+                    k for k in ["access_token", "refresh_token", "id_token"] if k not in tokens
+                ]
+                logger.error(f"Token exchange response missing required fields: {missing_keys}")
+                raise ValueError(f"Token exchange response incomplete: missing {missing_keys}")
+
+            # Fetch RBAC provisioning data if available
+            user_id = id_token_claims["sub"]
+            role_data = None
+            strategies: list[str] = []
+            if db_pool is not None:
+                role_data = await _fetch_user_role_data(user_id, db_pool)
+                if role_data is None:
+                    if audit_logger:
+                        await audit_logger.log_auth_event(
+                            user_id=user_id,
+                            action="login",
+                            outcome="denied",
+                            details={"reason": "user_not_provisioned"},
+                        )
+                        audit_logged = True
+                    raise ValueError("User not provisioned. Contact administrator.")
+                strategies = await _fetch_user_strategies(user_id, db_pool)
+
+            # Create session
+            session_id = generate_session_id()
+            now = datetime.now(UTC)
+
+            # Calculate access token expiry (Component 3: Auto-refresh)
+            # Auth0 default: 1 hour (3600s), but use expires_in from response if available
+            expires_in_seconds = tokens.get("expires_in", 3600)
+            access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
+
+            session_data = SessionData(
+                access_token=tokens["access_token"],
+                refresh_token=tokens["refresh_token"],
                 id_token=tokens["id_token"],
-                expected_nonce=oauth_state.nonce,
-                expected_audience=self.config.client_id,
-                expected_issuer=f"https://{self.config.auth0_domain}/",
+                user_id=user_id,
+                email=id_token_claims.get("email", "unknown@example.com"),
+                created_at=now,
+                last_activity=now,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                access_token_expires_at=access_token_expires_at,  # Component 3
+                role=role_data["role"] if role_data else "viewer",
+                session_version=int(role_data["session_version"]) if role_data else 1,
+                strategies=strategies,
             )
-        except httpx.HTTPStatusError as e:
-            # Auth0 returned 4xx/5xx error during token exchange
-            logger.error(f"Token exchange failed: HTTP {e.response.status_code}")
-            raise ValueError(f"Token exchange failed: {e.response.status_code}") from e
-        except httpx.RequestError as e:
-            # Network error during token exchange
-            logger.error(f"Token exchange network error: {e}")
-            raise ValueError(f"Token exchange network error: {str(e)}") from e
-        except Exception as e:
-            # JWT validation error or other unexpected errors
-            logger.error(f"Callback validation failed: {e}")
-            raise ValueError(f"Authentication validation failed: {str(e)}") from e
 
-        # Validate token response contains required fields
-        if not all(key in tokens for key in ["access_token", "refresh_token", "id_token"]):
-            missing_keys = [
-                k for k in ["access_token", "refresh_token", "id_token"] if k not in tokens
-            ]
-            logger.error(f"Token exchange response missing required fields: {missing_keys}")
-            raise ValueError(f"Token exchange response incomplete: missing {missing_keys}")
+            await self.session_store.create_session(session_id, session_data)
 
-        # Fetch RBAC provisioning data if available
-        user_id = id_token_claims["sub"]
-        role_data = None
-        strategies: list[str] = []
-        if db_pool is not None:
-            role_data = await _fetch_user_role_data(user_id, db_pool)
-            if role_data is None:
-                if audit_logger:
-                    await audit_logger.log_auth_event(
-                        user_id=user_id,
-                        action="login",
-                        outcome="denied",
-                        details={"reason": "user_not_provisioned"},
-                    )
-                raise ValueError("User not provisioned. Contact administrator.")
-            strategies = await _fetch_user_strategies(user_id, db_pool)
+            if audit_logger:
+                await audit_logger.log_auth_event(
+                    user_id=user_id,
+                    action="login",
+                    outcome="success",
+                    details={"strategies": strategies},
+                )
+                audit_logged = True
 
-        # Create session
-        session_id = generate_session_id()
-        now = datetime.now(UTC)
-
-        # Calculate access token expiry (Component 3: Auto-refresh)
-        # Auth0 default: 1 hour (3600s), but use expires_in from response if available
-        expires_in_seconds = tokens.get("expires_in", 3600)
-        access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
-
-        session_data = SessionData(
-            access_token=tokens["access_token"],
-            refresh_token=tokens["refresh_token"],
-            id_token=tokens["id_token"],
-            user_id=user_id,
-            email=id_token_claims.get("email", "unknown@example.com"),
-            created_at=now,
-            last_activity=now,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            access_token_expires_at=access_token_expires_at,  # Component 3
-            role=role_data["role"] if role_data else "viewer",
-            session_version=int(role_data["session_version"]) if role_data else 1,
-            strategies=strategies,
-        )
-
-        await self.session_store.create_session(session_id, session_data)
-
-        return session_id, session_data
+            return session_id, session_data
+        except Exception as exc:
+            if audit_logger and not audit_logged:
+                await audit_logger.log_auth_event(
+                    user_id=user_id,
+                    action="login",
+                    outcome="denied",
+                    details={"error": str(exc)},
+                )
+            raise
 
 
     async def _exchange_code_for_tokens(
@@ -268,21 +293,24 @@ class OAuth2FlowHandler:
         ip_address: str | None = None,
         user_agent: str | None = None,
         db_pool: Any | None = None,
+        *,
+        enforce_binding: bool = True,
+        audit_logger: Any | None = None,
     ) -> SessionData:
         """Refresh access token using refresh token.
 
         CRITICAL: Enforces absolute 4-hour timeout.
-        Optionally enforces session binding (pass None to skip).
+        Session binding is enforced by default (IP + User-Agent). Use
+        enforce_binding=False only for trusted internal refresh paths
+        (e.g., server-side refresh proxies).
         Rotates refresh token on every refresh per OAuth2 best practices.
-
-        FIX (Codex High): Made binding optional since Streamlit background
-        refreshes originate from the server, not the user's browser.
-        The HttpOnly cookie itself proves authentication.
 
         Args:
             session_id: Session ID from cookie
-            ip_address: Client IP address (for binding validation), or None to skip
-            user_agent: Client User-Agent (for binding validation), or None to skip
+            ip_address: Client IP address (required when enforce_binding=True)
+            user_agent: Client User-Agent (required when enforce_binding=True)
+            enforce_binding: Require IP/UA validation (default: True)
+            audit_logger: Optional audit logger for auth events
 
         Returns:
             Updated session data with new tokens
@@ -290,128 +318,168 @@ class OAuth2FlowHandler:
         Raises:
             ValueError: If session not found, binding fails, or absolute timeout exceeded
         """
+        audit_logger = audit_logger or self.audit_logger
         db_pool = db_pool or self.db_pool
+        audit_logged = False
+        session_data: SessionData | None = None
 
-        # Retrieve session with optional binding validation
-        session_data = await self.session_store.get_session(
-            session_id,
-            current_ip=ip_address,
-            current_user_agent=user_agent,
-            update_activity=False,  # Don't update yet
-        )
-
-        if not session_data:
-            raise ValueError("Session not found or invalid")
-
-        if db_pool is not None and hasattr(session_data, "session_version"):
-            is_current = await validate_session_version(
-                session_data.user_id,
-                session_data.session_version,
-                db_pool,
-            )
-            if not is_current:
-                logger.warning(
-                    "session_version_mismatch_on_refresh",
-                    extra={
-                        "user_id": session_data.user_id,
-                        "session_version": session_data.session_version,
-                    },
+        if enforce_binding and (ip_address is None or user_agent is None):
+            if audit_logger:
+                await audit_logger.log_auth_event(
+                    user_id=None,
+                    action="refresh",
+                    outcome="denied",
+                    details={"reason": "binding_required"},
                 )
-                await self.session_store.delete_session(session_id)
-                raise ValueError("Session invalidated. Please sign in again.")
+            raise ValueError("Session binding required for refresh")
 
-        # Refresh token exchange
+        binding_ip = ip_address if enforce_binding else None
+        binding_ua = user_agent if enforce_binding else None
+
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    self.token_endpoint,
-                    data={
-                        "grant_type": "refresh_token",
-                        "client_id": self.config.client_id,
-                        "client_secret": self.config.client_secret,
-                        "refresh_token": session_data.refresh_token,
-                    },
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+            # Retrieve session with binding validation (unless explicitly disabled)
+            session_data = await self.session_store.get_session(
+                session_id,
+                current_ip=binding_ip,
+                current_user_agent=binding_ua,
+                update_activity=False,  # Don't update yet
+            )
+
+            if not session_data:
+                raise ValueError("Session not found or invalid")
+
+            if db_pool is not None and hasattr(session_data, "session_version"):
+                is_current = await validate_session_version(
+                    session_data.user_id,
+                    session_data.session_version,
+                    db_pool,
                 )
-                response.raise_for_status()
-                tokens = response.json()
-        except httpx.HTTPStatusError as e:
-            # Auth0 returned 4xx/5xx error (e.g., invalid/expired refresh token)
-            logger.error(f"Token refresh failed: HTTP {e.response.status_code} - {e.response.text}")
-            raise ValueError(f"Token refresh failed: {e.response.status_code}") from e
-        except httpx.RequestError as e:
-            # Network error (connection timeout, DNS failure, etc.)
-            logger.error(f"Token refresh network error: {e}")
-            raise ValueError(f"Token refresh network error: {str(e)}") from e
-
-        # Validate refresh response contains required access_token
-        if "access_token" not in tokens:
-            logger.error("Refresh token response missing access_token")
-            raise ValueError("Refresh token response incomplete: missing access_token")
-
-        # Update session with new tokens
-        session_data.access_token = tokens["access_token"]
-        session_data.refresh_token = tokens.get(
-            "refresh_token", session_data.refresh_token
-        )  # May rotate
-
-        # Component 3: Update access token expiry for auto-refresh
-        now = datetime.now(UTC)
-        expires_in_seconds = tokens.get("expires_in", 3600)
-        session_data.access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
-
-        # Validate new ID token if present (security: prevent identity swap)
-        if "id_token" in tokens:
-            try:
-                new_id_token_claims = await self.jwks_validator.validate_id_token(
-                    id_token=tokens["id_token"],
-                    expected_nonce=None,  # Nonce only used for initial login, not refresh
-                    expected_audience=self.config.client_id,
-                    expected_issuer=f"https://{self.config.auth0_domain}/",
-                )
-
-                # CRITICAL: Verify subject (user_id) matches existing session
-                # Prevents identity swap attack via compromised IdP response
-                if new_id_token_claims["sub"] != session_data.user_id:
-                    logger.error(
-                        f"ID token subject mismatch on refresh: "
-                        f"expected={session_data.user_id}, got={new_id_token_claims['sub']}"
+                if not is_current:
+                    logger.warning(
+                        "session_version_mismatch_on_refresh",
+                        extra={
+                            "user_id": session_data.user_id,
+                            "session_version": session_data.session_version,
+                        },
                     )
-                    # Delete compromised session
                     await self.session_store.delete_session(session_id)
-                    raise ValueError("ID token subject mismatch - session terminated")
+                    raise ValueError("Session invalidated. Please sign in again.")
 
-                # Subject matches - safe to update
-                session_data.id_token = tokens["id_token"]
-            except Exception as e:
-                logger.error(f"ID token validation failed on refresh: {e}")
-                # Delete session on validation failure
-                await self.session_store.delete_session(session_id)
-                raise ValueError(f"ID token validation failed: {e}") from e
+            # Refresh token exchange
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(
+                        self.token_endpoint,
+                        data={
+                            "grant_type": "refresh_token",
+                            "client_id": self.config.client_id,
+                            "client_secret": self.config.client_secret,
+                            "refresh_token": session_data.refresh_token,
+                        },
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    )
+                    response.raise_for_status()
+                    tokens = response.json()
+            except httpx.HTTPStatusError as e:
+                # Auth0 returned 4xx/5xx error (e.g., invalid/expired refresh token)
+                logger.error(
+                    f"Token refresh failed: HTTP {e.response.status_code} - {e.response.text}"
+                )
+                raise ValueError(f"Token refresh failed: {e.response.status_code}") from e
+            except httpx.RequestError as e:
+                # Network error (connection timeout, DNS failure, etc.)
+                logger.error(f"Token refresh network error: {e}")
+                raise ValueError(f"Token refresh network error: {str(e)}") from e
 
-        session_data.last_activity = datetime.now(UTC)
+            # Validate refresh response contains required access_token
+            if "access_token" not in tokens:
+                logger.error("Refresh token response missing access_token")
+                raise ValueError("Refresh token response incomplete: missing access_token")
 
-        # CRITICAL: Calculate remaining TTL (preserve absolute timeout)
-        now = datetime.now(UTC)
-        remaining_absolute = self.session_store.absolute_timeout - (now - session_data.created_at)
-        remaining_seconds = max(1, int(remaining_absolute.total_seconds()))
+            # Update session with new tokens
+            session_data.access_token = tokens["access_token"]
+            session_data.refresh_token = tokens.get(
+                "refresh_token", session_data.refresh_token
+            )  # May rotate
 
-        # Re-encrypt and store with REMAINING TTL
-        key = f"session:{session_id}"
-        json_data = session_data.model_dump_json()
-        encrypted_updated = self.session_store._encrypt(json_data)
-        await self.session_store.redis.setex(key, remaining_seconds, encrypted_updated)
+            # Component 3: Update access token expiry for auto-refresh
+            now = datetime.now(UTC)
+            expires_in_seconds = tokens.get("expires_in", 3600)
+            session_data.access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
 
-        logger.info(
-            "Tokens refreshed",
-            extra={
-                "session_id": session_id[:8] + "...",
-                "user_id": session_data.user_id,
-                "remaining_ttl": remaining_seconds,
-            },
-        )
+            # Validate new ID token if present (security: prevent identity swap)
+            if "id_token" in tokens:
+                try:
+                    new_id_token_claims = await self.jwks_validator.validate_id_token(
+                        id_token=tokens["id_token"],
+                        expected_nonce=None,  # Nonce only used for initial login, not refresh
+                        expected_audience=self.config.client_id,
+                        expected_issuer=f"https://{self.config.auth0_domain}/",
+                    )
 
-        return session_data
+                    # CRITICAL: Verify subject (user_id) matches existing session
+                    # Prevents identity swap attack via compromised IdP response
+                    if new_id_token_claims["sub"] != session_data.user_id:
+                        logger.error(
+                            "ID token subject mismatch on refresh: expected=%s, got=%s",
+                            session_data.user_id,
+                            new_id_token_claims["sub"],
+                        )
+                        # Delete compromised session
+                        await self.session_store.delete_session(session_id)
+                        raise ValueError("ID token subject mismatch - session terminated")
+
+                    # Subject matches - safe to update
+                    session_data.id_token = tokens["id_token"]
+                except Exception as e:
+                    logger.error(f"ID token validation failed on refresh: {e}")
+                    # Delete session on validation failure
+                    await self.session_store.delete_session(session_id)
+                    raise ValueError(f"ID token validation failed: {e}") from e
+
+            session_data.last_activity = datetime.now(UTC)
+
+            # CRITICAL: Calculate remaining TTL (preserve absolute timeout)
+            now = datetime.now(UTC)
+            remaining_absolute = self.session_store.absolute_timeout - (
+                now - session_data.created_at
+            )
+            remaining_seconds = max(1, int(remaining_absolute.total_seconds()))
+
+            # Re-encrypt and store with REMAINING TTL
+            key = f"session:{session_id}"
+            json_data = session_data.model_dump_json()
+            encrypted_updated = self.session_store._encrypt(json_data)
+            await self.session_store.redis.setex(key, remaining_seconds, encrypted_updated)
+
+            logger.info(
+                "Tokens refreshed",
+                extra={
+                    "session_id": session_id[:8] + "...",
+                    "user_id": session_data.user_id,
+                    "remaining_ttl": remaining_seconds,
+                },
+            )
+
+            if audit_logger:
+                await audit_logger.log_auth_event(
+                    user_id=session_data.user_id,
+                    action="refresh",
+                    outcome="success",
+                    details={"session_id": session_id[:8] + "...", "binding": enforce_binding},
+                )
+                audit_logged = True
+
+            return session_data
+        except Exception as exc:
+            if audit_logger and not audit_logged:
+                await audit_logger.log_auth_event(
+                    user_id=session_data.user_id if session_data else None,
+                    action="refresh",
+                    outcome="denied",
+                    details={"error": str(exc)},
+                )
+            raise
 
     async def handle_logout(
         self,
@@ -500,33 +568,31 @@ class OAuth2FlowHandler:
             response.raise_for_status()
 
 
-@asynccontextmanager
-async def _acquire(db_pool: Any) -> AsyncIterator[Any]:
-    if hasattr(db_pool, "acquire"):
-        async with db_pool.acquire() as conn:
-            yield conn
-    elif hasattr(db_pool, "connection"):
-        async with db_pool.connection() as conn:
-            yield conn
-    else:
-        raise RuntimeError("Unsupported db_pool interface")
-
-
 async def _fetch_user_role_data(user_id: str, db_pool: Any) -> dict[str, Any] | None:
-    async with _acquire(db_pool) as conn:
-        row = await conn.fetchrow(
-            "SELECT role, session_version FROM user_roles WHERE user_id = $1",
-            user_id,
+    async with acquire_connection(db_pool) as conn:
+        cursor = await conn.execute(
+            "SELECT role, session_version FROM user_roles WHERE user_id = %s",
+            (user_id,),
         )
+        row = await cursor.fetchone()
+
     if not row:
         return None
-    return {"role": row["role"], "session_version": row["session_version"]}
+
+    role = row["role"] if isinstance(row, dict) else row[0]
+    session_version = row["session_version"] if isinstance(row, dict) else row[1]
+    return {"role": role, "session_version": session_version}
 
 
 async def _fetch_user_strategies(user_id: str, db_pool: Any) -> list[str]:
-    async with _acquire(db_pool) as conn:
-        rows = await conn.fetch(
-            "SELECT strategy_id FROM user_strategy_access WHERE user_id = $1",
-            user_id,
+    async with acquire_connection(db_pool) as conn:
+        cursor = await conn.execute(
+            "SELECT strategy_id FROM user_strategy_access WHERE user_id = %s",
+            (user_id,),
         )
-    return [row["strategy_id"] for row in rows]
+        rows = await cursor.fetchall()
+
+    return [
+        row["strategy_id"] if isinstance(row, dict) else row[0]
+        for row in rows
+    ]

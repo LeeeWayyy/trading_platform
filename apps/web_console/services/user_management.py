@@ -283,7 +283,7 @@ async def grant_strategy(
                     )
                     return False, f"Strategy {strategy_id} already granted"
 
-                # [v1.2 FIX] Explicitly increment session_version (no trigger exists)
+                # Increment session_version to force session invalidation on next refresh
                 await conn.execute(
                     """
                     UPDATE user_roles
@@ -326,7 +326,6 @@ async def revoke_strategy(
 ) -> tuple[bool, str]:
     """Revoke strategy access from user.
 
-    [v1.2] Explicitly increments session_version (no DB trigger exists).
     Logs DENIED attempts to audit trail.
     """
 
@@ -371,7 +370,7 @@ async def revoke_strategy(
                     )
                     return False, f"Strategy {strategy_id} not assigned"
 
-                # [v1.2] Explicitly increment session_version (no trigger exists)
+                # Increment session_version to force session invalidation on next refresh
                 await conn.execute(
                     """
                     UPDATE user_roles

@@ -27,7 +27,7 @@ def verify_step_up_auth(id_token_claims: dict[str, Any]) -> tuple[bool, str | No
 
     try:
         auth_time_dt = datetime.fromtimestamp(int(auth_time), tz=UTC)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return False, "invalid_auth_time"
 
     age_seconds = (datetime.now(UTC) - auth_time_dt).total_seconds()

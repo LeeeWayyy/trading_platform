@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import inspect
 import json
 import logging
 import os
@@ -15,6 +14,7 @@ from typing import Any, cast
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from apps.web_console.auth.permissions import get_authorized_strategies
+from apps.web_console.utils.db import acquire_connection
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,8 @@ def _get_cache_encryption_key() -> bytes | None:
 def _build_cache_client(redis_client: Any) -> Any:
     """Return Redis client backed by an isolated DB for strategy caches.
 
-    Falls back to the provided client when cloning is not possible (e.g., tests).
+    If cloning fails or the client type is unsupported, caching is disabled to
+    avoid mixing strategy data with session storage.
     """
 
     if not redis_client:
@@ -60,37 +61,19 @@ def _build_cache_client(redis_client: Any) -> Any:
             conn_kwargs = dict(redis_client.connection_pool.connection_kwargs)
             conn_kwargs["db"] = cache_db
             return redis_asyncio.Redis(**conn_kwargs)
-    except Exception:  # pragma: no cover - defensive; falls back to provided client
-        logger.debug("strategy_cache_client_fallback", exc_info=True)
+        logger.warning(
+            "strategy_cache_disabled_incompatible_client",
+            extra={"client_type": type(redis_client).__name__},
+        )
+    except Exception:  # pragma: no cover - defensive
+        logger.warning("strategy_cache_client_fallback_disabled", exc_info=True)
 
-    return redis_client
+    # If the client is a lightweight fake without connection metadata, we assume
+    # it's already isolated (e.g., unit tests) and allow caching to proceed.
+    if not hasattr(redis_client, "connection_pool"):
+        return redis_client
 
-
-@asynccontextmanager
-async def _conn(db_pool: Any) -> AsyncIterator[Any]:
-    if hasattr(db_pool, "acquire"):
-        candidate = db_pool.acquire()
-        if hasattr(candidate, "__aenter__"):
-            async with candidate as conn:
-                yield conn
-        else:
-            conn = await candidate if inspect.isawaitable(candidate) else candidate
-            try:
-                yield conn
-            finally:
-                releaser = getattr(db_pool, "release", None)
-                if releaser:
-                    maybe = releaser(conn)
-                    if inspect.isawaitable(maybe):
-                        await maybe
-        return
-    if hasattr(db_pool, "connection"):
-        candidate = db_pool.connection()
-        conn = await candidate if inspect.isawaitable(candidate) else candidate
-        async with conn:
-            yield conn
-        return
-    raise RuntimeError("Unsupported db_pool interface")
+    return None
 
 
 class StrategyScopedDataAccess:
@@ -142,18 +125,17 @@ class StrategyScopedDataAccess:
 
     @staticmethod
     def _build_filter_clauses(
-        filters: dict[str, Any], allowed: dict[str, str], start_index: int
-    ) -> tuple[list[str], list[Any], int]:
+        filters: dict[str, Any], allowed: dict[str, str]
+    ) -> tuple[list[str], list[Any]]:
         """Translate allowed filters into SQL clauses and params.
 
         Unknown filters are ignored to preserve backward compatibility.
         Lists/sets are treated as ANY() equality checks.
-        Returns (clauses, params, last_index).
+        Returns (clauses, params).
         """
 
         clauses: list[str] = []
         params: list[Any] = []
-        idx = start_index
 
         for key, column in allowed.items():
             if key not in filters:
@@ -163,15 +145,14 @@ class StrategyScopedDataAccess:
             if value is None:
                 continue
 
-            idx += 1
             if isinstance(value, list | tuple | set):
-                clauses.append(f"{column} = ANY(${idx})")
+                clauses.append(f"{column} = ANY(%s)")
                 params.append(list(value))
             else:
-                clauses.append(f"{column} = ${idx}")
+                clauses.append(f"{column} = %s")
                 params.append(value)
 
-        return clauses, params, idx
+        return clauses, params
 
     @staticmethod
     def _filters_cache_token(filters: dict[str, Any], allowed: dict[str, str]) -> str:
@@ -232,6 +213,47 @@ class StrategyScopedDataAccess:
         # Clamp to valid range [1, MAX_LIMIT] to prevent DoS via 0/negative limits
         return max(1, min(int(value), self.MAX_LIMIT))
 
+    @asynccontextmanager
+    async def _get_connection(self) -> AsyncIterator[Any]:
+        """Acquire DB connection across driver styles (psycopg/asyncpg-test-doubles)."""
+
+        if hasattr(self.db_pool, "acquire") and not hasattr(self.db_pool, "connection"):
+            conn = await self.db_pool.acquire()
+            try:
+                yield conn
+            finally:
+                release = self.db_pool.release if hasattr(self.db_pool, "release") else None
+                if callable(release):
+                    await release(conn)
+            return
+
+        async with acquire_connection(self.db_pool) as conn:
+            yield conn
+
+    @staticmethod
+    async def _execute_fetchall(conn: Any, query: str, params: tuple[Any, ...]) -> list[Any]:
+        """Execute query and return rows, supporting both fetch() and execute()."""
+
+        fetch_method = conn.fetch if hasattr(conn, "fetch") else None
+        if callable(fetch_method):
+            dollar_query = StrategyScopedDataAccess._convert_placeholders_to_dollar(query)
+            rows = await fetch_method(dollar_query, *params)
+            return cast(list[Any], rows)
+
+        cursor = await conn.execute(query, params)
+        rows = await cursor.fetchall()
+        return cast(list[Any], rows)
+
+    @staticmethod
+    def _convert_placeholders_to_dollar(query: str) -> str:
+        """Convert psycopg-style %s placeholders to $1, $2 for asyncpg-style drivers."""
+
+        idx = 1
+        while "%s" in query:
+            query = query.replace("%s", f"${idx}", 1)
+            idx += 1
+        return query
+
     async def get_positions(
         self, limit: int = DEFAULT_LIMIT, offset: int = 0, use_cache: bool = True, **filters: Any
     ) -> list[dict[str, Any]]:
@@ -245,19 +267,17 @@ class StrategyScopedDataAccess:
                 return cached
 
         strategies = self._get_strategy_filter()
-        clauses, params, last_idx = self._build_filter_clauses(filters, allowed_filters, start_index=1)
-        params = [strategies, *params, limit, offset]
-        limit_idx = last_idx + 1
-        offset_idx = last_idx + 2
-        async with _conn(self.db_pool) as conn:
-            query = f"""
-                SELECT * FROM positions
-                WHERE strategy_id = ANY($1)
-                {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
-                ORDER BY updated_at DESC
-                LIMIT ${limit_idx} OFFSET ${offset_idx}
-            """
-            rows = await conn.fetch(query, *params)
+        clauses, params = self._build_filter_clauses(filters, allowed_filters)
+        query = f"""
+            SELECT * FROM positions
+            WHERE strategy_id = ANY(%s)
+            {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
+            ORDER BY updated_at DESC
+            LIMIT %s OFFSET %s
+        """
+        exec_params = [strategies, *params, limit, offset]
+        async with self._get_connection() as conn:
+            rows = await self._execute_fetchall(conn, query, tuple(exec_params))
             data = [dict(row) for row in rows]
 
         await self._set_cached(cache_key, data)
@@ -269,19 +289,17 @@ class StrategyScopedDataAccess:
         limit = self._limit(limit)
         strategies = self._get_strategy_filter()
         allowed_filters = {"symbol": "symbol", "side": "side", "status": "status"}
-        clauses, params, last_idx = self._build_filter_clauses(filters, allowed_filters, start_index=1)
-        params = [strategies, *params, limit, offset]
-        limit_idx = last_idx + 1
-        offset_idx = last_idx + 2
-        async with _conn(self.db_pool) as conn:
-            query = f"""
-                SELECT * FROM orders
-                WHERE strategy_id = ANY($1)
-                {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
-                ORDER BY created_at DESC
-                LIMIT ${limit_idx} OFFSET ${offset_idx}
-            """
-            rows = await conn.fetch(query, *params)
+        clauses, params = self._build_filter_clauses(filters, allowed_filters)
+        query = f"""
+            SELECT * FROM orders
+            WHERE strategy_id = ANY(%s)
+            {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        exec_params = [strategies, *params, limit, offset]
+        async with self._get_connection() as conn:
+            rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
 
     async def get_pnl_summary(
@@ -293,21 +311,16 @@ class StrategyScopedDataAccess:
     ) -> list[dict[str, Any]]:
         limit = self._limit(limit)
         strategies = self._get_strategy_filter()
-        async with _conn(self.db_pool) as conn:
-            rows = await conn.fetch(
-                """
-                SELECT * FROM pnl_daily
-                WHERE strategy_id = ANY($1)
-                  AND trade_date BETWEEN $2 AND $3
-                ORDER BY trade_date DESC
-                LIMIT $4 OFFSET $5
-                """,
-                strategies,
-                date_from,
-                date_to,
-                limit,
-                offset,
-            )
+        query = """
+            SELECT * FROM pnl_daily
+            WHERE strategy_id = ANY(%s)
+              AND trade_date BETWEEN %s AND %s
+            ORDER BY trade_date DESC
+            LIMIT %s OFFSET %s
+        """
+        params = (strategies, date_from, date_to, limit, offset)
+        async with self._get_connection() as conn:
+            rows = await self._execute_fetchall(conn, query, params)
         return [dict(row) for row in rows]
 
     async def get_trades(
@@ -316,35 +329,34 @@ class StrategyScopedDataAccess:
         limit = self._limit(limit)
         strategies = self._get_strategy_filter()
         allowed_filters = {"symbol": "symbol", "side": "side"}
-        clauses, params, last_idx = self._build_filter_clauses(filters, allowed_filters, start_index=1)
-        params = [strategies, *params, limit, offset]
-        limit_idx = last_idx + 1
-        offset_idx = last_idx + 2
-        async with _conn(self.db_pool) as conn:
-            query = f"""
-                SELECT * FROM trades
-                WHERE strategy_id = ANY($1)
-                {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
-                ORDER BY executed_at DESC
-                LIMIT ${limit_idx} OFFSET ${offset_idx}
-            """
-            rows = await conn.fetch(query, *params)
+        clauses, params = self._build_filter_clauses(filters, allowed_filters)
+        query = f"""
+            SELECT * FROM trades
+            WHERE strategy_id = ANY(%s)
+            {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
+            ORDER BY executed_at DESC
+            LIMIT %s OFFSET %s
+        """
+        exec_params = [strategies, *params, limit, offset]
+        async with self._get_connection() as conn:
+            rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
 
     async def stream_trades_for_export(self, **filters: Any) -> AsyncGenerator[dict[str, Any], None]:
         strategies = self._get_strategy_filter()
         allowed_filters = {"symbol": "symbol", "side": "side"}
-        clauses, params, _ = self._build_filter_clauses(filters, allowed_filters, start_index=1)
-        params = [strategies, *params]
-        async with _conn(self.db_pool) as conn:
+        clauses, params = self._build_filter_clauses(filters, allowed_filters)
+        query = f"""
+            SELECT * FROM trades
+            WHERE strategy_id = ANY(%s)
+            {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
+            ORDER BY executed_at DESC
+        """
+        exec_params = [strategies, *params]
+        async with acquire_connection(self.db_pool) as conn:
             async with conn.transaction():
-                query = f"""
-                    SELECT * FROM trades
-                    WHERE strategy_id = ANY($1)
-                    {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
-                    ORDER BY executed_at DESC
-                """
-                async for row in conn.cursor(query, *params):
+                cursor = await conn.execute(query, tuple(exec_params))
+                async for row in cursor:
                     yield dict(row)
 
 

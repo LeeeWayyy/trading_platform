@@ -161,7 +161,12 @@ async def test_refresh_tokens_updates_session_and_persists(monkeypatch):
     pool = FakePool(session_version=1)
     handler, store, redis_client = _make_handler(_session_data(), pool, monkeypatch)
 
-    updated = await handler.refresh_tokens(session_id="sid", db_pool=pool)
+    updated = await handler.refresh_tokens(
+        session_id="sid",
+        ip_address="1.1.1.1",
+        user_agent="ua",
+        db_pool=pool,
+    )
 
     assert updated.access_token == "new-access-token"
     assert updated.refresh_token == "rotated-refresh-token"
@@ -178,6 +183,11 @@ async def test_refresh_tokens_rejects_on_session_version_mismatch(monkeypatch):
     handler, store, _ = _make_handler(_session_data(session_version=1), pool, monkeypatch)
 
     with pytest.raises(ValueError):
-        await handler.refresh_tokens(session_id="sid", db_pool=pool)
+        await handler.refresh_tokens(
+            session_id="sid",
+            ip_address="1.1.1.1",
+            user_agent="ua",
+            db_pool=pool,
+        )
 
     assert store.deleted is True

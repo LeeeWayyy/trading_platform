@@ -83,6 +83,7 @@ async def refresh_token(
                 session_id=session_id,
                 ip_address=None,
                 user_agent=None,
+                enforce_binding=False,
             )
             logger.debug(
                 "Internal refresh (binding bypass via shared secret)",
