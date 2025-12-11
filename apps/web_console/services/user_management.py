@@ -22,12 +22,12 @@ Provides async functions for:
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
 from apps.web_console.auth.audit_log import AuditLogger
+from apps.web_console.auth.permissions import Role
+from apps.web_console.utils.db import acquire_connection
 
 logger = logging.getLogger(__name__)
 
@@ -53,50 +53,10 @@ class StrategyInfo:
     description: str | None
 
 
-@asynccontextmanager
-async def _conn(db_pool: Any) -> AsyncIterator[Any]:
-    """Adapt to psycopg-style pool interfaces.
-
-    NOTE: This module uses psycopg3 cursor-based patterns (execute -> fetchall/fetchone).
-    All SQL uses %s placeholders (psycopg3 style), NOT $1 (asyncpg style).
-
-    Supports:
-    - psycopg_pool.AsyncConnectionPool (connection() returning async context manager)
-    - Test mocks with execute() returning cursor-like objects
-
-    Does NOT support:
-    - asyncpg (uses different patterns: conn.fetch/fetchrow)
-    - psycopg_pool.ConnectionPool (sync pools) - callers use await, sync is incompatible
-    """
-
-    # psycopg_pool.AsyncConnectionPool uses connection() returning async context manager
-    if hasattr(db_pool, "connection"):
-        candidate = db_pool.connection()
-        if hasattr(candidate, "__aenter__"):
-            async with candidate as conn:
-                yield conn
-            return
-        # Sync pool detected - not supported
-        raise RuntimeError(
-            "Sync connection pool detected. This module requires AsyncConnectionPool. "
-            "Callers use 'await conn.execute()', which is incompatible with sync pools."
-        )
-
-    # Direct connection or mock (for testing)
-    if hasattr(db_pool, "execute"):
-        yield db_pool
-        return
-
-    raise RuntimeError(
-        "Unsupported db_pool interface. Expected psycopg_pool.AsyncConnectionPool "
-        "or a connection-like object with execute()."
-    )
-
-
 async def list_users(db_pool: Any) -> list[UserInfo]:
     """List all users with their strategy counts."""
 
-    async with _conn(db_pool) as conn:
+    async with acquire_connection(db_pool) as conn:
         cursor = await conn.execute(
             """
             SELECT
@@ -140,7 +100,7 @@ async def change_user_role(
     Returns (success, message).
     """
 
-    valid_roles = {"viewer", "operator", "admin"}
+    valid_roles = {r.value for r in Role}
     if new_role not in valid_roles:
         # [v1.1] Log denied attempt
         await audit_logger.log_action(
@@ -154,12 +114,13 @@ async def change_user_role(
         return False, f"Invalid role: {new_role}"
 
     try:
-        async with _conn(db_pool) as conn:
+        async with acquire_connection(db_pool) as conn:
             # [v1.4] Use explicit transaction for atomicity
             async with conn.transaction():
                 # Get old role for audit
                 cursor = await conn.execute(
-                    "SELECT role FROM user_roles WHERE user_id = %s", (user_id,)
+                    "SELECT role FROM user_roles WHERE user_id = %s FOR UPDATE",
+                    (user_id,),
                 )
                 old_row = await cursor.fetchone()
                 if not old_row:
@@ -241,7 +202,7 @@ async def change_user_role(
 async def list_strategies(db_pool: Any) -> list[StrategyInfo]:
     """List all available strategies."""
 
-    async with _conn(db_pool) as conn:
+    async with acquire_connection(db_pool) as conn:
         cursor = await conn.execute(
             "SELECT strategy_id, name, description FROM strategies ORDER BY strategy_id"
         )
@@ -259,7 +220,7 @@ async def list_strategies(db_pool: Any) -> list[StrategyInfo]:
 async def get_user_strategies(db_pool: Any, user_id: str) -> list[str]:
     """Get list of strategy IDs assigned to user."""
 
-    async with _conn(db_pool) as conn:
+    async with acquire_connection(db_pool) as conn:
         cursor = await conn.execute(
             "SELECT strategy_id FROM user_strategy_access WHERE user_id = %s",
             (user_id,),
@@ -282,7 +243,7 @@ async def grant_strategy(
     """
 
     try:
-        async with _conn(db_pool) as conn:
+        async with acquire_connection(db_pool) as conn:
             # [v1.4] Use explicit transaction for atomicity (INSERT + UPDATE)
             async with conn.transaction():
                 # [v1.3] Verify strategy exists before granting
@@ -302,13 +263,16 @@ async def grant_strategy(
                     )
                     return False, f"Strategy {strategy_id} does not exist"
 
-                # Check if already granted
-                cursor = await conn.execute(
-                    "SELECT 1 FROM user_strategy_access WHERE user_id = %s AND strategy_id = %s",
-                    (user_id, strategy_id),
+                insert_cursor = await conn.execute(
+                    """
+                    INSERT INTO user_strategy_access (user_id, strategy_id, granted_by)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, strategy_id) DO NOTHING
+                """,
+                    (user_id, strategy_id, admin_user_id),
                 )
-                existing = await cursor.fetchone()
-                if existing:
+
+                if insert_cursor.rowcount == 0:
                     await audit_logger.log_action(
                         user_id=admin_user_id,
                         action="strategy_grant_denied",
@@ -319,24 +283,16 @@ async def grant_strategy(
                     )
                     return False, f"Strategy {strategy_id} already granted"
 
-                # Insert grant
-                await conn.execute(
-                    """
-                    INSERT INTO user_strategy_access (user_id, strategy_id, granted_by)
-                    VALUES (%s, %s, %s)
-                """,
-                    (user_id, strategy_id, admin_user_id),
-                )
-
                 # [v1.2 FIX] Explicitly increment session_version (no trigger exists)
                 await conn.execute(
                     """
                     UPDATE user_roles
                     SET session_version = session_version + 1,
-                        updated_at = NOW()
+                        updated_at = NOW(),
+                        updated_by = %s
                     WHERE user_id = %s
                 """,
-                    (user_id,),
+                    (admin_user_id, user_id),
                 )
 
         await audit_logger.log_admin_change(
@@ -375,7 +331,7 @@ async def revoke_strategy(
     """
 
     try:
-        async with _conn(db_pool) as conn:
+        async with acquire_connection(db_pool) as conn:
             # [v1.4] Use explicit transaction for atomicity (DELETE + UPDATE)
             async with conn.transaction():
                 # [v1.3] Verify strategy exists before revoking (for clearer error message)
@@ -420,10 +376,11 @@ async def revoke_strategy(
                     """
                     UPDATE user_roles
                     SET session_version = session_version + 1,
-                        updated_at = NOW()
+                        updated_at = NOW(),
+                        updated_by = %s
                     WHERE user_id = %s
                 """,
-                    (user_id,),
+                    (admin_user_id, user_id),
                 )
 
         await audit_logger.log_admin_change(

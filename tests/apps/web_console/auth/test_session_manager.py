@@ -6,12 +6,25 @@ import pytest
 from apps.web_console.auth.session_manager import validate_session
 
 
+class FakeCursor:
+    """Fake cursor mimicking psycopg3 AsyncCursor."""
+
+    def __init__(self, row):
+        self._row = row
+
+    async def fetchone(self):
+        return self._row
+
+
 class FakeConn:
+    """Fake connection mimicking psycopg3 AsyncConnection."""
+
     def __init__(self, stored_version: int):
         self.stored_version = stored_version
 
-    async def fetchrow(self, query, *args):
-        return {"session_version": self.stored_version}
+    async def execute(self, query, params=None):
+        # Return cursor with tuple row (psycopg3 pattern)
+        return FakeCursor(row=(self.stored_version,))
 
     async def __aenter__(self):
         return self
@@ -20,12 +33,28 @@ class FakeConn:
         return False
 
 
+class FakeAsyncContextManager:
+    """Async context manager for connection()."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, *_args):
+        return None
+
+
 class FakePool:
+    """Fake pool mimicking psycopg_pool.AsyncConnectionPool."""
+
     def __init__(self, stored_version: int):
         self.conn = FakeConn(stored_version)
 
-    async def acquire(self):
-        return self.conn
+    def connection(self):
+        """Return async context manager like psycopg_pool."""
+        return FakeAsyncContextManager(self.conn)
 
 
 class FakeSessionStore:

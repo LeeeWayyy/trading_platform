@@ -63,17 +63,15 @@ class TestGrantStrategy:
         mock_conn.transaction = MagicMock(return_value=MockTransaction())
 
         # psycopg3 pattern: execute returns cursor
-        # First call: strategy exists check (return (1,))
-        # Second call: already granted check (return None - not granted)
-        # Third call: INSERT grant
-        # Fourth call: UPDATE session_version
+        # 1) SELECT strategy exists
+        # 2) INSERT ... ON CONFLICT DO NOTHING (rowcount=1 when inserted)
+        # 3) UPDATE session_version (only when insert succeeded)
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
-        mock_cursor_not_granted = MockAsyncCursor(single_row=None)  # not already granted
+        mock_cursor_inserted = MockAsyncCursor(rowcount=1)  # insert succeeded
         mock_conn.execute = AsyncMock(side_effect=[
-            mock_cursor_exists,      # SELECT strategy exists
-            mock_cursor_not_granted, # SELECT already granted
-            AsyncMock(),             # INSERT grant
-            AsyncMock(),             # UPDATE session_version
+            mock_cursor_exists,   # SELECT strategy exists
+            mock_cursor_inserted, # INSERT grant
+            AsyncMock(),          # UPDATE session_version
         ])
 
         mock_audit = AsyncMock()
@@ -89,7 +87,7 @@ class TestGrantStrategy:
         assert success is True
         assert "alpha_baseline" in msg
         mock_audit.log_admin_change.assert_called_once()
-        assert mock_conn.execute.call_count == 4  # SELECT exists + SELECT granted + INSERT + UPDATE
+        assert mock_conn.execute.call_count == 3  # SELECT exists + INSERT + UPDATE
 
     @pytest.mark.asyncio
     async def test_grant_strategy_already_granted_denied(self):
@@ -102,11 +100,10 @@ class TestGrantStrategy:
         # Mock transaction() - it returns an async context manager
         mock_conn.transaction = MagicMock(return_value=MockTransaction())
 
-        # psycopg3 pattern: fetchone returns tuple if exists
-        # First call: strategy exists (1,), Second call: already granted (1,)
+        # psycopg3 pattern: first call strategy exists, second call insert with rowcount=0
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
-        mock_cursor_granted = MockAsyncCursor(single_row=(1,))  # already granted
-        mock_conn.execute = AsyncMock(side_effect=[mock_cursor_exists, mock_cursor_granted])
+        mock_cursor_conflict = MockAsyncCursor(rowcount=0)  # already granted (ON CONFLICT)
+        mock_conn.execute = AsyncMock(side_effect=[mock_cursor_exists, mock_cursor_conflict])
 
         mock_audit = AsyncMock()
 
@@ -124,6 +121,7 @@ class TestGrantStrategy:
         call_kwargs = mock_audit.log_action.call_args[1]
         assert call_kwargs["outcome"] == "denied"
         assert call_kwargs["action"] == "strategy_grant_denied"
+        assert mock_conn.execute.call_count == 2  # SELECT exists + INSERT (conflict)
 
     @pytest.mark.asyncio
     async def test_grant_strategy_increments_session_version(self):
@@ -138,12 +136,11 @@ class TestGrantStrategy:
 
         # psycopg3 pattern: execute returns cursor
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
-        mock_cursor_not_granted = MockAsyncCursor(single_row=None)  # not already granted
+        mock_cursor_inserted = MockAsyncCursor(rowcount=1)  # insert succeeded
         mock_conn.execute = AsyncMock(side_effect=[
-            mock_cursor_exists,      # SELECT strategy exists
-            mock_cursor_not_granted, # SELECT already granted
-            AsyncMock(),             # INSERT grant
-            AsyncMock(),             # UPDATE session_version
+            mock_cursor_exists,   # SELECT strategy exists
+            mock_cursor_inserted, # INSERT grant
+            AsyncMock(),          # UPDATE session_version
         ])
 
         mock_audit = AsyncMock()

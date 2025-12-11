@@ -34,7 +34,9 @@ class Permission(str, Enum):
     CLOSE_POSITION = "close_position"
     FLATTEN_ALL = "flatten_all"
     MANAGE_USERS = "manage_users"
+    MANAGE_STRATEGIES = "manage_strategies"  # [v1.5] Strategy configuration
     VIEW_ALL_STRATEGIES = "view_all_strategies"
+    VIEW_AUDIT = "view_audit"  # [v1.5] Audit log access
     EXPORT_DATA = "export_data"
 
 
@@ -52,8 +54,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.CLOSE_POSITION,
         Permission.FLATTEN_ALL,
         Permission.EXPORT_DATA,
+        Permission.MANAGE_STRATEGIES,  # [v1.5] Operators can manage strategies
     },
-    Role.ADMIN: set(Permission),
+    Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
 
 
@@ -100,8 +103,16 @@ def require_permission(permission: Permission) -> Callable[[Callable[..., Any]],
     """Decorator enforcing the given permission.
 
     Looks for a ``user`` or ``session`` kwarg, or first positional argument
-    that is a mapping with ``role``. Default‑deny if none found.
-    Supports both sync and async callables.
+    that is a mapping with ``role``. If the first positional argument is a
+    request-like object, a ``user`` or ``session`` attribute on that object
+    will be used. Default‑deny if none found.
+    Supports both sync and async callables. The decorated function must either
+    expose a ``user`` or ``session`` keyword argument, or accept a first
+    positional argument that is one of:
+    - a mapping containing ``role``
+    - an object with ``role`` attribute
+    - a request-like object exposing ``user`` or ``session`` attributes.
+    Calls that do not satisfy this contract will be denied.
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -111,17 +122,24 @@ def require_permission(permission: Permission) -> Callable[[Callable[..., Any]],
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             subject = kwargs.get("user") or kwargs.get("session")
             if subject is None and args:
-                subject = args[0]
+                first_arg = args[0]
+                # Common pattern: FastAPI/Starlette Request exposes .user
+                subject = getattr(first_arg, "user", None)
+                if subject is None:
+                    subject = getattr(first_arg, "session", None)
+                if subject is None:
+                    subject = first_arg
 
             if not has_permission(subject, permission):
+                if subject is None:
+                    role_value = None
+                elif isinstance(subject, dict):
+                    role_value = subject.get("role")
+                else:
+                    role_value = getattr(subject, "role", None)
                 logger.warning(
                     "permission_denied",
-                    extra={
-                        "permission": permission.value,
-                        "role": getattr(subject, "role", None)
-                        if not isinstance(subject, dict)
-                        else subject.get("role"),
-                    },
+                    extra={"permission": permission.value, "role": role_value},
                 )
                 raise PermissionError(f"Permission '{permission.value}' required")
 
@@ -131,17 +149,23 @@ def require_permission(permission: Permission) -> Callable[[Callable[..., Any]],
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             subject = kwargs.get("user") or kwargs.get("session")
             if subject is None and args:
-                subject = args[0]
+                first_arg = args[0]
+                subject = getattr(first_arg, "user", None)
+                if subject is None:
+                    subject = getattr(first_arg, "session", None)
+                if subject is None:
+                    subject = first_arg
 
             if not has_permission(subject, permission):
+                if subject is None:
+                    role_value = None
+                elif isinstance(subject, dict):
+                    role_value = subject.get("role")
+                else:
+                    role_value = getattr(subject, "role", None)
                 logger.warning(
                     "permission_denied",
-                    extra={
-                        "permission": permission.value,
-                        "role": getattr(subject, "role", None)
-                        if not isinstance(subject, dict)
-                        else subject.get("role"),
-                    },
+                    extra={"permission": permission.value, "role": role_value},
                 )
                 raise PermissionError(f"Permission '{permission.value}' required")
 
@@ -152,25 +176,36 @@ def require_permission(permission: Permission) -> Callable[[Callable[..., Any]],
     return decorator
 
 
-def get_authorized_strategies(user: dict[str, Any] | None) -> list[str]:
+def get_authorized_strategies(user: Any | None) -> list[str]:
     """Return list of strategies user may access (default‑deny).
 
     Admins (with VIEW_ALL_STRATEGIES) are expected to receive the full list of
-    strategy IDs from provisioning; this function simply returns the provided
-    strategies list if present. Unknown roles or missing strategies return an
-    empty list to fail closed.
+    strategy IDs from provisioning. Callers without VIEW_ALL_STRATEGIES get
+    only their explicitly assigned strategies. Unknown roles or missing
+    strategies return an empty list to fail closed.
     """
 
     if not user:
         return []
 
     role = _extract_role(user)
-    strategies: Iterable[str] = user.get("strategies", []) if isinstance(user, dict) else []
+    strategies: Iterable[str]
+    if isinstance(user, dict):
+        strategies = user.get("strategies", [])
+    else:
+        # Support ORM/user objects that expose a ``strategies`` attribute
+        strategies = getattr(user, "strategies", []) or []
 
     if role is None:
         return []
 
-    return list(strategies)
+    strategies_list = list(strategies)
+
+    if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
+        # Fail closed: only return explicitly assigned strategies
+        return strategies_list
+
+    return strategies_list
 
 
 __all__ = [

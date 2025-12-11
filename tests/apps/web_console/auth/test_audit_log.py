@@ -4,20 +4,15 @@ from apps.web_console.auth.audit_log import AuditLogger
 
 
 class FakeConn:
+    """Fake connection mimicking psycopg3 AsyncConnection."""
+
     def __init__(self):
         self.executed = []
 
-    async def execute(self, query, *args):
-        self.executed.append((query.strip(), args))
-        return "DELETE 2"
-
-    async def fetchrow(self, query, *args):
-        self.executed.append((query.strip(), args))
-        return {"session_version": 2}
-
-    async def fetch(self, query, *args):
-        self.executed.append((query.strip(), args))
-        return []
+    async def execute(self, query, params=None):
+        # psycopg3 pattern: execute(query, params_tuple) returning cursor with rowcount
+        self.executed.append((query.strip(), params or ()))
+        return FakeCursor(rowcount=2 if query.strip().lower().startswith("delete") else 0)
 
     async def __aenter__(self):
         return self
@@ -28,23 +23,36 @@ class FakeConn:
     def transaction(self):
         return self
 
-    async def cursor(self, *args, **kwargs):
-        for _ in []:
-            yield _
+
+class FakeCursor:
+    """Fake cursor exposing rowcount like psycopg3 AsyncCursor."""
+
+    def __init__(self, rowcount: int = 0):
+        self.rowcount = rowcount
+
+
+class FakeAsyncContextManager:
+    """Async context manager for connection()."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, *_args):
+        return None
 
 
 class FakePool:
+    """Fake pool mimicking psycopg_pool.AsyncConnectionPool."""
+
     def __init__(self):
         self.conn = FakeConn()
 
-    async def acquire(self):
-        return self.conn
-
-    async def __aenter__(self):
-        return self.conn
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
+    def connection(self):
+        """Return async context manager like psycopg_pool."""
+        return FakeAsyncContextManager(self.conn)
 
 
 @pytest.mark.asyncio
@@ -82,9 +90,9 @@ async def test_log_admin_change_persists_event():
     )
 
     assert pool.conn.executed, "Expected audit log write to persist"
-    query, args = pool.conn.executed[-1]
+    query, params = pool.conn.executed[-1]
     assert "INSERT INTO audit_log" in query
-    # user_id, action, details, event_type, resource_type, resource_id, outcome, amr_method
-    assert args[0] == "admin"
-    assert args[1] == "invalidate_sessions"
-    assert args[3] == "admin"
+    # params is tuple: (user_id, action, details, event_type, resource_type, resource_id, outcome, amr_method)
+    assert params[0] == "admin"  # user_id
+    assert params[1] == "invalidate_sessions"  # action
+    assert params[3] == "admin"  # event_type

@@ -19,7 +19,7 @@ class FakePool:
     def __init__(self):
         self.conn = FakeConn()
 
-    async def acquire(self):
+    def connection(self):
         return self.conn
 
 

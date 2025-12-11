@@ -160,10 +160,22 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
 - [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1a_PLAN.md](./PLANS/P4T3_T6.1a_PLAN.md) - T6.1a Auth/RBAC Core implementation plan
 - [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1b_PLAN.md](./PLANS/P4T3_T6.1b_PLAN.md) - T6.1b Admin User Management UI implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/P4T1.9-ETL-Pipeline.md](./PLANS/P4T1.9-ETL-Pipeline.md) - Data storage and ETL pipeline implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.3-CRSP-Local-Provider.md](./PLANS/T1.3-CRSP-Local-Provider.md) - CRSP local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.4-Compustat-Local-Provider.md](./PLANS/T1.4-Compustat-Local-Provider.md) - Compustat local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.5-Fama-French-Local-Provider.md](./PLANS/T1.5-Fama-French-Local-Provider.md) - Fama-French local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.6-dataset-versioning.md](./PLANS/T1.6-dataset-versioning.md) - Dataset versioning implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.1-factor-model-plan.md](./PLANS/T2.1-factor-model-plan.md) - Multi-factor model construction implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.2-plan.md](./PLANS/T2.2-plan.md) - Covariance estimation (v2) implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.4-plan.md](./PLANS/T2.4-plan.md) - Portfolio optimizer and stress testing implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.6-alpha-advanced-plan.md](./PLANS/T2.6-alpha-advanced-plan.md) - Alpha advanced analytics implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.7-factor-attribution-plan.md](./PLANS/T2.7-factor-attribution-plan.md) - Factor attribution analysis implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.3_event_study_plan.md](./TASKS/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.5_PLAN.md](./TASKS/PLANS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.8_PLAN.md](./TASKS/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
+- [CURRENT, 2025-12-07, Plan] [TASKS/PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - Data quality and validation framework implementation plan
+- [CURRENT, 2025-12-07, Plan] [TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - WRDS connection and bulk sync manager implementation plan
 - [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.6-alpha-advanced-plan.md](../.claude/plans/T2.6-alpha-advanced-plan.md) - T2.6 Alpha Advanced Analytics implementation plan
 - [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.7-factor-attribution-plan.md](../.claude/plans/T2.7-factor-attribution-plan.md) - T2.7 Factor Attribution Analysis implementation plan
 

@@ -42,12 +42,28 @@ class FakeConn:
         return False
 
 
+class FakeAsyncContextManager:
+    """Async context manager for connection()."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, *_args):
+        return None
+
+
 class FakePool:
+    """Fake pool that mimics psycopg_pool.AsyncConnectionPool."""
+
     def __init__(self):
         self.conn = FakeConn()
 
-    async def acquire(self):
-        return self.conn
+    def connection(self):
+        """Return async context manager like psycopg_pool."""
+        return FakeAsyncContextManager(self.conn)
 
 
 class DummyAudit:
@@ -63,9 +79,14 @@ class FailingConn(FakeConn):
         raise RuntimeError("db down")
 
 
-class FailingPool(FakePool):
+class FailingPool:
+    """Pool that simulates DB failure."""
+
     def __init__(self):
         self.conn = FailingConn()
+
+    def connection(self):
+        return FakeAsyncContextManager(self.conn)
 
 
 class NoRowConn(FakeConn):
@@ -73,9 +94,14 @@ class NoRowConn(FakeConn):
         return FakeCursor(row=None)
 
 
-class NoRowPool(FakePool):
+class NoRowPool:
+    """Pool that simulates no rows found."""
+
     def __init__(self):
         self.conn = NoRowConn()
+
+    def connection(self):
+        return FakeAsyncContextManager(self.conn)
 
 
 @pytest.mark.asyncio

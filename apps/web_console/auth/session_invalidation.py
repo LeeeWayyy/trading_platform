@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+
+from apps.web_console.utils.db import acquire_connection
 
 logger = logging.getLogger(__name__)
 
@@ -16,43 +17,16 @@ class SessionInvalidationError(Exception):
 
 
 @asynccontextmanager
-async def _conn(db_pool: Any) -> AsyncIterator[Any]:
-    """Adapt to asyncpg- or psycopg-style pool interfaces.
+async def _maybe_transaction(conn: Any) -> AsyncIterator[None]:
+    """Use conn.transaction() when available, otherwise yield without transaction."""
 
-    Supports:
-    - asyncpg pools (acquire() returning async context manager)
-    - psycopg_pool.AsyncConnectionPool (connection() returning async context manager)
-    - psycopg_pool.ConnectionPool (connection() returning sync context manager)
-    """
-    if hasattr(db_pool, "acquire"):
-        candidate = db_pool.acquire()
-        if hasattr(candidate, "__aenter__"):
-            async with candidate as conn:
-                yield conn
-        else:
-            conn = await candidate if inspect.isawaitable(candidate) else candidate
-            try:
-                yield conn
-            finally:
-                releaser = getattr(db_pool, "release", None)
-                if releaser:
-                    maybe = releaser(conn)
-                    if inspect.isawaitable(maybe):
-                        await maybe
-        return
-    if hasattr(db_pool, "connection"):
-        candidate = db_pool.connection()
-        # Check if it's an async context manager (psycopg_pool.AsyncConnectionPool)
-        if hasattr(candidate, "__aenter__"):
-            async with candidate as conn:
-                yield conn
-        else:
-            # Sync context manager (psycopg_pool.ConnectionPool)
-            # Use regular with statement - this runs sync in the async context
-            with candidate as conn:
-                yield conn
-        return
-    raise RuntimeError("Unsupported db_pool interface")
+    if hasattr(conn, "transaction") and callable(conn.transaction):
+        txn_cm = conn.transaction()
+        if hasattr(txn_cm, "__aenter__"):
+            async with txn_cm:
+                yield
+            return
+    yield
 
 
 async def invalidate_user_sessions(
@@ -67,35 +41,21 @@ async def invalidate_user_sessions(
     """
 
     try:
-        async with _conn(db_pool) as conn:
-            if hasattr(conn, "execute"):
+        async with acquire_connection(db_pool) as conn:
+            async with _maybe_transaction(conn):
+                # [v1.5] Use psycopg3-style %s placeholders consistently
                 cursor = await conn.execute(
                     """
                     UPDATE user_roles
                     SET session_version = session_version + 1,
                         updated_at = NOW(),
-                        updated_by = COALESCE($2, updated_by)
-                    WHERE user_id = $1
+                        updated_by = COALESCE(%s, updated_by)
+                    WHERE user_id = %s
                     RETURNING session_version
                     """,
-                    (user_id, admin_user_id),
+                    (admin_user_id, user_id),
                 )
                 row = await cursor.fetchone()
-            elif hasattr(conn, "fetchrow"):
-                row = await conn.fetchrow(
-                    """
-                    UPDATE user_roles
-                    SET session_version = session_version + 1,
-                        updated_at = NOW(),
-                        updated_by = COALESCE($2, updated_by)
-                    WHERE user_id = $1
-                    RETURNING session_version
-                    """,
-                    user_id,
-                    admin_user_id,
-                )
-            else:
-                raise RuntimeError("Unsupported connection interface for session invalidation")
     except Exception as exc:  # pragma: no cover
         logger.exception("session_invalidation_failed", extra={"user_id": user_id, "error": str(exc)})
         raise
@@ -125,20 +85,14 @@ async def validate_session_version(user_id: str, session_version: int, db_pool: 
     """Return True if provided session_version matches DB."""
 
     try:
-        async with _conn(db_pool) as conn:
-            if hasattr(conn, "fetchrow"):
-                row = await conn.fetchrow(
-                    "SELECT session_version FROM user_roles WHERE user_id = $1",
-                    user_id,
-                )
-            elif hasattr(conn, "execute"):
+        async with acquire_connection(db_pool) as conn:
+            async with _maybe_transaction(conn):
+                # [v1.5] Use psycopg3-style %s placeholders consistently
                 cursor = await conn.execute(
-                    "SELECT session_version FROM user_roles WHERE user_id = $1",
+                    "SELECT session_version FROM user_roles WHERE user_id = %s",
                     (user_id,),
                 )
                 row = await cursor.fetchone()
-            else:
-                raise RuntimeError("Unsupported connection interface for session validation")
     except Exception as exc:  # pragma: no cover
         logger.exception("session_version_validation_failed", extra={"user_id": user_id, "error": str(exc)})
         return False

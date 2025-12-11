@@ -6,7 +6,6 @@ unavailable, ensuring auth flows are not blocked.
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
 import os
@@ -16,6 +15,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from prometheus_client import Counter, Histogram
+
+from apps.web_console.utils.db import acquire_connection
 
 logger = logging.getLogger(__name__)
 
@@ -37,46 +38,16 @@ _audit_cleanup_duration_seconds = Histogram(
 
 
 @asynccontextmanager
-async def _acquire(db_pool: Any) -> AsyncIterator[Any]:
-    """Support asyncpg- or psycopg-style pools.
+async def _maybe_transaction(conn: Any) -> AsyncIterator[None]:
+    """Use conn.transaction() when available; otherwise no-op context."""
 
-    Supports:
-    - asyncpg pools (acquire() returning async context manager)
-    - psycopg_pool.AsyncConnectionPool (connection() returning async context manager)
-    - psycopg_pool.ConnectionPool (connection() returning sync context manager)
-    """
-
-    if hasattr(db_pool, "acquire"):
-        acquire_ctx = db_pool.acquire()
-        if hasattr(acquire_ctx, "__aenter__"):
-            async with acquire_ctx as conn:
-                yield conn
-        else:
-            conn = await acquire_ctx if inspect.isawaitable(acquire_ctx) else acquire_ctx
-            try:
-                yield conn
-            finally:
-                releaser = getattr(db_pool, "release", None)
-                if releaser:
-                    maybe = releaser(conn)
-                    if inspect.isawaitable(maybe):
-                        await maybe
+    txn_factory = getattr(conn, "transaction", None)
+    if txn_factory and callable(txn_factory):
+        async with txn_factory():
+            yield
         return
 
-    if hasattr(db_pool, "connection"):
-        candidate = db_pool.connection()
-        # Check if it's an async context manager (psycopg_pool.AsyncConnectionPool)
-        if hasattr(candidate, "__aenter__"):
-            async with candidate as conn:
-                yield conn
-        else:
-            # Sync context manager (psycopg_pool.ConnectionPool)
-            # Use regular with statement - this runs sync in the async context
-            with candidate as conn:
-                yield conn
-        return
-
-    raise RuntimeError("Unsupported db_pool interface")
+    yield
 
 
 class AuditLogger:
@@ -98,37 +69,51 @@ class AuditLogger:
         details: dict[str, Any] | None = None,
         amr_method: str | None = None,
     ) -> None:
+        """Persist a single audit event synchronously.
+
+        This function is intentionally awaited inline so the trading console
+        confirms user-visible actions only after the audit record is durably
+        written. If this ever becomes a performance bottleneck, we can
+        introduce a buffered/background queue (e.g., asyncio task + channel)
+        that preserves ordering guarantees before acknowledging to the user.
+        Note: payload serialization uses synchronous ``json.dumps``; keep
+        ``details`` payloads small to avoid blocking the event loop.
+        """
         details = details or {}
         if not self.db_pool:
             logger.info("audit_log_fallback", extra={"event_type": event_type, "action": action})
             return
 
         try:
-            async with _acquire(self.db_pool) as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO audit_log (
-                        timestamp,
-                        user_id,
-                        action,
-                        details,
-                        event_type,
-                        resource_type,
-                        resource_id,
-                        outcome,
-                        amr_method
+            async with acquire_connection(self.db_pool) as conn:
+                async with _maybe_transaction(conn):
+                    # [v1.5] Use psycopg3-style %s placeholders for compatibility
+                    await conn.execute(
+                        """
+                        INSERT INTO audit_log (
+                            timestamp,
+                            user_id,
+                            action,
+                            details,
+                            event_type,
+                            resource_type,
+                            resource_id,
+                            outcome,
+                            amr_method
+                        )
+                        VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            user_id,
+                            action,
+                            json.dumps(details, default=str),
+                            event_type,
+                            resource_type,
+                            resource_id,
+                            outcome,
+                            amr_method,
+                        ),
                     )
-                    VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8)
-                    """,
-                    user_id,
-                    action,
-                    json.dumps(details),
-                    event_type,
-                    resource_type,
-                    resource_id,
-                    outcome,
-                    amr_method,
-                )
             _audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
         except Exception as exc:  # pragma: no cover - defensive logging
             _audit_write_failures_total.labels(reason=exc.__class__.__name__).inc()
@@ -252,24 +237,35 @@ class AuditLogger:
         cutoff = datetime.now(UTC) - timedelta(days=self.retention_days)
         start = datetime.now(UTC)
         try:
-            async with _acquire(self.db_pool) as conn:
-                result = await conn.execute(
-                    "DELETE FROM audit_log WHERE timestamp < $1",
-                    cutoff,
-                )
+            async with acquire_connection(self.db_pool) as conn:
+                async with _maybe_transaction(conn):
+                    # [v1.5] Use psycopg3-style %s placeholders
+                    result = await conn.execute(
+                        "DELETE FROM audit_log WHERE timestamp < %s",
+                        (cutoff,),
+                    )
             duration = (datetime.now(UTC) - start).total_seconds()
             _audit_cleanup_duration_seconds.observe(duration)
 
-            # asyncpg returns command tag like "DELETE 5"; psycopg returns int
-            if isinstance(result, str) and result.startswith("DELETE"):
+            deleted = 0
+            # psycopg3 AsyncCursor exposes rowcount; asyncpg returns command tag; defensive fallbacks follow
+            if hasattr(result, "rowcount"):
+                deleted = int(result.rowcount or 0)
+            elif hasattr(result, "statusmessage"):
+                status = result.statusmessage or ""
+                if isinstance(status, str) and status.startswith("DELETE"):
+                    try:
+                        deleted = int(status.split(" ")[1])
+                    except Exception:
+                        deleted = 0
+            elif isinstance(result, str) and result.startswith("DELETE"):
                 try:
                     deleted = int(result.split(" ")[1])
                 except Exception:
                     deleted = 0
             elif isinstance(result, int | float):
                 deleted = int(result)
-            else:
-                deleted = 0
+
             return deleted
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("audit_log_cleanup_failed", extra={"error": str(exc)})
