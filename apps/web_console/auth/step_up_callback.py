@@ -169,13 +169,11 @@ async def handle_step_up_callback(
             "redirect_to": pending_action or "/login",
         }
 
-    if expected_issuer:
-        issuer = expected_issuer
-    elif getattr(jwks_validator, "auth0_domain", None):
+    issuer = expected_issuer if expected_issuer is not None else None
+    if issuer is None and getattr(jwks_validator, "auth0_domain", None):
         issuer = f"https://{jwks_validator.auth0_domain}/"
-    else:
-        issuer = None
-    if not expected_audience or not issuer:
+
+    if expected_audience is None or issuer is None:
         await session_store.clear_step_up_state(session_id)
         if audit_logger:
             await audit_logger.log_auth_event(

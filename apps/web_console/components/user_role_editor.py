@@ -92,6 +92,7 @@ def render_role_editor(
             st.session_state[confirm_key] = {
                 "new_role": new_role,
                 "reason": reason.strip(),
+                "csrf_token": submitted_csrf,  # Re-verify at execution time
             }
             st.rerun()
 
@@ -108,6 +109,20 @@ def render_role_editor(
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Confirm", key=f"confirm_btn_{user_id}", type="primary"):
+                # Re-verify CSRF before executing action
+                if not verify_csrf_token(pending.get("csrf_token", "")):
+                    st.error("Session expired. Please refresh and try again.")
+                    _log_csrf_failure_sync(
+                        audit_logger,
+                        admin_user_id,
+                        "role_change_execute",
+                        user_id,
+                    )
+                    del st.session_state[confirm_key]
+                    rotate_csrf_token()
+                    st.rerun()
+                    return
+
                 # Execute role change
                 success, message = _execute_role_change_sync(
                     db_pool=db_pool,

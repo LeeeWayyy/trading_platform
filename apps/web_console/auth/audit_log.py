@@ -263,7 +263,7 @@ class AuditLogger:
                     deleted = int(result.split(" ")[1])
                 except Exception:
                     deleted = 0
-            elif isinstance(result, int | float):
+            elif isinstance(result, (int, float)):  # noqa: UP038
                 deleted = int(result)
 
             return deleted

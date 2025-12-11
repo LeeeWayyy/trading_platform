@@ -65,13 +65,11 @@ class TestGrantStrategy:
         # psycopg3 pattern: execute returns cursor
         # 1) SELECT strategy exists
         # 2) INSERT ... ON CONFLICT DO NOTHING (rowcount=1 when inserted)
-        # 3) UPDATE session_version (only when insert succeeded)
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
         mock_cursor_inserted = MockAsyncCursor(rowcount=1)  # insert succeeded
         mock_conn.execute = AsyncMock(side_effect=[
             mock_cursor_exists,   # SELECT strategy exists
             mock_cursor_inserted, # INSERT grant
-            AsyncMock(),          # UPDATE session_version
         ])
 
         mock_audit = AsyncMock()
@@ -87,7 +85,7 @@ class TestGrantStrategy:
         assert success is True
         assert "alpha_baseline" in msg
         mock_audit.log_admin_change.assert_called_once()
-        assert mock_conn.execute.call_count == 3  # SELECT exists + INSERT + UPDATE
+        assert mock_conn.execute.call_count == 2  # SELECT exists + INSERT
 
     @pytest.mark.asyncio
     async def test_grant_strategy_already_granted_denied(self):
@@ -123,39 +121,6 @@ class TestGrantStrategy:
         assert call_kwargs["action"] == "strategy_grant_denied"
         assert mock_conn.execute.call_count == 2  # SELECT exists + INSERT (conflict)
 
-    @pytest.mark.asyncio
-    async def test_grant_strategy_increments_session_version(self):
-        """[v1.2] Verify grant explicitly increments session_version."""
-
-        mock_conn = MagicMock()
-        mock_pool = MagicMock()
-        # Use connection() interface (psycopg_pool pattern)
-        mock_pool.connection.return_value = MockAsyncContextManager(mock_conn)
-        # Mock transaction() - it returns an async context manager
-        mock_conn.transaction = MagicMock(return_value=MockTransaction())
-
-        # psycopg3 pattern: execute returns cursor
-        mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
-        mock_cursor_inserted = MockAsyncCursor(rowcount=1)  # insert succeeded
-        mock_conn.execute = AsyncMock(side_effect=[
-            mock_cursor_exists,   # SELECT strategy exists
-            mock_cursor_inserted, # INSERT grant
-            AsyncMock(),          # UPDATE session_version
-        ])
-
-        mock_audit = AsyncMock()
-
-        await grant_strategy(
-            db_pool=mock_pool,
-            user_id="user1",
-            strategy_id="alpha_baseline",
-            admin_user_id="admin1",
-            audit_logger=mock_audit,
-        )
-
-        execute_calls = [str(c) for c in mock_conn.execute.call_args_list]
-        assert any("session_version" in call for call in execute_calls)
-
 
 class TestRevokeStrategy:
     """Tests for revoke_strategy function."""
@@ -174,13 +139,11 @@ class TestRevokeStrategy:
         # psycopg3 pattern: execute returns cursor
         # First call: strategy exists check
         # Second call: DELETE with rowcount=1
-        # Third call: UPDATE session_version
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
         mock_cursor_deleted = MockAsyncCursor(rowcount=1)  # row deleted
         mock_conn.execute = AsyncMock(side_effect=[
             mock_cursor_exists,  # SELECT strategy exists
             mock_cursor_deleted, # DELETE
-            AsyncMock(),         # UPDATE session_version
         ])
 
         mock_audit = AsyncMock()
@@ -231,36 +194,3 @@ class TestRevokeStrategy:
         mock_audit.log_action.assert_called_once()
         call_kwargs = mock_audit.log_action.call_args[1]
         assert call_kwargs["outcome"] == "denied"
-
-    @pytest.mark.asyncio
-    async def test_revoke_strategy_increments_session_version(self):
-        """[v1.2] Verify revoke explicitly increments session_version."""
-
-        mock_conn = MagicMock()
-        mock_pool = MagicMock()
-        # Use connection() interface (psycopg_pool pattern)
-        mock_pool.connection.return_value = MockAsyncContextManager(mock_conn)
-        # Mock transaction() - it returns an async context manager
-        mock_conn.transaction = MagicMock(return_value=MockTransaction())
-
-        # psycopg3 pattern: execute returns cursor
-        mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
-        mock_cursor_deleted = MockAsyncCursor(rowcount=1)  # row deleted
-        mock_conn.execute = AsyncMock(side_effect=[
-            mock_cursor_exists,  # SELECT strategy exists
-            mock_cursor_deleted, # DELETE
-            AsyncMock(),         # UPDATE session_version
-        ])
-
-        mock_audit = AsyncMock()
-
-        await revoke_strategy(
-            db_pool=mock_pool,
-            user_id="user1",
-            strategy_id="alpha_baseline",
-            admin_user_id="admin1",
-            audit_logger=mock_audit,
-        )
-
-        execute_calls = [str(c) for c in mock_conn.execute.call_args_list]
-        assert any("session_version" in call for call in execute_calls)

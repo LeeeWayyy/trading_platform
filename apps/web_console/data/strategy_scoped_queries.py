@@ -7,8 +7,7 @@ import hashlib
 import json
 import logging
 import os
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -145,7 +144,7 @@ class StrategyScopedDataAccess:
             if value is None:
                 continue
 
-            if isinstance(value, list | tuple | set):
+            if isinstance(value, (list, tuple, set)):  # noqa: UP038
                 clauses.append(f"{column} = ANY(%s)")
                 params.append(list(value))
             else:
@@ -163,7 +162,7 @@ class StrategyScopedDataAccess:
         for key in sorted(allowed):
             if key in filters and filters[key] is not None:
                 value = filters[key]
-                if isinstance(value, set | tuple):
+                if isinstance(value, (set, tuple)):  # noqa: UP038
                     value = sorted(value)
                 normalized[key] = value
 
@@ -213,46 +212,12 @@ class StrategyScopedDataAccess:
         # Clamp to valid range [1, MAX_LIMIT] to prevent DoS via 0/negative limits
         return max(1, min(int(value), self.MAX_LIMIT))
 
-    @asynccontextmanager
-    async def _get_connection(self) -> AsyncIterator[Any]:
-        """Acquire DB connection across driver styles (psycopg/asyncpg-test-doubles)."""
-
-        if hasattr(self.db_pool, "acquire") and not hasattr(self.db_pool, "connection"):
-            conn = await self.db_pool.acquire()
-            try:
-                yield conn
-            finally:
-                release = self.db_pool.release if hasattr(self.db_pool, "release") else None
-                if callable(release):
-                    await release(conn)
-            return
-
-        async with acquire_connection(self.db_pool) as conn:
-            yield conn
-
     @staticmethod
     async def _execute_fetchall(conn: Any, query: str, params: tuple[Any, ...]) -> list[Any]:
-        """Execute query and return rows, supporting both fetch() and execute()."""
-
-        fetch_method = conn.fetch if hasattr(conn, "fetch") else None
-        if callable(fetch_method):
-            dollar_query = StrategyScopedDataAccess._convert_placeholders_to_dollar(query)
-            rows = await fetch_method(dollar_query, *params)
-            return cast(list[Any], rows)
-
+        """Execute query and return rows using psycopg-style interfaces."""
         cursor = await conn.execute(query, params)
         rows = await cursor.fetchall()
         return cast(list[Any], rows)
-
-    @staticmethod
-    def _convert_placeholders_to_dollar(query: str) -> str:
-        """Convert psycopg-style %s placeholders to $1, $2 for asyncpg-style drivers."""
-
-        idx = 1
-        while "%s" in query:
-            query = query.replace("%s", f"${idx}", 1)
-            idx += 1
-        return query
 
     async def get_positions(
         self, limit: int = DEFAULT_LIMIT, offset: int = 0, use_cache: bool = True, **filters: Any
@@ -276,7 +241,7 @@ class StrategyScopedDataAccess:
             LIMIT %s OFFSET %s
         """
         exec_params = [strategies, *params, limit, offset]
-        async with self._get_connection() as conn:
+        async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
             data = [dict(row) for row in rows]
 
@@ -298,7 +263,7 @@ class StrategyScopedDataAccess:
             LIMIT %s OFFSET %s
         """
         exec_params = [strategies, *params, limit, offset]
-        async with self._get_connection() as conn:
+        async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
 
@@ -319,7 +284,7 @@ class StrategyScopedDataAccess:
             LIMIT %s OFFSET %s
         """
         params = (strategies, date_from, date_to, limit, offset)
-        async with self._get_connection() as conn:
+        async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, params)
         return [dict(row) for row in rows]
 
@@ -338,7 +303,7 @@ class StrategyScopedDataAccess:
             LIMIT %s OFFSET %s
         """
         exec_params = [strategies, *params, limit, offset]
-        async with self._get_connection() as conn:
+        async with acquire_connection(self.db_pool) as conn:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
 

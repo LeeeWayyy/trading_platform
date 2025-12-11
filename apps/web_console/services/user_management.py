@@ -283,18 +283,6 @@ async def grant_strategy(
                     )
                     return False, f"Strategy {strategy_id} already granted"
 
-                # Increment session_version to force session invalidation on next refresh
-                await conn.execute(
-                    """
-                    UPDATE user_roles
-                    SET session_version = session_version + 1,
-                        updated_at = NOW(),
-                        updated_by = %s
-                    WHERE user_id = %s
-                """,
-                    (admin_user_id, user_id),
-                )
-
         await audit_logger.log_admin_change(
             admin_user_id=admin_user_id,
             action="strategy_grant",
@@ -369,18 +357,6 @@ async def revoke_strategy(
                         details={"reason": "not_assigned"},
                     )
                     return False, f"Strategy {strategy_id} not assigned"
-
-                # Increment session_version to force session invalidation on next refresh
-                await conn.execute(
-                    """
-                    UPDATE user_roles
-                    SET session_version = session_version + 1,
-                        updated_at = NOW(),
-                        updated_by = %s
-                    WHERE user_id = %s
-                """,
-                    (admin_user_id, user_id),
-                )
 
         await audit_logger.log_admin_change(
             admin_user_id=admin_user_id,
