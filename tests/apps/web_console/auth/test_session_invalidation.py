@@ -7,21 +7,33 @@ from apps.web_console.auth.session_invalidation import (
 )
 
 
+class FakeCursor:
+    """Fake cursor that mimics psycopg3 AsyncCursor."""
+
+    def __init__(self, row=None):
+        self._row = row
+
+    async def fetchone(self):
+        return self._row
+
+
 class FakeConn:
+    """Fake connection that mimics psycopg3 AsyncConnection."""
+
     def __init__(self, version: int = 1):
         self.version = version
         self.has_row = False
 
-    async def fetchrow(self, query, *args):
+    async def execute(self, query, params=None):
         if "UPDATE" in query:
             self.version += 1
             self.has_row = True
-            return {"session_version": self.version}
+            return FakeCursor(row=(self.version,))
         if "SELECT" in query:
             if not self.has_row:
-                return None
-            return {"session_version": self.version}
-        return None
+                return FakeCursor(row=None)
+            return FakeCursor(row=(self.version,))
+        return FakeCursor(row=None)
 
     async def __aenter__(self):
         return self
@@ -47,7 +59,7 @@ class DummyAudit:
 
 
 class FailingConn(FakeConn):
-    async def fetchrow(self, query, *args):
+    async def execute(self, query, params=None):
         raise RuntimeError("db down")
 
 
@@ -57,8 +69,8 @@ class FailingPool(FakePool):
 
 
 class NoRowConn(FakeConn):
-    async def fetchrow(self, query, *args):
-        return None
+    async def execute(self, query, params=None):
+        return FakeCursor(row=None)
 
 
 class NoRowPool(FakePool):

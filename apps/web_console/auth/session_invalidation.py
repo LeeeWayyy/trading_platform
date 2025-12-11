@@ -17,6 +17,13 @@ class SessionInvalidationError(Exception):
 
 @asynccontextmanager
 async def _conn(db_pool: Any) -> AsyncIterator[Any]:
+    """Adapt to asyncpg- or psycopg-style pool interfaces.
+
+    Supports:
+    - asyncpg pools (acquire() returning async context manager)
+    - psycopg_pool.AsyncConnectionPool (connection() returning async context manager)
+    - psycopg_pool.ConnectionPool (connection() returning sync context manager)
+    """
     if hasattr(db_pool, "acquire"):
         candidate = db_pool.acquire()
         if hasattr(candidate, "__aenter__"):
@@ -35,9 +42,15 @@ async def _conn(db_pool: Any) -> AsyncIterator[Any]:
         return
     if hasattr(db_pool, "connection"):
         candidate = db_pool.connection()
-        conn = await candidate if inspect.isawaitable(candidate) else candidate
-        async with conn:
-            yield conn
+        # Check if it's an async context manager (psycopg_pool.AsyncConnectionPool)
+        if hasattr(candidate, "__aenter__"):
+            async with candidate as conn:
+                yield conn
+        else:
+            # Sync context manager (psycopg_pool.ConnectionPool)
+            # Use regular with statement - this runs sync in the async context
+            with candidate as conn:
+                yield conn
         return
     raise RuntimeError("Unsupported db_pool interface")
 
@@ -55,18 +68,34 @@ async def invalidate_user_sessions(
 
     try:
         async with _conn(db_pool) as conn:
-            row = await conn.fetchrow(
-                """
-                UPDATE user_roles
-                SET session_version = session_version + 1,
-                    updated_at = NOW(),
-                    updated_by = COALESCE($2, updated_by)
-                WHERE user_id = $1
-                RETURNING session_version
-                """,
-                user_id,
-                admin_user_id,
-            )
+            if hasattr(conn, "execute"):
+                cursor = await conn.execute(
+                    """
+                    UPDATE user_roles
+                    SET session_version = session_version + 1,
+                        updated_at = NOW(),
+                        updated_by = COALESCE($2, updated_by)
+                    WHERE user_id = $1
+                    RETURNING session_version
+                    """,
+                    (user_id, admin_user_id),
+                )
+                row = await cursor.fetchone()
+            elif hasattr(conn, "fetchrow"):
+                row = await conn.fetchrow(
+                    """
+                    UPDATE user_roles
+                    SET session_version = session_version + 1,
+                        updated_at = NOW(),
+                        updated_by = COALESCE($2, updated_by)
+                    WHERE user_id = $1
+                    RETURNING session_version
+                    """,
+                    user_id,
+                    admin_user_id,
+                )
+            else:
+                raise RuntimeError("Unsupported connection interface for session invalidation")
     except Exception as exc:  # pragma: no cover
         logger.exception("session_invalidation_failed", extra={"user_id": user_id, "error": str(exc)})
         raise
@@ -75,8 +104,8 @@ async def invalidate_user_sessions(
         logger.warning("session_invalidation_no_rows_updated", extra={"user_id": user_id})
         raise SessionInvalidationError(f"No session row found for user_id={user_id}")
 
-    # mypy: row values are Any from asyncpg fetchrow; coerce to int for return type
-    new_version = int(row["session_version"])
+    # psycopg3: row is a tuple, access by index
+    new_version = int(row["session_version"] if isinstance(row, dict) else row[0])
 
     if audit_logger and admin_user_id:
         try:
@@ -97,10 +126,19 @@ async def validate_session_version(user_id: str, session_version: int, db_pool: 
 
     try:
         async with _conn(db_pool) as conn:
-            row = await conn.fetchrow(
-                "SELECT session_version FROM user_roles WHERE user_id = $1",
-                user_id,
-            )
+            if hasattr(conn, "fetchrow"):
+                row = await conn.fetchrow(
+                    "SELECT session_version FROM user_roles WHERE user_id = $1",
+                    user_id,
+                )
+            elif hasattr(conn, "execute"):
+                cursor = await conn.execute(
+                    "SELECT session_version FROM user_roles WHERE user_id = $1",
+                    (user_id,),
+                )
+                row = await cursor.fetchone()
+            else:
+                raise RuntimeError("Unsupported connection interface for session validation")
     except Exception as exc:  # pragma: no cover
         logger.exception("session_version_validation_failed", extra={"user_id": user_id, "error": str(exc)})
         return False
@@ -108,7 +146,9 @@ async def validate_session_version(user_id: str, session_version: int, db_pool: 
     if not row:
         return False
 
-    return int(row["session_version"]) == int(session_version)
+    db_version = row["session_version"] if isinstance(row, dict) else row[0]
+
+    return int(db_version) == int(session_version)
 
 
 __all__ = ["invalidate_user_sessions", "validate_session_version", "SessionInvalidationError"]

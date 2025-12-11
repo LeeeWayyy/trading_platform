@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     import psycopg_pool
 
 from apps.web_console import auth, config
+from apps.web_console.auth.audit_log import AuditLogger
+from apps.web_console.auth.permissions import Permission, has_permission
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.session_status import render_session_status
 
@@ -834,9 +836,13 @@ def main() -> None:
         st.divider()
 
         # Navigation
+        pages = ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"]
+        if has_permission(user_info, Permission.MANAGE_USERS):
+            pages.append("User Management")
+
         page = st.radio(
             "Select Page",
-            ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"],
+            pages,
             label_visibility="collapsed",
         )
 
@@ -865,6 +871,14 @@ def main() -> None:
         render_kill_switch()
     elif page == "Audit Log":
         render_audit_log()
+    elif page == "User Management":
+        from apps.web_console.pages.admin_users import render_admin_users
+
+        render_admin_users(
+            user=user_info,
+            db_pool=_get_db_pool(),
+            audit_logger=AuditLogger(_get_db_pool()),
+        )
 
 
 if __name__ == "__main__":

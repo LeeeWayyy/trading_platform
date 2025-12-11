@@ -38,7 +38,13 @@ _audit_cleanup_duration_seconds = Histogram(
 
 @asynccontextmanager
 async def _acquire(db_pool: Any) -> AsyncIterator[Any]:
-    """Support asyncpg- or psycopg-style pools."""
+    """Support asyncpg- or psycopg-style pools.
+
+    Supports:
+    - asyncpg pools (acquire() returning async context manager)
+    - psycopg_pool.AsyncConnectionPool (connection() returning async context manager)
+    - psycopg_pool.ConnectionPool (connection() returning sync context manager)
+    """
 
     if hasattr(db_pool, "acquire"):
         acquire_ctx = db_pool.acquire()
@@ -59,9 +65,15 @@ async def _acquire(db_pool: Any) -> AsyncIterator[Any]:
 
     if hasattr(db_pool, "connection"):
         candidate = db_pool.connection()
-        conn = await candidate if inspect.isawaitable(candidate) else candidate
-        async with conn:
-            yield conn
+        # Check if it's an async context manager (psycopg_pool.AsyncConnectionPool)
+        if hasattr(candidate, "__aenter__"):
+            async with candidate as conn:
+                yield conn
+        else:
+            # Sync context manager (psycopg_pool.ConnectionPool)
+            # Use regular with statement - this runs sync in the async context
+            with candidate as conn:
+                yield conn
         return
 
     raise RuntimeError("Unsupported db_pool interface")

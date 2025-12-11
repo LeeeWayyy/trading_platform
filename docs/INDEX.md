@@ -159,6 +159,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track1_T1.7_T1.8.md](./PLANS/P4T2_Track1_T1.7_T1.8.md) - P4T2 Track 1: Fama-French Integration (T1.7) and yfinance Integration (T1.8)
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
 - [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1a_PLAN.md](./PLANS/P4T3_T6.1a_PLAN.md) - T6.1a Auth/RBAC Core implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1b_PLAN.md](./PLANS/P4T3_T6.1b_PLAN.md) - T6.1b Admin User Management UI implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.3_event_study_plan.md](./TASKS/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.5_PLAN.md](./TASKS/PLANS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan

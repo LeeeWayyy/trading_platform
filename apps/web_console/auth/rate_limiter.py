@@ -71,15 +71,22 @@ class RateLimiter:
         try:
             member = f"{user_id}:{time.time_ns()}"
             # Use Lua script for atomic execution
-            count = await self.redis.eval(
+            # Convert int args to str for mypy (redis.eval expects *str args)
+            eval_result = self.redis.eval(
                 self._RATE_LIMIT_SCRIPT,
                 1,  # number of keys
                 key,  # KEYS[1]
-                now,  # ARGV[1]
-                window_seconds,  # ARGV[2]
-                max_requests,  # ARGV[3]
+                str(now),  # ARGV[1]
+                str(window_seconds),  # ARGV[2]
+                str(max_requests),  # ARGV[3]
                 member,  # ARGV[4]
             )
+            # redis.eval returns Awaitable[str] | str; handle both for async client
+            if hasattr(eval_result, "__await__"):
+                result = await eval_result
+            else:
+                result = eval_result
+            count = int(result)  # Lua script returns count as int
             allowed = count <= max_requests
             rate_limit_checks_total.labels(action=action, result="allowed" if allowed else "blocked").inc()
             return allowed, max(0, max_requests - count)
