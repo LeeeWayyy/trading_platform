@@ -22,6 +22,7 @@ Environment Variables:
     DATABASE_URL: PostgreSQL connection string
 """
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
     import psycopg_pool
 
 from apps.web_console import auth, config
+from apps.web_console.auth.audit_log import AuditLogger
+from apps.web_console.auth.permissions import Permission, has_permission
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.session_status import render_session_status
 
@@ -49,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 
 @st.cache_resource(ttl=300)  # TTL=5min to recover from transient DB issues
-def _get_db_pool() -> "psycopg_pool.ConnectionPool | None":
+def _get_db_pool() -> "psycopg_pool.AsyncConnectionPool | None":
     """
     Get or initialize the database connection pool.
 
@@ -68,13 +71,13 @@ def _get_db_pool() -> "psycopg_pool.ConnectionPool | None":
             f"(min={config.DB_POOL_MIN_SIZE}, max={config.DB_POOL_MAX_SIZE})"
         )
 
-        pool = psycopg_pool.ConnectionPool(
+        pool = psycopg_pool.AsyncConnectionPool(
             config.DATABASE_URL,
             min_size=config.DB_POOL_MIN_SIZE,
             max_size=config.DB_POOL_MAX_SIZE,
             timeout=config.DB_POOL_TIMEOUT,
-            # Open pool immediately to verify connection works
-            open=True,
+            # Async pools open lazily; callers will await connection acquisition
+            open=False,
         )
 
         logger.info("Database connection pool initialized successfully")
@@ -712,24 +715,37 @@ def render_audit_log() -> None:
         import psycopg
 
         rows: list[tuple[Any, ...]] = []
+        pool_fetch_failed = False
 
         # M7 Fix: Try to use connection pool first
         pool = _get_db_pool()
         if pool is not None:
-            # Use pooled connection
-            with pool.connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT timestamp, user_id, action, details::text, reason, ip_address
-                        FROM audit_log
-                        ORDER BY timestamp DESC
-                        LIMIT %s
-                        """,
-                        (config.AUDIT_LOG_DISPLAY_LIMIT,),
-                    )
-                    rows = cur.fetchall()
-        else:
+            async def _fetch_with_pool() -> list[tuple[Any, ...]]:
+                async with pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            """
+                            SELECT timestamp, user_id, action, details::text, reason, ip_address
+                            FROM audit_log
+                            ORDER BY timestamp DESC
+                            LIMIT %s
+                            """,
+                            (config.AUDIT_LOG_DISPLAY_LIMIT,),
+                        )
+                        return await cur.fetchall()
+
+            try:
+                rows = asyncio.run(_fetch_with_pool())
+            except RuntimeError:
+                # If an event loop is already running (unlikely in Streamlit), fall back to direct connection
+                logger.warning("audit_log_pool_fetch_fallback_sync")
+                pool_fetch_failed = True
+            except Exception:
+                # Any other fetch failure should trigger the synchronous fallback
+                logger.exception("audit_log_pool_fetch_failed")
+                pool_fetch_failed = True
+
+        if not rows and (pool is None or pool_fetch_failed):
             # Fallback: New connection per render (graceful degradation)
             with psycopg.connect(
                 config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT
@@ -834,9 +850,13 @@ def main() -> None:
         st.divider()
 
         # Navigation
+        pages = ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"]
+        if has_permission(user_info, Permission.MANAGE_USERS):
+            pages.append("User Management")
+
         page = st.radio(
             "Select Page",
-            ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"],
+            pages,
             label_visibility="collapsed",
         )
 
@@ -865,6 +885,14 @@ def main() -> None:
         render_kill_switch()
     elif page == "Audit Log":
         render_audit_log()
+    elif page == "User Management":
+        from apps.web_console.pages.admin_users import render_admin_users
+
+        render_admin_users(
+            user=user_info,
+            db_pool=_get_db_pool(),
+            audit_logger=AuditLogger(_get_db_pool()),
+        )
 
 
 if __name__ == "__main__":

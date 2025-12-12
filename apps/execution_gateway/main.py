@@ -2498,7 +2498,11 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
         }
     """
     # Get all positions from database
-    db_positions = db_client.get_all_positions()
+    try:
+        db_positions = db_client.get_all_positions()
+    except Exception:
+        logger.warning("realtime_pnl_db_unavailable", exc_info=True)
+        db_positions = []
 
     if not db_positions:
         # Reset P&L gauges to 0 when no positions (prevent stale values)

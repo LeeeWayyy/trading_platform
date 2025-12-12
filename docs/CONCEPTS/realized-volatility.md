@@ -550,7 +550,7 @@ model_high.fit(high_vol_data, "high_vol")
 ## Further Reading
 
 - [Corsi (2009)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1090137) - Original HAR-RV paper
-- [Andersen et al. (2003)](https://www.jstor.org/stable/3132247) - Realized volatility theory
+- [Andersen et al. (2003)](https://www.nber.org/system/files/working_papers/w10674/w10674.pdf) - Realized volatility theory
 - [Microstructure Concepts](./microstructure.md) - Related high-frequency analysis
 - [Risk Management Concepts](./risk-management.md) - Using volatility in risk controls
 

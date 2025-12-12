@@ -57,7 +57,7 @@ class TestConnectionPoolInit:
 
         mock_pool = MagicMock()
         mock_psycopg_pool = MagicMock()
-        mock_psycopg_pool.ConnectionPool.return_value = mock_pool
+        mock_psycopg_pool.AsyncConnectionPool.return_value = mock_pool
 
         # Patch builtins.__import__ to return our mock for psycopg_pool
         import builtins
@@ -73,7 +73,7 @@ class TestConnectionPoolInit:
             result = app_module._get_db_pool()
 
             # Verify ConnectionPool was called with config values
-            mock_psycopg_pool.ConnectionPool.assert_called_once()
+            mock_psycopg_pool.AsyncConnectionPool.assert_called_once()
             # Verify pool was returned (not None)
             assert result is mock_pool
 
@@ -131,19 +131,54 @@ class TestAuditLogPoolUsage:
         """render_audit_log should use pool.connection() when pool is available."""
         import apps.web_console.app as app_module
 
-        # Create mock pool
-        mock_pool = MagicMock()
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.fetchall.return_value = []
+        class _FakeCursor:
+            def __init__(self, pool):
+                self.pool = pool
 
-        # Setup context managers
-        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-        mock_conn.__exit__ = MagicMock(return_value=False)
-        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
-        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-        mock_pool.connection.return_value.__enter__ = MagicMock(return_value=mock_conn)
-        mock_pool.connection.return_value.__exit__ = MagicMock(return_value=False)
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def execute(self, *_args, **_kwargs):
+                return None
+
+            async def fetchall(self):
+                # Return at least one row to avoid fallback path
+                return [(None, "user1", "login", "{}", "ok", "127.0.0.1")]
+
+        class _FakeConn:
+            def __init__(self, pool):
+                self.pool = pool
+
+            def cursor(self):
+                return _FakeCursor(self.pool)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+        class _FakePool:
+            def __init__(self):
+                self.connection_called = False
+
+            def connection(self):
+                pool = self
+
+                class _ConnCM:
+                    async def __aenter__(self_nonlocal):
+                        pool.connection_called = True
+                        return _FakeConn(pool)
+
+                    async def __aexit__(self_nonlocal, *_args):
+                        return None
+
+                return _ConnCM()
+
+        mock_pool = _FakePool()
 
         # Mock _get_db_pool to return our mock pool
         with patch.object(app_module, "_get_db_pool", return_value=mock_pool):
@@ -164,7 +199,7 @@ class TestAuditLogPoolUsage:
                                         pass
 
                                     # Verify pool.connection() was called
-                                    mock_pool.connection.assert_called()
+                                    assert mock_pool.connection_called is True
 
     def test_audit_log_falls_back_when_pool_unavailable(self) -> None:
         """render_audit_log should fall back to direct connect when pool is None."""

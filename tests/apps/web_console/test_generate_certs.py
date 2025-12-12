@@ -59,7 +59,8 @@ def run_generate_certs(args: list[str], output_dir: Path) -> subprocess.Complete
     """
     script_path = Path(__file__).parent.parent.parent.parent / "scripts" / "generate_certs.py"
     cmd = ["python3", str(script_path), "--output", str(output_dir)] + args
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    env = {**os.environ, "SKIP_DHPARAM_GENERATION": "1"}
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     return result
 
 
@@ -73,6 +74,25 @@ def load_private_key(key_path: Path) -> rsa.RSAPrivateKey:
     """Load RSA private key from PEM file."""
     key_pem = key_path.read_bytes()
     return serialization.load_pem_private_key(key_pem, password=None, backend=default_backend())
+
+
+def validity_window(cert: x509.Certificate) -> tuple[datetime, datetime]:
+    """Return not_before/not_after as timezone-aware UTC datetimes."""
+
+    not_before = cert.not_valid_before
+    not_after = cert.not_valid_after
+
+    if not_before.tzinfo is None:
+        not_before = not_before.replace(tzinfo=UTC)
+    else:
+        not_before = not_before.astimezone(UTC)
+
+    if not_after.tzinfo is None:
+        not_after = not_after.replace(tzinfo=UTC)
+    else:
+        not_after = not_after.astimezone(UTC)
+
+    return not_before, not_after
 
 
 def verify_certificate_chain(ca_cert: x509.Certificate, cert: x509.Certificate) -> bool:
@@ -119,8 +139,7 @@ class TestCAGeneration:
         run_generate_certs(["--ca-only"], temp_cert_dir)
         ca_cert = load_certificate(temp_cert_dir / "ca.crt")
 
-        not_before = ca_cert.not_valid_before_utc
-        not_after = ca_cert.not_valid_after_utc
+        not_before, not_after = validity_window(ca_cert)
         validity_days = (not_after - not_before).days
 
         # 10 years = ~3650-3653 days (accounting for leap years)
@@ -194,8 +213,7 @@ class TestServerGeneration:
 
         server_cert = load_certificate(temp_cert_dir / "server.crt")
 
-        not_before = server_cert.not_valid_before_utc
-        not_after = server_cert.not_valid_after_utc
+        not_before, not_after = validity_window(server_cert)
         validity_days = (not_after - not_before).days
 
         # 1 year = 365 or 366 days (leap year)
@@ -290,8 +308,7 @@ class TestClientGeneration:
 
         client_cert = load_certificate(temp_cert_dir / "client-bob.crt")
 
-        not_before = client_cert.not_valid_before_utc
-        not_after = client_cert.not_valid_after_utc
+        not_before, not_after = validity_window(client_cert)
         validity_days = (not_after - not_before).days
 
         assert 89 <= validity_days <= 91, f"Client validity is {validity_days} days, expected 90"
@@ -512,7 +529,8 @@ class TestCertificateExpiration:
         expected_expiry = now + timedelta(days=3650)
 
         # Allow 2-day tolerance for test execution time
-        expiry_diff = abs((ca_cert.not_valid_after_utc - expected_expiry).days)
+        _, not_after = validity_window(ca_cert)
+        expiry_diff = abs((not_after - expected_expiry).days)
         assert expiry_diff <= 2, f"CA expiry is {expiry_diff} days off, expected ~10 years from now"
 
     def test_server_expiration_is_approximately_1_year_from_now(self, temp_cert_dir: Path):
@@ -526,7 +544,8 @@ class TestCertificateExpiration:
         expected_expiry = now + timedelta(days=365)
 
         # Allow 2-day tolerance
-        expiry_diff = abs((server_cert.not_valid_after_utc - expected_expiry).days)
+        _, not_after = validity_window(server_cert)
+        expiry_diff = abs((not_after - expected_expiry).days)
         assert (
             expiry_diff <= 2
         ), f"Server expiry is {expiry_diff} days off, expected ~1 year from now"
@@ -542,7 +561,8 @@ class TestCertificateExpiration:
         expected_expiry = now + timedelta(days=90)
 
         # Allow 2-day tolerance
-        expiry_diff = abs((client_cert.not_valid_after_utc - expected_expiry).days)
+        _, not_after = validity_window(client_cert)
+        expiry_diff = abs((not_after - expected_expiry).days)
         assert (
             expiry_diff <= 2
         ), f"Client expiry is {expiry_diff} days off, expected ~90 days from now"

@@ -261,6 +261,7 @@ def test_refresh_internal_bypass_uses_shared_secret(client, mock_oauth2_handler,
             session_id="session_id_123",
             ip_address=None,
             user_agent=None,
+            enforce_binding=False,
         )
 
 

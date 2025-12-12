@@ -148,22 +148,26 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-11-17, Plan] [Implementation/P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
 - [CURRENT, 2025-11-21, Plan] [Implementation/P2T3_PHASE2_PLAN.md](./AI/Implementation/P2T3_PHASE2_PLAN.md) - P2T3 Phase 2 Web Console mTLS + JWT authentication implementation plan
 - [CURRENT, 2025-11-21, Index] [Implementation/README.md](./AI/Implementation/README.md) - Implementation plan artifacts index
-- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.3-CRSP-Local-Provider.md](../.claude/plans/T1.3-CRSP-Local-Provider.md) - T1.3 CRSP Local Provider implementation plan
-- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.4-Compustat-Local-Provider.md](../.claude/plans/T1.4-Compustat-Local-Provider.md) - T1.4 Compustat Local Provider implementation plan
-- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.5-Fama-French-Local-Provider.md](../.claude/plans/T1.5-Fama-French-Local-Provider.md) - T1.5 Fama-French Local Provider implementation plan
-- [CURRENT, 2025-12-04, Plan] [../.claude/plans/T1.6-dataset-versioning.md](../.claude/plans/T1.6-dataset-versioning.md) - T1.6 Dataset Versioning & Reproducibility implementation plan
-- [CURRENT, 2025-12-05, Plan] [../.claude/plans/P4T1.9-ETL-Pipeline.md](../.claude/plans/P4T1.9-ETL-Pipeline.md) - P4T1.9 ETL Pipeline implementation plan
-- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.1-factor-model-plan.md](../.claude/plans/T2.1-factor-model-plan.md) - T2.1 Multi-Factor Model Construction implementation plan
-- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.2-plan.md](../.claude/plans/T2.2-plan.md) - T2.2 Covariance Estimation implementation plan
-- [CURRENT, 2025-12-07, Plan] [../.claude/plans/T2.4-plan.md](../.claude/plans/T2.4-plan.md) - T2.4 Portfolio Optimizer & Stress Testing implementation plan
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track1_T1.7_T1.8.md](./PLANS/P4T2_Track1_T1.7_T1.8.md) - P4T2 Track 1: Fama-French Integration (T1.7) and yfinance Integration (T1.8)
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1a_PLAN.md](./PLANS/P4T3_T6.1a_PLAN.md) - T6.1a Auth/RBAC Core implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1b_PLAN.md](./PLANS/P4T3_T6.1b_PLAN.md) - T6.1b Admin User Management UI implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/P4T1.9-ETL-Pipeline.md](./PLANS/P4T1.9-ETL-Pipeline.md) - Data storage and ETL pipeline implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.3-CRSP-Local-Provider.md](./PLANS/T1.3-CRSP-Local-Provider.md) - CRSP local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.4-Compustat-Local-Provider.md](./PLANS/T1.4-Compustat-Local-Provider.md) - Compustat local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.5-Fama-French-Local-Provider.md](./PLANS/T1.5-Fama-French-Local-Provider.md) - Fama-French local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [PLANS/T1.6-dataset-versioning.md](./PLANS/T1.6-dataset-versioning.md) - Dataset versioning implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.1-factor-model-plan.md](./PLANS/T2.1-factor-model-plan.md) - Multi-factor model construction implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.2-plan.md](./PLANS/T2.2-plan.md) - Covariance estimation (v2) implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.4-plan.md](./PLANS/T2.4-plan.md) - Portfolio optimizer and stress testing implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.6-alpha-advanced-plan.md](./PLANS/T2.6-alpha-advanced-plan.md) - Alpha advanced analytics implementation plan
+- [CURRENT, 2025-12-10, Plan] [PLANS/T2.7-factor-attribution-plan.md](./PLANS/T2.7-factor-attribution-plan.md) - Factor attribution analysis implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.3_event_study_plan.md](./TASKS/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.5_PLAN.md](./TASKS/PLANS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.8_PLAN.md](./TASKS/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
-- [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.6-alpha-advanced-plan.md](../.claude/plans/T2.6-alpha-advanced-plan.md) - T2.6 Alpha Advanced Analytics implementation plan
-- [CURRENT, 2025-12-08, Plan] [../.claude/plans/T2.7-factor-attribution-plan.md](../.claude/plans/T2.7-factor-attribution-plan.md) - T2.7 Factor Attribution Analysis implementation plan
+- [CURRENT, 2025-12-07, Plan] [TASKS/PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - Data quality and validation framework implementation plan
+- [CURRENT, 2025-12-07, Plan] [TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - WRDS connection and bulk sync manager implementation plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -229,6 +233,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0021](./ADRs/ADR-0021-risk-model-implementation.md) | Risk Model Implementation (Portfolio Optimizer & Stress Testing) | ✅ Accepted |
 | [ADR-0022](./ADRs/ADR-0022-qlib-integration.md) | Qlib Integration Strategy | ✅ Accepted |
 | [ADR-0023](./ADRs/ADR-0023-model-deployment.md) | Model Registry & Deployment Versioning | ✅ Accepted |
+| [ADR-024](./ADRs/ADR-024-analytics-security.md) | Web console analytics security & RBAC design | 🚧 Proposed |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -385,8 +390,10 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-03, Planning] [P4_PLANNING.md](./TASKS/P4_PLANNING.md) - P4 Data Infrastructure phase planning
 - [CURRENT, 2025-12-03, Task] [P4T1_TASK.md](./TASKS/P4T1_TASK.md) - P4T1: Data Infrastructure - Local Data Warehouse with WRDS Data Sources
 - [CURRENT, 2025-12-07, Task] [P4T2_TASK.md](./TASKS/P4T2_TASK.md) - P4T2: Analytics Infrastructure - Multi-Factor Model Construction
-- [CURRENT, 2025-12-03, Component] [components/P4T1.1-data-quality-plan.md](./TASKS/components/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
-- [CURRENT, 2025-12-04, Component] [components/P4T1.2-wrds-sync-manager-plan.md](./TASKS/components/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
+- [CURRENT, 2025-12-09, Task] [P4T3_TASK.md](./TASKS/P4T3_TASK.md) - P4T3: Web Console - Core Analytics with RBAC
+- [CURRENT, 2025-12-10, Task] [P4T4_TASK.md](./TASKS/P4T4_TASK.md) - P4T4: Execution Quality & Trade Journal enhancements
+- [CURRENT, 2025-12-03, Component] [PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
+- [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1.8_PLAN.md](./TASKS/P4T1.8_PLAN.md) - P4T1.8: Unified Data Fetcher Protocol Implementation Plan
 

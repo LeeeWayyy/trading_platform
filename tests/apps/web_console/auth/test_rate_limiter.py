@@ -1,225 +1,161 @@
-"""Tests for Redis-backed rate limiter.
-
-Tests verify sliding window rate limiting with multi-worker safety.
-"""
-
 import asyncio
-from unittest.mock import AsyncMock
+import time
 
 import pytest
 
-from apps.web_console.auth.rate_limiter import RedisRateLimiter
+from apps.web_console.auth.rate_limiter import RateLimiter
 
 
-@pytest.fixture()
-def mock_redis():
-    """Mock Redis async client."""
-    redis = AsyncMock()
-    redis.zremrangebyscore = AsyncMock()
-    redis.zcard = AsyncMock()
-    redis.zadd = AsyncMock()
-    redis.expire = AsyncMock()
-    redis.delete = AsyncMock()
-    return redis
+class FakePipeline:
+    def __init__(self, store, key):
+        self.store = store
+        self.key = key
+        self.ops = []
+
+    def zadd(self, key, mapping):
+        self.ops.append(("zadd", key, mapping))
+        return self
+
+    def zremrangebyscore(self, key, minv, maxv):
+        self.ops.append(("zrem", key, minv, maxv))
+        return self
+
+    def zcard(self, key):
+        self.ops.append(("zcard", key))
+        return self
+
+    def expire(self, key, ttl):
+        self.ops.append(("expire", key, ttl))
+        return self
+
+    async def execute(self):
+        results = []
+        for op in self.ops:
+            if op[0] == "zadd":
+                _, key, mapping = op
+                self.store.setdefault(key, {})
+                self.store[key].update(mapping)
+                results.append(1)
+            elif op[0] == "zrem":
+                _, key, _, maxv = op
+                self.store.setdefault(key, {})
+                self.store[key] = {m: ts for m, ts in self.store[key].items() if ts > maxv}
+                results.append(1)
+            elif op[0] == "zcard":
+                _, key = op
+                self.store.setdefault(key, {})
+                results.append(len(self.store[key]))
+            elif op[0] == "expire":
+                results.append(True)
+        return results
 
 
-class TestRedisRateLimiter:
-    """Test Redis rate limiter initialization."""
+class FakeRedis:
+    def __init__(self):
+        self.store = {}
 
-    def test_rate_limiter_initialization(self, mock_redis):
-        """Test rate limiter initializes with correct config."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:test:",
-        )
+    def pipeline(self):
+        return FakePipeline(self.store, None)
 
-        assert limiter.redis == mock_redis
-        assert limiter.max_requests == 10
-        assert limiter.window_seconds == 60
-        assert limiter.key_prefix == "rate_limit:test:"
+    async def ping(self):
+        return True
 
+    async def eval(self, script, num_keys, *args):
+        """Simulate Lua script execution for rate limiting."""
+        # args: key, now, window, max_requests, member
+        key = args[0]
+        now = int(args[1])
+        window = int(args[2])
+        member = args[4]
 
-class TestRateLimiting:
-    """Test rate limiting behavior."""
+        # Initialize key store if needed
+        self.store.setdefault(key, {})
 
-    @pytest.mark.asyncio()
-    async def test_requests_under_limit_allowed(self, mock_redis):
-        """Test requests under limit are allowed."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
+        # Add new request
+        self.store[key][member] = now
 
-        # Mock current count = 5 (under limit)
-        mock_redis.zcard.return_value = 5
+        # Remove old entries outside window
+        cutoff = now - window
+        self.store[key] = {m: ts for m, ts in self.store[key].items() if ts > cutoff}
 
-        result = await limiter.is_allowed("192.168.1.1")
-
-        assert result is True
-        mock_redis.zremrangebyscore.assert_called_once()
-        mock_redis.zadd.assert_called_once()
-        mock_redis.expire.assert_called_once()
-
-    @pytest.mark.asyncio()
-    async def test_requests_at_limit_rejected(self, mock_redis):
-        """Test requests at or over limit are rejected."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
-
-        # Mock current count = 10 (at limit)
-        mock_redis.zcard.return_value = 10
-
-        result = await limiter.is_allowed("192.168.1.1")
-
-        assert result is False
-        mock_redis.zremrangebyscore.assert_called_once()
-        mock_redis.zadd.assert_not_called()  # Should not add new request
-
-    @pytest.mark.asyncio()
-    async def test_sliding_window_cleanup(self, mock_redis):
-        """Test expired entries are removed from sliding window."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
-
-        mock_redis.zcard.return_value = 5
-
-        await limiter.is_allowed("192.168.1.1")
-
-        # Verify zremrangebyscore was called to remove expired entries
-        mock_redis.zremrangebyscore.assert_called_once()
-        call_args = mock_redis.zremrangebyscore.call_args[0]
-        assert call_args[0] == "rate_limit:callback:192.168.1.1"
-        assert call_args[1] == 0  # Min score
-
-    @pytest.mark.asyncio()
-    async def test_key_expiration_set(self, mock_redis):
-        """Test Redis key expiration is set to window duration."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
-
-        mock_redis.zcard.return_value = 5
-
-        await limiter.is_allowed("192.168.1.1")
-
-        # Verify expire called with window duration
-        mock_redis.expire.assert_called_once_with("rate_limit:callback:192.168.1.1", 60)
-
-    @pytest.mark.asyncio()
-    async def test_different_identifiers_independent(self, mock_redis):
-        """Test different identifiers have independent rate limits."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
-
-        mock_redis.zcard.return_value = 5
-
-        # First identifier
-        await limiter.is_allowed("192.168.1.1")
-        first_call_key = mock_redis.zremrangebyscore.call_args[0][0]
-
-        # Second identifier
-        await limiter.is_allowed("192.168.1.2")
-        second_call_key = mock_redis.zremrangebyscore.call_args[0][0]
-
-        # Verify different keys used
-        assert first_call_key == "rate_limit:callback:192.168.1.1"
-        assert second_call_key == "rate_limit:callback:192.168.1.2"
+        # Return count
+        return len(self.store[key])
 
 
-class TestResetFunctionality:
-    """Test rate limit reset."""
+class FailingRedis:
+    def pipeline(self):
+        raise RuntimeError("redis_down")
 
-    @pytest.mark.asyncio()
-    async def test_reset_clears_rate_limit(self, mock_redis):
-        """Test reset clears rate limit for identifier."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
+    async def eval(self, *args):
+        raise RuntimeError("redis_down")
 
-        await limiter.reset("192.168.1.1")
-
-        mock_redis.delete.assert_called_once_with("rate_limit:callback:192.168.1.1")
+    async def ping(self):
+        return False
 
 
-class TestMultiWorkerScenarios:
-    """Test multi-worker rate limiting scenarios."""
+@pytest.mark.asyncio
+async def test_rate_limiter_allows_within_window():
+    redis = FakeRedis()
+    rl = RateLimiter(redis_client=redis)
 
-    @pytest.mark.asyncio()
-    async def test_concurrent_requests_use_redis(self, mock_redis):
-        """Test concurrent requests use Redis for coordination."""
-        limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
+    allowed, remaining = await rl.check_rate_limit("user", "login", 3, 60)
+    assert allowed is True
+    assert remaining >= 0
 
-        # Simulate concurrent requests from same IP
-        mock_redis.zcard.return_value = 5
+    # Exhaust on the 4th attempt now that limits are inclusive
+    await rl.check_rate_limit("user", "login", 3, 60)
+    allowed, remaining = await rl.check_rate_limit("user", "login", 3, 60)
+    assert allowed is True
+    assert remaining == 0
 
-        # Make multiple concurrent requests
-        tasks = [limiter.is_allowed("192.168.1.1") for _ in range(3)]
-        results = await asyncio.gather(*tasks)
-
-        # All should be allowed (under limit)
-        assert all(results)
-
-        # Verify Redis operations were called for each request
-        assert mock_redis.zcard.call_count == 3
-        assert mock_redis.zadd.call_count == 3
+    allowed, remaining = await rl.check_rate_limit("user", "login", 3, 60)
+    assert allowed is False
+    assert remaining <= 0
 
 
-class TestKeyPrefixes:
-    """Test key prefix isolation."""
+@pytest.mark.asyncio
+async def test_rate_limiter_health_check():
+    rl = RateLimiter(redis_client=FakeRedis())
+    assert await rl.health_check() is True
 
-    @pytest.mark.asyncio()
-    async def test_different_prefixes_independent(self, mock_redis):
-        """Test different key prefixes create independent rate limits."""
-        callback_limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=10,
-            window_seconds=60,
-            key_prefix="rate_limit:callback:",
-        )
 
-        refresh_limiter = RedisRateLimiter(
-            redis_client=mock_redis,
-            max_requests=5,
-            window_seconds=60,
-            key_prefix="rate_limit:refresh:",
-        )
+@pytest.mark.asyncio
+async def test_rate_limiter_denies_when_redis_unavailable_by_default():
+    rl = RateLimiter(redis_client=FailingRedis())
 
-        mock_redis.zcard.return_value = 5
+    allowed, remaining = await rl.check_rate_limit("user", "login", 1, 60)
 
-        # Same identifier, different prefixes
-        await callback_limiter.is_allowed("user123")
-        callback_key = mock_redis.zremrangebyscore.call_args[0][0]
+    assert allowed is False
+    assert remaining == 0
 
-        await refresh_limiter.is_allowed("user123")
-        refresh_key = mock_redis.zremrangebyscore.call_args[0][0]
 
-        # Verify different keys used
-        assert callback_key == "rate_limit:callback:user123"
-        assert refresh_key == "rate_limit:refresh:user123"
+@pytest.mark.asyncio
+async def test_rate_limiter_allows_when_explicitly_configured_to_allow_on_failure():
+    rl = RateLimiter(redis_client=FailingRedis(), fallback_mode="allow")
+
+    allowed, remaining = await rl.check_rate_limit("user", "metrics", 1, 60, fallback_mode="allow")
+
+    assert allowed is True
+    assert remaining == 1
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_per_call_override_to_deny():
+    # Instance default would allow, but explicit fallback_mode should deny
+    rl = RateLimiter(redis_client=FailingRedis(), fallback_mode="allow")
+
+    allowed, remaining = await rl.check_rate_limit("user", "login", 1, 60, fallback_mode="deny")
+
+    assert allowed is False
+    assert remaining == 0
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_per_call_override_to_allow_when_default_denies():
+    # Instance default denies on Redis failure, but per-call override should allow
+    rl = RateLimiter(redis_client=FailingRedis(), fallback_mode="deny")
+
+    allowed, remaining = await rl.check_rate_limit("user", "metrics", 1, 60, fallback_mode="allow")
+
+    assert allowed is True
+    assert remaining == 1

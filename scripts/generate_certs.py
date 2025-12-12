@@ -241,7 +241,10 @@ def generate_ca_certificate(certs_dir: Path) -> tuple[rsa.RSAPrivateKey, x509.Ce
     print("✅ CA certificate generated:")
     print(f"   Private key: {certs_dir / 'ca.key'} (permissions: 0600)")
     print(f"   Certificate: {certs_dir / 'ca.crt'}")
-    print(f"   Valid until: {ca_cert.not_valid_after_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(
+        "   Valid until: "
+        + ca_cert.not_valid_after.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    )
 
     return ca_key, ca_cert
 
@@ -343,7 +346,10 @@ def generate_server_certificate(
     print("✅ Server certificate generated:")
     print(f"   Private key: {certs_dir / 'server.key'} (permissions: 0600)")
     print(f"   Certificate: {certs_dir / 'server.crt'}")
-    print(f"   Valid until: {server_cert.not_valid_after_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(
+        "   Valid until: "
+        + server_cert.not_valid_after.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    )
     print("   SANs: web-console.trading-platform.local, localhost, 127.0.0.1")
 
     return server_key, server_cert
@@ -446,7 +452,10 @@ def generate_client_certificate(
     print("✅ Client certificate generated:")
     print(f"   Private key: {client_key_path} (permissions: 0600)")
     print(f"   Certificate: {client_cert_path}")
-    print(f"   Valid until: {client_cert.not_valid_after_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(
+        "   Valid until: "
+        + client_cert.not_valid_after.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    )
     print(f"   SAN: client-{username}.trading-platform.local")
 
     return client_key, client_cert
@@ -708,8 +717,12 @@ Security Notes:
     print()
 
     # Generate DH parameters for nginx (required by nginx.conf ssl_dhparam directive)
-    generate_dhparam(args.output)
-    print()
+    skip_dh = os.getenv("SKIP_DHPARAM_GENERATION", "").lower() in {"1", "true", "yes"}
+    if skip_dh:
+        print("⏭️ Skipping DH parameter generation (SKIP_DHPARAM_GENERATION set)")
+    else:
+        generate_dhparam(args.output)
+        print()
 
     print("✅ All certificates generated successfully!")
     print()
