@@ -148,87 +148,35 @@ class OAuth2FlowHandler:
         user_id: str | None = None
 
         try:
-            # CRITICAL: Retrieve and DELETE state (single-use enforcement)
-            oauth_state = await self.state_store.get_and_delete_state(state)
-            if not oauth_state:
-                raise ValueError("Invalid or expired state parameter")
+            oauth_state = await self._consume_state(state)
+            tokens, id_token_claims = await self._exchange_and_validate_tokens(code, oauth_state)
+            self._assert_required_tokens(tokens)
 
-            # Exchange authorization code for tokens and validate ID token
-            try:
-                tokens = await self._exchange_code_for_tokens(
-                    authorization_code=code,
-                    code_verifier=oauth_state.code_verifier,
-                )
-
-                # Validate ID token
-                id_token_claims = await self.jwks_validator.validate_id_token(
-                    id_token=tokens["id_token"],
-                    expected_nonce=oauth_state.nonce,
-                    expected_audience=self.config.client_id,
-                    expected_issuer=f"https://{self.config.auth0_domain}/",
-                )
-            except httpx.HTTPStatusError as e:
-                # Auth0 returned 4xx/5xx error during token exchange
-                logger.error(f"Token exchange failed: HTTP {e.response.status_code}")
-                raise ValueError(f"Token exchange failed: {e.response.status_code}") from e
-            except httpx.RequestError as e:
-                # Network error during token exchange
-                logger.error(f"Token exchange network error: {e}")
-                raise ValueError(f"Token exchange network error: {str(e)}") from e
-            except Exception as e:
-                # JWT validation error or other unexpected errors
-                logger.error(f"Callback validation failed: {e}")
-                raise ValueError(f"Authentication validation failed: {str(e)}") from e
-
-            # Validate token response contains required fields
-            if not all(key in tokens for key in ["access_token", "refresh_token", "id_token"]):
-                missing_keys = [
-                    k for k in ["access_token", "refresh_token", "id_token"] if k not in tokens
-                ]
-                logger.error(f"Token exchange response missing required fields: {missing_keys}")
-                raise ValueError(f"Token exchange response incomplete: missing {missing_keys}")
-
-            # Fetch RBAC provisioning data if available
             user_id = id_token_claims["sub"]
-            role_data = None
-            strategies: list[str] = []
-            if db_pool is not None:
-                role_data = await _fetch_user_role_data(user_id, db_pool)
-                if role_data is None:
-                    if audit_logger:
-                        await audit_logger.log_auth_event(
-                            user_id=user_id,
-                            action="login",
-                            outcome="denied",
-                            details={"reason": "user_not_provisioned"},
-                        )
-                        audit_logged = True
-                    raise ValueError("User not provisioned. Contact administrator.")
-                strategies = await _fetch_user_strategies(user_id, db_pool)
+            try:
+                role_data, strategies = await self._load_rbac_data(
+                    user_id=user_id,
+                    db_pool=db_pool,
+                )
+            except ValueError:
+                if audit_logger:
+                    await audit_logger.log_auth_event(
+                        user_id=user_id,
+                        action="login",
+                        outcome="denied",
+                        details={"reason": "user_not_provisioned"},
+                    )
+                    audit_logged = True
+                raise
 
-            # Create session
-            session_id = generate_session_id()
-            now = datetime.now(UTC)
-
-            # Calculate access token expiry (Component 3: Auto-refresh)
-            # Auth0 default: 1 hour (3600s), but use expires_in from response if available
-            expires_in_seconds = tokens.get("expires_in", 3600)
-            access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
-
-            session_data = SessionData(
-                access_token=tokens["access_token"],
-                refresh_token=tokens["refresh_token"],
-                id_token=tokens["id_token"],
+            session_id, session_data = self._build_session_data(
                 user_id=user_id,
-                email=id_token_claims.get("email", "unknown@example.com"),
-                created_at=now,
-                last_activity=now,
+                tokens=tokens,
+                id_token_claims=id_token_claims,
+                role_data=role_data,
+                strategies=strategies,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                access_token_expires_at=access_token_expires_at,  # Component 3
-                role=role_data["role"] if role_data else "viewer",
-                session_version=int(role_data["session_version"]) if role_data else 1,
-                strategies=strategies,
             )
 
             await self.session_store.create_session(session_id, session_data)
@@ -253,6 +201,105 @@ class OAuth2FlowHandler:
                 )
             raise
 
+
+    async def _consume_state(self, state: str) -> OAuth2State:
+        """Retrieve and delete state to enforce single-use semantics."""
+
+        oauth_state = await self.state_store.get_and_delete_state(state)
+        if not oauth_state:
+            raise ValueError("Invalid or expired state parameter")
+        return oauth_state
+
+    async def _exchange_and_validate_tokens(
+        self,
+        authorization_code: str,
+        oauth_state: OAuth2State,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Exchange the auth code and validate ID token."""
+
+        try:
+            tokens = await self._exchange_code_for_tokens(
+                authorization_code=authorization_code,
+                code_verifier=oauth_state.code_verifier,
+            )
+
+            id_token_claims = await self.jwks_validator.validate_id_token(
+                id_token=tokens["id_token"],
+                expected_nonce=oauth_state.nonce,
+                expected_audience=self.config.client_id,
+                expected_issuer=f"https://{self.config.auth0_domain}/",
+            )
+            return tokens, id_token_claims
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Token exchange failed: HTTP {e.response.status_code}")
+            raise ValueError(f"Token exchange failed: {e.response.status_code}") from e
+        except httpx.RequestError as e:
+            logger.error(f"Token exchange network error: {e}")
+            raise ValueError(f"Token exchange network error: {str(e)}") from e
+        except Exception as e:
+            logger.error(f"Callback validation failed: {e}")
+            raise ValueError(f"Authentication validation failed: {str(e)}") from e
+
+    def _assert_required_tokens(self, tokens: dict[str, Any]) -> None:
+        """Ensure required token fields are present."""
+
+        missing_keys = [k for k in ["access_token", "refresh_token", "id_token"] if k not in tokens]
+        if missing_keys:
+            logger.error(f"Token exchange response missing required fields: {missing_keys}")
+            raise ValueError(f"Token exchange response incomplete: missing {missing_keys}")
+
+    async def _load_rbac_data(
+        self,
+        user_id: str,
+        db_pool: Any | None,
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        """Fetch role and strategy data when a DB pool is available."""
+
+        if db_pool is None:
+            return None, []
+
+        role_data = await _fetch_user_role_data(user_id, db_pool)
+        if role_data is None:
+            raise ValueError("User not provisioned. Contact administrator.")
+
+        strategies = await _fetch_user_strategies(user_id, db_pool)
+        return role_data, strategies
+
+    def _build_session_data(
+        self,
+        user_id: str,
+        tokens: dict[str, Any],
+        id_token_claims: dict[str, Any],
+        role_data: dict[str, Any] | None,
+        strategies: list[str],
+        ip_address: str,
+        user_agent: str,
+    ) -> tuple[str, SessionData]:
+        """Build the session payload from validated tokens and RBAC data."""
+
+        session_id = generate_session_id()
+        now = datetime.now(UTC)
+
+        expires_in_seconds = tokens.get("expires_in", 3600)
+        access_token_expires_at = now + timedelta(seconds=expires_in_seconds)
+
+        session_data = SessionData(
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+            id_token=tokens["id_token"],
+            user_id=user_id,
+            email=id_token_claims.get("email", "unknown@example.com"),
+            created_at=now,
+            last_activity=now,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            access_token_expires_at=access_token_expires_at,
+            role=role_data["role"] if role_data else "viewer",
+            session_version=int(role_data["session_version"]) if role_data else 1,
+            strategies=strategies,
+        )
+
+        return session_id, session_data
 
     async def _exchange_code_for_tokens(
         self,

@@ -247,26 +247,14 @@ class AuditLogger:
             duration = (datetime.now(UTC) - start).total_seconds()
             _audit_cleanup_duration_seconds.observe(duration)
 
-            deleted = 0
-            # psycopg3 AsyncCursor exposes rowcount; asyncpg returns command tag; defensive fallbacks follow
             if hasattr(result, "rowcount"):
-                deleted = int(result.rowcount or 0)
-            elif hasattr(result, "statusmessage"):
-                status = result.statusmessage or ""
-                if isinstance(status, str) and status.startswith("DELETE"):
-                    try:
-                        deleted = int(status.split(" ")[1])
-                    except Exception:
-                        deleted = 0
-            elif isinstance(result, str) and result.startswith("DELETE"):
-                try:
-                    deleted = int(result.split(" ")[1])
-                except Exception:
-                    deleted = 0
-            elif isinstance(result, (int, float)):  # noqa: UP038
-                deleted = int(result)
+                return int(result.rowcount or 0)
 
-            return deleted
+            logger.warning(
+                "audit_log_cleanup_missing_rowcount",
+                extra={"result_type": type(result).__name__},
+            )
+            return 0
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("audit_log_cleanup_failed", extra={"error": str(exc)})
             return 0

@@ -715,6 +715,7 @@ def render_audit_log() -> None:
         import psycopg
 
         rows: list[tuple[Any, ...]] = []
+        pool_fetch_failed = False
 
         # M7 Fix: Try to use connection pool first
         pool = _get_db_pool()
@@ -738,8 +739,13 @@ def render_audit_log() -> None:
             except RuntimeError:
                 # If an event loop is already running (unlikely in Streamlit), fall back to direct connection
                 logger.warning("audit_log_pool_fetch_fallback_sync")
+                pool_fetch_failed = True
+            except Exception:
+                # Any other fetch failure should trigger the synchronous fallback
+                logger.exception("audit_log_pool_fetch_failed")
+                pool_fetch_failed = True
 
-        if not rows:
+        if not rows and (pool is None or pool_fetch_failed):
             # Fallback: New connection per render (graceful degradation)
             with psycopg.connect(
                 config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT

@@ -25,6 +25,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import psycopg
+
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.auth.permissions import Role
 from apps.web_console.utils.db import acquire_connection
@@ -185,7 +187,7 @@ async def change_user_role(
 
         return True, f"Role changed from {old_role} to {new_role}"
 
-    except Exception as e:  # pragma: no cover - defensive logging
+    except psycopg.Error as e:  # pragma: no cover - defensive logging
         # [v1.1] Log failed attempt
         await audit_logger.log_action(
             user_id=admin_user_id,
@@ -238,7 +240,10 @@ async def grant_strategy(
 ) -> tuple[bool, str]:
     """Grant strategy access to user.
 
-    [v1.2] Explicitly increments session_version (no DB trigger exists).
+    Session invalidation is handled by DB trigger (0007_strategy_session_version_triggers.sql)
+    which automatically increments session_version on INSERT to user_strategy_access.
+    This ensures session invalidation cannot be bypassed by any code path.
+
     Logs DENIED attempts to audit trail.
     """
 
@@ -313,6 +318,10 @@ async def revoke_strategy(
     audit_logger: AuditLogger,
 ) -> tuple[bool, str]:
     """Revoke strategy access from user.
+
+    Session invalidation is handled by DB trigger (0007_strategy_session_version_triggers.sql)
+    which automatically increments session_version on DELETE from user_strategy_access.
+    This ensures session invalidation cannot be bypassed by any code path.
 
     Logs DENIED attempts to audit trail.
     """

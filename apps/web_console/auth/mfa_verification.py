@@ -45,7 +45,7 @@ def verify_step_up_auth(id_token_claims: dict[str, Any]) -> tuple[bool, str | No
 
 def get_amr_method(id_token_claims: dict[str, Any]) -> str | None:
     amr = id_token_claims.get("amr")
-    if isinstance(amr, (list, tuple)) and amr:  # noqa: UP038
+    if isinstance(amr, list | tuple) and amr:
         return str(amr[0])
     return None
 
