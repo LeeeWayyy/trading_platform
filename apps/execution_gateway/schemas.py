@@ -6,7 +6,8 @@ and validation at the API boundary.
 """
 
 import math
-from datetime import date, datetime
+import os
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, TypeAlias
 
@@ -802,6 +803,73 @@ class SlicingPlan(BaseModel):
 # ============================================================================
 # Error Schema
 # ============================================================================
+
+
+# ============================================================================
+# Performance Dashboard Schemas (P4T6.2)
+# ============================================================================
+
+
+class PerformanceRequest(BaseModel):
+    """Request model for daily performance history.
+
+    Validates bounded date range (default last 30 days, max 90) and prevents
+    future end dates. Defaults use UTC today.
+    """
+
+    start_date: date = Field(
+        default_factory=lambda: date.today() - timedelta(days=30),
+        description="Start date (UTC, inclusive). Defaults to 30 days ago.",
+    )
+    end_date: date = Field(
+        default_factory=date.today,
+        description="End date (UTC, inclusive). Defaults to today.",
+    )
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "PerformanceRequest":
+        """Ensure start<=end, end not future, and range <= MAX_PERFORMANCE_DAYS."""
+
+        max_days = int(os.getenv("MAX_PERFORMANCE_DAYS", "90"))
+
+        if self.start_date > self.end_date:
+            raise ValueError("start_date must be <= end_date")
+
+        if self.end_date > date.today():
+            raise ValueError("end_date cannot be in the future")
+
+        if (self.end_date - self.start_date).days > max_days:
+            raise ValueError(f"Date range cannot exceed {max_days} days")
+
+        return self
+
+
+class DailyPnL(BaseModel):
+    """Daily realized P&L data point for equity/drawdown charts."""
+
+    date: date
+    realized_pl: Decimal
+    cumulative_realized_pl: Decimal
+    peak_equity: Decimal
+    drawdown_pct: Decimal
+    closing_trade_count: int
+
+
+class DailyPerformanceResponse(BaseModel):
+    """Response payload for /api/v1/performance/daily."""
+
+    daily_pnl: list[DailyPnL]
+    total_realized_pl: Decimal
+    max_drawdown_pct: Decimal
+    start_date: date
+    end_date: date
+    data_source: str = "realized_only"
+    note: str = (
+        "Shows realized P&L from closed positions. Unrealized P&L is not included."
+    )
+    data_available_from: date | None
+    last_updated: datetime
+
 
 
 class ErrorResponse(TimestampSerializerMixin, BaseModel):

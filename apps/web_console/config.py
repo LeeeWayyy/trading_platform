@@ -32,6 +32,7 @@ ENDPOINTS = {
     "kill_switch_engage": f"{EXECUTION_GATEWAY_URL}/api/v1/kill-switch/engage",
     "kill_switch_disengage": f"{EXECUTION_GATEWAY_URL}/api/v1/kill-switch/disengage",
     "config": f"{EXECUTION_GATEWAY_URL}/api/v1/config",
+    "performance_daily": f"{EXECUTION_GATEWAY_URL}/api/v1/performance/daily",
 }
 
 # ============================================================================

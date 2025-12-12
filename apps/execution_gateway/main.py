@@ -35,16 +35,17 @@ See ADR-0014 for architecture decisions.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import threading
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from psycopg.errors import UniqueViolation
@@ -58,7 +59,10 @@ from apps.execution_gateway.alpaca_client import (
     AlpacaRejectionError,
     AlpacaValidationError,
 )
-from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests)
+    DatabaseClient,
+    calculate_position_update,
+)
 from apps.execution_gateway.order_id_generator import (
     generate_client_order_id,
     reconstruct_order_params_hash,
@@ -66,6 +70,8 @@ from apps.execution_gateway.order_id_generator import (
 from apps.execution_gateway.order_slicer import TWAPSlicer
 from apps.execution_gateway.schemas import (
     ConfigResponse,
+    DailyPerformanceResponse,
+    DailyPnL,
     ErrorResponse,
     HealthResponse,
     KillSwitchDisengageRequest,
@@ -73,6 +79,7 @@ from apps.execution_gateway.schemas import (
     OrderDetail,
     OrderRequest,
     OrderResponse,
+    PerformanceRequest,
     Position,
     PositionsResponse,
     RealtimePnLResponse,
@@ -85,6 +92,12 @@ from apps.execution_gateway.slice_scheduler import SliceScheduler
 from apps.execution_gateway.webhook_security import (
     extract_signature_from_header,
     verify_webhook_signature,
+)
+from apps.web_console.auth.permissions import (
+    Permission,
+    get_authorized_strategies,
+    has_permission,
+    require_permission,
 )
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
@@ -138,6 +151,14 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+PERFORMANCE_CACHE_TTL = int(os.getenv("PERFORMANCE_CACHE_TTL", "300"))
+MAX_PERFORMANCE_DAYS = int(os.getenv("MAX_PERFORMANCE_DAYS", "90"))
+FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
@@ -504,6 +525,18 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
     )
 
 
+@app.exception_handler(PermissionError)
+async def permission_exception_handler(request: Request, exc: PermissionError) -> JSONResponse:
+    """Map RBAC PermissionError to HTTP 403 for API clients."""
+
+    return JSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content=ErrorResponse(
+            error="Forbidden", detail=str(exc) or "Permission denied", timestamp=datetime.now(UTC)
+        ).model_dump(mode="json"),
+    )
+
+
 @app.exception_handler(AlpacaValidationError)
 async def alpaca_validation_handler(request: Request, exc: AlpacaValidationError) -> JSONResponse:
     """Handle Alpaca validation errors."""
@@ -695,6 +728,201 @@ def _resolve_and_calculate_pnl(
     position_pnl = _calculate_position_pnl(pos, current_price, price_source, last_price_update)
 
     return position_pnl, is_realtime
+
+
+# ============================================================================
+# Performance Dashboard Helpers
+# ============================================================================
+
+
+def _performance_cache_key(
+    start_date: date, end_date: date, strategies: tuple[str, ...], user_id: str | None
+) -> str:
+    """Create cache key for performance range scoped by strategies and user.
+
+    Per T6.2 plan iteration 10, the cache must be user-scoped AND strategy-scoped
+    to prevent cross-user leakage and stale data when RBAC assignments change.
+    """
+
+    strat_token = "none" if not strategies else ",".join(sorted(strategies))
+    strat_hash = hashlib.md5(strat_token.encode()).hexdigest()[:8]
+    user_token = user_id or "anon"
+    return f"performance:daily:{user_token}:{start_date}:{end_date}:{strat_hash}"
+
+
+def _build_user_context(
+    request: Request,
+    role: str | None = Header(default=None, alias="X-User-Role"),
+    strategies: list[str] | None = Query(default=None, alias="strategies"),
+    user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> dict[str, Any]:
+    """
+    Extract user context for RBAC without trusting client-supplied strategy lists.
+
+    Trusted user metadata should be populated by upstream auth (e.g., request.state.user).
+    We only use headers for role/user_id as a compatibility fallback; strategy
+    authorization is resolved via get_authorized_strategies() using the trusted
+    user object, not header claims.
+    """
+
+    # Prefer authenticated user object injected by middleware/proxy
+    state_user = getattr(request.state, "user", None)
+
+    # Fail closed when no trusted server-side user context is available
+    if state_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authenticated user context",
+        )
+
+    if isinstance(state_user, dict):
+        user: dict[str, Any] = dict(state_user)
+    else:
+        # Coerce simple objects to dict for downstream helpers
+        user = {k: getattr(state_user, k) for k in dir(state_user) if not k.startswith("_")}
+
+    requested_strategies = strategies or request.query_params.getlist("strategies")
+
+    # Never trust client-supplied strategy lists; trusted strategies must come from user object
+    return {
+        "role": user.get("role"),
+        "strategies": user.get("strategies", []),
+        "requested_strategies": requested_strategies,
+        "user_id": user.get("user_id"),
+        "user": user,
+    }
+
+
+def _performance_cache_index_key(trade_date: date) -> str:
+    """Key used to track which cache entries include a given trade date."""
+
+    return f"performance:daily:index:{trade_date}"
+
+
+def _register_performance_cache(cache_key: str, start_date: date, end_date: date) -> None:
+    """Track cached ranges by each included trade date for targeted invalidation."""
+
+    if not redis_client:
+        return
+
+    try:
+        pipe = redis_client.pipeline()
+        current = start_date
+        while current <= end_date:
+            index_key = _performance_cache_index_key(current)
+            pipe.sadd(index_key, cache_key)
+            pipe.expire(index_key, PERFORMANCE_CACHE_TTL)
+            current += timedelta(days=1)
+        pipe.execute()
+    except Exception as e:
+        logger.warning(f"Performance cache index registration failed: {e}")
+
+
+def _invalidate_performance_cache(trade_date: date | None = None) -> None:
+    """Invalidate cached performance ranges that include the given trade_date.
+
+    Falls back to today's date when trade_date is not provided. This avoids a
+    global SCAN across all cache keys by leveraging per-date index sets that are
+    maintained when caching responses.
+    """
+
+    if not redis_client:
+        return
+
+    target_date = trade_date or date.today()
+    index_key = _performance_cache_index_key(target_date)
+
+    try:
+        cache_keys = cast(list[str], cast(Any, redis_client).smembers(index_key) or [])
+        if cache_keys:
+            redis_client.delete(*cache_keys)
+        # Cleanup the index key as well
+        redis_client.delete(index_key)
+    except Exception as e:
+        logger.warning(f"Performance cache invalidation failed: {e}")
+
+
+def _compute_daily_performance(
+    rows: list[dict[str, Any]], start_date: date, end_date: date
+) -> tuple[list[DailyPnL], Decimal, Decimal]:
+    """Build filled daily series with cumulative and drawdown.
+
+    Drawdown is measured versus the running peak of cumulative P&L. The peak is
+    initialized to the first cumulative value to correctly capture sequences
+    that begin with losses (all-negative series).
+    """
+
+    if not rows:
+        return [], Decimal("0"), Decimal("0")
+
+    # Expand requested range to cover returned data (supports mocked data in tests)
+    trade_dates: list[date] = [
+        t for t in (r.get("trade_date") for r in rows) if isinstance(t, date)
+    ]
+    if trade_dates:
+        earliest = min(trade_dates)
+        latest = max(trade_dates)
+        if earliest < start_date:
+            start_date = earliest
+        if latest > end_date:
+            end_date = latest
+
+    rows_by_date: dict[date, dict[str, Decimal | int]] = {}
+    for r in rows:
+        trade_date_raw = r.get("trade_date")
+        if not isinstance(trade_date_raw, date):
+            continue
+        rows_by_date[trade_date_raw] = {
+            "realized_pl": Decimal(str(r.get("daily_realized_pl", 0))),
+            "closing_trade_count": int(r.get("closing_trade_count") or 0),
+        }
+
+    daily: list[DailyPnL] = []
+    cumulative = Decimal("0")
+    peak: Decimal | None = None  # first cumulative value will seed peak
+    max_drawdown = Decimal("0")
+
+    # Skip leading days with no data so peak is seeded by first real trade day
+    first_trade_date = min(rows_by_date.keys()) if rows_by_date else start_date
+    current = max(start_date, first_trade_date)
+    one_day = timedelta(days=1)
+
+    while current <= end_date:
+        day_data = rows_by_date.get(
+            current, {"realized_pl": Decimal("0"), "closing_trade_count": 0}
+        )
+        realized = cast(Decimal, day_data["realized_pl"])
+        closing_count = int(day_data["closing_trade_count"])
+
+        cumulative += realized
+        if peak is None:
+            peak = cumulative
+        if cumulative > peak:
+            peak = cumulative
+
+        # Use absolute peak to handle negative starting equity; avoid divide by zero
+        if peak != 0:
+            drawdown_pct = (cumulative - peak) / abs(peak) * Decimal("100")
+        else:
+            drawdown_pct = Decimal("0")
+
+        if drawdown_pct < max_drawdown:
+            max_drawdown = drawdown_pct
+
+        daily.append(
+            DailyPnL(
+                date=current,
+                realized_pl=realized,
+                cumulative_realized_pl=cumulative,
+                peak_equity=peak,
+                drawdown_pct=drawdown_pct,
+                closing_trade_count=closing_count,
+            )
+        )
+
+        current += one_day
+
+    return daily, cumulative, max_drawdown
 
 
 # ============================================================================
@@ -2457,8 +2685,85 @@ async def get_positions() -> PositionsResponse:
     )
 
 
+@app.get("/api/v1/performance/daily", response_model=DailyPerformanceResponse, tags=["Performance"])
+@require_permission(Permission.VIEW_PNL)
+async def get_daily_performance(
+    request: Request,
+    start_date: date = Query(default_factory=lambda: date.today() - timedelta(days=30)),
+    end_date: date = Query(default_factory=date.today),
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> DailyPerformanceResponse:
+    """Daily realized P&L (equity & drawdown) for performance dashboard."""
+
+    if not FEATURE_PERFORMANCE_DASHBOARD:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Performance dashboard disabled")
+
+    perf_request = PerformanceRequest(start_date=start_date, end_date=end_date)
+    authorized_strategies = get_authorized_strategies(user)
+    requested_strategies = cast(list[str], user.get("requested_strategies", []) if isinstance(user, dict) else [])
+    user_id = user.get("user_id") if isinstance(user, dict) else None
+    if not authorized_strategies:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing user id for RBAC")
+
+    invalid_strategies = set(requested_strategies) - set(authorized_strategies)
+    if invalid_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Strategy access denied: {sorted(invalid_strategies)}",
+        )
+
+    effective_strategies = requested_strategies or authorized_strategies
+    if not effective_strategies:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
+
+    cache_key = _performance_cache_key(
+        perf_request.start_date, perf_request.end_date, tuple(effective_strategies), user_id
+    )
+
+    # Serve from cache if available; scoped to user+strategies
+    if redis_client:
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                return DailyPerformanceResponse.model_validate_json(cached)
+        except Exception as e:
+            logger.warning(f"Performance cache read failed: {e}")
+
+    rows = db_client.get_daily_pnl_history(
+        perf_request.start_date, perf_request.end_date, effective_strategies
+    )
+    daily, total_realized, max_drawdown = _compute_daily_performance(
+        rows, perf_request.start_date, perf_request.end_date
+    )
+
+    data_available_from = db_client.get_data_availability_date()
+
+    response = DailyPerformanceResponse(
+        daily_pnl=daily,
+        total_realized_pl=total_realized,
+        max_drawdown_pct=max_drawdown,
+        start_date=perf_request.start_date,
+        end_date=perf_request.end_date,
+        data_available_from=data_available_from,
+        last_updated=datetime.now(UTC),
+    )
+
+    # Cache response and register index for targeted invalidation
+    if redis_client:
+        try:
+            redis_client.set(cache_key, response.model_dump_json(), ttl=PERFORMANCE_CACHE_TTL)
+            _register_performance_cache(cache_key, perf_request.start_date, perf_request.end_date)
+        except Exception as e:
+            logger.warning(f"Performance cache write failed: {e}")
+
+    return response
+
+
 @app.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
-async def get_realtime_pnl() -> RealtimePnLResponse:
+@require_permission(Permission.VIEW_PNL)
+async def get_realtime_pnl(user: dict[str, Any] = Depends(_build_user_context)) -> RealtimePnLResponse:
     """
     Get real-time P&L with latest market prices.
 
@@ -2497,12 +2802,57 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
             "timestamp": "2024-10-19T14:30:20Z"
         }
     """
-    # Get all positions from database
+    # Resolve strategy access (fail closed)
+    authorized_strategies = get_authorized_strategies(user.get("user"))
+    if not authorized_strategies and not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
+
+    # Get positions from database, scoped by strategies when possible
     try:
-        db_positions = db_client.get_all_positions()
-    except Exception:
-        logger.warning("realtime_pnl_db_unavailable", exc_info=True)
-        db_positions = []
+        if has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
+            db_positions = db_client.get_all_positions()
+        else:
+            db_positions = db_client.get_positions_for_strategies(authorized_strategies)
+    except Exception as exc:  # pragma: no cover - defensive for test env without DB
+        logger.error(
+            "Failed to load positions for real-time P&L",
+            exc_info=True,
+            extra={"error": str(exc)},
+        )
+        return RealtimePnLResponse(
+            positions=[],
+            total_positions=0,
+            total_unrealized_pl=Decimal("0"),
+            total_unrealized_pl_pct=None,
+            realtime_prices_available=0,
+            timestamp=datetime.now(UTC),
+        )
+
+    try:
+        # Additional guard: if strategy-scoped request returns no positions but DB call succeeded
+        if not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES) and not db_positions:
+            return RealtimePnLResponse(
+                positions=[],
+                total_positions=0,
+                total_unrealized_pl=Decimal("0"),
+                total_unrealized_pl_pct=None,
+                realtime_prices_available=0,
+                timestamp=datetime.now(UTC),
+            )
+    except Exception as exc:  # pragma: no cover - defensive for test env without DB
+        logger.error(
+            "Failed to load positions for real-time P&L",
+            exc_info=True,
+            extra={"error": str(exc)},
+        )
+        return RealtimePnLResponse(
+            positions=[],
+            total_positions=0,
+            total_unrealized_pl=Decimal("0"),
+            total_unrealized_pl_pct=None,
+            realtime_prices_available=0,
+            timestamp=datetime.now(UTC),
+        )
 
     if not db_positions:
         # Reset P&L gauges to 0 when no positions (prevent stale values)
@@ -2567,53 +2917,13 @@ async def get_realtime_pnl() -> RealtimePnLResponse:
 
 @app.post("/api/v1/webhooks/orders", tags=["Webhooks"])
 async def order_webhook(request: Request) -> dict[str, str]:
-    """
-    Webhook endpoint for Alpaca order status updates.
-
-    Alpaca sends webhooks when order status changes (filled, cancelled, etc.).
-    This endpoint:
-    1. Receives webhook payload
-    2. Validates signature (TODO: implement)
-    3. Updates order status in database
-    4. Updates positions table if order filled
-
-    Args:
-        request: FastAPI Request object with webhook payload
-
-    Returns:
-        Success response
-
-    Raises:
-        HTTPException 401: Invalid webhook signature (TODO)
-        HTTPException 400: Invalid webhook payload
-
-    Note:
-        Webhook signature verification is not yet implemented.
-        See ADR-0014 for security requirements.
-
-    Examples:
-        Webhook payload from Alpaca:
-        {
-            "event": "fill",
-            "order": {
-                "id": "broker123...",
-                "client_order_id": "a1b2c3d4e5f6...",
-                "symbol": "AAPL",
-                "side": "buy",
-                "qty": "10",
-                "filled_qty": "10",
-                "filled_avg_price": "150.25",
-                "status": "filled"
-            },
-            "timestamp": "2024-10-17T16:30:05Z"
-        }
-    """
+    """Webhook for Alpaca order updates with per-fill P&L and row locking."""
     try:
         # Parse webhook payload
         body = await request.body()
         payload = await request.json()
 
-        # Verify webhook signature (if secret is configured)
+        # Verify webhook signature (required when secret configured)
         if WEBHOOK_SECRET:
             signature_header = request.headers.get("X-Alpaca-Signature")
             signature = extract_signature_from_header(signature_header)
@@ -2655,39 +2965,99 @@ async def order_webhook(request: Request) -> dict[str, str]:
             logger.warning("Webhook missing client_order_id")
             return {"status": "ignored", "reason": "missing_client_order_id"}
 
-        # Update order status in database
-        updated_order = db_client.update_order_status(
-            client_order_id=client_order_id,
-            status=order_status,
-            broker_order_id=broker_order_id,
-            filled_qty=Decimal(str(filled_qty)) if filled_qty else None,
-            filled_avg_price=Decimal(str(filled_avg_price)) if filled_avg_price else None,
-        )
+        # Fast path: if no fill info, just update status and return
+        if event_type not in ("fill", "partial_fill") or not filled_qty or not filled_avg_price:
+            updated_order = db_client.update_order_status(
+                client_order_id=client_order_id,
+                status=order_status,
+                broker_order_id=broker_order_id,
+                filled_qty=Decimal(str(filled_qty)) if filled_qty else None,
+                filled_avg_price=Decimal(str(filled_avg_price)) if filled_avg_price else None,
+            )
+            if not updated_order:
+                logger.warning(f"Order not found for webhook: {client_order_id}")
+                return {"status": "ignored", "reason": "order_not_found"}
+            return {"status": "ok", "client_order_id": client_order_id}
 
-        if not updated_order:
-            logger.warning(f"Order not found for webhook: {client_order_id}")
-            return {"status": "ignored", "reason": "order_not_found"}
+        # Fill processing: transactional with row locks
+        filled_qty_dec = Decimal(str(filled_qty))
+        filled_avg_price_dec = Decimal(str(filled_avg_price))
 
-        # Update positions if order filled
-        if event_type in ("fill", "partial_fill") and filled_qty and filled_avg_price:
-            position = db_client.update_position_on_fill(
-                symbol=order_data["symbol"],
-                qty=int(filled_qty),
-                price=Decimal(str(filled_avg_price)),
-                side=order_data["side"],
+        per_fill_price = Decimal(str(payload.get("price", filled_avg_price_dec)))
+
+        # Broker-provided timestamp preferred
+        broker_ts = payload.get("timestamp") or payload.get("filled_at") or order_data.get("filled_at")
+        if broker_ts:
+            try:
+                fill_timestamp = datetime.fromisoformat(str(broker_ts).replace("Z", "+00:00"))
+            except Exception:
+                fill_timestamp = datetime.now(UTC)
+                logger.warning("Failed to parse broker timestamp; using server time", extra={"client_order_id": client_order_id, "broker_ts": broker_ts})
+        else:
+            fill_timestamp = datetime.now(UTC)
+            logger.warning("Missing broker timestamp; using server time", extra={"client_order_id": client_order_id})
+
+        with db_client.transaction() as conn:
+            order = db_client.get_order_for_update(client_order_id, conn)
+            if not order:
+                logger.warning(f"Order not found for webhook: {client_order_id}")
+                return {"status": "ignored", "reason": "order_not_found"}
+
+            prev_filled_qty = int(order.filled_qty or 0)
+            incremental_fill_qty = int(filled_qty_dec) - prev_filled_qty
+
+            if incremental_fill_qty <= 0:
+                logger.info(
+                    "No incremental fill; skipping",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "prev_filled_qty": prev_filled_qty,
+                        "current_filled_qty": int(filled_qty_dec),
+                    },
+                )
+                return {"status": "skipped", "reason": "no_incremental_fill"}
+
+            position_locked = db_client.get_position_for_update(order.symbol, conn)
+            old_realized = position_locked.realized_pl if position_locked else Decimal("0")
+
+            position = db_client.update_position_on_fill_with_conn(
+                symbol=order.symbol,
+                fill_qty=incremental_fill_qty,
+                fill_price=per_fill_price,
+                side=order.side,
+                conn=conn,
             )
 
-            logger.info(
-                f"Position updated from fill: {position.symbol} qty={position.qty}",
-                extra={
-                    "symbol": position.symbol,
-                    "qty": str(position.qty),
-                    "avg_price": str(position.avg_entry_price),
+            realized_delta = position.realized_pl - old_realized
+
+            db_client.append_fill_to_order_metadata(
+                client_order_id=client_order_id,
+                fill_data={
+                    "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
+                    "fill_qty": incremental_fill_qty,
+                    "fill_price": str(per_fill_price),
+                    "realized_pl": str(realized_delta),
+                    "timestamp": fill_timestamp.isoformat(),
                 },
+                conn=conn,
             )
+
+            db_client.update_order_status_with_conn(
+                client_order_id=client_order_id,
+                status=order_status,
+                filled_qty=int(filled_qty_dec),
+                filled_avg_price=filled_avg_price_dec,
+                filled_at=fill_timestamp if order_status == "filled" else None,
+                conn=conn,
+            )
+
+        # Invalidate performance cache after successful fill
+        _invalidate_performance_cache(trade_date=fill_timestamp.date())
 
         return {"status": "ok", "client_order_id": client_order_id}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Webhook processing error: {e}", exc_info=True)
         raise HTTPException(

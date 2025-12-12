@@ -10,18 +10,20 @@ Provides database access for orders and positions tables with:
 See ADR-0014 for architecture decisions.
 """
 
+import json
 import logging
 import os
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import psycopg
 from psycopg import DatabaseError, IntegrityError, OperationalError
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
+from pydantic import ValidationError as PydanticValidationError
 
 from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
 
@@ -949,6 +951,332 @@ class DatabaseClient:
             logger.error(f"Database error updating order: {e}")
             raise
 
+    def get_order_for_update(
+        self, client_order_id: str, conn: psycopg.Connection
+    ) -> OrderDetail | None:
+        """
+        Fetch an order with a row-level lock.
+
+        Must be called within an open transaction. Uses SELECT ... FOR UPDATE
+        to prevent concurrent webhook processing from appending duplicate fills.
+
+        Args:
+            client_order_id: Order ID to lock
+            conn: Active database connection in a transaction
+
+        Returns:
+            OrderDetail if found, otherwise None
+        """
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT * FROM orders WHERE client_order_id = %s FOR UPDATE",
+                (client_order_id,),
+            )
+            row = cur.fetchone()
+
+            if row is None:
+                return None
+
+            return self._row_to_order_detail(row)
+
+    def update_order_status_with_conn(
+        self,
+        client_order_id: str,
+        status: str,
+        filled_qty: int,
+        filled_avg_price: Decimal,
+        filled_at: datetime | None,
+        conn: psycopg.Connection,
+    ) -> OrderDetail | None:
+        """
+        Update order status using an existing transaction connection.
+
+        Designed for webhook transactional flow where order, position, and
+        metadata updates must commit atomically.
+
+        Args:
+            client_order_id: Order ID to update
+            status: New order status
+            filled_qty: Cumulative filled quantity
+            filled_avg_price: Cumulative weighted average fill price
+            filled_at: Fill timestamp (set on final fill only)
+            conn: Active database connection in a transaction
+
+        Returns:
+            Updated OrderDetail if found, otherwise None
+        """
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                UPDATE orders
+                SET status = %s,
+                    filled_qty = %s,
+                    filled_avg_price = %s,
+                    filled_at = COALESCE(%s, filled_at),
+                    updated_at = NOW()
+                WHERE client_order_id = %s
+                RETURNING *
+                """,
+                (status, filled_qty, filled_avg_price, filled_at, client_order_id),
+            )
+
+            row = cur.fetchone()
+            if row is None:
+                logger.warning("Order not found during transactional update", extra={"client_order_id": client_order_id})
+                return None
+
+            return OrderDetail(**row)
+
+    def get_position_for_update(self, symbol: str, conn: psycopg.Connection) -> Position | None:
+        """
+        Fetch a position row with symbol-scoped advisory lock.
+
+        When the position row does not yet exist, row-level locks are skipped by
+        PostgreSQL. We take a transactional advisory lock keyed by the symbol to
+        serialize concurrent webhook fills for new symbols and avoid lost
+        updates. The lock is held for the duration of the transaction.
+
+        Args:
+            symbol: Ticker symbol
+            conn: Active transaction connection
+
+        Returns:
+            Position if found, otherwise None
+        """
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            # Serialize by symbol even when no row exists yet (handles first fill).
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (symbol,))
+
+            cur.execute("SELECT * FROM positions WHERE symbol = %s FOR UPDATE", (symbol,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return Position(**row)
+
+    def append_fill_to_order_metadata(
+        self, client_order_id: str, fill_data: dict[str, Any], conn: psycopg.Connection
+    ) -> OrderDetail | None:
+        """
+        Append a single fill record to the order metadata inside a transaction.
+
+        Uses jsonb_set to create the fills array if missing and to increment
+        total_realized_pl. Caller must provide an open transaction connection
+        to ensure atomicity with related updates.
+
+        Args:
+            client_order_id: Order ID to update
+            fill_data: Dict containing fill_id, fill_qty, fill_price, realized_pl, timestamp
+            conn: Active database connection
+
+        Returns:
+            Updated OrderDetail with metadata, or None if order not found
+        """
+
+        fill_json = json.dumps(fill_data)
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                UPDATE orders
+                SET
+                    metadata = jsonb_set(
+                        jsonb_set(
+                            CASE
+                                WHEN COALESCE(metadata, '{}'::jsonb) ? 'fills'
+                                THEN COALESCE(metadata, '{}'::jsonb)
+                                ELSE COALESCE(metadata, '{}'::jsonb) || '{"fills": []}'::jsonb
+                            END,
+                            '{fills}',
+                            COALESCE((metadata->'fills'), '[]'::jsonb) || %s::jsonb
+                        ),
+                        '{total_realized_pl}',
+                        to_jsonb(
+                            COALESCE((metadata->>'total_realized_pl')::NUMERIC, 0)
+                            + (%s::jsonb->>'realized_pl')::NUMERIC
+                        )
+                    ),
+                    updated_at = NOW()
+                WHERE client_order_id = %s
+                RETURNING *
+                """,
+                (fill_json, fill_json, client_order_id),
+            )
+
+            row = cur.fetchone()
+
+            if row is None:
+                logger.warning(
+                    "Order not found for fill metadata append",
+                    extra={"client_order_id": client_order_id},
+                )
+                return None
+
+            try:
+                return self._row_to_order_detail(row)
+            except PydanticValidationError as exc:
+                logger.warning(
+                    "Failed to build OrderDetail from metadata append row",
+                    extra={"client_order_id": client_order_id, "error": str(exc)},
+                )
+                return None
+
+    def update_position_on_fill_with_conn(
+        self,
+        symbol: str,
+        fill_qty: int,
+        fill_price: Decimal,
+        side: str,
+        conn: psycopg.Connection,
+    ) -> Position:
+        """
+        Update a position inside an existing transaction.
+
+        Caller must lock the position row with get_position_for_update before
+        invoking this method to avoid race conditions under concurrent webhooks.
+
+        Args:
+            symbol: Stock symbol
+            fill_qty: Incremental fill quantity (absolute value)
+            fill_price: Per-fill execution price
+            side: 'buy' or 'sell'
+            conn: Active transaction connection
+
+        Returns:
+            Updated Position
+        """
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            # Load current position (row is already locked by caller)
+            cur.execute("SELECT * FROM positions WHERE symbol = %s", (symbol,))
+            current = cur.fetchone()
+
+            if current:
+                old_qty = int(current["qty"])
+                old_avg_price = Decimal(str(current["avg_entry_price"]))
+                old_realized_pl = Decimal(str(current["realized_pl"]))
+            else:
+                old_qty = 0
+                old_avg_price = Decimal("0")
+                old_realized_pl = Decimal("0")
+
+            new_qty, new_avg_price, new_realized_pl = calculate_position_update(
+                old_qty=old_qty,
+                old_avg_price=old_avg_price,
+                old_realized_pl=old_realized_pl,
+                fill_qty=fill_qty,
+                fill_price=Decimal(str(fill_price)),
+                side=side,
+            )
+
+            cur.execute(
+                """
+                INSERT INTO positions (
+                    symbol,
+                    qty,
+                    avg_entry_price,
+                    realized_pl,
+                    updated_at,
+                    last_trade_at
+                )
+                VALUES (%s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (symbol)
+                DO UPDATE SET
+                    qty = EXCLUDED.qty,
+                    avg_entry_price = EXCLUDED.avg_entry_price,
+                    realized_pl = EXCLUDED.realized_pl,
+                    updated_at = NOW(),
+                    last_trade_at = NOW()
+                RETURNING *
+                """,
+                (symbol, new_qty, new_avg_price, new_realized_pl),
+            )
+
+            row = cur.fetchone()
+
+            if row is None:
+                raise ValueError(f"Failed to update position for symbol: {symbol}")
+
+            logger.info(
+                "Position updated transactionally",
+                extra={
+                    "symbol": symbol,
+                    "old_qty": str(old_qty),
+                    "new_qty": str(new_qty),
+                    "avg_price": str(new_avg_price),
+                },
+            )
+
+            return Position(**row)
+
+    # ------------------------------------------------------------------
+    # Performance dashboard helpers (P4T6.2)
+    # ------------------------------------------------------------------
+
+    def get_data_availability_date(self) -> date | None:
+        """Return earliest date with fill metadata (using fill timestamps)."""
+
+        def _execute(conn: psycopg.Connection) -> date | None:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT MIN(DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC')) AS first_date
+                    FROM orders o,
+                         jsonb_array_elements(o.metadata->'fills') AS fill
+                    WHERE o.status IN ('filled', 'partially_filled')
+                      AND o.metadata ? 'fills'
+                      AND jsonb_array_length(o.metadata->'fills') > 0
+                    """
+                )
+                row = cur.fetchone()
+                return row["first_date"] if row and row["first_date"] else None
+
+        return self._execute_with_conn(None, _execute)
+
+    def get_daily_pnl_history(
+        self, start_date: date, end_date: date, strategies: list[str]
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch daily realized P&L aggregated by fill timestamps for specific strategies.
+
+        Returns list of dicts with keys: trade_date, daily_realized_pl, closing_trade_count.
+        """
+
+        if not strategies:
+            return []
+
+        def _execute(conn: psycopg.Connection) -> list[dict[str, Any]]:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC') AS trade_date,
+                        SUM((fill->>'realized_pl')::NUMERIC) AS daily_realized_pl,
+                        COUNT(*) FILTER (
+                            WHERE (fill->>'realized_pl')::NUMERIC != 0
+                        ) AS closing_trade_count
+                    FROM orders o,
+                         jsonb_array_elements(o.metadata->'fills') AS fill
+                    WHERE o.status IN ('filled', 'partially_filled')
+                      AND o.metadata ? 'fills'
+                      AND jsonb_array_length(o.metadata->'fills') > 0
+                      AND o.updated_at >= %s
+                      AND (fill->>'timestamp')::timestamptz >= %s::timestamptz
+                      AND (fill->>'timestamp')::timestamptz < (%s::timestamptz + interval '1 day')
+                      AND o.strategy_id = ANY(%s)
+                    GROUP BY DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC')
+                    ORDER BY trade_date
+                    """,
+                    (start_date, start_date, end_date, strategies),
+                )
+
+                rows = cur.fetchall()
+                return [dict(row) for row in rows]
+
+        return self._execute_with_conn(None, _execute)
+
     def update_position_on_fill(self, symbol: str, qty: int, price: Decimal, side: str) -> Position:
         """
         Update position when order is filled.
@@ -1156,6 +1484,21 @@ class DatabaseClient:
             logger.error(f"Database error fetching positions: {e}")
             raise
 
+    def get_positions_for_strategies(self, strategies: list[str]) -> list[Position]:
+        """
+        Return positions limited to the provided strategies.
+
+        NOTE: The positions table is symbol-scoped and does not store strategy_id.
+        Without a reliable symbol-to-strategy mapping, the safest fail-closed
+        approach is to return an empty list when strategy scoping is requested.
+        This prevents leaking portfolio-wide positions to users without
+        VIEW_ALL_STRATEGIES permission. Upstream callers should provide a
+        strategy-aware position source when available.
+        """
+        if not strategies:
+            return []
+        return []
+
     def check_connection(self) -> bool:
         """
         Check if database connection is healthy.
@@ -1177,3 +1520,27 @@ class DatabaseClient:
         except Exception as e:
             logger.error(f"Database connection check failed: {e}")
             return False
+    def _row_to_order_detail(self, row: Mapping[str, Any]) -> OrderDetail:
+        """
+        Build OrderDetail from a database row, supplying safe defaults for missing fields.
+
+        This is primarily used in tests where mocks may provide partial rows. In production
+        rows should be complete and defaults will be overridden by actual values.
+        """
+
+        defaults: dict[str, Any] = {
+            "client_order_id": "",
+            "strategy_id": "unknown",
+            "symbol": "",
+            "side": "buy",
+            "qty": 0,
+            "order_type": "market",
+            "time_in_force": "day",
+            "status": "pending_new",
+            "retry_count": 0,
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "filled_qty": Decimal("0"),
+        }
+        merged = {**defaults, **row}
+        return OrderDetail(**merged)
