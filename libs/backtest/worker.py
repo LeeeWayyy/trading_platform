@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import shutil
+import threading
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -148,6 +150,8 @@ class BacktestWorker:
 
 
 _RETRY_POOL: ConnectionPool | None = None
+_WORKER_POOL: ConnectionPool | None = None
+_POOL_LOCK = threading.Lock()
 
 
 def _get_retry_pool() -> ConnectionPool:
@@ -165,6 +169,44 @@ def _get_retry_pool() -> ConnectionPool:
     return _RETRY_POOL
 
 
+def _get_worker_pool() -> ConnectionPool:
+    """
+    Lazily create a shared psycopg pool for worker jobs.
+
+    Singleton pattern avoids creating a new pool per job, improving efficiency
+    and preventing resource exhaustion under load.
+
+    Thread-safe: Uses lock to prevent race conditions during initialization.
+    Note: Under RQ's ForkingWorker, each child process gets its own pool instance.
+    This is still beneficial as it prevents creating multiple pools within a single
+    job execution and provides clean shutdown via atexit.
+    """
+    global _WORKER_POOL
+    if _WORKER_POOL is None:
+        with _POOL_LOCK:
+            # Double-check after acquiring lock
+            if _WORKER_POOL is None:
+                db_url = os.getenv("DATABASE_URL")
+                if not db_url:
+                    raise RuntimeError("DATABASE_URL not set; cannot create worker pool")
+                assert db_url is not None
+                _WORKER_POOL = ConnectionPool(conninfo=db_url, min_size=1, max_size=4)
+                _WORKER_POOL.open()
+                atexit.register(_close_worker_pool)
+    return _WORKER_POOL
+
+
+def _close_worker_pool() -> None:
+    """Close worker pool on process exit for clean shutdown."""
+    global _WORKER_POOL
+    if _WORKER_POOL is not None:
+        try:
+            _WORKER_POOL.close()
+        except Exception:
+            pass  # Best effort cleanup on exit
+        _WORKER_POOL = None
+
+
 def record_retry(job: Any, *exc_info: Any) -> bool:
     """RQ retry hook: increment retry_count for automated retries."""
     pool = _get_retry_pool()
@@ -180,137 +222,131 @@ def record_retry(job: Any, *exc_info: Any) -> bool:
 def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
     """
     RQ job entrypoint for backtest execution.
+
+    Uses singleton connection pool shared across jobs for efficiency.
     """
     redis = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-    db_url = os.getenv("DATABASE_URL")
-    if db_url is None:
-        raise RuntimeError("DATABASE_URL not set; cannot start backtest worker")
-    assert db_url is not None
-    db_pool = ConnectionPool(conninfo=db_url)
-    db_pool.open()
+    db_pool = _get_worker_pool()
 
-    try:
-        with db_pool.connection() as conn:
-            job_config = BacktestJobConfig.from_dict(config)
-            job_id = job_config.compute_job_id(created_by)
-            current_job = get_current_job()
-            job_timeout = (
-                int(current_job.timeout or BacktestJobQueue.DEFAULT_TIMEOUT)
-                if current_job
-                else BacktestJobQueue.DEFAULT_TIMEOUT
+    with db_pool.connection() as conn:
+        job_config = BacktestJobConfig.from_dict(config)
+        job_id = job_config.compute_job_id(created_by)
+        current_job = get_current_job()
+        job_timeout = (
+            int(current_job.timeout or BacktestJobQueue.DEFAULT_TIMEOUT)
+            if current_job
+            else BacktestJobQueue.DEFAULT_TIMEOUT
+        )
+        worker = BacktestWorker(redis, db_pool)
+
+        try:
+            worker.update_progress(job_id, 5, "init_dependencies", job_timeout=job_timeout)
+
+            data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
+            manifest_manager = ManifestManager(data_root=data_root)
+            version_manager = DatasetVersionManager(manifest_manager)
+            crsp_provider = CRSPLocalProvider(
+                data_root / "crsp",
+                manifest_manager,
+                data_root=data_root,
             )
-            worker = BacktestWorker(redis, db_pool)
+            compustat_provider = CompustatLocalProvider(
+                data_root / "compustat",
+                manifest_manager,
+                data_root=data_root,
+            )
+            metrics_adapter = AlphaMetricsAdapter()
 
-            try:
-                worker.update_progress(job_id, 5, "init_dependencies", job_timeout=job_timeout)
+            backtester = PITBacktester(
+                version_manager=version_manager,
+                crsp_provider=crsp_provider,
+                compustat_provider=compustat_provider,
+                metrics_adapter=metrics_adapter,
+            )
 
-                data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
-                manifest_manager = ManifestManager(data_root=data_root)
-                version_manager = DatasetVersionManager(manifest_manager)
-                crsp_provider = CRSPLocalProvider(
-                    data_root / "crsp",
-                    manifest_manager,
-                    data_root=data_root,
-                )
-                compustat_provider = CompustatLocalProvider(
-                    data_root / "compustat",
-                    manifest_manager,
-                    data_root=data_root,
-                )
-                metrics_adapter = AlphaMetricsAdapter()
+            worker.update_db_status(job_id, "running", started_at=datetime.now(UTC))
+            worker.update_progress(job_id, 0, "started", job_timeout=job_timeout)
+            worker.update_progress(job_id, 10, "loading_data", job_timeout=job_timeout)
 
-                backtester = PITBacktester(
-                    version_manager=version_manager,
-                    crsp_provider=crsp_provider,
-                    compustat_provider=compustat_provider,
-                    metrics_adapter=metrics_adapter,
-                )
+            snapshot_id = job_config.extra_params.get("snapshot_id")
 
-                worker.update_db_status(job_id, "running", started_at=datetime.now(UTC))
-                worker.update_progress(job_id, 0, "started", job_timeout=job_timeout)
-                worker.update_progress(job_id, 10, "loading_data", job_timeout=job_timeout)
+            alpha = create_alpha(job_config.alpha_name)
 
-                snapshot_id = job_config.extra_params.get("snapshot_id")
-
-                alpha = create_alpha(job_config.alpha_name)
-
-                result = backtester.run_backtest(
-                    alpha=alpha,
-                    start_date=job_config.start_date,
-                    end_date=job_config.end_date,
-                    snapshot_id=snapshot_id,
-                    weight_method=cast(
-                        Literal["zscore", "quantile", "rank"], job_config.weight_method
-                    ),
-                    progress_callback=lambda pct, d: worker.update_progress(
-                        job_id,
-                        20 + round(pct * 0.7),
-                        "computing",
-                        str(d) if d else None,
-                        job_timeout=job_timeout,
-                    ),
-                    cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
-                )
-
-                worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
-                result_path = _save_parquet_artifacts(job_id, result)
-
-                worker.update_progress(job_id, 95, "saving_db", job_timeout=job_timeout)
-                _save_result_to_db(conn, job_id, result, result_path)
-
-                worker.update_progress(job_id, 100, "completed", job_timeout=job_timeout)
-                worker.update_db_status(job_id, "completed", completed_at=datetime.now(UTC))
-
-                return {
-                    "job_id": job_id,
-                    "result_path": str(result_path),
-                    "summary_metrics": {
-                        "mean_ic": result.mean_ic,
-                        "icir": result.icir,
-                        "hit_rate": result.hit_rate,
-                    },
-                }
-
-            except JobCancelled:
-                last_progress_raw = redis.get(f"backtest:progress:{job_id}")
-                if isinstance(last_progress_raw, (bytes, bytearray)):  # noqa: UP038 - tuple form requested in PR review
-                    last_progress = last_progress_raw.decode()
-                elif isinstance(last_progress_raw, str):
-                    last_progress = last_progress_raw
-                else:
-                    last_progress = None
-
-                last_pct = 0
-                if last_progress:
-                    try:
-                        last_pct_val = json.loads(last_progress)
-                        if isinstance(last_pct_val, dict):
-                            last_pct = int(last_pct_val.get("pct", 0))
-                    except (ValueError, TypeError, json.JSONDecodeError):
-                        worker.logger.warning(
-                            "cancel_progress_parse_failed", job_id=job_id, raw=last_progress
-                        )
-                shutil.rmtree(Path("data/backtest_results") / job_id, ignore_errors=True)
-                worker.update_db_status(job_id, "cancelled", completed_at=datetime.now(UTC))
-                worker.update_progress(
+            result = backtester.run_backtest(
+                alpha=alpha,
+                start_date=job_config.start_date,
+                end_date=job_config.end_date,
+                snapshot_id=snapshot_id,
+                weight_method=cast(
+                    Literal["zscore", "quantile", "rank"], job_config.weight_method
+                ),
+                progress_callback=lambda pct, d: worker.update_progress(
                     job_id,
-                    last_pct,
-                    "cancelled",
-                    skip_cancel_check=True,
-                    skip_memory_check=True,
-                )
-                return {"job_id": job_id, "cancelled": True}
+                    20 + round(pct * 0.7),
+                    "computing",
+                    str(d) if d else None,
+                    job_timeout=job_timeout,
+                ),
+                cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
+            )
 
-            except Exception as e:
-                worker.update_db_status(
-                    job_id,
-                    "failed",
-                    error_message=str(e),
-                    completed_at=datetime.now(UTC),
-                )
-                raise
-    finally:
-        db_pool.close()
+            worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
+            result_path = _save_parquet_artifacts(job_id, result)
+
+            worker.update_progress(job_id, 95, "saving_db", job_timeout=job_timeout)
+            _save_result_to_db(conn, job_id, result, result_path)
+
+            worker.update_progress(job_id, 100, "completed", job_timeout=job_timeout)
+            worker.update_db_status(job_id, "completed", completed_at=datetime.now(UTC))
+
+            return {
+                "job_id": job_id,
+                "result_path": str(result_path),
+                "summary_metrics": {
+                    "mean_ic": result.mean_ic,
+                    "icir": result.icir,
+                    "hit_rate": result.hit_rate,
+                },
+            }
+
+        except JobCancelled:
+            last_progress_raw = redis.get(f"backtest:progress:{job_id}")
+            if isinstance(last_progress_raw, (bytes, bytearray)):  # noqa: UP038 - tuple form requested in PR review
+                last_progress = last_progress_raw.decode()
+            elif isinstance(last_progress_raw, str):
+                last_progress = last_progress_raw
+            else:
+                last_progress = None
+
+            last_pct = 0
+            if last_progress:
+                try:
+                    last_pct_val = json.loads(last_progress)
+                    if isinstance(last_pct_val, dict):
+                        last_pct = int(last_pct_val.get("pct", 0))
+                except (ValueError, TypeError, json.JSONDecodeError):
+                    worker.logger.warning(
+                        "cancel_progress_parse_failed", job_id=job_id, raw=last_progress
+                    )
+            shutil.rmtree(Path("data/backtest_results") / job_id, ignore_errors=True)
+            worker.update_db_status(job_id, "cancelled", completed_at=datetime.now(UTC))
+            worker.update_progress(
+                job_id,
+                last_pct,
+                "cancelled",
+                skip_cancel_check=True,
+                skip_memory_check=True,
+            )
+            return {"job_id": job_id, "cancelled": True}
+
+        except Exception as e:
+            worker.update_db_status(
+                job_id,
+                "failed",
+                error_message=str(e),
+                completed_at=datetime.now(UTC),
+            )
+            raise
 
 
 def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:

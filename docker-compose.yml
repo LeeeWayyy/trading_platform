@@ -15,7 +15,8 @@ x-backtest-worker-base: &backtest-worker-base
     <<: *backtest-worker-env-base
     RQ_QUEUES: backtest_high
   volumes: &backtest-worker-volumes
-    - backtest_data:/app/data/backtest_results
+    - ./data:/app/data:ro  # Market data (CRSP, Compustat parquets)
+    - backtest_data:/app/data/backtest_results  # Results output
   depends_on: &backtest-worker-depends
     - redis
     - postgres
