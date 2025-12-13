@@ -27,9 +27,24 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
 }
 
 
+def _safe_current_user() -> Mapping[str, Any]:
+    """
+    Return current user when session context exists.
+
+    Streamlit tests render components without an authenticated session; in those cases
+    fall back to an empty mapping so pages can still render in isolation.
+    """
+
+    try:
+        user = get_current_user()
+    except RuntimeError:
+        return {}
+    return user if isinstance(user, Mapping) else {}
+
+
 def _fetch(endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     url = ENDPOINTS[endpoint]
-    user = get_current_user()
+    user = _safe_current_user()
     headers: dict[str, str] = {}
     role = user.get("role") if isinstance(user, Mapping) else None
     user_id = user.get("user_id") if isinstance(user, Mapping) else None
@@ -92,9 +107,13 @@ def render_realtime_pnl() -> None:
     st.subheader("Real-Time P&L")
     try:
         data = fetch_realtime_pnl()
-    except Exception as e:  # noqa: BLE001
+    except requests.exceptions.RequestException as e:
         st.error(f"Failed to load real-time P&L: {e}")
         return
+
+    user = _safe_current_user()
+    strategies = get_authorized_strategies(user) if user else []
+    viewer_scoped = strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES)
 
     positions = data.get("positions", [])
     total_unrealized = data.get("total_unrealized_pl")
@@ -109,6 +128,12 @@ def render_realtime_pnl() -> None:
     )
 
     if not positions:
+        if viewer_scoped:
+            st.info(
+                "Strategy-scoped positions are not yet available from the execution gateway. "
+                "Please use the positions table in Research DB until strategy-aware positions land."
+            )
+            return
         st.info("No open positions.")
         return
 
@@ -136,7 +161,7 @@ def render_position_summary() -> None:
     st.subheader("Position Summary")
     try:
         data = fetch_positions()
-    except Exception as e:  # noqa: BLE001
+    except requests.exceptions.RequestException as e:
         st.error(f"Failed to load positions: {e}")
         return
 
@@ -174,9 +199,13 @@ def render_historical_performance(start: date, end: date, strategies: list[str])
 
     with st.spinner("Loading performance..."):
         try:
-            user = get_current_user()
-            data = fetch_performance(start, end, strategies, user.get("user_id") if isinstance(user, Mapping) else None)
-        except Exception as e:  # noqa: BLE001
+            user = _safe_current_user()
+            user_id = user.get("user_id") if isinstance(user, Mapping) else None
+            if not user_id:
+                st.error("Authentication required to view historical performance.")
+                return
+            data = fetch_performance(start, end, strategies, user_id)
+        except requests.exceptions.RequestException as e:
             st.error(f"Failed to load performance data: {e}")
             return
 

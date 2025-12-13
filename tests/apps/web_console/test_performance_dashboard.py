@@ -180,6 +180,29 @@ class TestPerformancePage:
         start, end = perf_page._date_inputs()
         assert start == end == date(2024, 1, 5)
 
+    def test_historical_performance_requires_auth(self, monkeypatch):
+        """Ensure unauthenticated users see auth error and fetch_performance is not called."""
+        # Return empty user (no user_id) to simulate unauthenticated state
+        monkeypatch.setattr(perf_page, "_safe_current_user", lambda: {})
+
+        # Track if fetch_performance is called
+        fetch_called = []
+        original_fetch = perf_page.fetch_performance
+
+        def mock_fetch(*args, **kwargs):
+            fetch_called.append(True)
+            return original_fetch(*args, **kwargs)
+
+        monkeypatch.setattr(perf_page, "fetch_performance", mock_fetch)
+
+        perf_page.render_historical_performance(date(2024, 1, 1), date(2024, 1, 2), ["s1"])
+
+        st_obj = perf_page.st  # type: ignore[attr-defined]
+        # Should show authentication error
+        assert any("Authentication required" in msg for msg in st_obj._errors)
+        # fetch_performance should NOT be called
+        assert len(fetch_called) == 0
+
 
 class TestPnLCharts:
     def test_equity_curve_handles_empty(self):

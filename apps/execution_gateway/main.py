@@ -833,7 +833,7 @@ def _invalidate_performance_cache(trade_date: date | None = None) -> None:
     index_key = _performance_cache_index_key(target_date)
 
     try:
-        cache_keys = cast(list[str], cast(Any, redis_client).smembers(index_key) or [])
+        cache_keys = list(redis_client.smembers(index_key) or [])
         if cache_keys:
             redis_client.delete(*cache_keys)
         # Cleanup the index key as well
@@ -2813,22 +2813,6 @@ async def get_realtime_pnl(user: dict[str, Any] = Depends(_build_user_context)) 
             db_positions = db_client.get_all_positions()
         else:
             db_positions = db_client.get_positions_for_strategies(authorized_strategies)
-    except Exception as exc:  # pragma: no cover - defensive for test env without DB
-        logger.error(
-            "Failed to load positions for real-time P&L",
-            exc_info=True,
-            extra={"error": str(exc)},
-        )
-        return RealtimePnLResponse(
-            positions=[],
-            total_positions=0,
-            total_unrealized_pl=Decimal("0"),
-            total_unrealized_pl_pct=None,
-            realtime_prices_available=0,
-            timestamp=datetime.now(UTC),
-        )
-
-    try:
         # Additional guard: if strategy-scoped request returns no positions but DB call succeeded
         if not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES) and not db_positions:
             return RealtimePnLResponse(

@@ -7,6 +7,9 @@
       "pattern": "^\\.\\./\\.\\./general_ai_guide"
     },
     {
+      "pattern": "^\\.\\./\\.claude/plans/"
+    },
+    {
       "pattern": "^https://report-uri.com"
     },
     {
@@ -101,6 +104,9 @@
     },
     {
       "pattern": "^https://papers.ssrn.com"
+    },
+    {
+      "pattern": "^https://www.jstor.org/stable/3132247"
     }
   ],
   "replacementPatterns": [
