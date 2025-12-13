@@ -685,9 +685,9 @@ class PITBacktester:
             )
 
             results.append(horizon_returns)
-            horizon_pct = pct
-            if total_iterations > 0:
-                horizon_pct = int(((i + 1) / total_iterations) * 100)
+            # Calculate progress relative to base pct, allocating remaining percentage
+            horizon_span = min(10, max(100 - pct, 0))
+            horizon_pct = min(100, pct + int(((i + 1) / max(total_iterations, 1)) * horizon_span))
             last_callback_time = self._invoke_callbacks(
                 progress_callback,
                 cancel_check,

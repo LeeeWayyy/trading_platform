@@ -259,7 +259,9 @@ class AlpacaMarketDataStream:
                 logger.warning("Received quote without timestamp for symbol %s", symbol)
                 return
             if isinstance(raw_timestamp, str):
-                timestamp_value = datetime.fromisoformat(raw_timestamp)
+                # Handle ISO8601 'Z' suffix (Zulu/UTC time) which fromisoformat may not parse
+                ts_str = raw_timestamp.replace("Z", "+00:00") if raw_timestamp.endswith("Z") else raw_timestamp
+                timestamp_value = datetime.fromisoformat(ts_str)
             else:
                 timestamp_value = raw_timestamp
             if not isinstance(timestamp_value, datetime):

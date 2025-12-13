@@ -25,7 +25,7 @@ from numpy.typing import NDArray
 from scipy.stats import norm  # type: ignore[import-untyped]
 
 try:  # Optional acceleration path
-    from numba import List as NumbaList  # type: ignore[import-untyped]
+    from numba import List as NumbaList
     from numba import njit
 
     NUMBA_AVAILABLE = True
