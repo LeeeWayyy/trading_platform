@@ -2760,7 +2760,7 @@ async def get_daily_performance(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Performance dashboard disabled")
 
     perf_request = PerformanceRequest(start_date=start_date, end_date=end_date)
-    authorized_strategies = get_authorized_strategies(user)
+    authorized_strategies = get_authorized_strategies(user.get("user"))
     requested_strategies = cast(list[str], user.get("requested_strategies", []) if isinstance(user, dict) else [])
     user_id = user.get("user_id") if isinstance(user, dict) else None
     if not authorized_strategies:

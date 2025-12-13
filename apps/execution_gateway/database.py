@@ -1498,44 +1498,31 @@ class DatabaseClient:
         # Attempt a best-effort, fail-closed mapping from position symbols to strategies by
         # inspecting historical orders. We only return a position when exactly one strategy
         # has traded the symbol to avoid leaking cross-strategy positions.
+        # Filtering is done in SQL using HAVING and ANY for efficiency.
         def _execute(conn: psycopg.Connection) -> list[Position]:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     """
-                    WITH symbol_strategies AS (
+                    WITH symbol_strategy AS (
                         SELECT
                             symbol,
-                            ARRAY_AGG(DISTINCT strategy_id) AS strategies
+                            (ARRAY_AGG(DISTINCT strategy_id))[1] AS strategy
                         FROM orders
                         WHERE strategy_id IS NOT NULL
-                          AND symbol IN (
-                              SELECT symbol FROM positions WHERE qty != 0
-                          )
+                          AND symbol IN (SELECT symbol FROM positions WHERE qty != 0)
                         GROUP BY symbol
+                        HAVING COUNT(DISTINCT strategy_id) = 1
                     )
-                    SELECT
-                        p.*,
-                        COALESCE(ss.strategies, ARRAY[]::text[]) AS strategies
+                    SELECT p.*
                     FROM positions p
-                    LEFT JOIN symbol_strategies ss ON ss.symbol = p.symbol
+                    JOIN symbol_strategy ss ON p.symbol = ss.symbol
                     WHERE p.qty != 0
+                      AND ss.strategy = ANY(%s)
                     ORDER BY p.symbol
-                    """
+                    """,
+                    (strategies,),
                 )
-
-                rows = cur.fetchall()
-                filtered: list[Position] = []
-                for row in rows:
-                    symbol_strats: list[str] = row.get("strategies", []) or []
-                    # Fail closed when multiple strategies have touched the symbol
-                    if len(symbol_strats) != 1:
-                        continue
-                    if symbol_strats[0] not in strategies:
-                        continue
-                    # Remove helper column before constructing Position
-                    row.pop("strategies", None)
-                    filtered.append(Position(**row))
-                return filtered
+                return [Position(**row) for row in cur.fetchall()]
 
         return self._execute_with_conn(None, _execute)
 
