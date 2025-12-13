@@ -42,6 +42,7 @@ app = FastAPI(
 config = get_config()
 enable_report_only = os.getenv("CSP_REPORT_ONLY", "false").lower() == "true"
 
+
 app.add_middleware(
     CSPMiddleware,
     auth0_domain=config.auth0_domain,
@@ -74,9 +75,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     # Build CSP policy using centralized utility (Gemini + Codex Fresh Review: MEDIUM)
     # Avoids duplication with middleware CSP policy logic
     header_name = (
-        "Content-Security-Policy-Report-Only"
-        if enable_report_only
-        else "Content-Security-Policy"
+        "Content-Security-Policy-Report-Only" if enable_report_only else "Content-Security-Policy"
     )
 
     csp_policy = build_csp_policy(nonce, config.auth0_domain, "/csp-report")
@@ -236,7 +235,7 @@ def _validate_internal_refresh_secret() -> str | None:
         raise RuntimeError(
             f"INTERNAL_REFRESH_SECRET too short ({len(secret)} chars) - "
             f"must be at least {MIN_SECRET_LENGTH} chars in production/staging. "
-            "Use: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            'Use: python -c "import secrets; print(secrets.token_urlsafe(32))"'
         )
 
     return secret

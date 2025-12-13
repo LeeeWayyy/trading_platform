@@ -34,7 +34,8 @@ httpx = "^0.26.0"
 psycopg = {extras = ["binary"], version = "^3.1.0"}
 psycopg-pool = "^3.2.0"
 redis = "^5.0.0"
-duckdb = "^0.9.0"
+duckdb = "^1.0.0"
+pyarrow = "^15.0.0"
 alembic = "^1.13.0"
 # Market data & Trading
 alpaca-py = "^0.15.0"
@@ -47,6 +48,7 @@ tenacity = "^8.2.0"
 apscheduler = "^3.10.0"
 # Monitoring
 prometheus-client = "^0.19.0"
+structlog = "^24.0.0"
 # Web console (production application)
 streamlit = "^1.28.0"
 requests = "^2.31.0"
@@ -130,7 +132,7 @@ module = ["plotly", "plotly.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*", "pandas_datareader.*", "yfinance.*"]
+module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*", "pandas_datareader.*", "yfinance.*", "rq.*", "numba.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -146,6 +148,11 @@ disallow_incomplete_defs = false
 module = "*.tests.*"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+
+# rq type stubs vary across versions; suppress unused-ignore warnings for affected modules
+[[tool.mypy.overrides]]
+module = ["libs.backtest.job_queue", "apps.backtest_worker.entrypoint"]
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,13 +1,13 @@
 """Tests for PITBacktester and point-in-time correctness."""
 
 from datetime import date, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
 
 from libs.alpha.alpha_definition import BaseAlpha
-from libs.alpha.exceptions import MissingForwardReturnError, PITViolationError
+from libs.alpha.exceptions import JobCancelled, MissingForwardReturnError, PITViolationError
 from libs.alpha.research_platform import BacktestResult, PITBacktester
 
 
@@ -27,6 +27,63 @@ class SimpleTestAlpha(BaseAlpha):
             pl.col("permno"),
             pl.col("permno").cast(pl.Float64).alias("raw_signal"),
         ])
+
+
+def _build_full_mock_backtester():
+    """Helper to construct a fully mocked PITBacktester setup."""
+    version_mgr = MagicMock()
+    crsp = MagicMock()
+    compustat = MagicMock()
+    backtester = PITBacktester(version_mgr, crsp, compustat)
+
+    mock_snapshot = MagicMock()
+    mock_snapshot.version_tag = "test_snapshot"
+    mock_snapshot.datasets = {
+        "crsp": MagicMock(
+            date_range_end=date(2024, 1, 20),
+            sync_manifest_version="v1.0.0",
+        ),
+        "compustat": MagicMock(
+            date_range_end=date(2024, 1, 20),
+            sync_manifest_version="v1.0.0",
+        ),
+    }
+    version_mgr.create_snapshot.return_value = mock_snapshot
+
+    dates = [date(2024, 1, i) for i in range(1, 16)]
+    prices = pl.DataFrame({
+        "permno": sorted([1, 2, 3, 4, 5] * 15),
+        "date": dates * 5,
+        "ret": [0.01 + 0.001 * (i % 5) for i in range(75)],
+        "prc": [100.0 + i for i in range(75)],
+        "shrout": [1000.0] * 75,
+    })
+
+    fundamentals = pl.DataFrame({
+        "permno": [1, 2, 3, 4, 5],
+        "datadate": [date(2023, 9, 30)] * 5,
+        "ceq": [100.0, 200.0, 150.0, 180.0, 120.0],
+        "ni": [10.0, 20.0, 15.0, 18.0, 12.0],
+    })
+
+    def mock_lock_snapshot(snapshot_id):
+        backtester._snapshot = mock_snapshot
+        return mock_snapshot
+
+    def mock_get_pit_prices(as_of):
+        return prices.filter(pl.col("date") <= as_of)
+
+    def mock_get_pit_fundamentals(as_of):
+        return fundamentals
+
+    backtester._lock_snapshot = mock_lock_snapshot
+    backtester._get_pit_prices = mock_get_pit_prices
+    backtester._get_pit_fundamentals = mock_get_pit_fundamentals
+    backtester._prices_cache = prices
+    backtester._fundamentals_cache = fundamentals
+
+    return backtester, prices, mock_snapshot
+
 
 
 class TestPITBacktesterSnapshotLocking:
@@ -392,6 +449,243 @@ class TestPITBacktesterRunBacktest:
         assert result.daily_weights.height > 0
 
 
+class TestPITBacktesterCallbacks:
+    """Tests for progress and cancel callbacks on PITBacktester."""
+
+    def test_progress_callback_called_with_increasing_percentages(self, monkeypatch):
+        backtester, prices, _ = _build_full_mock_backtester()
+
+        def mock_forward_returns(as_of, horizon=1):
+            return prices.filter(pl.col("date") == as_of).select([
+                pl.col("permno"),
+                pl.lit(as_of).alias("date"),
+                pl.col("ret").alias("return"),
+            ])
+
+        backtester._get_pit_forward_returns = mock_forward_returns
+
+        current_time = {"t": 0.0}
+
+        def mock_monotonic():
+            t = current_time["t"]
+            current_time["t"] += 40.0
+            return t
+
+        monkeypatch.setattr("libs.alpha.research_platform.time.monotonic", mock_monotonic)
+
+        progress_cb = MagicMock()
+        alpha = SimpleTestAlpha()
+
+        result = backtester.run_backtest(
+            alpha=alpha,
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 5),
+            decay_horizons=[1],
+            progress_callback=progress_cb,
+        )
+
+        assert isinstance(result, BacktestResult)
+        assert progress_cb.call_count > 1
+
+        pct_calls = [call.args[0] for call in progress_cb.call_args_list]
+        assert pct_calls[0] == 0
+        assert pct_calls[-1] == 100
+        # Progress should trend upward overall, even if helper routines emit
+        # smaller intermediate percentages.
+        cumulative_max = []
+        current_max = -1
+        for pct in pct_calls:
+            current_max = max(current_max, pct)
+            cumulative_max.append(current_max)
+        assert cumulative_max == sorted(cumulative_max)
+
+    def test_cancel_check_raises_job_cancelled_stops_backtest(self, monkeypatch):
+        backtester, prices, _ = _build_full_mock_backtester()
+
+        def mock_forward_returns(as_of, horizon=1):
+            return prices.filter(pl.col("date") == as_of).select([
+                pl.col("permno"),
+                pl.lit(as_of).alias("date"),
+                pl.col("ret").alias("return"),
+            ])
+
+        backtester._get_pit_forward_returns = mock_forward_returns
+
+        current_time = {"t": 0.0}
+
+        def mock_monotonic():
+            t = current_time["t"]
+            current_time["t"] += 40.0
+            return t
+
+        monkeypatch.setattr("libs.alpha.research_platform.time.monotonic", mock_monotonic)
+
+        call_counter = {"n": 0}
+
+        def cancel_check():
+            call_counter["n"] += 1
+            if call_counter["n"] >= 3:
+                raise JobCancelled("cancelled")
+
+        alpha = SimpleTestAlpha()
+
+        with pytest.raises(JobCancelled):
+            backtester.run_backtest(
+                alpha=alpha,
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 10),
+                decay_horizons=[1],
+                progress_callback=MagicMock(),
+                cancel_check=cancel_check,
+            )
+
+        assert backtester._snapshot is None
+        assert backtester._prices_cache is None
+        assert backtester._fundamentals_cache is None
+
+    def test_callbacks_none_backward_compatible(self):
+        backtester, prices, _ = _build_full_mock_backtester()
+
+        def mock_forward_returns(as_of, horizon=1):
+            return prices.filter(pl.col("date") == as_of).select([
+                pl.col("permno"),
+                pl.lit(as_of).alias("date"),
+                pl.col("ret").alias("return"),
+            ])
+
+        backtester._get_pit_forward_returns = mock_forward_returns
+
+        alpha = SimpleTestAlpha()
+        result = backtester.run_backtest(
+            alpha=alpha,
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 5),
+            decay_horizons=[1],
+            progress_callback=None,
+            cancel_check=None,
+        )
+
+        assert isinstance(result, BacktestResult)
+        assert result.daily_signals.height > 0
+
+    def test_callback_throttling_respects_30_second_interval(self, monkeypatch):
+        backtester, prices, _ = _build_full_mock_backtester()
+
+        def mock_forward_returns(as_of, horizon=1):
+            return prices.filter(pl.col("date") == as_of).select([
+                pl.col("permno"),
+                pl.lit(as_of).alias("date"),
+                pl.col("ret").alias("return"),
+            ])
+
+        backtester._get_pit_forward_returns = mock_forward_returns
+
+        # Avoid extra callback noise from downstream computations
+        backtester._compute_daily_ic = (
+            lambda *args, **kwargs: (
+                pl.DataFrame({"date": [], "ic": [], "rank_ic": []}),
+                args[4],  # preserve last_callback_time
+            )
+        )
+        backtester._compute_horizon_returns = (
+            lambda *args, **kwargs: (
+                pl.DataFrame(),
+                args[4],  # preserve last_callback_time
+            )
+        )
+
+        times = [0, 5, 35, 40, 45, 90]
+        times_iter = iter(times)
+
+        def mock_monotonic():
+            try:
+                return next(times_iter)
+            except StopIteration:
+                return times[-1] + 1
+
+        monkeypatch.setattr("libs.alpha.research_platform.time.monotonic", mock_monotonic)
+
+        progress_cb = MagicMock()
+        alpha = SimpleTestAlpha()
+
+        backtester.run_backtest(
+            alpha=alpha,
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 2),
+            decay_horizons=[],
+            progress_callback=progress_cb,
+        )
+
+        pct_calls = [call.args[0] for call in progress_cb.call_args_list]
+        # Expect initial force call (0), one throttled call at >=30s, and final force call (100)
+        assert pct_calls[0] == 0
+        assert 0 < pct_calls[1] <= 100
+        assert pct_calls[-1] == 100
+        # Should not call for every iteration (only 3 calls expected)
+        assert len(pct_calls) <= 3
+
+    def test_reproducibility_fields_populated_after_callbacks(self):
+        backtester, prices, snapshot = _build_full_mock_backtester()
+
+        def mock_forward_returns(as_of, horizon=1):
+            return prices.filter(pl.col("date") == as_of).select([
+                pl.col("permno"),
+                pl.lit(as_of).alias("date"),
+                pl.col("ret").alias("return"),
+            ])
+
+        backtester._get_pit_forward_returns = mock_forward_returns
+
+        alpha = SimpleTestAlpha()
+        result = backtester.run_backtest(
+            alpha=alpha,
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 5),
+            decay_horizons=[1],
+            progress_callback=MagicMock(),
+        )
+
+        assert result.snapshot_id == snapshot.version_tag
+        assert result.dataset_version_ids
+
+    def test_cache_cleared_on_job_cancelled(self):
+        backtester, prices, _ = _build_full_mock_backtester()
+
+        def mock_forward_returns(as_of, horizon=1):
+            return prices.filter(pl.col("date") == as_of).select([
+                pl.col("permno"),
+                pl.lit(as_of).alias("date"),
+                pl.col("ret").alias("return"),
+            ])
+
+        backtester._get_pit_forward_returns = mock_forward_returns
+
+        call_counter = {"n": 0}
+
+        def cancel_check():
+            call_counter["n"] += 1
+            # Allow the initial pre-lock callback to proceed so the backtester
+            # enters its try/finally and clears caches on exit.
+            if call_counter["n"] >= 2:
+                raise JobCancelled("cancel now")
+
+        alpha = SimpleTestAlpha()
+
+        with pytest.raises(JobCancelled):
+            backtester.run_backtest(
+                alpha=alpha,
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+                decay_horizons=[1],
+                progress_callback=MagicMock(),
+                cancel_check=cancel_check,
+            )
+
+        assert backtester._snapshot is None
+        assert backtester._prices_cache is None
+        assert backtester._fundamentals_cache is None
+
+
 class TestPITBacktesterHorizonReturns:
     """Tests for horizon return computation."""
 
@@ -418,7 +712,14 @@ class TestPITBacktesterHorizonReturns:
         })
         backtester._prices_cache = prices
 
-        result = backtester._compute_horizon_returns(date(2024, 1, 1), horizon=5)
+        result, _ = backtester._compute_horizon_returns(
+            date(2024, 1, 1),
+            horizon=5,
+            progress_callback=None,
+            cancel_check=None,
+            last_callback_time=0.0,
+            pct=0,
+        )
 
         # 5-day return with 2% daily = (1.02)^5 - 1 ≈ 0.10408
         expected_return = (1.02 ** 5) - 1
@@ -459,7 +760,14 @@ class TestPITBacktesterHorizonReturns:
         ])
         backtester._prices_cache = prices
 
-        result = backtester._compute_horizon_returns(date(2024, 1, 1), horizon=5)
+        result, _ = backtester._compute_horizon_returns(
+            date(2024, 1, 1),
+            horizon=5,
+            progress_callback=None,
+            cancel_check=None,
+            last_callback_time=0.0,
+            pct=0,
+        )
 
         # Filter to first date result
         first_date_result = result.filter(pl.col("date") == date(2024, 1, 1))

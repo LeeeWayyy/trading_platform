@@ -1,6 +1,26 @@
 # Docker Compose configuration for trading platform infrastructure
 # Note: 'version' attribute removed - obsolete in Docker Compose V2
 
+x-backtest-worker-env-base: &backtest-worker-env-base
+  REDIS_URL: ${REDIS_URL}
+  DATABASE_URL: ${DATABASE_URL}
+  BACKTEST_JOB_MEMORY_LIMIT: ${BACKTEST_JOB_MEMORY_LIMIT:-4294967296}
+
+x-backtest-worker-base: &backtest-worker-base
+  build: &backtest-worker-build
+    context: .
+    dockerfile: apps/backtest_worker/Dockerfile
+  command: ["python", "-m", "apps.backtest_worker.entrypoint"]
+  environment: &backtest-worker-env
+    <<: *backtest-worker-env-base
+    RQ_QUEUES: backtest_high
+  volumes: &backtest-worker-volumes
+    - ./data:/app/data:ro  # Market data (CRSP, Compustat parquets)
+    - backtest_data:/app/data/backtest_results  # Results output
+  depends_on: &backtest-worker-depends
+    - redis
+    - postgres
+
 services:
   postgres:
     image: postgres:16
@@ -35,6 +55,21 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  backtest_worker_high:
+    <<: *backtest-worker-base
+
+  backtest_worker_normal:
+    <<: *backtest-worker-base
+    environment:
+      <<: *backtest-worker-env-base
+      RQ_QUEUES: backtest_normal
+
+  backtest_worker_low:
+    <<: *backtest-worker-base
+    environment:
+      <<: *backtest-worker-env-base
+      RQ_QUEUES: backtest_low
 
   prometheus:
     image: prom/prometheus:latest
@@ -139,6 +174,8 @@ services:
         condition: service_healthy
     networks:
       - trading_platform
+    volumes:
+      - backtest_data:/app/data/backtest_results:ro
     profiles:
       - manual  # Prevent auto-start, require explicit profile selection
 
@@ -333,3 +370,5 @@ volumes:
   grafanadata:
   lokidata:
   promtaildata:
+  backtest_data:
+    driver: local

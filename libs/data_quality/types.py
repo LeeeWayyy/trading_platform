@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
+import pandas as pd
+
 
 @dataclass
 class LockToken:
@@ -148,16 +150,12 @@ class ExchangeCalendarAdapter:
 
     def is_trading_day(self, date: datetime.date) -> bool:
         """Return True if date is a trading day."""
-        import pandas as pd
-
         return bool(self._cal.is_session(pd.Timestamp(date)))
 
     def trading_days_between(
         self, start: datetime.date, end: datetime.date
     ) -> list[datetime.date]:
         """Return list of trading days in range (inclusive)."""
-        import pandas as pd
-
         sessions = self._cal.sessions_in_range(pd.Timestamp(start), pd.Timestamp(end))
         return [s.date() for s in sessions]
 
