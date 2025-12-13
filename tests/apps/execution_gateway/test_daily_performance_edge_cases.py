@@ -25,7 +25,12 @@ def _make_user_context_override(user_ctx: dict) -> callable:
 
 @pytest.fixture()
 def test_client():
-    return TestClient(main.app)
+    # Clear any stale dependency overrides from previous tests
+    main.app.dependency_overrides.clear()
+    client = TestClient(main.app)
+    yield client
+    # Cleanup: clear dependency_overrides after each test to prevent pollution
+    main.app.dependency_overrides.clear()
 
 
 def test_daily_performance_future_date_rejected(monkeypatch, test_client):

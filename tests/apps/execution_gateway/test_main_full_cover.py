@@ -233,7 +233,15 @@ def app_client(monkeypatch):
     monkeypatch.setattr(main, "circuit_breaker", DummyBreaker(tripped=False))
     monkeypatch.setattr(main, "position_reservation", DummyReservation())
     monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
-    return TestClient(main.app)
+
+    # Clear any stale dependency overrides from previous tests
+    main.app.dependency_overrides.clear()
+
+    client = TestClient(main.app)
+    yield client
+
+    # Cleanup: clear dependency_overrides after each test to prevent pollution
+    main.app.dependency_overrides.clear()
 
 
 def test_root_and_health(app_client):

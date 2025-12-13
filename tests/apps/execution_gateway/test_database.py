@@ -661,8 +661,12 @@ class TestCheckConnection:
 
     def test_check_connection_failure_returns_false(self, mock_connection):
         """Test failed connection check returns False."""
-        mock_connect, _, _ = mock_connection
-        mock_connect.return_value.__enter__.side_effect = OperationalError("Connection refused")
+        mock_pool, _, _ = mock_connection
+        # Set the pool.connection().__enter__ to raise OperationalError
+        # This simulates a connection failure when getting a connection from the pool
+        mock_pool.return_value.connection.return_value.__enter__.side_effect = OperationalError(
+            "Connection refused"
+        )
 
         db = DatabaseClient("postgresql://localhost/trading_platform")
         result = db.check_connection()

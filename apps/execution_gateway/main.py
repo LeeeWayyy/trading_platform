@@ -3024,7 +3024,7 @@ async def order_webhook(request: Request) -> dict[str, str]:
         if broker_ts:
             try:
                 fill_timestamp = datetime.fromisoformat(str(broker_ts).replace("Z", "+00:00"))
-            except Exception:
+            except (ValueError, TypeError):
                 fill_timestamp = datetime.now(UTC)
                 logger.warning("Failed to parse broker timestamp; using server time", extra={"client_order_id": client_order_id, "broker_ts": broker_ts})
         else:

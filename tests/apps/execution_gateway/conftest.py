@@ -1,0 +1,46 @@
+"""Shared pytest fixtures for execution_gateway tests.
+
+This conftest provides cleanup fixtures to prevent test pollution
+from dependency_overrides and module-level mocks.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def restore_main_globals():
+    """Restore main.py module-level globals after each test.
+
+    Several tests monkeypatch main.db_client, main.redis_client, etc.
+    which persists across tests since Python modules are singletons.
+    This fixture saves and restores them to prevent pollution.
+    """
+    # Import the module
+    try:
+        from apps.execution_gateway import main
+    except ImportError:
+        yield
+        return
+
+    # Save original values
+    original_db_client = getattr(main, "db_client", None)
+    original_redis_client = getattr(main, "redis_client", None)
+    original_kill_switch = getattr(main, "kill_switch", None)
+    original_circuit_breaker = getattr(main, "circuit_breaker", None)
+    original_position_reservation = getattr(main, "position_reservation", None)
+    original_feature_flag = getattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
+
+    yield
+
+    # Restore original values
+    main.db_client = original_db_client
+    main.redis_client = original_redis_client
+    main.kill_switch = original_kill_switch
+    main.circuit_breaker = original_circuit_breaker
+    main.position_reservation = original_position_reservation
+    main.FEATURE_PERFORMANCE_DASHBOARD = original_feature_flag
+
+    # Clear dependency overrides
+    main.app.dependency_overrides.clear()

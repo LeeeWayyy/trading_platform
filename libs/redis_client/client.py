@@ -382,12 +382,10 @@ class RedisClient:
         """
         try:
             # sscan_iter returns a generator, collect all members
+            # With decode_responses=True, members are already strings
             members: builtins.set[str] = set()
             for member in self._client.sscan_iter(key, count=count):
-                if isinstance(member, bytes):
-                    members.add(member.decode("utf-8"))
-                else:
-                    members.add(str(member))
+                members.add(str(member))
             return members
         except RedisError as e:
             logger.error(f"Redis SSCAN failed for key '{key}': {e}")
