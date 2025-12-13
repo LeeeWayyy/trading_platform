@@ -98,9 +98,22 @@ class _DummyRedisKeys:
     PRICE_PREFIX = "price:"
 
 
+class _DummyConnectionPool:
+    """Stub ConnectionPool for test isolation."""
+    def __init__(self, *args, **kwargs): pass
+    def disconnect(self): pass
+
+# Stub redis module for libs.redis_client.client.redis access
+class _DummyRedisModule:
+    """Stub redis module that other tests may try to patch."""
+    Redis = _DummyRedisClient
+    ConnectionPool = _DummyConnectionPool
+
 redis_client_stub.RedisClient = _DummyRedisClient
 redis_client_stub.RedisConnectionError = RuntimeError
 redis_client_stub.RedisKeys = _DummyRedisKeys
+redis_client_stub.ConnectionPool = _DummyConnectionPool
+redis_client_stub.redis = _DummyRedisModule()  # For libs.redis_client.client.redis access
 sys.modules.setdefault("libs.redis_client", redis_client_stub)
 sys.modules.setdefault("libs.redis_client.client", redis_client_stub)
 sys.modules.setdefault("libs.redis_client.keys", redis_client_stub)
@@ -172,7 +185,7 @@ class DummyDB:
         return SimpleNamespace(realized_pl=Decimal("0"))
     def append_fill_to_order_metadata(self, client_order_id, fill_data, conn):
         return None
-    def update_order_status_with_conn(self, client_order_id, status, filled_qty, filled_avg_price, filled_at, conn):
+    def update_order_status_with_conn(self, client_order_id, status, filled_qty, filled_avg_price, filled_at, conn, broker_order_id=None):
         return None
 
 

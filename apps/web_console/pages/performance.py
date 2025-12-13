@@ -232,12 +232,15 @@ def render_historical_performance(start: date, end: date, strategies: list[str])
 
 
 def _preset_ranges(today: date) -> dict[str, tuple[date, date]]:
+    """Return preset date ranges, all clamped to MAX_RANGE_DAYS."""
+    # Clamp start date to ensure range never exceeds MAX_RANGE_DAYS
+    min_start = today - timedelta(days=MAX_RANGE_DAYS)
+    ytd_start = max(date(today.year, 1, 1), min_start)
     return {
         "7 Days": (today - timedelta(days=7), today),
         "30 Days": (today - timedelta(days=30), today),
-        "90 Days": (today - timedelta(days=90), today),
-        "YTD": (date(today.year, 1, 1), today),
-        "All": (date(1970, 1, 1), today),
+        "90 Days": (min_start, today),
+        "YTD": (ytd_start, today),
     }
 
 
@@ -277,6 +280,12 @@ def _select_date_range() -> tuple[date, date, str]:
     if start_date > end_date:
         st.error("Start date must be on or before end date.")
         st.stop()
+
+    # Clamp custom ranges to MAX_RANGE_DAYS
+    if (end_date - start_date).days > MAX_RANGE_DAYS:
+        clamped_start = end_date - timedelta(days=MAX_RANGE_DAYS)
+        st.warning(f"Date range exceeds {MAX_RANGE_DAYS} days. Showing data from {clamped_start}.")
+        start_date = clamped_start
 
     return start_date, end_date, selected
 

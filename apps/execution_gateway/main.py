@@ -879,13 +879,25 @@ def _invalidate_performance_cache(trade_date: date | None = None) -> None:
     index_key = _performance_cache_index_key(target_date)
 
     try:
-        # Use sscan_iter for non-blocking iteration over potentially large sets
-        cache_keys = list(redis_client.sscan_iter(index_key) or [])
-        if cache_keys:
-            # Atomically delete cache keys and the index key together
-            redis_client.delete(*cache_keys, index_key)
+        # Stream deletions in batches to maintain O(1) memory for large index sets
+        batch: list[str] = []
+        batch_size = 100
+        deleted_any = False
+
+        for key in redis_client.sscan_iter(index_key):
+            batch.append(key)
+            if len(batch) >= batch_size:
+                redis_client.delete(*batch)
+                deleted_any = True
+                batch = []
+
+        # Delete remaining batch + index key
+        if batch:
+            redis_client.delete(*batch, index_key)
+        elif deleted_any:
+            redis_client.delete(index_key)
         else:
-            # Cleanup the index key even if empty
+            # Empty set - just clean up the index key
             redis_client.delete(index_key)
     except Exception as e:
         logger.warning(f"Performance cache invalidation failed: {e}")
@@ -3083,6 +3095,7 @@ async def order_webhook(request: Request) -> dict[str, str]:
                 filled_avg_price=filled_avg_price_dec,
                 filled_at=fill_timestamp if order_status == "filled" else None,
                 conn=conn,
+                broker_order_id=broker_order_id,
             )
 
         # Invalidate performance cache after successful fill

@@ -988,6 +988,7 @@ class DatabaseClient:
         filled_avg_price: Decimal,
         filled_at: datetime | None,
         conn: psycopg.Connection,
+        broker_order_id: str | None = None,
     ) -> OrderDetail | None:
         """
         Update order status using an existing transaction connection.
@@ -1002,6 +1003,7 @@ class DatabaseClient:
             filled_avg_price: Cumulative weighted average fill price
             filled_at: Fill timestamp (set on final fill only)
             conn: Active database connection in a transaction
+            broker_order_id: Broker-assigned order ID (optional, persisted if provided)
 
         Returns:
             Updated OrderDetail if found, otherwise None
@@ -1015,11 +1017,12 @@ class DatabaseClient:
                     filled_qty = %s,
                     filled_avg_price = %s,
                     filled_at = COALESCE(%s, filled_at),
+                    broker_order_id = COALESCE(%s, broker_order_id),
                     updated_at = NOW()
                 WHERE client_order_id = %s
                 RETURNING *
                 """,
-                (status, filled_qty, filled_avg_price, filled_at, client_order_id),
+                (status, filled_qty, filled_avg_price, filled_at, broker_order_id, client_order_id),
             )
 
             row = cur.fetchone()

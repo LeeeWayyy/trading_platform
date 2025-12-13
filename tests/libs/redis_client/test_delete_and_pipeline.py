@@ -1,70 +1,66 @@
+"""Tests for RedisClient.delete() and pipeline() methods.
+
+These tests use unittest.mock to patch the redis module at the method level,
+avoiding module reloads that can interfere with other tests.
+"""
 from __future__ import annotations
 
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytest.importorskip("pydantic")
 
-# Minimal redis stub
-redis_stub = ModuleType("redis")
-redis_stub.exceptions = ModuleType("redis.exceptions")
-class _RedisError(Exception):
-    pass
-redis_stub.exceptions.RedisError = _RedisError
-redis_stub.exceptions.ConnectionError = _RedisError
-redis_stub.exceptions.TimeoutError = _RedisError
-
-
-class _ConnectionPool:
-    def __init__(self, *args, **kwargs):
-        pass
-    def disconnect(self):
-        return None
-
 
 class FakeRedis:
+    """Fake Redis client for testing."""
+
     def __init__(self, *args, **kwargs):
-        self.deleted = []
-    def ping(self):
+        self.deleted: list[tuple[str, ...]] = []
+
+    def ping(self) -> bool:
         return True
-    def delete(self, *keys):
+
+    def delete(self, *keys: str) -> int:
         self.deleted.append(keys)
         return len(keys)
-    def pipeline(self, transaction=True):
+
+    def pipeline(self, transaction: bool = True) -> SimpleNamespace:
         return SimpleNamespace(transaction=transaction)
 
 
-redis_stub.connection = ModuleType("redis.connection")
-redis_stub.connection.ConnectionPool = _ConnectionPool
-redis_stub.Redis = FakeRedis
-sys.modules.setdefault("redis", redis_stub)
-sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
-sys.modules.setdefault("redis.connection", redis_stub.connection)
+class FakeConnectionPool:
+    """Fake connection pool for testing."""
 
-# jwt stub to satisfy imports
-jwt_stub = ModuleType("jwt")
-jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
-jwt_stub.algorithms = SimpleNamespace(
-    get_default_algorithms=lambda: {}, has_crypto=lambda: False, requires_cryptography=False
-)
-jwt_stub.utils = SimpleNamespace()
-sys.modules.setdefault("jwt", jwt_stub)
-sys.modules.setdefault("jwt.api_jwk", jwt_stub.api_jwk)
-sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)
-sys.modules.setdefault("jwt.utils", jwt_stub.utils)
+    def __init__(self, *args, **kwargs):
+        pass
 
-from libs.redis_client.client import RedisClient
+    def disconnect(self) -> None:
+        pass
 
 
 def test_delete_multiple_keys_returns_count():
-    client = RedisClient()
-    deleted = client.delete("a", "b", "c")
-    assert deleted == 3
+    """Test that delete() returns count of deleted keys."""
+    fake_redis_instance = FakeRedis()
+
+    with patch("libs.redis_client.client.ConnectionPool", FakeConnectionPool):
+        with patch("libs.redis_client.client.redis.Redis", return_value=fake_redis_instance):
+            from libs.redis_client.client import RedisClient
+
+            client = RedisClient()
+            deleted = client.delete("a", "b", "c")
+            assert deleted == 3
 
 
 def test_pipeline_respects_transaction_flag():
-    client = RedisClient()
-    pipe = client.pipeline(transaction=False)
-    assert pipe.transaction is False
+    """Test that pipeline() respects the transaction flag."""
+    fake_redis_instance = FakeRedis()
+
+    with patch("libs.redis_client.client.ConnectionPool", FakeConnectionPool):
+        with patch("libs.redis_client.client.redis.Redis", return_value=fake_redis_instance):
+            from libs.redis_client.client import RedisClient
+
+            client = RedisClient()
+            pipe = client.pipeline(transaction=False)
+            assert pipe.transaction is False

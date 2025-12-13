@@ -23,6 +23,7 @@ See Also:
 
 import builtins
 import logging
+from collections.abc import Generator
 from typing import Any, cast
 
 import redis
@@ -366,7 +367,7 @@ class RedisClient:
             logger.error(f"Redis SMEMBERS failed for key '{key}': {e}")
             raise
 
-    def sscan_iter(self, key: str, count: int = 100) -> builtins.set[str]:
+    def sscan_iter(self, key: str, count: int = 100) -> Generator[str, None, None]:
         """Iterate over set members using SSCAN (non-blocking).
 
         Unlike SMEMBERS which blocks the Redis event loop for the entire set,
@@ -377,16 +378,17 @@ class RedisClient:
             key: Redis set key
             count: Hint for how many items to return per iteration (default 100)
 
-        Returns:
-            Set of all members (collected from all SSCAN iterations)
+        Yields:
+            Members of the set as strings.
         """
         try:
-            # sscan_iter returns a generator, collect all members
-            # With decode_responses=True, members are already strings
-            members: builtins.set[str] = set()
+            # sscan_iter from redis-py returns a generator, so we yield from it directly.
+            # With decode_responses=True, members are already strings.
+            # Note: SSCAN may return duplicates during rehashing, but this is rare and
+            # callers (e.g., cache invalidation) tolerate duplicates. Streaming without
+            # deduplication preserves O(1) memory for large sets.
             for member in self._client.sscan_iter(key, count=count):
-                members.add(str(member))
-            return members
+                yield str(member)
         except RedisError as e:
             logger.error(f"Redis SSCAN failed for key '{key}': {e}")
             raise

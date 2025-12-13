@@ -121,3 +121,66 @@ def test_update_order_status_with_conn_updates_row(monkeypatch):
 
     assert updated is not None
     assert updated.status == "filled"
+
+
+def test_update_order_status_with_conn_persists_broker_order_id(monkeypatch):
+    """Test that broker_order_id is persisted when provided."""
+    row = _make_row(
+        status="filled",
+        filled_qty=Decimal("1"),
+        filled_avg_price=Decimal("10"),
+        filled_at=datetime(2024, 1, 1, tzinfo=UTC),
+        broker_order_id="broker-123-abc",
+    )
+    db = DatabaseClient("postgresql://user:pass@localhost/db")
+    db._pool = _Pool(row)  # type: ignore[attr-defined]
+
+    conn = db._pool.connection().__enter__()
+    updated = db.update_order_status_with_conn(
+        client_order_id="abc",
+        status="filled",
+        filled_qty=1,
+        filled_avg_price=Decimal("10"),
+        filled_at=datetime(2024, 1, 1, tzinfo=UTC),
+        conn=conn,
+        broker_order_id="broker-123-abc",
+    )
+
+    assert updated is not None
+    assert updated.broker_order_id == "broker-123-abc"
+    # Verify the SQL includes broker_order_id parameter
+    cursor = conn.cursor_obj
+    assert cursor.params is not None
+    assert "broker-123-abc" in cursor.params
+
+
+def test_update_order_status_with_conn_none_broker_id_preserves_existing(monkeypatch):
+    """Test that None broker_order_id doesn't overwrite existing value (COALESCE)."""
+    row = _make_row(
+        status="filled",
+        filled_qty=Decimal("1"),
+        filled_avg_price=Decimal("10"),
+        filled_at=datetime(2024, 1, 1, tzinfo=UTC),
+        broker_order_id="existing-broker-id",  # Simulates existing value from DB
+    )
+    db = DatabaseClient("postgresql://user:pass@localhost/db")
+    db._pool = _Pool(row)  # type: ignore[attr-defined]
+
+    conn = db._pool.connection().__enter__()
+    updated = db.update_order_status_with_conn(
+        client_order_id="abc",
+        status="filled",
+        filled_qty=1,
+        filled_avg_price=Decimal("10"),
+        filled_at=datetime(2024, 1, 1, tzinfo=UTC),
+        conn=conn,
+        broker_order_id=None,  # Passing None should preserve existing
+    )
+
+    assert updated is not None
+    # The returned row has the existing broker_order_id (from RETURNING *)
+    assert updated.broker_order_id == "existing-broker-id"
+    # Verify None was passed as the parameter (COALESCE handles preservation)
+    cursor = conn.cursor_obj
+    assert cursor.params is not None
+    assert None in cursor.params
