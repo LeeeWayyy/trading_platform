@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import types
 from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
@@ -11,6 +12,64 @@ import pytest
 # Provide lightweight stub if structlog not installed in test environment
 if "structlog" not in sys.modules:
     sys.modules["structlog"] = MagicMock()
+# Provide lightweight psutil stub to satisfy worker import chain
+if "psutil" not in sys.modules:
+    sys.modules["psutil"] = MagicMock()
+if "polars" not in sys.modules:
+
+    class _PolarsStub:
+        def __getattr__(self, name):
+            if name in {"Int32", "Int64", "Float64", "Date", "Utf8"}:
+                return lambda *_, **__: name
+            return MagicMock()
+
+    sys.modules["polars"] = _PolarsStub()
+if "duckdb" not in sys.modules:
+    sys.modules["duckdb"] = MagicMock()
+if "pydantic_settings" not in sys.modules:
+    sys.modules["pydantic_settings"] = MagicMock(BaseSettings=object, SettingsConfigDict=dict)
+if "boto3" not in sys.modules:
+    sys.modules["boto3"] = MagicMock()
+if "botocore" not in sys.modules:
+    botocore_mod = types.ModuleType("botocore")
+    exceptions_mod = types.ModuleType("botocore.exceptions")
+    exceptions_mod.BotoCoreError = type("BotoCoreError", (Exception,), {})
+    exceptions_mod.ClientError = type("ClientError", (Exception,), {})
+    sys.modules["botocore"] = botocore_mod
+    sys.modules["botocore.exceptions"] = exceptions_mod
+if "dotenv" not in sys.modules:
+    dotenv_mod = types.ModuleType("dotenv")
+    dotenv_mod.load_dotenv = lambda *_, **__: None
+    sys.modules["dotenv"] = dotenv_mod
+if "hvac" not in sys.modules:
+    hvac_mod = types.ModuleType("hvac")
+    exceptions_mod = types.ModuleType("hvac.exceptions")
+    exceptions_mod.Forbidden = type("Forbidden", (Exception,), {})
+    exceptions_mod.InvalidPath = type("InvalidPath", (Exception,), {})
+    exceptions_mod.InvalidRequest = type("InvalidRequest", (Exception,), {})
+    exceptions_mod.Unauthorized = type("Unauthorized", (Exception,), {})
+    exceptions_mod.VaultDown = type("VaultDown", (Exception,), {})
+    exceptions_mod.VaultError = type("VaultError", (Exception,), {})
+    hvac_mod.exceptions = exceptions_mod
+    sys.modules["hvac"] = hvac_mod
+    sys.modules["hvac.exceptions"] = exceptions_mod
+if "sqlalchemy" not in sys.modules:
+    import types as _types
+
+    sqlalchemy_mod = _types.ModuleType("sqlalchemy")
+    sqlalchemy_mod.create_engine = MagicMock()
+    sqlalchemy_mod.text = MagicMock()
+    sqlalchemy_mod.URL = MagicMock()
+    sys.modules["sqlalchemy"] = sqlalchemy_mod
+    engine_mod = _types.ModuleType("sqlalchemy.engine")
+    engine_mod.Engine = MagicMock()
+    sys.modules["sqlalchemy.engine"] = engine_mod
+    exc_mod = _types.ModuleType("sqlalchemy.exc")
+    exc_mod.OperationalError = type("OperationalError", (Exception,), {})
+    sys.modules["sqlalchemy.exc"] = exc_mod
+    pool_mod = _types.ModuleType("sqlalchemy.pool")
+    pool_mod.QueuePool = MagicMock()
+    sys.modules["sqlalchemy.pool"] = pool_mod
 
 # Provide lightweight RQ stubs to satisfy imports without Redis
 if "rq" not in sys.modules:
@@ -132,7 +191,9 @@ def test_enqueue_creates_job_and_db_record(redis_mock):
     job = queue.enqueue(config, created_by="alice")
 
     job_id = config.compute_job_id("alice")
-    queue._create_db_job.assert_called_once_with(job_id, config, "alice", queue.DEFAULT_TIMEOUT, is_rerun=False)
+    queue._create_db_job.assert_called_once_with(
+        job_id, config, "alice", queue.DEFAULT_TIMEOUT, is_rerun=False
+    )
     queue.queues[JobPriority.NORMAL].enqueue.assert_called_once()
     assert job is fake_job
     redis_mock.delete.assert_called_with(f"backtest:lock:{job_id}")
@@ -260,6 +321,178 @@ def test_watchdog_handles_missing_job_timeout(redis_mock):
     assert failures == 1
     assert update_cursor.executed
     assert update_conn.commits == 1
+
+
+@pytest.mark.unit()
+@pytest.mark.parametrize(
+    ("status", "result", "expected"),
+    [
+        ("queued", None, ("unknown", None)),
+        ("finished", None, ("failed", "RQ job finished but payload missing")),
+        ("finished", {"cancelled": True}, ("cancelled", None)),
+        ("finished", {"ok": True}, ("completed", None)),
+    ],
+)
+def test_resolve_rq_finished_status(status, result, expected):
+    job = MagicMock()
+    job.get_status.return_value = status
+    job.result = result
+
+    assert job_queue._resolve_rq_finished_status(job) == expected
+
+
+@pytest.mark.unit()
+def test_safe_fetch_job_returns_none_on_missing(monkeypatch, redis_mock):
+    def _raise_missing(job_id, connection):
+        raise job_queue.NoSuchJobError("missing")
+
+    DummyJob = type("DummyJob", (), {"fetch": staticmethod(_raise_missing)})
+    monkeypatch.setattr(job_queue, "Job", DummyJob)
+    queue = _make_queue(redis_mock, MagicMock())
+    assert queue._safe_fetch_job("missing") is None
+
+
+@pytest.mark.unit()
+def test_fetch_db_job_returns_row(redis_mock):
+    row = {"job_id": "abc"}
+    cursor = DummyCursor(rows=[row])
+    conn = DummyConnection(cursor)
+    db_pool = MagicMock()
+    db_pool.connection.return_value = conn
+
+    queue = _make_queue(redis_mock, db_pool)
+    assert queue._fetch_db_job("abc") == row
+    assert cursor.executed[0][0].startswith("SELECT * FROM backtest_jobs")
+
+
+@pytest.mark.unit()
+def test_create_db_job_commits_and_uses_params(redis_mock):
+    cursor = DummyCursor()
+    conn = DummyConnection(cursor)
+    db_pool = MagicMock()
+    db_pool.connection.return_value = conn
+
+    queue = _make_queue(redis_mock, db_pool)
+    config = BacktestJobConfig("alpha", date(2024, 1, 1), date(2024, 1, 31))
+    queue._create_db_job("jid", config, "me", 400, is_rerun=True)
+
+    assert conn.commits == 1
+    assert cursor.executed  # upsert executed
+    assert cursor.executed[0][1]["is_rerun"] is True
+
+
+@pytest.mark.unit()
+def test_enqueue_lock_contention_raises(redis_mock, monkeypatch):
+    db_pool = MagicMock()
+    queue = _make_queue(redis_mock, db_pool)
+    queue._safe_fetch_job = MagicMock(return_value=None)
+    queue._fetch_db_job = MagicMock(return_value=None)
+    redis_mock.set.side_effect = [False, False]
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    config = BacktestJobConfig("alpha", date(2024, 1, 1), date(2024, 1, 31))
+    with pytest.raises(RuntimeError):
+        queue.enqueue(config, created_by="lock")
+    assert redis_mock.set.call_count == 2
+
+
+@pytest.mark.unit()
+def test_enqueue_heal_loop_breaker_after_three(redis_mock):
+    db_pool = MagicMock()
+    cursor = DummyCursor()
+    conn = DummyConnection(cursor)
+    db_pool.connection.return_value = conn
+
+    queue = _make_queue(redis_mock, db_pool)
+    queue._fetch_db_job = MagicMock(return_value={"status": "running"})
+    queue._safe_fetch_job = MagicMock(return_value=None)
+    redis_mock.get.return_value = b"3"
+
+    config = BacktestJobConfig("alpha", date(2024, 1, 1), date(2024, 1, 31))
+    with pytest.raises(RuntimeError):
+        queue.enqueue(config, created_by="heal")
+    assert cursor.executed  # failure update executed
+    assert conn.commits == 1
+
+
+@pytest.mark.unit()
+def test_get_job_status_db_missing_uses_rq_payload(redis_mock):
+    db_pool = MagicMock()
+    queue = _make_queue(redis_mock, db_pool)
+    queue._fetch_db_job = MagicMock(return_value=None)
+    rq_job = MagicMock()
+    rq_job.get_status.return_value = "finished"
+    rq_job.result = {"cancelled": True}
+    queue._safe_fetch_job = MagicMock(return_value=rq_job)
+
+    status = queue.get_job_status("job1")
+    assert status["status"] == "cancelled"
+    assert status["warning"] == "DB row missing; derived from RQ payload"
+
+
+@pytest.mark.unit()
+def test_cancel_job_orphan_pending_updates_db(redis_mock):
+    cursor = DummyCursor()
+    conn = DummyConnection(cursor)
+    db_pool = MagicMock()
+    db_pool.connection.return_value = conn
+    queue = _make_queue(redis_mock, db_pool)
+    queue._safe_fetch_job = MagicMock(return_value=None)
+    queue._fetch_db_job = MagicMock(return_value={"status": "pending"})
+
+    assert queue.cancel_job("jid")
+    assert cursor.executed
+    assert conn.commits == 1
+
+
+@pytest.mark.unit()
+def test_cancel_job_orphan_running_sets_flag(redis_mock):
+    cursor = DummyCursor()
+    conn = DummyConnection(cursor)
+    db_pool = MagicMock()
+    db_pool.connection.return_value = conn
+    queue = _make_queue(redis_mock, db_pool)
+    queue._safe_fetch_job = MagicMock(return_value=None)
+    queue._fetch_db_job = MagicMock(return_value={"status": "running", "job_timeout": 500})
+
+    assert queue.cancel_job("jid")
+    redis_mock.setex.assert_called_once()
+    assert not cursor.executed
+
+
+@pytest.mark.unit()
+def test_watchdog_skips_when_heartbeat_recent(redis_mock):
+    now_iso = datetime.now(UTC).isoformat()
+    running_jobs = [{"job_id": "ok_job", "job_timeout": 600}]
+    fetch_cursor = DummyCursor(rows=running_jobs)
+    fetch_conn = DummyConnection(fetch_cursor)
+    db_pool = MagicMock()
+    db_pool.connection.return_value = fetch_conn
+
+    redis_mock.get.return_value = now_iso.encode()
+
+    queue = _make_queue(redis_mock, db_pool)
+    assert queue.watchdog_fail_lost_jobs() == 0
+
+
+@pytest.mark.unit()
+def test_watchdog_invalid_heartbeat_marks_failed(redis_mock):
+    running_jobs = [{"job_id": "bad_job", "job_timeout": 600}]
+    fetch_cursor = DummyCursor(rows=running_jobs)
+    fetch_conn = DummyConnection(fetch_cursor)
+
+    update_cursor = DummyCursor()
+    update_conn = DummyConnection(update_cursor)
+
+    db_pool = MagicMock()
+    db_pool.connection.side_effect = [fetch_conn, update_conn]
+    redis_mock.get.return_value = b"not-a-date"
+
+    queue = _make_queue(redis_mock, db_pool)
+    failures = queue.watchdog_fail_lost_jobs()
+
+    assert failures == 1
+    assert update_cursor.executed
 
 
 def test_enqueue_heals_missing_rq_job(redis_mock):

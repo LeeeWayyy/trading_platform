@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE backtest_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    job_id VARCHAR(64) UNIQUE NOT NULL,  -- Idempotency key
+    job_id VARCHAR(32) UNIQUE NOT NULL,  -- Idempotency key (SHA256[:32])
     status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CONSTRAINT status_vocabulary CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
 

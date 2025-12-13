@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import Enum
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import structlog  # type: ignore[import-not-found]
 from psycopg.rows import dict_row
@@ -13,6 +13,8 @@ from psycopg_pool import ConnectionPool
 from redis import Redis
 from rq import Queue, Retry
 from rq.job import Job, NoSuchJobError  # type: ignore[attr-defined]
+
+WeightMethod = Literal["zscore", "quantile", "rank"]
 
 
 class JobPriority(Enum):
@@ -47,7 +49,7 @@ class BacktestJobConfig:
     alpha_name: str
     start_date: date
     end_date: date
-    weight_method: str = "zscore"
+    weight_method: WeightMethod = "zscore"
     extra_params: dict[str, Any] = field(default_factory=dict)
 
     def compute_job_id(self, created_by: str) -> str:
@@ -75,11 +77,14 @@ class BacktestJobConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BacktestJobConfig:
+        weight = data.get("weight_method", "zscore")
+        if weight not in ("zscore", "quantile", "rank"):
+            raise ValueError(f"Invalid weight_method: {weight}")
         return cls(
             alpha_name=data["alpha_name"],
             start_date=date.fromisoformat(data["start_date"]),
             end_date=date.fromisoformat(data["end_date"]),
-            weight_method=data.get("weight_method", "zscore"),
+            weight_method=cast(WeightMethod, weight),
             extra_params=data.get("extra_params", {}),
         )
 
@@ -229,7 +234,7 @@ class BacktestJobQueue:
                 heal_key = f"backtest:heal_count:{job_id}"
                 heal_raw = self.redis.get(heal_key)
                 heal_value = cast(str | bytes | bytearray | int | None, heal_raw)
-                if isinstance(heal_value, (bytes, bytearray)):  # noqa: UP038 - tuple form avoids reviewer-reported isinstance issues
+                if isinstance(heal_value, (bytes, bytearray)):  # noqa: UP038
                     heal_count = int(heal_value.decode() or 0)
                 else:
                     heal_count = int(heal_value or 0)
@@ -330,7 +335,7 @@ class BacktestJobQueue:
         )
 
         progress_raw = self.redis.get(f"backtest:progress:{job_id}")
-        if isinstance(progress_raw, (bytes, bytearray)):  # noqa: UP038 - align with reviewer request for tuple isinstance
+        if isinstance(progress_raw, (bytes, bytearray)):  # noqa: UP038
             progress_raw_decoded: str | None = progress_raw.decode()
         else:
             progress_raw_decoded = progress_raw if isinstance(progress_raw, str) else None
@@ -454,7 +459,7 @@ class BacktestJobQueue:
             # Use job_timeout with 300s floor (min allowed timeout) for watchdog threshold
             threshold = now_ts - max(job_timeout, 300)
             heartbeat_raw = self.redis.get(f"backtest:heartbeat:{job['job_id']}")
-            if isinstance(heartbeat_raw, (bytes, bytearray)):  # noqa: UP038 - align with reviewer request for tuple isinstance
+            if isinstance(heartbeat_raw, (bytes, bytearray)):  # noqa: UP038
                 heartbeat_str = heartbeat_raw.decode()
             elif isinstance(heartbeat_raw, str):
                 heartbeat_str = heartbeat_raw

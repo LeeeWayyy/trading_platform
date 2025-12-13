@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,6 +11,64 @@ import pytest
 # Provide lightweight stub if structlog not installed in test environment
 if "structlog" not in sys.modules:
     sys.modules["structlog"] = MagicMock()
+# Provide lightweight psutil stub
+if "psutil" not in sys.modules:
+    sys.modules["psutil"] = MagicMock()
+if "polars" not in sys.modules:
+
+    class _PolarsStub:
+        def __getattr__(self, name):
+            if name in {"Int32", "Int64", "Float64", "Date", "Utf8"}:
+                return lambda *_, **__: name
+            return MagicMock()
+
+    sys.modules["polars"] = _PolarsStub()
+if "duckdb" not in sys.modules:
+    sys.modules["duckdb"] = MagicMock()
+if "pydantic_settings" not in sys.modules:
+    sys.modules["pydantic_settings"] = MagicMock(BaseSettings=object, SettingsConfigDict=dict)
+if "boto3" not in sys.modules:
+    sys.modules["boto3"] = MagicMock()
+if "botocore" not in sys.modules:
+    botocore_mod = types.ModuleType("botocore")
+    exceptions_mod = types.ModuleType("botocore.exceptions")
+    exceptions_mod.BotoCoreError = type("BotoCoreError", (Exception,), {})
+    exceptions_mod.ClientError = type("ClientError", (Exception,), {})
+    sys.modules["botocore"] = botocore_mod
+    sys.modules["botocore.exceptions"] = exceptions_mod
+if "dotenv" not in sys.modules:
+    dotenv_mod = types.ModuleType("dotenv")
+    dotenv_mod.load_dotenv = lambda *_, **__: None
+    sys.modules["dotenv"] = dotenv_mod
+if "hvac" not in sys.modules:
+    hvac_mod = types.ModuleType("hvac")
+    exceptions_mod = types.ModuleType("hvac.exceptions")
+    exceptions_mod.Forbidden = type("Forbidden", (Exception,), {})
+    exceptions_mod.InvalidPath = type("InvalidPath", (Exception,), {})
+    exceptions_mod.InvalidRequest = type("InvalidRequest", (Exception,), {})
+    exceptions_mod.Unauthorized = type("Unauthorized", (Exception,), {})
+    exceptions_mod.VaultDown = type("VaultDown", (Exception,), {})
+    exceptions_mod.VaultError = type("VaultError", (Exception,), {})
+    hvac_mod.exceptions = exceptions_mod
+    sys.modules["hvac"] = hvac_mod
+    sys.modules["hvac.exceptions"] = exceptions_mod
+if "sqlalchemy" not in sys.modules:
+    import types as _types
+
+    sqlalchemy_mod = _types.ModuleType("sqlalchemy")
+    sqlalchemy_mod.create_engine = MagicMock()
+    sqlalchemy_mod.text = MagicMock()
+    sqlalchemy_mod.URL = MagicMock()
+    sys.modules["sqlalchemy"] = sqlalchemy_mod
+    engine_mod = _types.ModuleType("sqlalchemy.engine")
+    engine_mod.Engine = MagicMock()
+    sys.modules["sqlalchemy.engine"] = engine_mod
+    exc_mod = _types.ModuleType("sqlalchemy.exc")
+    exc_mod.OperationalError = type("OperationalError", (Exception,), {})
+    sys.modules["sqlalchemy.exc"] = exc_mod
+    pool_mod = _types.ModuleType("sqlalchemy.pool")
+    pool_mod.QueuePool = MagicMock()
+    sys.modules["sqlalchemy.pool"] = pool_mod
 
 # Provide lightweight RQ stubs to satisfy imports without Redis
 if "rq" not in sys.modules:
@@ -23,7 +82,7 @@ from libs.alpha.exceptions import JobCancelled
 from libs.backtest.worker import BacktestWorker, record_retry
 
 
-@pytest.fixture
+@pytest.fixture()
 def redis_with_pipeline():
     pipeline = MagicMock()
     pipeline.set.return_value = pipeline
@@ -120,3 +179,588 @@ def test_record_retry_increments_db(monkeypatch):
 
     cursor.execute.assert_called_once()
     conn.commit.assert_called_once()
+
+
+@pytest.mark.unit()
+def test_check_cancellation_periodic_updates_heartbeat(redis_with_pipeline, monkeypatch):
+    redis, pipeline = redis_with_pipeline
+    worker = BacktestWorker(redis, MagicMock())
+    worker._last_cancel_check = -100  # force check
+    worker.check_cancellation = MagicMock()
+    worker.check_memory = MagicMock()
+    monkeypatch.setattr(worker, "CANCEL_CHECK_INTERVAL", 0)
+
+    worker.check_cancellation_periodic("job123", job_timeout=500)
+
+    worker.check_cancellation.assert_called_once_with("job123")
+    assert pipeline.set.call_args_list[0].args[0] == "backtest:heartbeat:job123"
+    pipeline.expire.assert_any_call("backtest:cancel:job123", 3600)
+
+
+@pytest.mark.unit()
+def test_update_db_status_skips_terminal(redis_with_pipeline):
+    redis, _ = redis_with_pipeline
+    cursor = MagicMock()
+    cursor.fetchone.return_value = {"status": "completed"}
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+
+    pool = MagicMock()
+    pool.connection.return_value = conn
+
+    worker = BacktestWorker(redis, pool)
+    worker.update_db_status("jid", "running")
+    # Only the initial SELECT should run; no update/commit for terminal state
+    assert cursor.execute.call_count == 1
+    assert conn.commit.call_count == 0
+
+
+@pytest.mark.unit()
+def test_update_db_status_updates_running(redis_with_pipeline):
+    redis, _ = redis_with_pipeline
+    cursor = MagicMock()
+    cursor.fetchone.return_value = {"status": "running"}
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+
+    pool = MagicMock()
+    pool.connection.return_value = conn
+
+    worker = BacktestWorker(redis, pool)
+    worker.update_db_status("jid", "completed", result_path="p")
+    # Expect select + update
+    assert cursor.execute.call_count == 2
+    conn.commit.assert_called_once()
+
+
+@pytest.mark.unit()
+def test_update_db_progress_persists(redis_with_pipeline):
+    redis, _ = redis_with_pipeline
+    cursor = MagicMock()
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+
+    pool = MagicMock()
+    pool.connection.return_value = conn
+
+    worker = BacktestWorker(redis, pool)
+    worker.update_db_progress("jid", 50)
+    cursor.execute.assert_called_once()
+    conn.commit.assert_called_once()
+
+
+@pytest.mark.unit()
+def test_get_worker_pool_singleton_and_close(monkeypatch):
+    created = []
+
+    class DummyPool:
+        def __init__(self, *args, **kwargs):
+            created.append(self)
+
+        def open(self):
+            self.opened = True
+
+        def close(self):
+            self.closed = True
+
+        def connection(self):
+            raise RuntimeError("not used")
+
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+    monkeypatch.setattr(worker_module, "ConnectionPool", DummyPool)
+    worker_module._WORKER_POOL = None
+
+    pool1 = worker_module._get_worker_pool()
+    pool2 = worker_module._get_worker_pool()
+    assert pool1 is pool2
+    assert len(created) == 1
+    worker_module._close_worker_pool()
+    assert worker_module._WORKER_POOL is None
+
+
+@pytest.mark.unit()
+def test_run_backtest_success(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+    fake_conn = MagicMock()
+    fake_conn.__enter__.return_value = fake_conn
+    fake_conn.__exit__.return_value = False
+    fake_conn.cursor.return_value = MagicMock()
+
+    class DummyPool:
+        def connection(self):
+            return fake_conn
+
+    redis_pipeline = MagicMock()
+    redis_pipeline.set.return_value = redis_pipeline
+    redis_pipeline.expire.return_value = redis_pipeline
+    redis_pipeline.execute.return_value = None
+    redis = MagicMock()
+    redis.pipeline.return_value = redis_pipeline
+    redis.exists.return_value = 0
+    monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_args, **_kwargs: redis)
+    monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+    monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+    monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+    monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+    monkeypatch.setattr(worker_module, "create_alpha", lambda name: f"alpha-{name}")
+
+    class DummyBacktester:
+        def __init__(self, *_, **__):
+            pass
+
+        def run_backtest(self, *_, **__):
+            return types.SimpleNamespace(
+                mean_ic=0.1,
+                icir=0.2,
+                hit_rate=0.3,
+                coverage=0.4,
+                long_short_spread=0.5,
+                average_turnover=0.6,
+                decay_half_life=0.7,
+                snapshot_id="snap",
+                dataset_version_ids={"ds": 1},
+                daily_signals=MagicMock(),
+                daily_weights=MagicMock(),
+                daily_ic=MagicMock(),
+            )
+
+    monkeypatch.setattr(worker_module, "PITBacktester", DummyBacktester)
+    monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *args, **kwargs: tmp_path)
+    monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=500)
+    )
+    monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+    result = worker_module.run_backtest(
+        {"alpha_name": "a1", "start_date": "2024-01-01", "end_date": "2024-01-02"}, created_by="me"
+    )
+
+    assert result["job_id"]
+    assert "summary_metrics" in result
+
+
+@pytest.mark.unit()
+def test_run_backtest_handles_cancel(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+    class DummyPool:
+        def connection(self):
+            conn = MagicMock()
+            conn.__enter__.return_value = conn
+            conn.__exit__.return_value = False
+            conn.cursor.return_value = MagicMock()
+            return conn
+
+    redis_pipeline = MagicMock()
+    redis_pipeline.set.return_value = redis_pipeline
+    redis_pipeline.expire.return_value = redis_pipeline
+    redis_pipeline.execute.return_value = None
+
+    redis = MagicMock()
+    redis.get.return_value = json.dumps({"pct": 30}).encode()
+    redis.pipeline.return_value = redis_pipeline
+    redis.exists.return_value = 1
+
+    monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+    monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+    monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+    monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+    monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+    monkeypatch.setattr(worker_module, "create_alpha", lambda name: f"alpha-{name}")
+
+    class DummyBacktester:
+        def __init__(self, *_, **__):
+            pass
+
+        def run_backtest(self, *_, **__):
+            raise JobCancelled("stop")
+
+    monkeypatch.setattr(worker_module, "PITBacktester", DummyBacktester)
+    monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+    monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+    monkeypatch.setattr(
+        worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+    )
+    monkeypatch.setattr(worker_module.shutil, "rmtree", lambda *_, **__: None)
+
+    result = worker_module.run_backtest(
+        {"alpha_name": "a1", "start_date": "2024-01-01", "end_date": "2024-01-02"}, created_by="me"
+    )
+
+    assert result["cancelled"] is True
+
+
+@pytest.mark.unit()
+def test_save_parquet_artifacts_validates_daily_ic(monkeypatch, tmp_path):
+    dtype_map = {
+        "date": "Date",
+        "permno": "Int64",
+        "signal": "Float64",
+        "weight": "Float64",
+        "ic": "Float64",
+        "rank_ic": "Float64",
+    }
+
+    class DummyDF:
+        columns = ["date", "permno", "signal", "weight", "ic", "rank_ic"]
+
+        def __getitem__(self, key):
+            return MagicMock(dtype=dtype_map[key])
+
+        def select(self, *_args):
+            return self
+
+        def cast(self, *_args, **_kwargs):
+            return self
+
+        def write_parquet(self, *_args, **_kwargs):
+            return None
+
+    dummy_df = DummyDF()
+
+    fake_result = types.SimpleNamespace(
+        daily_signals=dummy_df,
+        daily_weights=dummy_df,
+        daily_ic=None,
+    )
+
+    class DummyPolars(types.SimpleNamespace):
+        Date = "Date"
+        Int64 = "Int64"
+        Float64 = "Float64"
+
+    monkeypatch.setitem(sys.modules, "polars", DummyPolars())
+    with pytest.raises(ValueError, match="parquet export"):
+        worker_module._save_parquet_artifacts("jid", fake_result)  # type: ignore[arg-type]
+
+
+@pytest.mark.unit()
+def test_save_result_to_db_errors_when_missing_metadata():
+    cursor = MagicMock()
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+
+    incomplete = types.SimpleNamespace(
+        snapshot_id=None,
+        dataset_version_ids=None,
+    )
+
+    with pytest.raises(ValueError, match="reproducibility"):
+        worker_module._save_result_to_db(conn, "jid", incomplete, Path("p"))
+
+
+@pytest.mark.unit()
+def test_save_result_to_db_commits_on_success():
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+
+    result = types.SimpleNamespace(
+        mean_ic=0.1,
+        icir=0.2,
+        hit_rate=0.3,
+        coverage=0.4,
+        long_short_spread=0.5,
+        average_turnover=0.6,
+        decay_half_life=0.7,
+        snapshot_id="snap",
+        dataset_version_ids={"ds": 1},
+    )
+
+    worker_module._save_result_to_db(conn, "jid", result, Path("p"))
+    assert conn.commit.called
+
+
+@pytest.mark.unit()
+def test_get_retry_pool_requires_env(monkeypatch):
+    worker_module._RETRY_POOL = None
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(RuntimeError):
+        worker_module._get_retry_pool()
+
+
+@pytest.mark.unit()
+def test_check_memory_allows_within_limit(redis_with_pipeline):
+    redis, _ = redis_with_pipeline
+    worker = BacktestWorker(redis, MagicMock())
+    worker.MAX_RSS_BYTES = 10_000
+    worker.process = MagicMock()
+    worker.process.memory_info.return_value = MagicMock(rss=5_000)
+    worker.check_memory()  # should not raise
+
+
+@pytest.mark.unit()
+def test_run_backtest_failure_sets_status(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+    class DummyPool:
+        def connection(self):
+            conn = MagicMock()
+            conn.__enter__.return_value = conn
+            conn.__exit__.return_value = False
+            conn.cursor.return_value = MagicMock()
+            return conn
+
+    redis_pipeline = MagicMock()
+    redis_pipeline.set.return_value = redis_pipeline
+    redis_pipeline.expire.return_value = redis_pipeline
+    redis_pipeline.execute.return_value = None
+    redis = MagicMock()
+    redis.pipeline.return_value = redis_pipeline
+    redis.exists.return_value = 0
+
+    worker_update = MagicMock()
+    monkeypatch.setattr(worker_module.BacktestWorker, "update_db_status", worker_update)
+    monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+    monkeypatch.setattr(worker_module.BacktestWorker, "check_cancellation", lambda *a, **k: None)
+    monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+    monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+    monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+    monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+    monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+    monkeypatch.setattr(worker_module, "create_alpha", lambda name: f"alpha-{name}")
+
+    class FailingBacktester:
+        def __init__(self, *_, **__):
+            pass
+
+        def run_backtest(self, *_, **__):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(worker_module, "PITBacktester", FailingBacktester)
+    monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: Path("p"))
+    monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+    monkeypatch.setattr(
+        worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+    )
+
+    with pytest.raises(RuntimeError):
+        worker_module.run_backtest(
+            {"alpha_name": "a1", "start_date": "2024-01-01", "end_date": "2024-01-02"},
+            created_by="me",
+        )
+    assert worker_update.called
+
+
+@pytest.mark.unit()
+def test_save_parquet_artifacts_success(monkeypatch, tmp_path):
+    class DummyDF:
+        columns = ["date", "permno", "signal", "weight", "ic", "rank_ic"]
+
+        def __init__(self):
+            self.dtype_map = {
+                "date": "Date",
+                "permno": "Int64",
+                "signal": "Float64",
+                "weight": "Float64",
+                "ic": "Float64",
+                "rank_ic": "Float64",
+            }
+
+        def __getitem__(self, key):
+            return MagicMock(dtype=self.dtype_map[key])
+
+        def select(self, *_args):
+            return self
+
+        def cast(self, *_args, **_kwargs):
+            return self
+
+        def write_parquet(self, path, *_, **__):
+            Path(path).touch()
+
+    class DummyPolars(types.SimpleNamespace):
+        Date = "Date"
+        Int64 = "Int64"
+        Float64 = "Float64"
+
+    monkeypatch.setitem(sys.modules, "polars", DummyPolars())
+
+    result = types.SimpleNamespace(
+        daily_signals=DummyDF(),
+        daily_weights=DummyDF(),
+        daily_ic=DummyDF(),
+        mean_ic=0.1,
+        icir=0.2,
+        hit_rate=0.3,
+        snapshot_id="snap",
+        dataset_version_ids={"ds": 1},
+    )
+
+    path = worker_module._save_parquet_artifacts("jid", result)  # type: ignore[arg-type]
+    assert (path / "summary.json").exists()
+
+
+@pytest.mark.unit()
+def test_get_worker_pool_requires_env(monkeypatch):
+    worker_module._WORKER_POOL = None
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(RuntimeError):
+        worker_module._get_worker_pool()
+
+
+@pytest.mark.unit()
+def test_check_cancellation_no_flag(redis_with_pipeline):
+    redis, _ = redis_with_pipeline
+    redis.exists.return_value = 0
+    worker = BacktestWorker(redis, MagicMock())
+    worker.check_cancellation("job123")  # should not raise
+    redis.delete.assert_not_called()
+
+
+@pytest.mark.unit()
+def test_get_retry_pool_creates_pool(monkeypatch):
+    worker_module._RETRY_POOL = None
+    created = []
+
+    class DummyPool:
+        def __init__(self, *args, **kwargs):
+            created.append(self)
+
+        def open(self):
+            self.opened = True
+
+        def connection(self):
+            raise RuntimeError("unused")
+
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+    monkeypatch.setattr(worker_module, "ConnectionPool", DummyPool)
+    pool = worker_module._get_retry_pool()
+    assert pool is created[0]
+    assert getattr(pool, "opened", False)
+
+
+@pytest.mark.unit()
+def test_get_worker_pool_creates_pool(monkeypatch):
+    worker_module._WORKER_POOL = None
+    created = []
+
+    class DummyPool:
+        def __init__(self, *args, **kwargs):
+            created.append(self)
+
+        def open(self):
+            self.opened = True
+
+        def close(self):
+            self.closed = True
+
+        def connection(self):
+            raise RuntimeError("unused")
+
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+    monkeypatch.setattr(worker_module, "ConnectionPool", DummyPool)
+    pool = worker_module._get_worker_pool()
+    assert pool is created[0]
+    assert getattr(pool, "opened", False)
+    worker_module._close_worker_pool()
+    assert worker_module._WORKER_POOL is None
+
+
+@pytest.mark.unit()
+def test_run_backtest_handles_cancel_bad_progress(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+    class DummyPool:
+        def connection(self):
+            conn = MagicMock()
+            conn.__enter__.return_value = conn
+            conn.__exit__.return_value = False
+            conn.cursor.return_value = MagicMock()
+            return conn
+
+    redis_pipeline = MagicMock()
+    redis_pipeline.set.return_value = redis_pipeline
+    redis_pipeline.expire.return_value = redis_pipeline
+    redis_pipeline.execute.return_value = None
+    redis = MagicMock()
+    redis.get.return_value = b"{bad-json"
+    redis.pipeline.return_value = redis_pipeline
+    redis.exists.return_value = 1
+
+    monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+    monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+    monkeypatch.setattr(worker_module, "ManifestManager", MagicMock())
+    monkeypatch.setattr(worker_module, "DatasetVersionManager", MagicMock())
+    monkeypatch.setattr(worker_module, "CRSPLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "CompustatLocalProvider", MagicMock())
+    monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+    monkeypatch.setattr(worker_module, "create_alpha", lambda name: f"alpha-{name}")
+
+    class CancellingBacktester:
+        def __init__(self, *_, **__):
+            pass
+
+        def run_backtest(self, *_, **__):
+            raise JobCancelled("stop")
+
+    monkeypatch.setattr(worker_module, "PITBacktester", CancellingBacktester)
+    monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+    monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+    monkeypatch.setattr(
+        worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+    )
+    monkeypatch.setattr(worker_module.shutil, "rmtree", lambda *_, **__: None)
+    monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+    result = worker_module.run_backtest(
+        {"alpha_name": "a1", "start_date": "2024-01-01", "end_date": "2024-01-02"}, created_by="me"
+    )
+    assert result["cancelled"] is True
+
+
+@pytest.mark.unit()
+def test_save_result_to_db_raises_when_missing_row(monkeypatch):
+    cursor = MagicMock()
+    cursor.rowcount = 0
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+
+    result = types.SimpleNamespace(
+        mean_ic=0.1,
+        icir=0.2,
+        hit_rate=0.3,
+        coverage=0.4,
+        long_short_spread=0.5,
+        average_turnover=0.6,
+        decay_half_life=0.7,
+        snapshot_id="snap",
+        dataset_version_ids={"ds": 1},
+    )
+
+    with pytest.raises(RuntimeError):
+        worker_module._save_result_to_db(conn, "jid", result, Path("p"))

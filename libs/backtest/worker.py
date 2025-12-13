@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 import psutil  # type: ignore[import-untyped]
 import structlog  # type: ignore[import-not-found]
@@ -277,9 +277,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 start_date=job_config.start_date,
                 end_date=job_config.end_date,
                 snapshot_id=snapshot_id,
-                weight_method=cast(
-                    Literal["zscore", "quantile", "rank"], job_config.weight_method
-                ),
+                weight_method=job_config.weight_method,
                 progress_callback=lambda pct, d: worker.update_progress(
                     job_id,
                     20 + round(pct * 0.7),
@@ -311,7 +309,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
 
         except JobCancelled:
             last_progress_raw = redis.get(f"backtest:progress:{job_id}")
-            if isinstance(last_progress_raw, (bytes, bytearray)):  # noqa: UP038 - tuple form requested in PR review
+            if isinstance(last_progress_raw, (bytes, bytearray)):  # noqa: UP038
                 last_progress = last_progress_raw.decode()
             elif isinstance(last_progress_raw, str):
                 last_progress = last_progress_raw
@@ -443,7 +441,7 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
                 result.average_turnover,
                 result.decay_half_life,
                 result.snapshot_id,
-                json.dumps(result.dataset_version_ids),  # Explicit JSON serialization for JSONB
+                result.dataset_version_ids,  # psycopg3 handles dict → JSONB conversion automatically
                 datetime.now(UTC),
                 job_id,
             ),
