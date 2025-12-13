@@ -1084,11 +1084,7 @@ class DatabaseClient:
                 SET
                     metadata = jsonb_set(
                         jsonb_set(
-                            CASE
-                                WHEN COALESCE(metadata, '{}'::jsonb) ? 'fills'
-                                THEN COALESCE(metadata, '{}'::jsonb)
-                                ELSE COALESCE(metadata, '{}'::jsonb) || '{"fills": []}'::jsonb
-                            END,
+                            COALESCE(metadata, '{}'::jsonb),
                             '{fills}',
                             COALESCE((metadata->'fills'), '[]'::jsonb) || %s::jsonb
                         ),
@@ -1497,7 +1493,49 @@ class DatabaseClient:
         """
         if not strategies:
             return []
-        return []
+        # Attempt a best-effort, fail-closed mapping from position symbols to strategies by
+        # inspecting historical orders. We only return a position when exactly one strategy
+        # has traded the symbol to avoid leaking cross-strategy positions.
+        def _execute(conn: psycopg.Connection) -> list[Position]:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    WITH symbol_strategies AS (
+                        SELECT
+                            symbol,
+                            ARRAY_AGG(DISTINCT strategy_id) AS strategies
+                        FROM orders
+                        WHERE strategy_id IS NOT NULL
+                          AND symbol IN (
+                              SELECT symbol FROM positions WHERE qty != 0
+                          )
+                        GROUP BY symbol
+                    )
+                    SELECT
+                        p.*,
+                        COALESCE(ss.strategies, ARRAY[]::text[]) AS strategies
+                    FROM positions p
+                    LEFT JOIN symbol_strategies ss ON ss.symbol = p.symbol
+                    WHERE p.qty != 0
+                    ORDER BY p.symbol
+                    """
+                )
+
+                rows = cur.fetchall()
+                filtered: list[Position] = []
+                for row in rows:
+                    symbol_strats: list[str] = row.get("strategies", []) or []
+                    # Fail closed when multiple strategies have touched the symbol
+                    if len(symbol_strats) != 1:
+                        continue
+                    if symbol_strats[0] not in strategies:
+                        continue
+                    # Remove helper column before constructing Position
+                    row.pop("strategies", None)
+                    filtered.append(Position(**row))
+                return filtered
+
+        return self._execute_with_conn(None, _execute)
 
     def check_connection(self) -> bool:
         """

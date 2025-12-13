@@ -613,7 +613,7 @@ if result.sigma_zero_bucket_fraction > 0.1:
 - [Realized Volatility Concepts](./realized-volatility.md) - Deep dive into HAR models
 - [Easley, Lopez de Prado, O'Hara (2012)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1695596) - Flow Toxicity and VPIN
 - [Corsi (2009)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1090137) - HAR-RV Model
-- [Andersen et al. (2003)](https://doi.org/10.1111/1540-6261.00658) - Modeling and Forecasting Realized Volatility
+- [Andersen et al. (2003)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=602361) - Modeling and Forecasting Realized Volatility
 
 ---
 

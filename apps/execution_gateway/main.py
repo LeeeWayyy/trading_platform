@@ -45,7 +45,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, cast
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from psycopg.errors import UniqueViolation
@@ -93,18 +93,18 @@ from apps.execution_gateway.webhook_security import (
     extract_signature_from_header,
     verify_webhook_signature,
 )
-from apps.web_console.auth.permissions import (
-    Permission,
-    get_authorized_strategies,
-    has_permission,
-    require_permission,
-)
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
     CircuitBreaker,
     KillSwitch,
     PositionReservation,
     RiskConfig,
+)
+from libs.web_console_auth.permissions import (
+    Permission,
+    get_authorized_strategies,
+    has_permission,
+    require_permission,
 )
 
 # ============================================================================
@@ -750,25 +750,18 @@ def _performance_cache_key(
     return f"performance:daily:{user_token}:{start_date}:{end_date}:{strat_hash}"
 
 
-def _build_user_context(
-    request: Request,
-    role: str | None = Header(default=None, alias="X-User-Role"),
-    strategies: list[str] | None = Query(default=None, alias="strategies"),
-    user_id: str | None = Header(default=None, alias="X-User-Id"),
-) -> dict[str, Any]:
+def _build_user_context(request: Request) -> dict[str, Any]:
     """
-    Extract user context for RBAC without trusting client-supplied strategy lists.
+    Extract user context for RBAC.
 
-    Trusted user metadata should be populated by upstream auth (e.g., request.state.user).
-    We only use headers for role/user_id as a compatibility fallback; strategy
-    authorization is resolved via get_authorized_strategies() using the trusted
-    user object, not header claims.
+    Fail closed when no authenticated user is attached to the request. Upstream
+    middleware must populate ``request.state.user`` with a trusted object or
+    mapping that includes a role (and optionally strategies and user_id).
+    Client-provided headers are intentionally ignored to avoid spoofing.
     """
 
-    # Prefer authenticated user object injected by middleware/proxy
     state_user = getattr(request.state, "user", None)
 
-    # Fail closed when no trusted server-side user context is available
     if state_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -778,12 +771,21 @@ def _build_user_context(
     if isinstance(state_user, dict):
         user: dict[str, Any] = dict(state_user)
     else:
-        # Coerce simple objects to dict for downstream helpers
-        user = {k: getattr(state_user, k) for k in dir(state_user) if not k.startswith("_")}
+        user = dict(getattr(state_user, "__dict__", {}))
+        # Preserve common attributes even if __dict__ is empty/filtered
+        for attr in ("role", "strategies", "user_id", "id"):
+            value = getattr(state_user, attr, None)
+            if value is not None:
+                user.setdefault("user_id" if attr == "id" else attr, value)
 
-    requested_strategies = strategies or request.query_params.getlist("strategies")
+    if not user.get("role"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authenticated user context",
+        )
 
-    # Never trust client-supplied strategy lists; trusted strategies must come from user object
+    requested_strategies = request.query_params.getlist("strategies")
+
     return {
         "role": user.get("role"),
         "strategies": user.get("strategies", []),
@@ -2813,22 +2815,23 @@ async def get_realtime_pnl(user: dict[str, Any] = Depends(_build_user_context)) 
             db_positions = db_client.get_all_positions()
         else:
             db_positions = db_client.get_positions_for_strategies(authorized_strategies)
-        # Additional guard: if strategy-scoped request returns no positions but DB call succeeded
-        if not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES) and not db_positions:
-            return RealtimePnLResponse(
-                positions=[],
-                total_positions=0,
-                total_unrealized_pl=Decimal("0"),
-                total_unrealized_pl_pct=None,
-                realtime_prices_available=0,
-                timestamp=datetime.now(UTC),
-            )
     except Exception as exc:  # pragma: no cover - defensive for test env without DB
         logger.error(
             "Failed to load positions for real-time P&L",
             exc_info=True,
             extra={"error": str(exc)},
         )
+        return RealtimePnLResponse(
+            positions=[],
+            total_positions=0,
+            total_unrealized_pl=Decimal("0"),
+            total_unrealized_pl_pct=None,
+            realtime_prices_available=0,
+            timestamp=datetime.now(UTC),
+        )
+
+    # Additional guard: if strategy-scoped request returns no positions but DB call succeeded
+    if not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES) and not db_positions:
         return RealtimePnLResponse(
             positions=[],
             total_positions=0,
