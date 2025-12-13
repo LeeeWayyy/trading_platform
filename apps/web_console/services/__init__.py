@@ -2,4 +2,5 @@
 
 __all__ = [
     "user_management",
+    "risk_service",
 ]
