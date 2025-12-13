@@ -8,9 +8,11 @@ and fallback scenarios.
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
 
@@ -22,6 +24,31 @@ from apps.execution_gateway.schemas import Position
 def test_client():
     """FastAPI test client."""
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _override_user_context():
+    """Provide authenticated viewer context for all realtime P&L tests."""
+
+    def _ctx(
+        request: Request,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "role": "viewer",
+            "strategies": ["alpha_baseline"],
+            "requested_strategies": ["alpha_baseline"],
+            "user_id": "u1",
+            "user": {"role": "viewer", "strategies": ["alpha_baseline"], "user_id": "u1"},
+        }
+
+    from apps.execution_gateway import main
+
+    main.app.dependency_overrides[main._build_user_context] = _ctx
+    yield
+    main.app.dependency_overrides.pop(main._build_user_context, None)
 
 
 @pytest.fixture()
@@ -72,6 +99,7 @@ class TestRealtimePnLEndpoint:
         """Test P&L calculation with real-time prices from Redis."""
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
+        mock_db.get_positions_for_strategies.return_value = mock_positions
 
         # Setup Redis mock with real-time prices using mget (batch fetch)
         def redis_mget(keys):
@@ -153,6 +181,7 @@ class TestRealtimePnLEndpoint:
         """Test P&L calculation with database fallback when Redis unavailable."""
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
+        mock_db.get_positions_for_strategies.return_value = mock_positions
 
         # Setup Redis mock - no prices available (returns None for each key)
         mock_redis.mget = MagicMock(side_effect=lambda keys: [None] * len(keys))
@@ -197,6 +226,7 @@ class TestRealtimePnLEndpoint:
 
         # Setup database mock
         mock_db.get_all_positions.return_value = [position]
+        mock_db.get_positions_for_strategies.return_value = [position]
 
         # Setup Redis mock - no prices available (returns None for each key)
         mock_redis.mget = MagicMock(side_effect=lambda keys: [None] * len(keys))
@@ -224,6 +254,7 @@ class TestRealtimePnLEndpoint:
         """Test P&L with mixed price sources (some Redis, some database)."""
         # Setup database mock
         mock_db.get_all_positions.return_value = mock_positions
+        mock_db.get_positions_for_strategies.return_value = mock_positions
 
         # Setup Redis mock - only AAPL has real-time price (using mget for batch fetch)
         def redis_mget(keys):
@@ -357,6 +388,7 @@ class TestRealtimePnLEndpoint:
         ]
 
         mock_db.get_all_positions.return_value = positions
+        mock_db.get_positions_for_strategies.return_value = positions
 
         # Setup Redis with prices that give 10% gain for both (using mget for batch fetch)
         def redis_mget(keys):
@@ -447,6 +479,7 @@ class TestRealtimePnLEndpoint:
         )
 
         mock_db.get_all_positions.return_value = [position]
+        mock_db.get_positions_for_strategies.return_value = [position]
 
         # Setup Redis with price that's lower (profit for short) - using mget for batch fetch
         def redis_mget(keys):
@@ -508,6 +541,7 @@ class TestRealtimePnLEndpoint:
         )
 
         mock_db.get_all_positions.return_value = [position]
+        mock_db.get_positions_for_strategies.return_value = [position]
 
         # Redis has no real-time price - should fall back to database
         mock_redis.mget = MagicMock(side_effect=lambda keys: [None] * len(keys))

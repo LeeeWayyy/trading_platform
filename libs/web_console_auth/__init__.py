@@ -20,6 +20,14 @@ from libs.web_console_auth.exceptions import (
     TokenRevokedError,
 )
 from libs.web_console_auth.jwt_manager import JWTManager
+from libs.web_console_auth.permissions import (
+    ROLE_PERMISSIONS,
+    Permission,
+    Role,
+    get_authorized_strategies,
+    has_permission,
+    require_permission,
+)
 from libs.web_console_auth.session import SessionManager
 
 __all__ = [
@@ -30,6 +38,12 @@ __all__ = [
     "RateLimitExceededError",
     "SessionLimitExceededError",
     "SessionManager",
+    "Permission",
+    "ROLE_PERMISSIONS",
+    "Role",
+    "get_authorized_strategies",
+    "has_permission",
+    "require_permission",
     "TokenExpiredError",
     "TokenRevokedError",
 ]

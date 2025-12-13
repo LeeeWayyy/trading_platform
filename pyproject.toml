@@ -53,6 +53,7 @@ requests = "^2.31.0"
 cryptography = "^41.0.0"
 pyjwt = "^2.8.0"
 statsmodels = "^0.14.6"
+plotly = "^5.22.0"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
@@ -122,6 +123,10 @@ strict_equality = true
 
 [[tool.mypy.overrides]]
 module = "polars.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["plotly", "plotly.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
