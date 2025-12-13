@@ -113,6 +113,9 @@
     },
     {
       "pattern": "^\\.\\/\\.venv/"
+    },
+    {
+      "pattern": "^https://www.quantconnect.com"
     }
   ],
   "replacementPatterns": [

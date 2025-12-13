@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import psutil  # type: ignore[import-untyped]
 import structlog
@@ -308,7 +308,8 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             }
 
         except JobCancelled:
-            last_progress_raw = redis.get(f"backtest:progress:{job_id}")
+            last_progress_raw = cast(Any, redis.get(f"backtest:progress:{job_id}"))
+            last_progress: str | None
             if isinstance(last_progress_raw, (bytes, bytearray)):  # noqa: UP038
                 last_progress = last_progress_raw.decode()
             elif isinstance(last_progress_raw, str):

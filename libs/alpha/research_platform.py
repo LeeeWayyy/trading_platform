@@ -604,6 +604,7 @@ class PITBacktester:
                 }
             )
 
+            # Map this loop's progress into a smaller slice of the overall progress bar
             loop_span = min(10, max(100 - pct, 0))
             loop_pct = min(100, pct + int(((idx + 1) / max(total_dates, 1)) * loop_span))
 

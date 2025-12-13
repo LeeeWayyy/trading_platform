@@ -168,7 +168,7 @@ class BacktestJobQueue:
             "start": config.start_date,
             "end": config.end_date,
             "weight": config.weight_method,
-            "config": json.dumps(config.to_dict()),
+            "config": config.to_dict(),
             "created_by": created_by,
             "timeout": job_timeout,
             "is_rerun": is_rerun,
@@ -232,12 +232,18 @@ class BacktestJobQueue:
                 # DB says active but RQ job missing → recreate RQ job deterministically
                 # Track heal count in Redis to prevent infinite re-enqueue loops (max 3 per hour)
                 heal_key = f"backtest:heal_count:{job_id}"
-                heal_raw = self.redis.get(heal_key)
-                heal_value = cast(str | bytes | bytearray | int | None, heal_raw)
-                if isinstance(heal_value, (bytes, bytearray)):  # noqa: UP038
-                    heal_count = int(heal_value.decode() or 0)
-                else:
-                    heal_count = int(heal_value or 0)
+                heal_raw = cast(Any, self.redis.get(heal_key))
+                heal_count = 0
+                if heal_raw:
+                    try:
+                        heal_count = int(heal_raw)
+                    except (ValueError, TypeError):
+                        self.logger.warning(
+                            "invalid_heal_count_value",
+                            job_id=job_id,
+                            raw_value=heal_raw,
+                            reason="Heal count in Redis is not a valid integer.",
+                        )
                 if heal_count >= 3:
                     # Too many heals → fail the job instead of looping forever
                     with self.db_pool.connection() as conn, conn.cursor() as cur:
