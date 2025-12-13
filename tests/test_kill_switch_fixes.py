@@ -52,8 +52,13 @@ class TestFailClosedBehaviorExecutionGateway:
 
     @pytest.fixture()
     def _mock_postgres(self):
-        """Mock Postgres database client for tests."""
-        with patch("apps.execution_gateway.database.DatabaseClient"):
+        """Mock Postgres database client for execution_gateway tests."""
+        mock_db = Mock()
+        mock_db.check_connection.return_value = True
+        with (
+            patch("apps.execution_gateway.database.DatabaseClient"),
+            patch("apps.execution_gateway.main.db_client", mock_db),
+        ):
             yield
 
     @pytest.mark.usefixtures("_mock_redis_unavailable", "_mock_postgres")

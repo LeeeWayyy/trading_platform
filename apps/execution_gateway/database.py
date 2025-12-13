@@ -1258,14 +1258,13 @@ class DatabaseClient:
                     WHERE o.status IN ('filled', 'partially_filled')
                       AND o.metadata ? 'fills'
                       AND jsonb_array_length(o.metadata->'fills') > 0
-                      AND o.updated_at >= %s
                       AND (fill->>'timestamp')::timestamptz >= %s::timestamptz
                       AND (fill->>'timestamp')::timestamptz < (%s::timestamptz + interval '1 day')
                       AND o.strategy_id = ANY(%s)
                     GROUP BY DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC')
                     ORDER BY trade_date
                     """,
-                    (start_date, start_date, end_date, strategies),
+                    (start_date, end_date, strategies),
                 )
 
                 rows = cur.fetchall()
@@ -1562,8 +1561,15 @@ class DatabaseClient:
         """
         Build OrderDetail from a database row, supplying safe defaults for missing fields.
 
-        This is primarily used in tests where mocks may provide partial rows. In production
-        rows should be complete and defaults will be overridden by actual values.
+        This helper ensures that a complete OrderDetail object can be constructed even
+        from a partial database row. While useful for resilience, this can mask
+        underlying data issues, so callers in production paths should be aware
+        that missing fields will be populated with defaults.
+
+        Used by:
+        - get_order_for_update()
+        - append_fill_to_order_metadata()
+        - Tests where mocks may provide partial rows
         """
 
         defaults: dict[str, Any] = {

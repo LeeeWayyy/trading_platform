@@ -335,6 +335,11 @@ class RedisClient:
         """
         return self._client.pipeline(transaction=transaction)
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
     def sadd(self, key: str, *members: str) -> int:
         """Add one or more members to a set."""
         try:
@@ -344,13 +349,48 @@ class RedisClient:
             logger.error(f"Redis SADD failed for key '{key}': {e}")
             raise
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
     def smembers(self, key: str) -> builtins.set[str]:
-        """Return all members of a set."""
+        """Return all members of a set.
+
+        Note: For large sets in production, prefer sscan_iter() to avoid blocking.
+        """
         try:
             result = self._client.smembers(key)
             return cast(builtins.set[str], result)
         except RedisError as e:
             logger.error(f"Redis SMEMBERS failed for key '{key}': {e}")
+            raise
+
+    def sscan_iter(self, key: str, count: int = 100) -> builtins.set[str]:
+        """Iterate over set members using SSCAN (non-blocking).
+
+        Unlike SMEMBERS which blocks the Redis event loop for the entire set,
+        SSCAN iterates in batches, yielding to other clients between iterations.
+        Use this for production cache invalidation to avoid blocking.
+
+        Args:
+            key: Redis set key
+            count: Hint for how many items to return per iteration (default 100)
+
+        Returns:
+            Set of all members (collected from all SSCAN iterations)
+        """
+        try:
+            # sscan_iter returns a generator, collect all members
+            members: builtins.set[str] = set()
+            for member in self._client.sscan_iter(key, count=count):
+                if isinstance(member, bytes):
+                    members.add(member.decode("utf-8"))
+                else:
+                    members.add(str(member))
+            return members
+        except RedisError as e:
+            logger.error(f"Redis SSCAN failed for key '{key}': {e}")
             raise
 
     def zadd(self, key: str, mapping: dict[str, float]) -> int:

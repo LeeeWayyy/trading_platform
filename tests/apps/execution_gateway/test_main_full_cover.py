@@ -70,22 +70,57 @@ sys.modules.setdefault("apps.execution_gateway.alpaca_client", alpaca_stub)
 
 # Stub RedisClient to avoid network connection during import
 redis_client_stub = types.ModuleType("libs.redis_client")
+
+class _DummyPipeline:
+    """Pipeline stub that stores the transaction flag for test compatibility."""
+    def __init__(self, transaction=True):
+        self.transaction = transaction
+    def sadd(self, *a, **k): return self
+    def expire(self, *a, **k): return self
+    def execute(self): return []
+
 class _DummyRedisClient:
     def __init__(self, *a, **k): ...
     def health_check(self): return True
     def mget(self, *_args, **_kwargs): return []
     def get(self, *_args, **_kwargs): return None
-    def pipeline(self): return self
+    def set(self, *_args, **_kwargs): return True
+    def delete(self, *_keys): return len(_keys)  # Return count of deleted keys
+    def pipeline(self, transaction=True): return _DummyPipeline(transaction)
     def sadd(self, *a, **k): return 0
     def expire(self, *a, **k): return True
-    def execute(self): return True
+    def execute(self): return []
+    def smembers(self, key): return set()
+    def sscan_iter(self, key): return iter([])
+class _DummyRedisKeys:
+    CIRCUIT_STATE = "cb:state"
+    KILL_STATE = "ks:state"
+    PRICE_PREFIX = "price:"
+
+
 redis_client_stub.RedisClient = _DummyRedisClient
 redis_client_stub.RedisConnectionError = RuntimeError
+redis_client_stub.RedisKeys = _DummyRedisKeys
 sys.modules.setdefault("libs.redis_client", redis_client_stub)
 sys.modules.setdefault("libs.redis_client.client", redis_client_stub)
+sys.modules.setdefault("libs.redis_client.keys", redis_client_stub)
+
+from fastapi import Request
 
 from apps.execution_gateway import main
 from apps.execution_gateway.schemas import OrderRequest
+
+
+def _make_user_context_override(user_ctx: dict) -> callable:
+    """Create a dependency override with proper Request signature.
+
+    FastAPI inspects function parameters for dependency resolution.
+    Using lambda *_, **__: causes FastAPI to treat _ and __ as required
+    query parameters, resulting in 422 errors.
+    """
+    def override(request: Request) -> dict:
+        return user_ctx
+    return override
 
 
 class DummyDB:
@@ -254,7 +289,7 @@ def test_performance_endpoint_cache_fallback(monkeypatch, app_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = lambda *_, **__: ctx
+    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(ctx)
     # Provide explicit dates inside allowed 90‑day window to avoid 422
     resp = app_client.get(
         "/api/v1/performance/daily",

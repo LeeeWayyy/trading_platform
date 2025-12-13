@@ -20,9 +20,20 @@ from fastapi.testclient import TestClient
 # Stub redis + jwt before importing main to prevent cryptography/PyO3 issues in test env
 redis_stub = type(sys)("redis")
 redis_stub.exceptions = type(sys)("redis.exceptions")
+redis_stub.connection = type(sys)("redis.connection")
 class _RedisError(Exception):
     pass
+class _ConnectionError(Exception):
+    pass
+class _TimeoutError(Exception):
+    pass
 redis_stub.exceptions.RedisError = _RedisError
+redis_stub.exceptions.ConnectionError = _ConnectionError
+redis_stub.exceptions.TimeoutError = _TimeoutError
+class _ConnectionPool:
+    def __init__(self, *args, **kwargs):
+        pass
+redis_stub.connection.ConnectionPool = _ConnectionPool
 class _RedisClient:
     def __init__(self, *args, **kwargs):
         pass
@@ -31,6 +42,7 @@ class _RedisClient:
 redis_stub.Redis = _RedisClient
 sys.modules.setdefault("redis", redis_stub)
 sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
+sys.modules.setdefault("redis.connection", redis_stub.connection)
 
 jwt_stub = type(sys)("jwt")
 jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
@@ -445,7 +457,8 @@ class TestDailyPerformanceEndpoint:
             user_id="u1",
         )
         index_key = main._performance_cache_index_key(date(2024, 1, 1))
-        mock_redis.smembers.return_value = [cache_key]
+        # sscan_iter is now used instead of smembers for non-blocking iteration
+        mock_redis.sscan_iter.return_value = iter([cache_key])
         mock_redis.delete.return_value = True
 
         # Mock DB transactional flow for webhook
@@ -485,10 +498,9 @@ class TestDailyPerformanceEndpoint:
             )
 
         assert resp.status_code == 200
-        mock_redis.smembers.assert_called_once_with(index_key)
-        # _invalidate_performance_cache deletes cached keys then the index key
-        mock_redis.delete.assert_any_call(cache_key)
-        mock_redis.delete.assert_any_call(index_key)
+        mock_redis.sscan_iter.assert_called_once_with(index_key)
+        # _invalidate_performance_cache deletes cached keys and index key atomically
+        mock_redis.delete.assert_called_once_with(cache_key, index_key)
 
 
 class TestDailyPnLDatabase:

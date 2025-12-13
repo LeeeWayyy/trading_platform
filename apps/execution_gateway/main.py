@@ -360,6 +360,46 @@ app = FastAPI(
 
 
 # ============================================================================
+# Auth Middleware
+# ============================================================================
+# Populate request.state.user from trusted internal headers.
+# This middleware is required for RBAC-protected endpoints.
+# In production, ensure only trusted internal services can reach this gateway.
+
+
+@app.middleware("http")
+async def populate_user_from_headers(request: Request, call_next: Any) -> Any:
+    """Populate request.state.user from trusted internal headers.
+
+    The performance dashboard Streamlit client sends X-User-Role, X-User-Id, and
+    X-User-Strategies headers. This middleware trusts those headers assuming
+    the execution gateway is only accessible from trusted internal services
+    (e.g., behind a VPC or service mesh with mTLS).
+
+    For production hardening, consider:
+    - Checking X-Internal-Token for HMAC-signed requests
+    - Validating source IP against allowed internal ranges
+    - Using mTLS client certificates
+
+    This middleware populates request.state.user which _build_user_context
+    then uses for RBAC enforcement.
+    """
+    role = request.headers.get("X-User-Role")
+    user_id = request.headers.get("X-User-Id")
+    strategies_header = request.headers.get("X-User-Strategies", "")
+
+    if role and user_id:
+        strategies = [s.strip() for s in strategies_header.split(",") if s.strip()]
+        request.state.user = {
+            "role": role,
+            "user_id": user_id,
+            "strategies": strategies,
+        }
+
+    return await call_next(request)
+
+
+# ============================================================================
 # Prometheus Metrics
 # ============================================================================
 
@@ -826,6 +866,10 @@ def _invalidate_performance_cache(trade_date: date | None = None) -> None:
     Falls back to today's date when trade_date is not provided. This avoids a
     global SCAN across all cache keys by leveraging per-date index sets that are
     maintained when caching responses.
+
+    Uses SSCAN instead of SMEMBERS to avoid blocking the Redis event loop for
+    large sets. Cache keys and index key are deleted atomically in a single
+    call to prevent stale index entries if the process fails mid-operation.
     """
 
     if not redis_client:
@@ -835,11 +879,14 @@ def _invalidate_performance_cache(trade_date: date | None = None) -> None:
     index_key = _performance_cache_index_key(target_date)
 
     try:
-        cache_keys = list(redis_client.smembers(index_key) or [])
+        # Use sscan_iter for non-blocking iteration over potentially large sets
+        cache_keys = list(redis_client.sscan_iter(index_key) or [])
         if cache_keys:
-            redis_client.delete(*cache_keys)
-        # Cleanup the index key as well
-        redis_client.delete(index_key)
+            # Atomically delete cache keys and the index key together
+            redis_client.delete(*cache_keys, index_key)
+        else:
+            # Cleanup the index key even if empty
+            redis_client.delete(index_key)
     except Exception as e:
         logger.warning(f"Performance cache invalidation failed: {e}")
 

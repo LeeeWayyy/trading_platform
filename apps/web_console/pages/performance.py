@@ -130,8 +130,8 @@ def render_realtime_pnl() -> None:
     if not positions:
         if viewer_scoped:
             st.info(
-                "Strategy-scoped positions are not yet available from the execution gateway. "
-                "Please use the positions table in Research DB until strategy-aware positions land."
+                "No open positions found for your authorized strategies. "
+                "Note: Positions for symbols traded by multiple strategies may not be displayed."
             )
             return
         st.info("No open positions.")

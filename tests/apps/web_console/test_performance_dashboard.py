@@ -364,7 +364,8 @@ class TestPerformancePage:
         monkeypatch.setattr(perf_page, "fetch_realtime_pnl", lambda: {"positions": [], "total_unrealized_pl": 0})
         perf_page.render_realtime_pnl()
         st_obj = perf_page.st  # type: ignore[attr-defined]
-        assert any("Strategy-scoped" in msg for msg in st_obj._infos)
+        # Message updated to clarify multi-strategy symbol filtering behavior
+        assert any("authorized strategies" in msg for msg in st_obj._infos)
 
     def test_realtime_pnl_request_failure(self, monkeypatch):
         monkeypatch.setattr(perf_page, "fetch_realtime_pnl", lambda: (_ for _ in ()).throw(requests.exceptions.RequestException("x")))

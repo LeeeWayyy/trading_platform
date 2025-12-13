@@ -6,8 +6,21 @@ import pytest
 
 fastapi = pytest.importorskip("fastapi")
 TestClient = pytest.importorskip("fastapi.testclient").TestClient
+Request = pytest.importorskip("starlette.requests").Request
 
 from apps.execution_gateway import main
+
+
+def _make_user_context_override(user_ctx: dict) -> callable:
+    """Create a dependency override with proper Request signature.
+
+    FastAPI inspects function parameters for dependency resolution.
+    Using lambda *_, **__: causes FastAPI to treat _ and __ as required
+    query parameters, resulting in 422 errors.
+    """
+    def override(request: Request) -> dict:
+        return user_ctx
+    return override
 
 
 @pytest.fixture()
@@ -24,7 +37,7 @@ def test_daily_performance_future_date_rejected(monkeypatch, test_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = lambda *_, **__: user_ctx
+    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
     monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
 
     resp = test_client.get(
@@ -44,7 +57,7 @@ def test_daily_performance_flag_disabled_returns_404(monkeypatch, test_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = lambda *_, **__: user_ctx
+    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
     monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", False)
 
     resp = test_client.get(

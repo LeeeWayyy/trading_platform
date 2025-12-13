@@ -67,6 +67,10 @@ class _DummyRedis:
     def smembers(self, key):
         return self.index.get(key, set())
 
+    def sscan_iter(self, key):
+        """Iterate over set members like Redis sscan_iter."""
+        return iter(self.index.get(key, set()))
+
     def delete(self, *keys):
         for key in keys:
             self.deleted.append(key)

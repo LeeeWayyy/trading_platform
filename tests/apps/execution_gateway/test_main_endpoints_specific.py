@@ -16,17 +16,39 @@ from types import ModuleType
 
 redis_stub = ModuleType("redis")
 redis_stub.exceptions = ModuleType("redis.exceptions")
+redis_stub.connection = ModuleType("redis.connection")
+
+
 class _RedisError(Exception):
     pass
+
+
+class _ConnectionPool:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def disconnect(self):
+        pass
+
+
 redis_stub.exceptions.RedisError = _RedisError
+redis_stub.exceptions.ConnectionError = _RedisError  # Alias for tests
+redis_stub.exceptions.TimeoutError = _RedisError  # Alias for tests
+redis_stub.connection.ConnectionPool = _ConnectionPool
+
+
 class _RedisClient:
     def __init__(self, *args, **kwargs):
         pass
+
     def ping(self):
         return True
+
+
 redis_stub.Redis = _RedisClient
 sys.modules.setdefault("redis", redis_stub)
 sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
+sys.modules.setdefault("redis.connection", redis_stub.connection)
 
 jwt_stub = ModuleType("jwt")
 jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
@@ -41,8 +63,25 @@ sys.modules.setdefault("jwt.api_jwk", jwt_stub.api_jwk)
 sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)
 sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
+# Import Request before main to ensure it's available for the override function.
+# The stubs above must be set before importing main which triggers the full import chain.
+from starlette.requests import Request  # Use starlette directly to avoid fastapi import side-effects
+
 from apps.execution_gateway import main
 from libs.web_console_auth.permissions import Permission
+
+
+def _make_user_context_override(user_ctx: dict) -> callable:
+    """Create a dependency override with proper Request signature.
+
+    FastAPI inspects function parameters for dependency resolution.
+    Using lambda *_, **__: causes FastAPI to treat _ and __ as required
+    query parameters, resulting in 422 errors. This helper creates a
+    properly-typed override function.
+    """
+    def override(request: Request) -> dict:
+        return user_ctx
+    return override
 
 
 @pytest.fixture()
@@ -59,7 +98,7 @@ def test_get_daily_performance_happy_path(monkeypatch, test_client):
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = lambda *_, **__: user_ctx
+    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
 
     # Mock DB + Redis interactions
     monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
@@ -95,7 +134,7 @@ def test_get_realtime_pnl_denies_without_strategy_access(monkeypatch, test_clien
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": [], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = lambda *_, **__: user_ctx
+    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
 
     monkeypatch.setattr(main, "has_permission", lambda *_args, **_kwargs: False)
 
@@ -111,7 +150,7 @@ def test_get_realtime_pnl_allows_authorized_and_returns_zero(monkeypatch, test_c
         "user_id": "u1",
         "user": {"role": "viewer", "strategies": ["alpha"], "user_id": "u1"},
     }
-    main.app.dependency_overrides[main._build_user_context] = lambda *_, **__: user_ctx
+    main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(user_ctx)
 
     # Authorize strategy access, no positions
     monkeypatch.setattr(main, "has_permission", lambda *_args, **_kwargs: False)

@@ -99,7 +99,13 @@ def test_append_fill_to_order_metadata_returns_none_when_missing(monkeypatch):
 
 
 def test_update_order_status_with_conn_updates_row(monkeypatch):
-    row = _make_row(status="pending_new", filled_qty=Decimal("0"), filled_avg_price=None, filled_at=None)
+    # The row returned should reflect the updated state (RETURNING * from UPDATE)
+    row = _make_row(
+        status="filled",  # This is the updated status returned by RETURNING *
+        filled_qty=Decimal("1"),
+        filled_avg_price=Decimal("10"),
+        filled_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
     db = DatabaseClient("postgresql://user:pass@localhost/db")
     db._pool = _Pool(row)  # type: ignore[attr-defined]
 
