@@ -113,11 +113,13 @@ def render_scenario_table(results: Sequence[dict[str, Any]]) -> None:
 
     # Include any scenarios not in predefined order
     for result in results:
-        scenario = result.get("scenario_name")
-        if scenario not in SCENARIO_DISPLAY_ORDER:
+        scenario_name = result.get("scenario_name")
+        if not isinstance(scenario_name, str) or not scenario_name:
+            continue
+        if scenario_name not in SCENARIO_DISPLAY_ORDER:
             pnl = float(result.get("portfolio_pnl", 0))
             table_data.append({
-                "Scenario": scenario,
+                "Scenario": scenario_name,
                 "Type": result.get("scenario_type", "unknown").title(),
                 "Description": "",
                 "Portfolio P&L": f"{pnl:+.2%}",

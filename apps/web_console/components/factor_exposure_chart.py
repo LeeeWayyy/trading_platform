@@ -11,6 +11,19 @@ import streamlit as st
 from apps.web_console.utils.validators import validate_exposures
 from libs.risk.factor_covariance import CANONICAL_FACTOR_ORDER
 
+# Ensure asset_growth is included for full factor coverage (P2 fix)
+# RiskService returns 6 factors, so chart must display all 6
+DEFAULT_FACTOR_ORDER = [
+    "log_market_cap",
+    "book_to_market",
+    "momentum_12_1",
+    "realized_vol",
+    "roe",
+    "asset_growth",
+]
+# Merge CANONICAL_FACTOR_ORDER with DEFAULT_FACTOR_ORDER, preserving order
+_chart_factor_order = list(dict.fromkeys((CANONICAL_FACTOR_ORDER or []) + DEFAULT_FACTOR_ORDER))
+
 # Factor display names (human-readable)
 FACTOR_DISPLAY_NAMES = {
     "momentum_12_1": "Momentum (12-1)",
@@ -18,6 +31,7 @@ FACTOR_DISPLAY_NAMES = {
     "roe": "ROE (Quality)",
     "log_market_cap": "Size (Market Cap)",
     "realized_vol": "Volatility",
+    "asset_growth": "Asset Growth",
 }
 
 
@@ -57,7 +71,7 @@ def render_factor_exposure(
     values = []
     colors = []
 
-    for factor in CANONICAL_FACTOR_ORDER:
+    for factor in _chart_factor_order:
         exposure = exposure_map.get(factor, 0.0)
         factors.append(_get_display_name(factor))
         values.append(exposure)

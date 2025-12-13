@@ -16,7 +16,7 @@ from apps.web_console.auth.session_manager import get_current_user, require_auth
 from apps.web_console.components.pnl_chart import render_drawdown_chart, render_equity_curve
 from apps.web_console.config import AUTO_REFRESH_INTERVAL
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
-from apps.web_console.utils.api_client import fetch_api, safe_current_user
+from apps.web_console.utils.api_client import fetch_api
 
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
@@ -28,12 +28,21 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
 }
 
 
+def _safe_current_user() -> Mapping[str, Any]:
+    """Compatibility wrapper to allow tests to monkeypatch user context."""
+    try:
+        user = get_current_user()
+    except RuntimeError:
+        return {}
+    return user if isinstance(user, Mapping) else {}
+
+
 def _fetch(endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Fetch data from API endpoint with authentication headers.
 
     Uses shared api_client.fetch_api for consistent header handling.
     """
-    user = safe_current_user()
+    user = _safe_current_user()
     return fetch_api(endpoint, user, params)
 
 
@@ -87,7 +96,7 @@ def render_realtime_pnl() -> None:
         st.error(f"Failed to load real-time P&L: {e}")
         return
 
-    user = safe_current_user()
+    user = _safe_current_user()
     strategies = get_authorized_strategies(user) if user else []
     viewer_scoped = strategies and not has_permission(user, Permission.VIEW_ALL_STRATEGIES)
 
@@ -175,7 +184,7 @@ def render_historical_performance(start: date, end: date, strategies: list[str])
 
     with st.spinner("Loading performance..."):
         try:
-            user = safe_current_user()
+            user = _safe_current_user()
             user_id = user.get("user_id") if isinstance(user, Mapping) else None
             if not user_id:
                 st.error("Authentication required to view historical performance.")

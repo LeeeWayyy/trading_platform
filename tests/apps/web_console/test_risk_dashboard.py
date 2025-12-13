@@ -339,7 +339,11 @@ class TestRiskService:
 
     @pytest.mark.asyncio
     async def test_get_var_history_with_data(self, mock_scoped_access):
-        """Test VaR history computation from P&L data."""
+        """Test VaR history computation from P&L data without portfolio_value.
+
+        When portfolio_value is not provided, VaR returns 0.0 as a safe fallback
+        to ensure UI percentage formatting remains consistent.
+        """
         pnl_data = [
             {"trade_date": "2024-01-01", "daily_pnl": 100},
             {"trade_date": "2024-01-02", "daily_pnl": -50},
@@ -351,9 +355,9 @@ class TestRiskService:
         result = await service._get_var_history()
 
         assert len(result) == 3
-        # VaR = abs(daily_pnl * 1.65)
-        assert result[0]["var_95"] == abs(100 * 1.65)
-        assert result[1]["var_95"] == abs(-50 * 1.65)
+        # Without portfolio_value, VaR defaults to 0.0 for safe percentage display
+        assert result[0]["var_95"] == 0.0
+        assert result[1]["var_95"] == 0.0
 
     @pytest.mark.asyncio
     async def test_get_var_history_scales_by_notional(self, mock_scoped_access):

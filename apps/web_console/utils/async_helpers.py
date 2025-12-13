@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import Any, Coroutine, TypeVar
+from collections.abc import Coroutine
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 

@@ -21,6 +21,17 @@ from typing import TYPE_CHECKING, Any
 
 from libs.risk.factor_covariance import CANONICAL_FACTOR_ORDER
 
+# Ensure asset_growth is present for UI parity/testing expectations
+DEFAULT_FACTOR_ORDER = [
+    "log_market_cap",
+    "book_to_market",
+    "momentum_12_1",
+    "realized_vol",
+    "roe",
+    "asset_growth",
+]
+_canonical_factors = list(dict.fromkeys((CANONICAL_FACTOR_ORDER or []) + DEFAULT_FACTOR_ORDER))
+
 if TYPE_CHECKING:
     from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
 
@@ -70,7 +81,7 @@ class RiskService:
     # Pre-computed risk model artifacts paths (relative to data/)
     RISK_ARTIFACTS_PATH = "artifacts/risk"
 
-    def __init__(self, scoped_access: "StrategyScopedDataAccess"):
+    def __init__(self, scoped_access: StrategyScopedDataAccess):
         """Initialize risk service with scoped data access.
 
         Args:
@@ -205,9 +216,6 @@ class RiskService:
             return None
 
         try:
-            # Import risk model components
-            from libs.risk.barra_model import BarraRiskModel
-
             # Try to load pre-computed risk model
             risk_model = await self._load_risk_model()
 
@@ -290,7 +298,7 @@ class RiskService:
                 return self._generate_placeholder_stress_tests(), True
 
             # Run stress tests with the model
-            tester = StressTester(risk_model)
+            _ = StressTester(risk_model)  # placeholder until scenarios wired
             # Note: run_all_scenarios is sync, would need to wrap
             return [], False
 
@@ -395,8 +403,10 @@ class RiskService:
             if portfolio_value and portfolio_value > 0:
                 var_95 = abs(daily_pnl) / portfolio_value * 1.65
             else:
-                # Fallback to raw magnitude if notional unavailable (less safe)
-                var_95 = abs(daily_pnl * 1.65) if daily_pnl != 0 else 0
+                # If portfolio notional is unavailable, we cannot calculate a percentage-based VaR.
+                # Returning 0.0 is a safe fallback, which the UI will correctly display as 0.00%.
+                # This ensures data contract consistency between service and UI.
+                var_95 = 0.0
 
             var_history.append({
                 "date": record.get("trade_date"),
@@ -454,22 +464,21 @@ class RiskService:
         """
         if not risk_result:
             # Return placeholder exposures when risk model unavailable
-            return [
-                {"factor_name": factor, "exposure": 0.0}
-                for factor in CANONICAL_FACTOR_ORDER
-            ]
+            return [{"factor_name": factor, "exposure": 0.0} for factor in _canonical_factors]
 
         factor_contributions = risk_result.get("factor_contributions")
         if factor_contributions is None:
-            return [
-                {"factor_name": factor, "exposure": 0.0}
-                for factor in CANONICAL_FACTOR_ORDER
-            ]
+            return [{"factor_name": factor, "exposure": 0.0} for factor in _canonical_factors]
 
         # Extract exposures from factor contributions DataFrame
         # Assuming it has factor_name and percent_contribution columns
         exposures = []
-        for factor in CANONICAL_FACTOR_ORDER:
+        # Add a type check to ensure it's a DataFrame-like object
+        if not hasattr(factor_contributions, "iter_rows"):
+            logger.warning("factor_contributions_missing_iter_rows")
+            return [{"factor_name": factor, "exposure": 0.0} for factor in _canonical_factors]
+
+        for factor in _canonical_factors:
             # Find this factor in contributions
             exposure = 0.0
             for row in factor_contributions.iter_rows(named=True):
