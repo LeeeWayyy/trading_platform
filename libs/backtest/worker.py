@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import psutil  # type: ignore[import-untyped]
-import structlog  # type: ignore[import-not-found]
+import structlog
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from redis import Redis

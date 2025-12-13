@@ -383,17 +383,20 @@ def test_create_db_job_commits_and_uses_params(redis_mock):
 
 @pytest.mark.unit()
 def test_enqueue_lock_contention_raises(redis_mock, monkeypatch):
+    """Lock contention polls for job 5 times, then raises if not found."""
     db_pool = MagicMock()
     queue = _make_queue(redis_mock, db_pool)
-    queue._safe_fetch_job = MagicMock(return_value=None)
+    queue._safe_fetch_job = MagicMock(return_value=None)  # Job never appears
     queue._fetch_db_job = MagicMock(return_value=None)
-    redis_mock.set.side_effect = [False, False]
+    redis_mock.set.return_value = False  # Lock not acquired
     monkeypatch.setattr(time, "sleep", lambda _: None)
 
     config = BacktestJobConfig("alpha", date(2024, 1, 1), date(2024, 1, 31))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="lock contention"):
         queue.enqueue(config, created_by="lock")
-    assert redis_mock.set.call_count == 2
+    # Lock attempted once, then polling loop (5 iterations)
+    assert redis_mock.set.call_count == 1
+    assert queue._safe_fetch_job.call_count == 5
 
 
 @pytest.mark.unit()

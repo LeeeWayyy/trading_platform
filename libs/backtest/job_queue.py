@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import Enum
 from typing import Any, Literal, cast
 
-import structlog  # type: ignore[import-not-found]
+import structlog
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from redis import Redis
@@ -210,17 +211,16 @@ class BacktestJobQueue:
 
         lock_key = f"backtest:lock:{job_id}"
         if not self.redis.set(lock_key, "1", nx=True, ex=10):
-            # Another enqueue in-flight; return existing job if present
-            existing = self._safe_fetch_job(job_id)
-            if existing:
-                return existing
-            import time
-
-            time.sleep(0.1)  # 100ms backoff
-            if not self.redis.set(lock_key, "1", nx=True, ex=10):
-                raise RuntimeError(
-                    "enqueue lock contention after retry; another enqueue in progress"
-                )
+            # Another enqueue in-flight; poll for the job to appear (up to 500ms)
+            for _ in range(5):
+                existing = self._safe_fetch_job(job_id)
+                if existing:
+                    return existing
+                time.sleep(0.1)
+            # Job still not found after polling - raise error
+            raise RuntimeError(
+                f"Enqueue lock contention for job {job_id}; job not found after polling"
+            )
 
         try:
             # DB status is source of truth for idempotency (pending/running = active)
