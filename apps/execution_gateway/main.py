@@ -887,22 +887,19 @@ def _invalidate_performance_cache(trade_date: date | None = None) -> None:
         # Stream deletions in batches to maintain O(1) memory for large index sets
         batch: list[str] = []
         batch_size = 100
-        deleted_any = False
 
         for key in redis_client.sscan_iter(index_key):
             batch.append(key)
             if len(batch) >= batch_size:
                 redis_client.delete(*batch)
-                deleted_any = True
                 batch = []
 
         # Delete remaining batch + index key
         if batch:
             redis_client.delete(*batch, index_key)
-        elif deleted_any:
-            redis_client.delete(index_key)
         else:
-            # Empty set - just clean up the index key
+            # If batch is empty, just delete the index key.
+            # This covers cases where the set was empty or its size was a multiple of batch_size.
             redis_client.delete(index_key)
     except Exception as e:
         logger.warning(f"Performance cache invalidation failed: {e}")
@@ -3118,6 +3115,7 @@ async def order_webhook(request: Request) -> dict[str, str]:
         return {"status": "ok", "client_order_id": client_order_id}
 
     except HTTPException:
+        # Re-raise HTTPException with its original status code (e.g., 401 from signature validation)
         raise
     except Exception as e:
         logger.error(f"Webhook processing error: {e}", exc_info=True)
