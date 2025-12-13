@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 import types
@@ -8,74 +9,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Provide lightweight stub if structlog not installed in test environment
-if "structlog" not in sys.modules:
-    sys.modules["structlog"] = MagicMock()
-# Provide lightweight psutil stub
-if "psutil" not in sys.modules:
-    sys.modules["psutil"] = MagicMock()
-if "polars" not in sys.modules:
-
-    class _PolarsStub:
-        def __getattr__(self, name):
-            if name in {"Int32", "Int64", "Float64", "Date", "Utf8"}:
-                return lambda *_, **__: name
-            return MagicMock()
-
-    sys.modules["polars"] = _PolarsStub()
-if "duckdb" not in sys.modules:
-    sys.modules["duckdb"] = MagicMock()
-if "pydantic_settings" not in sys.modules:
-    sys.modules["pydantic_settings"] = MagicMock(BaseSettings=object, SettingsConfigDict=dict)
-if "boto3" not in sys.modules:
-    sys.modules["boto3"] = MagicMock()
-if "botocore" not in sys.modules:
-    botocore_mod = types.ModuleType("botocore")
-    exceptions_mod = types.ModuleType("botocore.exceptions")
-    exceptions_mod.BotoCoreError = type("BotoCoreError", (Exception,), {})
-    exceptions_mod.ClientError = type("ClientError", (Exception,), {})
-    sys.modules["botocore"] = botocore_mod
-    sys.modules["botocore.exceptions"] = exceptions_mod
-if "dotenv" not in sys.modules:
-    dotenv_mod = types.ModuleType("dotenv")
-    dotenv_mod.load_dotenv = lambda *_, **__: None
-    sys.modules["dotenv"] = dotenv_mod
-if "hvac" not in sys.modules:
-    hvac_mod = types.ModuleType("hvac")
-    exceptions_mod = types.ModuleType("hvac.exceptions")
-    exceptions_mod.Forbidden = type("Forbidden", (Exception,), {})
-    exceptions_mod.InvalidPath = type("InvalidPath", (Exception,), {})
-    exceptions_mod.InvalidRequest = type("InvalidRequest", (Exception,), {})
-    exceptions_mod.Unauthorized = type("Unauthorized", (Exception,), {})
-    exceptions_mod.VaultDown = type("VaultDown", (Exception,), {})
-    exceptions_mod.VaultError = type("VaultError", (Exception,), {})
-    hvac_mod.exceptions = exceptions_mod
-    sys.modules["hvac"] = hvac_mod
-    sys.modules["hvac.exceptions"] = exceptions_mod
-if "sqlalchemy" not in sys.modules:
-    import types as _types
-
-    sqlalchemy_mod = _types.ModuleType("sqlalchemy")
-    sqlalchemy_mod.create_engine = MagicMock()
-    sqlalchemy_mod.text = MagicMock()
-    sqlalchemy_mod.URL = MagicMock()
-    sys.modules["sqlalchemy"] = sqlalchemy_mod
-    engine_mod = _types.ModuleType("sqlalchemy.engine")
-    engine_mod.Engine = MagicMock()
-    sys.modules["sqlalchemy.engine"] = engine_mod
-    exc_mod = _types.ModuleType("sqlalchemy.exc")
-    exc_mod.OperationalError = type("OperationalError", (Exception,), {})
-    sys.modules["sqlalchemy.exc"] = exc_mod
-    pool_mod = _types.ModuleType("sqlalchemy.pool")
-    pool_mod.QueuePool = MagicMock()
-    sys.modules["sqlalchemy.pool"] = pool_mod
-
-# Provide lightweight RQ stubs to satisfy imports without Redis
-if "rq" not in sys.modules:
-    rq_stub = types.SimpleNamespace(Queue=MagicMock, Retry=MagicMock, get_current_job=lambda: None)
-    sys.modules["rq"] = rq_stub
-if "rq.job" not in sys.modules:
-    sys.modules["rq.job"] = types.SimpleNamespace(Job=MagicMock, NoSuchJobError=Exception)
+_missing = [
+    mod
+    for mod in ("structlog", "psutil", "polars", "duckdb", "pydantic_settings", "hvac", "boto3", "botocore", "dotenv", "sqlalchemy", "rq")
+    if importlib.util.find_spec(mod) is None
+]
+if _missing:
+    pytest.skip(f"Skipping backtest worker tests because dependencies are missing: {', '.join(_missing)}", allow_module_level=True)
 
 import libs.backtest.worker as worker_module
 from libs.alpha.exceptions import JobCancelled
