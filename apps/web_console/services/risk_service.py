@@ -395,8 +395,9 @@ class RiskService:
             if portfolio_value and portfolio_value > 0:
                 var_95 = abs(daily_pnl) / portfolio_value * 1.65
             else:
-                # Fallback to raw magnitude if notional unavailable (less safe)
-                var_95 = abs(daily_pnl * 1.65) if daily_pnl != 0 else 0
+                # If notional is unavailable or zero, we cannot calculate a meaningful
+                # percentage-based VaR. Skip this record.
+                continue
 
             var_history.append({
                 "date": record.get("trade_date"),
@@ -469,6 +470,14 @@ class RiskService:
         # Extract exposures from factor contributions DataFrame
         # Assuming it has factor_name and percent_contribution columns
         exposures = []
+        # Add a type check to ensure it's a DataFrame-like object
+        if not hasattr(factor_contributions, "iter_rows"):
+            logger.warning("factor_contributions_missing_iter_rows")
+            return [
+                {"factor_name": factor, "exposure": 0.0}
+                for factor in CANONICAL_FACTOR_ORDER
+            ]
+
         for factor in CANONICAL_FACTOR_ORDER:
             # Find this factor in contributions
             exposure = 0.0

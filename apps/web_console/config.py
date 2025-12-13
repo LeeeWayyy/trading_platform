@@ -13,6 +13,7 @@ Environment Variables:
     SESSION_TIMEOUT_MINUTES: Session idle timeout (default: 15)
 """
 
+import logging
 import os
 from typing import Literal
 
@@ -142,8 +143,6 @@ def _safe_float(env_var: str, default: float) -> float:
     try:
         return float(value)
     except (ValueError, TypeError):
-        import logging
-
         logging.getLogger(__name__).warning(
             f"Invalid float value for {env_var}: {value!r}, using default {default}"
         )

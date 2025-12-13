@@ -91,45 +91,6 @@ def validate_var_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if isinstance(h, dict) and VAR_HISTORY_REQUIRED_KEYS.issubset(h.keys())
     ]
 
-
-def validate_exposure_list(exposures: list[dict[str, Any]] | None) -> bool:
-    """Check if exposure list is valid (not None, entries have required keys).
-
-    Args:
-        exposures: List of factor exposure dicts
-
-    Returns:
-        True if list is valid (empty list is valid), False if None or has invalid entries
-    """
-    if exposures is None:
-        return False
-    if not exposures:
-        return True  # Empty list is valid
-    return all(
-        isinstance(e, dict) and EXPOSURE_REQUIRED_KEYS.issubset(e.keys())
-        for e in exposures
-    )
-
-
-def validate_stress_test_list(results: list[dict[str, Any]] | None) -> bool:
-    """Check if stress test list is valid (not None, entries have required keys).
-
-    Args:
-        results: List of stress test result dicts
-
-    Returns:
-        True if list is valid (empty list is valid), False if None or has invalid entries
-    """
-    if results is None:
-        return False
-    if not results:
-        return True  # Empty list is valid
-    return all(
-        isinstance(r, dict) and STRESS_TEST_REQUIRED_KEYS.issubset(r.keys())
-        for r in results
-    )
-
-
 __all__ = [
     "RISK_METRICS_REQUIRED_KEYS",
     "EXPOSURE_REQUIRED_KEYS",
@@ -139,6 +100,4 @@ __all__ = [
     "validate_exposures",
     "validate_stress_tests",
     "validate_var_history",
-    "validate_exposure_list",
-    "validate_stress_test_list",
 ]
