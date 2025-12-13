@@ -6,6 +6,7 @@ as specified in T6.2 plan.
 
 from __future__ import annotations
 
+import sys
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -15,6 +16,34 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
+
+# Stub redis + jwt before importing main to prevent cryptography/PyO3 issues in test env
+redis_stub = type(sys)("redis")
+redis_stub.exceptions = type(sys)("redis.exceptions")
+class _RedisError(Exception):
+    pass
+redis_stub.exceptions.RedisError = _RedisError
+class _RedisClient:
+    def __init__(self, *args, **kwargs):
+        pass
+    def ping(self):
+        return True
+redis_stub.Redis = _RedisClient
+sys.modules.setdefault("redis", redis_stub)
+sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
+
+jwt_stub = type(sys)("jwt")
+jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
+jwt_stub.algorithms = SimpleNamespace(
+    get_default_algorithms=lambda: {},
+    has_crypto=lambda: False,
+    requires_cryptography=False,
+)
+jwt_stub.utils = SimpleNamespace()
+sys.modules.setdefault("jwt", jwt_stub)
+sys.modules.setdefault("jwt.api_jwk", jwt_stub.api_jwk)
+sys.modules.setdefault("jwt.algorithms", jwt_stub.algorithms)
+sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 from apps.execution_gateway import main
 from apps.execution_gateway.database import DatabaseClient
