@@ -52,6 +52,10 @@ def _mock_execute_with_conn(db: DatabaseClient, rows: list[dict[str, Any]]):
 
 
 def test_get_positions_for_strategies_filters_multi_strategy(monkeypatch):
+    # With SQL-based filtering, the query handles strategy filtering via HAVING clause.
+    # The mock should return what the SQL would return: only positions for symbols
+    # traded by exactly one strategy AND that strategy is in the authorized list.
+    # MSFT (multi-strategy) is excluded by the SQL HAVING COUNT(DISTINCT strategy_id) = 1.
     db = DatabaseClient("postgresql://user:pass@localhost/db")
     rows = [
         {
@@ -63,18 +67,7 @@ def test_get_positions_for_strategies_filters_multi_strategy(monkeypatch):
             "realized_pl": Decimal("0"),
             "updated_at": datetime.now(UTC),
             "last_trade_at": None,
-            "strategies": ["s1"],
-        },
-        {
-            "symbol": "MSFT",
-            "qty": 2,
-            "avg_entry_price": Decimal("20"),
-            "current_price": None,
-            "unrealized_pl": None,
-            "realized_pl": Decimal("0"),
-            "updated_at": datetime.now(UTC),
-            "last_trade_at": None,
-            "strategies": ["s1", "s2"],  # should be filtered out (multiple strategies)
+            # No "strategies" key - SQL returns position columns only
         },
     ]
     _mock_execute_with_conn(db, rows)

@@ -1069,6 +1069,11 @@ class DatabaseClient:
         total_realized_pl. Caller must provide an open transaction connection
         to ensure atomicity with related updates.
 
+        DESIGN DECISION: The nested jsonb_set SQL is intentionally verbose to handle
+        all edge cases (null metadata, missing fills array, missing total_realized_pl)
+        in a single atomic UPDATE. Alternative approaches like Python-side merge +
+        full JSON replacement risk race conditions under concurrent webhooks.
+
         Args:
             client_order_id: Order ID to update
             fill_data: Dict containing fill_id, fill_qty, fill_price, realized_pl, timestamp
@@ -1492,6 +1497,12 @@ class DatabaseClient:
         This prevents leaking portfolio-wide positions to users without
         VIEW_ALL_STRATEGIES permission. Upstream callers should provide a
         strategy-aware position source when available.
+
+        DESIGN DECISION: Fail-closed returns empty list rather than raising exception.
+        This ensures users without VIEW_ALL_STRATEGIES see "no positions" rather than
+        an error, preserving UX while maintaining security. Symbols traded by multiple
+        strategies are excluded to prevent cross-strategy data leakage. Long-term fix
+        is adding strategy_id column to positions table.
         """
         if not strategies:
             return []
@@ -1555,6 +1566,12 @@ class DatabaseClient:
         from a partial database row. While useful for resilience, this can mask
         underlying data issues, so callers in production paths should be aware
         that missing fields will be populated with defaults.
+
+        DESIGN DECISION: Default empty strings for client_order_id/symbol allow graceful
+        degradation when processing webhook events for orders created before schema
+        migrations. Raising ValueError would break fill processing for legacy orders.
+        Alternative: Strict validation with ValueError, but risks webhook failures for
+        historical data. Monitoring should alert on empty critical fields in production.
 
         Used by:
         - get_order_for_update()

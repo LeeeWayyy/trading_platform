@@ -95,17 +95,10 @@ def make_db(rows=None):
 
 
 def test_get_positions_for_strategies_fail_closed_on_multi_strategy():
-    # symbol touched by two strategies -> filtered out
-    rows = [
-        {
-            "symbol": "AAPL",
-            "qty": 10,
-            "avg_entry_price": Decimal("1"),
-            "realized_pl": Decimal("0"),
-            "updated_at": datetime.now(UTC),
-            "strategies": ["s1", "s2"],
-        }
-    ]
+    # Symbol touched by two strategies -> filtered out by SQL HAVING clause.
+    # With SQL-based filtering, the query returns no rows for multi-strategy symbols.
+    # The mock must return an empty result to simulate the SQL behavior.
+    rows: list[dict] = []  # SQL query returns empty when symbol has multiple strategies
     db = make_db(rows)
     result = db.get_positions_for_strategies(["s1"])
     assert result == []

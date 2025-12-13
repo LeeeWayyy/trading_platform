@@ -175,18 +175,11 @@ def test_get_daily_pnl_history_returns_rows():
 
 
 def test_get_positions_for_strategies_fail_closed_multiple_strats():
+    # With SQL-based filtering, the query handles strategy filtering via HAVING clause.
+    # AAPL (multi-strategy) is excluded by SQL HAVING COUNT(DISTINCT strategy_id) = 1.
+    # The mock should return what the SQL would return: only MSFT (single strategy).
     now = datetime.now(timezone.utc)
     rows = [
-        {
-            "symbol": "AAPL",
-            "qty": Decimal("10"),
-            "avg_entry_price": Decimal("100"),
-            "current_price": Decimal("101"),
-            "unrealized_pl": Decimal("10"),
-            "realized_pl": Decimal("0"),
-            "updated_at": now,
-            "strategies": ["s1", "s2"],
-        },
         {
             "symbol": "MSFT",
             "qty": Decimal("5"),
@@ -195,7 +188,7 @@ def test_get_positions_for_strategies_fail_closed_multiple_strats():
             "unrealized_pl": Decimal("-5"),
             "realized_pl": Decimal("0"),
             "updated_at": now,
-            "strategies": ["s1"],
+            # No "strategies" key - SQL returns position columns only
         },
     ]
     db = _make_db(rows)

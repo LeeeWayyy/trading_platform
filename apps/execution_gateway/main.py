@@ -100,6 +100,11 @@ from libs.risk_management import (
     PositionReservation,
     RiskConfig,
 )
+
+# DESIGN DECISION: Shared auth library in libs/ instead of importing from apps.web_console.
+# This prevents backend→frontend dependency while sharing RBAC logic across services.
+# Alternative: Import from apps.web_console with runtime guards, rejected due to circular
+# dependency risk and tight coupling between frontend/backend deployment cycles.
 from libs.web_console_auth.permissions import (
     Permission,
     get_authorized_strategies,
@@ -916,7 +921,11 @@ def _compute_daily_performance(
     if not rows:
         return [], Decimal("0"), Decimal("0")
 
-    # Expand requested range to cover returned data (supports mocked data in tests)
+    # DESIGN DECISION: Expand requested range to cover returned data.
+    # This supports mocked data in tests where mock databases may return dates outside
+    # the requested range. Keeping this in production code ensures test/prod parity
+    # and gracefully handles edge cases where fill timestamps cross date boundaries.
+    # Alternative: Move to test helper, but risks test/prod divergence.
     trade_dates: list[date] = [
         t for t in (r.get("trade_date") for r in rows) if isinstance(t, date)
     ]
@@ -2868,7 +2877,12 @@ async def get_realtime_pnl(user: dict[str, Any] = Depends(_build_user_context)) 
     if not authorized_strategies and not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
 
-    # Get positions from database, scoped by strategies when possible
+    # DESIGN DECISION: Separate try/except for DB call vs empty-result guard.
+    # The first handles database exceptions (connection failures, query errors).
+    # The second handles the business logic case where query succeeds but returns
+    # no positions for strategy-scoped users. Merging them would conflate error
+    # handling with normal empty-result flow. Alternative: single block with
+    # isinstance checks, but reduces clarity of distinct failure modes.
     try:
         if has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
             db_positions = db_client.get_all_positions()
