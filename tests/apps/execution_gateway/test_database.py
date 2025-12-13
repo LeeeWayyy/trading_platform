@@ -9,6 +9,7 @@ Tests cover:
 - Connection health checks
 """
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -18,6 +19,19 @@ from psycopg import DatabaseError, IntegrityError, OperationalError
 
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
+
+
+@contextmanager
+def _mock_pool_connection():
+    """Context manager returning a mocked pool connection + cursor."""
+    with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+
+        pool_instance = mock_pool.return_value
+        pool_instance.connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        yield mock_pool, mock_conn, mock_cursor
 
 # Mark all tests as integration - they mock psycopg.connect but DatabaseClient uses ConnectionPool
 # which doesn't use psycopg.connect directly. These tests need proper ConnectionPool mocking.
@@ -50,13 +64,18 @@ class TestCreateOrder:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
+        """Create mock database connection pooled via ConnectionPool."""
+        with patch("apps.execution_gateway.database.ConnectionPool") as mock_pool:
             mock_conn = MagicMock()
             mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
+
+            # Pool.connection().__enter__ returns our mock connection
+            pool_instance = mock_pool.return_value
+            pool_instance.connection.return_value.__enter__.return_value = mock_conn
+
+            # Connection.cursor().__enter__ returns our mock cursor
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+            yield mock_pool, mock_conn, mock_cursor
 
     def test_create_order_success(self, mock_connection):
         """Test successful order creation."""
@@ -189,13 +208,9 @@ class TestGetOrderByClientId:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_get_order_found(self, mock_connection):
         """Test fetching existing order returns OrderDetail."""
@@ -259,13 +274,9 @@ class TestUpdateOrderStatus:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_update_status_to_filled(self, mock_connection):
         """Test updating order to filled status."""
@@ -360,13 +371,9 @@ class TestUpdatePositionOnFill:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_open_new_long_position(self, mock_connection):
         """Test opening a new long position from flat."""
@@ -572,13 +579,9 @@ class TestGetAllPositions:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_get_all_positions_returns_list(self, mock_connection):
         """Test getting all positions returns list of Position objects."""
@@ -642,13 +645,9 @@ class TestCheckConnection:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_check_connection_success(self, mock_connection):
         """Test successful connection check returns True."""
@@ -662,8 +661,12 @@ class TestCheckConnection:
 
     def test_check_connection_failure_returns_false(self, mock_connection):
         """Test failed connection check returns False."""
-        mock_connect, _, _ = mock_connection
-        mock_connect.return_value.__enter__.side_effect = OperationalError("Connection refused")
+        mock_pool, _, _ = mock_connection
+        # Set the pool.connection().__enter__ to raise OperationalError
+        # This simulates a connection failure when getting a connection from the pool
+        mock_pool.return_value.connection.return_value.__enter__.side_effect = OperationalError(
+            "Connection refused"
+        )
 
         db = DatabaseClient("postgresql://localhost/trading_platform")
         result = db.check_connection()
@@ -676,13 +679,9 @@ class TestCreateParentOrder:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_create_parent_order_success(self, mock_connection):
         """Test successful parent order creation with parent_order_id=NULL."""
@@ -812,13 +811,9 @@ class TestCreateChildSlice:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_create_child_slice_success(self, mock_connection):
         """Test successful child slice creation with parent reference."""
@@ -978,13 +973,9 @@ class TestGetSlicesByParentId:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_get_slices_by_parent_id_empty(self, mock_connection):
         """Test querying slices for parent with no slices returns empty list."""
@@ -1168,13 +1159,9 @@ class TestCancelPendingSlices:
 
     @pytest.fixture()
     def mock_connection(self):
-        """Create mock database connection."""
-        with patch("apps.execution_gateway.database.psycopg.connect") as mock_connect:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_connect.return_value.__enter__.return_value = mock_conn
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            yield mock_connect, mock_conn, mock_cursor
+        """Create mock database connection via pool."""
+        with _mock_pool_connection() as mocks:
+            yield mocks
 
     def test_cancel_pending_slices_zero(self, mock_connection):
         """Test canceling slices when none are pending returns 0."""

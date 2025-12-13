@@ -1,4 +1,6 @@
 """
+from __future__ import annotations
+
 Redis connection manager with retry logic and health checks.
 
 This module provides a thread-safe Redis client with:
@@ -19,7 +21,9 @@ See Also:
     - docs/ADRs/0009-redis-integration.md for design rationale
 """
 
+import builtins
 import logging
+from collections.abc import Generator
 from typing import Any, cast
 
 import redis
@@ -232,28 +236,30 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
-    def delete(self, key: str) -> int:
+    def delete(self, *keys: str) -> int:
         """
-        Delete key from Redis with retry logic.
+        Delete one or more keys from Redis with retry logic.
 
         Args:
-            key: Redis key to delete
+            *keys: Redis keys to delete
 
         Returns:
-            Number of keys deleted (0 or 1)
+            Number of keys deleted
 
         Raises:
             RedisError: If operation fails after retries
 
         Example:
-            >>> deleted = client.delete("features:AAPL:2025-01-17")
-            >>> assert deleted == 1
+            >>> deleted = client.delete("features:AAPL:2025-01-17", "features:MSFT:2025-01-17")
+            >>> assert deleted >= 1
         """
+        if not keys:
+            return 0
         try:
-            result = self._client.delete(key)
+            result = self._client.delete(*keys)
             return cast(int, result)
         except RedisError as e:
-            logger.error(f"Redis DELETE failed for key '{key}': {e}")
+            logger.error(f"Redis DELETE failed for keys {keys}: {e}")
             raise
 
     @retry(
@@ -329,6 +335,63 @@ class RedisClient:
             - WatchError is raised if watched key was modified by another client
         """
         return self._client.pipeline(transaction=transaction)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def sadd(self, key: str, *members: str) -> int:
+        """Add one or more members to a set."""
+        try:
+            result = self._client.sadd(key, *members)
+            return cast(int, result)
+        except RedisError as e:
+            logger.error(f"Redis SADD failed for key '{key}': {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def smembers(self, key: str) -> builtins.set[str]:
+        """Return all members of a set.
+
+        Note: For large sets in production, prefer sscan_iter() to avoid blocking.
+        """
+        try:
+            result = self._client.smembers(key)
+            return cast(builtins.set[str], result)
+        except RedisError as e:
+            logger.error(f"Redis SMEMBERS failed for key '{key}': {e}")
+            raise
+
+    def sscan_iter(self, key: str, count: int = 100) -> Generator[str, None, None]:
+        """Iterate over set members using SSCAN (non-blocking).
+
+        Unlike SMEMBERS which blocks the Redis event loop for the entire set,
+        SSCAN iterates in batches, yielding to other clients between iterations.
+        Use this for production cache invalidation to avoid blocking.
+
+        Args:
+            key: Redis set key
+            count: Hint for how many items to return per iteration (default 100)
+
+        Yields:
+            Members of the set as strings.
+        """
+        try:
+            # sscan_iter from redis-py returns a generator, so we yield from it directly.
+            # With decode_responses=True, members are already strings.
+            # Note: SSCAN may return duplicates during rehashing, but this is rare and
+            # callers (e.g., cache invalidation) tolerate duplicates. Streaming without
+            # deduplication preserves O(1) memory for large sets.
+            for member in self._client.sscan_iter(key, count=count):
+                yield str(member)
+        except RedisError as e:
+            logger.error(f"Redis SSCAN failed for key '{key}': {e}")
+            raise
 
     def zadd(self, key: str, mapping: dict[str, float]) -> int:
         """
