@@ -843,11 +843,11 @@ class CompustatLocalProvider:
         """
         conn = self._ensure_connection()
 
-        # Build column list
+        # Build column list with quoted identifiers to handle reserved keywords (e.g., 'at' in DuckDB 1.x)
         if columns is None:
-            col_expr = ", ".join(column_order)
+            col_expr = ", ".join(f'"{c}"' for c in column_order)
         else:
-            col_expr = ", ".join(columns)
+            col_expr = ", ".join(f'"{c}"' for c in columns)
 
         # Build WHERE clause with parameters
         params: dict[str, Any] = {

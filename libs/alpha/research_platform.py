@@ -8,7 +8,9 @@ through snapshot-locked data paths.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -17,10 +19,7 @@ from typing import TYPE_CHECKING, Literal
 import polars as pl
 
 from libs.alpha.alpha_definition import AlphaDefinition
-from libs.alpha.exceptions import (
-    MissingForwardReturnError,
-    PITViolationError,
-)
+from libs.alpha.exceptions import JobCancelled, MissingForwardReturnError, PITViolationError
 from libs.alpha.metrics import AlphaMetricsAdapter
 from libs.alpha.portfolio import SignalToWeight, TurnoverCalculator, TurnoverResult
 
@@ -30,6 +29,7 @@ if TYPE_CHECKING:
     from libs.data_quality.versioning import DatasetVersionManager, SnapshotManifest
 
 logger = logging.getLogger(__name__)
+__all__ = ["BacktestResult", "PITBacktester", "JobCancelled"]
 
 
 @dataclass
@@ -66,9 +66,7 @@ class BacktestResult:
     decay_half_life: float | None
 
     # Metadata
-    computation_timestamp: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     n_days: int = 0
     n_symbols_avg: float = 0.0
 
@@ -120,12 +118,38 @@ class PITBacktester:
         self._prices_cache: pl.DataFrame | None = None
         self._fundamentals_cache: pl.DataFrame | None = None
 
+    def _invoke_callbacks(
+        self,
+        progress_callback: Callable[[int, date | None], None] | None,
+        cancel_check: Callable[[], None] | None,
+        last_callback_time: float,
+        pct: int,
+        current_date: date | None,
+        force: bool = False,
+    ) -> float:
+        """Invoke progress and cancellation callbacks.
+
+        Calls occur if force=True or at least 30 seconds elapsed since the last
+        invocation. Returns the updated callback timestamp.
+        """
+        now = time.monotonic()
+        if cancel_check is not None:
+            cancel_check()
+
+        if not force and (now - last_callback_time) < 30:
+            return last_callback_time
+
+        pct_clamped = min(100, max(0, pct))
+
+        if progress_callback is not None:
+            progress_callback(pct_clamped, current_date)
+
+        return now
+
     def _ensure_snapshot_locked(self) -> None:
         """Assert snapshot is locked before any data access."""
         if self._snapshot is None:
-            raise PITViolationError(
-                "No snapshot locked - call run_backtest first"
-            )
+            raise PITViolationError("No snapshot locked - call run_backtest first")
 
     def _lock_snapshot(self, snapshot_id: str | None) -> SnapshotManifest:
         """Lock a snapshot for the backtest.
@@ -144,9 +168,7 @@ class PITBacktester:
         else:
             # Create new snapshot
             tag = f"backtest_{uuid.uuid4().hex[:8]}"
-            snapshot = self._version_manager.create_snapshot(
-                tag, datasets=["crsp", "compustat"]
-            )
+            snapshot = self._version_manager.create_snapshot(tag, datasets=["crsp", "compustat"])
             logger.info(f"Created new snapshot: {tag}")
 
         self._snapshot = snapshot
@@ -202,13 +224,9 @@ class PITBacktester:
         filing_lag_days = 90
         cutoff_datadate = as_of_date - timedelta(days=filing_lag_days)
 
-        return self._fundamentals_cache.filter(
-            pl.col("datadate") <= cutoff_datadate
-        )
+        return self._fundamentals_cache.filter(pl.col("datadate") <= cutoff_datadate)
 
-    def _get_pit_forward_returns(
-        self, as_of_date: date, horizon: int = 1
-    ) -> pl.DataFrame:
+    def _get_pit_forward_returns(self, as_of_date: date, horizon: int = 1) -> pl.DataFrame:
         """Get forward returns from snapshot.
 
         FAIL-FAST: Raises MissingForwardReturnError if horizon exceeds snapshot.
@@ -254,19 +272,23 @@ class PITBacktester:
         # Compute geometric return: (1 + r1) * (1 + r2) * ... - 1
         forward_returns = (
             forward_data.group_by("permno")
-            .agg([
-                ((pl.col("ret") + 1).product() - 1).alias("return"),
-                pl.col("ret").count().alias("n_days"),
-            ])
+            .agg(
+                [
+                    ((pl.col("ret") + 1).product() - 1).alias("return"),
+                    pl.col("ret").count().alias("n_days"),
+                ]
+            )
             # Require exact horizon observations to avoid biased returns
             .filter(pl.col("n_days") == horizon)
             .select(["permno", "return"])
         )
 
         # Add date column and format
-        returns = forward_returns.with_columns([
-            pl.lit(as_of_date).alias("date"),
-        ]).select(["permno", "date", "return"])
+        returns = forward_returns.with_columns(
+            [
+                pl.lit(as_of_date).alias("date"),
+            ]
+        ).select(["permno", "date", "return"])
 
         return returns
 
@@ -284,17 +306,13 @@ class PITBacktester:
         base_path = Path("data/snapshots") / self._snapshot.version_tag / dataset
         return base_path
 
-    def _get_trading_calendar(
-        self, start_date: date, end_date: date
-    ) -> list[date]:
+    def _get_trading_calendar(self, start_date: date, end_date: date) -> list[date]:
         """Get trading days from snapshot data."""
         self._ensure_snapshot_locked()
         prices = self._get_pit_prices(end_date)
 
         trading_days = (
-            prices.filter(
-                (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-            )
+            prices.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
             .select("date")
             .unique()
             .sort("date")
@@ -313,6 +331,8 @@ class PITBacktester:
         weight_method: Literal["zscore", "quantile", "rank"] = "zscore",
         decay_horizons: list[int] | None = None,
         batch_size: int = 252,
+        progress_callback: Callable[[int, date | None], None] | None = None,
+        cancel_check: Callable[[], None] | None = None,
     ) -> BacktestResult:
         """Run PIT-correct backtest.
 
@@ -335,182 +355,240 @@ class PITBacktester:
 
         backtest_id = str(uuid.uuid4())
         logger.info(
-            f"Starting backtest {backtest_id} for {alpha.name} "
-            f"from {start_date} to {end_date}"
+            f"Starting backtest {backtest_id} for {alpha.name} " f"from {start_date} to {end_date}"
         )
 
-        # Lock snapshot
-        snapshot = self._lock_snapshot(snapshot_id)
+        last_callback_time = time.monotonic()
+        last_callback_time = self._invoke_callbacks(
+            progress_callback, cancel_check, last_callback_time, 0, None, force=True
+        )
 
-        # Link backtest to snapshot for reproducibility
-        self._version_manager.link_backtest(backtest_id, snapshot.version_tag)
+        try:
+            # Lock snapshot
+            snapshot = self._lock_snapshot(snapshot_id)
 
-        # Get trading calendar
-        trading_days = self._get_trading_calendar(start_date, end_date)
-        logger.info(f"Found {len(trading_days)} trading days")
+            # Link backtest to snapshot for reproducibility
+            self._version_manager.link_backtest(backtest_id, snapshot.version_tag)
 
-        if not trading_days:
-            raise PITViolationError(
-                f"No trading days found between {start_date} and {end_date}"
-            )
+            # Get trading calendar
+            trading_days = self._get_trading_calendar(start_date, end_date)
+            logger.info(f"Found {len(trading_days)} trading days")
 
-        # Batch processing
-        all_signals: list[pl.DataFrame] = []
-        all_returns: list[pl.DataFrame] = []
-        backtest_stopped = False
+            if not trading_days:
+                raise PITViolationError(
+                    f"No trading days found between {start_date} and {end_date}"
+                )
 
-        batches = [
-            trading_days[i : i + batch_size]
-            for i in range(0, len(trading_days), batch_size)
-        ]
+            total_days = len(trading_days)
+            processed_days = 0
 
-        for batch_idx, batch in enumerate(batches):
-            if backtest_stopped:
-                break
+            # Batch processing
+            all_signals: list[pl.DataFrame] = []
+            all_returns: list[pl.DataFrame] = []
+            backtest_stopped = False
 
-            logger.info(f"Processing batch {batch_idx + 1}/{len(batches)}")
+            batches = [
+                trading_days[i : i + batch_size] for i in range(0, len(trading_days), batch_size)
+            ]
 
-            for as_of_date in batch:
-                try:
-                    # Get PIT data
-                    prices = self._get_pit_prices(as_of_date)
-                    fundamentals = self._get_pit_fundamentals(as_of_date)
-
-                    # Get forward returns FIRST to ensure we can compute IC
-                    # If this fails, don't add signal (keep signals/returns aligned)
-                    fwd_returns = self._get_pit_forward_returns(as_of_date, horizon=1)
-
-                    # Only compute signal if forward returns are available
-                    signal = alpha.compute(prices, fundamentals, as_of_date)
-
-                    # Both succeeded - add to results
-                    all_signals.append(signal)
-                    all_returns.append(fwd_returns)
-
-                except MissingForwardReturnError:
-                    # Stop COMPLETELY if we can't compute forward returns
-                    # This prevents signals/returns misalignment
-                    logger.warning(
-                        f"Stopping backtest at {as_of_date}: forward returns unavailable"
-                    )
-                    backtest_stopped = True
+            for batch_idx, batch in enumerate(batches):
+                if backtest_stopped:
                     break
 
-        # Concatenate results
-        if not all_signals:
-            raise PITViolationError("No signals computed")
+                logger.info(f"Processing batch {batch_idx + 1}/{len(batches)}")
 
-        daily_signals = pl.concat(all_signals)
-        daily_returns = pl.concat(all_returns)
+                for as_of_date in batch:
+                    try:
+                        # Get PIT data
+                        prices = self._get_pit_prices(as_of_date)
+                        fundamentals = self._get_pit_fundamentals(as_of_date)
 
-        # Compute daily IC
-        daily_ic = self._compute_daily_ic(daily_signals, daily_returns)
+                        # Get forward returns FIRST to ensure we can compute IC
+                        # If this fails, don't add signal (keep signals/returns aligned)
+                        fwd_returns = self._get_pit_forward_returns(as_of_date, horizon=1)
 
-        # Summary metrics
-        # Use average of daily ICs (not pooled IC across all dates)
-        mean_ic_value = daily_ic.select(pl.col("rank_ic").mean()).item()
-        if mean_ic_value is None:
-            mean_ic_value = float("nan")
+                        # Only compute signal if forward returns are available
+                        signal = alpha.compute(prices, fundamentals, as_of_date)
 
-        icir_result = self._metrics.compute_icir(daily_ic)
-        hit_rate = self._metrics.compute_hit_rate(daily_signals, daily_returns)
+                        # Both succeeded - add to results
+                        all_signals.append(signal)
+                        all_returns.append(fwd_returns)
+                        processed_days += 1
+                        current_pct = int((processed_days / total_days) * 100)
+                        last_callback_time = self._invoke_callbacks(
+                            progress_callback,
+                            cancel_check,
+                            last_callback_time,
+                            current_pct,
+                            as_of_date,
+                        )
 
-        # Coverage: average daily coverage (fraction of universe with valid signal per day)
-        # Compute per-date coverage then average to avoid scaling with backtest duration
-        daily_coverage = (
-            daily_signals.group_by("date")
-            .agg([
-                pl.col("signal").is_not_null().sum().alias("valid_count"),
-                pl.col("signal").count().alias("total_count"),
-            ])
-            .with_columns([
-                (pl.col("valid_count") / pl.col("total_count")).alias("daily_cov")
-            ])
-        )
-        coverage = daily_coverage.select(pl.col("daily_cov").mean()).item()
-        if coverage is None:
-            coverage = 0.0
-        long_short = self._metrics.compute_long_short_spread(daily_signals, daily_returns)
+                    except MissingForwardReturnError:
+                        # Stop COMPLETELY if we can't compute forward returns
+                        # This prevents signals/returns misalignment
+                        logger.warning(
+                            f"Stopping backtest at {as_of_date}: forward returns unavailable"
+                        )
+                        backtest_stopped = True
+                        break
 
-        # Autocorrelation (need cross-sectional mean signal per date)
-        mean_signal_ts = daily_signals.group_by("date").agg(
-            pl.col("signal").mean().alias("signal")
-        )
-        autocorr = self._metrics.compute_autocorrelation(mean_signal_ts)
+            # Concatenate results
+            if not all_signals:
+                raise PITViolationError("No signals computed")
 
-        # Compute weights and turnover
-        weight_converter = SignalToWeight(method=weight_method)
-        daily_weights = weight_converter.convert(daily_signals)
+            daily_signals = pl.concat(all_signals)
+            daily_returns = pl.concat(all_returns)
 
-        turnover_calc = TurnoverCalculator()
-        turnover_result = turnover_calc.compute_turnover_result(daily_weights)
+            current_pct = int((processed_days / total_days) * 100)
+            last_callback_time = self._invoke_callbacks(
+                progress_callback,
+                cancel_check,
+                last_callback_time,
+                current_pct,
+                None,
+            )
 
-        # Decay curve
-        returns_by_horizon = {}
-        for horizon in decay_horizons:
-            try:
-                horizon_returns = self._compute_horizon_returns(
-                    trading_days[0], horizon
+            # Compute daily IC
+            daily_ic, last_callback_time = self._compute_daily_ic(
+                daily_signals,
+                daily_returns,
+                progress_callback,
+                cancel_check,
+                last_callback_time,
+                current_pct,
+            )
+
+            # Summary metrics
+            # Use average of daily ICs (not pooled IC across all dates)
+            mean_ic_value = daily_ic.select(pl.col("rank_ic").mean()).item()
+            if mean_ic_value is None:
+                mean_ic_value = float("nan")
+
+            icir_result = self._metrics.compute_icir(daily_ic)
+            hit_rate = self._metrics.compute_hit_rate(daily_signals, daily_returns)
+
+            # Coverage: average daily coverage (fraction of universe with valid signal per day)
+            # Compute per-date coverage then average to avoid scaling with backtest duration
+            daily_coverage = (
+                daily_signals.group_by("date")
+                .agg(
+                    [
+                        pl.col("signal").is_not_null().sum().alias("valid_count"),
+                        pl.col("signal").count().alias("total_count"),
+                    ]
                 )
-                returns_by_horizon[horizon] = horizon_returns
-            except MissingForwardReturnError:
-                logger.warning(f"Skipping decay horizon {horizon}: data unavailable")
-                continue
+                .with_columns([(pl.col("valid_count") / pl.col("total_count")).alias("daily_cov")])
+            )
+            coverage = daily_coverage.select(pl.col("daily_cov").mean()).item()
+            if coverage is None:
+                coverage = 0.0
+            long_short = self._metrics.compute_long_short_spread(daily_signals, daily_returns)
 
-        decay_result = self._metrics.compute_decay_curve(
-            daily_signals, returns_by_horizon
-        )
+            # Autocorrelation (need cross-sectional mean signal per date)
+            mean_signal_ts = daily_signals.group_by("date").agg(
+                pl.col("signal").mean().alias("signal")
+            )
+            autocorr = self._metrics.compute_autocorrelation(mean_signal_ts)
 
-        # Build result
-        result = BacktestResult(
-            alpha_name=alpha.name,
-            backtest_id=backtest_id,
-            start_date=start_date,
-            end_date=end_date,
-            snapshot_id=snapshot.version_tag,
-            dataset_version_ids={
-                ds: str(snapshot.datasets[ds].sync_manifest_version)
-                for ds in snapshot.datasets
-            },
-            daily_signals=daily_signals,
-            daily_ic=daily_ic,
-            mean_ic=mean_ic_value,
-            icir=icir_result.icir,
-            hit_rate=hit_rate,
-            coverage=coverage,
-            long_short_spread=long_short,
-            autocorrelation=autocorr,
-            weight_method=weight_method,
-            daily_weights=daily_weights,
-            turnover_result=turnover_result,
-            decay_curve=decay_result.decay_curve,
-            decay_half_life=decay_result.half_life,
-            n_days=len(trading_days),
-            n_symbols_avg=daily_signals.group_by("date").len().select(
-                pl.col("len").mean()
-            ).item() or 0.0,
-        )
+            # Compute weights and turnover
+            weight_converter = SignalToWeight(method=weight_method)
+            daily_weights = weight_converter.convert(daily_signals)
 
-        logger.info(
-            f"Backtest complete: ICIR={result.icir:.2f}, "
-            f"Turnover={result.average_turnover:.2%}"
-        )
+            turnover_calc = TurnoverCalculator()
+            turnover_result = turnover_calc.compute_turnover_result(daily_weights)
 
-        # Clear caches
-        self._snapshot = None
-        self._prices_cache = None
-        self._fundamentals_cache = None
+            # Decay curve
+            returns_by_horizon = {}
+            for horizon in decay_horizons:
+                try:
+                    horizon_returns, last_callback_time = self._compute_horizon_returns(
+                        trading_days[0],
+                        horizon,
+                        progress_callback,
+                        cancel_check,
+                        last_callback_time,
+                        current_pct,
+                    )
+                    returns_by_horizon[horizon] = horizon_returns
+                    last_callback_time = self._invoke_callbacks(
+                        progress_callback,
+                        cancel_check,
+                        last_callback_time,
+                        current_pct,
+                        None,
+                    )
+                except MissingForwardReturnError:
+                    logger.warning(f"Skipping decay horizon {horizon}: data unavailable")
+                    continue
 
-        return result
+            decay_result = self._metrics.compute_decay_curve(daily_signals, returns_by_horizon)
+
+            # Build result
+            result = BacktestResult(
+                alpha_name=alpha.name,
+                backtest_id=backtest_id,
+                start_date=start_date,
+                end_date=end_date,
+                snapshot_id=snapshot.version_tag,
+                dataset_version_ids={
+                    ds: str(snapshot.datasets[ds].sync_manifest_version) for ds in snapshot.datasets
+                },
+                daily_signals=daily_signals,
+                daily_ic=daily_ic,
+                mean_ic=mean_ic_value,
+                icir=icir_result.icir,
+                hit_rate=hit_rate,
+                coverage=coverage,
+                long_short_spread=long_short,
+                autocorrelation=autocorr,
+                weight_method=weight_method,
+                daily_weights=daily_weights,
+                turnover_result=turnover_result,
+                decay_curve=decay_result.decay_curve,
+                decay_half_life=decay_result.half_life,
+                n_days=len(trading_days),
+                n_symbols_avg=daily_signals.group_by("date")
+                .len()
+                .select(pl.col("len").mean())
+                .item()
+                or 0.0,
+            )
+
+            logger.info(
+                f"Backtest complete: ICIR={result.icir:.2f}, "
+                f"Turnover={result.average_turnover:.2%}"
+            )
+
+            last_callback_time = self._invoke_callbacks(
+                progress_callback,
+                cancel_check,
+                last_callback_time,
+                100,
+                None,
+                force=True,
+            )
+
+            return result
+        finally:
+            self._snapshot = None
+            self._prices_cache = None
+            self._fundamentals_cache = None
 
     def _compute_daily_ic(
-        self, signals: pl.DataFrame, returns: pl.DataFrame
-    ) -> pl.DataFrame:
+        self,
+        signals: pl.DataFrame,
+        returns: pl.DataFrame,
+        progress_callback: Callable[[int, date | None], None] | None,
+        cancel_check: Callable[[], None] | None,
+        last_callback_time: float,
+        pct: int,
+    ) -> tuple[pl.DataFrame, float]:
         """Compute daily IC time series."""
         dates = signals.select("date").unique().sort("date").to_series().to_list()
         results = []
 
-        for d in dates:
+        total_dates = len(dates)
+        for idx, d in enumerate(dates):
             day_signals = signals.filter(pl.col("date") == d)
             day_returns = returns.filter(pl.col("date") == d)
 
@@ -518,22 +596,43 @@ class PITBacktester:
                 continue
 
             ic_result = self._metrics.compute_ic(day_signals, day_returns)
-            results.append({
-                "date": d,
-                "ic": ic_result.pearson_ic,
-                "rank_ic": ic_result.rank_ic,
-            })
-
-        if not results:
-            return pl.DataFrame(
-                schema={"date": pl.Date, "ic": pl.Float64, "rank_ic": pl.Float64}
+            results.append(
+                {
+                    "date": d,
+                    "ic": ic_result.pearson_ic,
+                    "rank_ic": ic_result.rank_ic,
+                }
             )
 
-        return pl.DataFrame(results)
+            # Map this loop's progress into a smaller slice of the overall progress bar
+            loop_span = min(10, max(100 - pct, 0))
+            loop_pct = min(100, pct + int(((idx + 1) / max(total_dates, 1)) * loop_span))
+
+            last_callback_time = self._invoke_callbacks(
+                progress_callback,
+                cancel_check,
+                last_callback_time,
+                loop_pct,
+                d,
+            )
+
+        if not results:
+            return (
+                pl.DataFrame(schema={"date": pl.Date, "ic": pl.Float64, "rank_ic": pl.Float64}),
+                last_callback_time,
+            )
+
+        return pl.DataFrame(results), last_callback_time
 
     def _compute_horizon_returns(
-        self, base_date: date, horizon: int
-    ) -> pl.DataFrame:
+        self,
+        base_date: date,
+        horizon: int,
+        progress_callback: Callable[[int, date | None], None] | None,
+        cancel_check: Callable[[], None] | None,
+        last_callback_time: float,
+        pct: int,
+    ) -> tuple[pl.DataFrame, float]:
         """Compute returns at specific horizon for all trading dates.
 
         For each date in the backtest, computes the forward return over
@@ -561,6 +660,7 @@ class PITBacktester:
             )
 
         results = []
+        total_iterations = len(all_dates) - horizon
         # For each date, compute forward return at this horizon
         for i, as_of_date in enumerate(all_dates[:-horizon]):
             target_date = all_dates[i + horizon]
@@ -573,10 +673,12 @@ class PITBacktester:
             # Geometric compounding with min-count filter
             horizon_returns = (
                 forward_data.group_by("permno")
-                .agg([
-                    ((pl.col("ret") + 1).product() - 1).alias("return"),
-                    pl.col("ret").count().alias("n_days"),
-                ])
+                .agg(
+                    [
+                        ((pl.col("ret") + 1).product() - 1).alias("return"),
+                        pl.col("ret").count().alias("n_days"),
+                    ]
+                )
                 # Require exact horizon observations to avoid inflated IC from empty products
                 .filter(pl.col("n_days") == horizon)
                 .with_columns([pl.lit(as_of_date).alias("date")])
@@ -584,10 +686,24 @@ class PITBacktester:
             )
 
             results.append(horizon_returns)
-
-        if not results:
-            return pl.DataFrame(
-                schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64}
+            # Calculate progress relative to base pct, allocating remaining percentage
+            horizon_span = min(10, max(100 - pct, 0))
+            horizon_pct = min(100, pct + int(((i + 1) / max(total_iterations, 1)) * horizon_span))
+            last_callback_time = self._invoke_callbacks(
+                progress_callback,
+                cancel_check,
+                last_callback_time,
+                horizon_pct,
+                as_of_date,
             )
 
-        return pl.concat(results).select(["permno", "date", "return"])
+        if not results:
+            return (
+                pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "return": pl.Float64}),
+                last_callback_time,
+            )
+
+        return (
+            pl.concat(results).select(["permno", "date", "return"]),
+            last_callback_time,
+        )

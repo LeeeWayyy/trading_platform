@@ -58,3 +58,9 @@ class AlphaValidationError(AlphaResearchError):
     """
 
     pass
+
+
+class JobCancelled(AlphaResearchError):
+    """Raised when a backtest job is cancelled cooperatively."""
+
+    pass
