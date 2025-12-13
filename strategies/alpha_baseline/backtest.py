@@ -11,7 +11,7 @@ See /docs/IMPLEMENTATION_GUIDES/t2-baseline-strategy-qlib.md for details.
 """
 
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -185,7 +185,7 @@ class PortfolioBacktest:
 
             daily_returns.append(portfolio_return)
 
-        return cast(pd.Series, pd.Series(daily_returns, index=dates[: len(daily_returns)]))
+        return pd.Series(daily_returns, index=dates[: len(daily_returns)])
 
     def _compute_metrics(self) -> dict[str, float]:
         """

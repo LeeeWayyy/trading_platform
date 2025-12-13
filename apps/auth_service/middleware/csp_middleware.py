@@ -17,8 +17,9 @@ import logging
 import secrets
 from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 from apps.auth_service.utils.csp_policy import build_csp_policy
 
@@ -47,7 +48,7 @@ class CSPMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app: FastAPI,
+        app: ASGIApp,
         auth0_domain: str,
         report_uri: str = "/csp-report",
         enable_report_only: bool = False,

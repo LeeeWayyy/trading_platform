@@ -202,8 +202,8 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     for period in [5, 10, 14, 20, 30]:
         # RSI-like
         delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(period).mean()  # type: ignore[operator]
-        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()  # type: ignore[operator]
+        gain = (delta.where(delta > 0, 0)).rolling(period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
         rs = gain / (loss + 1e-10)
         features[f"feature_{feature_idx}"] = 100 - (100 / (1 + rs))
         feature_idx += 1

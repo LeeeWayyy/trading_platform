@@ -201,10 +201,12 @@ class AlpacaExecutor:
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value,
+                "side": alpaca_order.side.value if alpaca_order.side is not None else None,
                 "qty": Decimal(str(alpaca_order.qty or 0)),  # H1: Decimal for precision
-                "order_type": alpaca_order.order_type.value,
-                "status": alpaca_order.status.value,
+                "order_type": (
+                    alpaca_order.order_type.value if alpaca_order.order_type is not None else None
+                ),
+                "status": alpaca_order.status.value if alpaca_order.status is not None else None,
                 "created_at": alpaca_order.created_at,
                 "limit_price": (
                     Decimal(str(alpaca_order.limit_price)) if alpaca_order.limit_price else None
@@ -365,10 +367,12 @@ class AlpacaExecutor:
                 "id": str(alpaca_order.id),
                 "client_order_id": alpaca_order.client_order_id,
                 "symbol": alpaca_order.symbol,
-                "side": alpaca_order.side.value,
+                "side": alpaca_order.side.value if alpaca_order.side is not None else None,
                 "qty": Decimal(str(alpaca_order.qty or 0)),  # H1: Decimal for precision
-                "order_type": alpaca_order.order_type.value,
-                "status": alpaca_order.status.value,
+                "order_type": (
+                    alpaca_order.order_type.value if alpaca_order.order_type is not None else None
+                ),
+                "status": alpaca_order.status.value if alpaca_order.status is not None else None,
                 "filled_qty": Decimal(str(alpaca_order.filled_qty or 0)),  # H1: Decimal
                 "filled_avg_price": (
                     Decimal(str(alpaca_order.filled_avg_price))

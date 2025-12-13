@@ -6,7 +6,10 @@ WebSocket client for real-time market data from Alpaca.
 
 import asyncio
 import logging
+from collections.abc import Mapping
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
@@ -230,7 +233,7 @@ class AlpacaMarketDataStream:
                 logger.error(f"Failed to unsubscribe from symbols {symbols}: {e}")
                 raise SubscriptionError(f"Failed to unsubscribe from symbols {symbols}: {e}") from e
 
-    async def _handle_quote(self, quote: Quote) -> None:
+    async def _handle_quote(self, quote: Quote | Mapping[str, Any]) -> None:
         """
         Handle incoming quote from Alpaca.
 
@@ -246,14 +249,40 @@ class AlpacaMarketDataStream:
         """
         try:
             # Convert Alpaca Quote to our QuoteData model
+            symbol = quote["symbol"] if isinstance(quote, Mapping) else quote.symbol
+            bid_price_value = quote["bid_price"] if isinstance(quote, Mapping) else quote.bid_price
+            ask_price_value = quote["ask_price"] if isinstance(quote, Mapping) else quote.ask_price
+            bid_size_value = quote.get("bid_size", 0) if isinstance(quote, Mapping) else quote.bid_size
+            ask_size_value = quote.get("ask_size", 0) if isinstance(quote, Mapping) else quote.ask_size
+            raw_timestamp = quote.get("timestamp") if isinstance(quote, Mapping) else quote.timestamp
+            if raw_timestamp is None:
+                logger.warning("Received quote without timestamp for symbol %s", symbol)
+                return
+            if isinstance(raw_timestamp, str):
+                timestamp_value = datetime.fromisoformat(raw_timestamp)
+            else:
+                timestamp_value = raw_timestamp
+            if not isinstance(timestamp_value, datetime):
+                logger.warning(
+                    "Received quote with unsupported timestamp type %s for symbol %s",
+                    type(timestamp_value),
+                    symbol,
+                )
+                return
+            ask_exchange = (
+                quote.get("ask_exchange", "UNKNOWN")
+                if isinstance(quote, Mapping)
+                else getattr(quote, "ask_exchange", "UNKNOWN")
+            )
+
             quote_data = QuoteData(
-                symbol=quote.symbol,
-                bid_price=Decimal(str(quote.bid_price)),
-                ask_price=Decimal(str(quote.ask_price)),
-                bid_size=int(quote.bid_size),
-                ask_size=int(quote.ask_size),
-                timestamp=quote.timestamp,
-                exchange=quote.ask_exchange if hasattr(quote, "ask_exchange") else "UNKNOWN",
+                symbol=symbol,
+                bid_price=Decimal(str(bid_price_value)),
+                ask_price=Decimal(str(ask_price_value)),
+                bid_size=int(bid_size_value),
+                ask_size=int(ask_size_value),
+                timestamp=timestamp_value,
+                exchange=ask_exchange,
             )
 
             # Create price data for caching

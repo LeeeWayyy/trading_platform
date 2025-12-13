@@ -1,0 +1,7 @@
+rq>=1.16,<2.0.0
+psutil>=5.9
+redis>=5.0.0
+psycopg[binary]>=3.1.0
+psycopg_pool>=3.2.0
+polars>=1.0.0
+structlog>=24.0.0

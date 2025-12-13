@@ -234,6 +234,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0022](./ADRs/ADR-0022-qlib-integration.md) | Qlib Integration Strategy | ✅ Accepted |
 | [ADR-0023](./ADRs/ADR-0023-model-deployment.md) | Model Registry & Deployment Versioning | ✅ Accepted |
 | [ADR-024](./ADRs/ADR-024-analytics-security.md) | Web console analytics security & RBAC design | 🚧 Proposed |
+| [ADR-0025](./ADRs/ADR-0025-backtest-job-queue.md) | Backtest job queue infrastructure (RQ, Redis, psycopg) | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -392,6 +393,12 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-07, Task] [P4T2_TASK.md](./TASKS/P4T2_TASK.md) - P4T2: Analytics Infrastructure - Multi-Factor Model Construction
 - [CURRENT, 2025-12-09, Task] [P4T3_TASK.md](./TASKS/P4T3_TASK.md) - P4T3: Web Console - Core Analytics with RBAC
 - [CURRENT, 2025-12-10, Task] [P4T4_TASK.md](./TASKS/P4T4_TASK.md) - P4T4: Execution Quality & Trade Journal enhancements
+- [CURRENT, 2025-12-12, Task] [P4T4_5.1_TASK.md](./TASKS/P4T4_5.1_TASK.md) - P4T4-T5.1: Backtest Job Queue Infrastructure (PITBacktester callbacks, RQ workers)
+- [CURRENT, 2025-12-12, Task] [P4T4_5.2_TASK.md](./TASKS/P4T4_5.2_TASK.md) - P4T4-T5.2: Web Console Job Management API endpoints
+- [CURRENT, 2025-12-12, Task] [P4T4_5.3_TASK.md](./TASKS/P4T4_5.3_TASK.md) - P4T4-T5.3: Streamlit Backtest Dashboard with progress tracking
+- [CURRENT, 2025-12-12, Task] [P4T4_5.4_TASK.md](./TASKS/P4T4_5.4_TASK.md) - P4T4-T5.4: Scheduled Backtest Automation
+- [CURRENT, 2025-12-12, Task] [P4T4_5.5_TASK.md](./TASKS/P4T4_5.5_TASK.md) - P4T4-T5.5: Integration Tests & Monitoring
+- [CURRENT, 2025-12-12, Task] [P4T4_5.6_TASK.md](./TASKS/P4T4_5.6_TASK.md) - P4T4-T5.6: Documentation & Runbooks
 - [CURRENT, 2025-12-03, Component] [PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 - [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan

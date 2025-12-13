@@ -101,6 +101,7 @@ from libs.alpha.exceptions import (
     AlphaResearchError,
     AlphaValidationError,
     InsufficientDataError,
+    JobCancelled,
     MissingForwardReturnError,
     PITViolationError,
 )
@@ -157,6 +158,7 @@ __all__ = [
     "MissingForwardReturnError",
     "InsufficientDataError",
     "AlphaValidationError",
+    "JobCancelled",
     # Alpha Combiner
     "AlphaCombiner",
     "CombinerConfig",

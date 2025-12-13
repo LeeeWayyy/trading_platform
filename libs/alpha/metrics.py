@@ -240,7 +240,7 @@ class LocalMetrics:
             series_pd = signal.drop_nulls().to_pandas()
             if len(series_pd) <= lag:
                 return float("nan")
-            return series_pd.autocorr(lag=lag)
+            return float(series_pd.autocorr(lag=lag))
         except Exception:
             return float("nan")
 
