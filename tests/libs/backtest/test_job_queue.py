@@ -240,6 +240,28 @@ def test_watchdog_marks_lost_jobs_failed(redis_mock):
     assert update_conn.commits == 1
 
 
+def test_watchdog_handles_missing_job_timeout(redis_mock):
+    """Watchdog should not crash if job_timeout is NULL or invalid."""
+    running_jobs = [{"job_id": "lost_job", "job_timeout": None}]
+    fetch_cursor = DummyCursor(rows=running_jobs)
+    fetch_conn = DummyConnection(fetch_cursor)
+
+    update_cursor = DummyCursor()
+    update_conn = DummyConnection(update_cursor)
+
+    db_pool = MagicMock()
+    db_pool.connection.side_effect = [fetch_conn, update_conn]
+
+    queue = _make_queue(redis_mock, db_pool)
+    redis_mock.get.return_value = None  # Missing heartbeat should trigger failure
+
+    failures = queue.watchdog_fail_lost_jobs()
+
+    assert failures == 1
+    assert update_cursor.executed
+    assert update_conn.commits == 1
+
+
 def test_enqueue_heals_missing_rq_job(redis_mock):
     db_pool = MagicMock()
     queue = _make_queue(redis_mock, db_pool)

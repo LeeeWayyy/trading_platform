@@ -407,7 +407,7 @@ def _save_result_to_db(conn: Any, job_id: str, result: BacktestResult, result_pa
                 result.average_turnover,
                 result.decay_half_life,
                 result.snapshot_id,
-                json.dumps(result.dataset_version_ids),
+                json.dumps(result.dataset_version_ids),  # Explicit JSON serialization for JSONB
                 datetime.now(UTC),
                 job_id,
             ),

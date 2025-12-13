@@ -440,7 +440,19 @@ class BacktestJobQueue:
             running_jobs = cur.fetchall()
         failures = 0
         for job in running_jobs:
-            threshold = now_ts - max(int(job["job_timeout"]), 3600)
+            raw_timeout = job.get("job_timeout")
+            try:
+                job_timeout = int(raw_timeout) if raw_timeout is not None else self.DEFAULT_TIMEOUT
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    "job_timeout_invalid",
+                    job_id=job.get("job_id"),
+                    raw_timeout=raw_timeout,
+                )
+                job_timeout = self.DEFAULT_TIMEOUT
+
+            # Use job_timeout with 300s floor (min allowed timeout) for watchdog threshold
+            threshold = now_ts - max(job_timeout, 300)
             heartbeat_raw = self.redis.get(f"backtest:heartbeat:{job['job_id']}")
             if isinstance(heartbeat_raw, (bytes, bytearray)):  # noqa: UP038 - align with reviewer request for tuple isinstance
                 heartbeat_str = heartbeat_raw.decode()
