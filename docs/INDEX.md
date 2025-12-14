@@ -263,6 +263,7 @@ Educational explanations of trading and ML concepts:
 | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) | Notional, realized, unrealized P&L | Beginner |
 | [alpha158-features.md](./CONCEPTS/alpha158-features.md) | Alpha158 feature set | Intermediate |
 | [backtest-result-storage.md](./CONCEPTS/backtest-result-storage.md) | Backtest result storage (Postgres + Parquet) | Intermediate |
+| [walk-forward-optimization.md](./CONCEPTS/walk-forward-optimization.md) | Walk-forward optimization methodology | Intermediate |
 | [qlib-data-providers.md](./CONCEPTS/qlib-data-providers.md) | Qlib integration patterns | Intermediate |
 | [lightgbm-training.md](./CONCEPTS/lightgbm-training.md) | Model training pipeline | Intermediate |
 | [model-registry.md](./CONCEPTS/model-registry.md) | Model lifecycle management | Intermediate |
