@@ -234,6 +234,10 @@ class ComparisonService:
         combined_daily = aligned.mul(weight_vector, axis=1).sum(axis=1)
         equity = combined_daily.cumsum()
 
+        # Guard against NaN from ddof=1 with single data point (consistent with _compute_metrics)
+        vol_raw = combined_daily.std(ddof=1)
+        volatility = 0.0 if len(combined_daily) < 2 or pd.isna(vol_raw) else float(vol_raw)
+
         return {
             "weights": weights,
             "equity_curve": [
@@ -241,8 +245,7 @@ class ComparisonService:
                 for idx, val in equity.items()
             ],
             "total_return": float(combined_daily.sum()),
-            # Guard against NaN from ddof=1 with single data point
-            "volatility": 0.0 if len(combined_daily) < 2 else float(combined_daily.std(ddof=1) or 0.0),
+            "volatility": volatility,
             "max_drawdown": self._max_drawdown(equity),
         }
 

@@ -247,12 +247,15 @@ class TestAuditLogPoolUsage:
 
                                 with patch.dict(
                                     "sys.modules",
-                                    {"psycopg": mock_psycopg},
+                                    {"psycopg": mock_psycopg, "psycopg.rows": MagicMock()},
                                 ):
                                     app_module.render_audit_log()
 
                                     # Verify direct connect was called as fallback
-                                    mock_psycopg.connect.assert_called_once_with(
-                                        config.DATABASE_URL,
-                                        connect_timeout=config.DATABASE_CONNECT_TIMEOUT,
-                                    )
+                                    # Note: row_factory=dict_row is now included for consistency
+                                    # with pooled connections (see db_pool.py design decision)
+                                    mock_psycopg.connect.assert_called_once()
+                                    call_args = mock_psycopg.connect.call_args
+                                    assert call_args[0][0] == config.DATABASE_URL
+                                    assert call_args[1]["connect_timeout"] == config.DATABASE_CONNECT_TIMEOUT
+                                    assert "row_factory" in call_args[1]

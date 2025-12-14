@@ -81,6 +81,7 @@ class AsyncConnectionAdapter:
 
         async with await psycopg.AsyncConnection.connect(
             self._database_url,
+            # psycopg type stubs require int for connect_timeout (not float)
             connect_timeout=int(self._connect_timeout),
             row_factory=dict_row,
         ) as conn:

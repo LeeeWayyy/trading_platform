@@ -388,8 +388,15 @@ class RiskService:
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
 
+        # Scale limit by authorized strategies count since get_pnl_summary returns
+        # one row per strategy per day (similar to ComparisonService logic)
+        num_strategies = len(self._scoped_access.authorized_strategies)
+        query_limit = days * max(num_strategies, 1)
+
         try:
-            pnl_data = await self._scoped_access.get_pnl_summary(start_date, end_date, limit=days)
+            pnl_data = await self._scoped_access.get_pnl_summary(
+                start_date, end_date, limit=query_limit
+            )
         except PermissionError:
             # User has no strategy access - propagate
             raise

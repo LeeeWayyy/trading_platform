@@ -58,7 +58,7 @@ class TestAsyncConnectionAdapter:
 
             mock_connect.assert_called_once_with(
                 "postgresql://test:test@localhost/test",
-                connect_timeout=5,  # int cast from 5.0
+                connect_timeout=5,  # int cast required by psycopg type stubs
                 row_factory=dict_row,
             )
 
