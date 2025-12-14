@@ -6,7 +6,7 @@ import os
 from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any
 
 import requests
 import streamlit as st
@@ -14,8 +14,9 @@ import streamlit as st
 from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
 from apps.web_console.auth.session_manager import get_current_user, require_auth
 from apps.web_console.components.pnl_chart import render_drawdown_chart, render_equity_curve
-from apps.web_console.config import API_REQUEST_TIMEOUT, AUTO_REFRESH_INTERVAL, ENDPOINTS
+from apps.web_console.config import AUTO_REFRESH_INTERVAL
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
+from apps.web_console.utils.api_client import fetch_api
 
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 90
@@ -28,13 +29,7 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
 
 
 def _safe_current_user() -> Mapping[str, Any]:
-    """
-    Return current user when session context exists.
-
-    Streamlit tests render components without an authenticated session; in those cases
-    fall back to an empty mapping so pages can still render in isolation.
-    """
-
+    """Compatibility wrapper to allow tests to monkeypatch user context."""
     try:
         user = get_current_user()
     except RuntimeError:
@@ -43,22 +38,12 @@ def _safe_current_user() -> Mapping[str, Any]:
 
 
 def _fetch(endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    url = ENDPOINTS[endpoint]
-    user = _safe_current_user()
-    headers: dict[str, str] = {}
-    role = user.get("role") if isinstance(user, Mapping) else None
-    user_id = user.get("user_id") if isinstance(user, Mapping) else None
-    strategies = get_authorized_strategies(user) if isinstance(user, Mapping) else []
-    if role:
-        headers["X-User-Role"] = str(role)
-    if user_id:
-        headers["X-User-Id"] = str(user_id)
-    if strategies:
-        headers["X-User-Strategies"] = ",".join(sorted(strategies))
+    """Fetch data from API endpoint with authentication headers.
 
-    response = requests.get(url, params=params, headers=headers, timeout=API_REQUEST_TIMEOUT)
-    response.raise_for_status()
-    return cast(dict[str, Any], response.json())
+    Uses shared api_client.fetch_api for consistent header handling.
+    """
+    user = _safe_current_user()
+    return fetch_api(endpoint, user, params)
 
 
 @st.cache_data(ttl=AUTO_REFRESH_INTERVAL)

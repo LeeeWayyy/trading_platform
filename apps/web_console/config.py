@@ -13,6 +13,7 @@ Environment Variables:
     SESSION_TIMEOUT_MINUTES: Session idle timeout (default: 15)
 """
 
+import logging
 import os
 from typing import Literal
 
@@ -117,3 +118,47 @@ DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
 # Pool timeout configuration (seconds)
 # How long to wait for a connection from the pool before raising error
 DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "5.0"))
+
+
+# ============================================================================
+# Risk Dashboard Configuration
+# ============================================================================
+
+
+def _safe_float(env_var: str, default: float) -> float:
+    """Safely parse float from environment variable.
+
+    Returns default if env var is missing or malformed.
+
+    Args:
+        env_var: Environment variable name
+        default: Default value if env var not set or invalid
+
+    Returns:
+        Parsed float or default
+    """
+    value = os.getenv(env_var)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        logging.getLogger(__name__).warning(
+            f"Invalid float value for {env_var}: {value!r}, using default {default}"
+        )
+        return default
+
+
+# Risk budget limits (daily VaR as fraction)
+RISK_BUDGET_VAR_LIMIT = _safe_float("RISK_BUDGET_VAR_LIMIT", 0.05)  # 5% daily VaR limit
+RISK_BUDGET_WARNING_THRESHOLD = _safe_float(
+    "RISK_BUDGET_WARNING_THRESHOLD", 0.8
+)  # 80% utilization warning
+
+# Feature flag for risk dashboard (T6.3)
+FEATURE_RISK_DASHBOARD = os.getenv("FEATURE_RISK_DASHBOARD", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
