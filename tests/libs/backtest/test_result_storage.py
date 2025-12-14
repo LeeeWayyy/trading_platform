@@ -4,7 +4,7 @@ import importlib.util
 import json
 import math
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -41,8 +41,15 @@ class DummyCursor:
         self.executed.append((sql, params))
         # Preserve rowcount from delete statements when caller relies on it
         if sql.strip().lower().startswith("delete"):
-            # keep current rowcount or length of rows as best-effort
-            self.rowcount = len(self.rows)
+            # For job_id = ANY(%s) pattern, rowcount = len of the list passed
+            if params and isinstance(params, tuple) and len(params) > 0:
+                first_param = params[0]
+                if isinstance(first_param, list):
+                    self.rowcount = len(first_param)
+                else:
+                    self.rowcount = len(self.rows)
+            else:
+                self.rowcount = len(self.rows)
 
     def fetchone(self):
         if not self.rows:
@@ -262,8 +269,8 @@ def test_list_jobs_with_filters():
     result = storage.list_jobs(created_by="alice", alpha_name="alphaA", status="completed", limit=5, offset=2)
 
     assert result[0]["job_id"] == "job1"
-    # Ensure filters applied via params ordering
-    assert cursor.executed[0][1] == ["alice", "alphaA", "completed", 2, 5]
+    # Ensure filters applied via params ordering (LIMIT before OFFSET per PostgreSQL)
+    assert cursor.executed[0][1] == ["alice", "alphaA", "completed", 5, 2]
 
 
 @pytest.mark.unit()
@@ -280,14 +287,15 @@ def test_cleanup_old_results_deletes_terminal(tmp_path):
 
     assert deleted == 1
     assert not old_path.exists()
-    # Two statements executed: select then delete
+    # Two statements executed: select then delete by job_ids
     assert len(cursor.executed) == 2
     assert conn.commits == 1
-    # terminal statuses should be passed to BOTH select and delete
-    assert all(
-        isinstance(call[1][1], list) and set(call[1][1]) == {"completed", "failed", "cancelled"}
-        for call in cursor.executed
-    )
+    # First query (select) should have terminal statuses
+    assert isinstance(cursor.executed[0][1][1], list)
+    assert set(cursor.executed[0][1][1]) == {"completed", "failed", "cancelled"}
+    # Second query (delete) should use job_id = ANY(...)
+    assert "job_id = ANY" in cursor.executed[1][0]
+    assert cursor.executed[1][1] == (["old_job"],)
 
 
 @pytest.mark.unit()
@@ -300,8 +308,9 @@ def test_cleanup_old_results_non_terminal_not_selected(tmp_path):
     deleted = storage.cleanup_old_results(retention_days=0)
 
     assert deleted == 0
-    assert len(cursor.executed) == 2  # select + delete still run
-    # Status list should match terminal statuses even when no rows returned
+    # Only select runs when no jobs match (no delete needed)
+    assert len(cursor.executed) == 1
+    # Status list should match terminal statuses
     assert set(cursor.executed[0][1][1]) == {"completed", "failed", "cancelled"}
 
 
@@ -443,7 +452,7 @@ def test_get_result_rejects_path_traversal_attack(tmp_path):
 
 @pytest.mark.unit()
 def test_cleanup_skips_paths_outside_base_dir(tmp_path):
-    """Regression: cleanup should skip (not delete) paths outside base_dir."""
+    """Regression: cleanup should skip paths outside base_dir entirely (no artifact or DB deletion)."""
     # Create directories: one inside base_dir, one outside
     base_dir = tmp_path / "allowed"
     base_dir.mkdir()
@@ -463,9 +472,14 @@ def test_cleanup_skips_paths_outside_base_dir(tmp_path):
 
     deleted = storage.cleanup_old_results(retention_days=0)
 
-    # DB delete still runs for both rows (we can't control that in test)
-    assert deleted == 2
+    # Only inside_job DB row should be deleted (outside_job skipped to avoid orphaning)
+    assert deleted == 1
 
-    # But only inside_dir should be deleted from disk
+    # Only inside_dir should be deleted from disk
     assert not inside_dir.exists(), "Path inside base_dir should be deleted"
     assert outside_dir.exists(), "Path outside base_dir should NOT be deleted"
+
+    # Verify delete query only includes inside_job
+    delete_query = cursor.executed[1]
+    assert "job_id = ANY" in delete_query[0]
+    assert delete_query[1] == (["inside_job"],)

@@ -107,11 +107,11 @@ def row_to_backtest_job(row: dict[str, Any]) -> BacktestJob:
         ValueError: If type conversion fails
     """
     # Handle UUID - psycopg3 returns UUID objects directly
-    job_id_raw = row["id"]
-    if isinstance(job_id_raw, UUID):
-        id_uuid = job_id_raw
+    id_raw = row["id"]
+    if isinstance(id_raw, UUID):
+        id_uuid = id_raw
     else:
-        id_uuid = UUID(str(job_id_raw))
+        id_uuid = UUID(str(id_raw))
 
     # Handle dates - psycopg3 returns date objects directly
     start_date = row["start_date"]

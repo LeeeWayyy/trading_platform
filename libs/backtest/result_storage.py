@@ -12,7 +12,7 @@ from psycopg_pool import ConnectionPool
 
 from libs.alpha.portfolio import TurnoverCalculator, TurnoverResult
 from libs.alpha.research_platform import BacktestResult
-from libs.backtest.models import JobNotFound, ResultPathMissing
+from libs.backtest.models import BacktestJob, JobNotFound, ResultPathMissing
 
 PARQUET_BASE_DIR = Path("data/backtest_results")
 
@@ -91,9 +91,9 @@ class BacktestResultStorage:
             FROM backtest_jobs
             WHERE {where_sql}
             ORDER BY created_at DESC
-            OFFSET %s LIMIT %s
+            LIMIT %s OFFSET %s
         """
-        params.extend([offset, limit])
+        params.extend([limit, offset])
 
         with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params)
@@ -118,40 +118,54 @@ class BacktestResultStorage:
             WHERE created_at < %s
               AND status = ANY(%s)
         """
-        delete_sql = """
-            DELETE FROM backtest_jobs
-            WHERE created_at < %s
-              AND status = ANY(%s)
-        """
 
         with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
             cur.execute(select_sql, (cutoff, list(terminal_statuses)))
             jobs = cur.fetchall()
 
-            artifact_paths = [
-                Path(row["result_path"])
-                for row in jobs
-                if row.get("result_path")
-            ]
-
-            # Security: Only delete paths within base_dir to prevent arbitrary FS deletion
-            # Use resolved path for deletion to prevent TOCTOU symlink attacks
+            # Track job_ids where artifact cleanup succeeded or no artifacts existed
+            # Only delete DB rows for these to avoid orphaning directories on disk
+            successfully_cleaned_job_ids: list[str] = []
             safe_base = self.base_dir.resolve()
-            for path in artifact_paths:
-                try:
-                    target_path = path.resolve(strict=False)
-                    if not target_path.is_relative_to(safe_base):
-                        # Skip paths outside allowed directory - log would be added in production
-                        continue
-                    # Delete using resolved path to prevent symlink swap attacks
-                    if target_path.exists():
-                        shutil.rmtree(target_path, ignore_errors=True)
-                except (OSError, ValueError):
-                    # Skip paths that can't be resolved safely
+
+            for job in jobs:
+                job_id = job["job_id"]
+                result_path = job.get("result_path")
+
+                if not result_path:
+                    # No artifacts to clean, safe to delete DB row
+                    successfully_cleaned_job_ids.append(job_id)
                     continue
 
-            cur.execute(delete_sql, (cutoff, list(terminal_statuses)))
-            deleted = cur.rowcount
+                # Security: Only delete paths within base_dir to prevent arbitrary FS deletion
+                # Use resolved path for deletion to prevent TOCTOU symlink attacks
+                try:
+                    target_path = Path(result_path).resolve(strict=False)
+                    if not target_path.is_relative_to(safe_base):
+                        # Path outside allowed directory - skip entirely (don't delete DB row)
+                        # In production, this would be logged as a security concern
+                        continue
+
+                    # Delete using resolved path to prevent symlink swap attacks
+                    if target_path.exists():
+                        shutil.rmtree(target_path)  # Raises on failure - don't ignore errors
+                    # Artifact deleted or didn't exist, safe to delete DB row
+                    successfully_cleaned_job_ids.append(job_id)
+                except (OSError, ValueError):
+                    # Artifact deletion failed - keep DB row to allow retry
+                    # In production, this would be logged for investigation
+                    continue
+
+            # Only delete DB rows for jobs where artifact cleanup succeeded
+            if successfully_cleaned_job_ids:
+                delete_by_ids_sql = """
+                    DELETE FROM backtest_jobs
+                    WHERE job_id = ANY(%s)
+                """
+                cur.execute(delete_by_ids_sql, (successfully_cleaned_job_ids,))
+                deleted = cur.rowcount
+            else:
+                deleted = 0
             conn.commit()
 
         return int(deleted)
@@ -287,10 +301,13 @@ class BacktestResultStorage:
         Convert a DB row or BacktestJob dataclass to primitive dict for APIs.
         """
         # Support dataclass or raw dict_row
-        if hasattr(job, "__dict__"):
+        if isinstance(job, BacktestJob):
             data = job.__dict__
         else:
             data = job
+
+        created_at = data.get("created_at")
+        created_at_iso = created_at.isoformat() if created_at is not None else None
 
         return {
             "job_id": data.get("job_id"),
@@ -299,7 +316,7 @@ class BacktestResultStorage:
             "start_date": str(data.get("start_date")) if data.get("start_date") else None,
             "end_date": str(data.get("end_date")) if data.get("end_date") else None,
             "created_by": data.get("created_by"),
-            "created_at": data.get("created_at").isoformat() if data.get("created_at") else None,
+            "created_at": created_at_iso,
             "mean_ic": data.get("mean_ic"),
             "icir": data.get("icir"),
             "hit_rate": data.get("hit_rate"),

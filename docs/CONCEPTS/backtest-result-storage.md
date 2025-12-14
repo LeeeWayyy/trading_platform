@@ -12,7 +12,7 @@ Concise reference for the hybrid Postgres + Parquet storage that powers backtest
 - **Metadata in Postgres (`backtest_jobs`):** lifecycle state, idempotency key (`job_id`), alpha + date range, summary metrics, reproducibility fields, `result_path`.
 - **Artifacts on disk (`data/backtest_results/{job_id}/`):** Parquet bundle + `summary.json` produced by the worker.
 - **Access Layer:** `BacktestResultStorage` (sync, psycopg3 + polars) exposes read/list/cleanup operations. It is used by the web tier and workers; no async dependency chain.
-- **Idempotency:** `job_id` is SHA256 hash of config+user (see `BacktestJobConfig.compute_job_id`) and is the primary key for both DB row and directory name.
+- **Idempotency:** `job_id` is the first 32 characters of a SHA256 hash of config+user (see `BacktestJobConfig.compute_job_id`) and serves as the unique idempotency key for both DB row and directory name.
 
 ## Data Flow
 1. Worker completes backtest, writes Parquet bundle + `summary.json`, and updates `backtest_jobs.result_path` and metrics.
@@ -88,7 +88,8 @@ Root: `data/backtest_results/{job_id}/`
 - Round-trip parity is validated via BacktestResult reconstruction (Parquet → BacktestResult) with consistent metrics.
 
 ## Schema Snapshot (Postgres)
-- Primary key: `job_id` (VARCHAR(32)), unique idempotency key.
+- Primary key: `id` (UUID), auto-generated surrogate key.
+- Unique idempotency key: `job_id` (VARCHAR(32)), first 32 chars of SHA256 hash.
 - Core fields: `alpha_name`, `start_date`, `end_date`, `weight_method`, `config_json`.
 - Execution metadata: `status`, `progress_pct`, `started_at`, `completed_at`, `job_timeout`, `worker_id`, `retry_count`.
 - Metrics: `mean_ic`, `icir`, `hit_rate`, `coverage`, `long_short_spread`, `average_turnover`, `decay_half_life`.
