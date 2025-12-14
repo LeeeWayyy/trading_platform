@@ -144,8 +144,11 @@ class ComparisonService:
     def _max_drawdown(series: pd.Series) -> float:
         if series.empty:
             return 0.0
-        running_max = series.cummax()
-        drawdown = series - running_max
+        # Prepend zero baseline to correctly capture drawdowns from negative starts
+        # e.g., [-100, 50] should report -100 drawdown, not 0
+        equity = pd.concat([pd.Series([0.0]), series]).reset_index(drop=True)
+        running_max = equity.cummax()
+        drawdown = equity - running_max
         return float(drawdown.min() or 0.0)
 
     def _compute_metrics(self, pnl_frame: pd.DataFrame) -> dict[str, dict[str, float]]:

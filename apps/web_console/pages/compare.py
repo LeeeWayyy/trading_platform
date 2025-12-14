@@ -33,7 +33,8 @@ def _default_date_range() -> tuple[date, date]:
 
 @require_auth
 def main() -> None:
-    st.set_page_config(page_title="Strategy Comparison", page_icon="🆚", layout="wide")
+    # Note: set_page_config is called in main app.py; calling it here would raise
+    # StreamlitAPIException in multi-page apps
     st.title("Strategy Comparison")
     st.caption("Compare strategy performance, correlations, and simulate combined portfolios.")
 

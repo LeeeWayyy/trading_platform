@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Strategy Comparison Tool lets operators view side‑by‑side performance for multiple strategies, analyze return correlations, and simulate blended portfolios directly from the web console.
+The Strategy Comparison Tool lets operators view side-by-side performance for multiple strategies, analyze return correlations, and simulate blended portfolios directly from the web console.
 
 ## What it does
 
@@ -31,6 +31,6 @@ The Strategy Comparison Tool lets operators view side‑by‑side performance fo
 
 ## Notes & Limitations
 
-- Uses fresh async DB connections via `AsyncConnectionAdapter` to avoid event‑loop binding issues with `run_async`.
+- Uses fresh async DB connections via `AsyncConnectionAdapter` to avoid event-loop binding issues with `run_async`.
 - Correlations require at least two strategies with overlapping P&L; otherwise the heatmap is empty.
 - Metrics are calculated from daily P&L; they do not include funding or fees.
