@@ -30,7 +30,7 @@ Defined in `WalkForwardConfig` (`libs/backtest/walk_forward.py`):
 | `train_months` | Calendar months in each training window used for parameter search | 12 |
 | `test_months` | Calendar months in each out-of-sample evaluation window | 3 |
 | `step_months` | How far to advance both windows after each iteration (must satisfy `step_months >= test_months`) | 3 |
-| `min_train_samples` | Minimum trading days required in a train window; guards against too-short samples | 252 |
+| `min_train_samples` | Minimum calendar days required in a train window; guards against too-short samples. Default 252 corresponds to ~1 year of trading days when measured in calendar days (~365). | 252 |
 
 ## 5. Metrics and Overfitting Detection
 - **Aggregated test IC:** Mean of `test_ic` across all windows.

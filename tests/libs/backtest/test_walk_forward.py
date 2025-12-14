@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import importlib.util
+from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -222,19 +223,7 @@ def test_overfitting_ratio_zero_or_nan(backtester):
     aggregated_zero = optimizer._aggregate_results(windows)
     assert math.isnan(aggregated_zero.overfitting_ratio)
 
-    windows_nan = [windows[0]._replace(test_ic=float("nan"))] if hasattr(windows[0], "_replace") else [
-        WindowResult(
-            window_id=windows[0].window_id,
-            train_start=windows[0].train_start,
-            train_end=windows[0].train_end,
-            test_start=windows[0].test_start,
-            test_end=windows[0].test_end,
-            best_params=windows[0].best_params,
-            train_ic=windows[0].train_ic,
-            test_ic=float("nan"),
-            test_icir=windows[0].test_icir,
-        )
-    ]
+    windows_nan = [replace(windows[0], test_ic=float("nan"))]
     aggregated_nan = optimizer._aggregate_results(windows_nan)
     assert math.isnan(aggregated_nan.overfitting_ratio)
 

@@ -16,14 +16,13 @@ import statistics
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from itertools import product
 from typing import Any
 
 import structlog
 from dateutil.relativedelta import relativedelta  # type: ignore[import-untyped]
 
 from libs.alpha.alpha_definition import AlphaDefinition
-from libs.alpha.research_platform import BacktestResult, PITBacktester
+from libs.alpha.research_platform import PITBacktester
 
 logger = structlog.get_logger(__name__)
 
@@ -33,7 +32,7 @@ class WalkForwardConfig:
     train_months: int = 12
     test_months: int = 3
     step_months: int = 3  # Must be >= test_months
-    min_train_samples: int = 252  # Trading days
+    min_train_samples: int = 252  # Calendar days (approx 1 year of trading days)
 
 
 @dataclass
@@ -80,6 +79,10 @@ class WalkForwardOptimizer:
         Raises ValueError if step_months < test_months to prevent overlapping
         evaluation periods. Emits a structlog warning when train windows will
         overlap (step_months < train_months).
+
+        Note: min_train_samples is validated against calendar days, not trading
+        days. For typical markets with ~252 trading days/year, a 365-day calendar
+        window provides sufficient margin.
         """
 
         if self.config.step_months < self.config.test_months:
@@ -111,8 +114,11 @@ class WalkForwardOptimizer:
             if test_end > end_date:
                 break
 
+            # Validate against calendar days (not trading days) for simplicity.
+            # A 12-month window has ~365 calendar days, which exceeds the typical
+            # 252 trading days requirement with comfortable margin.
             if (train_end - train_start).days + 1 < self.config.min_train_samples:
-                raise ValueError("train window shorter than min_train_samples")
+                raise ValueError("train window shorter than min_train_samples (calendar days)")
 
             windows.append((train_start, train_end, test_start, test_end))
             cursor = cursor + relativedelta(months=self.config.step_months)
@@ -127,7 +133,10 @@ class WalkForwardOptimizer:
         train_end: date,
         snapshot_id: str | None = None,
     ) -> tuple[dict[str, Any], float]:
-        """Find best params on the training window.
+        """Find best params on the training window using grid search.
+
+        Delegates to param_search.grid_search for the actual search logic,
+        ensuring consistency with the standalone grid_search function.
 
         Returns a tuple of (best_params, train_ic). All backtests use the
         provided snapshot_id to keep PIT determinism.
@@ -135,47 +144,27 @@ class WalkForwardOptimizer:
         Raises:
             ValueError: If all parameter combinations produce NaN/None scores.
         """
+        from .param_search import grid_search
 
-        # Create parameter combinations (cartesian product)
-        if param_grid:
-            keys = list(param_grid.keys())
-            values_product = list(product(*param_grid.values()))
-            combos = [dict(zip(keys, vals, strict=False)) for vals in values_product]
-        else:
-            combos = [{}]
+        search_result = grid_search(
+            alpha_factory=alpha_factory,
+            param_grid=param_grid,
+            backtester=self.backtester,
+            start_date=train_start,
+            end_date=train_end,
+            snapshot_id=snapshot_id,
+            metric="mean_ic",
+        )
 
-        best_params: dict[str, Any] | None = None
-        best_ic = -math.inf
-        any_valid_score = False
-
-        for params in combos:
-            alpha = alpha_factory(**params)
-            result: BacktestResult = self.backtester.run_backtest(
-                alpha=alpha,
-                start_date=train_start,
-                end_date=train_end,
-                snapshot_id=snapshot_id,
-            )
-
-            ic_value = result.mean_ic
-            if ic_value is not None and not math.isnan(ic_value):
-                any_valid_score = True
-                if ic_value > best_ic:
-                    best_ic = ic_value
-                    best_params = params
-            elif best_params is None:
-                # Track first params as fallback, but don't mark as valid
-                best_params = params
-
-        if not any_valid_score:
+        # grid_search returns the first param set with NaN score if all are NaN.
+        # We need to raise an error to match our contract.
+        if math.isnan(search_result.best_score):
             raise ValueError(
                 "All parameter combinations produced NaN/None scores - "
                 "optimization cannot proceed with meaningful results"
             )
 
-        # At this point, any_valid_score is True, meaning best_params was set
-        assert best_params is not None
-        return best_params, best_ic
+        return search_result.best_params, search_result.best_score
 
     def run(
         self,
@@ -191,7 +180,10 @@ class WalkForwardOptimizer:
         if not windows:
             raise ValueError("No windows generated for given date range")
 
-        # Lock snapshot once for PIT determinism across all windows
+        # Lock snapshot once for PIT determinism across all windows.
+        # NOTE: _lock_snapshot is a private method on PITBacktester. This creates
+        # coupling, but is necessary to ensure all windows use the same snapshot.
+        # A future refactor could expose a public context manager on PITBacktester.
         locked_snapshot = self.backtester._lock_snapshot(snapshot_id)
         snapshot_id_locked = locked_snapshot.version_tag
 
@@ -298,4 +290,3 @@ __all__ = [
     "WalkForwardResult",
     "WalkForwardOptimizer",
 ]
-
