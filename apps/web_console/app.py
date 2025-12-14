@@ -665,14 +665,15 @@ def render_audit_log() -> None:
     try:
         import psycopg
 
-        rows: list[tuple[Any, ...]] = []
+        rows: list[dict[str, Any]] = []
         pool_fetch_failed = False
 
         # M7 Fix: Try to use connection pool first
+        # Both pool and fallback use dict_row for consistent access
         pool = get_db_pool()
         if pool is not None:
 
-            async def _fetch_with_pool() -> list[tuple[Any, ...]]:
+            async def _fetch_with_pool() -> list[dict[str, Any]]:
                 async with pool.connection() as conn:
                     async with conn.cursor() as cur:
                         await cur.execute(
@@ -684,7 +685,7 @@ def render_audit_log() -> None:
                             """,
                             (config.AUDIT_LOG_DISPLAY_LIMIT,),
                         )
-                        result: list[tuple[Any, ...]] = await cur.fetchall()
+                        result: list[dict[str, Any]] = await cur.fetchall()
                         return result
 
             try:
@@ -700,8 +701,13 @@ def render_audit_log() -> None:
 
         if not rows and (pool is None or pool_fetch_failed):
             # Fallback: New connection per render (graceful degradation)
+            # Use dict_row for consistency with pooled connections
+            from psycopg.rows import dict_row
+
             with psycopg.connect(
-                config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT
+                config.DATABASE_URL,
+                connect_timeout=config.DATABASE_CONNECT_TIMEOUT,
+                row_factory=dict_row,
             ) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -717,19 +723,14 @@ def render_audit_log() -> None:
 
         if rows:
             audit_data = []
-            # Query: SELECT timestamp, user_id, action, details::text AS details, reason, ip_address
-            # Handle both dict rows (from pool with dict_row) and tuple rows (from fallback)
+            # Both pool and fallback now use dict_row for consistent access
             for row in rows:
-                # Support both dict rows (from pool with dict_row) and tuple rows (from fallback)
-                if isinstance(row, dict):
-                    ts = row.get("timestamp")
-                    user = row.get("user_id")
-                    action = row.get("action")
-                    details_str = row.get("details") or ""
-                    reason = row.get("reason")
-                    ip = row.get("ip_address")
-                else:
-                    ts, user, action, details_str, reason, ip = row[0], row[1], row[2], row[3] or "", row[4], row[5]
+                ts = row.get("timestamp")
+                user = row.get("user_id")
+                action = row.get("action")
+                details_str = row.get("details") or ""
+                reason = row.get("reason")
+                ip = row.get("ip_address")
                 audit_data.append(
                     {
                         "Timestamp": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "N/A",

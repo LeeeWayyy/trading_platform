@@ -105,14 +105,22 @@ class RiskService:
                 StrategyScopedDataAccess)
         """
         # Get positions via strategy-scoped access
-        # Handle case where db_pool is None (MVP mode without direct DB access)
+        # Handle database connectivity failures gracefully to keep dashboard functional
         try:
             positions = await self._scoped_access.get_positions(limit=1000)
-        except (RuntimeError, AttributeError) as e:
-            # db_pool is None - no direct DB access available
-            logger.info(
-                "risk_dashboard_no_db_access",
-                extra={"user_id": self._scoped_access.user_id, "error": str(e)},
+        except PermissionError:
+            # Re-raise permission errors - these should propagate to caller
+            raise
+        except Exception as e:
+            # Database unreachable, pool unavailable, or other connectivity issues
+            # Return empty positions to show placeholder dashboard instead of crashing
+            logger.warning(
+                "risk_dashboard_db_error",
+                extra={
+                    "user_id": self._scoped_access.user_id,
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                },
             )
             positions = []
 

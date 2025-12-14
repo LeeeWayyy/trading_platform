@@ -23,7 +23,7 @@ def render_correlation_heatmap(corr_matrix: pd.DataFrame) -> None:
         aspect="auto",
         origin="lower",
     )
-    fig.update_layout(margin=dict(l=40, r=40, t=40, b=40))
+    fig.update_layout(margin={"l": 40, "r": 40, "t": 40, "b": 40})
     st.plotly_chart(fig, use_container_width=True)
 
 
