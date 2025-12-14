@@ -77,7 +77,7 @@ def _build_cache_client(redis_client: Any) -> Any:
 
 class StrategyScopedDataAccess:
     DEFAULT_LIMIT = 100
-    MAX_LIMIT = 1000
+    MAX_LIMIT = 5000  # Raised from 1000 to support multi-year comparisons
     CACHE_TTL_SECONDS = 300
 
     def __init__(self, db_pool: Any, redis_client: Any, user: dict[str, Any]):
@@ -96,10 +96,13 @@ class StrategyScopedDataAccess:
         encryption_key = _get_cache_encryption_key()
         self._cipher = AESGCM(encryption_key) if encryption_key else None
         if not self._cipher:
-            logger.info("strategy_cache_encryption_disabled", extra={
-                "reason": "STRATEGY_CACHE_ENCRYPTION_KEY not configured",
-                "cache_enabled": self.redis is not None,
-            })
+            logger.info(
+                "strategy_cache_encryption_disabled",
+                extra={
+                    "reason": "STRATEGY_CACHE_ENCRYPTION_KEY not configured",
+                    "cache_enabled": self.redis is not None,
+                },
+            )
 
     def _encrypt_cache_data(self, data: str) -> str:
         """Encrypt cache data with AES-256-GCM."""
@@ -307,7 +310,9 @@ class StrategyScopedDataAccess:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
 
-    async def stream_trades_for_export(self, **filters: Any) -> AsyncGenerator[dict[str, Any], None]:
+    async def stream_trades_for_export(
+        self, **filters: Any
+    ) -> AsyncGenerator[dict[str, Any], None]:
         strategies = self._get_strategy_filter()
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
@@ -325,7 +330,9 @@ class StrategyScopedDataAccess:
                     yield dict(row)
 
 
-def get_scoped_data_access(db_pool: Any, redis_client: Any, user: dict[str, Any]) -> StrategyScopedDataAccess:
+def get_scoped_data_access(
+    db_pool: Any, redis_client: Any, user: dict[str, Any]
+) -> StrategyScopedDataAccess:
     return StrategyScopedDataAccess(db_pool, redis_client, user)
 
 

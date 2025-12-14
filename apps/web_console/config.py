@@ -65,9 +65,7 @@ TRUSTED_PROXY_IPS = get_trusted_proxy_ips()
 # Database Configuration (for audit log)
 # ============================================================================
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader"
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader")
 
 # ============================================================================
 # API Request Configuration
@@ -157,6 +155,14 @@ RISK_BUDGET_WARNING_THRESHOLD = _safe_float(
 
 # Feature flag for risk dashboard (T6.3)
 FEATURE_RISK_DASHBOARD = os.getenv("FEATURE_RISK_DASHBOARD", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+# Strategy comparison feature flag (T6.4b)
+FEATURE_STRATEGY_COMPARISON = os.getenv("FEATURE_STRATEGY_COMPARISON", "false").lower() in {
     "1",
     "true",
     "yes",

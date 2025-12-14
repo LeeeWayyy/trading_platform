@@ -185,7 +185,7 @@ class PortfolioBacktest:
 
             daily_returns.append(portfolio_return)
 
-        return pd.Series(daily_returns, index=dates[: len(daily_returns)])
+        return pd.Series(daily_returns, index=dates[: len(daily_returns)], dtype=float)
 
     def _compute_metrics(self) -> dict[str, float]:
         """

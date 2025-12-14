@@ -168,6 +168,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.8_PLAN.md](./TASKS/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
 - [CURRENT, 2025-12-11, Plan] [TASKS/PLANS/T6.2_Performance_Dashboard_Plan.md](./TASKS/PLANS/T6.2_Performance_Dashboard_Plan.md) - T6.2 Performance Dashboard implementation plan
 - [CURRENT, 2025-12-13, Plan] [PLANS/T6.3_RISK_DASHBOARD_PLAN.md](./PLANS/T6.3_RISK_DASHBOARD_PLAN.md) - T6.3 Risk Analytics Dashboard implementation plan
+- [CURRENT, 2025-12-13, Plan] [TASKS/PLANS/T6.4-implementation-plan.md](./TASKS/PLANS/T6.4-implementation-plan.md) - T6.4 Strategy Comparison Tool & Risk Dashboard DB integration plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -289,6 +290,7 @@ Educational explanations of trading and ML concepts:
 | [microstructure.md](./CONCEPTS/microstructure.md) | Market microstructure analysis (VPIN, RV, spread/depth) | Intermediate |
 | [realized-volatility.md](./CONCEPTS/realized-volatility.md) | Realized volatility and HAR forecasting models | Intermediate |
 | [sql-analytics-patterns.md](./CONCEPTS/sql-analytics-patterns.md) | SQL window functions and CTEs | Intermediate |
+| [strategy-comparison.md](./CONCEPTS/strategy-comparison.md) | Strategy comparison tool for multi-strategy analysis | Intermediate |
 | [structured-logging.md](./CONCEPTS/structured-logging.md) | JSON logging with context | Intermediate |
 | [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |
 | [websocket-streaming.md](./CONCEPTS/websocket-streaming.md) | Real-time data streaming | Intermediate |

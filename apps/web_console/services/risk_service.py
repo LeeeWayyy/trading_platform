@@ -105,14 +105,22 @@ class RiskService:
                 StrategyScopedDataAccess)
         """
         # Get positions via strategy-scoped access
-        # Handle case where db_pool is None (MVP mode without direct DB access)
+        # Handle database connectivity failures gracefully to keep dashboard functional
         try:
             positions = await self._scoped_access.get_positions(limit=1000)
-        except (RuntimeError, AttributeError) as e:
-            # db_pool is None - no direct DB access available
-            logger.info(
-                "risk_dashboard_no_db_access",
-                extra={"user_id": self._scoped_access.user_id, "error": str(e)},
+        except PermissionError:
+            # Re-raise permission errors - these should propagate to caller
+            raise
+        except Exception as e:
+            # Database unreachable, pool unavailable, or other connectivity issues
+            # Return empty positions to show placeholder dashboard instead of crashing
+            logger.warning(
+                "risk_dashboard_db_error",
+                extra={
+                    "user_id": self._scoped_access.user_id,
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                },
             )
             positions = []
 
@@ -198,9 +206,7 @@ class RiskService:
             if p.get("symbol")
         }
 
-    async def _compute_risk_metrics(
-        self, weights: dict[str, float]
-    ) -> dict[str, Any] | None:
+    async def _compute_risk_metrics(self, weights: dict[str, float]) -> dict[str, Any] | None:
         """Compute risk decomposition using libs/risk/.
 
         Attempts to load pre-computed risk model artifacts and compute
@@ -382,9 +388,14 @@ class RiskService:
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
 
+        # Scale limit by authorized strategies count since get_pnl_summary returns
+        # one row per strategy per day (similar to ComparisonService logic)
+        num_strategies = len(self._scoped_access.authorized_strategies)
+        query_limit = days * max(num_strategies, 1)
+
         try:
             pnl_data = await self._scoped_access.get_pnl_summary(
-                start_date, end_date, limit=days
+                start_date, end_date, limit=query_limit
             )
         except PermissionError:
             # User has no strategy access - propagate
@@ -414,11 +425,13 @@ class RiskService:
                 # This ensures data contract consistency between service and UI.
                 var_95 = 0.0
 
-            var_history.append({
-                "date": record.get("trade_date"),
-                "var_95": var_95,
-                "daily_pnl": daily_pnl,
-            })
+            var_history.append(
+                {
+                    "date": record.get("trade_date"),
+                    "var_95": var_95,
+                    "daily_pnl": daily_pnl,
+                }
+            )
 
         # Sort by date ascending for charting
         # Use date.min as fallback to avoid TypeError from mixing date and str types
@@ -426,9 +439,7 @@ class RiskService:
 
         return var_history
 
-    def _format_risk_metrics(
-        self, risk_result: dict[str, Any] | None
-    ) -> dict[str, float]:
+    def _format_risk_metrics(self, risk_result: dict[str, Any] | None) -> dict[str, float]:
         """Format risk metrics for dashboard display.
 
         Args:
@@ -458,9 +469,7 @@ class RiskService:
             "cvar_95": float(risk_result.get("cvar_95", 0)),
         }
 
-    def _format_factor_exposures(
-        self, risk_result: dict[str, Any] | None
-    ) -> list[dict[str, Any]]:
+    def _format_factor_exposures(self, risk_result: dict[str, Any] | None) -> list[dict[str, Any]]:
         """Format factor exposures for dashboard display.
 
         Args:
@@ -495,9 +504,7 @@ class RiskService:
             for factor in _canonical_factors
         ]
 
-    def _format_stress_tests(
-        self, stress_results: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _format_stress_tests(self, stress_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format stress test results for dashboard display.
 
         Args:
@@ -511,12 +518,14 @@ class RiskService:
 
         formatted = []
         for result in stress_results:
-            formatted.append({
-                "scenario_name": result.get("scenario_name", "Unknown"),
-                "scenario_type": result.get("scenario_type", "hypothetical"),
-                "portfolio_pnl": float(result.get("portfolio_pnl", 0)),
-                "factor_impacts": result.get("factor_impacts", {}),
-            })
+            formatted.append(
+                {
+                    "scenario_name": result.get("scenario_name", "Unknown"),
+                    "scenario_type": result.get("scenario_type", "hypothetical"),
+                    "portfolio_pnl": float(result.get("portfolio_pnl", 0)),
+                    "factor_impacts": result.get("factor_impacts", {}),
+                }
+            )
 
         return formatted
 

@@ -28,73 +28,24 @@ import logging
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-if TYPE_CHECKING:
-    import psycopg_pool
-
 from apps.web_console import auth, config
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.auth.permissions import Permission, has_permission
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.session_status import render_session_status
+from apps.web_console.utils.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
 
-# M7 Fix: Use st.cache_resource for connection pool to persist across Streamlit reruns
-# Streamlit re-executes the script on every interaction, so global variables reset.
-# @st.cache_resource ensures the pool is created once and shared across all reruns/sessions.
-
-
-@st.cache_resource(ttl=300)  # TTL=5min to recover from transient DB issues
-def _get_db_pool() -> "psycopg_pool.AsyncConnectionPool | None":
-    """
-    Get or initialize the database connection pool.
-
-    M7 Fix: Uses @st.cache_resource to persist the pool across Streamlit reruns.
-    This is critical because Streamlit re-executes the entire script on every
-    user interaction - without caching, a new pool would be created each time.
-
-    Returns:
-        ConnectionPool instance or None if initialization failed
-    """
-    try:
-        import psycopg_pool
-
-        logger.info(
-            f"Initializing database connection pool "
-            f"(min={config.DB_POOL_MIN_SIZE}, max={config.DB_POOL_MAX_SIZE})"
-        )
-
-        pool = psycopg_pool.AsyncConnectionPool(
-            config.DATABASE_URL,
-            min_size=config.DB_POOL_MIN_SIZE,
-            max_size=config.DB_POOL_MAX_SIZE,
-            timeout=config.DB_POOL_TIMEOUT,
-            # Async pools open lazily; callers will await connection acquisition
-            open=False,
-        )
-
-        logger.info("Database connection pool initialized successfully")
-        return pool
-
-    except ImportError:
-        logger.warning(
-            "psycopg_pool not installed - falling back to per-connection mode"
-        )
-        return None
-    except Exception as e:
-        logger.warning(
-            f"Failed to initialize connection pool: {e} - "
-            "falling back to per-connection mode"
-        )
-        return None
-
+# Note: Database pool moved to apps/web_console/utils/db_pool.py
+# Import get_db_pool from there (see imports above)
 
 # ============================================================================
 # Page Configuration
@@ -714,25 +665,28 @@ def render_audit_log() -> None:
     try:
         import psycopg
 
-        rows: list[tuple[Any, ...]] = []
+        rows: list[dict[str, Any]] = []
         pool_fetch_failed = False
 
         # M7 Fix: Try to use connection pool first
-        pool = _get_db_pool()
+        # Both pool and fallback use dict_row for consistent access
+        pool = get_db_pool()
         if pool is not None:
-            async def _fetch_with_pool() -> list[tuple[Any, ...]]:
+
+            async def _fetch_with_pool() -> list[dict[str, Any]]:
                 async with pool.connection() as conn:
                     async with conn.cursor() as cur:
                         await cur.execute(
                             """
-                            SELECT timestamp, user_id, action, details::text, reason, ip_address
+                            SELECT timestamp, user_id, action, details::text AS details, reason, ip_address
                             FROM audit_log
                             ORDER BY timestamp DESC
                             LIMIT %s
                             """,
                             (config.AUDIT_LOG_DISPLAY_LIMIT,),
                         )
-                        return await cur.fetchall()
+                        result: list[dict[str, Any]] = await cur.fetchall()
+                        return result
 
             try:
                 rows = asyncio.run(_fetch_with_pool())
@@ -747,13 +701,18 @@ def render_audit_log() -> None:
 
         if not rows and (pool is None or pool_fetch_failed):
             # Fallback: New connection per render (graceful degradation)
+            # Use dict_row for consistency with pooled connections
+            from psycopg.rows import dict_row
+
             with psycopg.connect(
-                config.DATABASE_URL, connect_timeout=config.DATABASE_CONNECT_TIMEOUT
+                config.DATABASE_URL,
+                connect_timeout=config.DATABASE_CONNECT_TIMEOUT,
+                row_factory=dict_row,
             ) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT timestamp, user_id, action, details::text, reason, ip_address
+                        SELECT timestamp, user_id, action, details::text AS details, reason, ip_address
                         FROM audit_log
                         ORDER BY timestamp DESC
                         LIMIT %s
@@ -764,22 +723,27 @@ def render_audit_log() -> None:
 
         if rows:
             audit_data = []
+            # Both pool and fallback now use dict_row for consistent access
             for row in rows:
-                # Guard against NULL details (Codex review feedback)
-                details_str = row[3] if row[3] is not None else ""
+                ts = row.get("timestamp")
+                user = row.get("user_id")
+                action = row.get("action")
+                details_str = row.get("details") or ""
+                reason = row.get("reason")
+                ip = row.get("ip_address")
                 audit_data.append(
                     {
-                        "Timestamp": row[0].strftime("%Y-%m-%d %H:%M:%S") if row[0] else "N/A",
-                        "User": row[1],
-                        "Action": row[2],
+                        "Timestamp": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "N/A",
+                        "User": user,
+                        "Action": action,
                         "Details": (
                             details_str[: config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH - 3] + "..."
                             if len(details_str) > config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH
                             else details_str
                         )
                         or "N/A",
-                        "Reason": row[4] or "N/A",
-                        "IP": row[5] or "N/A",
+                        "Reason": reason or "N/A",
+                        "IP": ip or "N/A",
                     }
                 )
             st.table(audit_data)
@@ -851,6 +815,8 @@ def main() -> None:
 
         # Navigation
         pages = ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"]
+        if config.FEATURE_STRATEGY_COMPARISON:
+            pages.append("Strategy Comparison")
         if has_permission(user_info, Permission.MANAGE_USERS):
             pages.append("User Management")
 
@@ -885,13 +851,17 @@ def main() -> None:
         render_kill_switch()
     elif page == "Audit Log":
         render_audit_log()
+    elif page == "Strategy Comparison":
+        from apps.web_console.pages.compare import main as compare_main
+
+        compare_main()
     elif page == "User Management":
         from apps.web_console.pages.admin_users import render_admin_users
 
         render_admin_users(
             user=user_info,
-            db_pool=_get_db_pool(),
-            audit_logger=AuditLogger(_get_db_pool()),
+            db_pool=get_db_pool(),
+            audit_logger=AuditLogger(get_db_pool()),
         )
 
 

@@ -132,7 +132,7 @@ module = ["plotly", "plotly.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*", "pandas_datareader.*", "yfinance.*", "rq.*", "numba.*"]
+module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*", "pandas_datareader.*", "yfinance.*", "rq.*", "numba.*", "structlog.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

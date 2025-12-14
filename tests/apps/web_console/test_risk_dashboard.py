@@ -72,6 +72,8 @@ class MockStrategyScopedDataAccess:
         self.redis_client = redis_client
         self.user = user or {}
         self.user_id = user.get("user_id") if user else None
+        # Required by RiskService._get_var_history for query limit scaling
+        self.authorized_strategies = user.get("strategies", []) if user else []
 
     async def get_positions(self, limit: int = 100) -> list[dict[str, Any]]:
         return []
