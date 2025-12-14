@@ -1,6 +1,15 @@
 # Models and result_storage have lighter dependencies - always import
 from .models import BacktestJob, JobNotFound, ResultPathMissing, row_to_backtest_job
+
+# Walk-forward optimization and parameter search utilities
+from .param_search import SearchResult, grid_search, random_search
 from .result_storage import BacktestResultStorage
+from .walk_forward import (
+    WalkForwardConfig,
+    WalkForwardOptimizer,
+    WalkForwardResult,
+    WindowResult,
+)
 
 # job_queue and worker require rq - import conditionally to allow tests to run
 # in environments without rq installed
@@ -26,6 +35,15 @@ __all__ = [
     "BacktestJobQueue",
     "BacktestResultStorage",
     "BacktestWorker",
+    # Walk-forward optimization
+    "WalkForwardConfig",
+    "WalkForwardOptimizer",
+    "WalkForwardResult",
+    "WindowResult",
+    # Parameter search
+    "SearchResult",
+    "grid_search",
+    "random_search",
     # Exceptions
     "JobNotFound",
     "ResultPathMissing",
