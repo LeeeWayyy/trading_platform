@@ -99,6 +99,8 @@ class ComparisonService:
             return pd.DataFrame()
 
         df["trade_date"] = pd.to_datetime(df["trade_date"])
+        # Note: Using explicit if/else instead of df.get("daily_pnl", 0).fillna(0)
+        # because df.get() returns a scalar when column is missing, which fails on .fillna()
         if "daily_pnl" in df.columns:
             df["daily_pnl"] = df["daily_pnl"].fillna(0).astype(float)
         else:

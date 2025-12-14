@@ -121,10 +121,16 @@ class AsyncRedisAdapter:
         try:
             yield client
         finally:
+            # Note: aclose() is the correct async close method in redis.asyncio 5.0+
+            # (close() is sync-only, aclose() is the async equivalent)
             await client.aclose()
 
-    # Proxy methods to make adapter usable directly as a Redis client
-    # StrategyScopedDataAccess calls methods directly on redis_client
+    # Proxy methods to make adapter usable directly as a Redis client.
+    # Design decision: Using proxy pattern instead of requiring callers to use
+    # `async with self.redis.client() as client:` because:
+    # 1. Maintains compatibility with real redis.asyncio.Redis clients (not just this adapter)
+    # 2. Minimizes changes to StrategyScopedDataAccess (only uses get/setex)
+    # 3. Each proxy method creates a fresh connection, avoiding event loop binding issues
 
     async def get(self, key: str) -> bytes | None:
         """Get value from Redis."""
