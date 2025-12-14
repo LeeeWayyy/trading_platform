@@ -120,7 +120,10 @@ async def validate_session(
             if not is_valid:
                 logger.warning(
                     "session_version_mismatch",
-                    extra={"user_id": session_data.user_id, "session_version": session_data.session_version},
+                    extra={
+                        "user_id": session_data.user_id,
+                        "session_version": session_data.session_version,
+                    },
                 )
                 await session_store.delete_session(session_id)
                 return None
@@ -132,6 +135,7 @@ async def validate_session(
         expires_at = session_data.access_token_expires_at
         if expires_at is None:
             from datetime import timedelta
+
             expires_at = session_data.created_at + timedelta(hours=1)
 
         return {
@@ -267,14 +271,14 @@ def _get_encryption_key() -> bytes:
 def _maybe_get_db_pool() -> Any | None:
     """Best-effort fetch of the Streamlit DB pool without hard dependency.
 
-    Uses the cached `_get_db_pool` from `apps.web_console.app` when available.
+    Uses the cached `get_db_pool` from `apps.web_console.utils.db_pool` when available.
     Returns None if the pool cannot be initialized (e.g., missing dependency).
     """
 
     try:
-        from apps.web_console.app import _get_db_pool as app_get_db_pool
+        from apps.web_console.utils.db_pool import get_db_pool
 
-        return app_get_db_pool()
+        return get_db_pool()
     except Exception:
         # Avoid blocking auth flows if DB is unavailable; caller handles None.
         logger.debug("db_pool_unavailable", exc_info=True)

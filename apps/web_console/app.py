@@ -677,7 +677,7 @@ def render_audit_log() -> None:
                     async with conn.cursor() as cur:
                         await cur.execute(
                             """
-                            SELECT timestamp, user_id, action, details::text, reason, ip_address
+                            SELECT timestamp, user_id, action, details::text AS details, reason, ip_address
                             FROM audit_log
                             ORDER BY timestamp DESC
                             LIMIT %s
@@ -706,7 +706,7 @@ def render_audit_log() -> None:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT timestamp, user_id, action, details::text, reason, ip_address
+                        SELECT timestamp, user_id, action, details::text AS details, reason, ip_address
                         FROM audit_log
                         ORDER BY timestamp DESC
                         LIMIT %s
@@ -717,22 +717,32 @@ def render_audit_log() -> None:
 
         if rows:
             audit_data = []
+            # Query: SELECT timestamp, user_id, action, details::text AS details, reason, ip_address
+            # Handle both dict rows (from pool with dict_row) and tuple rows (from fallback)
             for row in rows:
-                # Guard against NULL details (Codex review feedback)
-                details_str = row[3] if row[3] is not None else ""
+                # Support both dict rows (from pool with dict_row) and tuple rows (from fallback)
+                if isinstance(row, dict):
+                    ts = row.get("timestamp")
+                    user = row.get("user_id")
+                    action = row.get("action")
+                    details_str = row.get("details") or ""
+                    reason = row.get("reason")
+                    ip = row.get("ip_address")
+                else:
+                    ts, user, action, details_str, reason, ip = row[0], row[1], row[2], row[3] or "", row[4], row[5]
                 audit_data.append(
                     {
-                        "Timestamp": row[0].strftime("%Y-%m-%d %H:%M:%S") if row[0] else "N/A",
-                        "User": row[1],
-                        "Action": row[2],
+                        "Timestamp": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "N/A",
+                        "User": user,
+                        "Action": action,
                         "Details": (
                             details_str[: config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH - 3] + "..."
                             if len(details_str) > config.AUDIT_LOG_DETAILS_TRUNCATE_LENGTH
                             else details_str
                         )
                         or "N/A",
-                        "Reason": row[4] or "N/A",
-                        "IP": row[5] or "N/A",
+                        "Reason": reason or "N/A",
+                        "IP": ip or "N/A",
                     }
                 )
             st.table(audit_data)

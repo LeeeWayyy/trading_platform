@@ -99,7 +99,10 @@ class ComparisonService:
             return pd.DataFrame()
 
         df["trade_date"] = pd.to_datetime(df["trade_date"])
-        df["daily_pnl"] = df.get("daily_pnl", pd.Series([0] * len(df))).astype(float)
+        if "daily_pnl" in df.columns:
+            df["daily_pnl"] = df["daily_pnl"].fillna(0).astype(float)
+        else:
+            df["daily_pnl"] = 0.0
         df = df.sort_values("trade_date")
 
         pivot = (
@@ -162,7 +165,9 @@ class ComparisonService:
         for strategy_id in pnl_frame.columns:
             daily = pnl_frame[strategy_id]
             total_return = float(daily.sum())
-            volatility = float(daily.std(ddof=0))
+            # Guard against NaN from ddof=1 with single data point
+            vol_raw = daily.std(ddof=1)
+            volatility = 0.0 if (len(daily) < 2 or pd.isna(vol_raw)) else float(vol_raw)
             sharpe = float((daily.mean() / volatility) * annualizer) if volatility else 0.0
             max_dd = self._max_drawdown(equity[strategy_id])
             metrics[strategy_id] = {
@@ -234,7 +239,8 @@ class ComparisonService:
                 for idx, val in equity.items()
             ],
             "total_return": float(combined_daily.sum()),
-            "volatility": float(combined_daily.std(ddof=0)),
+            # Guard against NaN from ddof=1 with single data point
+            "volatility": 0.0 if len(combined_daily) < 2 else float(combined_daily.std(ddof=1) or 0.0),
             "max_drawdown": self._max_drawdown(equity),
         }
 

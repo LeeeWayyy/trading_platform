@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pandas as pd
 import streamlit as st
 
 from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
@@ -131,17 +132,12 @@ def main() -> None:
         st.error(validation_msg)
         st.stop()
 
-    # pnl_frame is always present in data (may be empty DataFrame)
-    pnl_frame = data.get("pnl_frame")
-    if pnl_frame is None:
-        st.error("No P&L data available for the selected strategies.")
-        st.stop()
+    # pnl_frame is always a DataFrame from ComparisonService (may be empty)
+    pnl_frame = data.get("pnl_frame", pd.DataFrame())
 
     combined = comparison_service.compute_combined_portfolio(weights, pnl_frame)
     st.subheader("Combined Portfolio Equity")
     if combined.get("equity_curve"):
-        import pandas as pd
-
         df = pd.DataFrame(combined["equity_curve"])
         st.line_chart(df.set_index("date")["equity"])
     else:
