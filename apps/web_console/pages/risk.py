@@ -30,6 +30,7 @@ from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAcce
 from apps.web_console.services.risk_service import RiskDashboardData, RiskService
 from apps.web_console.utils.api_client import safe_current_user
 from apps.web_console.utils.async_helpers import run_async
+from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
 from apps.web_console.utils.validators import validate_risk_metrics
 
 logger = logging.getLogger(__name__)
@@ -49,9 +50,9 @@ def _fetch_risk_data(user_id: str, strategies: tuple[str, ...]) -> dict[str, Any
         Dict representation of RiskDashboardData
 
     Note:
-        db_pool and redis_client are passed as None because the current
-        implementation uses RiskService which doesn't require direct DB access
-        for the MVP. The RiskService will gracefully handle missing DB connections.
+        T6.4a: Now wires real DB and Redis connections via get_db_pool() and
+        get_redis_client(). The AsyncConnectionAdapter creates fresh connections
+        per request, avoiding event loop binding issues with run_async().
     """
     if not user_id:
         raise RuntimeError("Missing user_id; refuse to fetch risk data")
@@ -60,9 +61,18 @@ def _fetch_risk_data(user_id: str, strategies: tuple[str, ...]) -> dict[str, Any
     if not user:
         raise RuntimeError("No authenticated user")
 
-    # Pass None for db_pool and redis_client - RiskService handles gracefully
-    # In future, these can be real connections for direct DB access
-    scoped_access = StrategyScopedDataAccess(db_pool=None, redis_client=None, user=dict(user))
+    # T6.4a: Wire real DB/Redis connections for direct data access
+    # get_db_pool() returns AsyncConnectionAdapter (fresh connections per call)
+    # get_redis_client() returns redis.asyncio.Redis for strategy cache (DB=3)
+    db_pool = get_db_pool()
+    if db_pool is None:
+        raise RuntimeError("Database connection not configured (DATABASE_URL not set)")
+
+    scoped_access = StrategyScopedDataAccess(
+        db_pool=db_pool,
+        redis_client=get_redis_client(),
+        user=dict(user),
+    )
     service = RiskService(scoped_access)
 
     # Execute async service method from sync Streamlit context

@@ -1,13 +1,19 @@
-"""Shared utilities for web console authentication.
+"""Shared utilities for web console.
 
-This module now re-exports network utilities from libs/common/network_utils.py
-for backward compatibility. The functions were moved to resolve an architectural
-layering violation where auth_service was depending on web_console.
-
-Direct users should import from libs.common.network_utils instead.
+This module exports:
+- Database/Redis connection utilities (db_pool.py)
+- Network utilities (re-exported from libs/common/network_utils.py)
 """
 
-# Re-export for backward compatibility
+# Database/Redis connection utilities
+from apps.web_console.utils.db_pool import (  # noqa: F401
+    AsyncConnectionAdapter,
+    AsyncRedisAdapter,
+    get_db_pool,
+    get_redis_client,
+)
+
+# Re-export network utilities for backward compatibility
 from libs.common.network_utils import (  # noqa: F401
     extract_client_ip_from_fastapi,
     extract_user_agent_from_fastapi,

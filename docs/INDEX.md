@@ -287,6 +287,7 @@ Educational explanations of trading and ML concepts:
 | [microstructure.md](./CONCEPTS/microstructure.md) | Market microstructure analysis (VPIN, RV, spread/depth) | Intermediate |
 | [realized-volatility.md](./CONCEPTS/realized-volatility.md) | Realized volatility and HAR forecasting models | Intermediate |
 | [sql-analytics-patterns.md](./CONCEPTS/sql-analytics-patterns.md) | SQL window functions and CTEs | Intermediate |
+| [strategy-comparison.md](./CONCEPTS/strategy-comparison.md) | Strategy comparison tool for multi-strategy analysis | Intermediate |
 | [structured-logging.md](./CONCEPTS/structured-logging.md) | JSON logging with context | Intermediate |
 | [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |
 | [websocket-streaming.md](./CONCEPTS/websocket-streaming.md) | Real-time data streaming | Intermediate |
