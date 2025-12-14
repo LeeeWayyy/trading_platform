@@ -235,4 +235,4 @@ def random_search(
     )
 
 
-__all__ = ["SearchResult", "grid_search", "random_search", "_extract_metric"]
+__all__ = ["SearchResult", "grid_search", "random_search"]

@@ -192,9 +192,24 @@ class WalkForwardOptimizer:
             raise ValueError("No windows generated for given date range")
 
         # Lock snapshot once for PIT determinism across all windows.
-        # NOTE: _lock_snapshot is a private method on PITBacktester. This creates
-        # coupling, but is necessary to ensure all windows use the same snapshot.
-        # A future refactor could expose a public context manager on PITBacktester.
+        # TODO(encapsulation): _lock_snapshot is a private method on PITBacktester.
+        # This creates coupling, but is necessary to ensure all windows use the same
+        # snapshot. A future refactor should expose a public context manager on
+        # PITBacktester, e.g.:
+        #
+        #   @contextmanager
+        #   def lock_snapshot_context(self, snapshot_id: str | None = None):
+        #       snapshot = self._lock_snapshot(snapshot_id)
+        #       try:
+        #           yield snapshot
+        #       finally:
+        #           self._snapshot = None
+        #           self._prices_cache = None
+        #           self._fundamentals_cache = None
+        #
+        # Then this code would become:
+        #   with self.backtester.lock_snapshot_context(snapshot_id) as locked_snapshot:
+        #       ...
         locked_snapshot = self.backtester._lock_snapshot(snapshot_id)
         snapshot_id_locked = locked_snapshot.version_tag
 

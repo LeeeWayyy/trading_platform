@@ -36,7 +36,7 @@ Defined in `WalkForwardConfig` (`libs/backtest/walk_forward.py`):
 ## 5. Metrics and Overfitting Detection
 - **Aggregated test IC:** Mean of `test_ic` across all windows (windows with NaN test ICs are excluded).
 - **Aggregated test ICIR:** Aggregated test IC divided by the population standard deviation of per-window test ICs (requires ≥2 windows; otherwise `nan`).
-- **Overfitting ratio:** `abs(mean(train_ic) / mean(test_ic))`. Uses absolute value to correctly flag performance drops regardless of sign (e.g., when train IC is positive but test IC is negative). Train ICs are computed only from windows with valid (non-NaN) test ICs to ensure consistent comparison.
+- **Overfitting ratio:** `abs(mean(train_ic)) / abs(mean(test_ic))`. Uses absolute value on both numerator and denominator to correctly flag performance drops regardless of sign (e.g., when train IC is positive but test IC is negative). Train ICs are computed only from windows with valid (non-NaN) test ICs to ensure consistent comparison.
 - **Threshold:** Ratio > `overfitting_threshold` (default 2.0) flags likely overfitting (`WalkForwardResult.is_overfit`). The threshold is configurable via `WalkForwardConfig`. Treat this as a heuristic for further review, not an automatic reject.
 
 ## 6. PIT Determinism and Reproducibility
