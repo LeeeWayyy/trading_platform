@@ -87,18 +87,25 @@ def render_scenario_table(results: Sequence[dict[str, Any]]) -> None:
     Args:
         results: List of validated stress test results
     """
-    # Build results lookup
-    results_map = {r.get("scenario_name"): r for r in results}
+    # Build results lookup for efficient access
+    results_map = {
+        r.get("scenario_name"): r
+        for r in results
+        if r.get("scenario_name")
+    }
 
-    # Prepare table data in display order
+    # Build ordered scenario list: predefined order first, then any extras
+    predefined_set = set(SCENARIO_DISPLAY_ORDER)
+    ordered_scenarios = [s for s in SCENARIO_DISPLAY_ORDER if s in results_map]
+    # Type guard: keys are str (filtered in comprehension above), but mypy needs explicit check
+    ordered_scenarios.extend(s for s in results_map if isinstance(s, str) and s not in predefined_set)
+
+    # Single-pass table data construction
     table_data = []
-    for scenario in SCENARIO_DISPLAY_ORDER:
-        if scenario not in results_map:
-            continue
-
+    for scenario in ordered_scenarios:
         result = results_map[scenario]
         pnl = float(result.get("portfolio_pnl", 0))
-        scenario_type = result.get("scenario_type", "unknown")
+        scenario_type = result.get("scenario_type") or "unknown"
 
         info = SCENARIO_INFO.get(scenario, {})
         display_name = info.get("name", scenario)
@@ -110,20 +117,6 @@ def render_scenario_table(results: Sequence[dict[str, Any]]) -> None:
             "Description": description,
             "Portfolio P&L": f"{pnl:+.2%}",
         })
-
-    # Include any scenarios not in predefined order
-    for result in results:
-        scenario_name = result.get("scenario_name")
-        if not isinstance(scenario_name, str) or not scenario_name:
-            continue
-        if scenario_name not in SCENARIO_DISPLAY_ORDER:
-            pnl = float(result.get("portfolio_pnl", 0))
-            table_data.append({
-                "Scenario": scenario_name,
-                "Type": result.get("scenario_type", "unknown").title(),
-                "Description": "",
-                "Portfolio P&L": f"{pnl:+.2%}",
-            })
 
     st.dataframe(
         table_data,

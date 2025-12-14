@@ -2399,21 +2399,39 @@ def get_scoped_data_access(db_pool: Any, user: dict) -> StrategyScopedDataAccess
 
 ---
 
-## T6.4: Strategy Comparison Tool
+## T6.4: Strategy Comparison Tool + Risk Dashboard DB Integration
 
-**Effort:** 2-3 days | **PR:** `feat(P4T3): strategy comparison`
+**Effort:** 3-4 days | **PR:** `feat(P4T3): strategy comparison`
 **Status:** ⏳ Pending
-**Dependencies:** T6.1a, T6.2
+**Dependencies:** T6.1a, T6.2, T6.3
 
-### Deliverables
+### T6.4a: Wire Real DB Connections to Risk Dashboard
 
+**Issue:** T6.3 implementation passes `db_pool=None` and `redis_client=None` to `StrategyScopedDataAccess` in `apps/web_console/pages/risk.py:63-69`. This causes the risk dashboard to show placeholder/demo data instead of real portfolio risk metrics.
+
+**Current Behavior:**
+- `RiskService` gracefully handles missing DB connections by returning placeholder stress tests and zero-valued risk metrics
+- VaR history returns empty list when `get_pnl_summary()` fails due to missing db_pool
+- Factor exposures show zeros for all canonical factors
+
+**Required Work:**
+1. Wire real `db_pool` from Streamlit session state or app context to `StrategyScopedDataAccess`
+2. Wire real `redis_client` for cached risk data (optional, for performance)
+3. Ensure async database queries work correctly with Streamlit's sync rendering model
+4. Update `run_async()` helper if needed for connection pooling
+5. Add integration tests with real database fixtures
+
+**Effort:** 1-2 days
+
+### T6.4b: Strategy Comparison Tool
+
+**Deliverables:**
 - Side-by-side strategy metrics (authorized strategies only)
 - Correlation analysis between strategies
 - Rolling performance comparison
 - Combined portfolio simulation
 
-### Files to Create
-
+**Files to Create:**
 - `apps/web_console/pages/compare.py`
 - `apps/web_console/components/comparison_charts.py`
 - `apps/web_console/components/correlation_matrix.py`

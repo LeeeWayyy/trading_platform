@@ -14,6 +14,12 @@ from apps.web_console.utils.validators import validate_risk_metrics, validate_va
 DEFAULT_VAR_LIMIT = 0.05  # 5% daily VaR limit
 DEFAULT_WARNING_THRESHOLD = 0.8  # Warning at 80% utilization
 
+# Chart color constants for consistent theming
+COLOR_RED = "#E74C3C"  # Over limit / negative
+COLOR_ORANGE = "#F39C12"  # Warning threshold
+COLOR_GREEN = "#27AE60"  # Healthy / positive
+COLOR_BLUE = "#2E86DE"  # Neutral / data lines
+
 
 def render_var_metrics(
     risk_data: dict[str, Any],
@@ -94,11 +100,11 @@ def render_var_gauge(
 
     # Determine gauge color based on utilization
     if utilization >= 1.0:
-        bar_color = "#E74C3C"  # Red - over limit
+        bar_color = COLOR_RED  # Over limit
     elif utilization >= warning_threshold:
-        bar_color = "#F39C12"  # Orange - warning
+        bar_color = COLOR_ORANGE  # Warning
     else:
-        bar_color = "#27AE60"  # Green - healthy
+        bar_color = COLOR_GREEN  # Healthy
 
     fig = go.Figure(
         go.Indicator(
@@ -108,8 +114,8 @@ def render_var_gauge(
             delta={
                 "reference": warning_threshold * 100,
                 "valueformat": ".1f",
-                "increasing": {"color": "#E74C3C"},
-                "decreasing": {"color": "#27AE60"},
+                "increasing": {"color": COLOR_RED},
+                "decreasing": {"color": COLOR_GREEN},
             },
             title={"text": "Risk Budget Utilization"},
             gauge={
@@ -121,7 +127,7 @@ def render_var_gauge(
                     {"range": [100, 120], "color": "#FDEDEC"},
                 ],
                 "threshold": {
-                    "line": {"color": "#E74C3C", "width": 4},
+                    "line": {"color": COLOR_RED, "width": 4},
                     "thickness": 0.75,
                     "value": 100,
                 },
@@ -169,7 +175,7 @@ def render_var_history(
             y=var_values,
             mode="lines+markers",
             name="VaR 95%",
-            line={"color": "#2E86DE", "width": 2},
+            line={"color": COLOR_BLUE, "width": 2},
             marker={"size": 4},
             hovertemplate="%{x}<br>VaR: %{y:.2%}<extra></extra>",
         )
@@ -180,7 +186,7 @@ def render_var_history(
         y=var_limit,
         line_width=2,
         line_dash="dash",
-        line_color="#E74C3C",
+        line_color=COLOR_RED,
         annotation_text=f"Limit ({var_limit:.1%})",
         annotation_position="right",
     )
@@ -206,4 +212,8 @@ __all__ = [
     "render_var_history",
     "DEFAULT_VAR_LIMIT",
     "DEFAULT_WARNING_THRESHOLD",
+    "COLOR_RED",
+    "COLOR_ORANGE",
+    "COLOR_GREEN",
+    "COLOR_BLUE",
 ]

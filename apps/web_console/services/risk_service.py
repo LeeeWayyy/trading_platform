@@ -361,18 +361,23 @@ class RiskService:
     async def _get_var_history(
         self, days: int = 30, portfolio_value: float | None = None
     ) -> list[dict[str, Any]]:
-        """Get rolling VaR history from P&L data.
+        """Get VaR history proxy from P&L data.
 
-        Computes approximate daily VaR from realized P&L using a simplified
-        parametric approach.
+        NOTE: This is a simplified VaR approximation for MVP dashboard display,
+        NOT a proper statistical VaR calculation. It uses |daily_return| * 1.65
+        as a proxy, which treats gains and losses symmetrically. A proper VaR
+        implementation would use rolling historical percentile or parametric
+        estimation with volatility forecasting.
+
+        TODO: Replace with proper rolling VaR calculation (T6.4 or follow-up task)
 
         Args:
             days: Number of days of history to return
-            portfolio_value: Absolute portfolio notional for scaling. If None,
-                falls back to raw P&L magnitudes (less accurate).
+            portfolio_value: Absolute portfolio notional for percentage scaling.
+                If None or zero, returns 0.0 for safe UI display.
 
         Returns:
-            List of {date, var_95} dicts sorted by date ascending
+            List of {date, var_95, daily_pnl} dicts sorted by date ascending
         """
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
@@ -394,12 +399,13 @@ class RiskService:
         if not pnl_data:
             return []
 
-        # Compute approximate VaR from daily P&L
-        # Using 1.65 multiplier for 95% confidence (one-sided normal)
+        # Compute simplified VaR proxy from daily P&L
+        # Formula: |daily_return| * 1.65 (95% one-sided normal quantile)
+        # This is NOT proper VaR - see docstring for limitations
         var_history = []
         for record in pnl_data:
             daily_pnl = record.get("daily_pnl") or 0
-            # Prefer percentage VaR scaled by current portfolio notional.
+            # Scale by portfolio notional to get percentage-based metric
             if portfolio_value and portfolio_value > 0:
                 var_95 = abs(daily_pnl) / portfolio_value * 1.65
             else:
@@ -415,7 +421,8 @@ class RiskService:
             })
 
         # Sort by date ascending for charting
-        var_history.sort(key=lambda x: x.get("date") or "")
+        # Use date.min as fallback to avoid TypeError from mixing date and str types
+        var_history.sort(key=lambda x: x.get("date") or date.min)
 
         return var_history
 
@@ -472,22 +479,21 @@ class RiskService:
 
         # Extract exposures from factor contributions DataFrame
         # Assuming it has factor_name and percent_contribution columns
-        exposures = []
         # Add a type check to ensure it's a DataFrame-like object
         if not hasattr(factor_contributions, "iter_rows"):
             logger.warning("factor_contributions_missing_iter_rows")
             return [{"factor_name": factor, "exposure": 0.0} for factor in _canonical_factors]
 
-        for factor in _canonical_factors:
-            # Find this factor in contributions
-            exposure = 0.0
-            for row in factor_contributions.iter_rows(named=True):
-                if row.get("factor_name") == factor:
-                    exposure = float(row.get("percent_contribution", 0))
-                    break
-            exposures.append({"factor_name": factor, "exposure": exposure})
+        # Build lookup dict for O(M+N) instead of O(M*N) nested loop
+        contribution_map = {
+            row.get("factor_name"): float(row.get("percent_contribution", 0))
+            for row in factor_contributions.iter_rows(named=True)
+        }
 
-        return exposures
+        return [
+            {"factor_name": factor, "exposure": contribution_map.get(factor, 0.0)}
+            for factor in _canonical_factors
+        ]
 
     def _format_stress_tests(
         self, stress_results: list[dict[str, Any]]
