@@ -186,14 +186,23 @@ class BacktestResultStorage:
         if not path.exists():
             raise ResultPathMissing(f"result_path {path} missing on disk")
 
-        signals = pl.read_parquet(path / "daily_signals.parquet")
-        weights = pl.read_parquet(path / "daily_weights.parquet")
-        ic = pl.read_parquet(path / "daily_ic.parquet")
+        # Read Parquet files and summary.json with robust error handling
+        try:
+            signals = pl.read_parquet(path / "daily_signals.parquet")
+            weights = pl.read_parquet(path / "daily_weights.parquet")
+            ic = pl.read_parquet(path / "daily_ic.parquet")
 
-        summary_path = path / "summary.json"
-        if not summary_path.exists():
-            raise ValueError(f"Missing summary.json in {path}; cannot reconstruct BacktestResult")
-        summary = json.loads(summary_path.read_text())
+            summary_path = path / "summary.json"
+            if not summary_path.exists():
+                raise ValueError(f"Missing summary.json in {path}; cannot reconstruct BacktestResult")
+            summary = json.loads(summary_path.read_text())
+        except FileNotFoundError as e:
+            raise ValueError(f"Missing backtest artifact in {path}: {e}") from e
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Corrupt summary.json in {path}: {e}") from e
+        except Exception as e:
+            # Catch polars errors and other unexpected exceptions
+            raise ValueError(f"Failed to load backtest artifacts from {path}: {e}") from e
 
         snapshot_id = summary.get("snapshot_id")
         dataset_version_ids = summary.get("dataset_version_ids")

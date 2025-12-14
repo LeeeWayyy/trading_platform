@@ -5,7 +5,12 @@ from uuid import UUID
 
 import pytest
 
-from libs.backtest.models import BacktestJob, JobNotFound, ResultPathMissing, row_to_backtest_job
+from libs.backtest.models import (
+    BacktestJob,
+    JobNotFound,
+    ResultPathMissing,
+    row_to_backtest_job,
+)
 
 
 pytestmark = pytest.mark.unit
