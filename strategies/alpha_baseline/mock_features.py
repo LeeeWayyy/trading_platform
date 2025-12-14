@@ -201,9 +201,9 @@ def compute_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     # 4. Momentum indicators (30 features)
     for period in [5, 10, 14, 20, 30]:
         # RSI-like
-        delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+        delta = close.diff().astype(float)
+        gain = (delta.where(delta > 0.0, 0.0)).rolling(period).mean()
+        loss = (-delta.where(delta < 0.0, 0.0)).rolling(period).mean()
         rs = gain / (loss + 1e-10)
         features[f"feature_{feature_idx}"] = 100 - (100 / (1 + rs))
         feature_idx += 1

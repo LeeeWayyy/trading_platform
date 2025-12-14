@@ -190,7 +190,9 @@ class ComparisonService:
             if not pnl_data:
                 return pd.DataFrame()
             # Reuse _to_pnl_frame for consistent data handling (NaN filling, type conversion)
-            strategy_ids = list({d.get("strategy_id") for d in pnl_data if d.get("strategy_id")})
+            strategy_ids = [
+                sid for sid in {d.get("strategy_id") for d in pnl_data} if isinstance(sid, str)
+            ]
             pnl_frame = ComparisonService._to_pnl_frame(pnl_data, strategy_ids)
         else:
             pnl_frame = pnl_data

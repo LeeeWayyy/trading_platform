@@ -168,6 +168,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.8_PLAN.md](./TASKS/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
 - [CURRENT, 2025-12-11, Plan] [TASKS/PLANS/T6.2_Performance_Dashboard_Plan.md](./TASKS/PLANS/T6.2_Performance_Dashboard_Plan.md) - T6.2 Performance Dashboard implementation plan
 - [CURRENT, 2025-12-13, Plan] [PLANS/T6.3_RISK_DASHBOARD_PLAN.md](./PLANS/T6.3_RISK_DASHBOARD_PLAN.md) - T6.3 Risk Analytics Dashboard implementation plan
+- [CURRENT, 2025-12-13, Plan] [TASKS/PLANS/T6.4-implementation-plan.md](./TASKS/PLANS/T6.4-implementation-plan.md) - T6.4 Strategy Comparison Tool & Risk Dashboard DB integration plan
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
