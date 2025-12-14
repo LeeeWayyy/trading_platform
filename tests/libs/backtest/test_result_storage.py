@@ -485,3 +485,28 @@ def test_cleanup_skips_paths_outside_base_dir(tmp_path):
     delete_query = cursor.executed[1]
     assert "job_id = ANY" in delete_query[0]
     assert delete_query[1] == (["inside_job"],)
+
+
+@pytest.mark.unit()
+def test_load_result_corrupt_parquet_raises_value_error(tmp_path):
+    """Corrupt parquet file should raise ValueError with descriptive message."""
+    result_dir = tmp_path / "corrupt_job"
+    result_dir.mkdir()
+
+    # Write valid summary.json
+    summary = {
+        "snapshot_id": "snap-corrupt",
+        "dataset_version_ids": {"crsp": "v1"},
+        "mean_ic": 0.15,
+    }
+    (result_dir / "summary.json").write_text(json.dumps(summary))
+
+    # Write corrupt parquet file (just garbage bytes)
+    (result_dir / "daily_signals.parquet").write_bytes(b"not a valid parquet file")
+    (result_dir / "daily_weights.parquet").write_bytes(b"also garbage")
+    (result_dir / "daily_ic.parquet").write_bytes(b"more garbage")
+
+    storage = BacktestResultStorage(DummyPool(DummyConnection(DummyCursor())))
+
+    with pytest.raises(ValueError, match="Failed to load Parquet artifact"):
+        storage._load_result_from_path(result_dir)

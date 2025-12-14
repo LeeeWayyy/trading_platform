@@ -200,9 +200,9 @@ class BacktestResultStorage:
             raise ValueError(f"Missing backtest artifact in {path}: {e}") from e
         except json.JSONDecodeError as e:
             raise ValueError(f"Corrupt summary.json in {path}: {e}") from e
-        except Exception as e:
-            # Catch polars errors and other unexpected exceptions
-            raise ValueError(f"Failed to load backtest artifacts from {path}: {e}") from e
+        except pl.exceptions.PolarsError as e:
+            # Catch polars-specific errors during file reading
+            raise ValueError(f"Failed to load Parquet artifact from {path}: {e}") from e
 
         snapshot_id = summary.get("snapshot_id")
         dataset_version_ids = summary.get("dataset_version_ids")
