@@ -47,9 +47,11 @@ class DummyCursor:
                 if isinstance(first_param, list):
                     self.rowcount = len(first_param)
                 else:
-                    self.rowcount = len(self.rows)
+                    # Assume a single row operation if params are present but not a list
+                    self.rowcount = 1
             else:
-                self.rowcount = len(self.rows)
+                # Default to 0 if no params are provided for the delete
+                self.rowcount = 0
 
     def fetchone(self):
         if not self.rows:
