@@ -104,7 +104,7 @@ def _grid_params_iterator(param_grid: dict[str, list[Any]]) -> Iterator[dict[str
 
     keys = list(param_grid.keys())
     for vals in product(*param_grid.values()):
-        yield dict(zip(keys, vals, strict=False))
+        yield dict(zip(keys, vals, strict=True))
 
 
 def _lazy_random_params_iterator(
@@ -209,21 +209,19 @@ def random_search(
     rng = random.Random(seed)
 
     # Calculate total combinations without materializing them
-    if param_distributions:
-        total_combos = 1
-        for values in param_distributions.values():
-            total_combos *= len(values)
-    else:
-        total_combos = 1
+    total_combos = math.prod(len(v) for v in param_distributions.values()) if param_distributions else 1
 
-    if total_combos == 0:
-        raise ValueError("No parameter combinations generated")
+    # Note: total_combos is guaranteed > 0 here because:
+    # - If param_distributions is empty → total_combos = 1
+    # - If not empty, the check on line 206 ensures no empty lists → product > 0
 
     # Sample indices
     if n_iter <= total_combos:
+        # Without replacement when n_iter <= total combinations
         indices = rng.sample(range(total_combos), k=n_iter)
     else:
-        indices = [rng.randrange(total_combos) for _ in range(n_iter)]
+        # With replacement when n_iter > total combinations
+        indices = rng.choices(range(total_combos), k=n_iter)
 
     # Use lazy iterator to generate params from indices
     return _perform_search(

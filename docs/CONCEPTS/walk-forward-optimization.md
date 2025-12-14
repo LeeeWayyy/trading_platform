@@ -31,12 +31,13 @@ Defined in `WalkForwardConfig` (`libs/backtest/walk_forward.py`):
 | `test_months` | Calendar months in each out-of-sample evaluation window | 3 |
 | `step_months` | How far to advance both windows after each iteration (must satisfy `step_months >= test_months`) | 3 |
 | `min_train_samples` | Minimum calendar days required in a train window; guards against too-short samples. Default 252 corresponds to ~1 year of trading days when measured in calendar days (~365). | 252 |
+| `overfitting_threshold` | Ratio threshold above which `is_overfit` returns True. Configurable to adjust sensitivity. | 2.0 |
 
 ## 5. Metrics and Overfitting Detection
-- **Aggregated test IC:** Mean of `test_ic` across all windows.
+- **Aggregated test IC:** Mean of `test_ic` across all windows (windows with NaN test ICs are excluded).
 - **Aggregated test ICIR:** Aggregated test IC divided by the population standard deviation of per-window test ICs (requires ≥2 windows; otherwise `nan`).
-- **Overfitting ratio:** `mean(train_ic) / mean(test_ic)`.
-- **Threshold:** Ratio > 2.0 flags likely overfitting (`WalkForwardResult.is_overfit`). Treat this as a heuristic for further review, not an automatic reject.
+- **Overfitting ratio:** `abs(mean(train_ic) / mean(test_ic))`. Uses absolute value to correctly flag performance drops regardless of sign (e.g., when train IC is positive but test IC is negative). Train ICs are computed only from windows with valid (non-NaN) test ICs to ensure consistent comparison.
+- **Threshold:** Ratio > `overfitting_threshold` (default 2.0) flags likely overfitting (`WalkForwardResult.is_overfit`). The threshold is configurable via `WalkForwardConfig`. Treat this as a heuristic for further review, not an automatic reject.
 
 ## 6. PIT Determinism and Reproducibility
 - A single snapshot is locked once at run start via `PITBacktester._lock_snapshot`.

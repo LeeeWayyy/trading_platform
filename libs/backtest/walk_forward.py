@@ -23,6 +23,7 @@ from dateutil.relativedelta import relativedelta  # type: ignore[import-untyped]
 
 from libs.alpha.alpha_definition import AlphaDefinition
 from libs.alpha.research_platform import PITBacktester
+from libs.backtest.param_search import grid_search
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +34,7 @@ class WalkForwardConfig:
     test_months: int = 3
     step_months: int = 3  # Must be >= test_months
     min_train_samples: int = 252  # Calendar days (approx 1 year of trading days)
+    overfitting_threshold: float = 2.0  # Ratio above which is_overfit returns True
 
 
 @dataclass
@@ -54,10 +56,15 @@ class WalkForwardResult:
     aggregated_test_ic: float
     aggregated_test_icir: float
     overfitting_ratio: float
+    overfitting_threshold: float = 2.0  # Configurable threshold
 
     @property
     def is_overfit(self) -> bool:
-        return self.overfitting_ratio > 2.0
+        """Check if the strategy shows signs of overfitting.
+
+        Returns False if overfitting_ratio is NaN (can't determine overfitting).
+        """
+        return not math.isnan(self.overfitting_ratio) and self.overfitting_ratio > self.overfitting_threshold
 
 
 class WalkForwardOptimizer:
@@ -73,7 +80,9 @@ class WalkForwardOptimizer:
         self.config = config
         self.logger = logger
 
-    def generate_windows(self, start_date: date, end_date: date) -> list[tuple[date, date, date, date]]:
+    def generate_windows(
+        self, start_date: date, end_date: date
+    ) -> list[tuple[date, date, date, date]]:
         """Generate (train_start, train_end, test_start, test_end) tuples.
 
         Raises ValueError if step_months < test_months to prevent overlapping
@@ -107,9 +116,13 @@ class WalkForwardOptimizer:
 
         while True:
             train_start = cursor
-            train_end = (train_start + relativedelta(months=self.config.train_months)) - timedelta(days=1)
+            train_end = (train_start + relativedelta(months=self.config.train_months)) - timedelta(
+                days=1
+            )
             test_start = train_end + timedelta(days=1)
-            test_end = (test_start + relativedelta(months=self.config.test_months)) - timedelta(days=1)
+            test_end = (test_start + relativedelta(months=self.config.test_months)) - timedelta(
+                days=1
+            )
 
             if test_end > end_date:
                 break
@@ -144,8 +157,6 @@ class WalkForwardOptimizer:
         Raises:
             ValueError: If all parameter combinations produce NaN/None scores.
         """
-        from .param_search import grid_search
-
         search_result = grid_search(
             alpha_factory=alpha_factory,
             param_grid=param_grid,
@@ -232,11 +243,12 @@ class WalkForwardOptimizer:
         if not results:
             raise ValueError("No window results to aggregate")
 
-        # Filter out NaN values and track which windows had issues
-        train_ics = [w.train_ic for w in results if not math.isnan(w.train_ic)]
-        test_ics = [w.test_ic for w in results if not math.isnan(w.test_ic)]
-
+        # Filter out windows with NaN test ICs and track which windows had issues.
+        # IMPORTANT: Train ICs must be filtered to the same window set as test ICs
+        # to ensure the overfitting ratio compares apples-to-apples.
+        valid_windows = [w for w in results if not math.isnan(w.test_ic)]
         nan_windows = [w.window_id for w in results if math.isnan(w.test_ic)]
+
         if nan_windows:
             self.logger.warning(
                 "walk_forward_nan_windows",
@@ -245,6 +257,10 @@ class WalkForwardOptimizer:
                 message="Some windows produced NaN test ICs and were excluded from aggregation",
             )
 
+        # Extract ICs only from valid windows (same set for both train and test)
+        train_ics = [w.train_ic for w in valid_windows if not math.isnan(w.train_ic)]
+        test_ics = [w.test_ic for w in valid_windows]  # Already filtered for non-NaN
+
         if not test_ics:
             # All windows produced NaN - return NaN aggregates
             return WalkForwardResult(
@@ -252,6 +268,7 @@ class WalkForwardOptimizer:
                 aggregated_test_ic=float("nan"),
                 aggregated_test_icir=float("nan"),
                 overfitting_ratio=float("nan"),
+                overfitting_threshold=self.config.overfitting_threshold,
             )
 
         aggregated_test_ic = statistics.fmean(test_ics)
@@ -260,27 +277,27 @@ class WalkForwardOptimizer:
             aggregated_test_icir = float("nan")
         else:
             std_ic = statistics.pstdev(test_ics)
-            aggregated_test_icir = (
-                float("nan")
-                if std_ic == 0
-                else aggregated_test_ic / std_ic
-            )
+            aggregated_test_icir = float("nan") if std_ic == 0 else aggregated_test_ic / std_ic
 
         if train_ics:
             mean_train_ic = statistics.fmean(train_ics)
         else:
             mean_train_ic = float("nan")
 
-        if aggregated_test_ic == 0 or math.isnan(aggregated_test_ic):
+        # Use absolute value to handle cases where train/test ICs have different signs.
+        # This ensures the ratio reflects magnitude of performance drop regardless of sign.
+        # Use math.isclose for robust floating-point zero comparison.
+        if math.isclose(aggregated_test_ic, 0.0) or math.isnan(aggregated_test_ic) or math.isnan(mean_train_ic):
             overfitting_ratio = float("nan")
         else:
-            overfitting_ratio = mean_train_ic / aggregated_test_ic
+            overfitting_ratio = abs(mean_train_ic) / abs(aggregated_test_ic)
 
         return WalkForwardResult(
             windows=results,
             aggregated_test_ic=aggregated_test_ic,
             aggregated_test_icir=aggregated_test_icir,
             overfitting_ratio=overfitting_ratio,
+            overfitting_threshold=self.config.overfitting_threshold,
         )
 
 
