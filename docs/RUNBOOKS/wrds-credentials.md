@@ -69,21 +69,35 @@ client.close()
 
 ## Expiry Monitoring
 
-### Alert Configuration
+> Note: WRDS does NOT expose credential expiry information via a public API. The library provides a helper method that returns an explicit "unknown" sentinel to indicate expiry cannot be determined.
 
-- **Warning:** 30 days before expiry (`sync.credential.expiring`)
-- **Critical:** 7 days before expiry
-- **Block:** At expiry
+### Check Expiration (Important: returns "unknown" sentinel)
 
-### Check Expiry
+The WRDS client includes a method named `check_credential_expiry()` for callers to query credential expiry status. However, WRDS does not expose expiry metadata via its APIs, and the implementation intentionally returns sentinel values to indicate this limitation. Do NOT rely on this method for operational monitoring or automated rotation workflows.
+
+Example usage (shows expected sentinel result):
 
 ```python
 from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
 
 client = WRDSClient(WRDSConfig())
+# NOTE: This will typically return (False, None) to indicate "unknown" expiry
 is_expiring, days = client.check_credential_expiry()
-print(f"Expiring: {is_expiring}, Days: {days}")
+print(f"Expiring: {is_expiring}, Days: {days}")  # Expected: Expiring: False, Days: None
 ```
+
+Guidance:
+- The method returns (False, None) to indicate "not expiring / unknown days" because WRDS doesn't publish expiry metadata.
+- Callers should treat `days is None` as "unknown" and NOT use this value for automated rotation decisions.
+- Use external reminders, calendar events, or your secrets backend's metadata (if available) to track and enforce rotation schedules.
+
+### Alert Configuration
+
+Because credential expiry isn't available from WRDS, configure alerts using your secrets backend (Vault/AWS Secrets Manager) or calendar reminders instead. If you must monitor access patterns, consider detecting failed logins or secret access errors as early warning signals.
+
+- **Warning:** 30 days before expiry (`sync.credential.expiring`)
+- **Critical:** 7 days before expiry
+- **Block:** At expiry
 
 ## Troubleshooting
 

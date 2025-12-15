@@ -71,11 +71,14 @@ session:9f8e7d6c5b4a3210fedcba9876543210
 
 Sessions have automatic expiry via Redis TTL:
 
-- **Default session TTL:** 1 hour (3600 seconds)
-- **Refresh token TTL:** 24 hours (86400 seconds) for OAuth2 sessions
-- **mTLS fallback TTL:** 1 hour (same as OAuth2)
+- **Default session TTL (Redis absolute timeout):** 4 hours (14400 seconds) — Redis key TTL controlled by the session store
+- **Idle timeout (application-enforced):** 15 minutes (last_activity used to evict idle sessions)
+- **Refresh token / session token lifetime (design comment):** 4 hours (aligned with Redis absolute timeout in session store)
+- **mTLS fallback session TTL:** 4 hours (same as OAuth2 sessions)
 
 Redis automatically deletes expired keys when TTL reaches 0.
+
+> Note: The Redis TTL (how long the server holds the session blob) is distinct from the cookie max-age sent to browsers. The application enforces idle timeout using last_activity and preserves an absolute lifetime by using remaining TTL when refreshing activity. See `apps/web_console/auth/session_store.py` for implementation details.
 
 ---
 
@@ -170,7 +173,7 @@ done
 **Expected Output:**
 ```
 Key: session:abc123...
-3600   # Positive TTL = expires in 3600 seconds (OK)
+14400   # Positive TTL = expires in 14400 seconds (OK)
 ---
 Key: session:def456...
 -1     # No expiry set (PROBLEM - orphaned session)
@@ -242,9 +245,7 @@ redis-cli --scan --pattern "session:*" | wc -l
 
 ```bash
 # Document approval
-echo "Mass logout authorized by: [NAME]" >> /tmp/session-cleanup-audit.log
-echo "Reason: [REASON]" >> /tmp/session-cleanup-audit.log
-echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> /tmp/session-cleanup-audit.log
+echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") | Mass logout authorized by: [NAME]" >> /tmp/session-cleanup-audit.log
 ```
 
 #### Step 2: Backup Session Keys (Emergency Rollback)
@@ -518,12 +519,12 @@ redis-cli --scan --pattern "session:*" | head -1000 | while read key; do
   redis-cli TTL "$key"
 done | sort -n | uniq -c
 
-# Expected output:
+# Expected output (example):
 #   5 -2    # Expired (cleaned up by Redis)
-#  50 600   # Expires in 10 minutes
+#  50 14400   # Expires in 4 hours
 # 200 1800  # Expires in 30 minutes
 # 500 3000  # Expires in 50 minutes
-# 245 3600  # Just created (1 hour TTL)
+# 245 14400  # Just created (4 hour TTL)
 ```
 
 ### Grafana Dashboard Queries
@@ -582,7 +583,7 @@ python3 scripts/clear_oauth2_sessions.py
 
 # Long-term: Fix session creation code
 # Ensure all SET commands use SETEX or SET ... EX
-# Example: redis.setex("session:abc", 3600, json.dumps(session_data))
+# Example: redis.setex("session:abc", 14400, json.dumps(session_data))
 ```
 
 ---

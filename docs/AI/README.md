@@ -4,6 +4,8 @@
 
 This directory consolidates all AI workflows, prompts, research, examples, and archives in one place.
 
+> Note: The workflow state/config directory used by the AI workflow tooling is now `.ai_workflow/` (STATE_FILE). The repository retains legacy `.claude/` paths for backward compatibility, but prefer `.ai_workflow/` for new automation and tooling. See scripts/ai_workflow/constants.py for canonical paths and migration notes.
+
 ## Primary AI Guide
 
 **[AI_GUIDE.md](./AI_GUIDE.md)** - **START HERE** - Comprehensive guidance for all AI coding assistants

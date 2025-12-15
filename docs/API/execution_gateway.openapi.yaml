@@ -2,8 +2,9 @@ openapi: 3.0.3
 info:
   title: Execution Gateway API
   version: 0.1.0
+  description: Execution Gateway REST API (idempotent order submission, TWAP slicing, positions, health)
 paths:
-  /orders:
+  /api/v1/orders:
     post:
       summary: Place order (idempotent)
       requestBody:
@@ -14,16 +15,101 @@ paths:
               $ref: '#/components/schemas/OrderIn'
       responses:
         '200':
-          description: Order accepted
+          description: Order accepted or recorded (DRY_RUN)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderOut'
+  /api/v1/orders/slice:
+    post:
+      summary: Submit TWAP (sliced) order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlicingRequest'
+      responses:
+        '200':
+          description: Slicing plan created and slices scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlicingPlan'
+  /api/v1/orders/{client_order_id}:
+    get:
+      summary: Get order details by client_order_id
+      parameters:
+        - name: client_order_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+  /api/v1/orders/{parent_id}/slices:
+    get:
+      summary: Get child slices for a parent TWAP order
+      parameters:
+        - name: parent_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of slice details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SliceDetail'
+    delete:
+      summary: Cancel pending child slices for a parent TWAP order
+      parameters:
+        - name: parent_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cancellation summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  parent_order_id: { type: string }
+                  scheduler_canceled: { type: integer }
+                  db_canceled: { type: integer }
+                  message: { type: string }
+  /api/v1/positions:
+    get:
+      summary: Get current positions
+      responses:
+        '200':
+          description: Positions response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionsResponse'
   /health:
     get:
-      summary: Liveness probe
+      summary: Service health check
       responses:
-        '200': { description: OK }
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
 components:
   schemas:
     OrderIn:
@@ -35,11 +121,111 @@ components:
         qty: { type: number }
         order_type: { type: string, default: market }
         limit_price: { type: number, nullable: true }
+        stop_price: { type: number, nullable: true }
         time_in_force: { type: string, default: day }
         strategy_id: { type: string, default: alpha_baseline }
+        # Optional fields used for TWAP / slicing
+        duration_minutes: { type: integer, nullable: true }
+        interval_seconds: { type: integer, nullable: true }
     OrderOut:
       type: object
       properties:
         status: { type: string }
         client_order_id: { type: string }
-        broker_order_id: { type: string }
+        broker_order_id: { type: string, nullable: true }
+        symbol: { type: string }
+        side: { type: string }
+        qty: { type: number }
+        order_type: { type: string }
+        limit_price: { type: number, nullable: true }
+        created_at: { type: string, format: date-time }
+        message: { type: string }
+    OrderDetail:
+      type: object
+      properties:
+        client_order_id: { type: string }
+        strategy_id: { type: string }
+        symbol: { type: string }
+        side: { type: string }
+        qty: { type: number }
+        order_type: { type: string }
+        status: { type: string }
+        broker_order_id: { type: string, nullable: true }
+        filled_qty: { type: number, nullable: true }
+        filled_avg_price: { type: number, nullable: true }
+        created_at: { type: string, format: date-time }
+        filled_at: { type: string, format: date-time, nullable: true }
+        message: { type: string, nullable: true }
+    SliceDetail:
+      type: object
+      properties:
+        slice_num: { type: integer }
+        qty: { type: integer }
+        scheduled_time: { type: string, format: date-time }
+        client_order_id: { type: string }
+        strategy_id: { type: string }
+        status: { type: string }
+    SlicingRequest:
+      type: object
+      required: [symbol, side, qty, duration_minutes]
+      properties:
+        symbol: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        qty: { type: integer }
+        duration_minutes: { type: integer }
+        interval_seconds: { type: integer, default: 60 }
+        order_type: { type: string, default: market }
+        limit_price: { type: number, nullable: true }
+        stop_price: { type: number, nullable: true }
+        time_in_force: { type: string, default: day }
+        trade_date: { type: string, format: date, nullable: true }
+    SlicingPlan:
+      type: object
+      properties:
+        parent_order_id: { type: string }
+        parent_strategy_id: { type: string }
+        symbol: { type: string }
+        side: { type: string }
+        total_qty: { type: integer }
+        total_slices: { type: integer }
+        duration_minutes: { type: integer }
+        interval_seconds: { type: integer }
+        slices:
+          type: array
+          items:
+            $ref: '#/components/schemas/SliceDetail'
+    Position:
+      type: object
+      properties:
+        symbol: { type: string }
+        qty: { type: number }
+        avg_entry_price: { type: number }
+        current_price: { type: number, nullable: true }
+        unrealized_pl: { type: number, nullable: true }
+        realized_pl: { type: number, nullable: true }
+        updated_at: { type: string, format: date-time }
+    PositionsResponse:
+      type: object
+      properties:
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Position'
+        total_positions: { type: integer }
+        total_unrealized_pl: { type: number, nullable: true }
+        total_realized_pl: { type: number, nullable: true }
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string }
+        service: { type: string }
+        version: { type: string }
+        dry_run: { type: boolean }
+        database_connected: { type: boolean }
+        alpaca_connected: { type: boolean }
+        timestamp: { type: string, format: date-time }
+        details:
+          type: object
+          properties:
+            strategy_id: { type: string }
+            alpaca_base_url: { type: string, nullable: true }
