@@ -1,0 +1,13 @@
+{
+  "alpha_name": "momentum",
+  "alpha_params": {
+    "lookback_days": 252,
+    "skip_days": 21,
+    "winsorize_pct": 0.01
+  },
+  "start_date": "2020-01-01",
+  "end_date": "2022-12-31",
+  "weight_method": "zscore",
+  "random_seed": 42,
+  "snapshot_id": "golden_v1.0.0"
+}

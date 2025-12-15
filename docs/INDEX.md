@@ -297,6 +297,7 @@ Educational explanations of trading and ML concepts:
 | [structured-logging.md](./CONCEPTS/structured-logging.md) | JSON logging with context | Intermediate |
 | [webhook-security.md](./CONCEPTS/webhook-security.md) | HMAC signature verification | Advanced |
 | [websocket-streaming.md](./CONCEPTS/websocket-streaming.md) | Real-time data streaming | Intermediate |
+| [backtest-regression.md](./CONCEPTS/backtest-regression.md) | Backtest regression testing harness | Intermediate |
 | [workflow-optimization-zen-mcp.md](./CONCEPTS/workflow-optimization-zen-mcp.md) | Zen-MCP workflow integration | Advanced |
 | [zen-mcp-clink-optimization-proposal.md](./CONCEPTS/zen-mcp-clink-optimization-proposal.md) | Clink optimization proposal | Advanced |
 | [zen-mcp-integration-proposal.md](./CONCEPTS/zen-mcp-integration-proposal.md) | Zen-MCP integration design | Advanced |
@@ -519,6 +520,9 @@ Configuration files, templates, prompts, and tooling:
 
 **tests/ci/ (CI Test Documentation):**
 - [CURRENT, 2025-11-15, Test] [../tests/ci/test_workflow_config.md](../tests/ci/test_workflow_config.md) - CI configuration validation and manual testing procedures
+
+**tests/regression/ (Regression Test Infrastructure):**
+- [CURRENT, 2025-12-15, Guide] [../tests/regression/golden_results/README.md](../tests/regression/golden_results/README.md) - Golden results governance and regeneration procedures
 
 **docs/AI/Prompts/ (Clink Review Templates):**
 - [CURRENT, 2025-10-27, Template] [prompts/clink-reviews/quick-safety-review.md](../docs/AI/Prompts/clink-reviews/quick-safety-review.md) - Quick safety review prompt template for clink + codex

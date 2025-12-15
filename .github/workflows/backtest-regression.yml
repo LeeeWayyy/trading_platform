@@ -1,0 +1,126 @@
+name: Backtest Regression
+
+# Run regression tests only when relevant code changes
+on:
+  push:
+    paths:
+      - 'libs/alpha/**'
+      - 'libs/backtest/**'
+      - 'libs/factors/**'
+      - 'libs/data_pipeline/**'
+      - 'libs/data_quality/**'
+      - 'libs/data_providers/**'
+      - 'libs/models/**'
+      - 'libs/market_data/**'
+      - 'libs/allocation/**'
+      - 'libs/duckdb_catalog.py'
+      - 'libs/risk/**'
+      - 'libs/risk_management/**'
+      - 'libs/common/**'
+      - 'libs/analytics/**'
+      - 'strategies/**'
+      - 'apps/backtest_worker/**'
+      - 'tests/regression/**'
+      - 'scripts/generate_golden_results.py'
+      - 'docs/CONCEPTS/backtest-regression.md'
+
+  pull_request:
+    paths:
+      - 'libs/alpha/**'
+      - 'libs/backtest/**'
+      - 'libs/factors/**'
+      - 'libs/data_pipeline/**'
+      - 'libs/data_quality/**'
+      - 'libs/data_providers/**'
+      - 'libs/models/**'
+      - 'libs/market_data/**'
+      - 'libs/allocation/**'
+      - 'libs/duckdb_catalog.py'
+      - 'libs/risk/**'
+      - 'libs/risk_management/**'
+      - 'libs/common/**'
+      - 'libs/analytics/**'
+      - 'strategies/**'
+      - 'apps/backtest_worker/**'
+      - 'tests/regression/**'
+      - 'scripts/generate_golden_results.py'
+      - 'docs/CONCEPTS/backtest-regression.md'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Backtest Regression Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        # Pin to specific commit for supply-chain security
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        # Pin to specific commit for supply-chain security
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Pin Poetry version for reproducibility and supply-chain security
+          pip install poetry==1.8.4
+          poetry config virtualenvs.create false
+          poetry install --with dev
+
+      - name: Fail if golden manifest is stale (>90 days)
+        run: |
+          python - <<'PY'
+          import json
+          import datetime
+          import pathlib
+          import sys
+          
+          manifest = pathlib.Path('tests/regression/golden_results/manifest.json')
+          if not manifest.exists():
+              print('::error::Golden manifest not found')
+              sys.exit(1)
+              
+          data = json.loads(manifest.read_text())
+          last = datetime.datetime.fromisoformat(data['last_regenerated'].replace('Z', '+00:00'))
+          age_days = (datetime.datetime.now(datetime.timezone.utc) - last).days
+          
+          if age_days > 90:
+              print(f'::error::Golden manifest is {age_days} days old (>90 days); regenerate fixtures')
+              sys.exit(1)
+          else:
+              print(f'Golden manifest age: {age_days} days (OK)')
+          PY
+
+      - name: Validate golden checksums
+        run: |
+          python scripts/generate_golden_results.py --validate
+
+      - name: Run regression tests
+        run: |
+          pytest tests/regression/ -v --tb=short
+
+      - name: Alert on drift
+        if: failure()
+        run: |
+          echo "::error::Backtest regression detected! Review metric changes."
+          echo "::error::If this is expected, regenerate golden results with: python scripts/generate_golden_results.py"
+
+      - name: Regression test summary
+        if: success()
+        run: |
+          echo "## Backtest Regression Results 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Golden manifest is not stale" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ All checksums valid" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Regression tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No metric drift detected in golden backtest results." >> $GITHUB_STEP_SUMMARY
