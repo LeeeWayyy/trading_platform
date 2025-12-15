@@ -555,6 +555,11 @@ def test_save_parquet_artifacts_success(monkeypatch, tmp_path):
         def write_parquet(self, path, *_, **__):
             Path(path).touch()
 
+    class DummyPortfolioDF(DummyDF):
+        def __init__(self):
+            self.columns = ["date", "return"]
+            self.dtype_map = {"date": "Date", "return": "Float64"}
+
     class DummyPolars(types.SimpleNamespace):
         Date = "Date"
         Int64 = "Int64"
@@ -566,6 +571,7 @@ def test_save_parquet_artifacts_success(monkeypatch, tmp_path):
         daily_signals=DummyDF(),
         daily_weights=DummyDF(),
         daily_ic=DummyDF(),
+        daily_portfolio_returns=DummyPortfolioDF(),
         mean_ic=0.1,
         icir=0.2,
         hit_rate=0.3,

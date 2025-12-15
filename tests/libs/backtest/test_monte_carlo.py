@@ -1,3 +1,4 @@
+import math
 import time
 from datetime import date, timedelta
 
@@ -167,7 +168,6 @@ def test_no_ic_data_handles_gracefully():
     assert res.max_drawdown_ci is not None
     assert res.hit_rate_ci is not None
     # mean_ic should be NaN when no IC data
-    import math
     assert math.isnan(res.mean_ic_ci.observed)
 
 
@@ -195,8 +195,6 @@ def test_run_method_uses_config():
 
 def test_constant_returns_sharpe_is_inf():
     """Test that constant positive returns yield infinite Sharpe (zero vol)."""
-    import math as m
-
     # Constant positive returns = zero volatility, positive mean
     returns = [0.01, 0.01, 0.01, 0.01, 0.01]
     ic_values = [0.1, 0.1, 0.1, 0.1, 0.1]
@@ -206,7 +204,7 @@ def test_constant_returns_sharpe_is_inf():
     res = simulator.run_bootstrap(result)
 
     # Observed Sharpe should be inf for constant positive returns
-    assert m.isinf(res.sharpe_ci.observed)
+    assert math.isinf(res.sharpe_ci.observed)
     assert res.sharpe_ci.observed > 0  # Positive infinity
 
 

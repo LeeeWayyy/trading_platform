@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import structlog
@@ -29,6 +29,7 @@ class MonteCarloConfig:
     n_simulations: int = 1000
     method: Literal["bootstrap", "shuffle"] = "bootstrap"
     random_seed: int | None = None  # None = warn about non-reproducibility
+    confidence_levels: tuple[float, ...] = (0.05, 0.5, 0.95)
 
 
 @dataclass
@@ -37,14 +38,27 @@ class ConfidenceInterval:
 
     metric_name: str
     observed: float
-    lower_5: float
-    median: float
-    upper_95: float
+    quantiles: dict[float, float]
 
     @property
     def is_significant(self) -> bool:
         """True if observed value is above median of simulations (basic check)."""
-        return self.observed > self.median
+        median = self.quantiles.get(0.5, math.nan)
+        if math.isnan(median):
+            return False
+        return self.observed > median
+
+    @property
+    def lower_5(self) -> float:
+        return self.quantiles.get(0.05, math.nan)
+
+    @property
+    def median(self) -> float:
+        return self.quantiles.get(0.5, math.nan)
+
+    @property
+    def upper_95(self) -> float:
+        return self.quantiles.get(0.95, math.nan)
 
 
 @dataclass
@@ -92,19 +106,11 @@ class MonteCarloSimulator:
 
     def run_bootstrap(self, result: BacktestResult) -> MonteCarloResult:
         """Bootstrap resampling of daily returns (with replacement)."""
-
-        def sampler(arr: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
-            return self.rng.choice(arr, size=arr.shape[0], replace=True)
-
-        return self._run(result, sampler)
+        return self._run(result, self._bootstrap_resample)
 
     def run_shuffle(self, result: BacktestResult) -> MonteCarloResult:
         """Permutation test - shuffle returns (without replacement)."""
-
-        def sampler(arr: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
-            return self.rng.permutation(arr)
-
-        return self._run(result, sampler)
+        return self._run(result, self._shuffle_resample)
 
     # ----------------------------------------------------------------- helpers
     def _run(
@@ -120,19 +126,16 @@ class MonteCarloSimulator:
         observed_hit = self._compute_hit_rate(returns)
         observed_mean_ic = float(np.nanmean(ic_series)) if ic_series.size else math.nan
 
-        sharpe_dist = np.empty(self.config.n_simulations)
-        mdd_dist = np.empty(self.config.n_simulations)
-        hit_rate_dist = np.empty(self.config.n_simulations)
-        mean_ic_dist = np.empty(self.config.n_simulations)
+        resampled_returns = resample_fn(returns)
+        resampled_ic = resample_fn(ic_series) if ic_series.size else np.empty((0, 0))
 
-        for i in range(self.config.n_simulations):
-            resampled_returns = resample_fn(returns)
-            resampled_ic = resample_fn(ic_series) if ic_series.size else ic_series
-
-            sharpe_dist[i] = self._compute_sharpe(resampled_returns)
-            mdd_dist[i] = self._compute_max_drawdown(resampled_returns)
-            hit_rate_dist[i] = self._compute_hit_rate(resampled_returns)
-            mean_ic_dist[i] = float(np.nanmean(resampled_ic)) if resampled_ic.size else math.nan
+        sharpe_dist = self._compute_sharpe_vectorized(resampled_returns)
+        mdd_dist = self._compute_max_drawdown_vectorized(resampled_returns)
+        hit_rate_dist = self._compute_hit_rate_vectorized(resampled_returns)
+        if ic_series.size:
+            mean_ic_dist = np.nanmean(resampled_ic, axis=1)
+        else:
+            mean_ic_dist = np.full(self.config.n_simulations, math.nan)
 
         sharpe_ci = self._compute_confidence_interval(
             observed=observed_sharpe, simulated=sharpe_dist, metric_name="sharpe"
@@ -227,18 +230,70 @@ class MonteCarloSimulator:
             return ConfidenceInterval(
                 metric_name=metric_name,
                 observed=observed,
-                lower_5=math.nan,
-                median=math.nan,
-                upper_95=math.nan,
+                quantiles={},
             )
-        lower, median, upper = np.percentile(valid, [5, 50, 95])
+        percentiles = np.array(self.config.confidence_levels) * 100.0
+        if np.any((percentiles < 0) | (percentiles > 100)):
+            raise ValueError("confidence_levels must be between 0 and 1")
+        quantile_values = np.percentile(valid, percentiles)
+        quantiles = {
+            float(level): float(value) for level, value in zip(self.config.confidence_levels, quantile_values, strict=True)
+        }
         return ConfidenceInterval(
             metric_name=metric_name,
             observed=observed,
-            lower_5=float(lower),
-            median=float(median),
-            upper_95=float(upper),
+            quantiles=quantiles,
         )
+
+    # ----------------------------- vectorized resampling and metrics ----------
+    def _bootstrap_resample(self, arr: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+        """Vectorized bootstrap sampling."""
+        n_obs = arr.shape[0]
+        indices = self.rng.integers(0, n_obs, size=(self.config.n_simulations, n_obs), dtype=np.int64)
+        return cast(NDArray[np.float64], arr[indices].astype(np.float64, copy=False))
+
+    def _shuffle_resample(self, arr: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+        """Generate shuffled samples (permutation) for each simulation."""
+        n_obs = arr.shape[0]
+        if n_obs == 0:
+            return np.empty((self.config.n_simulations, 0), dtype=np.float64)
+        # Using vectorized permutations is not directly supported; loop is confined to index shuffling only.
+        permutations = np.empty((self.config.n_simulations, n_obs), dtype=np.float64)
+        base_indices = np.arange(n_obs)
+        for i in range(self.config.n_simulations):
+            self.rng.shuffle(base_indices)
+            permutations[i] = arr[base_indices]
+        return permutations
+
+    def _compute_sharpe_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+        """Vectorized Sharpe computation for simulated paths."""
+        means = returns.mean(axis=1)
+        stds = returns.std(axis=1, ddof=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            sharpe = np.sqrt(252.0) * means / stds
+        zero_vol_mask = stds == 0
+        sharpe = np.where(
+            zero_vol_mask,
+            np.where(means > 0, math.inf, np.where(means < 0, -math.inf, math.nan)),
+            sharpe,
+        )
+        return sharpe
+
+    def _compute_max_drawdown_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+        """Vectorized max drawdown using geometric compounding."""
+        if returns.size == 0:
+            return np.full(self.config.n_simulations, math.nan)
+        cum = np.cumprod(1 + returns, axis=1)
+        # prepend 1 for each simulation
+        cum = np.concatenate([np.ones((returns.shape[0], 1)), cum], axis=1)
+        peaks = np.maximum.accumulate(cum, axis=1)
+        drawdowns = (cum - peaks) / peaks
+        return cast(NDArray[np.float64], drawdowns.min(axis=1))
+
+    def _compute_hit_rate_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+        if returns.size == 0:
+            return np.full(self.config.n_simulations, math.nan)
+        return cast(NDArray[np.float64], np.mean(returns >= 0, axis=1))
 
 
 __all__ = [
