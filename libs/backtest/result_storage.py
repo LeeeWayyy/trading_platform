@@ -194,7 +194,9 @@ class BacktestResultStorage:
 
             summary_path = path / "summary.json"
             if not summary_path.exists():
-                raise ValueError(f"Missing summary.json in {path}; cannot reconstruct BacktestResult")
+                raise ValueError(
+                    f"Missing summary.json in {path}; cannot reconstruct BacktestResult"
+                )
             summary = json.loads(summary_path.read_text())
         except FileNotFoundError as e:
             raise ValueError(f"Missing backtest artifact in {path}: {e}") from e
@@ -242,9 +244,7 @@ class BacktestResultStorage:
                         pl.col("signal").count().alias("total_count"),
                     ]
                 )
-                .with_columns(
-                    (pl.col("valid_count") / pl.col("total_count")).alias("daily_cov")
-                )
+                .with_columns((pl.col("valid_count") / pl.col("total_count")).alias("daily_cov"))
             )
             coverage = coverage_df.select(pl.col("daily_cov").mean()).item() or 0.0
 
@@ -264,9 +264,7 @@ class BacktestResultStorage:
 
         # Derived counts
         n_days = signals.select(pl.col("date").n_unique()).item() or 0
-        n_symbols_avg = (
-            signals.group_by("date").len().select(pl.col("len").mean()).item() or 0.0
-        )
+        n_symbols_avg = signals.group_by("date").len().select(pl.col("len").mean()).item() or 0.0
 
         # start/end fallback to data extents if DB metadata missing
         if start_date is None and signals.height > 0:

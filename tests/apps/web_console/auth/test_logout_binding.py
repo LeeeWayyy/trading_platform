@@ -5,12 +5,13 @@ revoking refresh token to prevent attacker with stolen cookie from revoking
 real user's token.
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
 
 import httpx
+import pytest
+
 from apps.web_console.auth.oauth2_flow import OAuth2FlowHandler
 from apps.web_console.auth.session_store import SessionData
 
@@ -72,7 +73,7 @@ def sample_session_data():
 class TestLogoutBindingValidation:
     """Test logout validates binding before token revocation (Codex Medium #5 Fix)."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_logout_with_valid_binding_revokes_token(
         self, oauth2_handler, mock_session_store, sample_session_data
     ) -> None:
@@ -121,7 +122,7 @@ class TestLogoutBindingValidation:
             expected_url = f"https://test.auth0.com/v2/logout?{urlencode(expected_params)}"
             assert logout_url == expected_url
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_logout_with_invalid_binding_skips_revocation(
         self, oauth2_handler, mock_session_store
     ) -> None:
@@ -162,7 +163,7 @@ class TestLogoutBindingValidation:
             # Verify logout URL still returned
             assert "https://test.auth0.com/v2/logout?" in logout_url
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_logout_with_user_agent_mismatch_skips_revocation(
         self, oauth2_handler, mock_session_store
     ) -> None:
@@ -176,7 +177,7 @@ class TestLogoutBindingValidation:
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
             # Call handle_logout with different User-Agent
-            logout_url = await oauth2_handler.handle_logout(
+            await oauth2_handler.handle_logout(
                 session_id="test_session",
                 current_ip="192.168.1.100",
                 current_user_agent="Chrome/100.0 (Attacker)",  # Different UA
@@ -191,7 +192,7 @@ class TestLogoutBindingValidation:
             # Verify session deleted locally
             mock_session_store.delete_session.assert_called_once_with("test_session")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_logout_revocation_failure_non_critical(
         self, oauth2_handler, mock_session_store, sample_session_data
     ) -> None:
@@ -229,7 +230,7 @@ class TestLogoutBindingValidation:
             # Verify logout URL still returned
             assert "https://test.auth0.com/v2/logout?" in logout_url
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_logout_without_refresh_token(
         self, oauth2_handler, mock_session_store, sample_session_data
     ) -> None:
@@ -263,10 +264,8 @@ class TestLogoutBindingValidation:
 class TestRevokRefreshTokenMethod:
     """Test _revoke_refresh_token internal method."""
 
-    @pytest.mark.asyncio
-    async def test_revoke_refresh_token_success(
-        self, oauth2_handler
-    ) -> None:
+    @pytest.mark.asyncio()
+    async def test_revoke_refresh_token_success(self, oauth2_handler) -> None:
         """Test _revoke_refresh_token makes correct Auth0 API call."""
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
@@ -289,10 +288,8 @@ class TestRevokRefreshTokenMethod:
             }
             assert call_args[1]["headers"]["Content-Type"] == "application/x-www-form-urlencoded"
 
-    @pytest.mark.asyncio
-    async def test_revoke_refresh_token_auth0_error(
-        self, oauth2_handler
-    ) -> None:
+    @pytest.mark.asyncio()
+    async def test_revoke_refresh_token_auth0_error(self, oauth2_handler) -> None:
         """Test _revoke_refresh_token raises exception on Auth0 error."""
         from unittest.mock import MagicMock
 

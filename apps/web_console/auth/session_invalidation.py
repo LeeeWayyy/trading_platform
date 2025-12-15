@@ -57,7 +57,9 @@ async def invalidate_user_sessions(
                 )
                 row = await cursor.fetchone()
     except Exception as exc:  # pragma: no cover
-        logger.exception("session_invalidation_failed", extra={"user_id": user_id, "error": str(exc)})
+        logger.exception(
+            "session_invalidation_failed", extra={"user_id": user_id, "error": str(exc)}
+        )
         raise
 
     if not row:
@@ -94,7 +96,9 @@ async def validate_session_version(user_id: str, session_version: int, db_pool: 
                 )
                 row = await cursor.fetchone()
     except Exception as exc:  # pragma: no cover
-        logger.exception("session_version_validation_failed", extra={"user_id": user_id, "error": str(exc)})
+        logger.exception(
+            "session_version_validation_failed", extra={"user_id": user_id, "error": str(exc)}
+        )
         return False
 
     if not row:

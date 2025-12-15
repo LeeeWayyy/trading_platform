@@ -8,7 +8,7 @@ import pytest
 import requests
 
 
-@pytest.fixture
+@pytest.fixture()
 def nginx_base_url():
     """Base URL for Nginx reverse proxy."""
     return "https://localhost:443"
@@ -74,7 +74,7 @@ def test_nginx_csp_report_rate_limiting(nginx_base_url):
     # Send 15 CSP reports rapidly (limit is 10/min)
     responses = []
     try:
-        for i in range(15):
+        for _i in range(15):
             response = requests.post(
                 f"{nginx_base_url}/csp-report",
                 json={

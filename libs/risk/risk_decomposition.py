@@ -66,9 +66,7 @@ class PortfolioRiskResult:
 
         # Total risk should be >= max(factor_risk, specific_risk)
         if self.total_risk < self.factor_risk - 1e-6:
-            errors.append(
-                f"Total risk {self.total_risk:.6f} < factor risk {self.factor_risk:.6f}"
-            )
+            errors.append(f"Total risk {self.total_risk:.6f} < factor risk {self.factor_risk:.6f}")
         if self.total_risk < self.specific_risk - 1e-6:
             errors.append(
                 f"Total risk {self.total_risk:.6f} < specific risk {self.specific_risk:.6f}"
@@ -80,9 +78,7 @@ class PortfolioRiskResult:
 
         # CVaR >= VaR (expected shortfall is always >= VaR)
         if self.cvar_95 < self.var_95 - 1e-6:
-            errors.append(
-                f"CVaR_95 {self.cvar_95:.6f} < VaR_95 {self.var_95:.6f} (impossible)"
-            )
+            errors.append(f"CVaR_95 {self.cvar_95:.6f} < VaR_95 {self.var_95:.6f} (impossible)")
 
         # Risks should be non-negative
         if self.total_risk < 0:
@@ -107,9 +103,7 @@ class PortfolioRiskResult:
             - portfolio_risk DataFrame (single row)
             - factor_contributions DataFrame (or None if not computed)
         """
-        version_str = "|".join(
-            f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items())
-        )
+        version_str = "|".join(f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items()))
 
         portfolio_df = pl.DataFrame(
             {
@@ -240,9 +234,7 @@ class RiskDecomposer:
         """
         return self.model.compute_factor_contributions(portfolio)
 
-    def check_portfolio_coverage(
-        self, portfolio: pl.DataFrame
-    ) -> tuple[float, list[int]]:
+    def check_portfolio_coverage(self, portfolio: pl.DataFrame) -> tuple[float, list[int]]:
         """
         Check what fraction of portfolio has risk data.
 
@@ -325,6 +317,8 @@ def compute_cvar_parametric(
     pdf_at_z = stats.norm.pdf(z_alpha)
     hp_sqrt = np.sqrt(holding_period_days)
     # μ scales linearly (expected return over period), σ scales by √hp (IID volatility)
-    raw_cvar = -expected_return * holding_period_days + sigma * pdf_at_z / (1 - confidence) * hp_sqrt
+    raw_cvar = (
+        -expected_return * holding_period_days + sigma * pdf_at_z / (1 - confidence) * hp_sqrt
+    )
     # Floor to 0: CVaR represents expected loss, cannot be negative
     return float(max(raw_cvar, 0.0))

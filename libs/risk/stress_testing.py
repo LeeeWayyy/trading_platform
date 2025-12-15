@@ -66,13 +66,9 @@ class StressScenario:
 
         if self.scenario_type == "historical":
             if self.start_date is None or self.end_date is None:
-                errors.append(
-                    "Historical scenarios require start_date and end_date."
-                )
+                errors.append("Historical scenarios require start_date and end_date.")
             elif self.start_date > self.end_date:
-                errors.append(
-                    f"start_date ({self.start_date}) > end_date ({self.end_date})"
-                )
+                errors.append(f"start_date ({self.start_date}) > end_date ({self.end_date})")
 
         if self.scenario_type == "hypothetical":
             if not self.factor_shocks:
@@ -120,9 +116,7 @@ class StressTestResult:
         Returns:
             DataFrame with stress test results
         """
-        version_str = "|".join(
-            f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items())
-        )
+        version_str = "|".join(f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items()))
 
         # Serialize factor impacts
         factor_impacts_str = "|".join(
@@ -280,24 +274,18 @@ class StressTester:
 
         # Compute stress based on scenario type
         if scenario_obj.scenario_type == "historical":
-            factor_pnl, factor_impacts, specific_estimate = (
-                self._compute_historical_stress(
-                    portfolio, scenario_obj, include_specific_risk
-                )
+            factor_pnl, factor_impacts, specific_estimate = self._compute_historical_stress(
+                portfolio, scenario_obj, include_specific_risk
             )
         else:
-            factor_pnl, factor_impacts, specific_estimate = (
-                self._compute_hypothetical_stress(
-                    portfolio,
-                    scenario_obj.factor_shocks or {},
-                    include_specific_risk,
-                )
+            factor_pnl, factor_impacts, specific_estimate = self._compute_hypothetical_stress(
+                portfolio,
+                scenario_obj.factor_shocks or {},
+                include_specific_risk,
             )
 
         # Compute position-level impacts
-        position_impacts = self._compute_position_impacts(
-            portfolio, scenario_obj, factor_impacts
-        )
+        position_impacts = self._compute_position_impacts(portfolio, scenario_obj, factor_impacts)
 
         # Find worst position
         worst_permno: int | None = None
@@ -349,10 +337,7 @@ class StressTester:
 
         for scenario_name, scenario_obj in self.PREDEFINED_SCENARIOS.items():
             # Skip historical scenarios if no historical data
-            if (
-                scenario_obj.scenario_type == "historical"
-                and self.historical_returns is None
-            ):
+            if scenario_obj.scenario_type == "historical" and self.historical_returns is None:
                 logger.warning(
                     f"Skipping historical scenario {scenario_name}: "
                     "no historical factor returns provided"
@@ -402,9 +387,7 @@ class StressTester:
             factor_shocks=factor_shocks,
         )
 
-        return self.run_stress_test(
-            portfolio, scenario, portfolio_id, include_specific_risk
-        )
+        return self.run_stress_test(portfolio, scenario, portfolio_id, include_specific_risk)
 
     def get_available_scenarios(self) -> list[str]:
         """Get list of available pre-defined scenarios."""
@@ -443,8 +426,7 @@ class StressTester:
 
         # Get factor returns for scenario period
         period_returns = self.historical_returns.filter(
-            (pl.col("date") >= scenario.start_date)
-            & (pl.col("date") <= scenario.end_date)
+            (pl.col("date") >= scenario.start_date) & (pl.col("date") <= scenario.end_date)
         )
 
         if period_returns.height == 0:
@@ -475,9 +457,7 @@ class StressTester:
             # Handle missing factor returns gracefully
             factor_return = factor_return_map.get(factor_name)
             if factor_return is None:
-                logger.warning(
-                    f"No historical returns for factor {factor_name}, assuming 0"
-                )
+                logger.warning(f"No historical returns for factor {factor_name}, assuming 0")
                 factor_return = 0.0
 
             exposure = exposures.get(factor_name, 0.0)
@@ -530,9 +510,7 @@ class StressTester:
 
         for factor_name, shock in factor_shocks.items():
             if factor_name not in self.risk_model.factor_names:
-                logger.warning(
-                    f"Unknown factor in shocks: {factor_name}, skipping"
-                )
+                logger.warning(f"Unknown factor in shocks: {factor_name}, skipping")
                 continue
             exposure = exposures.get(factor_name, 0.0)
             contribution = exposure * shock
@@ -552,9 +530,7 @@ class StressTester:
 
         return total_factor_pnl, factor_pnl, specific_estimate
 
-    def _compute_portfolio_exposures(
-        self, portfolio: pl.DataFrame
-    ) -> dict[str, float]:
+    def _compute_portfolio_exposures(self, portfolio: pl.DataFrame) -> dict[str, float]:
         """
         Compute portfolio factor exposures.
 
@@ -575,9 +551,7 @@ class StressTester:
 
         # Filter to covered permnos
         covered_mask = [p in loadings_permnos for p in portfolio_permnos]
-        covered_permnos = [
-            p for p, m in zip(portfolio_permnos, covered_mask, strict=False) if m
-        ]
+        covered_permnos = [p for p, m in zip(portfolio_permnos, covered_mask, strict=False) if m]
         covered_weights = portfolio_weights[covered_mask]
 
         if len(covered_permnos) == 0:
@@ -594,9 +568,7 @@ class StressTester:
         covered_gross = float(np.sum(np.abs(covered_weights)))
 
         if gross_weight < 1e-10:
-            raise ValueError(
-                "Portfolio has zero gross exposure - cannot compute stress test"
-            )
+            raise ValueError("Portfolio has zero gross exposure - cannot compute stress test")
 
         coverage_pct = covered_gross / gross_weight
 
@@ -618,17 +590,13 @@ class StressTester:
 
         # Get factor loadings matrix (N × K)
         loadings_df = (
-            self.risk_model.factor_loadings.filter(
-                pl.col("permno").is_in(covered_permnos)
-            )
+            self.risk_model.factor_loadings.filter(pl.col("permno").is_in(covered_permnos))
             .sort("permno")
             .select(self.risk_model.factor_names)
         )
 
         # Sort weights to match loadings order
-        permno_to_weight = dict(
-            zip(covered_permnos, covered_weights.tolist(), strict=False)
-        )
+        permno_to_weight = dict(zip(covered_permnos, covered_weights.tolist(), strict=False))
         sorted_permnos = sorted(covered_permnos)
         aligned_weights = np.array([permno_to_weight[p] for p in sorted_permnos])
 
@@ -659,21 +627,16 @@ class StressTester:
 
         # Filter to covered
         covered_mask = [p in specific_permnos for p in portfolio_permnos]
-        covered_permnos = [
-            p for p, m in zip(portfolio_permnos, covered_mask, strict=False) if m
-        ]
+        covered_permnos = [p for p, m in zip(portfolio_permnos, covered_mask, strict=False) if m]
         covered_weights = portfolio_weights[covered_mask]
 
         if len(covered_permnos) == 0:
             return 0.0
 
         # Get specific variances aligned to portfolio order
-        specific_df = (
-            self.risk_model.specific_risks.filter(
-                pl.col("permno").is_in(covered_permnos)
-            )
-            .sort("permno")
-        )
+        specific_df = self.risk_model.specific_risks.filter(
+            pl.col("permno").is_in(covered_permnos)
+        ).sort("permno")
 
         # Create lookup
         permno_to_var: dict[int, float] = dict(
@@ -688,9 +651,7 @@ class StressTester:
         specific_vars = np.array([permno_to_var[p] for p in sorted_permnos])
 
         # Align weights
-        permno_to_weight = dict(
-            zip(covered_permnos, covered_weights.tolist(), strict=False)
-        )
+        permno_to_weight = dict(zip(covered_permnos, covered_weights.tolist(), strict=False))
         aligned_weights = np.array([permno_to_weight[p] for p in sorted_permnos])
 
         # Portfolio specific variance (daily)
@@ -727,21 +688,16 @@ class StressTester:
 
         # Filter to covered
         covered_mask = [p in specific_permnos for p in portfolio_permnos]
-        covered_permnos = [
-            p for p, m in zip(portfolio_permnos, covered_mask, strict=False) if m
-        ]
+        covered_permnos = [p for p, m in zip(portfolio_permnos, covered_mask, strict=False) if m]
         covered_weights = portfolio_weights[covered_mask]
 
         if len(covered_permnos) == 0:
             return 0.0
 
         # Get specific variances aligned to portfolio order
-        specific_df = (
-            self.risk_model.specific_risks.filter(
-                pl.col("permno").is_in(covered_permnos)
-            )
-            .sort("permno")
-        )
+        specific_df = self.risk_model.specific_risks.filter(
+            pl.col("permno").is_in(covered_permnos)
+        ).sort("permno")
 
         # Create lookup
         permno_to_var: dict[int, float] = dict(
@@ -756,9 +712,7 @@ class StressTester:
         specific_vars = np.array([permno_to_var[p] for p in sorted_permnos])
 
         # Align weights
-        permno_to_weight = dict(
-            zip(covered_permnos, covered_weights.tolist(), strict=False)
-        )
+        permno_to_weight = dict(zip(covered_permnos, covered_weights.tolist(), strict=False))
         aligned_weights = np.array([permno_to_weight[p] for p in sorted_permnos])
 
         # Portfolio specific variance (daily)
@@ -802,8 +756,7 @@ class StressTester:
                 return None
 
             period_returns = self.historical_returns.filter(
-                (pl.col("date") >= scenario.start_date)
-                & (pl.col("date") <= scenario.end_date)
+                (pl.col("date") >= scenario.start_date) & (pl.col("date") <= scenario.end_date)
             )
 
             cumulative_factor_returns = period_returns.group_by("factor_name").agg(
@@ -823,9 +776,7 @@ class StressTester:
                 continue
 
             # Get factor loadings for this position
-            loadings_row = self.risk_model.factor_loadings.filter(
-                pl.col("permno") == permno
-            )
+            loadings_row = self.risk_model.factor_loadings.filter(pl.col("permno") == permno)
 
             if loadings_row.height == 0:
                 continue
@@ -853,12 +804,8 @@ class StressTester:
         # Add contribution column (% of total P&L)
         total_pnl = df["pnl"].sum()
         if abs(total_pnl) > 1e-10:
-            df = df.with_columns(
-                (pl.col("pnl") / total_pnl).alias("contribution")
-            )
+            df = df.with_columns((pl.col("pnl") / total_pnl).alias("contribution"))
         else:
-            df = df.with_columns(
-                pl.lit(0.0).alias("contribution")
-            )
+            df = df.with_columns(pl.lit(0.0).alias("contribution"))
 
         return df.select(["permno", "weight", "pnl", "contribution"])

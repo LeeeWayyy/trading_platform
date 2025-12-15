@@ -61,9 +61,7 @@ class DriftDetectedError(Exception):
         self.symbol = symbol
         self.max_drift = max_drift
         self.tolerance = tolerance
-        super().__init__(
-            f"Price drift detected for {symbol}: {max_drift:.4f} > {tolerance:.4f}"
-        )
+        super().__init__(f"Price drift detected for {symbol}: {max_drift:.4f} > {tolerance:.4f}")
 
 
 # Schema definition for yfinance data
@@ -479,7 +477,11 @@ class YFinanceProvider:
 
                 logger.info(
                     "Fetching symbol",
-                    extra={"symbol": symbol, "start_date": str(start_date), "end_date": str(end_date)},
+                    extra={
+                        "symbol": symbol,
+                        "start_date": str(start_date),
+                        "end_date": str(end_date),
+                    },
                 )
 
                 df = self._download_with_retry(symbol, start_date, end_date)
@@ -504,7 +506,9 @@ class YFinanceProvider:
                             "Skipping cache due to drift check failure",
                             extra={
                                 "symbol": symbol,
-                                "max_drift": f"{max_drift:.4f}" if max_drift else "N/A (validation failed)",
+                                "max_drift": (
+                                    f"{max_drift:.4f}" if max_drift else "N/A (validation failed)"
+                                ),
                             },
                         )
                         # Invalidate any existing stale cache for this symbol
@@ -606,9 +610,7 @@ class YFinanceProvider:
         try:
             import yfinance as yf
         except ImportError as e:
-            raise YFinanceError(
-                "yfinance not installed. Run: pip install yfinance"
-            ) from e
+            raise YFinanceError("yfinance not installed. Run: pip install yfinance") from e
 
         for attempt in range(self.MAX_RETRIES):
             try:
@@ -868,9 +870,7 @@ class YFinanceProvider:
                 return None
 
             # Filter to requested date range
-            df = df.filter(
-                (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-            )
+            df = df.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
 
             if df.is_empty():
                 return None
@@ -1088,8 +1088,12 @@ class YFinanceProvider:
 
         # Align data by date (inner join)
         # Use adjusted close for both sides to avoid false drift on dividend days
-        yf_for_join = yfinance_data.select(["date", yf_price_col]).rename({yf_price_col: "yf_close"})
-        baseline_for_join = baseline_df.select(["date", baseline_price_col]).rename({baseline_price_col: "baseline_close"})
+        yf_for_join = yfinance_data.select(["date", yf_price_col]).rename(
+            {yf_price_col: "yf_close"}
+        )
+        baseline_for_join = baseline_df.select(["date", baseline_price_col]).rename(
+            {baseline_price_col: "baseline_close"}
+        )
 
         joined = yf_for_join.join(baseline_for_join, on="date", how="inner")
 
@@ -1102,8 +1106,7 @@ class YFinanceProvider:
 
         # Filter out zero/null baseline values to avoid division by zero
         joined = joined.filter(
-            (pl.col("baseline_close").is_not_null())
-            & (pl.col("baseline_close") != 0)
+            (pl.col("baseline_close").is_not_null()) & (pl.col("baseline_close") != 0)
         )
 
         if joined.is_empty():
@@ -1114,10 +1117,7 @@ class YFinanceProvider:
             return True, None
 
         # Calculate drift: |yfinance - baseline| / baseline
-        drift = (
-            (joined["yf_close"] - joined["baseline_close"]).abs()
-            / joined["baseline_close"]
-        )
+        drift = (joined["yf_close"] - joined["baseline_close"]).abs() / joined["baseline_close"]
         drift_max = drift.max()
         if drift_max is None:
             return True, None

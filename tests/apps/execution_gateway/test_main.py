@@ -139,7 +139,12 @@ class TestSubmitOrderEndpoint:
     """Tests for order submission endpoint."""
 
     def test_submit_order_dry_run_mode(
-        self, test_client, mock_db, mock_kill_switch, mock_circuit_breaker, mock_position_reservation
+        self,
+        test_client,
+        mock_db,
+        mock_kill_switch,
+        mock_circuit_breaker,
+        mock_position_reservation,
     ):
         """Test order submission in DRY_RUN mode logs order without broker submission."""
         # Mock: Order doesn't exist yet
@@ -192,7 +197,12 @@ class TestSubmitOrderEndpoint:
         assert "Order logged (DRY_RUN mode)" in data["message"]
 
     def test_submit_order_idempotent_returns_existing(
-        self, test_client, mock_db, mock_kill_switch, mock_circuit_breaker, mock_position_reservation
+        self,
+        test_client,
+        mock_db,
+        mock_kill_switch,
+        mock_circuit_breaker,
+        mock_position_reservation,
     ):
         """Test submitting duplicate order returns existing order (idempotent)."""
         # Mock: Order already exists

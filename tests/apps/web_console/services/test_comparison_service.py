@@ -21,7 +21,8 @@ def sample_pnl() -> list[dict]:
 
 def test_validate_weights_bounds() -> None:
     valid, msg = ComparisonService.validate_weights({"s1": 0.6, "s2": 0.4})
-    assert valid and msg == ""
+    assert valid
+    assert msg == ""
 
     invalid, msg = ComparisonService.validate_weights({"s1": -0.1, "s2": 1.1})
     assert not invalid

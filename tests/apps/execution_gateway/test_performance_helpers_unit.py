@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -166,8 +166,16 @@ def test_get_daily_pnl_history_filters_empty_strategies():
 
 def test_get_daily_pnl_history_returns_rows():
     rows = [
-        {"trade_date": date(2024, 1, 2), "daily_realized_pl": Decimal("10"), "closing_trade_count": 2},
-        {"trade_date": date(2024, 1, 3), "daily_realized_pl": Decimal("5"), "closing_trade_count": 1},
+        {
+            "trade_date": date(2024, 1, 2),
+            "daily_realized_pl": Decimal("10"),
+            "closing_trade_count": 2,
+        },
+        {
+            "trade_date": date(2024, 1, 3),
+            "daily_realized_pl": Decimal("5"),
+            "closing_trade_count": 1,
+        },
     ]
     db = _make_db(rows)
     result = db.get_daily_pnl_history(date(2024, 1, 1), date(2024, 1, 4), ["s1"])
@@ -178,7 +186,7 @@ def test_get_positions_for_strategies_fail_closed_multiple_strats():
     # With SQL-based filtering, the query handles strategy filtering via HAVING clause.
     # AAPL (multi-strategy) is excluded by SQL HAVING COUNT(DISTINCT strategy_id) = 1.
     # The mock should return what the SQL would return: only MSFT (single strategy).
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rows = [
         {
             "symbol": "MSFT",

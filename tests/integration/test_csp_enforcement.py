@@ -1,6 +1,5 @@
 """Integration tests for CSP enforcement."""
 
-import pytest
 from fastapi.testclient import TestClient
 
 from apps.auth_service.main import app

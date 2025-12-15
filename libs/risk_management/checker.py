@@ -216,7 +216,8 @@ class RiskChecker:
             max_position_size = self.config.position_limits.max_position_size
             if abs(new_position) > max_position_size:
                 reason = (
-                    f"Position limit exceeded: {abs(new_position)} shares > " f"{max_position_size} max"
+                    f"Position limit exceeded: {abs(new_position)} shares > "
+                    f"{max_position_size} max"
                 )
                 logger.warning(
                     f"Order blocked by position size limit: {symbol} {side} {qty}, "
@@ -420,9 +421,7 @@ class RiskChecker:
 
         # If position_reservation is not configured, return standard result
         if not use_atomic_reservation:
-            logger.debug(
-                "Position reservation not configured, using standard validation only"
-            )
+            logger.debug("Position reservation not configured, using standard validation only")
             return (True, "", None)
 
         # Attempt atomic position reservation
@@ -445,8 +444,7 @@ class RiskChecker:
             return (False, reservation_result.reason, reservation_result)
 
         logger.debug(
-            f"Position reserved: {symbol} {side} {qty}, "
-            f"token={reservation_result.token}"
+            f"Position reserved: {symbol} {side} {qty}, " f"token={reservation_result.token}"
         )
         return (True, "", reservation_result)
 
@@ -468,9 +466,7 @@ class RiskChecker:
             - Requires position_reservation to be configured
         """
         if self.position_reservation is None:
-            logger.warning(
-                "Cannot confirm reservation: position_reservation not configured"
-            )
+            logger.warning("Cannot confirm reservation: position_reservation not configured")
             return False
 
         result = self.position_reservation.confirm(symbol, token)
@@ -495,9 +491,7 @@ class RiskChecker:
             - Requires position_reservation to be configured
         """
         if self.position_reservation is None:
-            logger.warning(
-                "Cannot release reservation: position_reservation not configured"
-            )
+            logger.warning("Cannot release reservation: position_reservation not configured")
             return False
 
         result = self.position_reservation.release(symbol, token)

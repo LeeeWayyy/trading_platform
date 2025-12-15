@@ -167,9 +167,7 @@ class SyncManager:
 
         # Reject names that are just dots (., ..)
         if sanitized in (".", ".."):
-            raise ValueError(
-                f"Invalid dataset name '{dataset}': reserved path component."
-            )
+            raise ValueError(f"Invalid dataset name '{dataset}': reserved path component.")
 
         # Verify resolved path stays within storage_path
         resolved = (self.storage_path / sanitized).resolve()
@@ -177,9 +175,7 @@ class SyncManager:
         # Use pathlib containment check to avoid prefix-matching bypasses
         # (e.g., /data and /data_evil would incorrectly pass a startswith check).
         if not resolved.is_relative_to(storage_resolved):
-            raise ValueError(
-                f"Invalid dataset name '{dataset}': resolves outside storage path."
-            )
+            raise ValueError(f"Invalid dataset name '{dataset}': resolves outside storage path.")
 
         return sanitized
 
@@ -285,9 +281,7 @@ class SyncManager:
             try:
                 for year in years:
                     # Sync single year partition
-                    path, rows = self._sync_year_partition(
-                        dataset, year, lock_token
-                    )
+                    path, rows = self._sync_year_partition(dataset, year, lock_token)
                     file_paths.append(str(path))
                     total_rows += rows
 
@@ -448,15 +442,16 @@ class SyncManager:
 
             for year in sorted(years_to_sync):
                 path, rows = self._sync_year_partition(
-                    dataset, year, lock_token, incremental=True,
+                    dataset,
+                    year,
+                    lock_token,
+                    incremental=True,
                     last_date=last_date if year == last_date.year else None,
                 )
                 # Update or add file path using Path.name for cross-platform
                 year_filename = f"{year}.parquet"
                 # Remove old path for this year if exists
-                file_paths = [
-                    p for p in file_paths if Path(p).name != year_filename
-                ]
+                file_paths = [p for p in file_paths if Path(p).name != year_filename]
                 file_paths.append(str(path))
                 # Add new partition rows
                 total_rows += rows
@@ -597,8 +592,7 @@ class SyncManager:
 
         if total_rows != manifest.row_count:
             error_msg = (
-                f"Row count mismatch: manifest={manifest.row_count}, "
-                f"computed={total_rows}"
+                f"Row count mismatch: manifest={manifest.row_count}, " f"computed={total_rows}"
             )
             errors.append(error_msg)
             logger.error(
@@ -793,9 +787,7 @@ class SyncManager:
 
         return output_path, df.height
 
-    def _validate_partition(
-        self, df: pl.DataFrame, dataset: str, year: int
-    ) -> None:
+    def _validate_partition(self, df: pl.DataFrame, dataset: str, year: int) -> None:
         """Validate data quality before persisting.
 
         Uses the DataValidator to check:
@@ -1043,7 +1035,9 @@ class SyncManager:
                     "used_pct": used_pct,
                 },
             )
-            raise DiskSpaceError(f"Disk usage at {used_pct:.1%}, blocked at {self.DISK_BLOCKED_PCT:.0%}")
+            raise DiskSpaceError(
+                f"Disk usage at {used_pct:.1%}, blocked at {self.DISK_BLOCKED_PCT:.0%}"
+            )
 
         if used_pct >= self.DISK_CRITICAL_PCT:
             logger.critical(

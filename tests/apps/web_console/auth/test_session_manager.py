@@ -83,7 +83,7 @@ def _make_session(session_version: int = 1):
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_session_returns_role_and_strategies():
     session_data = _make_session(session_version=3)
     store = FakeSessionStore(session_data)
@@ -103,7 +103,7 @@ async def test_validate_session_returns_role_and_strategies():
     assert result["session_version"] == 3
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_session_rejects_on_session_version_mismatch():
     session_data = _make_session(session_version=1)
     store = FakeSessionStore(session_data)
@@ -121,15 +121,13 @@ async def test_validate_session_rejects_on_session_version_mismatch():
     assert store.deleted is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_session_fails_closed_when_db_unavailable(monkeypatch):
     session_data = _make_session(session_version=1)
     store = FakeSessionStore(session_data)
 
     # Simulate DB pool retrieval failure
-    monkeypatch.setattr(
-        "apps.web_console.auth.session_manager._maybe_get_db_pool", lambda: None
-    )
+    monkeypatch.setattr("apps.web_console.auth.session_manager._maybe_get_db_pool", lambda: None)
 
     result = await validate_session(
         session_id="sess",

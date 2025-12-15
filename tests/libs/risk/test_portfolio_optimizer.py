@@ -13,11 +13,9 @@ from libs.risk import (
     BarraRiskModel,
     BoxConstraint,
     BudgetConstraint,
-    CovarianceResult,
     FactorExposureConstraint,
     GrossLeverageConstraint,
     InsufficientUniverseCoverageError,
-    OptimizationResult,
     OptimizerConfig,
     PortfolioOptimizer,
     SectorConstraint,
@@ -25,14 +23,12 @@ from libs.risk import (
     TurnoverConstraint,
 )
 from tests.libs.risk.conftest import (
-    create_mock_covariance_matrix,
     create_mock_factor_exposures,
-    create_mock_factor_returns,
     create_mock_specific_risks,
 )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_barra_model(sample_covariance_result) -> BarraRiskModel:
     """Create sample BarraRiskModel for testing."""
     specific_risks = create_mock_specific_risks()
@@ -55,13 +51,13 @@ def sample_barra_model(sample_covariance_result) -> BarraRiskModel:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_universe() -> list[int]:
     """Sample universe of permnos."""
     return list(range(10001, 10051))
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_current_weights(sample_universe: list[int]) -> dict[int, float]:
     """Sample current portfolio weights."""
     n = len(sample_universe)
@@ -69,7 +65,7 @@ def sample_current_weights(sample_universe: list[int]) -> dict[int, float]:
     return dict(zip(sample_universe, weights.tolist(), strict=False))
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_expected_returns(sample_universe: list[int]) -> dict[int, float]:
     """Sample expected returns."""
     np.random.seed(42)
@@ -153,9 +149,7 @@ class TestMinVarianceOptimization:
     ):
         """Sector constraints are respected."""
         # Create sector map
-        sector_map = {
-            p: f"sector_{i % 3}" for i, p in enumerate(sample_universe)
-        }
+        sector_map = {p: f"sector_{i % 3}" for i, p in enumerate(sample_universe)}
 
         sector_constraint = SectorConstraint(
             sector_map=sector_map,
@@ -308,7 +302,7 @@ class TestMaxSharpeOptimization:
         # Create expected returns with clear winners
         expected_returns = {p: 0.0001 for p in sample_universe}
         # Make first 5 stocks have much higher returns
-        for i, p in enumerate(sample_universe[:5]):
+        for _i, p in enumerate(sample_universe[:5]):
             expected_returns[p] = 0.01
 
         optimizer = PortfolioOptimizer(sample_barra_model)
@@ -343,12 +337,8 @@ class TestMaxSharpeOptimization:
         optimizer_zero = PortfolioOptimizer(sample_barra_model, config_zero_rf)
         optimizer_high = PortfolioOptimizer(sample_barra_model, config_high_rf)
 
-        result_zero = optimizer_zero.optimize_max_sharpe(
-            sample_universe, sample_expected_returns
-        )
-        result_high = optimizer_high.optimize_max_sharpe(
-            sample_universe, sample_expected_returns
-        )
+        result_zero = optimizer_zero.optimize_max_sharpe(sample_universe, sample_expected_returns)
+        result_high = optimizer_high.optimize_max_sharpe(sample_universe, sample_expected_returns)
 
         # Both should return results (may be different Sharpe)
         if result_zero.status != "infeasible" and result_high.status != "infeasible":
@@ -431,10 +421,7 @@ class TestMeanVarianceCost:
             risk_aversion=5.0,
         )
 
-        if (
-            result_low_gamma.status != "infeasible"
-            and result_high_gamma.status != "infeasible"
-        ):
+        if result_low_gamma.status != "infeasible" and result_high_gamma.status != "infeasible":
             # Higher gamma should lead to lower risk
             assert result_high_gamma.expected_risk <= result_low_gamma.expected_risk + 0.01
 
@@ -489,7 +476,7 @@ class TestRiskParityOptimization:
 
         # Equal weight portfolio
         n = len(sample_universe)
-        equal_weight = 1.0 / n
+        1.0 / n
 
         # Risk parity weights should differ from equal weight
         weights = result.optimal_weights["weight"].to_numpy()
@@ -692,7 +679,7 @@ class TestOptimizationResult:
         assert len(result.dataset_version_ids) > 0
 
 
-@pytest.mark.performance
+@pytest.mark.performance()
 class TestPerformance:
     """Performance tests."""
 

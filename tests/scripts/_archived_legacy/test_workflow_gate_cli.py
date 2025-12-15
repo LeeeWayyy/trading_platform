@@ -90,7 +90,7 @@ class TestWorkflowGateCLI:
 
     def test_create_task_command(self):
         """Test 'create-task' command calls PlanningWorkflow.create_task_with_review()."""
-        with patch("workflow_gate.WorkflowGate") as MockGate:
+        with patch("workflow_gate.WorkflowGate"):
             with patch("workflow_gate.PlanningWorkflow") as MockPlanning:
                 mock_planning_instance = MagicMock()
                 MockPlanning.return_value = mock_planning_instance
@@ -124,7 +124,7 @@ class TestWorkflowGateCLI:
 
     def test_start_task_command(self):
         """Test 'start-task' command calls PlanningWorkflow.start_task_with_state()."""
-        with patch("workflow_gate.WorkflowGate") as MockGate:
+        with patch("workflow_gate.WorkflowGate"):
             with patch("workflow_gate.PlanningWorkflow") as MockPlanning:
                 mock_planning_instance = MagicMock()
                 MockPlanning.return_value = mock_planning_instance

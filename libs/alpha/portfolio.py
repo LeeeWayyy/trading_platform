@@ -60,18 +60,14 @@ class SignalToWeight:
         - rank: rank-based, dollar-neutral
         """
         if signals.height == 0:
-            return pl.DataFrame(
-                schema={"permno": pl.Int64, "date": pl.Date, "weight": pl.Float64}
-            )
+            return pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "weight": pl.Float64})
 
         # Filter valid signals
         valid = signals.filter(pl.col("signal").is_not_null())
 
         if valid.height == 0:
             logger.warning("SignalToWeight: no valid signals")
-            return pl.DataFrame(
-                schema={"permno": pl.Int64, "date": pl.Date, "weight": pl.Float64}
-            )
+            return pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "weight": pl.Float64})
 
         if self.method == "zscore":
             return self._zscore_weights(valid)
@@ -87,104 +83,112 @@ class SignalToWeight:
         result = (
             signals
             # Cross-sectional z-score per date
-            .with_columns([
-                (
-                    (pl.col("signal") - pl.col("signal").mean().over("date"))
-                    / pl.col("signal").std().over("date")
-                ).alias("zscore")
-            ])
+            .with_columns(
+                [
+                    (
+                        (pl.col("signal") - pl.col("signal").mean().over("date"))
+                        / pl.col("signal").std().over("date")
+                    ).alias("zscore")
+                ]
+            )
             # Handle zero std case (when all signals identical)
-            .with_columns([
-                pl.when(pl.col("zscore").is_null() | pl.col("zscore").is_nan())
-                .then(0.0)
-                .otherwise(pl.col("zscore"))
-                .alias("zscore")
-            ])
+            .with_columns(
+                [
+                    pl.when(pl.col("zscore").is_null() | pl.col("zscore").is_nan())
+                    .then(0.0)
+                    .otherwise(pl.col("zscore"))
+                    .alias("zscore")
+                ]
+            )
             # Compute abs sum for normalization (guard against zero)
-            .with_columns([
-                pl.col("zscore").abs().sum().over("date").alias("_abs_sum")
-            ])
+            .with_columns([pl.col("zscore").abs().sum().over("date").alias("_abs_sum")])
             # Normalize to target leverage per date (guard against zero denominator)
-            .with_columns([
-                pl.when(pl.col("_abs_sum") == 0)
-                .then(0.0)
-                .otherwise(
-                    pl.col("zscore") / pl.col("_abs_sum") * self.target_leverage
-                )
-                .alias("weight")
-            ])
-            .drop("_abs_sum")
+            .with_columns(
+                [
+                    pl.when(pl.col("_abs_sum") == 0)
+                    .then(0.0)
+                    .otherwise(pl.col("zscore") / pl.col("_abs_sum") * self.target_leverage)
+                    .alias("weight")
+                ]
+            ).drop("_abs_sum")
         )
 
         if self.long_only:
-            result = result.with_columns([
-                pl.when(pl.col("weight") < 0)
-                .then(0.0)
-                .otherwise(pl.col("weight"))
-                .alias("weight")
-            ])
+            result = result.with_columns(
+                [
+                    pl.when(pl.col("weight") < 0)
+                    .then(0.0)
+                    .otherwise(pl.col("weight"))
+                    .alias("weight")
+                ]
+            )
             # Re-normalize to target leverage (guard against zero sum)
-            result = result.with_columns([
-                pl.col("weight").sum().over("date").alias("_weight_sum")
-            ]).with_columns([
-                pl.when(pl.col("_weight_sum") == 0)
-                .then(0.0)
-                .otherwise(
-                    pl.col("weight") / pl.col("_weight_sum") * self.target_leverage
+            result = (
+                result.with_columns([pl.col("weight").sum().over("date").alias("_weight_sum")])
+                .with_columns(
+                    [
+                        pl.when(pl.col("_weight_sum") == 0)
+                        .then(0.0)
+                        .otherwise(pl.col("weight") / pl.col("_weight_sum") * self.target_leverage)
+                        .alias("weight")
+                    ]
                 )
-                .alias("weight")
-            ]).drop("_weight_sum")
+                .drop("_weight_sum")
+            )
 
         return result.select(["permno", "date", "weight"])
 
     def _quantile_weights(self, signals: pl.DataFrame) -> pl.DataFrame:
         """Quantile-based weights."""
         # Assign quantile buckets per date
-        result = signals.with_columns([
-            pl.col("signal")
-            .rank(method="ordinal")
-            .over("date")
-            .alias("_rank"),
-            pl.col("signal").count().over("date").alias("_count"),
-        ])
+        result = signals.with_columns(
+            [
+                pl.col("signal").rank(method="ordinal").over("date").alias("_rank"),
+                pl.col("signal").count().over("date").alias("_count"),
+            ]
+        )
 
         # Compute quantile thresholds
-        result = result.with_columns([
-            (pl.col("_rank") / pl.col("_count") * self.n_quantiles)
-            .ceil()
-            .cast(pl.Int64)
-            .clip(1, self.n_quantiles)
-            .alias("quantile")
-        ])
+        result = result.with_columns(
+            [
+                (pl.col("_rank") / pl.col("_count") * self.n_quantiles)
+                .ceil()
+                .cast(pl.Int64)
+                .clip(1, self.n_quantiles)
+                .alias("quantile")
+            ]
+        )
 
         # Assign weights: top quantile = long, bottom = short
-        n_stocks_per_date = result.group_by("date").agg(
-            pl.len().alias("n_total")
-        )
+        n_stocks_per_date = result.group_by("date").agg(pl.len().alias("n_total"))
 
         result = result.join(n_stocks_per_date, on="date")
 
         # Top quantile: +1/n_top, Bottom quantile: -1/n_bottom, Middle: 0
-        result = result.with_columns([
-            pl.when(pl.col("quantile") == self.n_quantiles)
-            .then(1.0)
-            .when(pl.col("quantile") == 1)
-            .then(-1.0 if not self.long_only else 0.0)
-            .otherwise(0.0)
-            .alias("raw_weight")
-        ])
+        result = result.with_columns(
+            [
+                pl.when(pl.col("quantile") == self.n_quantiles)
+                .then(1.0)
+                .when(pl.col("quantile") == 1)
+                .then(-1.0 if not self.long_only else 0.0)
+                .otherwise(0.0)
+                .alias("raw_weight")
+            ]
+        )
 
         # Normalize per date
-        result = result.with_columns([
-            (
-                pl.col("raw_weight")
-                / pl.col("raw_weight").abs().sum().over("date")
-                * self.target_leverage
-            )
-            .fill_nan(0.0)
-            .fill_null(0.0)
-            .alias("weight")
-        ])
+        result = result.with_columns(
+            [
+                (
+                    pl.col("raw_weight")
+                    / pl.col("raw_weight").abs().sum().over("date")
+                    * self.target_leverage
+                )
+                .fill_nan(0.0)
+                .fill_null(0.0)
+                .alias("weight")
+            ]
+        )
 
         return result.select(["permno", "date", "weight"])
 
@@ -193,51 +197,49 @@ class SignalToWeight:
         result = (
             signals
             # Rank per date
-            .with_columns([
-                pl.col("signal")
-                .rank(method="ordinal")
-                .over("date")
-                .alias("_rank"),
-                pl.col("signal").count().over("date").alias("_count"),
-            ])
+            .with_columns(
+                [
+                    pl.col("signal").rank(method="ordinal").over("date").alias("_rank"),
+                    pl.col("signal").count().over("date").alias("_count"),
+                ]
+            )
             # Demean rank
-            .with_columns([
-                (pl.col("_rank") - (pl.col("_count") + 1) / 2).alias("demeaned_rank")
-            ])
+            .with_columns([(pl.col("_rank") - (pl.col("_count") + 1) / 2).alias("demeaned_rank")])
             # Compute abs sum for normalization (guard against zero)
-            .with_columns([
-                pl.col("demeaned_rank").abs().sum().over("date").alias("_abs_sum")
-            ])
+            .with_columns([pl.col("demeaned_rank").abs().sum().over("date").alias("_abs_sum")])
             # Normalize to target leverage (guard against zero denominator)
-            .with_columns([
-                pl.when(pl.col("_abs_sum") == 0)
-                .then(0.0)
-                .otherwise(
-                    pl.col("demeaned_rank") / pl.col("_abs_sum") * self.target_leverage
-                )
-                .alias("weight")
-            ])
-            .drop("_abs_sum")
+            .with_columns(
+                [
+                    pl.when(pl.col("_abs_sum") == 0)
+                    .then(0.0)
+                    .otherwise(pl.col("demeaned_rank") / pl.col("_abs_sum") * self.target_leverage)
+                    .alias("weight")
+                ]
+            ).drop("_abs_sum")
         )
 
         if self.long_only:
-            result = result.with_columns([
-                pl.when(pl.col("weight") < 0)
-                .then(0.0)
-                .otherwise(pl.col("weight"))
-                .alias("weight")
-            ])
+            result = result.with_columns(
+                [
+                    pl.when(pl.col("weight") < 0)
+                    .then(0.0)
+                    .otherwise(pl.col("weight"))
+                    .alias("weight")
+                ]
+            )
             # Re-normalize (guard against zero sum)
-            result = result.with_columns([
-                pl.col("weight").sum().over("date").alias("_weight_sum")
-            ]).with_columns([
-                pl.when(pl.col("_weight_sum") == 0)
-                .then(0.0)
-                .otherwise(
-                    pl.col("weight") / pl.col("_weight_sum") * self.target_leverage
+            result = (
+                result.with_columns([pl.col("weight").sum().over("date").alias("_weight_sum")])
+                .with_columns(
+                    [
+                        pl.when(pl.col("_weight_sum") == 0)
+                        .then(0.0)
+                        .otherwise(pl.col("weight") / pl.col("_weight_sum") * self.target_leverage)
+                        .alias("weight")
+                    ]
                 )
-                .alias("weight")
-            ]).drop("_weight_sum")
+                .drop("_weight_sum")
+            )
 
         return result.select(["permno", "date", "weight"])
 
@@ -281,26 +283,28 @@ class TurnoverCalculator:
         # Join with actual weights, fill missing with 0 (exited position)
         full_weights = (
             full_grid.join(weights, on=["permno", "date"], how="left")
-            .with_columns([
-                pl.col("weight").fill_null(0.0).alias("weight")
-            ])
+            .with_columns([pl.col("weight").fill_null(0.0).alias("weight")])
             .sort(["permno", "date"])
         )
 
         # Compute weight changes with proper handling of exits/re-entries
-        weight_changes = full_weights.with_columns([
-            (pl.col("weight") - pl.col("weight").shift(1).over("permno"))
-            .abs()
-            .alias("weight_change")
-        ])
+        weight_changes = full_weights.with_columns(
+            [
+                (pl.col("weight") - pl.col("weight").shift(1).over("permno"))
+                .abs()
+                .alias("weight_change")
+            ]
+        )
 
         # First day for each stock: no prior weight, assume came from 0
-        weight_changes = weight_changes.with_columns([
-            pl.when(pl.col("weight_change").is_null())
-            .then(pl.col("weight").abs())
-            .otherwise(pl.col("weight_change"))
-            .alias("weight_change")
-        ])
+        weight_changes = weight_changes.with_columns(
+            [
+                pl.when(pl.col("weight_change").is_null())
+                .then(pl.col("weight").abs())
+                .otherwise(pl.col("weight_change"))
+                .alias("weight_change")
+            ]
+        )
 
         # Aggregate by date
         # Turnover = sum(|w_t - w_{t-1}|) / 2, consistent for all dates including first

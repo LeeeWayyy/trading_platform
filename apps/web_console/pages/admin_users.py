@@ -174,7 +174,9 @@ def _list_users_sync(db_pool: Any) -> list[UserInfo]:
     try:
         _ = asyncio.get_running_loop()
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            result: list[UserInfo] = pool.submit(asyncio.run, list_users(db_pool)).result(timeout=10.0)
+            result: list[UserInfo] = pool.submit(asyncio.run, list_users(db_pool)).result(
+                timeout=10.0
+            )
             return result
     except RuntimeError:
         return asyncio.run(list_users(db_pool))

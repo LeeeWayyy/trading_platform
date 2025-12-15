@@ -38,7 +38,7 @@ def _acquire_lock(state_file: Path, max_retries: int = 3) -> int:
             lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_WRONLY, 0o644)
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return lock_fd
-        except OSError:
+        except OSError as err:
             # Close file descriptor before retry to prevent leak
             if lock_fd is not None:
                 try:
@@ -50,7 +50,7 @@ def _acquire_lock(state_file: Path, max_retries: int = 3) -> int:
                 continue
             # MEDIUM fix: Remove unreachable code (Gemini review)
             # Last attempt failed, raise error
-            raise RuntimeError(f"Failed to acquire lock after {max_retries} attempts")
+            raise RuntimeError(f"Failed to acquire lock after {max_retries} attempts") from err
 
 
 def _release_lock(lock_fd: int) -> None:
@@ -79,9 +79,9 @@ def _save_state_unlocked(state_file: Path, state: dict[str, Any]) -> None:
         with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2, ensure_ascii=False)
         Path(temp_path).replace(state_file)
-    except OSError:
+    except OSError as err:
         Path(temp_path).unlink(missing_ok=True)
-        raise
+        raise RuntimeError("Failed to persist task state atomically") from err
 
 
 @contextmanager

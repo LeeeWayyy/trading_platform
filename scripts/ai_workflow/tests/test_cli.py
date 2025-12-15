@@ -8,11 +8,7 @@ This enables imports like 'from scripts.workflow_gate import ...' without sys.pa
 """
 
 import json
-import os
-import subprocess
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 # Gemini MEDIUM fix: Removed sys.path manipulation - pytest.ini handles pythonpath
 
@@ -35,11 +31,11 @@ class TestCLIStatus:
 
         with patch("workflow_gate.STATE_FILE", state_file):
             with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                from workflow_gate import cmd_status
-
                 # Capture stdout
                 import io
                 from contextlib import redirect_stdout
+
+                from workflow_gate import cmd_status
 
                 f = io.StringIO()
                 with redirect_stdout(f):
@@ -59,7 +55,7 @@ class TestCLIStartTask:
     def test_start_task_creates_state(self, temp_dir):
         """Should create initial state for task."""
         state_file = temp_dir / ".ai_workflow" / "workflow-state.json"
-        config_file = temp_dir / ".ai_workflow" / "config.json"
+        temp_dir / ".ai_workflow" / "config.json"
         state_file.parent.mkdir(parents=True)
 
         # Write initial empty state
@@ -148,6 +144,7 @@ class TestCLIAdvance:
 
         # Need to patch both STATE_FILE and _gate since cmd_advance delegates to _gate.advance()
         from ai_workflow.core import WorkflowGate
+
         test_gate = WorkflowGate(state_file=state_file)
 
         with patch("workflow_gate.STATE_FILE", state_file):
@@ -211,6 +208,7 @@ class TestCLIRecordReview:
 
         # Need to patch _gate since cmd_record_review delegates to _gate.record_review()
         from ai_workflow.core import WorkflowGate
+
         test_gate = WorkflowGate(state_file=state_file)
 
         with patch("workflow_gate.STATE_FILE", state_file):
@@ -295,6 +293,7 @@ class TestCLICheckCommit:
 
         # Need to patch _gate since cmd_check_commit delegates to _gate.get_commit_status()
         from ai_workflow.core import WorkflowGate
+
         test_gate = WorkflowGate(state_file=state_file)
 
         with patch("workflow_gate.STATE_FILE", state_file):
@@ -339,6 +338,7 @@ class TestCLICheckCommit:
 
         # Need to patch _gate since cmd_check_commit delegates to _gate.get_commit_status()
         from ai_workflow.core import WorkflowGate
+
         test_gate = WorkflowGate(state_file=state_file)
 
         with patch("workflow_gate.STATE_FILE", state_file):
@@ -430,9 +430,7 @@ class TestCLIPRPhase:
         with patch("workflow_gate.STATE_FILE", state_file):
             with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 with patch("ai_workflow.config.CONFIG_FILE", config_file):
-                    with patch(
-                        "ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"
-                    ):
+                    with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                         from workflow_gate import cmd_start_pr_phase
 
                         args = MagicMock()
@@ -480,9 +478,7 @@ class TestCLISubtasks:
         with patch("workflow_gate.STATE_FILE", state_file):
             with patch("workflow_gate.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 with patch("ai_workflow.config.CONFIG_FILE", config_file):
-                    with patch(
-                        "ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"
-                    ):
+                    with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                         from workflow_gate import cmd_subtask_status
 
                         args = MagicMock()

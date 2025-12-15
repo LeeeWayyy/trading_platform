@@ -130,9 +130,7 @@ LEGACY_TWAP_INTERVAL_SECONDS = 60
 ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "")
 ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader"
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader")
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
@@ -2763,16 +2761,22 @@ async def get_daily_performance(
     """Daily realized P&L (equity & drawdown) for performance dashboard."""
 
     if not FEATURE_PERFORMANCE_DASHBOARD:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Performance dashboard disabled")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Performance dashboard disabled"
+        )
 
     perf_request = PerformanceRequest(start_date=start_date, end_date=end_date)
     authorized_strategies = get_authorized_strategies(user.get("user"))
-    requested_strategies = cast(list[str], user.get("requested_strategies", []) if isinstance(user, dict) else [])
+    requested_strategies = cast(
+        list[str], user.get("requested_strategies", []) if isinstance(user, dict) else []
+    )
     user_id = user.get("user_id") if isinstance(user, dict) else None
     if not authorized_strategies:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing user id for RBAC")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Missing user id for RBAC"
+        )
 
     invalid_strategies = set(requested_strategies) - set(authorized_strategies)
     if invalid_strategies:
@@ -2830,7 +2834,9 @@ async def get_daily_performance(
 
 @app.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
 @require_permission(Permission.VIEW_PNL)
-async def get_realtime_pnl(user: dict[str, Any] = Depends(_build_user_context)) -> RealtimePnLResponse:
+async def get_realtime_pnl(
+    user: dict[str, Any] = Depends(_build_user_context)
+) -> RealtimePnLResponse:
     """
     Get real-time P&L with latest market prices.
 
@@ -2871,7 +2877,9 @@ async def get_realtime_pnl(user: dict[str, Any] = Depends(_build_user_context)) 
     """
     # Resolve strategy access (fail closed)
     authorized_strategies = get_authorized_strategies(user.get("user"))
-    if not authorized_strategies and not has_permission(user.get("user"), Permission.VIEW_ALL_STRATEGIES):
+    if not authorized_strategies and not has_permission(
+        user.get("user"), Permission.VIEW_ALL_STRATEGIES
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No strategy access")
 
     # DESIGN DECISION: Separate try/except for DB call vs empty-result guard.
@@ -3043,16 +3051,24 @@ async def order_webhook(request: Request) -> dict[str, str]:
         per_fill_price = Decimal(str(payload.get("price", filled_avg_price_dec)))
 
         # Broker-provided timestamp preferred
-        broker_ts = payload.get("timestamp") or payload.get("filled_at") or order_data.get("filled_at")
+        broker_ts = (
+            payload.get("timestamp") or payload.get("filled_at") or order_data.get("filled_at")
+        )
         if broker_ts:
             try:
                 fill_timestamp = datetime.fromisoformat(str(broker_ts).replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 fill_timestamp = datetime.now(UTC)
-                logger.warning("Failed to parse broker timestamp; using server time", extra={"client_order_id": client_order_id, "broker_ts": broker_ts})
+                logger.warning(
+                    "Failed to parse broker timestamp; using server time",
+                    extra={"client_order_id": client_order_id, "broker_ts": broker_ts},
+                )
         else:
             fill_timestamp = datetime.now(UTC)
-            logger.warning("Missing broker timestamp; using server time", extra={"client_order_id": client_order_id})
+            logger.warning(
+                "Missing broker timestamp; using server time",
+                extra={"client_order_id": client_order_id},
+            )
 
         with db_client.transaction() as conn:
             order = db_client.get_order_for_update(client_order_id, conn)

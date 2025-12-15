@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, date, timedelta
-from decimal import Decimal
-from types import SimpleNamespace
 import sys
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from types import ModuleType
 
 # Stub pydantic core classes only if library missing (CI often preinstalls)
@@ -13,16 +12,28 @@ try:
     import pydantic as _pd  # type: ignore  # noqa
 except ImportError:  # pragma: no cover - fallback for hermetic envs
     pydantic_stub = ModuleType("pydantic")
+
     class _ValidationError(Exception): ...
+
     class _BaseModel:
-        def __init__(self, **kwargs): self.__dict__.update(kwargs)
-    def _Field(*args, **kwargs): return None
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    def _Field(*args, **kwargs):
+        return None
+
     def _field_validator(*args, **kwargs):
-        def wrapper(fn): return fn
+        def wrapper(fn):
+            return fn
+
         return wrapper
+
     def _model_validator(*args, **kwargs):
-        def wrapper(fn): return fn
+        def wrapper(fn):
+            return fn
+
         return wrapper
+
     pydantic_stub.BaseModel = _BaseModel
     pydantic_stub.Field = _Field
     pydantic_stub.field_validator = _field_validator
@@ -32,14 +43,17 @@ except ImportError:  # pragma: no cover - fallback for hermetic envs
 
 # Stub libs.common TimestampSerializerMixin dependency
 common_schemas_stub = ModuleType("libs.common.schemas")
+
+
 class TimestampSerializerMixin: ...
+
+
 common_schemas_stub.TimestampSerializerMixin = TimestampSerializerMixin
 sys.modules.setdefault("libs.common.schemas", common_schemas_stub)
 common_stub = ModuleType("libs.common")
 common_stub.TimestampSerializerMixin = TimestampSerializerMixin
 sys.modules.setdefault("libs.common", common_stub)
 
-import pytest
 
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.schemas import OrderRequest
@@ -116,7 +130,9 @@ class FakePool:
 
     def connection(self):
         # Provide a fresh cursor per connection to avoid exhausted iterators
-        fresh_cursor = FakeCursor(rows=list(self.cursor_template.rows), rowcount=self.cursor_template.rowcount)
+        fresh_cursor = FakeCursor(
+            rows=list(self.cursor_template.rows), rowcount=self.cursor_template.rowcount
+        )
         return FakeConnection(fresh_cursor)
 
     def close(self):
@@ -125,6 +141,7 @@ class FakePool:
 
 def make_db_with_rows(rows):
     import psycopg_pool
+
     from apps.execution_gateway import database as dbmod
 
     original_pool = psycopg_pool.ConnectionPool
@@ -181,7 +198,9 @@ def test_parent_and_child_slice_creation():
         "parent_order_id": None,
         "total_slices": 2,
     }
-    db = make_db_with_rows([row, {**row, "client_order_id": "child1", "parent_order_id": "parent1", "slice_num": 0}])
+    db = make_db_with_rows(
+        [row, {**row, "client_order_id": "child1", "parent_order_id": "parent1", "slice_num": 0}]
+    )
     req = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
     parent = db.create_parent_order("parent1", "twap_parent", req, total_slices=2)
     assert parent.total_slices == 2
@@ -249,7 +268,9 @@ def test_cancel_pending_and_update_status():
             ]
         )
     )
-    updated = db.update_order_status("cid", status="filled", filled_qty=Decimal("1"), filled_avg_price=Decimal("10"))
+    updated = db.update_order_status(
+        "cid", status="filled", filled_qty=Decimal("1"), filled_avg_price=Decimal("10")
+    )
     assert updated.status == "filled"
 
 
@@ -350,7 +371,8 @@ def test_performance_queries_and_positions_filters():
     assert history == [daily_row]
     db._pool = FakePool(FakeCursor(rows=[pos_row]))
     positions = db.get_all_positions()
-    assert positions and positions[0].symbol == "MSFT"
+    assert positions
+    assert positions[0].symbol == "MSFT"
     db._pool = FakePool(FakeCursor(rows=[strategy_row]))
     strat_positions = db.get_positions_for_strategies(["s1"])
     assert strat_positions == positions  # one strategy mapped

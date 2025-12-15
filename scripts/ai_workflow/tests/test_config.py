@@ -5,11 +5,9 @@ Tests WorkflowConfig class for loading, saving, and merging configuration.
 """
 
 import json
-import pytest
-from pathlib import Path
 from unittest.mock import patch
 
-from ai_workflow.config import WorkflowConfig, DEFAULT_CONFIG
+from ai_workflow.config import DEFAULT_CONFIG, WorkflowConfig
 
 
 class TestDefaultConfig:

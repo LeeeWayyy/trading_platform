@@ -141,7 +141,7 @@ def test_multiple_delegations_tracked_independently(delegation_rules):
     # Create 3 delegations
     del1 = delegation_rules.plan_delegation("Task 1", "Reason 1")
     del2 = delegation_rules.plan_delegation("Task 2", "Reason 2")
-    del3 = delegation_rules.plan_delegation("Task 3", "Reason 3")
+    delegation_rules.plan_delegation("Task 3", "Reason 3")
 
     # Complete first, cancel second, leave third pending
     delegation_rules.capture_summary(del1["id"], "Task 1 done")

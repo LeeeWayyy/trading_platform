@@ -150,9 +150,7 @@ class LocalMetrics:
         return result if result is not None else float("nan")
 
     @staticmethod
-    def compute_ic(
-        signal: pl.Series, returns: pl.Series, method: str = "rank"
-    ) -> float:
+    def compute_ic(signal: pl.Series, returns: pl.Series, method: str = "rank") -> float:
         """Compute IC using specified method.
 
         Args:
@@ -191,9 +189,7 @@ class LocalMetrics:
         ret_valid = returns.filter(valid_mask)
 
         # Compare signs (both positive or both negative)
-        correct = ((sig_valid > 0) & (ret_valid > 0)) | (
-            (sig_valid < 0) & (ret_valid < 0)
-        )
+        correct = ((sig_valid > 0) & (ret_valid > 0)) | ((sig_valid < 0) & (ret_valid < 0))
         # Exclude zero signals/returns from hit rate
         non_zero = (sig_valid != 0) & (ret_valid != 0)
         n_non_zero = non_zero.sum()
@@ -245,9 +241,7 @@ class LocalMetrics:
             return float("nan")
 
     @staticmethod
-    def long_short_spread(
-        signal: pl.Series, returns: pl.Series, n_deciles: int = 10
-    ) -> float:
+    def long_short_spread(signal: pl.Series, returns: pl.Series, n_deciles: int = 10) -> float:
         """Compute long/short spread (top decile - bottom decile returns).
 
         Args:
@@ -265,27 +259,29 @@ class LocalMetrics:
             return float("nan")
 
         # Create DataFrame for quantile computation
-        df = pl.DataFrame({
-            "signal": signal.filter(valid_mask),
-            "returns": returns.filter(valid_mask),
-        })
+        df = pl.DataFrame(
+            {
+                "signal": signal.filter(valid_mask),
+                "returns": returns.filter(valid_mask),
+            }
+        )
 
         # Compute quantile ranks
-        df = df.with_columns([
-            (pl.col("signal").rank(method="ordinal") / pl.col("signal").count() * n_deciles)
-            .ceil()
-            .cast(pl.Int64)
-            .clip(1, n_deciles)
-            .alias("decile")
-        ])
+        df = df.with_columns(
+            [
+                (pl.col("signal").rank(method="ordinal") / pl.col("signal").count() * n_deciles)
+                .ceil()
+                .cast(pl.Int64)
+                .clip(1, n_deciles)
+                .alias("decile")
+            ]
+        )
 
         # Top and bottom decile returns
-        top_return = df.filter(pl.col("decile") == n_deciles).select(
-            pl.col("returns").mean()
-        ).item()
-        bottom_return = df.filter(pl.col("decile") == 1).select(
-            pl.col("returns").mean()
-        ).item()
+        top_return = (
+            df.filter(pl.col("decile") == n_deciles).select(pl.col("returns").mean()).item()
+        )
+        bottom_return = df.filter(pl.col("decile") == 1).select(pl.col("returns").mean()).item()
 
         if top_return is None or bottom_return is None:
             return float("nan")
@@ -429,9 +425,7 @@ class AlphaMetricsAdapter:
             )
 
         # Filter to valid observations only
-        valid_data = joined.filter(
-            pl.col("signal").is_not_null() & pl.col("return").is_not_null()
-        )
+        valid_data = joined.filter(pl.col("signal").is_not_null() & pl.col("return").is_not_null())
 
         if valid_data.height == 0:
             return ICResult(
@@ -459,24 +453,26 @@ class AlphaMetricsAdapter:
             )
 
         # Filter to valid dates only (for IC computation, not coverage)
-        valid_data = valid_data.join(
-            valid_dates.select("date"), on="date", how="semi"
-        )
+        valid_data = valid_data.join(valid_dates.select("date"), on="date", how="semi")
 
         # Add ranks for Spearman correlation (computed per-date using over())
-        valid_data = valid_data.with_columns([
-            pl.col("signal").rank(method="average").over("date").alias("signal_rank"),
-            pl.col("return").rank(method="average").over("date").alias("return_rank"),
-        ])
+        valid_data = valid_data.with_columns(
+            [
+                pl.col("signal").rank(method="average").over("date").alias("signal_rank"),
+                pl.col("return").rank(method="average").over("date").alias("return_rank"),
+            ]
+        )
 
         # Compute daily IC using vectorized group_by operations
         # Pearson: corr(signal, return) per date
         # Spearman: corr(signal_rank, return_rank) per date
-        daily_ic = valid_data.group_by("date").agg([
-            pl.corr("signal", "return").alias("pearson_ic"),
-            pl.corr("signal_rank", "return_rank").alias("rank_ic"),
-            pl.len().alias("n_obs"),
-        ])
+        daily_ic = valid_data.group_by("date").agg(
+            [
+                pl.corr("signal", "return").alias("pearson_ic"),
+                pl.corr("signal_rank", "return_rank").alias("rank_ic"),
+                pl.len().alias("n_obs"),
+            ]
+        )
 
         # Compute mean IC across dates (excluding NaN)
         mean_pearson_raw = daily_ic.select(
@@ -579,9 +575,8 @@ class AlphaMetricsAdapter:
             DataFrame with [gics_sector, ic, rank_ic, n_stocks]
         """
         # Join all data
-        joined = (
-            signal.join(returns, on=["permno", "date"], how="inner")
-            .join(sector_mapping, on=["permno", "date"], how="inner")
+        joined = signal.join(returns, on=["permno", "date"], how="inner").join(
+            sector_mapping, on=["permno", "date"], how="inner"
         )
 
         if joined.height == 0:
@@ -609,12 +604,14 @@ class AlphaMetricsAdapter:
             pearson = self._local.pearson_ic(sig_series, ret_series)
             rank = self._local.rank_ic(sig_series, ret_series)
 
-            results.append({
-                "gics_sector": sector,
-                "ic": pearson,
-                "rank_ic": rank,
-                "n_stocks": sector_data.height,
-            })
+            results.append(
+                {
+                    "gics_sector": sector,
+                    "ic": pearson,
+                    "rank_ic": rank,
+                    "n_stocks": sector_data.height,
+                }
+            )
 
         if not results:
             return pl.DataFrame(
@@ -647,11 +644,13 @@ class AlphaMetricsAdapter:
 
         for horizon, returns in sorted(returns_by_horizon.items()):
             ic_result = self.compute_ic(signal, returns, method="rank")
-            results.append({
-                "horizon": horizon,
-                "ic": ic_result.pearson_ic,
-                "rank_ic": ic_result.rank_ic,
-            })
+            results.append(
+                {
+                    "horizon": horizon,
+                    "ic": ic_result.pearson_ic,
+                    "rank_ic": ic_result.rank_ic,
+                }
+            )
 
         if not results:
             return DecayCurveResult(
@@ -728,9 +727,7 @@ class AlphaMetricsAdapter:
         sorted_ts = signal_ts.sort("date")
         signal_series = sorted_ts.get_column("signal")
 
-        return {
-            lag: self._local.autocorrelation(signal_series, lag) for lag in lags
-        }
+        return {lag: self._local.autocorrelation(signal_series, lag) for lag in lags}
 
     def compute_hit_rate(
         self,
@@ -812,28 +809,38 @@ class AlphaMetricsAdapter:
 
         # Compute per-date decile ranks to avoid look-ahead bias
         # Use adaptive bucketing: min(n_deciles, count) to handle small universes
-        with_decile = valid_joined.with_columns([
-            pl.col("signal").len().over("date").alias("_daily_count"),
-            pl.col("signal").rank(method="ordinal").over("date").alias("_rank"),
-        ]).with_columns([
-            # Effective deciles = min(n_deciles, daily_count)
-            pl.when(pl.col("_daily_count") >= n_deciles)
-            .then(n_deciles)
-            .otherwise(pl.col("_daily_count"))
-            .alias("_eff_deciles")
-        ]).with_columns([
-            # Assign decile using (rank - 1) / count * eff_deciles + 1 formula
-            # This ensures all deciles 1..eff_deciles are populated
-            pl.when(pl.col("_eff_deciles") < 2)
-            .then(pl.lit(None).cast(pl.Int64))  # Skip days with < 2 stocks
-            .otherwise(
-                ((pl.col("_rank") - 1) / pl.col("_daily_count") * pl.col("_eff_deciles"))
-                .floor()
-                .cast(pl.Int64)
-                + 1
+        with_decile = (
+            valid_joined.with_columns(
+                [
+                    pl.col("signal").len().over("date").alias("_daily_count"),
+                    pl.col("signal").rank(method="ordinal").over("date").alias("_rank"),
+                ]
             )
-            .alias("decile")
-        ])
+            .with_columns(
+                [
+                    # Effective deciles = min(n_deciles, daily_count)
+                    pl.when(pl.col("_daily_count") >= n_deciles)
+                    .then(n_deciles)
+                    .otherwise(pl.col("_daily_count"))
+                    .alias("_eff_deciles")
+                ]
+            )
+            .with_columns(
+                [
+                    # Assign decile using (rank - 1) / count * eff_deciles + 1 formula
+                    # This ensures all deciles 1..eff_deciles are populated
+                    pl.when(pl.col("_eff_deciles") < 2)
+                    .then(pl.lit(None).cast(pl.Int64))  # Skip days with < 2 stocks
+                    .otherwise(
+                        ((pl.col("_rank") - 1) / pl.col("_daily_count") * pl.col("_eff_deciles"))
+                        .floor()
+                        .cast(pl.Int64)
+                        + 1
+                    )
+                    .alias("decile")
+                ]
+            )
+        )
 
         # Filter out days with insufficient stocks for meaningful spread
         with_decile = with_decile.filter(pl.col("decile").is_not_null())
@@ -844,20 +851,17 @@ class AlphaMetricsAdapter:
         # Compute per-date spread using effective top and bottom deciles
         daily_spreads = (
             with_decile.group_by("date")
-            .agg([
-                pl.col("_eff_deciles").first().alias("eff_deciles"),
-                pl.col("return")
-                .filter(pl.col("decile") == pl.col("_eff_deciles"))
-                .mean()
-                .alias("top_return"),
-                pl.col("return")
-                .filter(pl.col("decile") == 1)
-                .mean()
-                .alias("bottom_return"),
-            ])
-            .with_columns([
-                (pl.col("top_return") - pl.col("bottom_return")).alias("spread")
-            ])
+            .agg(
+                [
+                    pl.col("_eff_deciles").first().alias("eff_deciles"),
+                    pl.col("return")
+                    .filter(pl.col("decile") == pl.col("_eff_deciles"))
+                    .mean()
+                    .alias("top_return"),
+                    pl.col("return").filter(pl.col("decile") == 1).mean().alias("bottom_return"),
+                ]
+            )
+            .with_columns([(pl.col("top_return") - pl.col("bottom_return")).alias("spread")])
         )
 
         # Average daily spreads (drop days with insufficient data)

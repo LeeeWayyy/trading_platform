@@ -8,10 +8,8 @@ Addresses review feedback:
 
 import copy
 import json
-from pathlib import Path
-from typing import List, Optional
 
-from .constants import WORKFLOW_DIR, CONFIG_FILE  # Import from constants (no duplicate)
+from .constants import CONFIG_FILE, WORKFLOW_DIR  # Import from constants (no duplicate)
 
 DEFAULT_CONFIG = {
     "version": "1.0",
@@ -21,21 +19,14 @@ DEFAULT_CONFIG = {
         "enabled": ["gemini", "codex"],
         "available": ["claude", "gemini", "codex"],
         "min_required": 2,
-        "username_mapping": {}
+        "username_mapping": {},
     },
-    "ci": {
-        "wait_timeout_seconds": 600,
-        "poll_interval_seconds": 30,
-        "retry_on_flaky": True
-    },
-    "git": {
-        "push_retry_count": 3,
-        "default_base_branch": "master"
-    },
+    "ci": {"wait_timeout_seconds": 600, "poll_interval_seconds": 30, "retry_on_flaky": True},
+    "git": {"push_retry_count": 3, "default_base_branch": "master"},
     "delegation": {
         "comment_threshold": 10,
         "file_threshold": 20,
-    }
+    },
 }
 
 
@@ -103,10 +94,10 @@ class WorkflowConfig:
     def _save(self, config: dict) -> None:
         """Save config to file."""
         WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, 'w') as f:
+        with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
 
-    def get_enabled_reviewers(self) -> List[str]:
+    def get_enabled_reviewers(self) -> list[str]:
         """Get list of enabled reviewer names."""
         return self.config["reviewers"]["enabled"]
 
@@ -114,7 +105,7 @@ class WorkflowConfig:
         """Get minimum required reviewer approvals."""
         return self.config["reviewers"]["min_required"]
 
-    def get_reviewer_username(self, reviewer_name: str) -> Optional[str]:
+    def get_reviewer_username(self, reviewer_name: str) -> str | None:
         """Map reviewer CLI name to GitHub username if configured."""
         return self.config["reviewers"]["username_mapping"].get(reviewer_name)
 

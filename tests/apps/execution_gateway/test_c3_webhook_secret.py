@@ -43,9 +43,7 @@ class TestWebhookSecretValidation:
         """Verify webhook secret is optional in dev/test environments."""
         # Empty secret should be OK in dev/test
         should_error = self._check_webhook_secret_required(
-            webhook_secret="",
-            environment=environment,
-            dry_run=False
+            webhook_secret="", environment=environment, dry_run=False
         )
         assert not should_error, f"Should not require WEBHOOK_SECRET in {environment} mode"
 
@@ -53,45 +51,35 @@ class TestWebhookSecretValidation:
         """Verify webhook secret is optional when DRY_RUN=true."""
         # Empty secret should be OK in dry_run mode even in production
         should_error = self._check_webhook_secret_required(
-            webhook_secret="",
-            environment="production",
-            dry_run=True
+            webhook_secret="", environment="production", dry_run=True
         )
         assert not should_error, "Should not require WEBHOOK_SECRET in dry_run mode"
 
     def test_webhook_secret_required_in_production(self):
         """Verify webhook secret is REQUIRED in production with DRY_RUN=false."""
         should_error = self._check_webhook_secret_required(
-            webhook_secret="",
-            environment="production",
-            dry_run=False
+            webhook_secret="", environment="production", dry_run=False
         )
         assert should_error, "Should require WEBHOOK_SECRET in production with DRY_RUN=false"
 
     def test_webhook_secret_required_in_staging(self):
         """Verify webhook secret is REQUIRED in staging with DRY_RUN=false."""
         should_error = self._check_webhook_secret_required(
-            webhook_secret="",
-            environment="staging",
-            dry_run=False
+            webhook_secret="", environment="staging", dry_run=False
         )
         assert should_error, "Should require WEBHOOK_SECRET in staging with DRY_RUN=false"
 
     def test_webhook_secret_set_allows_production(self):
         """Verify production starts when WEBHOOK_SECRET is set."""
         should_error = self._check_webhook_secret_required(
-            webhook_secret="test-secret-12345",
-            environment="production",
-            dry_run=False
+            webhook_secret="test-secret-12345", environment="production", dry_run=False
         )
         assert not should_error, "Should allow production when WEBHOOK_SECRET is set"
 
     def test_webhook_secret_whitespace_only_rejected(self):
         """Verify whitespace-only WEBHOOK_SECRET is treated as missing."""
         should_error = self._check_webhook_secret_required(
-            webhook_secret="   ",  # Whitespace only
-            environment="production",
-            dry_run=False
+            webhook_secret="   ", environment="production", dry_run=False  # Whitespace only
         )
         assert should_error, "Whitespace-only WEBHOOK_SECRET should be rejected in production"
 
@@ -100,12 +88,12 @@ class TestWebhookSecretValidation:
         should_error = self._check_webhook_secret_required(
             webhook_secret="  valid-secret-123  ",  # Valid secret with whitespace padding
             environment="production",
-            dry_run=False
+            dry_run=False,
         )
         assert not should_error, "Secret with whitespace padding should be accepted"
 
     @pytest.mark.parametrize(
-        "environment,dry_run,secret,expect_error",
+        ("environment", "dry_run", "secret", "expect_error"),
         [
             # Dev/test: always OK
             ("dev", False, "", False),
@@ -128,9 +116,7 @@ class TestWebhookSecretValidation:
     ):
         """Comprehensive matrix test for webhook secret validation."""
         should_error = self._check_webhook_secret_required(
-            webhook_secret=secret,
-            environment=environment,
-            dry_run=dry_run
+            webhook_secret=secret, environment=environment, dry_run=dry_run
         )
         assert should_error == expect_error, (
             f"Environment={environment}, DRY_RUN={dry_run}, "

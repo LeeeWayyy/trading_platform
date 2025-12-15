@@ -10,7 +10,6 @@ Contract:
 - HTTPException subclasses are re-raised to preserve their status codes
 """
 
-import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 

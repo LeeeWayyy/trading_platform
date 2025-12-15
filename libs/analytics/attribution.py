@@ -166,9 +166,7 @@ class AttributionResult:
     filter_stats: dict[str, Any] = field(default_factory=dict)
 
     # Reproducibility
-    computation_timestamp: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_registry_dict(self) -> dict[str, Any]:
         """Serialize result for registry storage."""
@@ -225,9 +223,7 @@ class RollingExposureResult:
     dataset_version_id: str = ""
     dataset_versions: dict[str, str | None] = field(default_factory=dict)
     snapshot_id: str | None = None
-    computation_timestamp: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_registry_dict(self) -> dict[str, Any]:
         """Serialize result for registry storage."""
@@ -265,9 +261,7 @@ class ReturnDecompositionResult:
     decomposition: pl.DataFrame | None = None
     attribution_result: AttributionResult | None = None
     dataset_version_id: str = ""
-    computation_timestamp: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_registry_dict(self) -> dict[str, Any]:
         """Serialize result for registry storage."""
@@ -284,9 +278,7 @@ class ReturnDecompositionResult:
             "portfolio_id": self.portfolio_id,
             "decomposition": decomp_list,
             "attribution_result": (
-                self.attribution_result.to_registry_dict()
-                if self.attribution_result
-                else None
+                self.attribution_result.to_registry_dict() if self.attribution_result else None
             ),
             "dataset_version_id": self.dataset_version_id,
             "computation_timestamp": self.computation_timestamp.isoformat(),
@@ -441,9 +433,7 @@ class FactorAttribution:
         filter_stats["after_filters"] = len(portfolio_returns)
 
         # Align data
-        aligned_portfolio, aligned_factors = self._align_data(
-            portfolio_returns, ff_factors
-        )
+        aligned_portfolio, aligned_factors = self._align_data(portfolio_returns, ff_factors)
 
         # Check minimum observations
         n_obs = len(aligned_portfolio)
@@ -455,8 +445,7 @@ class FactorAttribution:
 
         # Compute excess returns
         excess_returns = (
-            aligned_portfolio["return"].to_numpy()
-            - aligned_factors[RISK_FREE_COL].to_numpy()
+            aligned_portfolio["return"].to_numpy() - aligned_factors[RISK_FREE_COL].to_numpy()
         )
 
         # Get factor matrix as pandas DataFrame for named coefficient extraction
@@ -483,9 +472,7 @@ class FactorAttribution:
         # Extract coefficients by NAME (not position) for safety when columns are dropped
         # This prevents alpha/beta misassignment when statsmodels drops collinear columns
         if "const" not in result.params.index:
-            vif_warnings.append(
-                "Constant term dropped due to collinearity. Alpha set to 0/NaN."
-            )
+            vif_warnings.append("Constant term dropped due to collinearity. Alpha set to 0/NaN.")
             alpha_daily = 0.0
             alpha_t_stat = float("nan")
             alpha_p_value = float("nan")
@@ -527,13 +514,19 @@ class FactorAttribution:
         )
         dataset_versions = {
             "fama_french": self._get_ff_version(),
-            "crsp": self._get_crsp_version() if self.crsp_provider and not external_market_caps_provided else None,
+            "crsp": (
+                self._get_crsp_version()
+                if self.crsp_provider and not external_market_caps_provided
+                else None
+            ),
             "market_caps": external_mcap_ver,  # External market caps hash when provided
             "portfolio": portfolio_ver,
             "currencies": currency_ver,
         }
         # Use external market_caps version if provided, else CRSP version
-        crsp_or_mcap_ver = external_mcap_ver or (self._get_crsp_version() if self.crsp_provider else None)
+        crsp_or_mcap_ver = external_mcap_ver or (
+            self._get_crsp_version() if self.crsp_provider else None
+        )
         dataset_version_id = self._build_dataset_version_id(
             ff_version=dataset_versions["fama_french"] or "unknown",
             crsp_version=crsp_or_mcap_ver,
@@ -557,7 +550,9 @@ class FactorAttribution:
             alpha_t_stat=alpha_t_stat,
             alpha_p_value=alpha_p_value,
             r_squared_adj=float(result.rsquared_adj),
-            residual_vol_annualized=float(result.resid.std() * np.sqrt(self.config.annualization_factor)),
+            residual_vol_annualized=float(
+                result.resid.std() * np.sqrt(self.config.annualization_factor)
+            ),
             betas=betas,
             beta_t_stats=beta_t_stats,
             beta_p_values=beta_p_values,
@@ -615,9 +610,7 @@ class FactorAttribution:
             ff_factors = ff_factors.filter(pl.col("date") <= effective_end)
 
         # Get rebalance dates
-        rebalance_dates = self._get_rebalance_dates(
-            start_date, effective_end, ff_factors
-        )
+        rebalance_dates = self._get_rebalance_dates(start_date, effective_end, ff_factors)
 
         # Apply PIT filtering to market_caps and currencies if provided externally
         if market_caps is not None and as_of_date is not None:
@@ -655,36 +648,44 @@ class FactorAttribution:
             try:
                 aligned_p, aligned_f = self._align_data(window_portfolio, window_factors)
             except DataMismatchError:
-                skipped_windows.append({
-                    "date": window_end.isoformat(),
-                    "n_obs": 0,
-                    "reason": "no_overlap",
-                })
+                skipped_windows.append(
+                    {
+                        "date": window_end.isoformat(),
+                        "n_obs": 0,
+                        "reason": "no_overlap",
+                    }
+                )
                 for factor in factor_cols:
-                    exposures_rows.append({
-                        "date": window_end,
-                        "factor_name": factor,
-                        "beta": float("nan"),
-                        "t_stat": float("nan"),
-                        "p_value": float("nan"),
-                    })
+                    exposures_rows.append(
+                        {
+                            "date": window_end,
+                            "factor_name": factor,
+                            "beta": float("nan"),
+                            "t_stat": float("nan"),
+                            "p_value": float("nan"),
+                        }
+                    )
                 continue
 
             n_obs = len(aligned_p)
             if n_obs < self.config.min_observations:
-                skipped_windows.append({
-                    "date": window_end.isoformat(),
-                    "n_obs": n_obs,
-                    "reason": "insufficient_observations",
-                })
+                skipped_windows.append(
+                    {
+                        "date": window_end.isoformat(),
+                        "n_obs": n_obs,
+                        "reason": "insufficient_observations",
+                    }
+                )
                 for factor in factor_cols:
-                    exposures_rows.append({
-                        "date": window_end,
-                        "factor_name": factor,
-                        "beta": float("nan"),
-                        "t_stat": float("nan"),
-                        "p_value": float("nan"),
-                    })
+                    exposures_rows.append(
+                        {
+                            "date": window_end,
+                            "factor_name": factor,
+                            "beta": float("nan"),
+                            "t_stat": float("nan"),
+                            "p_value": float("nan"),
+                        }
+                    )
                 continue
 
             # Run regression for this window using pandas for named coefficient extraction
@@ -700,22 +701,26 @@ class FactorAttribution:
             # Extract coefficients by name (not position) for safety
             for factor in factor_cols:
                 if factor in result.params.index:
-                    exposures_rows.append({
-                        "date": window_end,
-                        "factor_name": factor,
-                        "beta": float(result.params[factor]),
-                        "t_stat": float(result.tvalues[factor]),
-                        "p_value": float(result.pvalues[factor]),
-                    })
+                    exposures_rows.append(
+                        {
+                            "date": window_end,
+                            "factor_name": factor,
+                            "beta": float(result.params[factor]),
+                            "t_stat": float(result.tvalues[factor]),
+                            "p_value": float(result.pvalues[factor]),
+                        }
+                    )
                 else:
                     # Factor dropped due to collinearity
-                    exposures_rows.append({
-                        "date": window_end,
-                        "factor_name": factor,
-                        "beta": float("nan"),
-                        "t_stat": float("nan"),
-                        "p_value": float("nan"),
-                    })
+                    exposures_rows.append(
+                        {
+                            "date": window_end,
+                            "factor_name": factor,
+                            "beta": float("nan"),
+                            "t_stat": float("nan"),
+                            "p_value": float("nan"),
+                        }
+                    )
 
         if len(exposures_rows) == 0:
             raise InsufficientObservationsError("All windows skipped")
@@ -734,7 +739,9 @@ class FactorAttribution:
         )
 
         # Use external market_caps version if provided, else CRSP version
-        crsp_or_mcap_ver = external_mcap_ver or (self._get_crsp_version() if self.crsp_provider else None)
+        crsp_or_mcap_ver = external_mcap_ver or (
+            self._get_crsp_version() if self.crsp_provider else None
+        )
 
         return RollingExposureResult(
             portfolio_id=portfolio_id,
@@ -754,7 +761,11 @@ class FactorAttribution:
             ),
             dataset_versions={
                 "fama_french": self._get_ff_version(),
-                "crsp": self._get_crsp_version() if self.crsp_provider and not external_market_caps_provided else None,
+                "crsp": (
+                    self._get_crsp_version()
+                    if self.crsp_provider and not external_market_caps_provided
+                    else None
+                ),
                 "market_caps": external_mcap_ver,  # External market caps hash when provided
                 "portfolio": self._compute_content_hash(portfolio_returns),
                 "currencies": currency_version,
@@ -799,17 +810,21 @@ class FactorAttribution:
         n_rows = aligned_p.height
 
         # Start with base columns
-        decomp_df = pl.DataFrame({
-            "date": aligned_p["date"],
-            "portfolio_return": aligned_p["return"],
-            "risk_free": aligned_f[RISK_FREE_COL],
-        })
+        decomp_df = pl.DataFrame(
+            {
+                "date": aligned_p["date"],
+                "portfolio_return": aligned_p["return"],
+                "risk_free": aligned_f[RISK_FREE_COL],
+            }
+        )
 
         # Add computed columns
-        decomp_df = decomp_df.with_columns([
-            (pl.col("portfolio_return") - pl.col("risk_free")).alias("excess_return"),
-            pl.Series("alpha_contrib", [alpha_daily] * n_rows),
-        ])
+        decomp_df = decomp_df.with_columns(
+            [
+                (pl.col("portfolio_return") - pl.col("risk_free")).alias("excess_return"),
+                pl.Series("alpha_contrib", [alpha_daily] * n_rows),
+            ]
+        )
 
         # Add factor contributions
         total_factor_contrib = np.zeros(n_rows)
@@ -817,20 +832,14 @@ class FactorAttribution:
             factor_vals = aligned_f[factor].to_numpy()
             contrib = factor_vals * betas[factor]
             total_factor_contrib += contrib
-            decomp_df = decomp_df.with_columns(
-                pl.Series(f"{factor}_contrib", contrib)
-            )
+            decomp_df = decomp_df.with_columns(pl.Series(f"{factor}_contrib", contrib))
 
-        decomp_df = decomp_df.with_columns(
-            pl.Series("total_factor_contrib", total_factor_contrib)
-        )
+        decomp_df = decomp_df.with_columns(pl.Series("total_factor_contrib", total_factor_contrib))
 
         # Compute residual
         decomp_df = decomp_df.with_columns(
             (
-                pl.col("excess_return")
-                - pl.col("alpha_contrib")
-                - pl.col("total_factor_contrib")
+                pl.col("excess_return") - pl.col("alpha_contrib") - pl.col("total_factor_contrib")
             ).alias("residual")
         )
 
@@ -849,9 +858,7 @@ class FactorAttribution:
     # Private Helper Methods
     # =========================================================================
 
-    def _validate_pit_dates(
-        self, data: pl.DataFrame, as_of_date: date | None
-    ) -> pl.DataFrame:
+    def _validate_pit_dates(self, data: pl.DataFrame, as_of_date: date | None) -> pl.DataFrame:
         """Filter data to respect as_of_date and validate.
 
         Returns:
@@ -877,9 +884,7 @@ class FactorAttribution:
 
         return filtered
 
-    def _compute_market_caps(
-        self, start_date: date, end_date: date
-    ) -> pl.DataFrame:
+    def _compute_market_caps(self, start_date: date, end_date: date) -> pl.DataFrame:
         """Compute market caps from CRSP prices."""
         if self.crsp_provider is None:
             raise ValueError("crsp_provider required for market cap computation")
@@ -911,9 +916,7 @@ class FactorAttribution:
 
         if market_caps is None:
             if self.config.min_market_cap_usd or self.config.market_cap_percentile:
-                raise ValueError(
-                    "Microcap filter enabled but no market_caps data provided"
-                )
+                raise ValueError("Microcap filter enabled but no market_caps data provided")
             stats["after_microcap"] = stats["total"]
             stats["microcap_filter_applied"] = False
             return portfolio_returns, stats
@@ -926,15 +929,11 @@ class FactorAttribution:
                 .alias("percentile_threshold")
             )
             market_caps = market_caps.join(daily_thresholds, on="date")
-            market_caps = market_caps.filter(
-                pl.col("market_cap") >= pl.col("percentile_threshold")
-            )
+            market_caps = market_caps.filter(pl.col("market_cap") >= pl.col("percentile_threshold"))
 
         # Apply absolute threshold
         if self.config.min_market_cap_usd is not None:
-            market_caps = market_caps.filter(
-                pl.col("market_cap") >= self.config.min_market_cap_usd
-            )
+            market_caps = market_caps.filter(pl.col("market_cap") >= self.config.min_market_cap_usd)
 
         filtered = portfolio_returns.join(
             market_caps.select(["date", "permno"]).unique(),
@@ -1005,9 +1004,7 @@ class FactorAttribution:
             return portfolio_returns
 
         if self.config.aggregation_method == "equal_weight":
-            return portfolio_returns.group_by("date").agg(
-                pl.col("return").mean().alias("return")
-            )
+            return portfolio_returns.group_by("date").agg(pl.col("return").mean().alias("return"))
 
         # Value weight
         if market_caps is None:
@@ -1016,15 +1013,14 @@ class FactorAttribution:
         weighted = portfolio_returns.join(market_caps, on=["date", "permno"], how="left")
         # Sort by permno and date before forward-fill to prevent future data leakage
         weighted = weighted.sort(["permno", "date"])
-        weighted = weighted.with_columns(
-            pl.col("market_cap").forward_fill().over("permno")
-        ).filter(pl.col("market_cap").is_not_null())
+        weighted = weighted.with_columns(pl.col("market_cap").forward_fill().over("permno")).filter(
+            pl.col("market_cap").is_not_null()
+        )
 
         return weighted.group_by("date").agg(
-            (
-                (pl.col("return") * pl.col("market_cap")).sum()
-                / pl.col("market_cap").sum()
-            ).alias("return")
+            ((pl.col("return") * pl.col("market_cap")).sum() / pl.col("market_cap").sum()).alias(
+                "return"
+            )
         )
 
     def _align_data(
@@ -1036,7 +1032,9 @@ class FactorAttribution:
         aligned = portfolio_returns.join(ff_factors, on="date", how="inner")
 
         if aligned.height == 0:
-            p_min, p_max = str(portfolio_returns["date"].min()), str(portfolio_returns["date"].max())
+            p_min, p_max = str(portfolio_returns["date"].min()), str(
+                portfolio_returns["date"].max()
+            )
             f_min, f_max = str(ff_factors["date"].min()), str(ff_factors["date"].max())
             raise DataMismatchError(
                 f"No overlapping dates between portfolio ({p_min} to {p_max}) "
@@ -1149,17 +1147,14 @@ class FactorAttribution:
             )
 
         return (
-            grouped.group_by(["year", "period"])
-            .agg(pl.col("date").max())["date"]
-            .sort()
-            .to_list()
+            grouped.group_by(["year", "period"]).agg(pl.col("date").max())["date"].sort().to_list()
         )
 
     def _get_window_start(self, window_end: date, ff_factors: pl.DataFrame) -> date:
         """Get window start date (trading days before window_end)."""
-        trading_days: list[date] = ff_factors.filter(pl.col("date") <= window_end)["date"].sort(
-            descending=True
-        ).to_list()
+        trading_days: list[date] = (
+            ff_factors.filter(pl.col("date") <= window_end)["date"].sort(descending=True).to_list()
+        )
 
         if len(trading_days) < self.config.window_trading_days:
             return trading_days[-1] if trading_days else window_end

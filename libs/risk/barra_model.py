@@ -122,9 +122,7 @@ class BarraRiskModel:
             loadings_wide = factor_loadings
 
         # Ensure factor order matches canonical order - FAIL FAST if missing
-        available_factors = [
-            f for f in CANONICAL_FACTOR_ORDER if f in loadings_wide.columns
-        ]
+        available_factors = [f for f in CANONICAL_FACTOR_ORDER if f in loadings_wide.columns]
         if len(available_factors) != len(CANONICAL_FACTOR_ORDER):
             missing = set(CANONICAL_FACTOR_ORDER) - set(available_factors)
             raise ValueError(
@@ -156,9 +154,7 @@ class BarraRiskModel:
             config=config,
         )
 
-    def check_coverage(
-        self, portfolio: pl.DataFrame
-    ) -> tuple[float, list[int], pl.DataFrame]:
+    def check_coverage(self, portfolio: pl.DataFrame) -> tuple[float, list[int], pl.DataFrame]:
         """
         Check portfolio coverage against risk model data.
 
@@ -234,9 +230,7 @@ class BarraRiskModel:
                 raise ValueError(f"Model validation failed: {errors}")
 
         # Check coverage
-        coverage_ratio, missing_permnos, covered_portfolio = self.check_coverage(
-            portfolio
-        )
+        coverage_ratio, missing_permnos, covered_portfolio = self.check_coverage(portfolio)
 
         if coverage_ratio < self.config.min_coverage:
             raise InsufficientCoverageError(
@@ -265,12 +259,14 @@ class BarraRiskModel:
                 model_version=self.model_version,
                 dataset_version_ids=self.dataset_version_ids.copy(),
                 computation_timestamp=datetime.now(UTC),
-                factor_contributions=pl.DataFrame({
-                    "factor_name": self.factor_names,
-                    "marginal_contribution": [0.0] * len(self.factor_names),
-                    "component_contribution": [0.0] * len(self.factor_names),
-                    "percent_contribution": [0.0] * len(self.factor_names),
-                }),
+                factor_contributions=pl.DataFrame(
+                    {
+                        "factor_name": self.factor_names,
+                        "marginal_contribution": [0.0] * len(self.factor_names),
+                        "component_contribution": [0.0] * len(self.factor_names),
+                        "percent_contribution": [0.0] * len(self.factor_names),
+                    }
+                ),
                 coverage_ratio=float(coverage_ratio),
             )
 
@@ -286,9 +282,7 @@ class BarraRiskModel:
             )
 
         # Build aligned arrays
-        weights, factor_matrix, specific_variances = self._build_aligned_arrays(
-            covered_portfolio
-        )
+        weights, factor_matrix, specific_variances = self._build_aligned_arrays(covered_portfolio)
 
         # Compute variances using shared helper (ensures consistent flooring)
         (
@@ -299,15 +293,9 @@ class BarraRiskModel:
         ) = self._compute_variances(weights, factor_matrix, specific_variances)
 
         # Annualize risks
-        factor_risk_annual = np.sqrt(
-            factor_variance_daily * self.config.annualization_factor
-        )
-        specific_risk_annual = np.sqrt(
-            specific_variance_daily * self.config.annualization_factor
-        )
-        total_risk_annual = np.sqrt(
-            total_variance_daily * self.config.annualization_factor
-        )
+        factor_risk_annual = np.sqrt(factor_variance_daily * self.config.annualization_factor)
+        specific_risk_annual = np.sqrt(specific_variance_daily * self.config.annualization_factor)
+        total_risk_annual = np.sqrt(total_variance_daily * self.config.annualization_factor)
 
         # Compute daily sigma for VaR/CVaR
         daily_sigma = np.sqrt(total_variance_daily)
@@ -400,12 +388,14 @@ class BarraRiskModel:
 
         # Short-circuit for empty/flat portfolios: return zero contributions
         if covered_portfolio.height == 0 or covered_portfolio["weight"].abs().sum() == 0:
-            return pl.DataFrame({
-                "factor_name": self.factor_names,
-                "marginal_contribution": [0.0] * len(self.factor_names),
-                "component_contribution": [0.0] * len(self.factor_names),
-                "percent_contribution": [0.0] * len(self.factor_names),
-            })
+            return pl.DataFrame(
+                {
+                    "factor_name": self.factor_names,
+                    "marginal_contribution": [0.0] * len(self.factor_names),
+                    "component_contribution": [0.0] * len(self.factor_names),
+                    "percent_contribution": [0.0] * len(self.factor_names),
+                }
+            )
 
         # Renormalize covered portfolio weights to account for missing positions
         # This scales up weights proportionally so contributions reflect the full portfolio.
@@ -418,9 +408,7 @@ class BarraRiskModel:
             )
 
         # Build aligned arrays
-        weights, factor_matrix, specific_variances = self._build_aligned_arrays(
-            covered_portfolio
-        )
+        weights, factor_matrix, specific_variances = self._build_aligned_arrays(covered_portfolio)
 
         # Compute variances using shared helper (ensures consistent flooring)
         (
@@ -430,9 +418,7 @@ class BarraRiskModel:
             total_variance_daily,
         ) = self._compute_variances(weights, factor_matrix, specific_variances)
 
-        total_risk_annual = np.sqrt(
-            total_variance_daily * self.config.annualization_factor
-        )
+        total_risk_annual = np.sqrt(total_variance_daily * self.config.annualization_factor)
 
         return self._compute_factor_contributions_internal(
             portfolio_factor_exposure, total_risk_annual
@@ -469,18 +455,20 @@ class BarraRiskModel:
         cctr = portfolio_factor_exposure * mctr
 
         # Percent contribution = CCTR_k / σ_p
-        percent_contrib = cctr / total_risk_annual if total_risk_annual > 1e-10 else np.zeros_like(cctr)
+        percent_contrib = (
+            cctr / total_risk_annual if total_risk_annual > 1e-10 else np.zeros_like(cctr)
+        )
 
-        return pl.DataFrame({
-            "factor_name": self.factor_names,
-            "marginal_contribution": mctr.tolist(),
-            "component_contribution": cctr.tolist(),
-            "percent_contribution": percent_contrib.tolist(),
-        })
+        return pl.DataFrame(
+            {
+                "factor_name": self.factor_names,
+                "marginal_contribution": mctr.tolist(),
+                "component_contribution": cctr.tolist(),
+                "percent_contribution": percent_contrib.tolist(),
+            }
+        )
 
-    def _build_aligned_arrays(
-        self, portfolio: pl.DataFrame
-    ) -> tuple[
+    def _build_aligned_arrays(self, portfolio: pl.DataFrame) -> tuple[
         NDArray[np.floating[Any]],
         NDArray[np.floating[Any]],
         NDArray[np.floating[Any]],
@@ -552,9 +540,7 @@ class BarraRiskModel:
 
         # Compute factor variance (daily): f' @ F @ f
         factor_variance_daily = float(
-            portfolio_factor_exposure.T
-            @ self.factor_covariance
-            @ portfolio_factor_exposure
+            portfolio_factor_exposure.T @ self.factor_covariance @ portfolio_factor_exposure
         )
 
         # Compute specific variance (daily): sum(w_i² * σ²_spec_i)
@@ -606,14 +592,10 @@ class BarraRiskModel:
         # Check factor covariance is PSD
         eigenvalues = np.linalg.eigvalsh(self.factor_covariance)
         if np.any(eigenvalues < -1e-10):
-            errors.append(
-                f"Factor covariance is not PSD: min eigenvalue = {eigenvalues.min():.6e}"
-            )
+            errors.append(f"Factor covariance is not PSD: min eigenvalue = {eigenvalues.min():.6e}")
 
         # Check factor loadings has required columns
-        missing_factors = [
-            f for f in self.factor_names if f not in self.factor_loadings.columns
-        ]
+        missing_factors = [f for f in self.factor_names if f not in self.factor_loadings.columns]
         if missing_factors:
             errors.append(f"Factor loadings missing columns: {missing_factors}")
 

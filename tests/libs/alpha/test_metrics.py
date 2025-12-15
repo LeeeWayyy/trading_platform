@@ -119,25 +119,29 @@ class TestLocalMetrics:
 class TestAlphaMetricsAdapter:
     """Tests for AlphaMetricsAdapter."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def adapter(self):
         """Create metrics adapter."""
         return AlphaMetricsAdapter(prefer_qlib=False)  # Use local for testing
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_data(self):
         """Create sample signal and returns data."""
         n_stocks = 100
-        signal_df = pl.DataFrame({
-            "permno": list(range(n_stocks)),
-            "date": [date(2024, 1, 1)] * n_stocks,
-            "signal": [float(i) for i in range(n_stocks)],
-        })
-        returns_df = pl.DataFrame({
-            "permno": list(range(n_stocks)),
-            "date": [date(2024, 1, 1)] * n_stocks,
-            "return": [i / 1000 for i in range(n_stocks)],
-        })
+        signal_df = pl.DataFrame(
+            {
+                "permno": list(range(n_stocks)),
+                "date": [date(2024, 1, 1)] * n_stocks,
+                "signal": [float(i) for i in range(n_stocks)],
+            }
+        )
+        returns_df = pl.DataFrame(
+            {
+                "permno": list(range(n_stocks)),
+                "date": [date(2024, 1, 1)] * n_stocks,
+                "return": [i / 1000 for i in range(n_stocks)],
+            }
+        )
         return signal_df, returns_df
 
     def test_compute_ic(self, adapter, sample_data):
@@ -152,27 +156,33 @@ class TestAlphaMetricsAdapter:
 
     def test_compute_hit_rate(self, adapter):
         """Test hit rate computation."""
-        signal = pl.DataFrame({
-            "permno": list(range(40)),
-            "date": [date(2024, 1, 1)] * 40,
-            "signal": [1.0, -1.0] * 20,
-        })
-        returns = pl.DataFrame({
-            "permno": list(range(40)),
-            "date": [date(2024, 1, 1)] * 40,
-            "return": [0.1, -0.1] * 20,
-        })
+        signal = pl.DataFrame(
+            {
+                "permno": list(range(40)),
+                "date": [date(2024, 1, 1)] * 40,
+                "signal": [1.0, -1.0] * 20,
+            }
+        )
+        returns = pl.DataFrame(
+            {
+                "permno": list(range(40)),
+                "date": [date(2024, 1, 1)] * 40,
+                "return": [0.1, -0.1] * 20,
+            }
+        )
 
         hr = adapter.compute_hit_rate(signal, returns)
         assert hr == pytest.approx(1.0)
 
     def test_compute_coverage(self, adapter):
         """Test coverage computation."""
-        signal = pl.DataFrame({
-            "permno": list(range(100)),
-            "date": [date(2024, 1, 1)] * 100,
-            "signal": [1.0 if i < 80 else None for i in range(100)],
-        })
+        signal = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                "date": [date(2024, 1, 1)] * 100,
+                "signal": [1.0 if i < 80 else None for i in range(100)],
+            }
+        )
 
         cov = adapter.compute_coverage(signal, 100)
         assert cov == pytest.approx(0.8)

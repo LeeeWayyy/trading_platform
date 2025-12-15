@@ -2,7 +2,7 @@
 Tests for risk decomposition module.
 """
 
-from datetime import date, datetime, UTC
+from datetime import date
 
 import numpy as np
 import polars as pl
@@ -18,7 +18,6 @@ from libs.risk import (
     compute_var_parametric,
 )
 from tests.libs.risk.conftest import (
-    create_mock_covariance_matrix,
     create_mock_factor_exposures,
     create_mock_portfolio,
     create_mock_specific_risks,
@@ -110,12 +109,14 @@ class TestPortfolioRiskResultStorageFormat:
 
     def test_to_storage_format_schema(self):
         """Storage format matches expected schema."""
-        factor_contributions = pl.DataFrame({
-            "factor_name": ["factor1", "factor2"],
-            "marginal_contribution": [0.05, 0.03],
-            "component_contribution": [0.02, 0.01],
-            "percent_contribution": [0.4, 0.2],
-        })
+        factor_contributions = pl.DataFrame(
+            {
+                "factor_name": ["factor1", "factor2"],
+                "marginal_contribution": [0.05, 0.03],
+                "component_contribution": [0.02, 0.01],
+                "percent_contribution": [0.4, 0.2],
+            }
+        )
 
         result = PortfolioRiskResult(
             analysis_id="test-123",
@@ -166,12 +167,14 @@ class TestPortfolioRiskResultStorageFormat:
 
     def test_storage_analysis_id_links(self):
         """Analysis ID links portfolio and factor tables."""
-        factor_contributions = pl.DataFrame({
-            "factor_name": ["factor1"],
-            "marginal_contribution": [0.05],
-            "component_contribution": [0.02],
-            "percent_contribution": [0.4],
-        })
+        factor_contributions = pl.DataFrame(
+            {
+                "factor_name": ["factor1"],
+                "marginal_contribution": [0.05],
+                "component_contribution": [0.02],
+                "percent_contribution": [0.4],
+            }
+        )
 
         result = PortfolioRiskResult(
             analysis_id="test-123",

@@ -77,13 +77,17 @@ class AlphaAnalytics:
         overall = self._metrics.compute_ic(signal, returns)
 
         # Identify high/low IC sectors
-        high_ic = grouped_ic.filter(
-            pl.col("rank_ic") > overall.rank_ic
-        ).get_column("gics_sector").to_list()
+        high_ic = (
+            grouped_ic.filter(pl.col("rank_ic") > overall.rank_ic)
+            .get_column("gics_sector")
+            .to_list()
+        )
 
-        low_ic = grouped_ic.filter(
-            pl.col("rank_ic") < overall.rank_ic
-        ).get_column("gics_sector").to_list()
+        low_ic = (
+            grouped_ic.filter(pl.col("rank_ic") < overall.rank_ic)
+            .get_column("gics_sector")
+            .to_list()
+        )
 
         return GroupedICResult(
             by_group=grouped_ic,
@@ -111,24 +115,24 @@ class AlphaAnalytics:
             GroupedICResult with per-quintile analysis
         """
         # Assign market cap quintiles per date
-        mc_with_quintile = market_caps.with_columns([
-            (
-                pl.col("market_cap")
-                .rank(method="ordinal")
-                .over("date")
-                / pl.col("market_cap").count().over("date")
-                * n_quintiles
-            )
-            .ceil()
-            .cast(pl.Int64)
-            .clip(1, n_quintiles)
-            .alias("mc_quintile")
-        ])
+        mc_with_quintile = market_caps.with_columns(
+            [
+                (
+                    pl.col("market_cap").rank(method="ordinal").over("date")
+                    / pl.col("market_cap").count().over("date")
+                    * n_quintiles
+                )
+                .ceil()
+                .cast(pl.Int64)
+                .clip(1, n_quintiles)
+                .alias("mc_quintile")
+            ]
+        )
 
         # Convert to sector-like mapping
-        sector_mapping = mc_with_quintile.with_columns([
-            pl.col("mc_quintile").cast(pl.Utf8).alias("gics_sector")
-        ]).select(["permno", "date", "gics_sector"])
+        sector_mapping = mc_with_quintile.with_columns(
+            [pl.col("mc_quintile").cast(pl.Utf8).alias("gics_sector")]
+        ).select(["permno", "date", "gics_sector"])
 
         grouped_ic = self._metrics.compute_grouped_ic(signal, returns, sector_mapping)
 
@@ -146,13 +150,17 @@ class AlphaAnalytics:
         # Sort by quintile number
         grouped_ic = grouped_ic.sort("gics_sector")
 
-        high_ic = grouped_ic.filter(
-            pl.col("rank_ic") > overall.rank_ic
-        ).get_column("gics_sector").to_list()
+        high_ic = (
+            grouped_ic.filter(pl.col("rank_ic") > overall.rank_ic)
+            .get_column("gics_sector")
+            .to_list()
+        )
 
-        low_ic = grouped_ic.filter(
-            pl.col("rank_ic") < overall.rank_ic
-        ).get_column("gics_sector").to_list()
+        low_ic = (
+            grouped_ic.filter(pl.col("rank_ic") < overall.rank_ic)
+            .get_column("gics_sector")
+            .to_list()
+        )
 
         return GroupedICResult(
             by_group=grouped_ic,
@@ -218,7 +226,8 @@ class AlphaAnalytics:
 
         # Filter valid positive ICs for log
         valid_points = [
-            (h, ic) for h, ic in zip(horizons, ics, strict=True)
+            (h, ic)
+            for h, ic in zip(horizons, ics, strict=True)
             if ic is not None and not math.isnan(ic) and ic > 0
         ]
 
@@ -278,27 +287,29 @@ class AlphaAnalytics:
                 }
             )
 
-        joined = joined.with_columns([
-            (
-                pl.col("signal")
-                .rank(method="ordinal")
-                .over("date")
-                / pl.col("signal").count().over("date")
-                * n_quintiles
-            )
-            .ceil()
-            .cast(pl.Int64)
-            .clip(1, n_quintiles)
-            .alias("quintile")
-        ])
+        joined = joined.with_columns(
+            [
+                (
+                    pl.col("signal").rank(method="ordinal").over("date")
+                    / pl.col("signal").count().over("date")
+                    * n_quintiles
+                )
+                .ceil()
+                .cast(pl.Int64)
+                .clip(1, n_quintiles)
+                .alias("quintile")
+            ]
+        )
 
         # Aggregate by quintile
         quintile_returns = (
             joined.group_by("quintile")
-            .agg([
-                pl.col("return").mean().alias("mean_return"),
-                pl.col("return").count().alias("n_stocks"),
-            ])
+            .agg(
+                [
+                    pl.col("return").mean().alias("mean_return"),
+                    pl.col("return").count().alias("n_stocks"),
+                ]
+            )
             .sort("quintile")
         )
 

@@ -7,22 +7,18 @@ Updated for V2 nested schema.
 
 import json
 import os
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from ai_workflow.constants import (
+    REVIEW_APPROVED,
+)
 from ai_workflow.core import (
     WorkflowGate,
-    WorkflowError,
+    WorkflowGateBlockedError,
     WorkflowTransitionError,
     WorkflowValidationError,
-    WorkflowGateBlockedError,
-)
-from ai_workflow.constants import (
-    VALID_TRANSITIONS,
-    REVIEW_APPROVED,
-    REVIEW_NEEDS_REVISION,
-    REVIEW_NOT_REQUESTED,
 )
 
 
@@ -263,11 +259,14 @@ class TestAdvanceV2:
         """Should update step in V2 state."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan", "current": "Test", "list": []},
-                "reviews": {"gemini": {}, "codex": {}},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan", "current": "Test", "list": []},
+                    "reviews": {"gemini": {}, "codex": {}},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.advance("plan-review")
@@ -279,10 +278,13 @@ class TestAdvanceV2:
         """Should raise WorkflowTransitionError on invalid transition."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan", "current": "Test", "list": []},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan", "current": "Test", "list": []},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -293,14 +295,17 @@ class TestAdvanceV2:
         """Should raise WorkflowGateBlockedError when plan review not approved - V2 schema."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan-review", "current": "Test", "list": []},
-                "reviews": {
-                    "gemini": {"status": "NOT_REQUESTED"},
-                    "codex": {"status": "NOT_REQUESTED"},
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan-review", "current": "Test", "list": []},
+                    "reviews": {
+                        "gemini": {"status": "NOT_REQUESTED"},
+                        "codex": {"status": "NOT_REQUESTED"},
+                    },
                 },
-            }, f)
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -312,14 +317,17 @@ class TestAdvanceV2:
         """Should allow implement with plan review approval - V2 schema."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan-review", "current": "Test", "list": []},
-                "reviews": {
-                    "gemini": {"status": "APPROVED", "continuation_id": "abc"},
-                    "codex": {},
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan-review", "current": "Test", "list": []},
+                    "reviews": {
+                        "gemini": {"status": "APPROVED", "continuation_id": "abc"},
+                        "codex": {},
+                    },
                 },
-            }, f)
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.advance("implement")
@@ -386,11 +394,14 @@ class TestRecordReviewV2:
         audit_log = temp_dir / "workflow-audit.log"
 
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan-review", "current": "Test", "list": []},
-                "reviews": {"gemini": {}, "codex": {}},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan-review", "current": "Test", "list": []},
+                    "reviews": {"gemini": {}, "codex": {}},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -405,11 +416,14 @@ class TestRecordReviewV2:
         """Should raise WorkflowValidationError for placeholder continuation IDs."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan-review", "current": "Test", "list": []},
-                "reviews": {"gemini": {}, "codex": {}},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan-review", "current": "Test", "list": []},
+                    "reviews": {"gemini": {}, "codex": {}},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -421,10 +435,13 @@ class TestRecordReviewV2:
         """Should raise WorkflowValidationError for invalid CLI names."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan-review"},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan-review"},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -440,12 +457,15 @@ class TestRecordCIV2:
         """Should record CI passed status in V2 format."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "phase": "component",
-                "component": {"step": "test"},
-                "ci": {"component_passed": False},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "phase": "component",
+                    "component": {"step": "test"},
+                    "ci": {"component_passed": False},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.record_ci(True)
@@ -457,12 +477,15 @@ class TestRecordCIV2:
         """Should record CI failed status in V2 format."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "phase": "component",
-                "component": {"step": "test"},
-                "ci": {"component_passed": True},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "phase": "component",
+                    "component": {"step": "test"},
+                    "ci": {"component_passed": True},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.record_ci(False)
@@ -474,11 +497,14 @@ class TestRecordCIV2:
         """Should record PR CI when in pr-review phase."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "phase": "pr-review",
-                "ci": {"component_passed": False, "pr_ci_passed": False},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "phase": "pr-review",
+                    "ci": {"component_passed": False, "pr_ci_passed": False},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.record_ci(True)
@@ -494,10 +520,13 @@ class TestSetComponentV2:
         """Should set current component name in V2 format."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"current": "", "list": []},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"current": "", "list": []},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.set_component("NewComponent")
@@ -514,10 +543,13 @@ class TestCheckCommitV2:
         """Should raise WorkflowGateBlockedError when no component set (Codex P1 fix)."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"current": "", "step": "review"},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"current": "", "step": "review"},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -530,10 +562,13 @@ class TestCheckCommitV2:
         """Should raise WorkflowGateBlockedError when not in review step."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"current": "TestComp", "step": "implement"},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"current": "TestComp", "step": "implement"},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -546,15 +581,18 @@ class TestCheckCommitV2:
         """Should raise WorkflowGateBlockedError without both reviews approved - V2."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "review", "current": "Test"},
-                "reviews": {
-                    "gemini": {"status": "APPROVED", "continuation_id": "abc"},
-                    "codex": {"status": "NOT_REQUESTED"},
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "review", "current": "Test"},
+                    "reviews": {
+                        "gemini": {"status": "APPROVED", "continuation_id": "abc"},
+                        "codex": {"status": "NOT_REQUESTED"},
+                    },
+                    "ci": {"component_passed": True},
                 },
-                "ci": {"component_passed": True},
-            }, f)
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -567,15 +605,18 @@ class TestCheckCommitV2:
         """Should raise WorkflowGateBlockedError when CI not passed - V2."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "review", "current": "Test"},
-                "reviews": {
-                    "gemini": {"status": "APPROVED", "continuation_id": "abc123"},
-                    "codex": {"status": "APPROVED", "continuation_id": "def456"},
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "review", "current": "Test"},
+                    "reviews": {
+                        "gemini": {"status": "APPROVED", "continuation_id": "abc123"},
+                        "codex": {"status": "APPROVED", "continuation_id": "def456"},
+                    },
+                    "ci": {"component_passed": False},
                 },
-                "ci": {"component_passed": False},
-            }, f)
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -590,10 +631,13 @@ class TestCheckCommitV2:
         audit_log = temp_dir / "workflow-audit.log"
 
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "implement"},  # Wrong step
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "implement"},  # Wrong step
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -615,24 +659,25 @@ class TestRecordCommitV2:
         """Should record commit hash and reset state - V2."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "review", "current": "Test", "list": []},
-                "reviews": {
-                    "gemini": {"status": "APPROVED"},
-                    "codex": {"status": "APPROVED"},
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "review", "current": "Test", "list": []},
+                    "reviews": {
+                        "gemini": {"status": "APPROVED"},
+                        "codex": {"status": "APPROVED"},
+                    },
+                    "ci": {"component_passed": True},
+                    "git": {"commits": []},
                 },
-                "ci": {"component_passed": True},
-                "git": {"commits": []},
-            }, f)
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
         # Mock git command
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="abc123def456\n", stderr=""
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="abc123def456\n", stderr="")
             with patch("ai_workflow.core.PROJECT_ROOT", temp_dir):
                 gate.record_commit()
 
@@ -653,12 +698,15 @@ class TestShowStatusV2:
         """Should display current workflow status - V2."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "implement", "current": "TestComponent"},
-                "reviews": {"gemini": {}, "codex": {}},
-                "ci": {"component_passed": False},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "implement", "current": "TestComponent"},
+                    "reviews": {"gemini": {}, "codex": {}},
+                    "ci": {"component_passed": False},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.show_status()
@@ -676,11 +724,14 @@ class TestResetV2:
         """Should reset to V2 initial state."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "review", "current": "SomeComponent"},
-                "ci": {"component_passed": True},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "review", "current": "SomeComponent"},
+                    "ci": {"component_passed": True},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.reset()
@@ -699,10 +750,13 @@ class TestSetComponentsListV2:
         """Should set list of components - V2."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"list": [], "total": 0, "completed": 0},
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"list": [], "total": 0, "completed": 0},
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
         gate.set_components_list(["Component1", "Component2"])
@@ -734,11 +788,14 @@ class TestFileLocking:
         """Should provide locked context manager."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan"},
-                "value": 1,
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan"},
+                    "value": 1,
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 
@@ -752,11 +809,14 @@ class TestFileLocking:
         """Should provide locked modifier function."""
         state_file = temp_dir / "state.json"
         with open(state_file, "w") as f:
-            json.dump({
-                "version": "2.0",
-                "component": {"step": "plan"},
-                "counter": 0,
-            }, f)
+            json.dump(
+                {
+                    "version": "2.0",
+                    "component": {"step": "plan"},
+                    "counter": 0,
+                },
+                f,
+            )
 
         gate = WorkflowGate(state_file=state_file)
 

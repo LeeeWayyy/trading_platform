@@ -187,7 +187,10 @@ def get_current_model(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"detail": f"Registry integrity check failed: {e}", "code": ERROR_CHECKSUM_MISMATCH},
+            detail={
+                "detail": f"Registry integrity check failed: {e}",
+                "code": ERROR_CHECKSUM_MISMATCH,
+            },
         ) from e
 
     if metadata is None:
@@ -255,7 +258,10 @@ def get_model_metadata(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"detail": f"Registry integrity check failed: {e}", "code": ERROR_CHECKSUM_MISMATCH},
+            detail={
+                "detail": f"Registry integrity check failed: {e}",
+                "code": ERROR_CHECKSUM_MISMATCH,
+            },
         ) from e
 
     if metadata is None:
@@ -333,7 +339,10 @@ def validate_model(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"detail": f"Registry integrity check failed: {e}", "code": ERROR_CHECKSUM_MISMATCH},
+            detail={
+                "detail": f"Registry integrity check failed: {e}",
+                "code": ERROR_CHECKSUM_MISMATCH,
+            },
         ) from e
 
     if not result.model_id:
@@ -359,7 +368,9 @@ def validate_model(
 
     if not result.valid:
         # Return 422 for validation failures
-        error_code = ERROR_CHECKSUM_MISMATCH if not result.checksum_verified else ERROR_VALIDATION_FAILED
+        error_code = (
+            ERROR_CHECKSUM_MISMATCH if not result.checksum_verified else ERROR_VALIDATION_FAILED
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -414,7 +425,10 @@ def list_models(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"detail": f"Registry integrity check failed: {e}", "code": ERROR_CHECKSUM_MISMATCH},
+            detail={
+                "detail": f"Registry integrity check failed: {e}",
+                "code": ERROR_CHECKSUM_MISMATCH,
+            },
         ) from e
 
     # Fetch DB info (status, artifact_path, promoted_at) for accurate responses

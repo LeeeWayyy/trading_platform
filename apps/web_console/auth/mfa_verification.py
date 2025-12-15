@@ -50,7 +50,9 @@ def get_amr_method(id_token_claims: dict[str, Any]) -> str | None:
     return None
 
 
-async def require_2fa_for_action(session_data: Any, action: str, audit_logger: Any | None) -> tuple[bool, str | None]:
+async def require_2fa_for_action(
+    session_data: Any, action: str, audit_logger: Any | None
+) -> tuple[bool, str | None]:
     """Ensure recent step-up authentication before privileged actions."""
 
     if not session_data:

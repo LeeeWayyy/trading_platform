@@ -12,7 +12,6 @@ Comprehensive test suite covering:
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -27,7 +26,6 @@ from libs.data_providers.fama_french_local_provider import (
     FamaFrenchSyncError,
 )
 from libs.data_quality.exceptions import DataNotFoundError
-
 
 # =============================================================================
 # Fixtures
@@ -45,54 +43,62 @@ def provider(tmp_path: Path) -> FamaFrenchLocalProvider:
 @pytest.fixture()
 def mock_ff3_data() -> pl.DataFrame:
     """Create mock 3-factor data (already normalized to decimal)."""
-    return pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-        "mkt_rf": [0.0105, -0.0052, 0.0078],  # Already in decimal
-        "smb": [0.0023, -0.0011, 0.0045],
-        "hml": [-0.0034, 0.0067, -0.0012],
-        "rf": [0.0002, 0.0002, 0.0002],
-    })
+    return pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "mkt_rf": [0.0105, -0.0052, 0.0078],  # Already in decimal
+            "smb": [0.0023, -0.0011, 0.0045],
+            "hml": [-0.0034, 0.0067, -0.0012],
+            "rf": [0.0002, 0.0002, 0.0002],
+        }
+    )
 
 
 @pytest.fixture()
 def mock_ff5_data() -> pl.DataFrame:
     """Create mock 5-factor data (already normalized to decimal)."""
-    return pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-        "mkt_rf": [0.0105, -0.0052, 0.0078],
-        "smb": [0.0023, -0.0011, 0.0045],
-        "hml": [-0.0034, 0.0067, -0.0012],
-        "rmw": [0.0015, -0.0008, 0.0022],
-        "cma": [-0.0011, 0.0033, -0.0005],
-        "rf": [0.0002, 0.0002, 0.0002],
-    })
+    return pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "mkt_rf": [0.0105, -0.0052, 0.0078],
+            "smb": [0.0023, -0.0011, 0.0045],
+            "hml": [-0.0034, 0.0067, -0.0012],
+            "rmw": [0.0015, -0.0008, 0.0022],
+            "cma": [-0.0011, 0.0033, -0.0005],
+            "rf": [0.0002, 0.0002, 0.0002],
+        }
+    )
 
 
 @pytest.fixture()
 def mock_momentum_data() -> pl.DataFrame:
     """Create mock momentum data (already normalized to decimal)."""
-    return pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-        "umd": [0.0089, -0.0123, 0.0056],
-    })
+    return pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "umd": [0.0089, -0.0123, 0.0056],
+        }
+    )
 
 
 @pytest.fixture()
 def mock_industry_data() -> pl.DataFrame:
     """Create mock industry portfolio data (already normalized to decimal)."""
-    return pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-        "nodur": [0.0112, -0.0045, 0.0089],
-        "durbl": [0.0078, -0.0023, 0.0134],
-        "manuf": [0.0056, -0.0067, 0.0045],
-        "enrgy": [0.0145, 0.0078, -0.0034],
-        "hitec": [0.0189, -0.0112, 0.0156],
-        "telcm": [0.0034, -0.0011, 0.0023],
-        "shops": [0.0067, -0.0034, 0.0078],
-        "hlth": [0.0023, 0.0045, 0.0012],
-        "utils": [0.0011, 0.0023, -0.0005],
-        "other": [0.0045, -0.0023, 0.0034],
-    })
+    return pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "nodur": [0.0112, -0.0045, 0.0089],
+            "durbl": [0.0078, -0.0023, 0.0134],
+            "manuf": [0.0056, -0.0067, 0.0045],
+            "enrgy": [0.0145, 0.0078, -0.0034],
+            "hitec": [0.0189, -0.0112, 0.0156],
+            "telcm": [0.0034, -0.0011, 0.0023],
+            "shops": [0.0067, -0.0034, 0.0078],
+            "hlth": [0.0023, 0.0045, 0.0012],
+            "utils": [0.0011, 0.0023, -0.0005],
+            "other": [0.0045, -0.0023, 0.0034],
+        }
+    )
 
 
 @pytest.fixture()
@@ -203,9 +209,7 @@ class TestGetFactors:
         assert "rmw" in df.columns
         assert "cma" in df.columns
 
-    def test_ff6_daily_includes_umd(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_ff6_daily_includes_umd(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 6-factor daily includes UMD (momentum)."""
         df = provider_with_data.get_factors(
             start_date=date(2024, 1, 1),
@@ -218,9 +222,7 @@ class TestGetFactors:
         expected_cols = {"date", "mkt_rf", "smb", "hml", "rmw", "cma", "umd", "rf"}
         assert set(df.columns) == expected_cols
 
-    def test_ff6_monthly_includes_umd(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_ff6_monthly_includes_umd(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 6-factor monthly includes UMD (momentum)."""
         df = provider_with_data.get_factors(
             start_date=date(2024, 1, 1),
@@ -231,9 +233,7 @@ class TestGetFactors:
 
         assert "umd" in df.columns
 
-    def test_date_filtering_works(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_date_filtering_works(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test date filtering returns correct rows."""
         df = provider_with_data.get_factors(
             start_date=date(2024, 1, 2),
@@ -261,9 +261,7 @@ class TestGetFactors:
 
         assert df.height == 0
 
-    def test_invalid_model_raises_error(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_invalid_model_raises_error(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test invalid model raises ValueError."""
         with pytest.raises(ValueError, match="Invalid model"):
             provider_with_data.get_factors(
@@ -285,9 +283,7 @@ class TestGetFactors:
                 frequency="weekly",  # type: ignore[arg-type]
             )
 
-    def test_missing_data_raises_error(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_missing_data_raises_error(self, provider: FamaFrenchLocalProvider) -> None:
         """Test missing data raises DataNotFoundError."""
         with pytest.raises(DataNotFoundError, match="Factor data not found"):
             provider.get_factors(
@@ -306,9 +302,7 @@ class TestGetFactors:
 class TestGetIndustryReturns:
     """Tests for get_industry_returns() method."""
 
-    def test_10_industry_daily(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_10_industry_daily(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 10-industry daily download and storage."""
         df = provider_with_data.get_industry_returns(
             start_date=date(2024, 1, 1),
@@ -320,9 +314,7 @@ class TestGetIndustryReturns:
         assert df.height == 3
         assert "date" in df.columns
 
-    def test_10_industry_monthly(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_10_industry_monthly(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 10-industry monthly download and storage."""
         df = provider_with_data.get_industry_returns(
             start_date=date(2024, 1, 1),
@@ -333,9 +325,7 @@ class TestGetIndustryReturns:
 
         assert df.height == 3
 
-    def test_30_industry_daily(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_30_industry_daily(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 30-industry daily download and storage."""
         df = provider_with_data.get_industry_returns(
             start_date=date(2024, 1, 1),
@@ -346,9 +336,7 @@ class TestGetIndustryReturns:
 
         assert df.height == 3
 
-    def test_30_industry_monthly(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_30_industry_monthly(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 30-industry monthly download and storage."""
         df = provider_with_data.get_industry_returns(
             start_date=date(2024, 1, 1),
@@ -359,9 +347,7 @@ class TestGetIndustryReturns:
 
         assert df.height == 3
 
-    def test_49_industry_daily(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_49_industry_daily(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 49-industry daily download and storage."""
         df = provider_with_data.get_industry_returns(
             start_date=date(2024, 1, 1),
@@ -372,9 +358,7 @@ class TestGetIndustryReturns:
 
         assert df.height == 3
 
-    def test_49_industry_monthly(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_49_industry_monthly(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 49-industry monthly download and storage."""
         df = provider_with_data.get_industry_returns(
             start_date=date(2024, 1, 1),
@@ -397,9 +381,7 @@ class TestGetIndustryReturns:
                 frequency="daily",
             )
 
-    def test_missing_industry_data_raises_error(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_missing_industry_data_raises_error(self, provider: FamaFrenchLocalProvider) -> None:
         """Test missing industry data raises DataNotFoundError."""
         with pytest.raises(DataNotFoundError, match="Industry data not found"):
             provider.get_industry_returns(
@@ -418,18 +400,18 @@ class TestGetIndustryReturns:
 class TestReturnNormalization:
     """Tests for return normalization (percent → decimal)."""
 
-    def test_factor_returns_normalized(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_factor_returns_normalized(self, provider: FamaFrenchLocalProvider) -> None:
         """Test factor returns converted from percent to decimal."""
         # Create percent data (Ken French format)
-        percent_data = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "mkt_rf": [1.05],  # 1.05%
-            "smb": [0.23],
-            "hml": [-0.34],
-            "rf": [0.02],
-        })
+        percent_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [1.05],  # 1.05%
+                "smb": [0.23],
+                "hml": [-0.34],
+                "rf": [0.02],
+            }
+        )
 
         # Normalize
         normalized = provider._normalize_returns(percent_data)
@@ -438,16 +420,16 @@ class TestReturnNormalization:
         assert abs(normalized.get_column("mkt_rf")[0] - 0.0105) < 1e-10
         assert abs(normalized.get_column("rf")[0] - 0.0002) < 1e-10
 
-    def test_industry_returns_normalized(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_industry_returns_normalized(self, provider: FamaFrenchLocalProvider) -> None:
         """Test industry returns converted from percent to decimal."""
         # Create percent data
-        percent_data = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "nodur": [1.12],  # 1.12%
-            "durbl": [-0.45],
-        })
+        percent_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "nodur": [1.12],  # 1.12%
+                "durbl": [-0.45],
+            }
+        )
 
         normalized = provider._normalize_returns(percent_data)
 
@@ -479,14 +461,14 @@ class TestReturnNormalization:
 class TestAtomicWrite:
     """Tests for atomic write pattern."""
 
-    def test_temp_files_never_visible(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_temp_files_never_visible(self, provider: FamaFrenchLocalProvider) -> None:
         """Test temp files (.tmp) never visible after write."""
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "mkt_rf": [0.0105],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+            }
+        )
 
         target_path = provider._factors_dir / "test.parquet"
         provider._atomic_write_parquet(df, target_path)
@@ -496,52 +478,46 @@ class TestAtomicWrite:
         assert len(tmp_files) == 0
         assert target_path.exists()
 
-    def test_interrupted_write_cleans_up(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_interrupted_write_cleans_up(self, provider: FamaFrenchLocalProvider) -> None:
         """Test interrupted write cleans up temp file."""
         # Mock write to fail after creating temp file
-        with patch.object(
-            pl.DataFrame, "write_parquet", side_effect=OSError("Disk full")
-        ):
-            df = pl.DataFrame({
-                "date": [date(2024, 1, 2)],
-                "mkt_rf": [0.0105],
-            })
+        with patch.object(pl.DataFrame, "write_parquet", side_effect=OSError("Disk full")):
+            df = pl.DataFrame(
+                {
+                    "date": [date(2024, 1, 2)],
+                    "mkt_rf": [0.0105],
+                }
+            )
 
             target_path = provider._factors_dir / "test.parquet"
 
-            with pytest.raises(OSError):
+            with pytest.raises(OSError, match="Disk full"):
                 provider._atomic_write_parquet(df, target_path)
 
         # Verify no temp files remain
         tmp_files = list(provider._factors_dir.glob("*.tmp"))
         assert len(tmp_files) == 0
 
-    def test_checksum_mismatch_quarantines(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_checksum_mismatch_quarantines(self, provider: FamaFrenchLocalProvider) -> None:
         """Test checksum mismatch moves file to quarantine."""
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "mkt_rf": [0.0105],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+            }
+        )
 
         target_path = provider._factors_dir / "test.parquet"
 
         with pytest.raises(ChecksumError, match="Checksum mismatch"):
-            provider._atomic_write_parquet(
-                df, target_path, expected_checksum="wrong_checksum"
-            )
+            provider._atomic_write_parquet(df, target_path, expected_checksum="wrong_checksum")
 
         # Check file was quarantined
         quarantine_files = list(provider._quarantine_dir.glob("*"))
         assert len(quarantine_files) == 1
         assert "checksum_mismatch" in quarantine_files[0].name
 
-    def test_empty_dataframe_quarantines(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_empty_dataframe_quarantines(self, provider: FamaFrenchLocalProvider) -> None:
         """Test empty DataFrame moves file to quarantine."""
         df = pl.DataFrame({"date": [], "mkt_rf": []})
 
@@ -562,12 +538,13 @@ class TestAtomicWrite:
         # Ensure quarantine dir doesn't exist
         if provider._quarantine_dir.exists():
             import shutil
+
             shutil.rmtree(provider._quarantine_dir)
 
         df = pl.DataFrame({"date": [], "mkt_rf": []})
         target_path = provider._factors_dir / "test.parquet"
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Empty DataFrame, file quarantined"):
             provider._atomic_write_parquet(df, target_path)
 
         # Quarantine dir should now exist
@@ -588,9 +565,7 @@ class TestManifest:
         """Test get_manifest returns None when no manifest exists."""
         assert provider.get_manifest() is None
 
-    def test_manifest_written_after_atomic_write(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_manifest_written_after_atomic_write(self, provider: FamaFrenchLocalProvider) -> None:
         """Test manifest is written after sync."""
         # Write manifest
         manifest_data = {
@@ -611,48 +586,40 @@ class TestManifest:
         assert manifest["dataset"] == "fama_french"
         assert "factors_3_daily.parquet" in manifest["files"]
 
-    def test_verify_data_detects_valid_checksums(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_verify_data_detects_valid_checksums(self, provider: FamaFrenchLocalProvider) -> None:
         """Test verify_data validates checksums correctly."""
         # Write a test file
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "mkt_rf": [0.0105],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+            }
+        )
         target_path = provider._factors_dir / "test.parquet"
         checksum = provider._atomic_write_parquet(df, target_path)
 
         # Write manifest with correct checksum
-        manifest_data = {
-            "files": {
-                "test.parquet": {"checksum": checksum}
-            }
-        }
+        manifest_data = {"files": {"test.parquet": {"checksum": checksum}}}
         provider._atomic_write_manifest(manifest_data)
 
         # Verify
         results = provider.verify_data()
         assert results["test.parquet"] is True
 
-    def test_verify_data_detects_invalid_checksums(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_verify_data_detects_invalid_checksums(self, provider: FamaFrenchLocalProvider) -> None:
         """Test verify_data detects invalid checksums."""
         # Write a test file
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "mkt_rf": [0.0105],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "mkt_rf": [0.0105],
+            }
+        )
         target_path = provider._factors_dir / "test.parquet"
         provider._atomic_write_parquet(df, target_path)
 
         # Write manifest with wrong checksum
-        manifest_data = {
-            "files": {
-                "test.parquet": {"checksum": "wrong_checksum"}
-            }
-        }
+        manifest_data = {"files": {"test.parquet": {"checksum": "wrong_checksum"}}}
         provider._atomic_write_manifest(manifest_data)
 
         # Verify
@@ -735,9 +702,7 @@ class TestPathTraversalPrevention:
 class TestSyncData:
     """Tests for sync_data() method (mocked network calls)."""
 
-    def test_sync_requires_pandas_datareader(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_sync_requires_pandas_datareader(self, provider: FamaFrenchLocalProvider) -> None:
         """Test sync raises error if pandas-datareader not available."""
         import builtins
 
@@ -752,9 +717,7 @@ class TestSyncData:
             with pytest.raises(FamaFrenchSyncError, match="pandas-datareader"):
                 provider.sync_data()
 
-    def test_sync_invalid_datasets_raises_error(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_sync_invalid_datasets_raises_error(self, provider: FamaFrenchLocalProvider) -> None:
         """Test sync with invalid dataset names raises error."""
         with patch("pandas_datareader.data.DataReader"):
             with pytest.raises(ValueError, match="No valid datasets"):
@@ -808,15 +771,11 @@ class TestSyncData:
         assert result["files"]["factors_3_daily.parquet"]["checksum"] == "initial_checksum_abc123"
         assert result["files"]["factors_3_daily.parquet"]["row_count"] == 100
 
-    def test_sync_reports_failed_datasets(
-        self, provider: FamaFrenchLocalProvider
-    ) -> None:
+    def test_sync_reports_failed_datasets(self, provider: FamaFrenchLocalProvider) -> None:
         """Test sync reports failed datasets in result."""
         # Mock DataReader to return None (simulating failure)
         with patch("pandas_datareader.data.DataReader", return_value=None):
-            with patch.object(
-                provider, "_download_with_retry", return_value=None
-            ):
+            with patch.object(provider, "_download_with_retry", return_value=None):
                 result = provider.sync_data(datasets=["factors_3_daily"])
 
         # Verify failed datasets reported
@@ -832,9 +791,7 @@ class TestSyncData:
 class TestFF6Materialization:
     """Tests for 6-factor file materialization."""
 
-    def test_ff6_daily_materialized(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_ff6_daily_materialized(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 6-factor daily stored as materialized Parquet."""
         ff6_path = provider_with_data._factors_dir / "factors_6_daily.parquet"
         assert ff6_path.exists()
@@ -844,9 +801,7 @@ class TestFF6Materialization:
         assert "rmw" in df.columns
         assert "cma" in df.columns
 
-    def test_ff6_monthly_materialized(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_ff6_monthly_materialized(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 6-factor monthly stored as materialized Parquet."""
         ff6_path = provider_with_data._factors_dir / "factors_6_monthly.parquet"
         assert ff6_path.exists()
@@ -854,9 +809,7 @@ class TestFF6Materialization:
         df = pl.read_parquet(ff6_path)
         assert "umd" in df.columns
 
-    def test_ff6_has_correct_columns(
-        self, provider_with_data: FamaFrenchLocalProvider
-    ) -> None:
+    def test_ff6_has_correct_columns(self, provider_with_data: FamaFrenchLocalProvider) -> None:
         """Test 6-factor files have correct column order."""
         df = provider_with_data.get_factors(
             start_date=date(2024, 1, 1),

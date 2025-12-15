@@ -73,9 +73,7 @@ class FactorAnalytics:
             for horizon in horizons:
                 ret_col = f"ret_{horizon}d"
                 if ret_col not in forward_returns.columns:
-                    logger.warning(
-                        f"Return column {ret_col} not found, skipping horizon {horizon}"
-                    )
+                    logger.warning(f"Return column {ret_col} not found, skipping horizon {horizon}")
                     continue
 
                 # Join exposures with forward returns
@@ -97,9 +95,7 @@ class FactorAnalytics:
                 )
 
                 if ic_by_date.height == 0:
-                    logger.warning(
-                        f"No valid IC data for {factor_name} at horizon {horizon}"
-                    )
+                    logger.warning(f"No valid IC data for {factor_name} at horizon {horizon}")
                     continue
 
                 ic_values = ic_by_date["ic"].to_numpy()
@@ -155,9 +151,7 @@ class FactorAnalytics:
             forward_returns = self._compute_forward_returns(returns, horizon)
 
             for factor_name in factor_names:
-                factor_df = factor_exposures.filter(
-                    pl.col("factor_name") == factor_name
-                )
+                factor_df = factor_exposures.filter(pl.col("factor_name") == factor_name)
 
                 merged = factor_df.join(
                     forward_returns.select(["date", "permno", "forward_ret"]),
@@ -307,7 +301,9 @@ class FactorAnalytics:
         return pl.DataFrame(corr_data)
 
     def _compute_rank_corr(
-        self, x: "np.ndarray[Any, np.dtype[np.floating[Any]]]", y: "np.ndarray[Any, np.dtype[np.floating[Any]]]"
+        self,
+        x: "np.ndarray[Any, np.dtype[np.floating[Any]]]",
+        y: "np.ndarray[Any, np.dtype[np.floating[Any]]]",
     ) -> float:
         """Compute Spearman rank correlation using numpy."""
         from scipy import stats  # type: ignore[import-untyped]
@@ -320,9 +316,7 @@ class FactorAnalytics:
         corr, _ = stats.spearmanr(x[mask], y[mask])
         return float(corr) if not np.isnan(corr) else 0.0
 
-    def _compute_forward_returns(
-        self, returns: pl.DataFrame, horizon: int
-    ) -> pl.DataFrame:
+    def _compute_forward_returns(self, returns: pl.DataFrame, horizon: int) -> pl.DataFrame:
         """
         Compute forward returns at specified horizon.
 
@@ -360,9 +354,7 @@ class FactorAnalytics:
 
         return result
 
-    def _compute_horizon_returns(
-        self, returns: pl.Series, horizon: int
-    ) -> pl.Series:
+    def _compute_horizon_returns(self, returns: pl.Series, horizon: int) -> pl.Series:
         """
         Compute forward cumulative returns for a single security.
         Optimized to use vectorized operations via log-sum-exp approach.

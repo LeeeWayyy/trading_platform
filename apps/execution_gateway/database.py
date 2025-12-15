@@ -1027,7 +1027,10 @@ class DatabaseClient:
 
             row = cur.fetchone()
             if row is None:
-                logger.warning("Order not found during transactional update", extra={"client_order_id": client_order_id})
+                logger.warning(
+                    "Order not found during transactional update",
+                    extra={"client_order_id": client_order_id},
+                )
                 return None
 
             return OrderDetail(**row)
@@ -1506,6 +1509,7 @@ class DatabaseClient:
         """
         if not strategies:
             return []
+
         # Attempt a best-effort, fail-closed mapping from position symbols to strategies by
         # inspecting historical orders. We only return a position when exactly one strategy
         # has traded the symbol to avoid leaking cross-strategy positions.
@@ -1558,6 +1562,7 @@ class DatabaseClient:
         except Exception as e:
             logger.error(f"Database connection check failed: {e}")
             return False
+
     def _row_to_order_detail(self, row: Mapping[str, Any]) -> OrderDetail:
         """
         Build OrderDetail from a database row, supplying safe defaults for missing fields.

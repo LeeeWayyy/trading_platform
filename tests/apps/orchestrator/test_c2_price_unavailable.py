@@ -44,9 +44,7 @@ class TestGetCurrentPrice:
     we test the logic by simulating what the method does.
     """
 
-    def _simulate_get_current_price(
-        self, symbol: str, price_cache: dict[str, Decimal]
-    ) -> Decimal:
+    def _simulate_get_current_price(self, symbol: str, price_cache: dict[str, Decimal]) -> Decimal:
         """Simulate the _get_current_price logic.
 
         This mirrors the logic in apps/orchestrator/orchestrator.py:768-798.
@@ -82,7 +80,7 @@ class TestGetCurrentPrice:
             self._simulate_get_current_price("AAPL", price_cache)
 
     @pytest.mark.parametrize(
-        "symbol,cached_price",
+        ("symbol", "cached_price"),
         [
             ("AAPL", Decimal("150.00")),
             ("MSFT", Decimal("300.50")),

@@ -10,7 +10,6 @@ from libs.alpha.alpha_definition import (
     AlphaResult,
     BaseAlpha,
 )
-from libs.alpha.exceptions import AlphaValidationError
 
 
 class TestAlphaDefinition:
@@ -28,13 +27,13 @@ class TestAlphaDefinition:
             def category(self) -> str:
                 return "test"
 
-            def _compute_raw(
-                self, prices: pl.DataFrame, fundamentals, as_of_date
-            ) -> pl.DataFrame:
-                return pl.DataFrame({
-                    "permno": [1, 2, 3],
-                    "raw_signal": [1.0, 2.0, 3.0],
-                })
+            def _compute_raw(self, prices: pl.DataFrame, fundamentals, as_of_date) -> pl.DataFrame:
+                return pl.DataFrame(
+                    {
+                        "permno": [1, 2, 3],
+                        "raw_signal": [1.0, 2.0, 3.0],
+                    }
+                )
 
         alpha = SimpleAlpha()
         assert isinstance(alpha, AlphaDefinition)
@@ -65,11 +64,13 @@ class TestAlphaResult:
 
     def test_basic_creation(self):
         """Test creating AlphaResult."""
-        signals = pl.DataFrame({
-            "permno": [1, 2, 3],
-            "date": [date(2024, 1, 1)] * 3,
-            "signal": [0.5, -0.3, 0.1],
-        })
+        signals = pl.DataFrame(
+            {
+                "permno": [1, 2, 3],
+                "date": [date(2024, 1, 1)] * 3,
+                "signal": [0.5, -0.3, 0.1],
+            }
+        )
 
         result = AlphaResult(
             alpha_name="test_alpha",
@@ -85,11 +86,13 @@ class TestAlphaResult:
 
     def test_coverage_with_nulls(self):
         """Test coverage calculation with null signals."""
-        signals = pl.DataFrame({
-            "permno": [1, 2, 3, 4, 5],
-            "date": [date(2024, 1, 1)] * 5,
-            "signal": [0.5, None, 0.1, None, 0.3],
-        })
+        signals = pl.DataFrame(
+            {
+                "permno": [1, 2, 3, 4, 5],
+                "date": [date(2024, 1, 1)] * 5,
+                "signal": [0.5, None, 0.1, None, 0.3],
+            }
+        )
 
         result = AlphaResult(
             alpha_name="test",
@@ -103,11 +106,13 @@ class TestAlphaResult:
 
     def test_reproducibility_hash(self):
         """Test reproducibility hash is deterministic."""
-        signals = pl.DataFrame({
-            "permno": [1],
-            "date": [date(2024, 1, 1)],
-            "signal": [0.0],
-        })
+        signals = pl.DataFrame(
+            {
+                "permno": [1],
+                "date": [date(2024, 1, 1)],
+                "signal": [0.0],
+            }
+        )
 
         result1 = AlphaResult(
             alpha_name="alpha_a",
@@ -128,11 +133,13 @@ class TestAlphaResult:
 
     def test_different_inputs_different_hash(self):
         """Test different inputs produce different hash."""
-        signals = pl.DataFrame({
-            "permno": [1],
-            "date": [date(2024, 1, 1)],
-            "signal": [0.0],
-        })
+        signals = pl.DataFrame(
+            {
+                "permno": [1],
+                "date": [date(2024, 1, 1)],
+                "signal": [0.0],
+            }
+        )
 
         result1 = AlphaResult(
             alpha_name="alpha_a",
@@ -152,9 +159,7 @@ class TestAlphaResult:
 
     def test_empty_signals(self):
         """Test AlphaResult with empty signals."""
-        signals = pl.DataFrame(
-            schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
-        )
+        signals = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
 
         result = AlphaResult(
             alpha_name="empty",
@@ -170,20 +175,24 @@ class TestAlphaResult:
 class TestBaseAlpha:
     """Tests for BaseAlpha implementation."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_prices(self):
         """Create sample price data."""
         dates = [date(2024, 1, i) for i in range(1, 11)] * 5
         permnos = [i for i in range(1, 6) for _ in range(10)]
-        return pl.DataFrame({
-            "permno": permnos,
-            "date": dates,
-            "ret": [0.01 * (p + d % 10) for p, d in zip(permnos, range(len(dates)))],
-            "prc": [100.0] * 50,
-            "shrout": [1000.0] * 50,
-        })
+        return pl.DataFrame(
+            {
+                "permno": permnos,
+                "date": dates,
+                "ret": [
+                    0.01 * (p + d % 10) for p, d in zip(permnos, range(len(dates)), strict=False)
+                ],
+                "prc": [100.0] * 50,
+                "shrout": [1000.0] * 50,
+            }
+        )
 
-    @pytest.fixture
+    @pytest.fixture()
     def simple_alpha(self):
         """Create simple test alpha."""
 
@@ -198,10 +207,12 @@ class TestBaseAlpha:
 
             def _compute_raw(self, prices, fundamentals, as_of_date):
                 # Use permno as raw signal
-                return prices.filter(pl.col("date") == as_of_date).select([
-                    pl.col("permno"),
-                    pl.col("permno").cast(pl.Float64).alias("raw_signal"),
-                ])
+                return prices.filter(pl.col("date") == as_of_date).select(
+                    [
+                        pl.col("permno"),
+                        pl.col("permno").cast(pl.Float64).alias("raw_signal"),
+                    ]
+                )
 
         return SimpleAlpha()
 
@@ -239,17 +250,21 @@ class TestBaseAlpha:
 
             def _compute_raw(self, prices, fundamentals, as_of_date):
                 # Create data with outliers
-                return pl.DataFrame({
-                    "permno": list(range(100)),
-                    "raw_signal": [1.0] * 98 + [100.0, -100.0],  # Extreme outliers
-                })
+                return pl.DataFrame(
+                    {
+                        "permno": list(range(100)),
+                        "raw_signal": [1.0] * 98 + [100.0, -100.0],  # Extreme outliers
+                    }
+                )
 
         alpha = OutlierAlpha(winsorize_pct=0.02)
-        prices = pl.DataFrame({
-            "permno": list(range(100)),
-            "date": [date(2024, 1, 1)] * 100,
-            "ret": [0.01] * 100,
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                "date": [date(2024, 1, 1)] * 100,
+                "ret": [0.01] * 100,
+            }
+        )
 
         result = alpha.compute(prices, None, date(2024, 1, 1))
 
@@ -289,17 +304,21 @@ class TestBaseAlpha:
 
             def _compute_raw(self, prices, fundamentals, as_of_date):
                 # Inf in raw signal causes std to be nan
-                return pl.DataFrame({
-                    "permno": list(range(50)),
-                    "raw_signal": [1.0] * 49 + [float("inf")],
-                })
+                return pl.DataFrame(
+                    {
+                        "permno": list(range(50)),
+                        "raw_signal": [1.0] * 49 + [float("inf")],
+                    }
+                )
 
         alpha = InfiniteAlpha()
-        prices = pl.DataFrame({
-            "permno": list(range(50)),
-            "date": [date(2024, 1, 1)] * 50,
-            "ret": [0.01] * 50,
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": list(range(50)),
+                "date": [date(2024, 1, 1)] * 50,
+                "ret": [0.01] * 50,
+            }
+        )
 
         # When std is nan (due to inf), code returns zeros instead of raising
         result = alpha.compute(prices, None, date(2024, 1, 1))
@@ -309,20 +328,24 @@ class TestBaseAlpha:
 
     def test_universe_filter_all(self):
         """Test 'all' universe filter returns all stocks."""
-        df = pl.DataFrame({
-            "permno": list(range(100)),
-            "market_cap": list(range(100)),
-        })
+        df = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                "market_cap": list(range(100)),
+            }
+        )
 
         filtered = BaseAlpha.filter_universe(df, "all")
         assert filtered.height == 100
 
     def test_universe_filter_large_cap(self):
         """Test large_cap filter returns top quintile."""
-        df = pl.DataFrame({
-            "permno": list(range(100)),
-            "market_cap": list(range(100)),
-        })
+        df = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                "market_cap": list(range(100)),
+            }
+        )
 
         filtered = BaseAlpha.filter_universe(df, "large_cap")
         # Top 20% of 100 stocks = 20 stocks
@@ -334,10 +357,12 @@ class TestBaseAlpha:
 
     def test_universe_filter_small_cap(self):
         """Test small_cap filter returns bottom quintile."""
-        df = pl.DataFrame({
-            "permno": list(range(100)),
-            "market_cap": list(range(100)),
-        })
+        df = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                "market_cap": list(range(100)),
+            }
+        )
 
         filtered = BaseAlpha.filter_universe(df, "small_cap")
         # Bottom 20% of 100 stocks = 20 stocks
@@ -349,10 +374,12 @@ class TestBaseAlpha:
 
     def test_universe_filter_mid_cap(self):
         """Test mid_cap filter returns middle quintiles."""
-        df = pl.DataFrame({
-            "permno": list(range(100)),
-            "market_cap": list(range(100)),
-        })
+        df = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                "market_cap": list(range(100)),
+            }
+        )
 
         filtered = BaseAlpha.filter_universe(df, "mid_cap")
         # Middle 60% of 100 stocks = 60 stocks
@@ -360,11 +387,12 @@ class TestBaseAlpha:
 
     def test_universe_filter_missing_column(self):
         """Test universe filter handles missing market_cap column."""
-        df = pl.DataFrame({
-            "permno": list(range(100)),
-            # No market_cap column
-        })
+        df = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                # No market_cap column
+            }
+        )
 
         filtered = BaseAlpha.filter_universe(df, "large_cap")
         assert filtered.height == 100  # Returns all when column missing
-

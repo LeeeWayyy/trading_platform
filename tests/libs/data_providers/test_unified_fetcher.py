@@ -20,18 +20,17 @@ import polars as pl
 import pytest
 
 from libs.data_providers.protocols import (
+    UNIFIED_COLUMNS,
     ConfigurationError,
     ProductionProviderRequiredError,
     ProviderNotSupportedError,
     ProviderUnavailableError,
-    UNIFIED_COLUMNS,
 )
 from libs.data_providers.unified_fetcher import (
     FetcherConfig,
     ProviderType,
     UnifiedDataFetcher,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -42,16 +41,18 @@ from libs.data_providers.unified_fetcher import (
 def mock_yfinance_provider() -> MagicMock:
     """Create mock YFinanceProvider."""
     provider = MagicMock()
-    provider.get_daily_prices.return_value = pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3)],
-        "symbol": ["AAPL", "AAPL"],
-        "open": [180.0, 182.0],
-        "high": [185.0, 186.0],
-        "low": [178.0, 180.0],
-        "close": [183.0, 184.5],
-        "volume": [50000000.0, 48000000.0],
-        "adj_close": [183.0, 184.5],
-    })
+    provider.get_daily_prices.return_value = pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3)],
+            "symbol": ["AAPL", "AAPL"],
+            "open": [180.0, 182.0],
+            "high": [185.0, 186.0],
+            "low": [178.0, 180.0],
+            "close": [183.0, 184.5],
+            "volume": [50000000.0, 48000000.0],
+            "adj_close": [183.0, 184.5],
+        }
+    )
     return provider
 
 
@@ -59,16 +60,20 @@ def mock_yfinance_provider() -> MagicMock:
 def mock_crsp_provider() -> MagicMock:
     """Create mock CRSPLocalProvider."""
     provider = MagicMock()
-    provider.get_daily_prices.return_value = pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3)],
-        "ticker": ["AAPL", "AAPL"],
-        "prc": [183.0, 184.5],
-        "vol": [50000000.0, 48000000.0],
-        "ret": [0.015, 0.008],
-    })
-    provider.get_universe.return_value = pl.DataFrame({
-        "ticker": ["AAPL", "MSFT", "GOOGL"],
-    })
+    provider.get_daily_prices.return_value = pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3)],
+            "ticker": ["AAPL", "AAPL"],
+            "prc": [183.0, 184.5],
+            "vol": [50000000.0, 48000000.0],
+            "ret": [0.015, 0.008],
+        }
+    )
+    provider.get_universe.return_value = pl.DataFrame(
+        {
+            "ticker": ["AAPL", "MSFT", "GOOGL"],
+        }
+    )
     return provider
 
 

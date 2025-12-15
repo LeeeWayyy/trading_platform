@@ -1,6 +1,6 @@
 """Tests for PITBacktester and point-in-time correctness."""
 
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import MagicMock
 
 import polars as pl
@@ -23,10 +23,12 @@ class SimpleTestAlpha(BaseAlpha):
         return "test"
 
     def _compute_raw(self, prices, fundamentals, as_of_date):
-        return prices.filter(pl.col("date") == as_of_date).select([
-            pl.col("permno"),
-            pl.col("permno").cast(pl.Float64).alias("raw_signal"),
-        ])
+        return prices.filter(pl.col("date") == as_of_date).select(
+            [
+                pl.col("permno"),
+                pl.col("permno").cast(pl.Float64).alias("raw_signal"),
+            ]
+        )
 
 
 def _build_full_mock_backtester():
@@ -51,20 +53,24 @@ def _build_full_mock_backtester():
     version_mgr.create_snapshot.return_value = mock_snapshot
 
     dates = [date(2024, 1, i) for i in range(1, 16)]
-    prices = pl.DataFrame({
-        "permno": sorted([1, 2, 3, 4, 5] * 15),
-        "date": dates * 5,
-        "ret": [0.01 + 0.001 * (i % 5) for i in range(75)],
-        "prc": [100.0 + i for i in range(75)],
-        "shrout": [1000.0] * 75,
-    })
+    prices = pl.DataFrame(
+        {
+            "permno": sorted([1, 2, 3, 4, 5] * 15),
+            "date": dates * 5,
+            "ret": [0.01 + 0.001 * (i % 5) for i in range(75)],
+            "prc": [100.0 + i for i in range(75)],
+            "shrout": [1000.0] * 75,
+        }
+    )
 
-    fundamentals = pl.DataFrame({
-        "permno": [1, 2, 3, 4, 5],
-        "datadate": [date(2023, 9, 30)] * 5,
-        "ceq": [100.0, 200.0, 150.0, 180.0, 120.0],
-        "ni": [10.0, 20.0, 15.0, 18.0, 12.0],
-    })
+    fundamentals = pl.DataFrame(
+        {
+            "permno": [1, 2, 3, 4, 5],
+            "datadate": [date(2023, 9, 30)] * 5,
+            "ceq": [100.0, 200.0, 150.0, 180.0, 120.0],
+            "ni": [10.0, 20.0, 15.0, 18.0, 12.0],
+        }
+    )
 
     def mock_lock_snapshot(snapshot_id):
         backtester._snapshot = mock_snapshot
@@ -83,7 +89,6 @@ def _build_full_mock_backtester():
     backtester._fundamentals_cache = fundamentals
 
     return backtester, prices, mock_snapshot
-
 
 
 class TestPITBacktesterSnapshotLocking:
@@ -148,7 +153,7 @@ class TestPITBacktesterSnapshotLocking:
 class TestPITBacktesterStrictDateFiltering:
     """Tests for strict date filtering in data access."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_backtester(self):
         """Create backtester with mocked dependencies."""
         version_mgr = MagicMock()
@@ -183,16 +188,22 @@ class TestPITBacktesterStrictDateFiltering:
     def test_get_pit_prices_filters_future_data(self, mock_backtester):
         """Test that prices are strictly filtered to <= as_of_date."""
         # Create test price data spanning multiple dates
-        prices = pl.DataFrame({
-            "permno": [1, 1, 1, 2, 2, 2],
-            "date": [
-                date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3),
-                date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3),
-            ],
-            "ret": [0.01, 0.02, 0.03, 0.01, 0.02, 0.03],
-            "prc": [100.0] * 6,
-            "shrout": [1000.0] * 6,
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": [1, 1, 1, 2, 2, 2],
+                "date": [
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    date(2024, 1, 3),
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    date(2024, 1, 3),
+                ],
+                "ret": [0.01, 0.02, 0.03, 0.01, 0.02, 0.03],
+                "prc": [100.0] * 6,
+                "shrout": [1000.0] * 6,
+            }
+        )
         mock_backtester._prices_cache = prices
 
         # Request prices as of Jan 2nd - should NOT include Jan 3rd data
@@ -225,17 +236,19 @@ class TestPITBacktesterFilingLag:
 
         # Create fundamentals with various datadates
         # Filing lag = 90 days, so if as_of_date = April 1, only Dec 31 data available
-        fundamentals = pl.DataFrame({
-            "permno": [1, 1, 2, 2],
-            "datadate": [
-                date(2023, 12, 31),  # Available on April 1
-                date(2024, 3, 31),   # NOT available on April 1 (only 0 days)
-                date(2023, 12, 31),  # Available on April 1
-                date(2024, 3, 31),   # NOT available on April 1
-            ],
-            "ceq": [100.0, 110.0, 200.0, 210.0],
-            "ni": [10.0, 11.0, 20.0, 21.0],
-        })
+        fundamentals = pl.DataFrame(
+            {
+                "permno": [1, 1, 2, 2],
+                "datadate": [
+                    date(2023, 12, 31),  # Available on April 1
+                    date(2024, 3, 31),  # NOT available on April 1 (only 0 days)
+                    date(2023, 12, 31),  # Available on April 1
+                    date(2024, 3, 31),  # NOT available on April 1
+                ],
+                "ceq": [100.0, 110.0, 200.0, 210.0],
+                "ni": [10.0, 11.0, 20.0, 21.0],
+            }
+        )
         backtester._fundamentals_cache = fundamentals
 
         # Request as of April 1, 2024 (only Dec 31 data should be available)
@@ -250,7 +263,7 @@ class TestPITBacktesterFilingLag:
 class TestPITBacktesterForwardReturns:
     """Tests for forward return calculation and fail-fast behavior."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_backtester_with_prices(self):
         """Create backtester with price data."""
         version_mgr = MagicMock()
@@ -267,13 +280,15 @@ class TestPITBacktesterForwardReturns:
 
         # Create 10 trading days of data
         dates = [date(2024, 1, i) for i in range(1, 11)]
-        prices = pl.DataFrame({
-            "permno": [1] * 10 + [2] * 10,
-            "date": dates * 2,
-            "ret": [0.01] * 20,
-            "prc": [100.0] * 20,
-            "shrout": [1000.0] * 20,
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": [1] * 10 + [2] * 10,
+                "date": dates * 2,
+                "ret": [0.01] * 20,
+                "prc": [100.0] * 20,
+                "shrout": [1000.0] * 20,
+            }
+        )
         backtester._prices_cache = prices
 
         return backtester
@@ -284,39 +299,27 @@ class TestPITBacktesterForwardReturns:
         """Test MissingForwardReturnError when insufficient future data."""
         # Request 20-day forward return but only have 10 days total
         with pytest.raises(MissingForwardReturnError, match="trading days"):
-            mock_backtester_with_prices._get_pit_forward_returns(
-                date(2024, 1, 5), horizon=20
-            )
+            mock_backtester_with_prices._get_pit_forward_returns(date(2024, 1, 5), horizon=20)
 
-    def test_get_pit_forward_returns_computes_geometric_return(
-        self, mock_backtester_with_prices
-    ):
+    def test_get_pit_forward_returns_computes_geometric_return(self, mock_backtester_with_prices):
         """Test geometric compounding in forward returns."""
-        result = mock_backtester_with_prices._get_pit_forward_returns(
-            date(2024, 1, 1), horizon=3
-        )
+        result = mock_backtester_with_prices._get_pit_forward_returns(date(2024, 1, 1), horizon=3)
 
         # With 1% daily returns, 3-day geometric return = (1.01)^3 - 1 ≈ 0.030301
-        expected_return = (1.01 ** 3) - 1
+        expected_return = (1.01**3) - 1
         actual_return = result.filter(pl.col("permno") == 1).select("return").item()
 
         assert actual_return == pytest.approx(expected_return, rel=1e-6)
 
-    def test_forward_returns_require_exact_horizon(
-        self, mock_backtester_with_prices
-    ):
+    def test_forward_returns_require_exact_horizon(self, mock_backtester_with_prices):
         """Test that forward returns require exact horizon observations."""
         # Modify prices to have one stock missing a day
         prices = mock_backtester_with_prices._prices_cache
         # Remove one observation for permno=2
-        prices = prices.filter(
-            ~((pl.col("permno") == 2) & (pl.col("date") == date(2024, 1, 2)))
-        )
+        prices = prices.filter(~((pl.col("permno") == 2) & (pl.col("date") == date(2024, 1, 2))))
         mock_backtester_with_prices._prices_cache = prices
 
-        result = mock_backtester_with_prices._get_pit_forward_returns(
-            date(2024, 1, 1), horizon=3
-        )
+        result = mock_backtester_with_prices._get_pit_forward_returns(date(2024, 1, 1), horizon=3)
 
         # permno=2 should be excluded due to missing day
         permnos = result.get_column("permno").to_list()
@@ -327,7 +330,7 @@ class TestPITBacktesterForwardReturns:
 class TestPITBacktesterRunBacktest:
     """Tests for full backtest execution."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def full_mock_backtester(self):
         """Create backtester with complete mocked setup."""
         version_mgr = MagicMock()
@@ -352,20 +355,24 @@ class TestPITBacktesterRunBacktest:
 
         # Create price data for 15 trading days
         dates = [date(2024, 1, i) for i in range(1, 16)]
-        prices = pl.DataFrame({
-            "permno": sorted([1, 2, 3, 4, 5] * 15),
-            "date": dates * 5,
-            "ret": [0.01 + 0.001 * (i % 5) for i in range(75)],
-            "prc": [100.0 + i for i in range(75)],
-            "shrout": [1000.0] * 75,
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": sorted([1, 2, 3, 4, 5] * 15),
+                "date": dates * 5,
+                "ret": [0.01 + 0.001 * (i % 5) for i in range(75)],
+                "prc": [100.0 + i for i in range(75)],
+                "shrout": [1000.0] * 75,
+            }
+        )
 
-        fundamentals = pl.DataFrame({
-            "permno": [1, 2, 3, 4, 5],
-            "datadate": [date(2023, 9, 30)] * 5,
-            "ceq": [100.0, 200.0, 150.0, 180.0, 120.0],
-            "ni": [10.0, 20.0, 15.0, 18.0, 12.0],
-        })
+        fundamentals = pl.DataFrame(
+            {
+                "permno": [1, 2, 3, 4, 5],
+                "datadate": [date(2023, 9, 30)] * 5,
+                "ceq": [100.0, 200.0, 150.0, 180.0, 120.0],
+                "ni": [10.0, 20.0, 15.0, 18.0, 12.0],
+            }
+        )
 
         # Patch internal methods
         def mock_lock_snapshot(sid):
@@ -397,11 +404,13 @@ class TestPITBacktesterRunBacktest:
             call_count[0] += 1
             if call_count[0] > 5:
                 raise MissingForwardReturnError("No more data")
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
@@ -423,11 +432,13 @@ class TestPITBacktesterRunBacktest:
         backtester, prices, mock_snapshot = full_mock_backtester
 
         def mock_forward_returns(as_of, horizon=1):
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
@@ -456,11 +467,13 @@ class TestPITBacktesterCallbacks:
         backtester, prices, _ = _build_full_mock_backtester()
 
         def mock_forward_returns(as_of, horizon=1):
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
@@ -503,11 +516,13 @@ class TestPITBacktesterCallbacks:
         backtester, prices, _ = _build_full_mock_backtester()
 
         def mock_forward_returns(as_of, horizon=1):
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
@@ -547,11 +562,13 @@ class TestPITBacktesterCallbacks:
         backtester, prices, _ = _build_full_mock_backtester()
 
         def mock_forward_returns(as_of, horizon=1):
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
@@ -572,26 +589,24 @@ class TestPITBacktesterCallbacks:
         backtester, prices, _ = _build_full_mock_backtester()
 
         def mock_forward_returns(as_of, horizon=1):
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
         # Avoid extra callback noise from downstream computations
-        backtester._compute_daily_ic = (
-            lambda *args, **kwargs: (
-                pl.DataFrame({"date": [], "ic": [], "rank_ic": []}),
-                args[4],  # preserve last_callback_time
-            )
+        backtester._compute_daily_ic = lambda *args, **kwargs: (
+            pl.DataFrame({"date": [], "ic": [], "rank_ic": []}),
+            args[4],  # preserve last_callback_time
         )
-        backtester._compute_horizon_returns = (
-            lambda *args, **kwargs: (
-                pl.DataFrame(),
-                args[4],  # preserve last_callback_time
-            )
+        backtester._compute_horizon_returns = lambda *args, **kwargs: (
+            pl.DataFrame(),
+            args[4],  # preserve last_callback_time
         )
 
         times = [0, 5, 35, 40, 45, 90]
@@ -628,11 +643,13 @@ class TestPITBacktesterCallbacks:
         backtester, prices, snapshot = _build_full_mock_backtester()
 
         def mock_forward_returns(as_of, horizon=1):
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
@@ -652,11 +669,13 @@ class TestPITBacktesterCallbacks:
         backtester, prices, _ = _build_full_mock_backtester()
 
         def mock_forward_returns(as_of, horizon=1):
-            return prices.filter(pl.col("date") == as_of).select([
-                pl.col("permno"),
-                pl.lit(as_of).alias("date"),
-                pl.col("ret").alias("return"),
-            ])
+            return prices.filter(pl.col("date") == as_of).select(
+                [
+                    pl.col("permno"),
+                    pl.lit(as_of).alias("date"),
+                    pl.col("ret").alias("return"),
+                ]
+            )
 
         backtester._get_pit_forward_returns = mock_forward_returns
 
@@ -705,11 +724,13 @@ class TestPITBacktesterHorizonReturns:
 
         # Create price data
         dates = [date(2024, 1, i) for i in range(1, 11)]
-        prices = pl.DataFrame({
-            "permno": [1] * 10,
-            "date": dates,
-            "ret": [0.02] * 10,  # 2% daily return
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": [1] * 10,
+                "date": dates,
+                "ret": [0.02] * 10,  # 2% daily return
+            }
+        )
         backtester._prices_cache = prices
 
         result, _ = backtester._compute_horizon_returns(
@@ -722,7 +743,7 @@ class TestPITBacktesterHorizonReturns:
         )
 
         # 5-day return with 2% daily = (1.02)^5 - 1 ≈ 0.10408
-        expected_return = (1.02 ** 5) - 1
+        expected_return = (1.02**5) - 1
 
         # Get first result
         actual = result.filter(pl.col("date") == date(2024, 1, 1)).select("return").item()
@@ -746,18 +767,24 @@ class TestPITBacktesterHorizonReturns:
         dates_full = [date(2024, 1, i) for i in range(1, 11)]
         dates_partial = [date(2024, 1, i) for i in [1, 2, 4, 5, 6, 7, 8, 9, 10]]  # Missing day 3
 
-        prices = pl.concat([
-            pl.DataFrame({
-                "permno": [1] * 10,
-                "date": dates_full,
-                "ret": [0.02] * 10,
-            }),
-            pl.DataFrame({
-                "permno": [2] * 9,
-                "date": dates_partial,
-                "ret": [0.02] * 9,
-            }),
-        ])
+        prices = pl.concat(
+            [
+                pl.DataFrame(
+                    {
+                        "permno": [1] * 10,
+                        "date": dates_full,
+                        "ret": [0.02] * 10,
+                    }
+                ),
+                pl.DataFrame(
+                    {
+                        "permno": [2] * 9,
+                        "date": dates_partial,
+                        "ret": [0.02] * 9,
+                    }
+                ),
+            ]
+        )
         backtester._prices_cache = prices
 
         result, _ = backtester._compute_horizon_returns(

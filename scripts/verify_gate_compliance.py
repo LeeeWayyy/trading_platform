@@ -347,9 +347,7 @@ def main():
         if missing_markers:
             print()
             print("❌ REVIEW MARKER VALIDATION FAILED!")
-            print(
-                f"   Found {len(missing_markers)} commit(s) missing approval markers"
-            )
+            print(f"   Found {len(missing_markers)} commit(s) missing approval markers")
             print()
             print("   This could indicate:")
             print("   - Commit was made with --no-verify (bypassed pre-commit hook)")

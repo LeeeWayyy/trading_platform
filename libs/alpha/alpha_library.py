@@ -68,9 +68,7 @@ class MomentumAlpha(BaseAlpha):
         start_date = as_of_date - timedelta(days=self._lookback_days)
 
         # Filter to relevant period
-        period_data = prices.filter(
-            (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-        )
+        period_data = prices.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
 
         if period_data.height == 0:
             logger.warning(f"MomentumAlpha: no data for {start_date} to {end_date}")
@@ -80,16 +78,20 @@ class MomentumAlpha(BaseAlpha):
         # (1 + r1) * (1 + r2) * ... * (1 + rn) - 1
         momentum = (
             period_data.group_by("permno")
-            .agg([
-                ((pl.col("ret") + 1).product() - 1).alias("cumulative_ret"),
-                pl.col("ret").count().alias("n_days"),
-            ])
+            .agg(
+                [
+                    ((pl.col("ret") + 1).product() - 1).alias("cumulative_ret"),
+                    pl.col("ret").count().alias("n_days"),
+                ]
+            )
             # Require minimum observations (half the period)
             .filter(pl.col("n_days") >= self._lookback_days * 0.5)
-            .select([
-                pl.col("permno"),
-                pl.col("cumulative_ret").alias("raw_signal"),
-            ])
+            .select(
+                [
+                    pl.col("permno"),
+                    pl.col("cumulative_ret").alias("raw_signal"),
+                ]
+            )
         )
 
         return momentum
@@ -135,9 +137,7 @@ class ReversalAlpha(BaseAlpha):
         """Compute short-term reversal (negative of recent return)."""
         start_date = as_of_date - timedelta(days=self._lookback_days)
 
-        period_data = prices.filter(
-            (pl.col("date") >= start_date) & (pl.col("date") <= as_of_date)
-        )
+        period_data = prices.filter((pl.col("date") >= start_date) & (pl.col("date") <= as_of_date))
 
         if period_data.height == 0:
             return pl.DataFrame(schema={"permno": pl.Int64, "raw_signal": pl.Float64})
@@ -146,10 +146,12 @@ class ReversalAlpha(BaseAlpha):
         # Reversal = -(cumulative return)
         reversal = (
             period_data.group_by("permno")
-            .agg([
-                (-((pl.col("ret") + 1).product() - 1)).alias("raw_signal"),
-                pl.col("ret").count().alias("n_days"),
-            ])
+            .agg(
+                [
+                    (-((pl.col("ret") + 1).product() - 1)).alias("raw_signal"),
+                    pl.col("ret").count().alias("n_days"),
+                ]
+            )
             .filter(pl.col("n_days") >= self._lookback_days * 0.5)
             .select(["permno", "raw_signal"])
         )
@@ -203,10 +205,12 @@ class ValueAlpha(BaseAlpha):
             .sort(["permno", "date"], descending=[False, True])
             .group_by("permno")
             .first()
-            .select([
-                pl.col("permno"),
-                (pl.col("prc").abs() * pl.col("shrout")).alias("market_cap"),
-            ])
+            .select(
+                [
+                    pl.col("permno"),
+                    (pl.col("prc").abs() * pl.col("shrout")).alias("market_cap"),
+                ]
+            )
         )
 
         # Get book equity from fundamentals (ceq = common equity)
@@ -215,21 +219,19 @@ class ValueAlpha(BaseAlpha):
             fundamentals.sort(["permno", "datadate"], descending=[False, True])
             .group_by("permno")
             .first()
-            .select([
-                pl.col("permno"),
-                pl.col("ceq").alias("book_equity"),  # Common equity
-            ])
+            .select(
+                [
+                    pl.col("permno"),
+                    pl.col("ceq").alias("book_equity"),  # Common equity
+                ]
+            )
         )
 
         # Join and compute B/M
         bm = (
             latest_prices.join(book_equity, on="permno", how="inner")
-            .filter(
-                (pl.col("market_cap") > 0) & (pl.col("book_equity") > 0)
-            )
-            .with_columns([
-                (pl.col("book_equity") / pl.col("market_cap")).alias("raw_signal")
-            ])
+            .filter((pl.col("market_cap") > 0) & (pl.col("book_equity") > 0))
+            .with_columns([(pl.col("book_equity") / pl.col("market_cap")).alias("raw_signal")])
             .select(["permno", "raw_signal"])
         )
 
@@ -288,18 +290,16 @@ class QualityAlpha(BaseAlpha):
             # ROE = Net Income / Book Equity
             quality = (
                 latest_fund.filter(pl.col("ceq") > 0)
-                .with_columns([
-                    (pl.col("ni") / pl.col("ceq")).alias("raw_signal")
-                ])
+                .with_columns([(pl.col("ni") / pl.col("ceq")).alias("raw_signal")])
                 .select(["permno", "raw_signal"])
             )
         else:  # gp (Gross Profitability)
             # GP = (Revenue - COGS) / Total Assets
             quality = (
                 latest_fund.filter(pl.col("at") > 0)
-                .with_columns([
-                    ((pl.col("revt") - pl.col("cogs")) / pl.col("at")).alias("raw_signal")
-                ])
+                .with_columns(
+                    [((pl.col("revt") - pl.col("cogs")) / pl.col("at")).alias("raw_signal")]
+                )
                 .select(["permno", "raw_signal"])
             )
 
@@ -349,9 +349,7 @@ class VolatilityAlpha(BaseAlpha):
         """Compute negative realized volatility (low vol premium)."""
         start_date = as_of_date - timedelta(days=self._lookback_days)
 
-        period_data = prices.filter(
-            (pl.col("date") >= start_date) & (pl.col("date") <= as_of_date)
-        )
+        period_data = prices.filter((pl.col("date") >= start_date) & (pl.col("date") <= as_of_date))
 
         if period_data.height == 0:
             return pl.DataFrame(schema={"permno": pl.Int64, "raw_signal": pl.Float64})
@@ -360,10 +358,12 @@ class VolatilityAlpha(BaseAlpha):
         # Negative so high signal = low volatility = buy
         vol = (
             period_data.group_by("permno")
-            .agg([
-                (-pl.col("ret").std()).alias("raw_signal"),  # Negative volatility
-                pl.col("ret").count().alias("n_days"),
-            ])
+            .agg(
+                [
+                    (-pl.col("ret").std()).alias("raw_signal"),  # Negative volatility
+                    pl.col("ret").count().alias("n_days"),
+                ]
+            )
             .filter(pl.col("n_days") >= self._min_observations)
             .select(["permno", "raw_signal"])
         )
@@ -398,9 +398,7 @@ def create_alpha(
         >>> alpha = create_alpha("momentum", lookback_days=126, winsorize_pct=0.02)
     """
     if name not in CANONICAL_ALPHAS:
-        raise ValueError(
-            f"Unknown alpha: {name}. Available: {list(CANONICAL_ALPHAS.keys())}"
-        )
+        raise ValueError(f"Unknown alpha: {name}. Available: {list(CANONICAL_ALPHAS.keys())}")
 
     # Factory function - type narrowing happens at runtime
     alpha_class = CANONICAL_ALPHAS[name]

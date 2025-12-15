@@ -6,7 +6,6 @@ import datetime
 import json
 import os
 import socket
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,7 +20,7 @@ from libs.data_quality.exceptions import LockNotHeldError
 from libs.data_quality.types import LockToken
 
 
-@pytest.fixture
+@pytest.fixture()
 def lock_dir(tmp_path: Path) -> Path:
     """Create a temporary lock directory."""
     lock_dir = tmp_path / "locks"
@@ -202,6 +201,7 @@ class TestAtomicFileLock:
 
         # Wait a tiny bit and refresh
         import time
+
         time.sleep(0.1)
 
         new_token = lock.refresh(token)
@@ -241,10 +241,13 @@ class TestAtomicLockContextManager:
         """Test context manager releases lock even on exception."""
         lock_path = lock_dir / "test_dataset.lock"
 
-        with pytest.raises(ValueError):
+        def _raise_with_lock() -> None:
             with atomic_lock(lock_dir, "test_dataset") as token:
                 assert token.lock_path.exists()
                 raise ValueError("Test exception")
+
+        with pytest.raises(ValueError, match="Test exception"):
+            _raise_with_lock()
 
         # Lock should still be released
         assert not lock_path.exists()
@@ -253,16 +256,12 @@ class TestAtomicLockContextManager:
 class TestPIDAliveCheck:
     """Tests for PID liveness checking."""
 
-    def test_is_pid_alive_returns_true_for_current_process(
-        self, lock_dir: Path
-    ) -> None:
+    def test_is_pid_alive_returns_true_for_current_process(self, lock_dir: Path) -> None:
         """Current process PID should be detected as alive."""
         lock = AtomicFileLock(lock_dir, "test")
         assert lock._is_pid_alive(os.getpid())
 
-    def test_is_pid_alive_returns_false_for_nonexistent_pid(
-        self, lock_dir: Path
-    ) -> None:
+    def test_is_pid_alive_returns_false_for_nonexistent_pid(self, lock_dir: Path) -> None:
         """Non-existent PID should be detected as dead."""
         lock = AtomicFileLock(lock_dir, "test")
         # Use a very high PID that's unlikely to exist

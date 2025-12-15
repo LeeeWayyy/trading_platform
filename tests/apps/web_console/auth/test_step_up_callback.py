@@ -67,7 +67,7 @@ class FakeJWKSValidator:
         return self.claims
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_invalid_session_version_monkeypatch(monkeypatch):
     async def _invalidate(*_args, **_kwargs):
         return False
@@ -103,7 +103,7 @@ async def test_step_up_invalid_session_version_monkeypatch(monkeypatch):
     assert audit.events[-1]["action"] == "step_up_session_invalidated"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_success_path(monkeypatch):
     async def _validate_version(*_args, **_kwargs):
         return True
@@ -136,10 +136,11 @@ async def test_step_up_success_path(monkeypatch):
 
     assert result["redirect_to"] == "/orders"
     assert store.updated_claims is not None
-    assert audit.events and audit.events[-1]["action"] == "step_up_success"
+    assert audit.events
+    assert audit.events[-1]["action"] == "step_up_success"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_state_validation_failure(monkeypatch):
     async def _validate_version(*_args, **_kwargs):
         return True
@@ -172,7 +173,7 @@ async def test_step_up_state_validation_failure(monkeypatch):
     assert audit.events[-1]["details"]["reason"] == "state_mismatch"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_missing_validator_is_logged_and_reported(monkeypatch):
     async def _validate_version(*_args, **_kwargs):
         return True
@@ -205,7 +206,7 @@ async def test_step_up_missing_validator_is_logged_and_reported(monkeypatch):
     assert audit.events[-1]["details"]["reason"] == "missing_validator"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_timeout_returns_error_and_clears_state(monkeypatch):
     async def _validate_version(*_args, **_kwargs):
         return True
@@ -238,7 +239,7 @@ async def test_step_up_timeout_returns_error_and_clears_state(monkeypatch):
     assert audit.events[-1]["action"] == "step_up_timeout"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_subject_mismatch_invalidates_session(monkeypatch):
     async def _validate_version(*_args, **_kwargs):
         return True
@@ -254,7 +255,9 @@ async def test_step_up_subject_mismatch_invalidates_session(monkeypatch):
     async def _exchange(_code):
         return {"id_token": "token"}
 
-    validator = FakeJWKSValidator(claims={"sub": "different", "auth_time": int(time.time()), "amr": ["otp"]})
+    validator = FakeJWKSValidator(
+        claims={"sub": "different", "auth_time": int(time.time()), "amr": ["otp"]}
+    )
 
     result = await handle_step_up_callback(
         code="code",
@@ -276,7 +279,7 @@ async def test_step_up_subject_mismatch_invalidates_session(monkeypatch):
     assert audit.events[-1]["action"] == "step_up_callback_failed"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_missing_session_returns_safe_redirect():
     class MissingSessionStore:
         def __init__(self):
@@ -312,7 +315,7 @@ async def test_step_up_missing_session_returns_safe_redirect():
     assert audit.events[-1]["details"]["reason"] == "session_not_found"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_missing_exchange_code_uses_structured_error(monkeypatch):
     async def _validate_version(*_args, **_kwargs):
         return True
@@ -344,7 +347,7 @@ async def test_step_up_missing_exchange_code_uses_structured_error(monkeypatch):
     assert audit.events[-1]["details"]["reason"] == "exchange_code_missing"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_step_up_missing_id_token_is_normalized(monkeypatch):
     async def _validate_version(*_args, **_kwargs):
         return True

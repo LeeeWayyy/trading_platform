@@ -94,9 +94,7 @@ class HARVolatilityModel:
                         or negative RV values.
         """
         if realized_vol.height < 60:
-            raise ValueError(
-                f"Minimum 60 observations required, got {realized_vol.height}"
-            )
+            raise ValueError(f"Minimum 60 observations required, got {realized_vol.height}")
 
         dates = realized_vol["date"].to_list()
         for i in range(1, len(dates)):
@@ -113,12 +111,14 @@ class HARVolatilityModel:
         features_df = self._construct_har_features(rv_filled)
 
         mask = ~np.isnan(features_df["rv_target"])
-        X = np.column_stack([
-            np.ones(sum(mask)),
-            features_df["rv_d"][mask],
-            features_df["rv_w"][mask],
-            features_df["rv_m"][mask],
-        ])
+        X = np.column_stack(
+            [
+                np.ones(sum(mask)),
+                features_df["rv_d"][mask],
+                features_df["rv_w"][mask],
+                features_df["rv_m"][mask],
+            ]
+        )
         y = features_df["rv_target"][mask]
 
         coeffs, residuals, rank, s = np.linalg.lstsq(X, y, rcond=None)
@@ -172,9 +172,7 @@ class HARVolatilityModel:
             raise RuntimeError("Model not fitted. Call fit() first.")
 
         if current_rv.height < 22:
-            raise ValueError(
-                f"Need at least 22 rows for monthly lag, got {current_rv.height}"
-            )
+            raise ValueError(f"Need at least 22 rows for monthly lag, got {current_rv.height}")
 
         rv_values = current_rv["rv"].to_numpy()
         rv_values = self._forward_fill_nan(rv_values, max_consecutive=5)
@@ -239,9 +237,7 @@ class HARVolatilityModel:
 
         max_run = run_lengths.max() if len(run_lengths) > 0 else 0
         if max_run > max_consecutive:
-            raise ValueError(
-                f"More than {max_consecutive} consecutive NaN values"
-            )
+            raise ValueError(f"More than {max_consecutive} consecutive NaN values")
 
         # Vectorized forward fill using index propagation
         result = arr.copy().astype(np.float64)
@@ -269,7 +265,9 @@ class HARVolatilityModel:
 
         return result
 
-    def _construct_har_features(self, rv_values: np.ndarray[Any, np.dtype[np.floating[Any]]]) -> dict[str, np.ndarray[Any, np.dtype[np.floating[Any]]]]:
+    def _construct_har_features(
+        self, rv_values: np.ndarray[Any, np.dtype[np.floating[Any]]]
+    ) -> dict[str, np.ndarray[Any, np.dtype[np.floating[Any]]]]:
         """Construct HAR features from RV series.
 
         Standard HAR-RV model (Corsi 2009) uses information available at time t

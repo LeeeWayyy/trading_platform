@@ -232,9 +232,7 @@ class FamaFrenchLocalProvider:
         file_path = self._factors_dir / filename
 
         if not file_path.exists():
-            raise DataNotFoundError(
-                f"Factor data not found: {filename}. Run sync_data() first."
-            )
+            raise DataNotFoundError(f"Factor data not found: {filename}. Run sync_data() first.")
 
         # Query with DuckDB for efficient date filtering (parameterized)
         conn = duckdb.connect(":memory:")
@@ -274,9 +272,7 @@ class FamaFrenchLocalProvider:
             ValueError: If invalid num_industries or frequency.
         """
         if num_industries not in (10, 30, 49):
-            raise ValueError(
-                f"Invalid num_industries: {num_industries}. Must be 10, 30, or 49"
-            )
+            raise ValueError(f"Invalid num_industries: {num_industries}. Must be 10, 30, or 49")
         if frequency not in ("daily", "monthly"):
             raise ValueError(f"Invalid frequency: {frequency}. Must be daily or monthly")
 
@@ -284,9 +280,7 @@ class FamaFrenchLocalProvider:
         file_path = self._industries_dir / filename
 
         if not file_path.exists():
-            raise DataNotFoundError(
-                f"Industry data not found: {filename}. Run sync_data() first."
-            )
+            raise DataNotFoundError(f"Industry data not found: {filename}. Run sync_data() first.")
 
         # Query with DuckDB for efficient date filtering (parameterized)
         conn = duckdb.connect(":memory:")
@@ -677,10 +671,7 @@ class FamaFrenchLocalProvider:
         # Identify return columns (all except 'date')
         return_cols = [c for c in df.columns if c != "date"]
 
-        return df.with_columns([
-            (pl.col(c) / 100.0).alias(c)
-            for c in return_cols
-        ])
+        return df.with_columns([(pl.col(c) / 100.0).alias(c) for c in return_cols])
 
     def _validate_schema(self, df: pl.DataFrame, dataset_name: str) -> bool:
         """Validate DataFrame has required columns for dataset type.

@@ -311,9 +311,7 @@ class DatasetVersionManager:
         test_path = base_dir / identifier
         resolved_path = test_path.resolve()
         if not resolved_path.is_relative_to(base_dir.resolve()):
-            raise ValueError(
-                f"Invalid {identifier_type} (path traversal detected): {identifier}"
-            )
+            raise ValueError(f"Invalid {identifier_type} (path traversal detected): {identifier}")
 
     def _validate_file_path(self, file_path: Path) -> None:
         """Validate a file path for security.
@@ -332,16 +330,13 @@ class DatasetVersionManager:
 
         # Reject symlinks - they could point anywhere
         if file_path.is_symlink():
-            raise ValueError(
-                f"Symlinks not allowed in manifest: {file_path}"
-            )
+            raise ValueError(f"Symlinks not allowed in manifest: {file_path}")
 
         # Verify file is within data_root
         data_root_resolved = self.data_root.resolve()
         if not resolved.is_relative_to(data_root_resolved):
             raise ValueError(
-                f"File path outside data root: {file_path}. "
-                f"Must be within: {self.data_root}"
+                f"File path outside data root: {file_path}. " f"Must be within: {self.data_root}"
             )
 
     # =========================================================================
@@ -594,9 +589,7 @@ class DatasetVersionManager:
                 target = cas_hash
             except OSError as e:
                 # CAS failed (disk full, permissions, etc) - fall back to copy
-                logger.warning(
-                    "CAS storage failed, falling back to copy: %s", e
-                )
+                logger.warning("CAS storage failed, falling back to copy: %s", e)
                 self._copy_with_fsync(file_path, dest_path, checksum)
                 storage_mode = "copy"
                 target = str(dest_path)
@@ -744,7 +737,8 @@ class DatasetVersionManager:
                         except Exception as e:
                             logger.warning(
                                 "Failed to delete CAS file %s during cleanup: %s",
-                                cas_path, e,
+                                cas_path,
+                                e,
                             )
                 logger.debug(
                     "Deleted %d new CAS files during cleanup (unpersisted)",
@@ -861,14 +855,11 @@ class DatasetVersionManager:
         candidates = [
             s
             for s in self.list_snapshots()
-            if self._is_date_based_tag(s.version_tag)
-            and s.created_at.date() <= as_of_date
+            if self._is_date_based_tag(s.version_tag) and s.created_at.date() <= as_of_date
         ]
 
         if not candidates:
-            raise SnapshotNotFoundError(
-                f"No snapshot exists on or before {as_of_date}"
-            )
+            raise SnapshotNotFoundError(f"No snapshot exists on or before {as_of_date}")
 
         # Already sorted newest first by list_snapshots
         # Iterate through candidates to find one containing the dataset
@@ -1030,9 +1021,7 @@ class DatasetVersionManager:
 
         # Find and remove entries pointing to this snapshot
         to_remove = [
-            backtest_id
-            for backtest_id, snap_tag in index.items()
-            if snap_tag == version_tag
+            backtest_id for backtest_id, snap_tag in index.items() if snap_tag == version_tag
         ]
 
         if not to_remove:
@@ -1114,26 +1103,20 @@ class DatasetVersionManager:
                                     entry.referencing_snapshots.remove(version_tag)
                         self._save_cas_index(cas_index)
                     except Exception as e:
-                        logger.warning(
-                            "Failed to release CAS refs after deletion: %s", e
-                        )
+                        logger.warning("Failed to release CAS refs after deletion: %s", e)
 
                 # 3. Orphan backtest linkages (advisory, non-critical)
                 for backtest_id in snapshot.referenced_by:
                     try:
                         self._mark_backtest_orphaned(backtest_id, version_tag)
                     except Exception as e:
-                        logger.warning(
-                            "Failed to orphan backtest %s: %s", backtest_id, e
-                        )
+                        logger.warning("Failed to orphan backtest %s: %s", backtest_id, e)
 
                 # 4. Clean backtest index (advisory, non-critical)
                 try:
                     removed = self._clean_backtest_index_for_snapshot(version_tag)
                     if removed > 0:
-                        logger.debug(
-                            "Removed %d entries from backtest index", removed
-                        )
+                        logger.debug("Removed %d entries from backtest index", removed)
                 except Exception as e:
                     logger.warning("Failed to clean backtest index: %s", e)
 
@@ -1389,8 +1372,12 @@ class DatasetVersionManager:
         if is_new_file:
             cas_new_files.append(checksum)
 
-        logger.debug("Stored in CAS (batched): %s (ref_count=%d, new=%s)",
-                     checksum, entry.ref_count, is_new_file)
+        logger.debug(
+            "Stored in CAS (batched): %s (ref_count=%d, new=%s)",
+            checksum,
+            entry.ref_count,
+            is_new_file,
+        )
         return checksum
 
     def _release_cas_ref(self, cas_hash: str, version_tag: str) -> None:
@@ -1467,7 +1454,9 @@ class DatasetVersionManager:
             if total_freed > 0:
                 logger.info(
                     "CAS GC freed %d bytes (%d indexed + %d orphaned files)",
-                    total_freed, len(to_delete), orphan_count,
+                    total_freed,
+                    len(to_delete),
+                    orphan_count,
                 )
 
             return total_freed
@@ -1636,6 +1625,7 @@ class DatasetVersionManager:
     def _get_hostname(self) -> str:
         """Get current hostname for lock identification."""
         import socket
+
         return socket.gethostname()
 
     def _is_process_alive(self, pid: int) -> bool:
@@ -1756,6 +1746,7 @@ class DatasetVersionManager:
                         logger.warning("Failed to remove stale lock: %s", e)
                 # Lock is held by active process - wait and retry
                 import time
+
                 time.sleep(0.1)
         else:
             raise LockNotHeldError("Failed to acquire snapshot lock")

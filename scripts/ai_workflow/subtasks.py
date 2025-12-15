@@ -8,15 +8,14 @@ Addresses review feedback:
 - C4: Clarifies that script outputs instructions, not execution
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from pathlib import Path
-from typing import List, Dict, Optional, Any
 import json
 import re
 import sys
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
 
 from .config import WorkflowConfig
 
@@ -41,6 +40,7 @@ class AgentInstruction:
 
     Script outputs these; agent reads and acts on them.
     """
+
     id: str
     action: str
     tool: str
@@ -80,11 +80,11 @@ def validate_file_path(file_path: str, project_root: Path = None) -> str:
     # Check path is within project
     try:
         resolved.relative_to(project_resolved)
-    except ValueError:
+    except ValueError as err:
         raise ValueError(
             f"Security: File path outside project: {file_path}. "
             f"Paths must be within {project_resolved}"
-        )
+        ) from err
 
     return str(resolved)
 
@@ -97,7 +97,7 @@ class SubagentPrompts:
     """
 
     @staticmethod
-    def fix_comments_prompt(file_path: str, comment_ids: List[int], pr_number: int) -> str:
+    def fix_comments_prompt(file_path: str, comment_ids: list[int], pr_number: int) -> str:
         """Prompt for sub-agent to fix comments.
 
         Addresses Claude S2: Validates file_path before use.
@@ -139,7 +139,7 @@ IMPORTANT: Do NOT include comment text or code in your response.
 """
 
     @staticmethod
-    def review_files_prompt(file_paths: List[str]) -> str:
+    def review_files_prompt(file_paths: list[str]) -> str:
         """Prompt for sub-agent to review files.
 
         Addresses Claude S2: Validates all file_paths before use.
@@ -205,11 +205,8 @@ class SubtaskOrchestrator:
         return enabled[0]
 
     def create_agent_instructions(
-        self,
-        pr_number: int,
-        comments_by_file: Dict[str, List[int]],
-        cli_name: str = None
-    ) -> List[AgentInstruction]:
+        self, pr_number: int, comments_by_file: dict[str, list[int]], cli_name: str = None
+    ) -> list[AgentInstruction]:
         """
         Create instructions for agent to execute.
 
@@ -231,9 +228,7 @@ class SubtaskOrchestrator:
 
             task_id = f"fix-{Path(validated_path).stem}-{uuid.uuid4().hex[:6]}"
 
-            prompt = SubagentPrompts.fix_comments_prompt(
-                validated_path, comment_ids, pr_number
-            )
+            prompt = SubagentPrompts.fix_comments_prompt(validated_path, comment_ids, pr_number)
 
             instruction = AgentInstruction(
                 id=task_id,
@@ -244,32 +239,37 @@ class SubtaskOrchestrator:
                     "prompt": prompt,
                     "absolute_file_paths": [validated_path],  # Now absolute path
                     "role": "codereviewer",  # Gemini LOW fix: consistent with ReviewerOrchestrator
-                }
+                },
             )
             instructions.append(instruction)
 
             # Track in state
-            self.state["subtasks"]["queue"].append({
-                "id": task_id,
-                "type": SubtaskType.FIX_COMMENTS.value,
-                "file_path": validated_path,
-                "comment_count": len(comment_ids),
-                "status": SubtaskStatus.QUEUED.value,
-            })
+            self.state["subtasks"]["queue"].append(
+                {
+                    "id": task_id,
+                    "type": SubtaskType.FIX_COMMENTS.value,
+                    "file_path": validated_path,
+                    "comment_count": len(comment_ids),
+                    "status": SubtaskStatus.QUEUED.value,
+                }
+            )
 
         return instructions
 
-    def output_instructions_json(self, instructions: List[AgentInstruction]) -> str:
+    def output_instructions_json(self, instructions: list[AgentInstruction]) -> str:
         """
         Output instructions as JSON for agent to read and execute.
 
         This is what the script prints - agent parses and acts on it.
         """
-        return json.dumps({
-            "action": "delegate_subtasks",
-            "instruction": "For each task, call mcp__zen__clink with the provided params",
-            "tasks": [i.to_dict() for i in instructions],
-        }, indent=2)
+        return json.dumps(
+            {
+                "action": "delegate_subtasks",
+                "instruction": "For each task, call mcp__zen__clink with the provided params",
+                "tasks": [i.to_dict() for i in instructions],
+            },
+            indent=2,
+        )
 
     def mark_delegated(self, task_id: str) -> bool:
         """
@@ -280,7 +280,7 @@ class SubtaskOrchestrator:
         for task in self.state["subtasks"]["queue"]:
             if task["id"] == task_id:
                 task["status"] = SubtaskStatus.DELEGATED.value
-                task["delegated_at"] = datetime.now(timezone.utc).isoformat()
+                task["delegated_at"] = datetime.now(UTC).isoformat()
                 return True
         return False
 
@@ -291,7 +291,7 @@ class SubtaskOrchestrator:
         Addresses C2: Validates response format before accepting.
         """
         # Try to extract JSON from response
-        json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+        json_match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
         if json_match:
             try:
                 parsed = json.loads(json_match.group(1))
@@ -299,7 +299,7 @@ class SubtaskOrchestrator:
                 return {
                     "success": False,
                     "error": "Invalid JSON in response",
-                    "summary": "Sub-agent returned malformed JSON"
+                    "summary": "Sub-agent returned malformed JSON",
                 }
         else:
             # Try parsing entire response as JSON
@@ -309,7 +309,7 @@ class SubtaskOrchestrator:
                 return {
                     "success": False,
                     "error": "No JSON found in response",
-                    "summary": response[:200] if response else "Empty response"
+                    "summary": response[:200] if response else "Empty response",
                 }
 
         # Validate required fields
@@ -317,7 +317,7 @@ class SubtaskOrchestrator:
             return {
                 "success": False,
                 "error": "Missing 'summary' field",
-                "summary": str(parsed)[:200]
+                "summary": str(parsed)[:200],
             }
 
         # Check for error indicators
@@ -325,7 +325,7 @@ class SubtaskOrchestrator:
             return {
                 "success": False,
                 "error": parsed.get("error", "Unknown error"),
-                "summary": parsed.get("summary", "")
+                "summary": parsed.get("summary", ""),
             }
 
         return {
@@ -347,28 +347,39 @@ class SubtaskOrchestrator:
             if task["id"] == task_id:
                 # Validate task was delegated (M5 fix)
                 if task.get("status") != SubtaskStatus.DELEGATED.value:
-                    print(f"Warning: Task {task_id} completed without being delegated first",
-                          file=sys.stderr)
-                    print("   Use: ./scripts/workflow_gate.py subtask-start <task-id> before completing",
-                          file=sys.stderr)
-                task["status"] = (SubtaskStatus.COMPLETED.value if parsed["success"]
-                                  else SubtaskStatus.FAILED.value)
+                    print(
+                        f"Warning: Task {task_id} completed without being delegated first",
+                        file=sys.stderr,
+                    )
+                    print(
+                        "   Use: ./scripts/workflow_gate.py subtask-start <task-id> before completing",
+                        file=sys.stderr,
+                    )
+                task["status"] = (
+                    SubtaskStatus.COMPLETED.value
+                    if parsed["success"]
+                    else SubtaskStatus.FAILED.value
+                )
                 break
 
         if parsed["success"]:
-            self.state["subtasks"]["completed"].append({
-                "id": task_id,
-                "summary": parsed["summary"],
-                "data": parsed.get("data", {}),
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            })
+            self.state["subtasks"]["completed"].append(
+                {
+                    "id": task_id,
+                    "summary": parsed["summary"],
+                    "data": parsed.get("data", {}),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            )
         else:
-            self.state["subtasks"]["failed"].append({
-                "id": task_id,
-                "error": parsed.get("error", "Unknown"),
-                "summary": parsed.get("summary", ""),
-                "failed_at": datetime.now(timezone.utc).isoformat(),
-            })
+            self.state["subtasks"]["failed"].append(
+                {
+                    "id": task_id,
+                    "error": parsed.get("error", "Unknown"),
+                    "summary": parsed.get("summary", ""),
+                    "failed_at": datetime.now(UTC).isoformat(),
+                }
+            )
 
         return parsed["success"]
 

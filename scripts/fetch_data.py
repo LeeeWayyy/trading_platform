@@ -314,9 +314,7 @@ def handle_status(args: Namespace) -> int:
         print(f"Available Providers: {', '.join(available) or 'none'}")
         print(f"Fallback Enabled: {str(config.fallback_enabled).lower()}")
         print(f"CRSP Available: {str(fetcher.is_available(ProviderType.CRSP)).lower()}")
-        print(
-            f"yfinance Available: {str(fetcher.is_available(ProviderType.YFINANCE)).lower()}"
-        )
+        print(f"yfinance Available: {str(fetcher.is_available(ProviderType.YFINANCE)).lower()}")
 
         return EXIT_SUCCESS
 

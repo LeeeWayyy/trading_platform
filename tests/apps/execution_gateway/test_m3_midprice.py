@@ -14,7 +14,7 @@ Test scenarios:
 
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -42,7 +42,7 @@ class MockQuote:
 class TestMidpriceNoneHandling:
     """Test suite for M3 mid-price None handling."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_alpaca_executor(self) -> AlpacaExecutor:
         """Create AlpacaExecutor with mocked dependencies."""
         with patch("apps.execution_gateway.alpaca_client.TradingClient"):

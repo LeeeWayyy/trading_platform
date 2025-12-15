@@ -72,7 +72,9 @@ async def handle_step_up_callback(
             "redirect_to": "/login",
         }
 
-    is_current = await validate_session_version(session_data.user_id, session_data.session_version, db_pool)
+    is_current = await validate_session_version(
+        session_data.user_id, session_data.session_version, db_pool
+    )
     if not is_current:
         await session_store.delete_session(session_id)
         await session_store.clear_step_up_state(session_id)
@@ -116,7 +118,11 @@ async def handle_step_up_callback(
                 user_id=session_data.user_id,
                 action="step_up_state_validation",
                 outcome="denied",
-                details={"reason": "missing_validator", "state": state, "pending_action": pending_action},
+                details={
+                    "reason": "missing_validator",
+                    "state": state,
+                    "pending_action": pending_action,
+                },
             )
         return {
             "error": "state_validation_required",
@@ -131,7 +137,11 @@ async def handle_step_up_callback(
                 user_id=session_data.user_id,
                 action="step_up_state_validation",
                 outcome="denied",
-                details={"reason": "state_mismatch", "state": state, "pending_action": pending_action},
+                details={
+                    "reason": "state_mismatch",
+                    "state": state,
+                    "pending_action": pending_action,
+                },
             )
         return {
             "error": "invalid_state",

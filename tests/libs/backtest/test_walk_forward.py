@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import math
 import importlib.util
+import math
 from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
@@ -11,7 +11,10 @@ import pytest
 
 _missing = [mod for mod in ("structlog",) if importlib.util.find_spec(mod) is None]
 if _missing:
-    pytest.skip(f"Skipping walk-forward tests because dependencies are missing: {', '.join(_missing)}", allow_module_level=True)
+    pytest.skip(
+        f"Skipping walk-forward tests because dependencies are missing: {', '.join(_missing)}",
+        allow_module_level=True,
+    )
 
 import structlog
 from structlog.stdlib import LoggerFactory
@@ -32,14 +35,14 @@ def _configure_structlog():
     structlog.reset_defaults()
 
 
-@pytest.fixture
+@pytest.fixture()
 def backtester():
     bt = MagicMock()
     bt._lock_snapshot.return_value = SimpleNamespace(version_tag="locked-snap")
     return bt
 
 
-@pytest.fixture
+@pytest.fixture()
 def alpha_factory():
     return lambda **kwargs: SimpleNamespace(params=kwargs)
 
@@ -82,7 +85,9 @@ def test_generate_windows_normal_and_disjoint(caplog, backtester):
 def test_generate_windows_step_lt_test_raises(backtester):
     cfg = WalkForwardConfig(train_months=6, test_months=3, step_months=2, min_train_samples=10)
     optimizer = WalkForwardOptimizer(backtester, cfg)
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, match="step_months must be >= test_months to prevent overlapping test windows"
+    ):
         optimizer.generate_windows(date(2024, 1, 1), date(2024, 12, 31))
 
 
@@ -99,7 +104,7 @@ def test_generate_windows_overlap_warning(caplog, backtester):
 def test_generate_windows_min_train_samples_validation(backtester):
     cfg = WalkForwardConfig(train_months=1, test_months=1, step_months=1, min_train_samples=400)
     optimizer = WalkForwardOptimizer(backtester, cfg)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="train window shorter than min_train_samples"):
         optimizer.generate_windows(date(2024, 1, 1), date(2024, 5, 1))
 
 
@@ -130,7 +135,10 @@ def test_optimize_window_selects_best_params(backtester, alpha_factory):
 
     assert best_params == {"p": 3}
     assert best_ic == 0.3
-    assert all(call.kwargs["snapshot_id"] == "locked-snap" for call in backtester.run_backtest.call_args_list)
+    assert all(
+        call.kwargs["snapshot_id"] == "locked-snap"
+        for call in backtester.run_backtest.call_args_list
+    )
 
 
 def test_run_propagates_snapshot_and_aggregates(backtester, alpha_factory, monkeypatch):
@@ -160,7 +168,10 @@ def test_run_propagates_snapshot_and_aggregates(backtester, alpha_factory, monke
 
     assert isinstance(result, WalkForwardResult)
     assert len(result.windows) == 2
-    assert all(call.kwargs["snapshot_id"] == "locked-snap" for call in backtester.run_backtest.call_args_list)
+    assert all(
+        call.kwargs["snapshot_id"] == "locked-snap"
+        for call in backtester.run_backtest.call_args_list
+    )
     assert pytest.approx(result.aggregated_test_ic) == 0.075
     assert not math.isnan(result.aggregated_test_icir)
 
@@ -242,7 +253,9 @@ def test_window_and_walk_forward_result_properties():
             test_icir=0.3,
         )
     ]
-    result = WalkForwardResult(windows=windows, aggregated_test_ic=0.05, aggregated_test_icir=0.2, overfitting_ratio=2.5)
+    result = WalkForwardResult(
+        windows=windows, aggregated_test_ic=0.05, aggregated_test_icir=0.2, overfitting_ratio=2.5
+    )
 
     assert result.windows[0].best_params["p"] == 1
     assert result.is_overfit is True

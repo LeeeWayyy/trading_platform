@@ -55,20 +55,24 @@ class FakePool:
         return FakeAsyncContextManager(self.conn)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_log_action_writes_event():
     pool = FakePool()
     logger = AuditLogger(db_pool=pool)
 
     await logger.log_action(
-        user_id="user", action="flatten_all", resource_type="order", resource_id="123", outcome="success"
+        user_id="user",
+        action="flatten_all",
+        resource_type="order",
+        resource_id="123",
+        outcome="success",
     )
 
     assert logger  # ensure no exception
     assert pool.conn.executed
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_cleanup_old_events_returns_count():
     pool = FakePool()
     logger = AuditLogger(db_pool=pool, retention_days=1)
@@ -77,7 +81,7 @@ async def test_cleanup_old_events_returns_count():
     assert isinstance(deleted, int)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_log_admin_change_persists_event():
     pool = FakePool()
     logger = AuditLogger(db_pool=pool)

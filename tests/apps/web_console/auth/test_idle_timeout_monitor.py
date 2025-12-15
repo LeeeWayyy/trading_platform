@@ -1,12 +1,11 @@
 """Unit tests for idle timeout monitoring (Component 3)."""
 
-import pytest
 from datetime import UTC, datetime, timedelta
 
 from apps.web_console.auth.idle_timeout_monitor import (
-    parse_iso_datetime,
     get_idle_timeout_warning_threshold,
     get_time_until_idle_timeout,
+    parse_iso_datetime,
     should_show_idle_warning,
 )
 

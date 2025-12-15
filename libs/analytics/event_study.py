@@ -1913,18 +1913,14 @@ class EventStudyFramework:
                 return 0.0, 0.0, 0.0, False, 0.0
 
             car_pre_mean = results["car_pre"].mean()
-            car_pre = (
-                float(cast("float | int", car_pre_mean)) if car_pre_mean is not None else 0.0
-            )
+            car_pre = float(cast("float | int", car_pre_mean)) if car_pre_mean is not None else 0.0
             car_post_mean = results["car_post"].mean()
             car_post = (
                 float(cast("float | int", car_post_mean)) if car_post_mean is not None else 0.0
             )
             if "abnormal_volume" in results.columns:
                 vol_mean = results["abnormal_volume"].mean()
-                vol_change = (
-                    float(cast("float | int", vol_mean)) if vol_mean is not None else 0.0
-                )
+                vol_change = float(cast("float | int", vol_mean)) if vol_mean is not None else 0.0
             else:
                 vol_change = 0.0
 
@@ -1946,9 +1942,7 @@ class EventStudyFramework:
                     )
                     car_std_val = results["car_window"].std()
                     car_std = (
-                        float(cast("float | int", car_std_val))
-                        if car_std_val is not None
-                        else 0.0
+                        float(cast("float | int", car_std_val)) if car_std_val is not None else 0.0
                     )
                     n = results.height
                     se = car_std / np.sqrt(n) if n > 0 else float("nan")
@@ -1957,15 +1951,11 @@ class EventStudyFramework:
                 # Simple t-stat: mean / (std / sqrt(n))
                 car_mean_val = results["car_window"].mean()
                 car_mean = (
-                    float(cast("float | int", car_mean_val))
-                    if car_mean_val is not None
-                    else 0.0
+                    float(cast("float | int", car_mean_val)) if car_mean_val is not None else 0.0
                 )
                 car_std_val = results["car_window"].std()
                 car_std = (
-                    float(cast("float | int", car_std_val))
-                    if car_std_val is not None
-                    else 0.0
+                    float(cast("float | int", car_std_val)) if car_std_val is not None else 0.0
                 )
                 n = results.height
                 se = car_std / np.sqrt(n) if n > 0 else float("nan")

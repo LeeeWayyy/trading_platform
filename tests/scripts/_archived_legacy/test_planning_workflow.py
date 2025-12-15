@@ -89,7 +89,7 @@ class TestCreateTaskWithReview:
         """Test task creation with 0 hour estimate."""
         workflow = PlanningWorkflow(project_root=tmp_path)
 
-        result = workflow.create_task_with_review(
+        workflow.create_task_with_review(
             task_id="P1T100", title="Quick fix", description="Minor fix", estimated_hours=0.0
         )
 
@@ -622,7 +622,7 @@ class TestEdgeCases:
         """Test task creation with special characters in content."""
         workflow = PlanningWorkflow(project_root=tmp_path)
 
-        result = workflow.create_task_with_review(
+        workflow.create_task_with_review(
             task_id="P1T_SPECIAL",
             title="Test: Feature (v2.0)",
             description="Description with \"quotes\" and 'apostrophes'",

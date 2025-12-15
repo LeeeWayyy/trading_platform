@@ -30,6 +30,7 @@ class CRSPProviderProtocol(Protocol):
         """Get daily CRSP data for the given date range."""
         ...
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,25 +65,19 @@ class SpecificRiskResult:
             errors.append(f"{neg_var} stocks have negative specific variance")
 
         # Check for NaN
-        nan_count = self.specific_risks.filter(
-            pl.col("specific_variance").is_nan()
-        ).height
+        nan_count = self.specific_risks.filter(pl.col("specific_variance").is_nan()).height
         if nan_count > 0:
             errors.append(f"{nan_count} stocks have NaN specific variance")
 
         # Check for Inf
-        inf_count = self.specific_risks.filter(
-            pl.col("specific_variance").is_infinite()
-        ).height
+        inf_count = self.specific_risks.filter(pl.col("specific_variance").is_infinite()).height
         if inf_count > 0:
             errors.append(f"{inf_count} stocks have infinite specific variance")
 
         # Check reasonable range (annualized vol < 500%)
         extreme_vol = self.specific_risks.filter(pl.col("specific_vol") > 5.0).height
         if extreme_vol > 0:
-            errors.append(
-                f"{extreme_vol} stocks have annualized specific vol > 500%"
-            )
+            errors.append(f"{extreme_vol} stocks have annualized specific vol > 500%")
 
         return errors
 
@@ -93,9 +88,7 @@ class SpecificRiskResult:
         Storage contract matches P4T2_TASK.md schema:
         as_of_date, permno, specific_variance, specific_vol, dataset_version_id
         """
-        version_str = "|".join(
-            f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items())
-        )
+        version_str = "|".join(f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items()))
 
         return self.specific_risks.with_columns(
             [
@@ -171,7 +164,9 @@ class SpecificRiskEstimator:
         # Include content digest to detect data revisions, not just shape
         ret_sum = historical_returns["ret"].sum() if "ret" in historical_returns.columns else 0.0
         permno_hash = hash(tuple(sorted(historical_returns["permno"].unique().to_list()[:100])))
-        crsp_hash_input = f"{start_date}_{as_of_date}_{historical_returns.height}_{ret_sum:.8f}_{permno_hash}"
+        crsp_hash_input = (
+            f"{start_date}_{as_of_date}_{historical_returns.height}_{ret_sum:.8f}_{permno_hash}"
+        )
         crsp_version = hashlib.sha256(crsp_hash_input.encode()).hexdigest()[:12]
 
         # Pivot factor loadings to wide format if needed
@@ -206,10 +201,12 @@ class SpecificRiskEstimator:
                     continue
 
                 # Extract loadings as vector in canonical order
-                b = np.array([
-                    stock_loadings[factor].item() if factor in stock_loadings.columns else 0.0
-                    for factor in self.factor_names
-                ])
+                b = np.array(
+                    [
+                        stock_loadings[factor].item() if factor in stock_loadings.columns else 0.0
+                        for factor in self.factor_names
+                    ]
+                )
 
                 # Check for NaN in loadings
                 if np.any(np.isnan(b)):
@@ -263,11 +260,13 @@ class SpecificRiskEstimator:
                 # Annualize: daily variance * 252
                 specific_vol = np.sqrt(specific_variance * 252)
 
-                results.append({
-                    "permno": permno,
-                    "specific_variance": specific_variance,
-                    "specific_vol": specific_vol,
-                })
+                results.append(
+                    {
+                        "permno": permno,
+                        "specific_variance": specific_variance,
+                        "specific_vol": specific_vol,
+                    }
+                )
 
             except Exception as e:
                 logger.warning(f"Error computing specific risk for permno {permno}: {e}")

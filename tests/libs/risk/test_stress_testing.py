@@ -15,7 +15,6 @@ from libs.risk import (
     SpecificRiskResult,
     StressScenario,
     StressTester,
-    StressTestResult,
 )
 from tests.libs.risk.conftest import (
     create_mock_factor_exposures,
@@ -55,16 +54,18 @@ def create_historical_factor_returns(
                 # Normal period
                 ret = np.random.normal(0.0002, 0.01)
 
-            data.append({
-                "date": dt,
-                "factor_name": factor_name,
-                "return": ret,
-            })
+            data.append(
+                {
+                    "date": dt,
+                    "factor_name": factor_name,
+                    "return": ret,
+                }
+            )
 
     return pl.DataFrame(data)
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_barra_model(sample_covariance_result) -> BarraRiskModel:
     """Create sample BarraRiskModel for testing."""
     specific_risks = create_mock_specific_risks()
@@ -87,7 +88,7 @@ def sample_barra_model(sample_covariance_result) -> BarraRiskModel:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_historical_returns() -> pl.DataFrame:
     """Historical factor returns spanning crisis periods."""
     return create_historical_factor_returns(
@@ -96,7 +97,7 @@ def sample_historical_returns() -> pl.DataFrame:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_portfolio() -> pl.DataFrame:
     """Sample portfolio for stress testing."""
     np.random.seed(42)
@@ -105,10 +106,12 @@ def sample_portfolio() -> pl.DataFrame:
     weights = np.random.uniform(0.01, 0.05, n_stocks)
     weights = weights / weights.sum()
 
-    return pl.DataFrame({
-        "permno": permnos,
-        "weight": weights.tolist(),
-    })
+    return pl.DataFrame(
+        {
+            "permno": permnos,
+            "weight": weights.tolist(),
+        }
+    )
 
 
 class TestStressScenario:
@@ -181,9 +184,7 @@ class TestStressScenario:
     def test_three_historical_scenarios_defined(self):
         """Pre-defined scenarios include 3 historical."""
         historical_count = sum(
-            1
-            for s in StressTester.PREDEFINED_SCENARIOS.values()
-            if s.scenario_type == "historical"
+            1 for s in StressTester.PREDEFINED_SCENARIOS.values() if s.scenario_type == "historical"
         )
         assert historical_count == 3
 
@@ -204,9 +205,7 @@ class TestHistoricalStress:
     ):
         """GFC 2008 scenario returns valid result."""
         tester = StressTester(sample_barra_model, sample_historical_returns)
-        result = tester.run_stress_test(
-            sample_portfolio, "GFC_2008", portfolio_id="test"
-        )
+        result = tester.run_stress_test(sample_portfolio, "GFC_2008", portfolio_id="test")
 
         assert result.scenario_name == "GFC_2008"
         assert result.scenario_type == "historical"
@@ -222,9 +221,7 @@ class TestHistoricalStress:
     ):
         """COVID 2020 scenario returns valid result."""
         tester = StressTester(sample_barra_model, sample_historical_returns)
-        result = tester.run_stress_test(
-            sample_portfolio, "COVID_2020", portfolio_id="test"
-        )
+        result = tester.run_stress_test(sample_portfolio, "COVID_2020", portfolio_id="test")
 
         assert result.scenario_name == "COVID_2020"
         assert result.scenario_type == "historical"
@@ -238,9 +235,7 @@ class TestHistoricalStress:
     ):
         """Rate Hike 2022 scenario returns valid result."""
         tester = StressTester(sample_barra_model, sample_historical_returns)
-        result = tester.run_stress_test(
-            sample_portfolio, "RATE_HIKE_2022", portfolio_id="test"
-        )
+        result = tester.run_stress_test(sample_portfolio, "RATE_HIKE_2022", portfolio_id="test")
 
         assert result.scenario_name == "RATE_HIKE_2022"
         assert result.scenario_type == "historical"
@@ -254,9 +249,7 @@ class TestHistoricalStress:
     ):
         """Factor contributions sum to total factor P&L."""
         tester = StressTester(sample_barra_model, sample_historical_returns)
-        result = tester.run_stress_test(
-            sample_portfolio, "GFC_2008", portfolio_id="test"
-        )
+        result = tester.run_stress_test(sample_portfolio, "GFC_2008", portfolio_id="test")
 
         factor_sum = sum(result.factor_impacts.values())
         assert abs(factor_sum - result.portfolio_pnl) < 1e-6
@@ -275,9 +268,7 @@ class TestHistoricalStress:
         )
 
         tester = StressTester(sample_barra_model, partial_returns)
-        result = tester.run_stress_test(
-            sample_portfolio, "GFC_2008", portfolio_id="test"
-        )
+        result = tester.run_stress_test(sample_portfolio, "GFC_2008", portfolio_id="test")
 
         # Should complete without error
         assert result.portfolio_pnl is not None
@@ -314,9 +305,7 @@ class TestHypotheticalStress:
     ):
         """Pre-defined RATE_SHOCK scenario returns valid result."""
         tester = StressTester(sample_barra_model)
-        result = tester.run_stress_test(
-            sample_portfolio, "RATE_SHOCK", portfolio_id="test"
-        )
+        result = tester.run_stress_test(sample_portfolio, "RATE_SHOCK", portfolio_id="test")
 
         assert result.scenario_name == "RATE_SHOCK"
         assert result.scenario_type == "hypothetical"
@@ -470,9 +459,7 @@ class TestSpecificRiskEstimate:
         )
 
         # Longer period should have larger specific risk (in absolute value)
-        assert abs(result_long.specific_risk_estimate) > abs(
-            result_short.specific_risk_estimate
-        )
+        assert abs(result_long.specific_risk_estimate) > abs(result_short.specific_risk_estimate)
 
 
 class TestBarraModelIntegration:
@@ -491,7 +478,7 @@ class TestBarraModelIntegration:
         assert len(exposures) == len(sample_barra_model.factor_names)
 
         # Exposures should be reasonable (z-scores)
-        for factor_name, exposure in exposures.items():
+        for _factor_name, exposure in exposures.items():
             assert -5 < exposure < 5  # Reasonable z-score range
 
     def test_coverage_handling_insufficient(
@@ -500,10 +487,12 @@ class TestBarraModelIntegration:
     ):
         """Rejects portfolios with insufficient coverage (<95% gross)."""
         # Portfolio with only 80% gross coverage (20% unknown permnos)
-        portfolio = pl.DataFrame({
-            "permno": [10001, 10002, 99999],  # 99999 not in model
-            "weight": [0.4, 0.4, 0.2],  # 80% gross coverage
-        })
+        portfolio = pl.DataFrame(
+            {
+                "permno": [10001, 10002, 99999],  # 99999 not in model
+                "weight": [0.4, 0.4, 0.2],  # 80% gross coverage
+            }
+        )
 
         tester = StressTester(sample_barra_model)
 
@@ -517,10 +506,12 @@ class TestBarraModelIntegration:
     ):
         """Accepts portfolios with sufficient coverage (>=95% gross)."""
         # Portfolio with 96% gross coverage (only 4% unknown)
-        portfolio = pl.DataFrame({
-            "permno": [10001, 10002, 10003, 99999],  # 99999 not in model
-            "weight": [0.32, 0.32, 0.32, 0.04],  # 96% gross coverage
-        })
+        portfolio = pl.DataFrame(
+            {
+                "permno": [10001, 10002, 10003, 99999],  # 99999 not in model
+                "weight": [0.32, 0.32, 0.32, 0.04],  # 96% gross coverage
+            }
+        )
 
         tester = StressTester(sample_barra_model)
         exposures = tester._compute_portfolio_exposures(portfolio)
@@ -535,10 +526,12 @@ class TestBarraModelIntegration:
         """Handles long/short portfolios using gross exposure for coverage."""
         # Dollar-neutral portfolio: +0.5 long, -0.5 short = 0 net, 1.0 gross
         # All positions have factor coverage (100% gross coverage)
-        portfolio = pl.DataFrame({
-            "permno": [10001, 10002],  # Both in model
-            "weight": [0.5, -0.5],  # Net = 0, Gross = 1.0
-        })
+        portfolio = pl.DataFrame(
+            {
+                "permno": [10001, 10002],  # Both in model
+                "weight": [0.5, -0.5],  # Net = 0, Gross = 1.0
+            }
+        )
 
         tester = StressTester(sample_barra_model)
         exposures = tester._compute_portfolio_exposures(portfolio)
@@ -552,10 +545,12 @@ class TestBarraModelIntegration:
     ):
         """Works with non-normalized weights (leverage != 1.0)."""
         # Portfolio with non-unit leverage (0.8)
-        portfolio = pl.DataFrame({
-            "permno": [10001, 10002],
-            "weight": [0.4, 0.4],  # Sum = 0.8 (100% coverage)
-        })
+        portfolio = pl.DataFrame(
+            {
+                "permno": [10001, 10002],
+                "weight": [0.4, 0.4],  # Sum = 0.8 (100% coverage)
+            }
+        )
 
         tester = StressTester(sample_barra_model)
         # Use valid canonical factor
@@ -616,9 +611,7 @@ class TestStressTestResult:
     ):
         """Result can be converted to storage format."""
         tester = StressTester(sample_barra_model)
-        result = tester.run_stress_test(
-            sample_portfolio, "RATE_SHOCK", portfolio_id="test"
-        )
+        result = tester.run_stress_test(sample_portfolio, "RATE_SHOCK", portfolio_id="test")
 
         df = result.to_storage_format()
 
@@ -688,7 +681,7 @@ class TestAvailableScenarios:
         assert "RATE_SHOCK" in scenarios
 
 
-@pytest.mark.performance
+@pytest.mark.performance()
 class TestPerformance:
     """Performance tests."""
 

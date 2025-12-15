@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, UTC, timedelta
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from apps.execution_gateway import main
-from apps.execution_gateway.schemas import SlicingPlan, SliceDetail
+from apps.execution_gateway.schemas import SliceDetail, SlicingPlan
 
 
 class DummyScheduler:
@@ -119,7 +118,13 @@ def app_client(monkeypatch):
 def test_submit_sliced_order_happy_path(app_client):
     resp = app_client.post(
         "/api/v1/orders/slice",
-        json={"symbol": "AAPL", "side": "buy", "qty": 10, "duration_minutes": 2, "interval_seconds": 60},
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 10,
+            "duration_minutes": 2,
+            "interval_seconds": 60,
+        },
     )
     assert resp.status_code == 200
     data = resp.json()

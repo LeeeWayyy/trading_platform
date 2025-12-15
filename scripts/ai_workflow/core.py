@@ -58,19 +58,19 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from .constants import (
-    PROJECT_ROOT,
-    STATE_FILE,
     AUDIT_LOG_FILE,
-    VALID_TRANSITIONS,
-    STEP_DESCRIPTIONS,
+    DEFAULT_MAX_TOKENS,
+    PLACEHOLDER_PATTERNS,
+    PROJECT_ROOT,
     REVIEW_APPROVED,
     REVIEW_NEEDS_REVISION,
     REVIEW_NOT_REQUESTED,
-    PLACEHOLDER_PATTERNS,
-    DEFAULT_MAX_TOKENS,
+    STATE_FILE,
+    STEP_DESCRIPTIONS,
+    VALID_TRANSITIONS,
 )
 
 StepType = Literal["plan", "plan-review", "implement", "test", "review"]
@@ -80,18 +80,22 @@ StepType = Literal["plan", "plan-review", "implement", "test", "review"]
 # Custom Exceptions (Gemini LOW fix: replace sys.exit with exceptions)
 # =============================================================================
 
+
 class WorkflowError(Exception):
     """Base exception for workflow errors."""
+
     pass
 
 
 class WorkflowTransitionError(WorkflowError):
     """Raised when a workflow transition is not allowed."""
+
     pass
 
 
 class WorkflowValidationError(WorkflowError):
     """Raised when validation fails (e.g., invalid reviewer, placeholder ID)."""
+
     pass
 
 
@@ -106,6 +110,7 @@ class WorkflowGateBlockedError(WorkflowError):
 # =============================================================================
 # Standalone Migration Functions (Gemini LOW fix: consolidate migration logic)
 # =============================================================================
+
 
 def _migrate_review_helper(v1_review: dict) -> dict:
     """Migrate V1 review structure to V2."""
@@ -132,8 +137,7 @@ def migrate_v1_to_v2(v1_state: dict) -> dict:
     completed_count = 0
     for c in commit_history:
         if isinstance(c, dict) and c.get("component") in [
-            comp.get("name") if isinstance(comp, dict) else comp
-            for comp in components
+            comp.get("name") if isinstance(comp, dict) else comp for comp in components
         ]:
             completed_count += 1
 
@@ -145,10 +149,7 @@ def migrate_v1_to_v2(v1_state: dict) -> dict:
             "step": v1_state.get("step", "plan"),
             "total": len(components),
             "completed": completed_count,
-            "list": [
-                comp.get("name") if isinstance(comp, dict) else comp
-                for comp in components
-            ],
+            "list": [comp.get("name") if isinstance(comp, dict) else comp for comp in components],
         },
         "pr_review": {
             "step": "pr-pending",
@@ -178,11 +179,14 @@ def migrate_v1_to_v2(v1_state: dict) -> dict:
         "subtasks": {"queue": [], "completed": [], "failed": []},
         "task_file": v1_state.get("task_file"),
         "analysis_completed": v1_state.get("analysis_completed", False),
-        "context": v1_state.get("context", {
-            "current_tokens": 0,
-            "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
-            "last_check_timestamp": datetime.now(UTC).isoformat(),
-        }),
+        "context": v1_state.get(
+            "context",
+            {
+                "current_tokens": 0,
+                "max_tokens": int(os.getenv("CLAUDE_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
+                "last_check_timestamp": datetime.now(UTC).isoformat(),
+            },
+        ),
     }
 
 
@@ -202,10 +206,7 @@ class WorkflowGate:
     VALID_TRANSITIONS = VALID_TRANSITIONS
 
     @staticmethod
-    def _get_effective_min_required(
-        min_required: int,
-        enabled_reviewers: list[str]
-    ) -> int:
+    def _get_effective_min_required(min_required: int, enabled_reviewers: list[str]) -> int:
         """
         Calculate effective minimum required approvals.
 
@@ -223,7 +224,7 @@ class WorkflowGate:
         """
         return min(min_required, len(enabled_reviewers))
 
-    def __init__(self, state_file: Optional[Path] = None) -> None:
+    def __init__(self, state_file: Path | None = None) -> None:
         """
         Initialize WorkflowGate with optional state file path.
 
@@ -448,7 +449,7 @@ class WorkflowGate:
             return False, f"Cannot transition from '{current}' to '{next_step}'"
         return True, ""
 
-    def advance(self, next_step: str, config: Optional["WorkflowConfig"] = None) -> None:
+    def advance(self, next_step: str, config: WorkflowConfig | None = None) -> None:
         """Advance workflow to next step (with validation) - V2 schema.
 
         Args:
@@ -479,7 +480,9 @@ class WorkflowGate:
                     min_required = 1  # Fallback: at least 1 for plan-review
 
                 # Codex MEDIUM fix: Cap min_required by enabled_reviewers to prevent deadlock
-                effective_min_required = self._get_effective_min_required(min_required, enabled_reviewers)
+                effective_min_required = self._get_effective_min_required(
+                    min_required, enabled_reviewers
+                )
 
                 # Count approved reviewers with valid continuation IDs
                 # Gemini LOW fix: Also verify continuation ID is not a placeholder
@@ -531,7 +534,9 @@ class WorkflowGate:
                 print("      - Approval only counts when reviewer finds ZERO issues")
                 print("      - 'Fix required' response = NOT approved, must iterate")
                 print("   3. REQUIRED APPROVALS: Check ./scripts/workflow_gate.py config-show")
-                print("      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config")
+                print(
+                    "      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config"
+                )
                 print("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print("")
                 print("   📚 READ FIRST: @docs/AI/Workflows/03-reviews.md")
@@ -548,7 +553,9 @@ class WorkflowGate:
                 print("      - Approval only counts when reviewer finds ZERO issues")
                 print("      - 'Fix required' response = NOT approved, must iterate")
                 print("   3. REQUIRED APPROVALS: Check ./scripts/workflow_gate.py config-show")
-                print("      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config")
+                print(
+                    "      - Default: 2 reviewers (Gemini + Codex), configurable via workflow config"
+                )
                 print("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print("")
                 print("   📚 READ FIRST: @docs/AI/Workflows/03-reviews.md")
@@ -632,7 +639,7 @@ class WorkflowGate:
         continuation_id: str,
         status: str,
         cli_name: str = "codex",
-        config: Optional["WorkflowConfig"] = None
+        config: WorkflowConfig | None = None,
     ) -> None:
         """
         Record review result from a specific CLI (gemini or codex) - V2 schema.
@@ -647,7 +654,9 @@ class WorkflowGate:
         """
         # Gemini MEDIUM fix: Validate against config's available reviewers
         if config:
-            available = config.config.get("reviewers", {}).get("available", ["claude", "gemini", "codex"])
+            available = config.config.get("reviewers", {}).get(
+                "available", ["claude", "gemini", "codex"]
+            )
         else:
             available = ["claude", "gemini", "codex"]
 
@@ -711,7 +720,7 @@ class WorkflowGate:
     # Commit Management (V2 Schema with Override Auditing)
     # =========================================================================
 
-    def get_commit_status(self, config: Optional["WorkflowConfig"] = None) -> dict:
+    def get_commit_status(self, config: WorkflowConfig | None = None) -> dict:
         """
         Get commit prerequisites status as a structured dict.
 
@@ -799,7 +808,9 @@ class WorkflowGate:
             review_data = reviews.get(reviewer, {})
             status = review_data.get("status", REVIEW_NOT_REQUESTED)
             cont_id = review_data.get("continuation_id", "")
-            is_valid = status == REVIEW_APPROVED and cont_id and not self._is_placeholder_id(cont_id)
+            is_valid = (
+                status == REVIEW_APPROVED and cont_id and not self._is_placeholder_id(cont_id)
+            )
             result["checks"][f"{reviewer}_approved"] = is_valid
             if is_valid:
                 approved_reviewers.append(reviewer)
@@ -809,15 +820,15 @@ class WorkflowGate:
 
         # Overall readiness
         result["ready"] = (
-            result["checks"]["component_set"] and
-            result["checks"]["in_review_step"] and
-            result["checks"]["ci_passed"] and
-            result["checks"]["sufficient_approvals"]
+            result["checks"]["component_set"]
+            and result["checks"]["in_review_step"]
+            and result["checks"]["ci_passed"]
+            and result["checks"]["sufficient_approvals"]
         )
 
         return result
 
-    def check_commit(self, config: Optional["WorkflowConfig"] = None) -> bool:
+    def check_commit(self, config: WorkflowConfig | None = None) -> bool:
         """
         Validate commit prerequisites (called by pre-commit hook) - V2 schema.
 
@@ -839,7 +850,7 @@ class WorkflowGate:
             print("=" * 60, file=sys.stderr)
             print("WARNING: EMERGENCY OVERRIDE ACTIVE", file=sys.stderr)
             print("=" * 60, file=sys.stderr)
-            print(f"   ZEN_REVIEW_OVERRIDE active", file=sys.stderr)
+            print("   ZEN_REVIEW_OVERRIDE active", file=sys.stderr)
             print(f"   User: {status.get('user', 'unknown')}", file=sys.stderr)
             print("   Bypassing workflow gates for emergency hotfix", file=sys.stderr)
             print("   THIS ACTION HAS BEEN LOGGED TO AUDIT TRAIL", file=sys.stderr)
@@ -852,15 +863,14 @@ class WorkflowGate:
         # Codex P1 fix: Check component is set
         if not checks["component_set"]:
             raise WorkflowGateBlockedError(
-                "No component set. Use 'set-component' before commit",
-                {"reason": "no_component"}
+                "No component set. Use 'set-component' before commit", {"reason": "no_component"}
             )
 
         # Check current step
         if not checks["in_review_step"]:
             raise WorkflowGateBlockedError(
                 f"Current step is '{checks['current_step']}', must be 'review'",
-                {"reason": "wrong_step", "current_step": checks["current_step"]}
+                {"reason": "wrong_step", "current_step": checks["current_step"]},
             )
 
         # Check review approvals
@@ -875,15 +885,12 @@ class WorkflowGate:
                     "reviewer_status": {
                         r: checks.get(f"{r}_approved", False) for r in cfg["enabled_reviewers"]
                     },
-                }
+                },
             )
 
         # Check CI pass
         if not checks["ci_passed"]:
-            raise WorkflowGateBlockedError(
-                "CI not passed",
-                {"reason": "ci_not_passed"}
-            )
+            raise WorkflowGateBlockedError("CI not passed", {"reason": "ci_not_passed"})
 
         # All gates passed
         print("Commit prerequisites satisfied")
@@ -892,7 +899,7 @@ class WorkflowGate:
         print("   CI: PASSED")
         return True
 
-    def record_commit(self, commit_hash: Optional[str] = None) -> None:
+    def record_commit(self, commit_hash: str | None = None) -> None:
         """Record commit hash after successful commit - V2 schema.
 
         Raises:
@@ -920,11 +927,13 @@ class WorkflowGate:
 
             # Record commit with component info
             component = state["component"]["current"]
-            state["git"]["commits"].append({
-                "component": component,
-                "hash": commit_hash,
-                "at": datetime.now(UTC).isoformat(),
-            })
+            state["git"]["commits"].append(
+                {
+                    "component": component,
+                    "hash": commit_hash,
+                    "at": datetime.now(UTC).isoformat(),
+                }
+            )
 
             # Keep last 100 commits
             state["git"]["commits"] = state["git"]["commits"][-100:]
@@ -1015,9 +1024,7 @@ class WorkflowGate:
             WorkflowValidationError: If fewer than 2 components are provided
         """
         if len(components) < 2:
-            raise WorkflowValidationError(
-                f"Must have at least 2 components, got {len(components)}"
-            )
+            raise WorkflowValidationError(f"Must have at least 2 components, got {len(components)}")
 
         with self._locked_state() as state:
             state["component"]["list"] = components

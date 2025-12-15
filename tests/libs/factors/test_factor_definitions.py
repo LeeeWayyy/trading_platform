@@ -2,23 +2,21 @@
 Tests for factor definitions and FactorResult validation.
 """
 
-from datetime import date, datetime, UTC
-from typing import Any
+from datetime import UTC, date, datetime
 
-import numpy as np
 import polars as pl
 import pytest
 
 from libs.factors import (
+    CANONICAL_FACTORS,
+    BookToMarketFactor,
     FactorConfig,
     FactorDefinition,
     FactorResult,
     MomentumFactor,
-    BookToMarketFactor,
+    RealizedVolFactor,
     ROEFactor,
     SizeFactor,
-    RealizedVolFactor,
-    CANONICAL_FACTORS,
 )
 
 
@@ -341,9 +339,7 @@ class TestROEFactor:
         with pytest.raises(ValueError, match="requires fundamentals"):
             factor.compute(mock_prices, None, date(2023, 6, 15))
 
-    def test_roe_computation(
-        self, mock_prices: pl.DataFrame, mock_fundamentals: pl.DataFrame
-    ):
+    def test_roe_computation(self, mock_prices: pl.DataFrame, mock_fundamentals: pl.DataFrame):
         """ROE computes NI/CEQ correctly."""
         factor = ROEFactor()
 
@@ -419,7 +415,7 @@ class TestCanonicalFactorsRegistry:
 
     def test_all_factors_implement_protocol(self):
         """All canonical factors implement FactorDefinition protocol."""
-        for name, factor_cls in CANONICAL_FACTORS.items():
+        for _name, factor_cls in CANONICAL_FACTORS.items():
             factor = factor_cls()
             assert isinstance(factor, FactorDefinition)
             assert hasattr(factor, "name")

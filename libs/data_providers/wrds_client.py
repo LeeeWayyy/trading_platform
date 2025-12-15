@@ -325,16 +325,16 @@ class WRDSClient:
     # PostgreSQL type OID to Polars dtype mapping for empty result schema preservation
     # Use type objects directly - Polars accepts both types and instances for schema
     _PG_TYPE_MAP: dict[int, type[pl.DataType]] = {
-        16: pl.Boolean,      # bool
-        20: pl.Int64,        # int8
-        21: pl.Int16,        # int2
-        23: pl.Int32,        # int4
-        700: pl.Float32,     # float4
-        701: pl.Float64,     # float8
-        1082: pl.Date,       # date
-        1114: pl.Datetime,   # timestamp
-        1184: pl.Datetime,   # timestamptz
-        1700: pl.Float64,    # numeric (use Float64 for simplicity)
+        16: pl.Boolean,  # bool
+        20: pl.Int64,  # int8
+        21: pl.Int16,  # int2
+        23: pl.Int32,  # int4
+        700: pl.Float32,  # float4
+        701: pl.Float64,  # float8
+        1082: pl.Date,  # date
+        1114: pl.Datetime,  # timestamp
+        1184: pl.Datetime,  # timestamptz
+        1700: pl.Float64,  # numeric (use Float64 for simplicity)
     }
 
     # Chunk size for streaming query results to avoid OOM on large partitions

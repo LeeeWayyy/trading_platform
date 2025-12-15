@@ -99,7 +99,9 @@ def has_permission(user_or_role: Any, permission: Permission) -> bool:
     return permission in ROLE_PERMISSIONS.get(role, set())
 
 
-def require_permission(permission: Permission) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def require_permission(
+    permission: Permission,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator enforcing the given permission.
 
     Looks for a ``user`` or ``session`` kwarg, or first positional argument

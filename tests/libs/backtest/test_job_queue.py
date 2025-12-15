@@ -11,14 +11,27 @@ import pytest
 # Skip the backtest queue tests if optional heavy deps are missing.
 _missing = [
     mod
-    for mod in ("structlog", "psutil", "polars", "duckdb", "pydantic_settings", "hvac", "boto3", "botocore", "dotenv", "sqlalchemy", "rq")
+    for mod in (
+        "structlog",
+        "psutil",
+        "polars",
+        "duckdb",
+        "pydantic_settings",
+        "hvac",
+        "boto3",
+        "botocore",
+        "dotenv",
+        "sqlalchemy",
+        "rq",
+    )
     if importlib.util.find_spec(mod) is None
 ]
 if _missing:
-    pytest.skip(f"Skipping backtest queue tests because dependencies are missing: {', '.join(_missing)}", allow_module_level=True)
+    pytest.skip(
+        f"Skipping backtest queue tests because dependencies are missing: {', '.join(_missing)}",
+        allow_module_level=True,
+    )
 
-import rq  # type: ignore[import-untyped]
-from rq import job as rq_job  # type: ignore[import-untyped]
 
 import libs.backtest.job_queue as job_queue
 from libs.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, JobPriority

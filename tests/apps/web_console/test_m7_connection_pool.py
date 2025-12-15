@@ -257,5 +257,8 @@ class TestAuditLogPoolUsage:
                                     mock_psycopg.connect.assert_called_once()
                                     call_args = mock_psycopg.connect.call_args
                                     assert call_args[0][0] == config.DATABASE_URL
-                                    assert call_args[1]["connect_timeout"] == config.DATABASE_CONNECT_TIMEOUT
+                                    assert (
+                                        call_args[1]["connect_timeout"]
+                                        == config.DATABASE_CONNECT_TIMEOUT
+                                    )
                                     assert "row_factory" in call_args[1]

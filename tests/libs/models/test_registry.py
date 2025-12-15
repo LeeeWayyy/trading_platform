@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from libs.models.registry import IntegrityError, ModelRegistry, VersionExistsError
+from libs.models.serialization import compute_config_hash
 from libs.models.types import (
     EnvironmentMetadata,
     InvalidDatasetVersionError,
@@ -13,7 +14,6 @@ from libs.models.types import (
     ModelStatus,
     ModelType,
 )
-from libs.models.serialization import compute_config_hash
 
 
 class _DummyDataset:
@@ -145,9 +145,7 @@ def test_promotion_and_rollback_flow(tmp_path: Path) -> None:
 
     with registry._get_connection(read_only=True) as conn:
         statuses = dict(conn.execute("SELECT version, status FROM models").fetchall())
-        history_count = conn.execute(
-            "SELECT COUNT(*) FROM promotion_history"
-        ).fetchone()[0]
+        history_count = conn.execute("SELECT COUNT(*) FROM promotion_history").fetchone()[0]
 
     assert statuses[meta_v1.version] == ModelStatus.production.value
     assert statuses[meta_v2.version] == ModelStatus.staged.value
@@ -179,9 +177,7 @@ def test_basic_crud_operations(tmp_path: Path) -> None:
     metadata = make_metadata()
     registry.register_model({"weights": [1]}, metadata)
 
-    by_type_version = registry.get_model_metadata(
-        metadata.model_type.value, metadata.version
-    )
+    by_type_version = registry.get_model_metadata(metadata.model_type.value, metadata.version)
     assert by_type_version is not None
 
     by_id = registry.get_model_by_id(metadata.model_id)

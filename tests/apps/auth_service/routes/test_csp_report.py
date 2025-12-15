@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from apps.auth_service.main import app
 
 
-@pytest.fixture
+@pytest.fixture()
 def client():
     """Create test client."""
     return TestClient(app)

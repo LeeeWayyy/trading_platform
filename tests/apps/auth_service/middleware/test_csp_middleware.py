@@ -1,16 +1,16 @@
 """Tests for CSP middleware."""
 
 import re
+
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from apps.auth_service.middleware.csp_middleware import CSPMiddleware
 
 
-@pytest.fixture
+@pytest.fixture()
 def app_with_csp():
     """Create test FastAPI app with CSP middleware."""
     app = FastAPI()
@@ -167,7 +167,9 @@ def test_csp_middleware_template_rendering_with_nonce():
     header_nonce = nonce_match.group(1)
 
     # Verify nonce appears in HTML
-    assert f'nonce="{header_nonce}"' in response.text, "HTML should contain nonce matching CSP header"
+    assert (
+        f'nonce="{header_nonce}"' in response.text
+    ), "HTML should contain nonce matching CSP header"
 
 
 def test_csp_middleware_adds_header_on_http_exception():
@@ -179,6 +181,7 @@ def test_csp_middleware_adds_header_on_http_exception():
     """
     import base64
     import secrets
+
     from fastapi.responses import JSONResponse
 
     from apps.auth_service.utils.csp_policy import build_csp_policy
@@ -233,6 +236,7 @@ def test_csp_middleware_adds_report_only_header_on_http_exception():
     """Test CSP middleware adds report-only headers to HTTPException responses."""
     import base64
     import secrets
+
     from fastapi.responses import JSONResponse
 
     from apps.auth_service.utils.csp_policy import build_csp_policy

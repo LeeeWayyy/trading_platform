@@ -2,8 +2,7 @@
 Tests for FactorBuilder.
 """
 
-from datetime import date, datetime, timedelta, UTC
-from unittest.mock import MagicMock
+from datetime import UTC, date, datetime
 
 import numpy as np
 import polars as pl
@@ -192,9 +191,9 @@ class TestFactorBuilderPIT:
     ):
         """snapshot_date resolves PIT versions via DatasetVersionManager."""
 
-        from libs.data_quality.versioning import DatasetSnapshot, FileStorageInfo, SnapshotManifest
         from unittest.mock import MagicMock
 
+        from libs.data_quality.versioning import DatasetSnapshot, FileStorageInfo, SnapshotManifest
         from tests.libs.factors.conftest import MockCompustatProvider, MockCRSPProvider
 
         prices = pl.DataFrame(
@@ -320,10 +319,12 @@ class TestFactorBuilderTransformations:
 
     def test_winsorize_clips_extremes(self, factor_builder: FactorBuilder):
         """Winsorization clips extreme values."""
-        df = pl.DataFrame({
-            "permno": list(range(100)),
-            "factor_value": [0.0] * 98 + [100.0, -100.0],  # Extremes
-        })
+        df = pl.DataFrame(
+            {
+                "permno": list(range(100)),
+                "factor_value": [0.0] * 98 + [100.0, -100.0],  # Extremes
+            }
+        )
 
         result = factor_builder._winsorize(df, "factor_value")
 
@@ -336,10 +337,12 @@ class TestFactorBuilderTransformations:
 
     def test_compute_zscore_standardizes(self, factor_builder: FactorBuilder):
         """Z-score computation standardizes the column."""
-        df = pl.DataFrame({
-            "permno": [1, 2, 3, 4, 5],
-            "factor_value": [10.0, 20.0, 30.0, 40.0, 50.0],
-        })
+        df = pl.DataFrame(
+            {
+                "permno": [1, 2, 3, 4, 5],
+                "factor_value": [10.0, 20.0, 30.0, 40.0, 50.0],
+            }
+        )
 
         result = factor_builder._compute_zscore(df, "factor_value")
 
@@ -355,15 +358,15 @@ class TestFactorBuilderTransformations:
     def test_sector_neutralization_demeans(self, factor_builder: FactorBuilder):
         """Sector neutralization demeans within sectors."""
         # This tests the internal method
-        df = pl.DataFrame({
-            "permno": [1, 2, 3, 4, 5, 6],
-            "zscore": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        })
+        df = pl.DataFrame(
+            {
+                "permno": [1, 2, 3, 4, 5, 6],
+                "zscore": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            }
+        )
 
         # With sector neutralization enabled
-        result = factor_builder._neutralize_sector(
-            df, "zscore", date(2023, 6, 30)
-        )
+        result = factor_builder._neutralize_sector(df, "zscore", date(2023, 6, 30))
 
         # Result should still have zscore column
         assert "zscore" in result.columns
@@ -393,10 +396,12 @@ class TestFactorBuilderCustomFactors:
                 return False
 
             def compute(self, prices, fundamentals, as_of_date):
-                return pl.DataFrame({
-                    "permno": [1, 2, 3],
-                    "factor_value": [0.1, 0.2, 0.3],
-                })
+                return pl.DataFrame(
+                    {
+                        "permno": [1, 2, 3],
+                        "factor_value": [0.1, 0.2, 0.3],
+                    }
+                )
 
         factor_builder.register_factor(CustomFactor())
 

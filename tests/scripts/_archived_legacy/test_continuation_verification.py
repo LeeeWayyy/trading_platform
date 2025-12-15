@@ -204,7 +204,7 @@ class TestAuditLogFailClosed:
             gate = WorkflowGate()
 
             # Should raise exception, not warn
-            with pytest.raises(Exception):
+            with pytest.raises(PermissionError):
                 gate._log_to_audit("test-id")
 
         # Cleanup

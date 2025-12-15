@@ -268,7 +268,9 @@ def test_list_jobs_with_filters():
     conn = DummyConnection(cursor)
     storage = BacktestResultStorage(DummyPool(conn))
 
-    result = storage.list_jobs(created_by="alice", alpha_name="alphaA", status="completed", limit=5, offset=2)
+    result = storage.list_jobs(
+        created_by="alice", alpha_name="alphaA", status="completed", limit=5, offset=2
+    )
 
     assert result[0]["job_id"] == "job1"
     # Ensure filters applied via params ordering (LIMIT before OFFSET per PostgreSQL)

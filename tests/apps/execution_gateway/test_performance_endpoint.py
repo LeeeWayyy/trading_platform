@@ -7,10 +7,11 @@ as specified in T6.2 plan.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,24 +22,41 @@ from fastapi.testclient import TestClient
 redis_stub = type(sys)("redis")
 redis_stub.exceptions = type(sys)("redis.exceptions")
 redis_stub.connection = type(sys)("redis.connection")
+
+
 class _RedisError(Exception):
     pass
+
+
 class _ConnectionError(Exception):
     pass
+
+
 class _TimeoutError(Exception):
     pass
+
+
 redis_stub.exceptions.RedisError = _RedisError
 redis_stub.exceptions.ConnectionError = _ConnectionError
 redis_stub.exceptions.TimeoutError = _TimeoutError
+
+
 class _ConnectionPool:
     def __init__(self, *args, **kwargs):
         pass
+
+
 redis_stub.connection.ConnectionPool = _ConnectionPool
+
+
 class _RedisClient:
     def __init__(self, *args, **kwargs):
         pass
+
     def ping(self):
         return True
+
+
 redis_stub.Redis = _RedisClient
 sys.modules.setdefault("redis", redis_stub)
 sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
@@ -59,7 +77,6 @@ sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 from apps.execution_gateway import main
 from apps.execution_gateway.database import DatabaseClient
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -156,16 +173,36 @@ def make_override(user_ctx: dict[str, Any]) -> Callable[..., dict[str, Any]]:
 
 def _sample_daily_rows():
     return [
-        {"trade_date": date(2024, 1, 1), "daily_realized_pl": Decimal("100"), "closing_trade_count": 1},
-        {"trade_date": date(2024, 1, 2), "daily_realized_pl": Decimal("-50"), "closing_trade_count": 1},
+        {
+            "trade_date": date(2024, 1, 1),
+            "daily_realized_pl": Decimal("100"),
+            "closing_trade_count": 1,
+        },
+        {
+            "trade_date": date(2024, 1, 2),
+            "daily_realized_pl": Decimal("-50"),
+            "closing_trade_count": 1,
+        },
     ]
 
 
 def _all_negative_rows():
     return [
-        {"trade_date": date(2024, 1, 1), "daily_realized_pl": Decimal("-20"), "closing_trade_count": 1},
-        {"trade_date": date(2024, 1, 2), "daily_realized_pl": Decimal("-30"), "closing_trade_count": 1},
-        {"trade_date": date(2024, 1, 3), "daily_realized_pl": Decimal("-10"), "closing_trade_count": 1},
+        {
+            "trade_date": date(2024, 1, 1),
+            "daily_realized_pl": Decimal("-20"),
+            "closing_trade_count": 1,
+        },
+        {
+            "trade_date": date(2024, 1, 2),
+            "daily_realized_pl": Decimal("-30"),
+            "closing_trade_count": 1,
+        },
+        {
+            "trade_date": date(2024, 1, 3),
+            "daily_realized_pl": Decimal("-10"),
+            "closing_trade_count": 1,
+        },
     ]
 
 
@@ -269,7 +306,9 @@ class TestDailyPerformanceEndpoint:
             "data_available_from": None,
             "last_updated": datetime.now(UTC).isoformat(),
         }
-        mock_redis.get.return_value = main.DailyPerformanceResponse.model_validate(cached_payload).model_dump_json()
+        mock_redis.get.return_value = main.DailyPerformanceResponse.model_validate(
+            cached_payload
+        ).model_dump_json()
 
         with (
             patch.object(main, "redis_client", mock_redis),
@@ -471,7 +510,9 @@ class TestDailyPerformanceEndpoint:
             filled_qty=Decimal("0"), symbol="AAPL", side="buy"
         )
         mock_db.get_position_for_update.return_value = None
-        mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(realized_pl=Decimal("0"))
+        mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(
+            realized_pl=Decimal("0")
+        )
         mock_db.append_fill_to_order_metadata.return_value = None
         mock_db.update_order_status_with_conn.return_value = None
 
@@ -506,14 +547,22 @@ class TestDailyPerformanceEndpoint:
 class TestDailyPnLDatabase:
     def test_compute_daily_performance_drawdown(self):
         rows = _sample_daily_rows()
-        daily, total, max_dd = main._compute_daily_performance(rows, date(2024, 1, 1), date(2024, 1, 2))
+        daily, total, max_dd = main._compute_daily_performance(
+            rows, date(2024, 1, 1), date(2024, 1, 2)
+        )
 
         assert total == Decimal("50")
         assert len(daily) == 2
         assert max_dd == Decimal("-50")  # peak 100 -> drop to 50 => -50%
 
     def test_missing_days_filled_with_zero(self):
-        rows = [{"trade_date": date(2024, 1, 1), "daily_realized_pl": Decimal("10"), "closing_trade_count": 1}]
+        rows = [
+            {
+                "trade_date": date(2024, 1, 1),
+                "daily_realized_pl": Decimal("10"),
+                "closing_trade_count": 1,
+            }
+        ]
         daily, _, _ = main._compute_daily_performance(rows, date(2024, 1, 1), date(2024, 1, 3))
 
         assert len(daily) == 3
@@ -522,7 +571,9 @@ class TestDailyPnLDatabase:
 
     def test_all_negative_series_tracks_drawdown(self):
         rows = _all_negative_rows()
-        daily, total, max_dd = main._compute_daily_performance(rows, date(2024, 1, 1), date(2024, 1, 3))
+        daily, total, max_dd = main._compute_daily_performance(
+            rows, date(2024, 1, 1), date(2024, 1, 3)
+        )
 
         assert total == Decimal("-60")
         # Peak should start at first cumulative (-20) and remain -20
@@ -566,20 +617,29 @@ class TestDatabaseClientNewMethods:
         conn = MagicMock()
         cursor = MagicMock()
         conn.cursor.return_value.__enter__.return_value = cursor
-        cursor.fetchone.return_value = {"symbol": "AAPL", "qty": 0, "avg_entry_price": 0, "realized_pl": 0, "updated_at": datetime.now(UTC)}
+        cursor.fetchone.return_value = {
+            "symbol": "AAPL",
+            "qty": 0,
+            "avg_entry_price": 0,
+            "realized_pl": 0,
+            "updated_at": datetime.now(UTC),
+        }
 
         db = DatabaseClient("postgresql://user:pass@localhost/db")
         with patch.object(db, "_pool", MagicMock()):
             result = db.get_position_for_update("AAPL", conn)
 
-        cursor.execute.assert_called_with("SELECT * FROM positions WHERE symbol = %s FOR UPDATE", ("AAPL",))
+        cursor.execute.assert_called_with(
+            "SELECT * FROM positions WHERE symbol = %s FOR UPDATE", ("AAPL",)
+        )
         assert result.symbol == "AAPL"
 
 
 class TestWebhookSecurity:
     def test_invalid_signature_rejected(self, test_client):
-        with patch.object(main, "WEBHOOK_SECRET", "shh"), patch(
-            "apps.execution_gateway.main.verify_webhook_signature", return_value=False
+        with (
+            patch.object(main, "WEBHOOK_SECRET", "shh"),
+            patch("apps.execution_gateway.main.verify_webhook_signature", return_value=False),
         ):
             resp = test_client.post("/api/v1/webhooks/orders", json={"order": {}, "event": "fill"})
 
@@ -659,7 +719,15 @@ class TestRealtimePnlRbac:
 
 class TestCalculatePositionUpdate:
     @pytest.mark.parametrize(
-        "old_qty,old_avg,fill_qty,side,expected_qty,expected_avg,expected_realized",
+        (
+            "old_qty",
+            "old_avg",
+            "fill_qty",
+            "side",
+            "expected_qty",
+            "expected_avg",
+            "expected_realized",
+        ),
         [
             # Short cover (reducing absolute qty, realizing profit when covering below entry)
             (-100, Decimal("50"), 40, "buy", -60, Decimal("50"), Decimal("-2000")),
@@ -703,7 +771,9 @@ class TestBrokerTimestamps:
         mock_order = SimpleNamespace(filled_qty=Decimal("0"), symbol="AAPL", side="buy")
         mock_db.get_order_for_update.return_value = mock_order
         mock_db.get_position_for_update.return_value = None
-        mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(realized_pl=Decimal("0"))
+        mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(
+            realized_pl=Decimal("0")
+        )
 
         captured_fill = {}
 
@@ -751,7 +821,9 @@ class TestConcurrentWebhooks:
         order = SimpleNamespace(filled_qty=Decimal("0"), symbol="AAPL", side="sell")
         mock_db.get_order_for_update.return_value = order
         mock_db.get_position_for_update.return_value = None
-        mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(realized_pl=Decimal("5"))
+        mock_db.update_position_on_fill_with_conn.return_value = SimpleNamespace(
+            realized_pl=Decimal("5")
+        )
 
         with (
             patch.object(main, "db_client", mock_db),
@@ -789,7 +861,9 @@ class TestConcurrentWebhooks:
 
         def _update_position(**kwargs):
             # emulate calculate_position_update using qty increments
-            position_state["qty"] += kwargs["fill_qty"] if kwargs["side"] == "buy" else -kwargs["fill_qty"]
+            position_state["qty"] += (
+                kwargs["fill_qty"] if kwargs["side"] == "buy" else -kwargs["fill_qty"]
+            )
             position_state["realized_pl"] += Decimal("1")  # marker to ensure both commits applied
             return SimpleNamespace(**position_state)
 
@@ -797,7 +871,9 @@ class TestConcurrentWebhooks:
         ctx.__enter__.return_value = MagicMock()
         ctx.__exit__.return_value = False
         mock_db.transaction.return_value = ctx
-        mock_db.get_order_for_update.return_value = SimpleNamespace(filled_qty=Decimal("0"), symbol="NEW", side="buy")
+        mock_db.get_order_for_update.return_value = SimpleNamespace(
+            filled_qty=Decimal("0"), symbol="NEW", side="buy"
+        )
         mock_db.get_position_for_update.return_value = None
         mock_db.update_position_on_fill_with_conn.side_effect = _update_position
         mock_db.append_fill_to_order_metadata.return_value = None

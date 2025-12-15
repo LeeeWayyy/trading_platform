@@ -469,13 +469,15 @@ class SchemaRegistry:
                     old_data = json.load(f)
                 history = old_data.get("history", [])
                 # Add current to history (include dataset for from_dict compatibility)
-                history.append({
-                    "dataset": current.dataset,
-                    "version": current.version,
-                    "columns": current.columns,
-                    "created_at": current.created_at.isoformat(),
-                    "description": current.description,
-                })
+                history.append(
+                    {
+                        "dataset": current.dataset,
+                        "version": current.version,
+                        "columns": current.columns,
+                        "created_at": current.created_at.isoformat(),
+                        "description": current.description,
+                    }
+                )
                 data["history"] = history
 
             self._atomic_write(self._schema_path(dataset), data)
@@ -521,8 +523,7 @@ class SchemaRegistry:
                 details.append(f"Changed types: {changes}")
 
             raise SchemaError(
-                drift,
-                f"Breaking schema drift detected for {dataset}: {'; '.join(details)}"
+                drift, f"Breaking schema drift detected for {dataset}: {'; '.join(details)}"
             )
 
         if not drift.has_additions:
@@ -566,13 +567,15 @@ class SchemaRegistry:
                     old_data = json.load(f)
                 history = old_data.get("history", [])
                 # Include dataset for from_dict compatibility
-                history.append({
-                    "dataset": current.dataset,
-                    "version": current.version,
-                    "columns": current.columns,
-                    "created_at": current.created_at.isoformat(),
-                    "description": current.description,
-                })
+                history.append(
+                    {
+                        "dataset": current.dataset,
+                        "version": current.version,
+                        "columns": current.columns,
+                        "created_at": current.created_at.isoformat(),
+                        "description": current.description,
+                    }
+                )
                 data["history"] = history
 
             self._atomic_write(self._schema_path(dataset), data)

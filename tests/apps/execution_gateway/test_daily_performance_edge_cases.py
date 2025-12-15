@@ -18,8 +18,10 @@ def _make_user_context_override(user_ctx: dict) -> callable:
     Using lambda *_, **__: causes FastAPI to treat _ and __ as required
     query parameters, resulting in 422 errors.
     """
+
     def override(request: Request) -> dict:
         return user_ctx
+
     return override
 
 
@@ -47,7 +49,11 @@ def test_daily_performance_future_date_rejected(monkeypatch, test_client):
 
     resp = test_client.get(
         "/api/v1/performance/daily",
-        params={"start_date": "2024-01-01", "end_date": tomorrow.isoformat(), "strategies": ["alpha"]},
+        params={
+            "start_date": "2024-01-01",
+            "end_date": tomorrow.isoformat(),
+            "strategies": ["alpha"],
+        },
         headers={"X-User-Role": "viewer", "X-User-Id": "u1"},
     )
 

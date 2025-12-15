@@ -55,8 +55,7 @@ class AmbiguousGVKEYError(Exception):
         self.as_of_date = as_of_date
         self.gvkeys = gvkeys
         super().__init__(
-            f"Ticker '{ticker}' is ambiguous on {as_of_date}: "
-            f"maps to GVKEYs {gvkeys}"
+            f"Ticker '{ticker}' is ambiguous on {as_of_date}: " f"maps to GVKEYs {gvkeys}"
         )
 
 
@@ -348,9 +347,7 @@ class CompustatLocalProvider:
         pinned_version = manifest.manifest_version
 
         # Get partition paths from manifest (not filesystem)
-        partition_paths = self._get_partition_paths_from_manifest(
-            manifest, start_date, end_date
-        )
+        partition_paths = self._get_partition_paths_from_manifest(manifest, start_date, end_date)
 
         if not partition_paths:
             return self._empty_result(columns, schema)
@@ -410,9 +407,7 @@ class CompustatLocalProvider:
             Ticker changes between filings will be delayed until next filing.
             For higher resolution, consider using comp.names table (future enhancement).
         """
-        dataset_name = (
-            self.DATASET_QUARTERLY if dataset == "quarterly" else self.DATASET_ANNUAL
-        )
+        dataset_name = self.DATASET_QUARTERLY if dataset == "quarterly" else self.DATASET_ANNUAL
         filing_lag = (
             self.DEFAULT_QUARTERLY_FILING_LAG_DAYS
             if dataset == "quarterly"
@@ -504,9 +499,7 @@ class CompustatLocalProvider:
             AmbiguousGVKEYError: If ticker maps to multiple GVKEYs.
             ManifestVersionChangedError: If manifest changes during query (retry).
         """
-        dataset_name = (
-            self.DATASET_QUARTERLY if dataset == "quarterly" else self.DATASET_ANNUAL
-        )
+        dataset_name = self.DATASET_QUARTERLY if dataset == "quarterly" else self.DATASET_ANNUAL
         filing_lag = (
             self.DEFAULT_QUARTERLY_FILING_LAG_DAYS
             if dataset == "quarterly"
@@ -604,9 +597,7 @@ class CompustatLocalProvider:
         Raises:
             ManifestVersionChangedError: If manifest changes during query (retry).
         """
-        dataset_name = (
-            self.DATASET_QUARTERLY if dataset == "quarterly" else self.DATASET_ANNUAL
-        )
+        dataset_name = self.DATASET_QUARTERLY if dataset == "quarterly" else self.DATASET_ANNUAL
         filing_lag = (
             self.DEFAULT_QUARTERLY_FILING_LAG_DAYS
             if dataset == "quarterly"
@@ -635,12 +626,8 @@ class CompustatLocalProvider:
         # Compute lag-adjusted availability dates
         metadata = metadata.with_columns(
             [
-                (pl.col("first_datadate") + timedelta(days=filing_lag)).alias(
-                    "first_available"
-                ),
-                (pl.col("last_datadate") + timedelta(days=filing_lag)).alias(
-                    "last_available"
-                ),
+                (pl.col("first_datadate") + timedelta(days=filing_lag)).alias("first_available"),
+                (pl.col("last_datadate") + timedelta(days=filing_lag)).alias("last_available"),
             ]
         )
 
@@ -683,9 +670,7 @@ class CompustatLocalProvider:
                     f"Manifest version changed from {pinned_version} to "
                     f"{current_manifest.manifest_version} during query"
                 )
-            return filtered.select(
-                ["gvkey", "tic", "conm", "first_available", "last_available"]
-            )
+            return filtered.select(["gvkey", "tic", "conm", "first_available", "last_available"])
 
         conn = self._ensure_connection()
         filtered_gvkeys = filtered["gvkey"].to_list()
@@ -719,9 +704,9 @@ class CompustatLocalProvider:
         ).pl()
 
         # Join point-in-time ticker/conm with availability dates
-        result = filtered.select(
-            ["gvkey", "first_available", "last_available"]
-        ).join(pit_data, on="gvkey", how="left")
+        result = filtered.select(["gvkey", "first_available", "last_available"]).join(
+            pit_data, on="gvkey", how="left"
+        )
 
         # Verify manifest version unchanged (snapshot consistency)
         current_manifest = self._get_manifest(dataset_name)
@@ -732,9 +717,7 @@ class CompustatLocalProvider:
             )
 
         # Reorder columns to match expected schema
-        return result.select(
-            ["gvkey", "tic", "conm", "first_available", "last_available"]
-        )
+        return result.select(["gvkey", "tic", "conm", "first_available", "last_available"])
 
     def _get_manifest(self, dataset: str) -> SyncManifest:
         """Load manifest for specified dataset.
@@ -747,9 +730,7 @@ class CompustatLocalProvider:
         """
         manifest = self.manifest_manager.load_manifest(dataset)
         if manifest is None:
-            raise DataNotFoundError(
-                f"No manifest found for '{dataset}'. Run full_sync first."
-            )
+            raise DataNotFoundError(f"No manifest found for '{dataset}'. Run full_sync first.")
         return manifest
 
     def _get_partition_paths_from_manifest(
@@ -863,7 +844,9 @@ class CompustatLocalProvider:
                 # Empty gvkeys list - return empty result
                 return pl.DataFrame(
                     schema={
-                        c: COMPUSTAT_ANNUAL_SCHEMA.get(c, COMPUSTAT_QUARTERLY_SCHEMA.get(c, pl.Utf8))
+                        c: COMPUSTAT_ANNUAL_SCHEMA.get(
+                            c, COMPUSTAT_QUARTERLY_SCHEMA.get(c, pl.Utf8)
+                        )
                         for c in (columns or column_order)
                     }
                 )
@@ -889,9 +872,7 @@ class CompustatLocalProvider:
 
         return conn.execute(query, params).pl()
 
-    def _get_security_metadata(
-        self, manifest: SyncManifest, dataset: str
-    ) -> pl.DataFrame:
+    def _get_security_metadata(self, manifest: SyncManifest, dataset: str) -> pl.DataFrame:
         """Get or compute security metadata (first/last datadate).
 
         Caches the result for efficiency. Cache is tied to manifest version

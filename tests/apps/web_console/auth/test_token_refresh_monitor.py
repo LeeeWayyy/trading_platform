@@ -4,12 +4,11 @@ FIX (Codex Critical #2): Tests verify auto-refresh uses actual token expiry
 (access_token_expires_at) instead of last_activity.
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
 
 from apps.web_console.auth.token_refresh_monitor import (
-    parse_iso_datetime,
     TokenRefreshMonitor,
+    parse_iso_datetime,
 )
 
 

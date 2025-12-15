@@ -164,9 +164,7 @@ class MicrostructureAnalyzer:
                 raise ValueError("version_manager required for PIT queries")
             _path, snapshot = self.taq.version_manager.query_as_of(dataset, as_of)
             if dataset not in snapshot.datasets:
-                raise DataNotFoundError(
-                    f"Dataset '{dataset}' not found in snapshot at {as_of}"
-                )
+                raise DataNotFoundError(f"Dataset '{dataset}' not found in snapshot at {as_of}")
             return str(snapshot.datasets[dataset].sync_manifest_version)
         else:
             manifest = self.taq.manifest_manager.load_manifest(dataset)
@@ -298,9 +296,7 @@ class MicrostructureAnalyzer:
             )
 
         if sampling_freq_minutes > 1:
-            bars_df = bars_df.filter(
-                pl.col("ts").dt.minute() % sampling_freq_minutes == 0
-            )
+            bars_df = bars_df.filter(pl.col("ts").dt.minute() % sampling_freq_minutes == 0)
 
         prices = bars_df["close"].to_numpy()
         log_returns = np.diff(np.log(prices))
@@ -534,9 +530,7 @@ class MicrostructureAnalyzer:
                 sizes,
                 cumulative_volume,
                 sigma_zero_mask,
-                np.array(timestamps[sigma_lookback:], dtype="datetime64[ns]").astype(
-                    "int64"
-                ),
+                np.array(timestamps[sigma_lookback:], dtype="datetime64[ns]").astype("int64"),
                 volume_per_bucket,
                 window_buckets,
                 sigma_lookback,
@@ -781,46 +775,61 @@ class MicrostructureAnalyzer:
                 ),
             )
 
-        bars_df = bars_df.with_columns([
-            pl.col("ts").dt.time().alias("time_of_day"),
-            (
-                pl.col("ts").dt.hour().cast(pl.Int32) * 60 + pl.col("ts").dt.minute().cast(pl.Int32)
-            ).alias("minute_of_day"),
-        ])
+        bars_df = bars_df.with_columns(
+            [
+                pl.col("ts").dt.time().alias("time_of_day"),
+                (
+                    pl.col("ts").dt.hour().cast(pl.Int32) * 60
+                    + pl.col("ts").dt.minute().cast(pl.Int32)
+                ).alias("minute_of_day"),
+            ]
+        )
 
-        bars_df = bars_df.with_columns([
-            ((pl.col("minute_of_day") // bucket_minutes) * bucket_minutes).cast(pl.Int32).alias("bucket_minute"),
-        ])
+        bars_df = bars_df.with_columns(
+            [
+                ((pl.col("minute_of_day") // bucket_minutes) * bucket_minutes)
+                .cast(pl.Int32)
+                .alias("bucket_minute"),
+            ]
+        )
 
-        bars_df = bars_df.with_columns([
-            ((pl.col("high") - pl.col("low")) / pl.col("open")).alias("intrabar_vol"),
-        ])
+        bars_df = bars_df.with_columns(
+            [
+                ((pl.col("high") - pl.col("low")) / pl.col("open")).alias("intrabar_vol"),
+            ]
+        )
 
         pattern_df = (
             bars_df.group_by("bucket_minute")
-            .agg([
-                pl.col("intrabar_vol").mean().alias("avg_volatility"),
-                ((pl.col("high") - pl.col("low")) / 2).mean().alias("avg_spread"),
-                pl.col("volume").mean().alias("avg_volume"),
-                pl.col("date").n_unique().alias("n_days"),
-            ])
+            .agg(
+                [
+                    pl.col("intrabar_vol").mean().alias("avg_volatility"),
+                    ((pl.col("high") - pl.col("low")) / 2).mean().alias("avg_spread"),
+                    pl.col("volume").mean().alias("avg_volume"),
+                    pl.col("date").n_unique().alias("n_days"),
+                ]
+            )
             .sort("bucket_minute")
         )
 
-        pattern_df = pattern_df.with_columns([
-            pl.time(
-                hour=pl.col("bucket_minute").cast(pl.Int32) // 60,
-                minute=pl.col("bucket_minute").cast(pl.Int32) % 60,
-            ).alias("time_bucket"),
-        ])
+        pattern_df = pattern_df.with_columns(
+            [
+                pl.time(
+                    hour=pl.col("bucket_minute").cast(pl.Int32) // 60,
+                    minute=pl.col("bucket_minute").cast(pl.Int32) % 60,
+                ).alias("time_bucket"),
+            ]
+        )
 
-        pattern_df = pattern_df.select([
-            "time_bucket",
-            "avg_volatility",
-            "avg_spread",
-            "avg_volume",
-            "n_days",
-        ])
+        pattern_df = pattern_df.select(
+            [
+                "time_bucket",
+                "avg_volatility",
+                "avg_spread",
+                "avg_volume",
+                "n_days",
+            ]
+        )
 
         return IntradayPatternResult(
             dataset_version_id=version_id,
@@ -866,9 +875,7 @@ class MicrostructureAnalyzer:
         )
 
         if spread_df.is_empty():
-            raise DataNotFoundError(
-                f"No spread stats found for {symbol} on {target_date}"
-            )
+            raise DataNotFoundError(f"No spread stats found for {symbol} on {target_date}")
 
         spread_row = spread_df.row(0, named=True)
         qwap_spread = spread_row["qwap_spread"]
@@ -957,13 +964,9 @@ class MicrostructureAnalyzer:
         if "record_type" in ticks_df.columns:
             return ticks_df.filter(pl.col("record_type") == "quote")
 
-        return ticks_df.filter(
-            (pl.col("bid_size") > 0) & (pl.col("ask_size") > 0)
-        )
+        return ticks_df.filter((pl.col("bid_size") > 0) & (pl.col("ask_size") > 0))
 
-    def _compute_depth_from_ticks(
-        self, quotes_df: pl.DataFrame
-    ) -> tuple[float, float]:
+    def _compute_depth_from_ticks(self, quotes_df: pl.DataFrame) -> tuple[float, float]:
         """Compute time-weighted L1 depth from quote data."""
         quotes_df = quotes_df.filter(
             (pl.col("bid") > 0) & (pl.col("ask") > 0) & (pl.col("bid") <= pl.col("ask"))
@@ -973,21 +976,27 @@ class MicrostructureAnalyzer:
             return float("nan"), float("nan")
 
         quotes_df = quotes_df.sort("ts")
-        quotes_df = quotes_df.with_columns([
-            pl.col("ts").shift(-1).alias("next_ts"),
-        ])
+        quotes_df = quotes_df.with_columns(
+            [
+                pl.col("ts").shift(-1).alias("next_ts"),
+            ]
+        )
 
-        quotes_df = quotes_df.with_columns([
-            (
-                pl.when(pl.col("next_ts").is_null())
-                .then(pl.duration(seconds=1))
-                .otherwise(pl.col("next_ts") - pl.col("ts"))
-            ).alias("duration"),
-        ])
+        quotes_df = quotes_df.with_columns(
+            [
+                (
+                    pl.when(pl.col("next_ts").is_null())
+                    .then(pl.duration(seconds=1))
+                    .otherwise(pl.col("next_ts") - pl.col("ts"))
+                ).alias("duration"),
+            ]
+        )
 
-        quotes_df = quotes_df.with_columns([
-            pl.col("duration").dt.total_seconds().alias("duration_seconds"),
-        ])
+        quotes_df = quotes_df.with_columns(
+            [
+                pl.col("duration").dt.total_seconds().alias("duration_seconds"),
+            ]
+        )
 
         quotes_df = quotes_df.filter(pl.col("duration_seconds") > 0)
 
@@ -1000,17 +1009,13 @@ class MicrostructureAnalyzer:
 
         return float(avg_bid), float(avg_ask)
 
-    def _detect_locked_markets(
-        self, quotes_df: pl.DataFrame
-    ) -> tuple[bool, float]:
+    def _detect_locked_markets(self, quotes_df: pl.DataFrame) -> tuple[bool, float]:
         """Detect locked markets (bid == ask)."""
         locked = quotes_df.filter(pl.col("bid") == pl.col("ask"))
         locked_pct = locked.height / quotes_df.height if quotes_df.height > 0 else 0.0
         return locked.height > 0, locked_pct
 
-    def _detect_crossed_markets(
-        self, quotes_df: pl.DataFrame
-    ) -> tuple[bool, float]:
+    def _detect_crossed_markets(self, quotes_df: pl.DataFrame) -> tuple[bool, float]:
         """Detect crossed markets (bid > ask)."""
         crossed = quotes_df.filter(pl.col("bid") > pl.col("ask"))
         crossed_pct = crossed.height / quotes_df.height if quotes_df.height > 0 else 0.0
@@ -1024,19 +1029,23 @@ class MicrostructureAnalyzer:
             return 0.0
 
         quotes_df = quotes_df.sort("ts")
-        quotes_df = quotes_df.with_columns([
-            pl.col("bid").shift(1).alias("prev_bid"),
-            pl.col("ask").shift(1).alias("prev_ask"),
-            pl.col("bid_size").shift(1).alias("prev_bid_size"),
-            pl.col("ask_size").shift(1).alias("prev_ask_size"),
-            pl.col("ts").shift(1).alias("prev_ts"),
-        ])
+        quotes_df = quotes_df.with_columns(
+            [
+                pl.col("bid").shift(1).alias("prev_bid"),
+                pl.col("ask").shift(1).alias("prev_ask"),
+                pl.col("bid_size").shift(1).alias("prev_bid_size"),
+                pl.col("ask_size").shift(1).alias("prev_ask_size"),
+                pl.col("ts").shift(1).alias("prev_ts"),
+            ]
+        )
 
         quotes_df = quotes_df.filter(pl.col("prev_ts").is_not_null())
 
-        quotes_df = quotes_df.with_columns([
-            ((pl.col("ts") - pl.col("prev_ts")).dt.total_seconds()).alias("time_diff"),
-        ])
+        quotes_df = quotes_df.with_columns(
+            [
+                ((pl.col("ts") - pl.col("prev_ts")).dt.total_seconds()).alias("time_diff"),
+            ]
+        )
 
         stale = quotes_df.filter(
             (pl.col("bid") == pl.col("prev_bid"))
@@ -1052,6 +1061,7 @@ class MicrostructureAnalyzer:
 # =========================================================================
 # Numba acceleration helpers (module-level to keep njit friendly)
 # =========================================================================
+
 
 def _bucket_arrays_to_dicts(
     bucket_arrays: tuple[
@@ -1223,5 +1233,7 @@ if NUMBA_AVAILABLE:
 
 else:
 
-    def _compute_vpin_buckets_numba(*_args: Any, **_kwargs: Any) -> None:  # pragma: no cover - fallback stub
+    def _compute_vpin_buckets_numba(
+        *_args: Any, **_kwargs: Any
+    ) -> None:  # pragma: no cover - fallback stub
         raise RuntimeError("Numba not available")

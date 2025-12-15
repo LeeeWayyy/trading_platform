@@ -19,7 +19,7 @@ from libs.alpha.alpha_library import (
 class TestMomentumAlpha:
     """Tests for MomentumAlpha."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def price_data(self):
         """Create 12 months of price data."""
         base_date = date(2024, 1, 1)
@@ -38,13 +38,15 @@ class TestMomentumAlpha:
                 # Higher stock number = higher returns (for testing signal direction)
                 returns.append(0.001 * (stock + 1))
 
-        return pl.DataFrame({
-            "permno": permnos,
-            "date": dates,
-            "ret": returns,
-            "prc": [100.0] * len(dates),
-            "shrout": [1000.0] * len(dates),
-        })
+        return pl.DataFrame(
+            {
+                "permno": permnos,
+                "date": dates,
+                "ret": returns,
+                "prc": [100.0] * len(dates),
+                "shrout": [1000.0] * len(dates),
+            }
+        )
 
     def test_momentum_alpha_name(self):
         """Test alpha name format."""
@@ -88,7 +90,7 @@ class TestMomentumAlpha:
 class TestReversalAlpha:
     """Tests for ReversalAlpha."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def recent_price_data(self):
         """Create 1 month of price data."""
         base_date = date(2024, 1, 1)
@@ -106,11 +108,13 @@ class TestReversalAlpha:
                 permnos.append(stock + 1)
                 returns.append(0.002 * (stock + 1))  # Higher stock = higher return
 
-        return pl.DataFrame({
-            "permno": permnos,
-            "date": dates,
-            "ret": returns,
-        })
+        return pl.DataFrame(
+            {
+                "permno": permnos,
+                "date": dates,
+                "ret": returns,
+            }
+        )
 
     def test_reversal_alpha_name(self):
         """Test alpha name format."""
@@ -138,25 +142,29 @@ class TestReversalAlpha:
 class TestValueAlpha:
     """Tests for ValueAlpha."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def value_data(self):
         """Create price and fundamental data for value alpha."""
         as_of_date = date(2024, 1, 1)
 
-        prices = pl.DataFrame({
-            "permno": list(range(1, 11)),
-            "date": [as_of_date] * 10,
-            "prc": [100.0] * 10,  # Same price
-            "shrout": [float(i * 1000) for i in range(1, 11)],  # Varying market cap
-            "ret": [0.01] * 10,
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": list(range(1, 11)),
+                "date": [as_of_date] * 10,
+                "prc": [100.0] * 10,  # Same price
+                "shrout": [float(i * 1000) for i in range(1, 11)],  # Varying market cap
+                "ret": [0.01] * 10,
+            }
+        )
 
         # Higher book equity for higher permno
-        fundamentals = pl.DataFrame({
-            "permno": list(range(1, 11)),
-            "datadate": [as_of_date - timedelta(days=100)] * 10,  # PIT-correct
-            "ceq": [float(i * 50000) for i in range(1, 11)],  # Book equity
-        })
+        fundamentals = pl.DataFrame(
+            {
+                "permno": list(range(1, 11)),
+                "datadate": [as_of_date - timedelta(days=100)] * 10,  # PIT-correct
+                "ceq": [float(i * 50000) for i in range(1, 11)],  # Book equity
+            }
+        )
 
         return prices, fundamentals
 
@@ -173,13 +181,15 @@ class TestValueAlpha:
     def test_value_requires_fundamentals(self):
         """Test value alpha returns empty without fundamentals."""
         alpha = ValueAlpha()
-        prices = pl.DataFrame({
-            "permno": [1, 2],
-            "date": [date(2024, 1, 1)] * 2,
-            "prc": [100.0, 100.0],
-            "shrout": [1000.0, 1000.0],
-            "ret": [0.01, 0.02],
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "date": [date(2024, 1, 1)] * 2,
+                "prc": [100.0, 100.0],
+                "shrout": [1000.0, 1000.0],
+                "ret": [0.01, 0.02],
+            }
+        )
 
         result = alpha.compute(prices, None, date(2024, 1, 1))
         assert result.height == 0
@@ -198,28 +208,32 @@ class TestValueAlpha:
 class TestQualityAlpha:
     """Tests for QualityAlpha."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def quality_data(self):
         """Create fundamental data for quality alpha."""
         as_of_date = date(2024, 1, 1)
 
-        prices = pl.DataFrame({
-            "permno": list(range(1, 11)),
-            "date": [as_of_date] * 10,
-            "prc": [100.0] * 10,
-            "shrout": [1000.0] * 10,
-            "ret": [0.01] * 10,
-        })
+        prices = pl.DataFrame(
+            {
+                "permno": list(range(1, 11)),
+                "date": [as_of_date] * 10,
+                "prc": [100.0] * 10,
+                "shrout": [1000.0] * 10,
+                "ret": [0.01] * 10,
+            }
+        )
 
-        fundamentals = pl.DataFrame({
-            "permno": list(range(1, 11)),
-            "datadate": [as_of_date - timedelta(days=100)] * 10,
-            "ni": [float(i * 1000) for i in range(1, 11)],  # Net income
-            "ceq": [10000.0] * 10,  # Common equity
-            "revt": [float(i * 5000) for i in range(1, 11)],  # Revenue
-            "cogs": [float(i * 2000) for i in range(1, 11)],  # Cost of goods sold
-            "at": [50000.0] * 10,  # Total assets
-        })
+        fundamentals = pl.DataFrame(
+            {
+                "permno": list(range(1, 11)),
+                "datadate": [as_of_date - timedelta(days=100)] * 10,
+                "ni": [float(i * 1000) for i in range(1, 11)],  # Net income
+                "ceq": [10000.0] * 10,  # Common equity
+                "revt": [float(i * 5000) for i in range(1, 11)],  # Revenue
+                "cogs": [float(i * 2000) for i in range(1, 11)],  # Cost of goods sold
+                "at": [50000.0] * 10,  # Total assets
+            }
+        )
 
         return prices, fundamentals
 
@@ -265,7 +279,7 @@ class TestQualityAlpha:
 class TestVolatilityAlpha:
     """Tests for VolatilityAlpha."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def vol_data(self):
         """Create price data with varying volatility."""
         base_date = date(2024, 1, 1)
@@ -277,6 +291,7 @@ class TestVolatilityAlpha:
         returns = []
 
         import random
+
         random.seed(42)
 
         for d in range(days):
@@ -288,11 +303,13 @@ class TestVolatilityAlpha:
                 vol_scale = 0.005 * (stock + 1)
                 returns.append(random.gauss(0, vol_scale))
 
-        return pl.DataFrame({
-            "permno": permnos,
-            "date": dates,
-            "ret": returns,
-        })
+        return pl.DataFrame(
+            {
+                "permno": permnos,
+                "date": dates,
+                "ret": returns,
+            }
+        )
 
     def test_volatility_alpha_name(self):
         """Test alpha name format."""
@@ -327,7 +344,7 @@ class TestCanonicalAlphasRegistry:
 
     def test_registry_types(self):
         """Test registry values are alpha classes."""
-        for name, cls in CANONICAL_ALPHAS.items():
+        for _name, cls in CANONICAL_ALPHAS.items():
             assert issubclass(cls, object)
             instance = cls()
             assert hasattr(instance, "compute")
@@ -366,9 +383,8 @@ class TestCreateAlpha:
 
     def test_create_unknown_raises(self):
         """Test creating unknown alpha raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Unknown alpha") as exc_info:
             create_alpha("unknown_alpha")
 
         assert "Unknown alpha" in str(exc_info.value)
         assert "momentum" in str(exc_info.value)  # Should list available
-

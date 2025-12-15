@@ -479,8 +479,9 @@ class TestManualOrderEntryFlow:
                         # Assert idempotency: Confirm reuses the SAME client_order_id from Preview
                         call_args = mock_fetch.call_args[1]  # Get kwargs
                         submitted_order = call_args["data"]
-                        assert submitted_order["client_order_id"] == preview_client_order_id, \
-                            "Confirm must reuse client_order_id from Preview (idempotency)"
+                        assert (
+                            submitted_order["client_order_id"] == preview_client_order_id
+                        ), "Confirm must reuse client_order_id from Preview (idempotency)"
 
                         # Verify state cleared
                         assert not mock_session_state.get("order_confirmation_pending", False)
@@ -835,7 +836,7 @@ class TestKillSwitchFlow:
 
                             # Verify error message displayed
                             mock_st.error.assert_called()
-                            error_calls = [call for call in mock_st.error.call_args_list]
+                            error_calls = list(mock_st.error.call_args_list)
                             assert any("must be at least" in str(call) for call in error_calls)
 
                             # Verify fetch_api was NOT called
@@ -886,7 +887,7 @@ class TestKillSwitchFlow:
 
                             # Verify error message displayed
                             mock_st.error.assert_called()
-                            error_calls = [call for call in mock_st.error.call_args_list]
+                            error_calls = list(mock_st.error.call_args_list)
                             assert any("must be at least" in str(call) for call in error_calls)
 
                             # Verify fetch_api was NOT called

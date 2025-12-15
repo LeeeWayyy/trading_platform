@@ -127,7 +127,9 @@ class RegistryBackupManager:
             # Truncate and write info after acquiring lock
             self._restore_lock_file.seek(0)
             self._restore_lock_file.truncate()
-            self._restore_lock_file.write(f"Restore in progress since {datetime.now(UTC).isoformat()}\n")
+            self._restore_lock_file.write(
+                f"Restore in progress since {datetime.now(UTC).isoformat()}\n"
+            )
             self._restore_lock_file.flush()
 
             self._restore_lock_depth = 1
@@ -194,7 +196,9 @@ class RegistryBackupManager:
             # Truncate and write info after acquiring lock
             self._backup_lock_file.seek(0)
             self._backup_lock_file.truncate()
-            self._backup_lock_file.write(f"Backup in progress since {datetime.now(UTC).isoformat()}\n")
+            self._backup_lock_file.write(
+                f"Backup in progress since {datetime.now(UTC).isoformat()}\n"
+            )
             self._backup_lock_file.flush()
 
             self._backup_lock_depth = 1
@@ -608,9 +612,7 @@ class RegistryBackupManager:
         except ValueError:
             return 0
 
-    def update_manifest_backup_info(
-        self, manifest_manager: RegistryManifestManager
-    ) -> None:
+    def update_manifest_backup_info(self, manifest_manager: RegistryManifestManager) -> None:
         """Update registry manifest with backup info.
 
         Args:
@@ -734,9 +736,7 @@ class RegistryGC:
         """
         self.registry = registry
 
-    def collect_expired_staged(
-        self, max_age_days: int | None = None
-    ) -> list[str]:
+    def collect_expired_staged(self, max_age_days: int | None = None) -> list[str]:
         """Find staged models older than max age.
 
         Args:
@@ -758,9 +758,7 @@ class RegistryGC:
 
         return expired
 
-    def collect_expired_archived(
-        self, max_age_days: int | None = None
-    ) -> list[str]:
+    def collect_expired_archived(self, max_age_days: int | None = None) -> list[str]:
         """Find archived models older than max age based on archived_at timestamp.
 
         Uses archived_at from DB (when model was archived), not created_at.
@@ -845,9 +843,7 @@ class RegistryGC:
                             shutil.rmtree(artifact_path)
                             logger.info(f"Deleted artifact: {artifact_path}")
                         else:
-                            logger.warning(
-                                f"Artifact path not found during GC: {artifact_path}"
-                            )
+                            logger.warning(f"Artifact path not found during GC: {artifact_path}")
 
                     # Remove from database
                     self._delete_model_from_db(model_id)
@@ -901,9 +897,7 @@ class RegistryGC:
             conn.execute("DELETE FROM models WHERE model_id = ?", [model_id])
             logger.info(f"Deleted model from DB: {model_id}")
 
-    def update_manifest_after_gc(
-        self, manifest_manager: RegistryManifestManager
-    ) -> None:
+    def update_manifest_after_gc(self, manifest_manager: RegistryManifestManager) -> None:
         """Update manifest after GC run.
 
         Args:

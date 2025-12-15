@@ -12,7 +12,6 @@ from libs.backtest.models import (
     row_to_backtest_job,
 )
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -99,4 +98,3 @@ def test_exceptions_are_raised():
 
     with pytest.raises(ResultPathMissing, match="result path missing"):
         raise ResultPathMissing("result path missing")
-

@@ -104,17 +104,19 @@ class NoRowPool:
         return FakeAsyncContextManager(self.conn)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_invalidate_user_sessions_increments_and_logs():
     pool = FakePool()
     audit = DummyAudit()
 
-    new_version = await invalidate_user_sessions("user", pool, audit_logger=audit, admin_user_id="admin")
+    new_version = await invalidate_user_sessions(
+        "user", pool, audit_logger=audit, admin_user_id="admin"
+    )
     assert new_version == 2
     assert audit.logged
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_validate_session_version_matches():
     pool = FakePool()
     assert await validate_session_version("user", 1, pool) is False
@@ -123,7 +125,7 @@ async def test_validate_session_version_matches():
     assert await validate_session_version("user", pool.conn.version, pool)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_invalidate_user_sessions_raises_on_db_failure():
     pool = FailingPool()
 
@@ -131,7 +133,7 @@ async def test_invalidate_user_sessions_raises_on_db_failure():
         await invalidate_user_sessions("user", pool)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_invalidate_user_sessions_errors_when_no_rows_updated():
     pool = NoRowPool()
 

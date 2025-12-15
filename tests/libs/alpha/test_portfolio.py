@@ -11,14 +11,16 @@ from libs.alpha.portfolio import SignalToWeight, TurnoverCalculator
 class TestSignalToWeight:
     """Tests for SignalToWeight converter."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_signals(self):
         """Create sample signals."""
-        return pl.DataFrame({
-            "permno": [1, 2, 3, 4, 5],
-            "date": [date(2024, 1, 1)] * 5,
-            "signal": [1.0, 2.0, 3.0, 4.0, 5.0],
-        })
+        return pl.DataFrame(
+            {
+                "permno": [1, 2, 3, 4, 5],
+                "date": [date(2024, 1, 1)] * 5,
+                "signal": [1.0, 2.0, 3.0, 4.0, 5.0],
+            }
+        )
 
     def test_zscore_weights_sum_to_zero(self, sample_signals):
         """Test z-score weights are dollar-neutral (sum to 0)."""
@@ -68,20 +70,20 @@ class TestSignalToWeight:
     def test_empty_signals(self):
         """Test handling of empty signals."""
         converter = SignalToWeight()
-        empty = pl.DataFrame(
-            schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
-        )
+        empty = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
         weights = converter.convert(empty)
 
         assert weights.height == 0
 
     def test_null_signals_excluded(self):
         """Test null signals are excluded."""
-        signals = pl.DataFrame({
-            "permno": [1, 2, 3, 4, 5],
-            "date": [date(2024, 1, 1)] * 5,
-            "signal": [1.0, None, 3.0, None, 5.0],
-        })
+        signals = pl.DataFrame(
+            {
+                "permno": [1, 2, 3, 4, 5],
+                "date": [date(2024, 1, 1)] * 5,
+                "signal": [1.0, None, 3.0, None, 5.0],
+            }
+        )
         converter = SignalToWeight()
         weights = converter.convert(signals)
 
@@ -90,77 +92,77 @@ class TestSignalToWeight:
 
     def test_multiple_dates(self):
         """Test weights computed per date."""
-        signals = pl.DataFrame({
-            "permno": [1, 2, 1, 2],
-            "date": [
-                date(2024, 1, 1),
-                date(2024, 1, 1),
-                date(2024, 1, 2),
-                date(2024, 1, 2),
-            ],
-            "signal": [1.0, 2.0, 3.0, 4.0],
-        })
+        signals = pl.DataFrame(
+            {
+                "permno": [1, 2, 1, 2],
+                "date": [
+                    date(2024, 1, 1),
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    date(2024, 1, 2),
+                ],
+                "signal": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
         converter = SignalToWeight()
         weights = converter.convert(signals)
 
         # Each date should sum to 0
         for d in [date(2024, 1, 1), date(2024, 1, 2)]:
-            day_sum = weights.filter(pl.col("date") == d).select(
-                pl.col("weight").sum()
-            ).item()
+            day_sum = weights.filter(pl.col("date") == d).select(pl.col("weight").sum()).item()
             assert abs(day_sum) < 1e-10
 
 
 class TestTurnoverCalculator:
     """Tests for TurnoverCalculator."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def turnover_calc(self):
         """Create calculator."""
         return TurnoverCalculator()
 
     def test_daily_turnover_basic(self, turnover_calc):
         """Test basic daily turnover calculation."""
-        weights = pl.DataFrame({
-            "permno": [1, 2, 1, 2],
-            "date": [
-                date(2024, 1, 1),
-                date(2024, 1, 1),
-                date(2024, 1, 2),
-                date(2024, 1, 2),
-            ],
-            "weight": [0.5, -0.5, 0.3, -0.3],
-        })
+        weights = pl.DataFrame(
+            {
+                "permno": [1, 2, 1, 2],
+                "date": [
+                    date(2024, 1, 1),
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    date(2024, 1, 2),
+                ],
+                "weight": [0.5, -0.5, 0.3, -0.3],
+            }
+        )
 
         daily = turnover_calc.compute_daily_turnover(weights)
 
         # First day: consistent formula sum(|w_t - w_{t-1}|) / 2 = sum(|w_t|) / 2
         # (|0.5| + |-0.5|) / 2 = 1.0 / 2 = 0.5
-        first_turnover = daily.filter(
-            pl.col("date") == date(2024, 1, 1)
-        ).select("turnover").item()
+        first_turnover = daily.filter(pl.col("date") == date(2024, 1, 1)).select("turnover").item()
         assert first_turnover == pytest.approx(0.5)
 
         # Second day: |0.3 - 0.5| + |-0.3 - (-0.5)| = 0.2 + 0.2 = 0.4 / 2 = 0.2
-        second_turnover = daily.filter(
-            pl.col("date") == date(2024, 1, 2)
-        ).select("turnover").item()
+        second_turnover = daily.filter(pl.col("date") == date(2024, 1, 2)).select("turnover").item()
         assert second_turnover == pytest.approx(0.2)
 
     def test_average_turnover(self, turnover_calc):
         """Test average turnover calculation."""
-        weights = pl.DataFrame({
-            "permno": [1, 2, 1, 2, 1, 2],
-            "date": [
-                date(2024, 1, 1),
-                date(2024, 1, 1),
-                date(2024, 1, 2),
-                date(2024, 1, 2),
-                date(2024, 1, 3),
-                date(2024, 1, 3),
-            ],
-            "weight": [0.5, -0.5, 0.3, -0.3, 0.4, -0.4],
-        })
+        weights = pl.DataFrame(
+            {
+                "permno": [1, 2, 1, 2, 1, 2],
+                "date": [
+                    date(2024, 1, 1),
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    date(2024, 1, 2),
+                    date(2024, 1, 3),
+                    date(2024, 1, 3),
+                ],
+                "weight": [0.5, -0.5, 0.3, -0.3, 0.4, -0.4],
+            }
+        )
 
         avg = turnover_calc.compute_average_turnover(weights)
         # Excludes first day, average of day 2 and day 3 turnover
@@ -168,34 +170,36 @@ class TestTurnoverCalculator:
 
     def test_empty_weights(self, turnover_calc):
         """Test handling of empty weights."""
-        empty = pl.DataFrame(
-            schema={"permno": pl.Int64, "date": pl.Date, "weight": pl.Float64}
-        )
+        empty = pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "weight": pl.Float64})
         daily = turnover_calc.compute_daily_turnover(empty)
         assert daily.height == 0
 
     def test_single_day(self, turnover_calc):
         """Test handling of single day."""
-        weights = pl.DataFrame({
-            "permno": [1, 2],
-            "date": [date(2024, 1, 1)] * 2,
-            "weight": [0.5, -0.5],
-        })
+        weights = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "date": [date(2024, 1, 1)] * 2,
+                "weight": [0.5, -0.5],
+            }
+        )
         avg = turnover_calc.compute_average_turnover(weights)
         assert avg == 0.0
 
     def test_turnover_result(self, turnover_calc):
         """Test full turnover result."""
-        weights = pl.DataFrame({
-            "permno": [1, 2, 1, 2],
-            "date": [
-                date(2024, 1, 1),
-                date(2024, 1, 1),
-                date(2024, 1, 2),
-                date(2024, 1, 2),
-            ],
-            "weight": [0.5, -0.5, 0.3, -0.3],
-        })
+        weights = pl.DataFrame(
+            {
+                "permno": [1, 2, 1, 2],
+                "date": [
+                    date(2024, 1, 1),
+                    date(2024, 1, 1),
+                    date(2024, 1, 2),
+                    date(2024, 1, 2),
+                ],
+                "weight": [0.5, -0.5, 0.3, -0.3],
+            }
+        )
 
         result = turnover_calc.compute_turnover_result(weights)
 

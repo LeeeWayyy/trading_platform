@@ -79,9 +79,7 @@ class AlphaResult:
     as_of_date: date
     signals: pl.DataFrame  # [permno, date, signal]
     dataset_version_ids: dict[str, str]  # {'crsp': 'v1.2.3', 'compustat': 'v1.0.1'}
-    computation_timestamp: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     n_stocks: int = 0
     coverage: float = 0.0  # Fraction of universe with valid signal
 
@@ -91,9 +89,7 @@ class AlphaResult:
             object.__setattr__(self, "n_stocks", self.signals.height)
             valid_signals = self.signals.filter(pl.col("signal").is_not_null())
             if self.signals.height > 0:
-                object.__setattr__(
-                    self, "coverage", valid_signals.height / self.signals.height
-                )
+                object.__setattr__(self, "coverage", valid_signals.height / self.signals.height)
 
     @property
     def reproducibility_hash(self) -> str:
@@ -128,9 +124,7 @@ class BaseAlpha(ABC):
             universe_filter: 'all', 'large_cap', 'mid_cap', 'small_cap'
         """
         self._winsorize_pct = winsorize_pct
-        self._universe_filter: Literal["all", "large_cap", "mid_cap", "small_cap"] = (
-            universe_filter
-        )
+        self._universe_filter: Literal["all", "large_cap", "mid_cap", "small_cap"] = universe_filter
 
     @property
     @abstractmethod
@@ -191,9 +185,9 @@ class BaseAlpha(ABC):
                 .first()
             )
             if "prc" in latest_prices.columns and "shrout" in latest_prices.columns:
-                with_mcap = latest_prices.with_columns([
-                    (pl.col("prc").abs() * pl.col("shrout")).alias("market_cap")
-                ])
+                with_mcap = latest_prices.with_columns(
+                    [(pl.col("prc").abs() * pl.col("shrout")).alias("market_cap")]
+                )
                 filtered_universe = self.filter_universe(with_mcap, self._universe_filter)
                 valid_permnos = filtered_universe.select("permno")
                 filtered_prices = prices.join(valid_permnos, on="permno", how="semi")
@@ -203,9 +197,7 @@ class BaseAlpha(ABC):
 
         if raw.height == 0:
             logger.warning(f"Alpha {self.name}: no stocks returned for {as_of_date}")
-            return pl.DataFrame(
-                schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
-            )
+            return pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
 
         # Winsorize
         winsorized = self._winsorize(raw, "raw_signal")
@@ -214,11 +206,13 @@ class BaseAlpha(ABC):
         normalized = self._zscore_normalize(winsorized, "raw_signal")
 
         # Add date and rename
-        result = normalized.select([
-            pl.col("permno"),
-            pl.lit(as_of_date).alias("date"),
-            pl.col("zscore").alias("signal"),
-        ])
+        result = normalized.select(
+            [
+                pl.col("permno"),
+                pl.lit(as_of_date).alias("date"),
+                pl.col("zscore").alias("signal"),
+            ]
+        )
 
         # Validate
         self._validate(result, as_of_date)
@@ -233,9 +227,7 @@ class BaseAlpha(ABC):
         lower = df.select(pl.col(col).quantile(self._winsorize_pct)).item()
         upper = df.select(pl.col(col).quantile(1 - self._winsorize_pct)).item()
 
-        return df.with_columns([
-            pl.col(col).clip(lower, upper).alias(col)
-        ])
+        return df.with_columns([pl.col(col).clip(lower, upper).alias(col)])
 
     def _zscore_normalize(self, df: pl.DataFrame, col: str) -> pl.DataFrame:
         """Cross-sectional z-score normalization."""
@@ -246,9 +238,7 @@ class BaseAlpha(ABC):
             logger.warning(f"Alpha {self.name}: zero/nan std, returning zeros")
             return df.with_columns(pl.lit(0.0).alias("zscore"))
 
-        return df.with_columns([
-            ((pl.col(col) - mean) / std).alias("zscore")
-        ])
+        return df.with_columns([((pl.col(col) - mean) / std).alias("zscore")])
 
     def _validate(self, result: pl.DataFrame, as_of_date: date) -> None:
         """Validate output DataFrame."""
@@ -257,14 +247,10 @@ class BaseAlpha(ABC):
 
         if not required_cols.issubset(actual_cols):
             missing = required_cols - actual_cols
-            raise AlphaValidationError(
-                f"Alpha {self.name}: missing columns {missing}"
-            )
+            raise AlphaValidationError(f"Alpha {self.name}: missing columns {missing}")
 
         # Check for inf values
-        inf_count = result.filter(
-            pl.col("signal").is_infinite()
-        ).height
+        inf_count = result.filter(pl.col("signal").is_infinite()).height
 
         if inf_count > 0:
             raise AlphaValidationError(
@@ -274,9 +260,7 @@ class BaseAlpha(ABC):
         # Check z-score range (should be within +/- 5 sigma after winsorization)
         max_abs = result.select(pl.col("signal").abs().max()).item()
         if max_abs is not None and max_abs > 5:
-            logger.warning(
-                f"Alpha {self.name}: max |z-score| = {max_abs:.2f} > 5 on {as_of_date}"
-            )
+            logger.warning(f"Alpha {self.name}: max |z-score| = {max_abs:.2f} > 5 on {as_of_date}")
 
     @staticmethod
     def filter_universe(
@@ -303,19 +287,14 @@ class BaseAlpha(ABC):
 
         # Compute rank-based percentiles for quintiles
         df_ranked = df.with_columns(
-            pl.col(market_cap_col)
-            .rank(method="ordinal")
-            .over(pl.lit(1))
-            .alias("_mkt_cap_rank")
+            pl.col(market_cap_col).rank(method="ordinal").over(pl.lit(1)).alias("_mkt_cap_rank")
         )
 
         n_stocks = df_ranked.height
         if n_stocks < 5:
             return df
 
-        percentile_col = (pl.col("_mkt_cap_rank") / pl.lit(float(n_stocks))).alias(
-            "_mkt_cap_pct"
-        )
+        percentile_col = (pl.col("_mkt_cap_rank") / pl.lit(float(n_stocks))).alias("_mkt_cap_pct")
         df_ranked = df_ranked.with_columns(percentile_col)
 
         if filter_type == "large_cap":
@@ -326,8 +305,7 @@ class BaseAlpha(ABC):
         elif filter_type == "mid_cap":
             # Middle 3 quintiles (20-80%)
             return df_ranked.filter(
-                (pl.col("_mkt_cap_pct") > 0.2)
-                & (pl.col("_mkt_cap_pct") <= 0.8)
+                (pl.col("_mkt_cap_pct") > 0.2) & (pl.col("_mkt_cap_pct") <= 0.8)
             ).drop(["_mkt_cap_rank", "_mkt_cap_pct"])
         elif filter_type == "small_cap":
             # Bottom quintile (0-20%)

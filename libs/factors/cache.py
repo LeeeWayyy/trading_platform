@@ -197,9 +197,7 @@ class DiskExpressionCache:
         Returns:
             Tuple of (DataFrame, was_cached).
         """
-        key = self._build_key(
-            factor_name, as_of_date, version_ids, snapshot_id, config_hash
-        )
+        key = self._build_key(factor_name, as_of_date, version_ids, snapshot_id, config_hash)
         cache_path = self._get_cache_path(key)
 
         # Try to get from cache
@@ -288,9 +286,7 @@ class DiskExpressionCache:
         Returns:
             DataFrame or None if not cached/expired.
         """
-        key = self._build_key(
-            factor_name, as_of_date, version_ids, snapshot_id, config_hash
-        )
+        key = self._build_key(factor_name, as_of_date, version_ids, snapshot_id, config_hash)
         cache_path = self._get_cache_path(key)
 
         with self._lock:
@@ -327,9 +323,7 @@ class DiskExpressionCache:
             config_hash: Configuration hash.
             data: DataFrame to cache.
         """
-        key = self._build_key(
-            factor_name, as_of_date, version_ids, snapshot_id, config_hash
-        )
+        key = self._build_key(factor_name, as_of_date, version_ids, snapshot_id, config_hash)
         cache_path = self._get_cache_path(key)
         self._atomic_write_parquet(cache_path, data)
 
@@ -416,9 +410,7 @@ class DiskExpressionCache:
 
             self._delete_index_entries(filenames)
 
-        logger.info(
-            f"Invalidated {count} entries for dataset {dataset}={new_version}"
-        )
+        logger.info(f"Invalidated {count} entries for dataset {dataset}={new_version}")
         return count
 
     def invalidate_by_config_change(self, factor_name: str) -> int:
@@ -507,8 +499,7 @@ class DiskExpressionCache:
 
                 # Get all indexed filenames for orphan detection
                 indexed_files = {
-                    row[0]
-                    for row in conn.execute("SELECT filename FROM cache_index").fetchall()
+                    row[0] for row in conn.execute("SELECT filename FROM cache_index").fetchall()
                 }
 
             # Remove expired entries from disk
@@ -680,7 +671,9 @@ class DiskExpressionCache:
         if not filenames:
             return
         with self._index_connection() as conn:
-            conn.executemany("DELETE FROM cache_index WHERE filename = ?", [(f,) for f in filenames])
+            conn.executemany(
+                "DELETE FROM cache_index WHERE filename = ?", [(f,) for f in filenames]
+            )
 
     def _migrate_legacy_index(self) -> None:
         """One-time migration from JSON index to SQLite for backward compatibility."""

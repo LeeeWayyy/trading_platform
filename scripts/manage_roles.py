@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
-from datetime import UTC, datetime
 
 import psycopg
 
@@ -77,7 +75,9 @@ def grant_strategy(args: argparse.Namespace) -> None:
 
 def list_users(_: argparse.Namespace) -> None:
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT user_id, role, session_version, updated_at FROM user_roles ORDER BY user_id")
+        cur.execute(
+            "SELECT user_id, role, session_version, updated_at FROM user_roles ORDER BY user_id"
+        )
         rows = cur.fetchall()
     for row in rows:
         print(f"{row[0]:<35} {row[1]:<10} v{row[2]} updated {row[3]}")

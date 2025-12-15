@@ -10,7 +10,6 @@ Tests cover:
 from __future__ import annotations
 
 import sys
-from datetime import date
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -52,7 +51,11 @@ auth_permissions_stub.has_permission = _has_permission
 auth_permissions_stub.get_authorized_strategies = _get_authorized_strategies
 
 session_mgr_stub = type(sys)("apps.web_console.auth.session_manager")
-session_mgr_stub.get_current_user = lambda: {"role": "viewer", "user_id": "u1", "strategies": ["s1"]}
+session_mgr_stub.get_current_user = lambda: {
+    "role": "viewer",
+    "user_id": "u1",
+    "strategies": ["s1"],
+}
 session_mgr_stub.get_session_cookie = lambda: None
 
 
@@ -154,7 +157,7 @@ from apps.web_console.components.var_chart import (
 )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_factor_exposures():
     """Sample factor exposures for testing."""
     return [
@@ -167,7 +170,7 @@ def sample_factor_exposures():
     ]
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_risk_metrics():
     """Sample risk metrics for testing."""
     return {
@@ -180,7 +183,7 @@ def sample_risk_metrics():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_stress_tests():
     """Sample stress test results for testing."""
     return [
@@ -213,7 +216,7 @@ def sample_stress_tests():
     ]
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_var_history():
     """Sample VaR history for testing."""
     return [
@@ -308,9 +311,7 @@ class TestFactorExposureChart:
         """Test rendering with empty exposures."""
         dummy_st = DummyStreamlit()
 
-        with patch(
-            "apps.web_console.components.factor_exposure_chart.st", dummy_st
-        ):
+        with patch("apps.web_console.components.factor_exposure_chart.st", dummy_st):
             render_factor_exposure([])
 
         assert any("No factor" in msg for msg in dummy_st._infos)
@@ -319,9 +320,7 @@ class TestFactorExposureChart:
         """Test rendering with valid exposures creates chart."""
         dummy_st = DummyStreamlit()
 
-        with patch(
-            "apps.web_console.components.factor_exposure_chart.st", dummy_st
-        ):
+        with patch("apps.web_console.components.factor_exposure_chart.st", dummy_st):
             render_factor_exposure(sample_factor_exposures)
 
         # Should create a plotly chart
@@ -332,9 +331,7 @@ class TestFactorExposureChart:
         dummy_st = DummyStreamlit()
         exposures = [{"exposure": 0.5}]  # missing factor_name
 
-        with patch(
-            "apps.web_console.components.factor_exposure_chart.st", dummy_st
-        ):
+        with patch("apps.web_console.components.factor_exposure_chart.st", dummy_st):
             render_factor_exposure(exposures)
 
         # Validator filters invalid entries; empty result shows info message
@@ -560,9 +557,7 @@ class TestApiClient:
         from apps.web_console.utils import api_client
 
         user = {"user_id": "u1", "role": "admin", "strategies": ["s1", "s2"]}
-        monkeypatch.setattr(
-            api_client, "get_authorized_strategies", lambda _: ["s1", "s2"]
-        )
+        monkeypatch.setattr(api_client, "get_authorized_strategies", lambda _: ["s1", "s2"])
 
         headers = api_client.get_auth_headers(user)
         assert headers["X-User-Id"] == "u1"

@@ -23,9 +23,7 @@ class MockTradingCalendar:
             return False
         return date not in self.holidays
 
-    def trading_days_between(
-        self, start: datetime.date, end: datetime.date
-    ) -> list[datetime.date]:
+    def trading_days_between(self, start: datetime.date, end: datetime.date) -> list[datetime.date]:
         days = []
         current = start
         while current <= end:
@@ -82,9 +80,7 @@ class TestDataValidator:
 
     # Row count validation tests
 
-    def test_row_count_within_tolerance_passes(
-        self, validator: DataValidator
-    ) -> None:
+    def test_row_count_within_tolerance_passes(self, validator: DataValidator) -> None:
         """Test row count validation passes within tolerance."""
         df = pl.DataFrame({"a": range(100)})
 
@@ -92,9 +88,7 @@ class TestDataValidator:
 
         assert len(errors) == 0
 
-    def test_row_count_at_tolerance_boundary_passes(
-        self, validator: DataValidator
-    ) -> None:
+    def test_row_count_at_tolerance_boundary_passes(self, validator: DataValidator) -> None:
         """Test row count at exactly tolerance boundary passes."""
         df = pl.DataFrame({"a": range(95)})  # 5% below 100
 
@@ -102,9 +96,7 @@ class TestDataValidator:
 
         assert len(errors) == 0
 
-    def test_row_count_exceeds_tolerance_fails(
-        self, validator: DataValidator
-    ) -> None:
+    def test_row_count_exceeds_tolerance_fails(self, validator: DataValidator) -> None:
         """Test row count validation fails when exceeding tolerance."""
         df = pl.DataFrame({"a": range(80)})  # 20% below 100
 
@@ -116,25 +108,25 @@ class TestDataValidator:
 
     # Null percentage tests
 
-    def test_null_percentage_below_threshold_passes(
-        self, validator: DataValidator
-    ) -> None:
+    def test_null_percentage_below_threshold_passes(self, validator: DataValidator) -> None:
         """Test null percentage detection passes below threshold."""
-        df = pl.DataFrame({
-            "a": [1, 2, 3, None, 5],  # 20% null
-        })
+        df = pl.DataFrame(
+            {
+                "a": [1, 2, 3, None, 5],  # 20% null
+            }
+        )
 
         errors = validator.validate_null_percentage(df, {"a": 0.25})
 
         assert len(errors) == 0
 
-    def test_null_percentage_above_threshold_fails(
-        self, validator: DataValidator
-    ) -> None:
+    def test_null_percentage_above_threshold_fails(self, validator: DataValidator) -> None:
         """Test null percentage detection fails above threshold."""
-        df = pl.DataFrame({
-            "a": [1, None, None, None, 5],  # 60% null
-        })
+        df = pl.DataFrame(
+            {
+                "a": [1, None, None, None, 5],  # 60% null
+            }
+        )
 
         errors = validator.validate_null_percentage(df, {"a": 0.10})
 
@@ -159,9 +151,7 @@ class TestDataValidator:
         finally:
             path.unlink()
 
-    def test_sha256_checksum_verification_success(
-        self, validator: DataValidator
-    ) -> None:
+    def test_sha256_checksum_verification_success(self, validator: DataValidator) -> None:
         """Test SHA-256 checksum verification succeeds."""
         with tempfile.NamedTemporaryFile(delete=False) as f:
             f.write(b"test content")
@@ -176,9 +166,7 @@ class TestDataValidator:
         finally:
             path.unlink()
 
-    def test_sha256_checksum_verification_failure(
-        self, validator: DataValidator
-    ) -> None:
+    def test_sha256_checksum_verification_failure(self, validator: DataValidator) -> None:
         """Test SHA-256 checksum verification fails on mismatch."""
         with tempfile.NamedTemporaryFile(delete=False) as f:
             f.write(b"test content")
@@ -192,9 +180,7 @@ class TestDataValidator:
         finally:
             path.unlink()
 
-    def test_aggregate_checksum_multiple_files(
-        self, validator: DataValidator
-    ) -> None:
+    def test_aggregate_checksum_multiple_files(self, validator: DataValidator) -> None:
         """Test aggregate checksum computation for multiple files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = []
@@ -208,9 +194,7 @@ class TestDataValidator:
             assert len(checksum) == 64
             assert checksum.isalnum()
 
-    def test_aggregate_checksum_deterministic_ordering(
-        self, validator: DataValidator
-    ) -> None:
+    def test_aggregate_checksum_deterministic_ordering(self, validator: DataValidator) -> None:
         """Test aggregate checksum is deterministic regardless of input order."""
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = []
@@ -225,9 +209,7 @@ class TestDataValidator:
 
             assert checksum1 == checksum2
 
-    def test_aggregate_checksum_verification_success(
-        self, validator: DataValidator
-    ) -> None:
+    def test_aggregate_checksum_verification_success(self, validator: DataValidator) -> None:
         """Test aggregate checksum verification succeeds."""
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = []
@@ -263,59 +245,63 @@ class TestDataValidator:
 
     # Schema validation tests
 
-    def test_schema_validation_matches_expected(
-        self, validator: DataValidator
-    ) -> None:
+    def test_schema_validation_matches_expected(self, validator: DataValidator) -> None:
         """Test schema validation passes when schema matches."""
-        df = pl.DataFrame({
-            "int_col": [1, 2, 3],
-            "str_col": ["a", "b", "c"],
-        }).cast({"int_col": pl.Int64, "str_col": pl.Utf8})
+        df = pl.DataFrame(
+            {
+                "int_col": [1, 2, 3],
+                "str_col": ["a", "b", "c"],
+            }
+        ).cast({"int_col": pl.Int64, "str_col": pl.Utf8})
 
-        errors = validator.validate_schema(df, {
-            "int_col": "int64",
-            "str_col": "str",
-        })
+        errors = validator.validate_schema(
+            df,
+            {
+                "int_col": "int64",
+                "str_col": "str",
+            },
+        )
 
         # Filter to only errors (not warnings)
         schema_errors = [e for e in errors if e.severity == "error"]
         assert len(schema_errors) == 0
 
-    def test_schema_validation_missing_columns(
-        self, validator: DataValidator
-    ) -> None:
+    def test_schema_validation_missing_columns(self, validator: DataValidator) -> None:
         """Test schema validation detects missing columns."""
         df = pl.DataFrame({"a": [1, 2, 3]})
 
-        errors = validator.validate_schema(df, {
-            "a": "int64",
-            "b": "str",  # Missing
-        })
+        errors = validator.validate_schema(
+            df,
+            {
+                "a": "int64",
+                "b": "str",  # Missing
+            },
+        )
 
         assert len(errors) >= 1
         assert any("Missing column" in e.message for e in errors)
 
-    def test_schema_validation_extra_columns_warning(
-        self, validator: DataValidator
-    ) -> None:
+    def test_schema_validation_extra_columns_warning(self, validator: DataValidator) -> None:
         """Test schema validation warns on extra columns."""
-        df = pl.DataFrame({
-            "a": [1, 2, 3],
-            "b": ["x", "y", "z"],  # Extra
-        })
+        df = pl.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": ["x", "y", "z"],  # Extra
+            }
+        )
 
         errors = validator.validate_schema(df, {"a": "int64"})
 
         assert any(e.severity == "warning" for e in errors)
         assert any("Unexpected column" in e.message for e in errors)
 
-    def test_schema_validation_dtype_mapping(
-        self, validator: DataValidator
-    ) -> None:
+    def test_schema_validation_dtype_mapping(self, validator: DataValidator) -> None:
         """Test schema validation maps string dtype to polars type."""
-        df = pl.DataFrame({
-            "col": [1, 2, 3],
-        }).cast({"col": pl.Int64})
+        df = pl.DataFrame(
+            {
+                "col": [1, 2, 3],
+            }
+        ).cast({"col": pl.Int64})
 
         # Test various aliases
         for dtype_str in ["int64", "Int64", "INT64"]:
@@ -323,9 +309,7 @@ class TestDataValidator:
             schema_errors = [e for e in errors if e.severity == "error"]
             assert len(schema_errors) == 0
 
-    def test_schema_validation_unknown_dtype_error(
-        self, validator: DataValidator
-    ) -> None:
+    def test_schema_validation_unknown_dtype_error(self, validator: DataValidator) -> None:
         """Test schema validation raises error for unknown dtype."""
         df = pl.DataFrame({"col": [1, 2, 3]})
 
@@ -335,9 +319,7 @@ class TestDataValidator:
 
     # Date continuity tests
 
-    def test_date_continuity_no_gaps_passes(
-        self, validator: DataValidator
-    ) -> None:
+    def test_date_continuity_no_gaps_passes(self, validator: DataValidator) -> None:
         """Test date continuity passes with no gaps."""
         dates = [
             datetime.date(2024, 1, 1),  # Monday
@@ -352,9 +334,7 @@ class TestDataValidator:
 
         assert len(errors) == 0
 
-    def test_date_continuity_with_gaps_fails(
-        self, validator: DataValidator
-    ) -> None:
+    def test_date_continuity_with_gaps_fails(self, validator: DataValidator) -> None:
         """Test date continuity fails with gaps."""
         dates = [
             datetime.date(2024, 1, 1),  # Monday
@@ -370,9 +350,7 @@ class TestDataValidator:
         assert len(errors) == 1
         assert "Missing" in errors[0].message
 
-    def test_date_continuity_excludes_holidays(
-        self, validator: DataValidator
-    ) -> None:
+    def test_date_continuity_excludes_holidays(self, validator: DataValidator) -> None:
         """Test date continuity excludes holidays from gap detection."""
         dates = [
             datetime.date(2024, 1, 1),  # Monday
@@ -390,17 +368,15 @@ class TestDataValidator:
         # Should pass - Jan 3 is a holiday
         assert len(errors) == 0
 
-    def test_date_continuity_handles_datetime_column(
-        self, validator: DataValidator
-    ) -> None:
+    def test_date_continuity_handles_datetime_column(self, validator: DataValidator) -> None:
         """Test date continuity correctly normalizes datetime columns to date."""
         # Use datetime values instead of date values
         datetimes = [
             datetime.datetime(2024, 1, 1, 10, 30, 0),  # Monday
-            datetime.datetime(2024, 1, 2, 14, 0, 0),   # Tuesday
-            datetime.datetime(2024, 1, 3, 9, 15, 0),   # Wednesday
+            datetime.datetime(2024, 1, 2, 14, 0, 0),  # Tuesday
+            datetime.datetime(2024, 1, 3, 9, 15, 0),  # Wednesday
             datetime.datetime(2024, 1, 4, 11, 45, 0),  # Thursday
-            datetime.datetime(2024, 1, 5, 16, 0, 0),   # Friday
+            datetime.datetime(2024, 1, 5, 16, 0, 0),  # Friday
         ]
         df = pl.DataFrame({"timestamp": datetimes})
 
@@ -409,17 +385,15 @@ class TestDataValidator:
         # Should pass - all weekdays present despite different times
         assert len(errors) == 0
 
-    def test_date_continuity_handles_datetime_with_gaps(
-        self, validator: DataValidator
-    ) -> None:
+    def test_date_continuity_handles_datetime_with_gaps(self, validator: DataValidator) -> None:
         """Test date continuity detects gaps in datetime columns."""
         # Use datetime values with a gap on Wednesday
         datetimes = [
             datetime.datetime(2024, 1, 1, 10, 30, 0),  # Monday
-            datetime.datetime(2024, 1, 2, 14, 0, 0),   # Tuesday
+            datetime.datetime(2024, 1, 2, 14, 0, 0),  # Tuesday
             # Missing Wednesday
             datetime.datetime(2024, 1, 4, 11, 45, 0),  # Thursday
-            datetime.datetime(2024, 1, 5, 16, 0, 0),   # Friday
+            datetime.datetime(2024, 1, 5, 16, 0, 0),  # Friday
         ]
         df = pl.DataFrame({"timestamp": datetimes})
 
@@ -431,9 +405,7 @@ class TestDataValidator:
 
     # Anomaly detection tests
 
-    def test_anomaly_detection_row_count_drop(
-        self, validator: DataValidator
-    ) -> None:
+    def test_anomaly_detection_row_count_drop(self, validator: DataValidator) -> None:
         """Test anomaly detection catches row count drop > 10%."""
         current = {"row_count": 80}
         previous = {"row_count": 100}  # 20% drop
@@ -443,9 +415,7 @@ class TestDataValidator:
         assert len(alerts) >= 1
         assert any(a.metric == "row_count" for a in alerts)
 
-    def test_anomaly_detection_null_spike(
-        self, validator: DataValidator
-    ) -> None:
+    def test_anomaly_detection_null_spike(self, validator: DataValidator) -> None:
         """Test anomaly detection catches null spike > 5%."""
         current = {
             "row_count": 100,
@@ -461,9 +431,7 @@ class TestDataValidator:
         assert len(alerts) >= 1
         assert any("null" in a.metric.lower() for a in alerts)
 
-    def test_anomaly_detection_missing_date_ranges(
-        self, validator: DataValidator
-    ) -> None:
+    def test_anomaly_detection_missing_date_ranges(self, validator: DataValidator) -> None:
         """Test anomaly detection catches missing date ranges."""
         current = {
             "row_count": 100,
@@ -485,9 +453,7 @@ class TestDataValidator:
         assert len(alerts) >= 1
         assert any(a.metric == "date_gap" for a in alerts)
 
-    def test_anomaly_detection_combined_anomalies(
-        self, validator: DataValidator
-    ) -> None:
+    def test_anomaly_detection_combined_anomalies(self, validator: DataValidator) -> None:
         """Test anomaly detection catches multiple issues together."""
         current = {
             "row_count": 50,  # 50% drop
@@ -506,9 +472,7 @@ class TestDataValidator:
         assert "row_count" in metrics
         assert any("null" in m for m in metrics)
 
-    def test_anomaly_detection_first_sync_no_alerts(
-        self, validator: DataValidator
-    ) -> None:
+    def test_anomaly_detection_first_sync_no_alerts(self, validator: DataValidator) -> None:
         """Test anomaly detection returns empty for first sync (no previous)."""
         current = {"row_count": 100}
 

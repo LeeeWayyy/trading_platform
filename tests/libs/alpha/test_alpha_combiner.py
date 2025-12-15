@@ -21,19 +21,17 @@ from libs.alpha.alpha_combiner import (
     AlphaCombiner,
     CombinerConfig,
     CombineResult,
-    CorrelationAnalysisResult,
     TurnoverAdapter,
     WeightingMethod,
     _winsorize,
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_signal_momentum() -> pl.DataFrame:
     """Sample momentum signal with 60 days of data."""
     dates = [date(2024, 1, 1) + timedelta(days=i) for i in range(60)]
@@ -49,7 +47,7 @@ def sample_signal_momentum() -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_signal_value() -> pl.DataFrame:
     """Sample value signal with 60 days of data."""
     dates = [date(2024, 1, 1) + timedelta(days=i) for i in range(60)]
@@ -65,7 +63,7 @@ def sample_signal_value() -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_returns() -> pl.DataFrame:
     """Sample forward returns with 60 days of data."""
     dates = [date(2024, 1, 1) + timedelta(days=i) for i in range(60)]
@@ -81,7 +79,7 @@ def sample_returns() -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
-@pytest.fixture
+@pytest.fixture()
 def signals_dict(
     sample_signal_momentum: pl.DataFrame, sample_signal_value: pl.DataFrame
 ) -> dict[str, pl.DataFrame]:
@@ -231,9 +229,7 @@ class TestSignalAlignment:
 class TestSchemaValidation:
     """Tests for schema validation."""
 
-    def test_validate_signals_correct_schema(
-        self, sample_signal_momentum: pl.DataFrame
-    ) -> None:
+    def test_validate_signals_correct_schema(self, sample_signal_momentum: pl.DataFrame) -> None:
         """Test 7: Valid schema passes."""
         combiner = AlphaCombiner()
 
@@ -283,7 +279,7 @@ class TestEqualWeighting:
         combiner = AlphaCombiner()
         weights = combiner._compute_equal_weights(["a", "b", "c", "d", "e"])
 
-        for name, weight in weights.items():
+        for _name, weight in weights.items():
             assert abs(weight - 0.2) < 1e-10
 
     def test_equal_weights_sum_to_one(self) -> None:
@@ -613,9 +609,7 @@ class TestVolParityWeighting:
         # Stable should have higher weight
         assert weights["stable"] > weights["volatile"]
 
-    def test_vol_parity_no_returns_needed(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_vol_parity_no_returns_needed(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 24: Works without returns."""
         config = CombinerConfig(weighting=WeightingMethod.VOL_PARITY)
         combiner = AlphaCombiner(config=config)
@@ -627,9 +621,7 @@ class TestVolParityWeighting:
 
         assert len(weights) == 2
 
-    def test_vol_parity_sum_to_one(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_vol_parity_sum_to_one(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 25: Verify sum = 1.0."""
         config = CombinerConfig(weighting=WeightingMethod.VOL_PARITY)
         combiner = AlphaCombiner(config=config)
@@ -806,9 +798,7 @@ class TestVolParityWeighting:
 class TestNormalization:
     """Tests for signal normalization."""
 
-    def test_normalize_signals_zscore(
-        self, sample_signal_momentum: pl.DataFrame
-    ) -> None:
+    def test_normalize_signals_zscore(self, sample_signal_momentum: pl.DataFrame) -> None:
         """Test 28: Cross-sectional z-score."""
         combiner = AlphaCombiner()
         normalized = combiner._normalize_signals({"mom": sample_signal_momentum})
@@ -897,9 +887,7 @@ class TestNormalization:
 class TestCorrelationAnalysis:
     """Tests for correlation analysis."""
 
-    def test_correlation_matrix_symmetric(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_correlation_matrix_symmetric(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 33: Full matrix, upper mirrors lower."""
         combiner = AlphaCombiner()
         result = combiner.compute_correlation_matrix(
@@ -908,19 +896,21 @@ class TestCorrelationAnalysis:
 
         # Find (mom, val) and (val, mom) correlations
         corr_df = result.correlation_matrix
-        mom_val = corr_df.filter(
-            (pl.col("signal_i") == "momentum") & (pl.col("signal_j") == "value")
-        ).select("pearson").item()
+        mom_val = (
+            corr_df.filter((pl.col("signal_i") == "momentum") & (pl.col("signal_j") == "value"))
+            .select("pearson")
+            .item()
+        )
 
-        val_mom = corr_df.filter(
-            (pl.col("signal_i") == "value") & (pl.col("signal_j") == "momentum")
-        ).select("pearson").item()
+        val_mom = (
+            corr_df.filter((pl.col("signal_i") == "value") & (pl.col("signal_j") == "momentum"))
+            .select("pearson")
+            .item()
+        )
 
         assert abs(mom_val - val_mom) < 1e-10
 
-    def test_correlation_diagonal_one(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_correlation_diagonal_one(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 34: Self-correlation = 1.0."""
         combiner = AlphaCombiner()
         result = combiner.compute_correlation_matrix(
@@ -928,9 +918,11 @@ class TestCorrelationAnalysis:
         )
 
         corr_df = result.correlation_matrix
-        mom_mom = corr_df.filter(
-            (pl.col("signal_i") == "momentum") & (pl.col("signal_j") == "momentum")
-        ).select("pearson").item()
+        mom_mom = (
+            corr_df.filter((pl.col("signal_i") == "momentum") & (pl.col("signal_j") == "momentum"))
+            .select("pearson")
+            .item()
+        )
 
         assert abs(mom_mom - 1.0) < 1e-10
 
@@ -954,9 +946,7 @@ class TestCorrelationAnalysis:
         # Should complete without error
         assert result.correlation_matrix.height > 0
 
-    def test_correlation_pearson_and_spearman(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_correlation_pearson_and_spearman(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 36: Both computed."""
         combiner = AlphaCombiner()
         result = combiner.compute_correlation_matrix(
@@ -996,9 +986,7 @@ class TestCorrelationAnalysis:
         assert len(result.highly_correlated_pairs) > 0
         assert any("highly correlated" in w.lower() for w in result.warnings)
 
-    def test_correlation_condition_number(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_correlation_condition_number(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 38: Computed correctly."""
         combiner = AlphaCombiner()
         result = combiner.compute_correlation_matrix(
@@ -1063,9 +1051,13 @@ class TestCorrelationAnalysis:
         )
 
         # Correlation between sig1 and sig2 should be NaN
-        cross_corr = result.correlation_matrix.filter(
-            (pl.col("signal_i") == "sig1") & (pl.col("signal_j") == "sig2")
-        ).select("pearson").item()
+        cross_corr = (
+            result.correlation_matrix.filter(
+                (pl.col("signal_i") == "sig1") & (pl.col("signal_j") == "sig2")
+            )
+            .select("pearson")
+            .item()
+        )
 
         assert math.isnan(cross_corr)
 
@@ -1131,9 +1123,7 @@ class TestCombineMethod:
         self, signals_dict: dict[str, pl.DataFrame], sample_returns: pl.DataFrame
     ) -> None:
         """Test 42: Full pipeline with IC."""
-        config = CombinerConfig(
-            weighting=WeightingMethod.IC, min_lookback_days=10, normalize=False
-        )
+        config = CombinerConfig(weighting=WeightingMethod.IC, min_lookback_days=10, normalize=False)
         combiner = AlphaCombiner(config=config)
 
         result = combiner.combine(
@@ -1150,9 +1140,7 @@ class TestCombineMethod:
         self, signals_dict: dict[str, pl.DataFrame], sample_returns: pl.DataFrame
     ) -> None:
         """Test 43: Full pipeline with IR."""
-        config = CombinerConfig(
-            weighting=WeightingMethod.IR, min_lookback_days=10, normalize=False
-        )
+        config = CombinerConfig(weighting=WeightingMethod.IR, min_lookback_days=10, normalize=False)
         combiner = AlphaCombiner(config=config)
 
         result = combiner.combine(
@@ -1164,13 +1152,9 @@ class TestCombineMethod:
 
         assert isinstance(result, CombineResult)
 
-    def test_combine_vol_parity_weighting(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_combine_vol_parity_weighting(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 44: Full pipeline with vol-parity."""
-        config = CombinerConfig(
-            weighting=WeightingMethod.VOL_PARITY, normalize=False
-        )
+        config = CombinerConfig(weighting=WeightingMethod.VOL_PARITY, normalize=False)
         combiner = AlphaCombiner(config=config)
 
         result = combiner.combine(
@@ -1196,9 +1180,7 @@ class TestCombineMethod:
 
         assert set(result.composite_signal.columns) == {"permno", "date", "signal"}
 
-    def test_combine_returns_required_for_ic(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_combine_returns_required_for_ic(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 46: ValueError if returns missing for IC."""
         config = CombinerConfig(weighting=WeightingMethod.IC)
         combiner = AlphaCombiner(config=config)
@@ -1214,15 +1196,11 @@ class TestCombineMethod:
         combiner = AlphaCombiner(config=config)
 
         # Should not raise
-        result = combiner.combine(
-            signals_dict, returns=None, as_of_date=date(2024, 2, 29)
-        )
+        result = combiner.combine(signals_dict, returns=None, as_of_date=date(2024, 2, 29))
 
         assert result is not None
 
-    def test_combine_warnings_propagated(
-        self, sample_returns: pl.DataFrame
-    ) -> None:
+    def test_combine_warnings_propagated(self, sample_returns: pl.DataFrame) -> None:
         """Test 48: Alignment warnings in result."""
         config = CombinerConfig(weighting=WeightingMethod.EQUAL)
         combiner = AlphaCombiner(config=config)
@@ -1414,9 +1392,7 @@ class TestLookaheadPrevention:
         combiner = AlphaCombiner(config=config)
 
         as_of = date(2024, 1, 15)
-        result = combiner.combine(
-            signals_dict, returns=sample_returns, as_of_date=as_of
-        )
+        result = combiner.combine(signals_dict, returns=sample_returns, as_of_date=as_of)
 
         # Output should only be for as_of_date
         output_dates = result.composite_signal.select("date").unique().to_series().to_list()
@@ -1589,9 +1565,7 @@ class TestLookaheadPrevention:
         # Should be day 20 (min of max dates)
         assert default_as_of == date(2024, 1, 20)
 
-    def test_combine_ir_requires_returns(
-        self, signals_dict: dict[str, pl.DataFrame]
-    ) -> None:
+    def test_combine_ir_requires_returns(self, signals_dict: dict[str, pl.DataFrame]) -> None:
         """Test 77: ValueError when IR weighting without returns."""
         config = CombinerConfig(weighting=WeightingMethod.IR)
         combiner = AlphaCombiner(config=config)

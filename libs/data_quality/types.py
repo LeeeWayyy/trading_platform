@@ -117,9 +117,7 @@ class TradingCalendar(Protocol):
         """Return True if date is a trading day."""
         ...
 
-    def trading_days_between(
-        self, start: datetime.date, end: datetime.date
-    ) -> list[datetime.date]:
+    def trading_days_between(self, start: datetime.date, end: datetime.date) -> list[datetime.date]:
         """Return list of trading days in range (inclusive)."""
         ...
 
@@ -152,9 +150,7 @@ class ExchangeCalendarAdapter:
         """Return True if date is a trading day."""
         return bool(self._cal.is_session(pd.Timestamp(date)))
 
-    def trading_days_between(
-        self, start: datetime.date, end: datetime.date
-    ) -> list[datetime.date]:
+    def trading_days_between(self, start: datetime.date, end: datetime.date) -> list[datetime.date]:
         """Return list of trading days in range (inclusive)."""
         sessions = self._cal.sessions_in_range(pd.Timestamp(start), pd.Timestamp(end))
         return [s.date() for s in sessions]

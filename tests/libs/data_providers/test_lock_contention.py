@@ -33,20 +33,24 @@ def acquire_lock_worker(
         token = lock.acquire(timeout_seconds=timeout)
         if acquired_event is not None:
             acquired_event.set()
-        result_queue.put({
-            "success": True,
-            "pid": os.getpid(),
-            "writer_id": writer_id,
-        })
+        result_queue.put(
+            {
+                "success": True,
+                "pid": os.getpid(),
+                "writer_id": writer_id,
+            }
+        )
         # Hold lock briefly
         time.sleep(hold_time)
         lock.release(token)
     except LockAcquisitionError:
-        result_queue.put({
-            "success": False,
-            "pid": os.getpid(),
-            "writer_id": writer_id,
-        })
+        result_queue.put(
+            {
+                "success": False,
+                "pid": os.getpid(),
+                "writer_id": writer_id,
+            }
+        )
 
 
 def recover_stale_lock_worker(
@@ -63,14 +67,16 @@ def recover_stale_lock_worker(
 
     # Try to recover
     success = lock._recover_stale_lock(lock_path)
-    result_queue.put({
-        "success": success,
-        "pid": os.getpid(),
-        "writer_id": writer_id,
-    })
+    result_queue.put(
+        {
+            "success": success,
+            "pid": os.getpid(),
+            "writer_id": writer_id,
+        }
+    )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mp_lock_dir() -> Path:
     """Create a temporary lock directory for multiprocessing tests."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -82,7 +88,7 @@ def mp_lock_dir() -> Path:
 class TestLockContention:
     """Tests for lock contention scenarios."""
 
-    @pytest.mark.slow
+    @pytest.mark.slow()
     def test_lock_contention_between_two_processes(self, mp_lock_dir: Path) -> None:
         """Test 12: Lock contention between two processes.
 
@@ -132,10 +138,8 @@ class TestLockContention:
         assert len(successes) == 1, "Exactly one process should acquire lock"
         assert len(failures) == 1, "Second process should timeout"
 
-    @pytest.mark.slow
-    def test_concurrent_stale_lock_recovery_deterministic_winner(
-        self, mp_lock_dir: Path
-    ) -> None:
+    @pytest.mark.slow()
+    def test_concurrent_stale_lock_recovery_deterministic_winner(self, mp_lock_dir: Path) -> None:
         """Test 13: Concurrent stale-lock recovery produces deterministic winner."""
         # Create a stale lock file
         lock_path = mp_lock_dir / "test_dataset.lock"
@@ -180,7 +184,7 @@ class TestLockContention:
         winners = [r for r in results if r["success"]]
         assert len(winners) <= 1, "At most one process should win recovery"
 
-    @pytest.mark.slow
+    @pytest.mark.slow()
     def test_split_brain_recovery_scenario(self, mp_lock_dir: Path) -> None:
         """Test 14: Split-brain scenario where two processes see stale lock simultaneously."""
         # Create a stale lock

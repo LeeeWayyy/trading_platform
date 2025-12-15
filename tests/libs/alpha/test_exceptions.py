@@ -60,9 +60,7 @@ class TestPITViolationError:
 
     def test_message_format(self):
         """Test error message format."""
-        exc = PITViolationError(
-            "Requested date 2024-01-15 but snapshot ends 2024-01-01"
-        )
+        exc = PITViolationError("Requested date 2024-01-15 but snapshot ends 2024-01-01")
         msg = str(exc)
         assert "2024-01-15" in msg
         assert "2024-01-01" in msg
@@ -74,9 +72,7 @@ class TestMissingForwardReturnError:
     def test_raise_and_catch(self):
         """Test raising and catching MissingForwardReturnError."""
         with pytest.raises(MissingForwardReturnError) as exc_info:
-            raise MissingForwardReturnError(
-                "Forward return horizon 20 exceeds snapshot end"
-            )
+            raise MissingForwardReturnError("Forward return horizon 20 exceeds snapshot end")
 
         assert "horizon" in str(exc_info.value).lower()
 
@@ -107,9 +103,7 @@ class TestInsufficientDataError:
 
     def test_typical_usage(self):
         """Test typical error message."""
-        exc = InsufficientDataError(
-            "IC calculation requires at least 30 observations, got 15"
-        )
+        exc = InsufficientDataError("IC calculation requires at least 30 observations, got 15")
         assert "30" in str(exc)
         assert "15" in str(exc)
 
@@ -149,10 +143,8 @@ class TestExceptionCatchPatterns:
         ]
 
         for error in errors:
-            try:
+            with pytest.raises(AlphaResearchError):
                 raise error
-            except AlphaResearchError as e:
-                assert isinstance(e, AlphaResearchError)
 
     def test_specific_handling(self):
         """Test handling specific exceptions differently."""
@@ -184,4 +176,3 @@ class TestExceptionCatchPatterns:
             result = "other_handled"
 
         assert result == "other_handled"
-

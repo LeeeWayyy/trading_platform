@@ -1,6 +1,3 @@
-import asyncio
-import time
-
 import pytest
 
 from apps.web_console.auth.rate_limiter import RateLimiter
@@ -93,7 +90,7 @@ class FailingRedis:
         return False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limiter_allows_within_window():
     redis = FakeRedis()
     rl = RateLimiter(redis_client=redis)
@@ -113,13 +110,13 @@ async def test_rate_limiter_allows_within_window():
     assert remaining <= 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limiter_health_check():
     rl = RateLimiter(redis_client=FakeRedis())
     assert await rl.health_check() is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limiter_denies_when_redis_unavailable_by_default():
     rl = RateLimiter(redis_client=FailingRedis())
 
@@ -129,7 +126,7 @@ async def test_rate_limiter_denies_when_redis_unavailable_by_default():
     assert remaining == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limiter_allows_when_explicitly_configured_to_allow_on_failure():
     rl = RateLimiter(redis_client=FailingRedis(), fallback_mode="allow")
 
@@ -139,7 +136,7 @@ async def test_rate_limiter_allows_when_explicitly_configured_to_allow_on_failur
     assert remaining == 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limiter_per_call_override_to_deny():
     # Instance default would allow, but explicit fallback_mode should deny
     rl = RateLimiter(redis_client=FailingRedis(), fallback_mode="allow")
@@ -150,7 +147,7 @@ async def test_rate_limiter_per_call_override_to_deny():
     assert remaining == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limiter_per_call_override_to_allow_when_default_denies():
     # Instance default denies on Redis failure, but per-call override should allow
     rl = RateLimiter(redis_client=FailingRedis(), fallback_mode="deny")

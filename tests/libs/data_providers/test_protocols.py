@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from datetime import date
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
 
 from libs.data_providers.protocols import (
+    UNIFIED_COLUMNS,
+    UNIFIED_SCHEMA,
     ConfigurationError,
     CRSPDataProviderAdapter,
     DataProvider,
@@ -24,14 +26,11 @@ from libs.data_providers.protocols import (
     ProductionProviderRequiredError,
     ProviderNotSupportedError,
     ProviderUnavailableError,
-    UNIFIED_COLUMNS,
-    UNIFIED_SCHEMA,
     YFinanceDataProviderAdapter,
 )
 
 if TYPE_CHECKING:
-    from libs.data_providers.crsp_local_provider import CRSPLocalProvider
-    from libs.data_providers.yfinance_provider import YFinanceProvider
+    pass
 
 
 # =============================================================================
@@ -43,16 +42,18 @@ if TYPE_CHECKING:
 def mock_yfinance_provider() -> MagicMock:
     """Create mock YFinanceProvider."""
     provider = MagicMock()
-    provider.get_daily_prices.return_value = pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3)],
-        "symbol": ["aapl", "aapl"],  # Lowercase to test normalization
-        "open": [180.0, 182.0],
-        "high": [185.0, 186.0],
-        "low": [178.0, 180.0],
-        "close": [183.0, 184.5],
-        "volume": [50000000.0, 48000000.0],
-        "adj_close": [183.0, 184.5],
-    })
+    provider.get_daily_prices.return_value = pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3)],
+            "symbol": ["aapl", "aapl"],  # Lowercase to test normalization
+            "open": [180.0, 182.0],
+            "high": [185.0, 186.0],
+            "low": [178.0, 180.0],
+            "close": [183.0, 184.5],
+            "volume": [50000000.0, 48000000.0],
+            "adj_close": [183.0, 184.5],
+        }
+    )
     return provider
 
 
@@ -60,16 +61,20 @@ def mock_yfinance_provider() -> MagicMock:
 def mock_crsp_provider() -> MagicMock:
     """Create mock CRSPLocalProvider."""
     provider = MagicMock()
-    provider.get_daily_prices.return_value = pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3)],
-        "ticker": ["aapl", "aapl"],  # CRSP uses ticker, lowercase to test
-        "prc": [183.0, 184.5],
-        "vol": [50000000.0, 48000000.0],
-        "ret": [0.015, 0.008],
-    })
-    provider.get_universe.return_value = pl.DataFrame({
-        "ticker": ["AAPL", "MSFT", "GOOGL"],
-    })
+    provider.get_daily_prices.return_value = pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3)],
+            "ticker": ["aapl", "aapl"],  # CRSP uses ticker, lowercase to test
+            "prc": [183.0, 184.5],
+            "vol": [50000000.0, 48000000.0],
+            "ret": [0.015, 0.008],
+        }
+    )
+    provider.get_universe.return_value = pl.DataFrame(
+        {
+            "ticker": ["AAPL", "MSFT", "GOOGL"],
+        }
+    )
     return provider
 
 
@@ -99,21 +104,15 @@ class TestProtocolCompliance:
         """YFinanceDataProviderAdapter implements DataProvider protocol."""
         assert isinstance(yfinance_adapter, DataProvider)
 
-    def test_crsp_adapter_is_data_provider(
-        self, crsp_adapter: CRSPDataProviderAdapter
-    ) -> None:
+    def test_crsp_adapter_is_data_provider(self, crsp_adapter: CRSPDataProviderAdapter) -> None:
         """CRSPDataProviderAdapter implements DataProvider protocol."""
         assert isinstance(crsp_adapter, DataProvider)
 
-    def test_yfinance_name_property(
-        self, yfinance_adapter: YFinanceDataProviderAdapter
-    ) -> None:
+    def test_yfinance_name_property(self, yfinance_adapter: YFinanceDataProviderAdapter) -> None:
         """YFinance adapter returns correct provider name."""
         assert yfinance_adapter.name == "yfinance"
 
-    def test_crsp_name_property(
-        self, crsp_adapter: CRSPDataProviderAdapter
-    ) -> None:
+    def test_crsp_name_property(self, crsp_adapter: CRSPDataProviderAdapter) -> None:
         """CRSP adapter returns correct provider name."""
         assert crsp_adapter.name == "crsp"
 
@@ -123,9 +122,7 @@ class TestProtocolCompliance:
         """yfinance returns False for is_production_ready."""
         assert yfinance_adapter.is_production_ready is False
 
-    def test_crsp_is_production_ready(
-        self, crsp_adapter: CRSPDataProviderAdapter
-    ) -> None:
+    def test_crsp_is_production_ready(self, crsp_adapter: CRSPDataProviderAdapter) -> None:
         """CRSP returns True for is_production_ready."""
         assert crsp_adapter.is_production_ready is True
 
@@ -135,9 +132,7 @@ class TestProtocolCompliance:
         """yfinance returns False for supports_universe."""
         assert yfinance_adapter.supports_universe is False
 
-    def test_crsp_supports_universe(
-        self, crsp_adapter: CRSPDataProviderAdapter
-    ) -> None:
+    def test_crsp_supports_universe(self, crsp_adapter: CRSPDataProviderAdapter) -> None:
         """CRSP returns True for supports_universe."""
         assert crsp_adapter.supports_universe is True
 
@@ -155,9 +150,7 @@ class TestYFinanceSchemaormalization:
         yfinance_adapter: YFinanceDataProviderAdapter,
     ) -> None:
         """yfinance output has all unified schema columns."""
-        df = yfinance_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = yfinance_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert list(df.columns) == UNIFIED_COLUMNS
 
     def test_yfinance_symbols_normalized_to_uppercase(
@@ -165,9 +158,7 @@ class TestYFinanceSchemaormalization:
         yfinance_adapter: YFinanceDataProviderAdapter,
     ) -> None:
         """yfinance adapter normalizes symbols to uppercase."""
-        df = yfinance_adapter.get_daily_prices(
-            ["aapl"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = yfinance_adapter.get_daily_prices(["aapl"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["symbol"].to_list() == ["AAPL", "AAPL"]
 
     def test_yfinance_ret_column_is_null(
@@ -175,9 +166,7 @@ class TestYFinanceSchemaormalization:
         yfinance_adapter: YFinanceDataProviderAdapter,
     ) -> None:
         """yfinance adapter adds null ret column (yfinance doesn't provide returns)."""
-        df = yfinance_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = yfinance_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["ret"].is_null().all()
 
     def test_yfinance_ohlc_columns_preserved(
@@ -185,9 +174,7 @@ class TestYFinanceSchemaormalization:
         yfinance_adapter: YFinanceDataProviderAdapter,
     ) -> None:
         """yfinance adapter preserves OHLC columns."""
-        df = yfinance_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = yfinance_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["open"].to_list() == [180.0, 182.0]
         assert df["high"].to_list() == [185.0, 186.0]
         assert df["low"].to_list() == [178.0, 180.0]
@@ -202,9 +189,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP output has all unified schema columns."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert list(df.columns) == UNIFIED_COLUMNS
 
     def test_crsp_ticker_renamed_to_symbol(
@@ -212,9 +197,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter renames ticker to symbol."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert "symbol" in df.columns
         assert "ticker" not in df.columns
 
@@ -223,9 +206,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter normalizes symbols to uppercase."""
-        df = crsp_adapter.get_daily_prices(
-            ["aapl"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["aapl"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["symbol"].to_list() == ["AAPL", "AAPL"]
 
     def test_crsp_prc_renamed_to_close(
@@ -233,9 +214,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter renames prc to close."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["close"].to_list() == [183.0, 184.5]
 
     def test_crsp_vol_renamed_to_volume(
@@ -243,9 +222,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter renames vol to volume."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["volume"].to_list() == [50000000.0, 48000000.0]
 
     def test_crsp_ret_column_preserved(
@@ -253,9 +230,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter preserves ret column for performance calculations."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["ret"].to_list() == [0.015, 0.008]
 
     def test_crsp_ohlc_columns_are_null(
@@ -263,9 +238,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter sets open/high/low to null (CRSP doesn't have these)."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["open"].is_null().all()
         assert df["high"].is_null().all()
         assert df["low"].is_null().all()
@@ -275,9 +248,7 @@ class TestCRSPSchemaNormalization:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter sets adj_close to null (prc is NOT split-adjusted)."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["adj_close"].is_null().all()
 
 
@@ -290,12 +261,8 @@ class TestSchemaConsistency:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """Both adapters return columns in same canonical order."""
-        yf_df = yfinance_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
-        crsp_df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        yf_df = yfinance_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
+        crsp_df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert list(yf_df.columns) == list(crsp_df.columns)
         assert list(yf_df.columns) == UNIFIED_COLUMNS
 
@@ -304,9 +271,7 @@ class TestSchemaConsistency:
         yfinance_adapter: YFinanceDataProviderAdapter,
     ) -> None:
         """yfinance adapter returns correct dtypes per unified schema."""
-        df = yfinance_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = yfinance_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         # Verify date column is pl.Date (not Datetime)
         assert df.schema["date"] == pl.Date
         # Verify symbol is Utf8
@@ -321,9 +286,7 @@ class TestSchemaConsistency:
         crsp_adapter: CRSPDataProviderAdapter,
     ) -> None:
         """CRSP adapter returns correct dtypes per unified schema."""
-        df = crsp_adapter.get_daily_prices(
-            ["AAPL"], date(2024, 1, 1), date(2024, 1, 31)
-        )
+        df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         # Verify date column is pl.Date (not Datetime)
         assert df.schema["date"] == pl.Date
         # Verify symbol is Utf8
@@ -355,9 +318,11 @@ class TestUniverseOperations:
         mock_crsp_provider: MagicMock,
     ) -> None:
         """CRSP get_universe returns uppercase symbols."""
-        mock_crsp_provider.get_universe.return_value = pl.DataFrame({
-            "ticker": ["aapl", "msft"],
-        })
+        mock_crsp_provider.get_universe.return_value = pl.DataFrame(
+            {
+                "ticker": ["aapl", "msft"],
+            }
+        )
         adapter = CRSPDataProviderAdapter(mock_crsp_provider)
         symbols = adapter.get_universe(date(2024, 1, 15))
         assert symbols == ["AAPL", "MSFT"]
@@ -441,10 +406,12 @@ class TestInputValidation:
     ) -> None:
         """yfinance adapter raises ValueError when required columns are missing."""
         # Missing date and close
-        mock_yfinance_provider.get_daily_prices.return_value = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "volume": [50000000.0],
-        })
+        mock_yfinance_provider.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "volume": [50000000.0],
+            }
+        )
         adapter = YFinanceDataProviderAdapter(mock_yfinance_provider)
 
         with pytest.raises(ValueError, match="missing required columns"):
@@ -455,11 +422,13 @@ class TestInputValidation:
         mock_yfinance_provider: MagicMock,
     ) -> None:
         """yfinance adapter raises ValueError when symbol column is missing."""
-        mock_yfinance_provider.get_daily_prices.return_value = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "close": [183.0],
-            "volume": [50000000.0],
-        })
+        mock_yfinance_provider.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "close": [183.0],
+                "volume": [50000000.0],
+            }
+        )
         adapter = YFinanceDataProviderAdapter(mock_yfinance_provider)
 
         with pytest.raises(ValueError, match="missing required columns.*symbol"):
@@ -470,12 +439,14 @@ class TestInputValidation:
         mock_crsp_provider: MagicMock,
     ) -> None:
         """CRSP adapter raises ValueError when date column is missing."""
-        mock_crsp_provider.get_daily_prices.return_value = pl.DataFrame({
-            "ticker": ["AAPL"],
-            "prc": [183.0],
-            "vol": [50000000.0],
-            "ret": [0.015],
-        })
+        mock_crsp_provider.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "ticker": ["AAPL"],
+                "prc": [183.0],
+                "vol": [50000000.0],
+                "ret": [0.015],
+            }
+        )
         adapter = CRSPDataProviderAdapter(mock_crsp_provider)
 
         with pytest.raises(ValueError, match="must contain 'date' column"):
@@ -487,13 +458,15 @@ class TestInputValidation:
     ) -> None:
         """CRSP adapter raises ValueError when required columns are missing after rename."""
         # Missing ret column (required for CRSP)
-        mock_crsp_provider.get_daily_prices.return_value = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "ticker": ["AAPL"],
-            "prc": [183.0],
-            "vol": [50000000.0],
-            # Missing ret
-        })
+        mock_crsp_provider.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "ticker": ["AAPL"],
+                "prc": [183.0],
+                "vol": [50000000.0],
+                # Missing ret
+            }
+        )
         adapter = CRSPDataProviderAdapter(mock_crsp_provider)
 
         with pytest.raises(ValueError, match="missing required columns.*ret"):

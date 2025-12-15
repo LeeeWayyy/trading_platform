@@ -6,7 +6,7 @@ from apps.web_console.auth.rate_limiter import RateLimiter
 from tests.apps.web_console.auth.test_rate_limiter import FakeRedis
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limiter_handles_burst():
     redis = FakeRedis()
     rl = RateLimiter(redis_client=redis)

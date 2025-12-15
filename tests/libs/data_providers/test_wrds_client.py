@@ -5,14 +5,12 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock, patch
 
-import polars as pl
 import pytest
-from pydantic import SecretStr
 
 from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_secret_manager() -> MagicMock:
     """Create a mock secret manager."""
     manager = MagicMock()
@@ -23,7 +21,7 @@ def mock_secret_manager() -> MagicMock:
     return manager
 
 
-@pytest.fixture
+@pytest.fixture()
 def config() -> WRDSConfig:
     """Create a test config."""
     return WRDSConfig(
@@ -184,9 +182,7 @@ class TestWRDSClientCredentials:
         mock_secret_manager.get_secret.assert_any_call("wrds/username")
         mock_secret_manager.get_secret.assert_any_call("wrds/password")
 
-    def test_credential_caching(
-        self, config: WRDSConfig, mock_secret_manager: MagicMock
-    ) -> None:
+    def test_credential_caching(self, config: WRDSConfig, mock_secret_manager: MagicMock) -> None:
         """Test credential caching to avoid repeated lookups."""
         client = WRDSClient(config, mock_secret_manager)
 

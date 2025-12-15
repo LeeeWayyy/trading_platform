@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from datetime import date
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -48,7 +48,11 @@ auth_permissions_stub.has_permission = _has_permission
 auth_permissions_stub.get_authorized_strategies = _get_authorized_strategies
 
 session_mgr_stub = type(sys)("apps.web_console.auth.session_manager")
-session_mgr_stub.get_current_user = lambda: {"role": "viewer", "user_id": "u1", "strategies": ["s1"]}
+session_mgr_stub.get_current_user = lambda: {
+    "role": "viewer",
+    "user_id": "u1",
+    "strategies": ["s1"],
+}
 
 
 def _require_auth(func):
@@ -108,7 +112,7 @@ from apps.web_console.utils.validators import (
 )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_scoped_access():
     """Create a mock StrategyScopedDataAccess."""
     return MockStrategyScopedDataAccess(
@@ -118,7 +122,7 @@ def mock_scoped_access():
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_positions():
     """Sample position data for testing."""
     return [
@@ -128,7 +132,7 @@ def sample_positions():
     ]
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_risk_metrics():
     """Sample risk metrics for testing."""
     return {
@@ -141,7 +145,7 @@ def sample_risk_metrics():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_factor_exposures():
     """Sample factor exposures for testing."""
     return [
@@ -154,7 +158,7 @@ def sample_factor_exposures():
     ]
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_stress_tests():
     """Sample stress test results for testing."""
     return [
@@ -227,7 +231,7 @@ class TestValidators:
 class TestRiskService:
     """Tests for RiskService."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_risk_dashboard_data_no_positions(self, mock_scoped_access):
         """Test that empty positions returns empty dashboard data."""
         service = RiskService(mock_scoped_access)
@@ -239,7 +243,7 @@ class TestRiskService:
         assert result.stress_tests == []
         assert result.var_history == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_risk_dashboard_data_with_positions(
         self, mock_scoped_access, sample_positions
     ):
@@ -326,20 +330,18 @@ class TestRiskService:
         assert "RATE_HIKE_2022" in scenario_names
         assert "RATE_SHOCK" in scenario_names
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_no_db(self, mock_scoped_access):
         """Test VaR history with no database connection."""
         # Mock get_pnl_summary to raise RuntimeError (no db)
-        mock_scoped_access.get_pnl_summary = AsyncMock(
-            side_effect=RuntimeError("No db_pool")
-        )
+        mock_scoped_access.get_pnl_summary = AsyncMock(side_effect=RuntimeError("No db_pool"))
 
         service = RiskService(mock_scoped_access)
         result = await service._get_var_history()
 
         assert result == []
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_with_data(self, mock_scoped_access):
         """Test VaR history computation from P&L data without portfolio_value.
 
@@ -361,7 +363,7 @@ class TestRiskService:
         assert result[0]["var_95"] == 0.0
         assert result[1]["var_95"] == 0.0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_var_history_scales_by_notional(self, mock_scoped_access):
         """VaR history scales P&L to percentage when notional provided."""
         pnl_data = [

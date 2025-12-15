@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import sys
 from datetime import date
-from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
 import requests
@@ -28,20 +27,29 @@ auth_permissions_stub.Permission = type(
     {"VIEW_PNL": "view_pnl", "VIEW_ALL_STRATEGIES": "view_all_strategies"},
 )
 
+
 def _has_permission(user, permission):
     return True
 
+
 def _get_authorized_strategies(user):
     return user.get("strategies", []) if isinstance(user, dict) else []
+
 
 auth_permissions_stub.has_permission = _has_permission
 auth_permissions_stub.get_authorized_strategies = _get_authorized_strategies
 
 session_mgr_stub = type(sys)("apps.web_console.auth.session_manager")
-session_mgr_stub.get_current_user = lambda: {"role": "viewer", "user_id": "u1", "strategies": ["s1"]}
+session_mgr_stub.get_current_user = lambda: {
+    "role": "viewer",
+    "user_id": "u1",
+    "strategies": ["s1"],
+}
+
 
 def _require_auth(func):
     return func
+
 
 session_mgr_stub.require_auth = _require_auth
 
@@ -50,18 +58,32 @@ sys.modules.setdefault("apps.web_console.auth.session_manager", session_mgr_stub
 
 # Stub components package to avoid importing bulk_operations (pulls full auth stack)
 pnl_chart_stub = type(sys)("apps.web_console.components.pnl_chart")
-def _get_value(item, key): return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+
+
+def _get_value(item, key):
+    return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+
+
 def _as_float(value):
     try:
         return float(value)
     except Exception:
         return 0.0
+
+
 class _DummyFig:
-    def __init__(self): self.data = [1]
+    def __init__(self):
+        self.data = [1]
+
+
 def _dummy_render_equity_curve(daily):
     return None if not daily else _DummyFig()
+
+
 def _dummy_render_drawdown_chart(daily):
     return None if not daily else _DummyFig()
+
+
 pnl_chart_stub._get_value = _get_value
 pnl_chart_stub._as_float = _as_float
 pnl_chart_stub.render_equity_curve = _dummy_render_equity_curve
@@ -77,8 +99,8 @@ strategy_stub = type(sys)("apps.web_console.data.strategy_scoped_queries")
 strategy_stub.StrategyScopedDataAccess = object
 sys.modules.setdefault("apps.web_console.data.strategy_scoped_queries", strategy_stub)
 
-from apps.web_console.pages import performance as perf_page
 from apps.web_console.components import pnl_chart
+from apps.web_console.pages import performance as perf_page
 
 
 @pytest.fixture(autouse=True)
@@ -164,12 +186,14 @@ def mock_streamlit(monkeypatch):
 
     dummy = DummyStreamlit()
     monkeypatch.setattr(perf_page, "st", dummy)
-    yield dummy
+    return dummy
 
 
 class TestPerformancePage:
     def test_safe_current_user_handles_missing_context(self, monkeypatch):
-        monkeypatch.setattr(perf_page, "get_current_user", lambda: (_ for _ in ()).throw(RuntimeError("no session")))
+        monkeypatch.setattr(
+            perf_page, "get_current_user", lambda: (_ for _ in ()).throw(RuntimeError("no session"))
+        )
         assert perf_page._safe_current_user() == {}
 
     def test_fetch_adds_rbac_headers(self, monkeypatch):
@@ -256,7 +280,9 @@ class TestPerformancePage:
         perf_page.render_historical_performance(date(2024, 1, 1), date(2024, 1, 2), ["s1"])
 
     def test_render_no_data(self, monkeypatch):
-        monkeypatch.setattr(perf_page, "fetch_realtime_pnl", lambda: {"positions": [], "total_unrealized_pl": 0})
+        monkeypatch.setattr(
+            perf_page, "fetch_realtime_pnl", lambda: {"positions": [], "total_unrealized_pl": 0}
+        )
         monkeypatch.setattr(perf_page, "fetch_positions", lambda: {"positions": []})
         monkeypatch.setattr(
             perf_page,
@@ -327,7 +353,9 @@ class TestPerformancePage:
         monkeypatch.setattr(
             perf_page,
             "fetch_performance",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(requests.exceptions.RequestException("boom")),
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                requests.exceptions.RequestException("boom")
+            ),
         )
         perf_page.render_historical_performance(date(2024, 1, 1), date(2024, 1, 2), ["s1"])
         st_obj = perf_page.st  # type: ignore[attr-defined]
@@ -339,7 +367,9 @@ class TestPerformancePage:
             perf_page,
             "fetch_performance",
             lambda *_args, **_kwargs: {
-                "daily_pnl": [{"date": "2024-02-01", "cumulative_realized_pl": "0", "drawdown_pct": "0"}],
+                "daily_pnl": [
+                    {"date": "2024-02-01", "cumulative_realized_pl": "0", "drawdown_pct": "0"}
+                ],
                 "data_available_from": "2024-02-01",
             },
         )
@@ -359,22 +389,34 @@ class TestPerformancePage:
         assert any("No trading activity" in msg for msg in st_obj._infos)
 
     def test_realtime_pnl_viewer_scoped_message(self, monkeypatch):
-        monkeypatch.setattr(perf_page, "_safe_current_user", lambda: {"role": "viewer", "strategies": ["s1"]})
+        monkeypatch.setattr(
+            perf_page, "_safe_current_user", lambda: {"role": "viewer", "strategies": ["s1"]}
+        )
         monkeypatch.setattr(perf_page, "has_permission", lambda *_args, **_kwargs: False)
-        monkeypatch.setattr(perf_page, "fetch_realtime_pnl", lambda: {"positions": [], "total_unrealized_pl": 0})
+        monkeypatch.setattr(
+            perf_page, "fetch_realtime_pnl", lambda: {"positions": [], "total_unrealized_pl": 0}
+        )
         perf_page.render_realtime_pnl()
         st_obj = perf_page.st  # type: ignore[attr-defined]
         # Message updated to clarify multi-strategy symbol filtering behavior
         assert any("authorized strategies" in msg for msg in st_obj._infos)
 
     def test_realtime_pnl_request_failure(self, monkeypatch):
-        monkeypatch.setattr(perf_page, "fetch_realtime_pnl", lambda: (_ for _ in ()).throw(requests.exceptions.RequestException("x")))
+        monkeypatch.setattr(
+            perf_page,
+            "fetch_realtime_pnl",
+            lambda: (_ for _ in ()).throw(requests.exceptions.RequestException("x")),
+        )
         perf_page.render_realtime_pnl()
         st_obj = perf_page.st  # type: ignore[attr-defined]
         assert any("Failed to load real-time P&L" in msg for msg in st_obj._errors)
 
     def test_position_summary_request_failure(self, monkeypatch):
-        monkeypatch.setattr(perf_page, "fetch_positions", lambda: (_ for _ in ()).throw(requests.exceptions.RequestException("x")))
+        monkeypatch.setattr(
+            perf_page,
+            "fetch_positions",
+            lambda: (_ for _ in ()).throw(requests.exceptions.RequestException("x")),
+        )
         perf_page.render_position_summary()
         st_obj = perf_page.st  # type: ignore[attr-defined]
         assert any("Failed to load positions" in msg for msg in st_obj._errors)
@@ -399,13 +441,17 @@ class TestPerformancePage:
         st_obj = perf_page.st  # type: ignore[attr-defined]
         st_obj._stop_raises = False
         monkeypatch.setattr(perf_page, "FEATURE_PERFORMANCE_DASHBOARD", True)
-        monkeypatch.setattr(perf_page, "get_current_user", lambda: {"role": "viewer", "strategies": ["s1"]})
+        monkeypatch.setattr(
+            perf_page, "get_current_user", lambda: {"role": "viewer", "strategies": ["s1"]}
+        )
         monkeypatch.setattr(perf_page, "has_permission", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(perf_page, "get_authorized_strategies", lambda _user: ["s1"])
         monkeypatch.setattr(perf_page, "StrategyScopedDataAccess", lambda *args, **kwargs: object())
         monkeypatch.setattr(perf_page, "render_realtime_pnl", lambda: None)
         monkeypatch.setattr(perf_page, "render_position_summary", lambda: None)
-        monkeypatch.setattr(perf_page, "render_historical_performance", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            perf_page, "render_historical_performance", lambda *_args, **_kwargs: None
+        )
 
         # Call main directly (require_auth is stubbed to pass-through)
         perf_page.main()

@@ -7,12 +7,13 @@ NOTE: Requires docker-compose --profile oauth2 up -d
 """
 
 import re
+
 import pytest
 import requests
 from bs4 import BeautifulSoup
 
 
-@pytest.fixture
+@pytest.fixture()
 def nginx_base_url():
     """Base URL for Nginx reverse proxy."""
     return "https://localhost:443"
@@ -26,7 +27,7 @@ def test_login_page_script_tags_have_nonce(nginx_base_url):
         # For now we try /example-page which we created for this purpose.
         # Or if /login served HTML, we'd use that.
         # Let's try /example-page instead as it is guaranteed to serve HTML with nonce.
-        
+
         response = requests.get(
             f"{nginx_base_url}/example-page",  # Changed from /login to /example-page
             verify=False,

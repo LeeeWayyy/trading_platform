@@ -12,7 +12,6 @@ from libs.risk import (
     CANONICAL_FACTOR_ORDER,
     BarraRiskModel,
     BarraRiskModelConfig,
-    CovarianceResult,
     InsufficientCoverageError,
     SpecificRiskResult,
 )
@@ -207,10 +206,12 @@ class TestCheckCoverage:
         # Create 130/30 long-short portfolio (net sum = 1.0)
         # 65% long in first 10 stocks, 65% long in next 10 stocks
         # 30% short in stocks 21-30
-        portfolio = pl.DataFrame({
-            "permno": list(range(10001, 10031)),
-            "weight": [0.065] * 10 + [0.065] * 10 + [-0.03] * 10,
-        })
+        portfolio = pl.DataFrame(
+            {
+                "permno": list(range(10001, 10031)),
+                "weight": [0.065] * 10 + [0.065] * 10 + [-0.03] * 10,
+            }
+        )
 
         model = BarraRiskModel(
             factor_covariance=sample_covariance_result.factor_covariance,
@@ -236,10 +237,12 @@ class TestCheckCoverage:
         )
 
         # Create dollar-neutral portfolio (50% long, 50% short, net sum = 0)
-        portfolio = pl.DataFrame({
-            "permno": list(range(10001, 10021)),
-            "weight": [0.05] * 10 + [-0.05] * 10,  # Net sum = 0
-        })
+        portfolio = pl.DataFrame(
+            {
+                "permno": list(range(10001, 10021)),
+                "weight": [0.05] * 10 + [-0.05] * 10,  # Net sum = 0
+            }
+        )
 
         model = BarraRiskModel(
             factor_covariance=sample_covariance_result.factor_covariance,
@@ -320,10 +323,12 @@ class TestPortfolioRiskComputation:
         # Create equal-weighted portfolio
         permnos = list(range(10001, 10001 + n_stocks))
         equal_weight = 1.0 / n_stocks
-        portfolio = pl.DataFrame({
-            "permno": permnos,
-            "weight": [equal_weight] * n_stocks,
-        })
+        portfolio = pl.DataFrame(
+            {
+                "permno": permnos,
+                "weight": [equal_weight] * n_stocks,
+            }
+        )
 
         model = BarraRiskModel(
             factor_covariance=sample_covariance_result.factor_covariance,
@@ -465,24 +470,30 @@ class TestVaRComputation:
         # 95% VaR with daily sigma = 0.01 (1%)
         daily_sigma = 0.01
         z_95 = stats.norm.ppf(0.95)
-        expected_var = daily_sigma * z_95
+        daily_sigma * z_95
 
         # Create minimal model
         cov = np.eye(2) * 0.0001  # 1% daily vol per factor
-        factor_loadings = pl.DataFrame({
-            "permno": [1, 2],
-            "factor1": [1.0, 1.0],
-            "factor2": [0.0, 0.0],
-        })
-        specific_risks = pl.DataFrame({
-            "permno": [1, 2],
-            "specific_variance": [0.0001, 0.0001],  # 1% daily vol
-            "specific_vol": [0.158, 0.158],
-        })
-        portfolio = pl.DataFrame({
-            "permno": [1],
-            "weight": [1.0],
-        })
+        factor_loadings = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "factor1": [1.0, 1.0],
+                "factor2": [0.0, 0.0],
+            }
+        )
+        specific_risks = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "specific_variance": [0.0001, 0.0001],  # 1% daily vol
+                "specific_vol": [0.158, 0.158],
+            }
+        )
+        portfolio = pl.DataFrame(
+            {
+                "permno": [1],
+                "weight": [1.0],
+            }
+        )
 
         model = BarraRiskModel(
             factor_covariance=cov,

@@ -35,10 +35,7 @@ def validate_risk_metrics(data: dict[str, Any] | None) -> bool:
     """
     if not data:
         return False
-    return all(
-        key in data and data[key] is not None
-        for key in RISK_METRICS_REQUIRED_KEYS
-    )
+    return all(key in data and data[key] is not None for key in RISK_METRICS_REQUIRED_KEYS)
 
 
 def validate_exposure_list(exposures: list[dict[str, Any]] | None) -> bool:
@@ -51,10 +48,7 @@ def validate_exposure_list(exposures: list[dict[str, Any]] | None) -> bool:
         return False
     if not exposures:
         return True
-    return all(
-        isinstance(e, dict) and EXPOSURE_REQUIRED_KEYS.issubset(e.keys())
-        for e in exposures
-    )
+    return all(isinstance(e, dict) and EXPOSURE_REQUIRED_KEYS.issubset(e.keys()) for e in exposures)
 
 
 def validate_exposures(exposures: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -69,8 +63,7 @@ def validate_exposures(exposures: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not exposures:
         return []
     return [
-        e for e in exposures
-        if isinstance(e, dict) and EXPOSURE_REQUIRED_KEYS.issubset(e.keys())
+        e for e in exposures if isinstance(e, dict) and EXPOSURE_REQUIRED_KEYS.issubset(e.keys())
     ]
 
 
@@ -81,8 +74,7 @@ def validate_stress_test_list(results: list[dict[str, Any]] | None) -> bool:
     if not results:
         return True
     return all(
-        isinstance(r, dict) and STRESS_TEST_REQUIRED_KEYS.issubset(r.keys())
-        for r in results
+        isinstance(r, dict) and STRESS_TEST_REQUIRED_KEYS.issubset(r.keys()) for r in results
     )
 
 
@@ -98,8 +90,7 @@ def validate_stress_tests(results: list[dict[str, Any]]) -> list[dict[str, Any]]
     if not results:
         return []
     return [
-        r for r in results
-        if isinstance(r, dict) and STRESS_TEST_REQUIRED_KEYS.issubset(r.keys())
+        r for r in results if isinstance(r, dict) and STRESS_TEST_REQUIRED_KEYS.issubset(r.keys())
     ]
 
 
@@ -115,9 +106,9 @@ def validate_var_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not history:
         return []
     return [
-        h for h in history
-        if isinstance(h, dict) and VAR_HISTORY_REQUIRED_KEYS.issubset(h.keys())
+        h for h in history if isinstance(h, dict) and VAR_HISTORY_REQUIRED_KEYS.issubset(h.keys())
     ]
+
 
 __all__ = [
     "RISK_METRICS_REQUIRED_KEYS",
