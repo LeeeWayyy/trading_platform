@@ -11,14 +11,14 @@ from unittest.mock import patch
 import pytest
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_dir():
     """Create a temporary directory for test files."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_workflow_dir(temp_dir):
     """Create a mock .ai_workflow directory."""
     workflow_dir = temp_dir / ".ai_workflow"
@@ -26,19 +26,19 @@ def mock_workflow_dir(temp_dir):
     return workflow_dir
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_state_file(mock_workflow_dir):
     """Create a mock state file path."""
     return mock_workflow_dir / "workflow-state.json"
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_config_file(mock_workflow_dir):
     """Create a mock config file path."""
     return mock_workflow_dir / "config.json"
 
 
-@pytest.fixture
+@pytest.fixture()
 def default_state():
     """Return default workflow state (v2 schema)."""
     return {
@@ -67,7 +67,7 @@ def default_state():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def default_config():
     """Return default workflow config."""
     return {
@@ -94,7 +94,7 @@ def default_config():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_state_with_component(default_state):
     """Return state with a component set."""
     state = default_state.copy()
@@ -106,7 +106,7 @@ def sample_state_with_component(default_state):
     return state
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_state_in_review(default_state):
     """Return state in review step."""
     state = default_state.copy()
@@ -123,7 +123,7 @@ def sample_state_in_review(default_state):
     return state
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_pr_review_state(default_state):
     """Return state in PR review phase."""
     state = default_state.copy()
@@ -140,7 +140,7 @@ def sample_pr_review_state(default_state):
     return state
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_git_repo(temp_dir):
     """Create a mock git repository for testing."""
     repo_dir = temp_dir / "test_repo"
@@ -156,15 +156,13 @@ def mock_git_repo(temp_dir):
     os.system(f"cd {repo_dir} && git add . && git commit -q -m 'Initial commit'")
 
     # Add remote
-    os.system(
-        f"cd {repo_dir} && git remote add origin git@github.com:testowner/testrepo.git"
-    )
+    os.system(f"cd {repo_dir} && git remote add origin git@github.com:testowner/testrepo.git")
 
     return repo_dir
 
 
-@pytest.fixture
-def patch_constants(temp_dir, mock_workflow_dir, mock_state_file, mock_config_file):
+@pytest.fixture(name="patch_constants")
+def _patch_constants(temp_dir, mock_workflow_dir, mock_state_file, mock_config_file):
     """Patch constants to use temporary directories."""
     with patch.multiple(
         "ai_workflow.constants",

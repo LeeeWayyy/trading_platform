@@ -64,7 +64,10 @@ class WalkForwardResult:
 
         Returns False if overfitting_ratio is NaN (can't determine overfitting).
         """
-        return not math.isnan(self.overfitting_ratio) and self.overfitting_ratio > self.overfitting_threshold
+        return (
+            not math.isnan(self.overfitting_ratio)
+            and self.overfitting_ratio > self.overfitting_threshold
+        )
 
 
 class WalkForwardOptimizer:
@@ -302,7 +305,11 @@ class WalkForwardOptimizer:
         # Use absolute value to handle cases where train/test ICs have different signs.
         # This ensures the ratio reflects magnitude of performance drop regardless of sign.
         # Use math.isclose for robust floating-point zero comparison.
-        if math.isclose(aggregated_test_ic, 0.0) or math.isnan(aggregated_test_ic) or math.isnan(mean_train_ic):
+        if (
+            math.isclose(aggregated_test_ic, 0.0)
+            or math.isnan(aggregated_test_ic)
+            or math.isnan(mean_train_ic)
+        ):
             overfitting_ratio = float("nan")
         else:
             overfitting_ratio = abs(mean_train_ic) / abs(aggregated_test_ic)

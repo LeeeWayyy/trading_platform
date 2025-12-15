@@ -134,9 +134,7 @@ class TestGenerateClientOrderId:
 
     def test_different_order_type_generates_different_id(self):
         """Different order types should generate different IDs (T5.5 fix)."""
-        order_market = OrderRequest(
-            symbol="AAPL", side="buy", qty=10, order_type="market"
-        )
+        order_market = OrderRequest(symbol="AAPL", side="buy", qty=10, order_type="market")
         order_limit = OrderRequest(
             symbol="AAPL",
             side="buy",

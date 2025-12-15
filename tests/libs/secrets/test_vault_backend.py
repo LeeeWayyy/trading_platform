@@ -532,23 +532,27 @@ class TestVaultSecretManagerContextManager:
 
     def test_context_manager_exception_handling(self, mock_hvac_client):
         """Test context manager properly closes on exception."""
+        state: dict[str, VaultSecretManager] = {}
+
+        def _raise_with_manager() -> None:
+            with VaultSecretManager(
+                vault_url="https://vault.example.com:8200",
+                token="s.test_token",
+            ) as secret_mgr:
+                state["mgr"] = secret_mgr
+                # Populate cache
+                mock_hvac_client.secrets.kv.v2.read_secret_version.return_value = {
+                    "data": {"data": {"value": "test_value"}}
+                }
+                secret_mgr.get_secret("test_secret")
+                raise ValueError("Test exception")
+
         with patch("libs.secrets.vault_backend.hvac.Client", return_value=mock_hvac_client):
-            with pytest.raises(
-                ValueError, match="Test exception"
-            ):  # noqa: PT012 - Complex test intentionally tests cleanup on exception
-                with VaultSecretManager(
-                    vault_url="https://vault.example.com:8200",
-                    token="s.test_token",
-                ) as secret_mgr:
-                    # Populate cache
-                    mock_hvac_client.secrets.kv.v2.read_secret_version.return_value = {
-                        "data": {"data": {"value": "test_value"}}
-                    }
-                    secret_mgr.get_secret("test_secret")
-                    raise ValueError("Test exception")
+            with pytest.raises(ValueError, match="Test exception"):
+                _raise_with_manager()
 
             # Cache should still be cleared despite exception
-            assert len(secret_mgr._cache) == 0
+            assert len(state["mgr"]._cache) == 0
 
 
 # ================================================================================

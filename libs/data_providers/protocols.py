@@ -348,8 +348,7 @@ class YFinanceDataProviderAdapter:
         missing = [c for c in required_cols if c not in df.columns]
         if missing:
             raise ValueError(
-                f"DataFrame missing required columns: {missing}. "
-                f"Got columns: {df.columns}"
+                f"DataFrame missing required columns: {missing}. " f"Got columns: {df.columns}"
             )
 
         # Cast date to pl.Date for schema consistency
@@ -509,8 +508,7 @@ class CRSPDataProviderAdapter:
         missing = [c for c in required_cols if c not in df.columns]
         if missing:
             raise ValueError(
-                f"DataFrame missing required columns: {missing}. "
-                f"Got columns: {df.columns}"
+                f"DataFrame missing required columns: {missing}. " f"Got columns: {df.columns}"
             )
 
         # Normalize symbols to uppercase

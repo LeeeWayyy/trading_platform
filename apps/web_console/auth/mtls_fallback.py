@@ -214,16 +214,12 @@ class CRLCache:
                 )
                 mtls_crl_cache_age_seconds.labels(crl_url=self.crl_url).set(0)
 
-                crl_next_update = (
-                    crl.next_update.replace(tzinfo=UTC) if crl.next_update else None
-                )
+                crl_next_update = crl.next_update.replace(tzinfo=UTC) if crl.next_update else None
                 logger.info(
                     "CRL fetched successfully",
                     extra={
                         "last_update": crl_last_update.isoformat(),
-                        "next_update": (
-                            crl_next_update.isoformat() if crl_next_update else "N/A"
-                        ),
+                        "next_update": (crl_next_update.isoformat() if crl_next_update else "N/A"),
                         "revoked_count": len(list(crl)),
                     },
                 )

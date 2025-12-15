@@ -373,9 +373,7 @@ class ManifestManager:
         except OSError:
             pass
 
-    def _release_lock(
-        self, lock_path: Path, lock_data: dict[str, Any], dataset: str
-    ) -> None:
+    def _release_lock(self, lock_path: Path, lock_data: dict[str, Any], dataset: str) -> None:
         """Release lock with atomic verification.
 
         Uses fcntl.flock for TOCTOU-safe read-verify-delete.
@@ -590,9 +588,7 @@ class ManifestManager:
         if file_expires_at_str:
             file_expires_at = datetime.fromisoformat(file_expires_at_str)
             if now > file_expires_at:
-                raise LockNotHeldError(
-                    f"Lock expired at {file_expires_at.isoformat()}"
-                )
+                raise LockNotHeldError(f"Lock expired at {file_expires_at.isoformat()}")
 
         # Enforce hard timeout based on acquired_at (30 min max)
         # This prevents operations from running beyond the hard limit

@@ -5,16 +5,12 @@ Tests PRWorkflowHandler for PR review phase state machine.
 """
 
 import json
-import subprocess
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from ai_workflow.pr_workflow import (
     CIStatus,
     PRWorkflowHandler,
 )
-from ai_workflow.config import WorkflowConfig
 
 
 class TestCIStatus:
@@ -62,7 +58,7 @@ class TestPRWorkflowHandlerInit:
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                handler = PRWorkflowHandler(state)
+                PRWorkflowHandler(state)
 
         assert "pr_review" in state
         assert state["pr_review"]["step"] == "pr-pending"
@@ -273,9 +269,7 @@ class TestRecordCommitAndPush:
             with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 with patch("subprocess.run", return_value=mock_result):
                     handler = PRWorkflowHandler(state)
-                    success, message = handler.record_commit_and_push(
-                        "abc123", "test commit"
-                    )
+                    success, message = handler.record_commit_and_push("abc123", "test commit")
 
         assert success is False
         assert "not found" in message
@@ -294,7 +288,12 @@ class TestRecordCommitAndPush:
             json.dump(
                 {
                     "version": "1.0",
-                    "reviewers": {"enabled": [], "available": [], "min_required": 1, "username_mapping": {}},
+                    "reviewers": {
+                        "enabled": [],
+                        "available": [],
+                        "min_required": 1,
+                        "username_mapping": {},
+                    },
                     "git": {"push_retry_count": 3},
                 },
                 f,
@@ -328,7 +327,12 @@ class TestRecordCommitAndPush:
             json.dump(
                 {
                     "version": "1.0",
-                    "reviewers": {"enabled": [], "available": [], "min_required": 1, "username_mapping": {}},
+                    "reviewers": {
+                        "enabled": [],
+                        "available": [],
+                        "min_required": 1,
+                        "username_mapping": {},
+                    },
                     "git": {"push_retry_count": 3},
                 },
                 f,
@@ -336,9 +340,7 @@ class TestRecordCommitAndPush:
 
         mock_verify = MagicMock(returncode=0, stdout="abc123\n", stderr="")
         mock_branch = MagicMock(returncode=0, stdout="feature/test\n", stderr="")
-        mock_push = MagicMock(
-            returncode=1, stdout="", stderr="error: conflict detected"
-        )
+        mock_push = MagicMock(returncode=1, stdout="", stderr="error: conflict detected")
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("subprocess.run") as mock_run:

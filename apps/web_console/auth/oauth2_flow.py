@@ -201,7 +201,6 @@ class OAuth2FlowHandler:
                 )
             raise
 
-
     async def _consume_state(self, state: str) -> OAuth2State:
         """Retrieve and delete state to enforce single-use semantics."""
 
@@ -560,8 +559,7 @@ class OAuth2FlowHandler:
             try:
                 await self._revoke_refresh_token(session_data.refresh_token)
                 logger.info(
-                    "Refresh token revoked at Auth0",
-                    extra={"user_id": session_data.user_id}
+                    "Refresh token revoked at Auth0", extra={"user_id": session_data.user_id}
                 )
             except Exception as e:
                 # Non-critical: Session will still be deleted locally
@@ -573,7 +571,7 @@ class OAuth2FlowHandler:
                 extra={
                     "session_id": session_id[:8] + "...",
                     "current_ip": current_ip,
-                }
+                },
             )
 
         # Delete session from Redis
@@ -639,7 +637,4 @@ async def _fetch_user_strategies(user_id: str, db_pool: Any) -> list[str]:
         )
         rows = await cursor.fetchall()
 
-    return [
-        row["strategy_id"] if isinstance(row, dict) else row[0]
-        for row in rows
-    ]
+    return [row["strategy_id"] if isinstance(row, dict) else row[0] for row in rows]

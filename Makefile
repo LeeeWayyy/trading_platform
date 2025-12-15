@@ -1,4 +1,4 @@
-.PHONY: help up down logs fmt lint validate-docs test test-cov test-watch clean install install-hooks ci-local pre-push
+.PHONY: help up down logs fmt fmt-check lint validate-docs test test-cov test-watch clean install install-hooks ci-local pre-push
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -24,9 +24,15 @@ down-v: ## Stop infrastructure and remove volumes
 logs: ## Show logs from all services
 	docker compose logs -f
 
-fmt: ## Format code with black and ruff
+fmt: ## Format code with black and ruff (auto-fix, non-fatal on remaining issues)
 	poetry run black .
-	poetry run ruff check --fix .
+	poetry run ruff check --fix --unsafe-fixes --exit-zero .
+	@echo ""
+	@echo "Formatting complete. Run 'make lint' for strict validation."
+
+fmt-check: ## Check formatting only (fails on issues)
+	poetry run black --check .
+	poetry run ruff format --check .
 
 lint: ## Run linters (black, ruff, mypy --strict)
 	poetry run black --check .
@@ -152,7 +158,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Step 4/6: Linting with ruff"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	poetry run ruff check libs/ apps/ strategies/
+	poetry run ruff check .
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Step 5/6: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"

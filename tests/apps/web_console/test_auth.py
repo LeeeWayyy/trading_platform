@@ -728,9 +728,7 @@ class TestOAuth2SecurityRegression:
 
     @patch("apps.web_console.auth.get_session_cookie")
     @patch("apps.web_console.auth.validate_session")
-    def test_tokens_never_stored_in_session_state(
-        self, mock_validate, mock_get_cookie
-    ):
+    def test_tokens_never_stored_in_session_state(self, mock_validate, mock_get_cookie):
         """CRITICAL REGRESSION TEST: Ensure tokens never enter session_state.
 
         Component 3 Security Requirement (Codex High #1):

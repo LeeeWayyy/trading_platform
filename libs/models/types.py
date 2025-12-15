@@ -107,9 +107,7 @@ class ModelMetadata(BaseModel):
     env: EnvironmentMetadata = Field(..., description="Environment at creation")
 
     # Training config
-    config: dict[str, Any] = Field(
-        default_factory=dict, description="Hyperparameters and settings"
-    )
+    config: dict[str, Any] = Field(default_factory=dict, description="Hyperparameters and settings")
     config_hash: str = Field(..., description="SHA-256 of config dict")
     feature_formulas: list[str] | None = Field(
         None, description="Phase 3 placeholder for FormulaicFactor"
@@ -155,9 +153,7 @@ class MissingRequiredFieldError(Exception):
     def __init__(self, model_type: ModelType, missing_fields: list[str]) -> None:
         self.model_type = model_type
         self.missing_fields = missing_fields
-        super().__init__(
-            f"Artifact type {model_type.value} requires fields: {missing_fields}"
-        )
+        super().__init__(f"Artifact type {model_type.value} requires fields: {missing_fields}")
 
 
 class InvalidDatasetVersionError(Exception):
@@ -274,8 +270,6 @@ class ArtifactInfo:
     checksum: str
     size_bytes: int
     serialized_at: datetime
-
-
 
 
 # =============================================================================

@@ -18,7 +18,6 @@ Date: 2025-11-07
 
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -34,7 +33,7 @@ CORE_PACKAGES = {
 }
 
 
-def get_staged_files() -> Optional[list[str]]:
+def get_staged_files() -> list[str] | None:
     """
     Get list of staged files from git.
 

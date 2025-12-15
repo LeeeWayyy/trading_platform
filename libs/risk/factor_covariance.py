@@ -95,9 +95,7 @@ class CovarianceResult:
         # Check PSD (all eigenvalues >= 0)
         eigenvalues = np.linalg.eigvalsh(self.factor_covariance)
         if np.any(eigenvalues < -1e-10):  # Small tolerance for numerical error
-            errors.append(
-                f"Covariance matrix is not PSD: min eigenvalue = {eigenvalues.min():.6e}"
-            )
+            errors.append(f"Covariance matrix is not PSD: min eigenvalue = {eigenvalues.min():.6e}")
 
         # Check correlations in [-1, 1]
         diag = np.diag(self.factor_covariance)
@@ -201,9 +199,7 @@ class FactorCovarianceEstimator:
         warnings: list[str] = []
 
         # Filter out NaN/inf in returns
-        returns_clean = returns.filter(
-            pl.col("ret").is_not_nan() & pl.col("ret").is_finite()
-        )
+        returns_clean = returns.filter(pl.col("ret").is_not_nan() & pl.col("ret").is_finite())
         n_filtered_ret = returns.height - returns_clean.height
         if n_filtered_ret > 0:
             warnings.append(f"Filtered {n_filtered_ret} stocks with NaN/inf returns")
@@ -300,11 +296,14 @@ class FactorCovarianceEstimator:
                 returns_t = crsp_data.filter(pl.col("date") == t).select(["permno", "ret"])
 
                 # Get market cap for WLS weights
-                market_cap = crsp_data.filter(pl.col("date") == t).select(
-                    ["permno", "prc", "shrout"]
-                ).with_columns(
-                    (pl.col("prc").abs() * pl.col("shrout") * 1000).alias("market_cap")
-                ).select(["permno", "market_cap"])
+                market_cap = (
+                    crsp_data.filter(pl.col("date") == t)
+                    .select(["permno", "prc", "shrout"])
+                    .with_columns(
+                        (pl.col("prc").abs() * pl.col("shrout") * 1000).alias("market_cap")
+                    )
+                    .select(["permno", "market_cap"])
+                )
 
                 # Validate and clean inputs
                 exposures_clean, returns_clean, warns = self._validate_daily_inputs(
@@ -322,9 +321,7 @@ class FactorCovarianceEstimator:
                 factor_returns, t_stats, r_squared = self._run_wls_regression(data)
 
                 # Build version string for this day's factor returns (Codex MEDIUM fix)
-                day_version_str = "|".join(
-                    f"{k}:{v}" for k, v in sorted(day_versions.items())
-                )
+                day_version_str = "|".join(f"{k}:{v}" for k, v in sorted(day_versions.items()))
                 for i, factor_name in enumerate(self.factor_names):
                     factor_return_rows.append(
                         {
@@ -461,9 +458,7 @@ class FactorCovarianceEstimator:
         weighted_cov = self._compute_weighted_covariance(returns_matrix, weights)
 
         # Step 4: Apply Newey-West HAC correction
-        hac_cov = self._apply_newey_west_to_covariance(
-            weighted_cov, returns_matrix, weights
-        )
+        hac_cov = self._apply_newey_west_to_covariance(weighted_cov, returns_matrix, weights)
 
         # Step 5: Apply Ledoit-Wolf shrinkage
         # Apply decay-weighted centering for consistent shrinkage estimation

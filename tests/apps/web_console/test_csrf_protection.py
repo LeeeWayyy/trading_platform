@@ -1,8 +1,8 @@
 """Tests for CSRF protection component."""
 
-import pytest
-import streamlit as st
 from unittest.mock import patch
+
+import streamlit as st
 
 from apps.web_console.components.csrf_protection import (
     CSRF_TOKEN_KEY,

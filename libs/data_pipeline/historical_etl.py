@@ -497,10 +497,8 @@ class HistoricalETL:
 
             # Compute actual max date per symbol from combined data
             # CRITICAL: Clamp to today in case future dates slipped through
-            symbol_max_dates = (
-                combined_df
-                .group_by("symbol")
-                .agg(pl.col("date").max().alias("max_date"))
+            symbol_max_dates = combined_df.group_by("symbol").agg(
+                pl.col("date").max().alias("max_date")
             )
             actual_max_dates = {
                 row["symbol"]: min(row["max_date"], today)
@@ -529,7 +527,10 @@ class HistoricalETL:
                         extra={
                             "event": "etl.incremental.no_data",
                             "symbol": symbol,
-                            "requested_start": str(symbol_last_dates.get(symbol, self.DEFAULT_START_DATE) + timedelta(days=1)),
+                            "requested_start": str(
+                                symbol_last_dates.get(symbol, self.DEFAULT_START_DATE)
+                                + timedelta(days=1)
+                            ),
                             "action": "cursor_unchanged",
                         },
                     )
@@ -587,9 +588,7 @@ class HistoricalETL:
                 manifest_checksum=manifest.checksum,
             )
 
-    def _parse_symbol_dates(
-        self, progress: ETLProgressManifest | None
-    ) -> dict[str, date]:
+    def _parse_symbol_dates(self, progress: ETLProgressManifest | None) -> dict[str, date]:
         """Parse symbol_last_dates from progress manifest.
 
         CRITICAL: Clamps all parsed dates to min(parsed_date, today) to prevent
@@ -854,9 +853,7 @@ class HistoricalETL:
     # Atomic Write
     # =========================================================================
 
-    def _atomic_write_with_quarantine(
-        self, df: pl.DataFrame, target_path: Path
-    ) -> str:
+    def _atomic_write_with_quarantine(self, df: pl.DataFrame, target_path: Path) -> str:
         """Atomic write with complete validation + quarantine coupling.
 
         CRITICAL: Never quarantine an existing good partition on validation failure.
@@ -1022,9 +1019,7 @@ class HistoricalETL:
         # Add 50% safety margin
         return int(parquet_estimate * 1.5)
 
-    def _estimate_total_size(
-        self, symbols: list[str], start_date: date, end_date: date
-    ) -> int:
+    def _estimate_total_size(self, symbols: list[str], start_date: date, end_date: date) -> int:
         """Estimate total size for full ETL.
 
         Rough estimate: ~200 bytes per row per symbol per day.
@@ -1045,9 +1040,7 @@ class HistoricalETL:
                 f"need {required_bytes:,}, have {available:,}"
             )
 
-    def _check_merge_disk_space(
-        self, affected_years: list[int], new_df: pl.DataFrame
-    ) -> None:
+    def _check_merge_disk_space(self, affected_years: list[int], new_df: pl.DataFrame) -> None:
         """Check disk space for merge operations.
 
         Formula:
@@ -1155,10 +1148,12 @@ class HistoricalETL:
         conn = self._get_writer_connection()
         try:
             daily_path = str(self.storage_path / "daily" / "*.parquet")
-            conn.execute(f"""
+            conn.execute(
+                f"""
                 CREATE OR REPLACE VIEW daily_prices AS
                 SELECT * FROM read_parquet('{daily_path}')
-            """)
+            """
+            )
             logger.debug("Updated DuckDB catalog view: daily_prices")
         finally:
             conn.close()

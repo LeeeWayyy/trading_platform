@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -65,10 +65,12 @@ sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 # Import Request before main to ensure it's available for the override function.
 # The stubs above must be set before importing main which triggers the full import chain.
-from starlette.requests import Request  # Use starlette directly to avoid fastapi import side-effects
+from starlette.requests import (
+    Request,
+)
 
+# Use starlette directly to avoid fastapi import side-effects
 from apps.execution_gateway import main
-from libs.web_console_auth.permissions import Permission
 
 
 def _make_user_context_override(user_ctx: dict) -> callable:
@@ -79,8 +81,10 @@ def _make_user_context_override(user_ctx: dict) -> callable:
     query parameters, resulting in 422 errors. This helper creates a
     properly-typed override function.
     """
+
     def override(request: Request) -> dict:
         return user_ctx
+
     return override
 
 
@@ -154,7 +158,9 @@ def test_get_realtime_pnl_allows_authorized_and_returns_zero(monkeypatch, test_c
 
     # Authorize strategy access, no positions
     monkeypatch.setattr(main, "has_permission", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(main.db_client, "get_positions_for_strategies", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        main.db_client, "get_positions_for_strategies", lambda *_args, **_kwargs: []
+    )
 
     resp = test_client.get("/api/v1/positions/pnl/realtime")
     assert resp.status_code == 200

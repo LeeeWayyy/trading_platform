@@ -5,17 +5,17 @@ Tests ReviewerOrchestrator for managing reviewer state and building MCP paramete
 """
 
 import json
+from datetime import datetime
+from unittest.mock import patch
+
 import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
 
 from ai_workflow.reviewers import (
-    ReviewerType,
-    ReviewStatus,
-    ReviewResult,
     ReviewerOrchestrator,
+    ReviewerType,
+    ReviewResult,
+    ReviewStatus,
 )
-from ai_workflow.config import WorkflowConfig
 
 
 class TestReviewerType:
@@ -116,7 +116,7 @@ class TestReviewerOrchestratorInit:
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                orchestrator = ReviewerOrchestrator(state)
+                ReviewerOrchestrator(state)
 
         assert "reviewers" in state
         # Should have entries for enabled reviewers (default: gemini + codex)
@@ -130,7 +130,7 @@ class TestReviewerOrchestratorInit:
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                orchestrator = ReviewerOrchestrator(state)
+                ReviewerOrchestrator(state)
 
         # Default enabled reviewers are gemini + codex
         for reviewer in ["gemini", "codex"]:
@@ -154,11 +154,7 @@ class TestGetContinuationId:
 
     def test_returns_continuation_id_when_set(self, temp_dir):
         """Should return continuation_id when set."""
-        state = {
-            "reviewers": {
-                "claude": {"status": "PENDING", "continuation_id": "abc123"}
-            }
-        }
+        state = {"reviewers": {"claude": {"status": "PENDING", "continuation_id": "abc123"}}}
         config_file = temp_dir / ".ai_workflow" / "config.json"
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
@@ -209,9 +205,7 @@ class TestRecordReviewResult:
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 orchestrator = ReviewerOrchestrator(state)
-                orchestrator.record_review_result(
-                    "claude", ReviewStatus.APPROVED, "cont-id-123"
-                )
+                orchestrator.record_review_result("claude", ReviewStatus.APPROVED, "cont-id-123")
 
         assert state["reviewers"]["claude"]["status"] == "APPROVED"
         assert state["reviewers"]["claude"]["continuation_id"] == "cont-id-123"
@@ -381,9 +375,7 @@ class TestBuildClinkParams:
                 orchestrator = ReviewerOrchestrator(state)
 
                 with pytest.raises(ValueError, match="Invalid CLI name"):
-                    orchestrator.build_clink_params(
-                        reviewer_name="invalid_cli", diff="diff"
-                    )
+                    orchestrator.build_clink_params(reviewer_name="invalid_cli", diff="diff")
 
     def test_truncates_long_diff(self, temp_dir):
         """Should truncate diff if too long."""
@@ -395,9 +387,7 @@ class TestBuildClinkParams:
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
                 orchestrator = ReviewerOrchestrator(state)
-                params = orchestrator.build_clink_params(
-                    reviewer_name="claude", diff=long_diff
-                )
+                params = orchestrator.build_clink_params(reviewer_name="claude", diff=long_diff)
 
         # Prompt should not contain full diff
         assert len(params["prompt"]) < 35000

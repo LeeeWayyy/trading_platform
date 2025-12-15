@@ -101,7 +101,7 @@ class TestErrorMessageClearing:
         assert result == "New error"
 
     @pytest.mark.parametrize(
-        "current,new_value,expected",
+        ("current", "new_value", "expected"),
         [
             # Clear existing error
             ("Error A", None, None),
@@ -203,7 +203,6 @@ class TestOtherFieldsStillUseCoalesce:
         # error_message: None clears (fixed)
         # other fields: None preserves (unchanged, correct behavior)
 
-        current_error = "Some error"
         current_broker_id = "BRK123"
 
         # Pass None to both
@@ -214,9 +213,7 @@ class TestOtherFieldsStillUseCoalesce:
         result_error = new_error
 
         # broker_order_id: COALESCE (preserve)
-        result_broker_id = (
-            new_broker_id if new_broker_id is not None else current_broker_id
-        )
+        result_broker_id = new_broker_id if new_broker_id is not None else current_broker_id
 
         # Different behaviors (by design)
         assert result_error is None  # Cleared

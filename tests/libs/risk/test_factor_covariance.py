@@ -3,7 +3,6 @@ Tests for FactorCovarianceEstimator.
 """
 
 from datetime import date
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import polars as pl
@@ -233,11 +232,13 @@ class TestComputeWeightedCovariance:
         """Basic weighted covariance computation works."""
         estimator = FactorCovarianceEstimator(mock_factor_builder)
 
-        returns = np.array([
-            [0.01, 0.02],
-            [-0.01, 0.01],
-            [0.02, -0.01],
-        ])
+        returns = np.array(
+            [
+                [0.01, 0.02],
+                [-0.01, 0.01],
+                [0.02, -0.01],
+            ]
+        )
         weights = np.array([1.0, 1.0, 1.0])
 
         cov = estimator._compute_weighted_covariance(returns, weights)
@@ -319,9 +320,7 @@ class TestNeweyWestHAC:
         weights = np.ones(100)
         weighted_cov = np.cov(returns.T)
 
-        hac_cov = estimator._apply_newey_west_to_covariance(
-            weighted_cov, returns, weights
-        )
+        hac_cov = estimator._apply_newey_west_to_covariance(weighted_cov, returns, weights)
 
         # HAC should modify covariance (unless no autocorrelation)
         assert hac_cov.shape == weighted_cov.shape
@@ -334,18 +333,22 @@ class TestValidateDailyInputs:
         """Filters out stocks with NaN exposures."""
         estimator = FactorCovarianceEstimator(mock_factor_builder)
 
-        exposures = pl.DataFrame({
-            "permno": [1, 2, 3],
-            "momentum_12_1": [0.1, np.nan, 0.3],
-            "book_to_market": [0.2, 0.2, 0.2],
-            "roe": [0.1, 0.1, 0.1],
-            "log_market_cap": [0.1, 0.1, 0.1],
-            "realized_vol": [0.1, 0.1, 0.1],
-        })
-        returns = pl.DataFrame({
-            "permno": [1, 2, 3],
-            "ret": [0.01, 0.02, -0.01],
-        })
+        exposures = pl.DataFrame(
+            {
+                "permno": [1, 2, 3],
+                "momentum_12_1": [0.1, np.nan, 0.3],
+                "book_to_market": [0.2, 0.2, 0.2],
+                "roe": [0.1, 0.1, 0.1],
+                "log_market_cap": [0.1, 0.1, 0.1],
+                "realized_vol": [0.1, 0.1, 0.1],
+            }
+        )
+        returns = pl.DataFrame(
+            {
+                "permno": [1, 2, 3],
+                "ret": [0.01, 0.02, -0.01],
+            }
+        )
 
         # This should work but filter out permno 2
         # Need at least min_stocks_per_day stocks, so adjust config
@@ -363,18 +366,22 @@ class TestValidateDailyInputs:
         estimator = FactorCovarianceEstimator(mock_factor_builder)
         estimator.config.min_stocks_per_day = 2
 
-        exposures = pl.DataFrame({
-            "permno": [1, 2, 3],
-            "momentum_12_1": [0.1, 0.2, 0.3],
-            "book_to_market": [0.2, 0.2, 0.2],
-            "roe": [0.1, 0.1, 0.1],
-            "log_market_cap": [0.1, 0.1, 0.1],
-            "realized_vol": [0.1, 0.1, 0.1],
-        })
-        returns = pl.DataFrame({
-            "permno": [1, 2, 3],
-            "ret": [0.01, np.nan, -0.01],
-        })
+        exposures = pl.DataFrame(
+            {
+                "permno": [1, 2, 3],
+                "momentum_12_1": [0.1, 0.2, 0.3],
+                "book_to_market": [0.2, 0.2, 0.2],
+                "roe": [0.1, 0.1, 0.1],
+                "log_market_cap": [0.1, 0.1, 0.1],
+                "realized_vol": [0.1, 0.1, 0.1],
+            }
+        )
+        returns = pl.DataFrame(
+            {
+                "permno": [1, 2, 3],
+                "ret": [0.01, np.nan, -0.01],
+            }
+        )
 
         clean_exp, clean_ret, warns = estimator._validate_daily_inputs(
             exposures, returns, date(2023, 6, 30)
@@ -388,18 +395,22 @@ class TestValidateDailyInputs:
         estimator = FactorCovarianceEstimator(mock_factor_builder)
         estimator.config.min_stocks_per_day = 100
 
-        exposures = pl.DataFrame({
-            "permno": [1, 2],
-            "momentum_12_1": [0.1, 0.2],
-            "book_to_market": [0.2, 0.2],
-            "roe": [0.1, 0.1],
-            "log_market_cap": [0.1, 0.1],
-            "realized_vol": [0.1, 0.1],
-        })
-        returns = pl.DataFrame({
-            "permno": [1, 2],
-            "ret": [0.01, 0.02],
-        })
+        exposures = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "momentum_12_1": [0.1, 0.2],
+                "book_to_market": [0.2, 0.2],
+                "roe": [0.1, 0.1],
+                "log_market_cap": [0.1, 0.1],
+                "realized_vol": [0.1, 0.1],
+            }
+        )
+        returns = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "ret": [0.01, 0.02],
+            }
+        )
 
         with pytest.raises(InsufficientDataError):
             estimator._validate_daily_inputs(exposures, returns, date(2023, 6, 30))

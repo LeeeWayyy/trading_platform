@@ -7,7 +7,7 @@ import pytest
 import requests
 
 
-@pytest.fixture
+@pytest.fixture()
 def nginx_base_url():
     """Base URL for Nginx reverse proxy."""
     return "https://localhost:443"

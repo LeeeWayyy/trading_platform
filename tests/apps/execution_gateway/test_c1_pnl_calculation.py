@@ -11,8 +11,6 @@ Status: Tests directly import and test the production function
 
 from decimal import Decimal
 
-import pytest
-
 from apps.execution_gateway.database import calculate_position_update
 
 

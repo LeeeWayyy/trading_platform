@@ -80,9 +80,7 @@ def render_strategy_assignment(
             if not verify_csrf_token(submitted_csrf):
                 st.error("Invalid form submission. Please refresh.")
                 # [v1.1] Log CSRF failure to audit trail
-                _log_csrf_failure_sync(
-                    audit_logger, admin_user_id, "strategy_assignment", user_id
-                )
+                _log_csrf_failure_sync(audit_logger, admin_user_id, "strategy_assignment", user_id)
                 rotate_csrf_token()  # [v1.1] Rotate on failure
                 return
 
@@ -223,9 +221,7 @@ def _grant_strategy_sync(
     admin_user_id: str,
     audit_logger: AuditLogger,
 ) -> tuple[bool, str]:
-    return _run_async(
-        grant_strategy(db_pool, user_id, strategy_id, admin_user_id, audit_logger)
-    )
+    return _run_async(grant_strategy(db_pool, user_id, strategy_id, admin_user_id, audit_logger))
 
 
 def _revoke_strategy_sync(
@@ -235,9 +231,7 @@ def _revoke_strategy_sync(
     admin_user_id: str,
     audit_logger: AuditLogger,
 ) -> tuple[bool, str]:
-    return _run_async(
-        revoke_strategy(db_pool, user_id, strategy_id, admin_user_id, audit_logger)
-    )
+    return _run_async(revoke_strategy(db_pool, user_id, strategy_id, admin_user_id, audit_logger))
 
 
 __all__ = [

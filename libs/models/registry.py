@@ -257,9 +257,7 @@ class ModelRegistry:
         return lock_file
 
     @contextmanager
-    def _get_connection(
-        self, *, read_only: bool = False
-    ) -> Iterator[duckdb.DuckDBPyConnection]:
+    def _get_connection(self, *, read_only: bool = False) -> Iterator[duckdb.DuckDBPyConnection]:
         """Get database connection with automatic close.
 
         Lock checking:
@@ -376,9 +374,7 @@ class ModelRegistry:
                     )
 
         # 3. Serialize artifact
-        artifact_dir = (
-            self.artifacts_dir / metadata.model_type.value / metadata.version
-        )
+        artifact_dir = self.artifacts_dir / metadata.model_type.value / metadata.version
         artifact_info = serialize_model(model, artifact_dir, metadata)
 
         # Compute metadata.json checksum for integrity verification
@@ -396,12 +392,8 @@ class ModelRegistry:
         with self._get_connection() as conn:
             try:
                 conn.execute("BEGIN TRANSACTION")
-                if self._version_exists(
-                    metadata.model_type.value, metadata.version, conn=conn
-                ):
-                    raise VersionExistsError(
-                        metadata.model_type.value, metadata.version
-                    )
+                if self._version_exists(metadata.model_type.value, metadata.version, conn=conn):
+                    raise VersionExistsError(metadata.model_type.value, metadata.version)
                 conn.execute(
                     """
                     INSERT INTO models (
@@ -458,9 +450,7 @@ class ModelRegistry:
                     )
                     shutil.rmtree(artifact_dir, ignore_errors=True)
                 if _is_unique_constraint_error(e):
-                    raise VersionExistsError(
-                        metadata.model_type.value, metadata.version
-                    ) from e
+                    raise VersionExistsError(metadata.model_type.value, metadata.version) from e
                 raise
             except Exception as e:
                 conn.execute("ROLLBACK")
@@ -639,9 +629,7 @@ class ModelRegistry:
         try:
             self._update_manifest_production()
         except Exception as e:
-            logger.error(
-                f"Failed to update manifest after promotion - manifest may be stale: {e}"
-            )
+            logger.error(f"Failed to update manifest after promotion - manifest may be stale: {e}")
             # Don't re-raise: DB transaction succeeded, manifest is a cache
 
         logger.info(
@@ -800,9 +788,7 @@ class ModelRegistry:
         try:
             self._update_manifest_production()
         except Exception as e:
-            logger.error(
-                f"Failed to update manifest after rollback - manifest may be stale: {e}"
-            )
+            logger.error(f"Failed to update manifest after rollback - manifest may be stale: {e}")
             # Don't re-raise: DB transaction succeeded, manifest is a cache
 
         logger.info(
@@ -886,9 +872,7 @@ class ModelRegistry:
         metadata_sha256 = result[1]
         return self._load_verified_metadata(artifact_path, metadata_sha256)
 
-    def get_model_metadata(
-        self, model_type: str, version: str
-    ) -> ModelMetadata | None:
+    def get_model_metadata(self, model_type: str, version: str) -> ModelMetadata | None:
         """Get model metadata by type and version.
 
         Args:
@@ -970,10 +954,7 @@ class ModelRegistry:
         if lightweight:
             return [load_metadata(Path(row[0])) for row in results]
 
-        return [
-            self._load_verified_metadata(Path(row[0]), row[1])
-            for row in results
-        ]
+        return [self._load_verified_metadata(Path(row[0]), row[1]) for row in results]
 
     def validate_model(self, model_type: str, version: str) -> ValidationResult:
         """Validate model artifact integrity and loadability.
@@ -1013,9 +994,7 @@ class ModelRegistry:
         errors: list[str] = []
 
         # Verify model file checksum against DB value
-        model_path = artifact_dir / (
-            "model.json" if model_type == "alpha_weights" else "model.pkl"
-        )
+        model_path = artifact_dir / ("model.json" if model_type == "alpha_weights" else "model.pkl")
 
         checksum_verified = False
         if model_path.exists():
@@ -1123,9 +1102,7 @@ class ModelRegistry:
 
         return Path(result[0]) if result else None
 
-    def get_model_info(
-        self, model_type: str, version: str
-    ) -> dict[str, Any] | None:
+    def get_model_info(self, model_type: str, version: str) -> dict[str, Any] | None:
         """Get model status and path info from database.
 
         Args:

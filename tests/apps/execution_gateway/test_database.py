@@ -33,6 +33,7 @@ def _mock_pool_connection():
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
         yield mock_pool, mock_conn, mock_cursor
 
+
 # Mark all tests as integration - they mock psycopg.connect but DatabaseClient uses ConnectionPool
 # which doesn't use psycopg.connect directly. These tests need proper ConnectionPool mocking.
 pytestmark = pytest.mark.integration()

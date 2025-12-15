@@ -117,6 +117,7 @@ def cmd_register(args: argparse.Namespace) -> int:
 
     # For pickle files, load the model
     import pickle
+
     with open(model_path, "rb") as f:
         model = pickle.load(f)  # noqa: S301
 
@@ -244,13 +245,15 @@ def cmd_list(args: argparse.Namespace) -> int:
         # JSON output
         output = []
         for m in models:
-            output.append({
-                "model_id": m.model_id,
-                "model_type": m.model_type.value,
-                "version": m.version,
-                "created_at": m.created_at.isoformat(),
-                "checksum": m.checksum_sha256[:16],
-            })
+            output.append(
+                {
+                    "model_id": m.model_id,
+                    "model_type": m.model_type.value,
+                    "version": m.version,
+                    "created_at": m.created_at.isoformat(),
+                    "checksum": m.checksum_sha256[:16],
+                }
+            )
         print(json.dumps(output, indent=2))
     else:
         # Table output

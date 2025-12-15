@@ -57,7 +57,9 @@ def fetch_positions() -> dict[str, Any]:
 
 
 @st.cache_data(ttl=300)
-def fetch_performance(start: date, end: date, strategies: list[str], user_id: str | None) -> dict[str, Any]:
+def fetch_performance(
+    start: date, end: date, strategies: list[str], user_id: str | None
+) -> dict[str, Any]:
     # Include user_id in cache key to prevent cross-user data leakage when the
     # same strategy list is requested by different users.
     if user_id is None:
@@ -73,13 +75,16 @@ def fetch_performance(start: date, end: date, strategies: list[str], user_id: st
     )
 
 
-def _metric(label: str, value: Decimal | float | int | None, delta: Decimal | float | None = None) -> None:
+def _metric(
+    label: str, value: Decimal | float | int | None, delta: Decimal | float | None = None
+) -> None:
     if value is None:
         st.metric(label, "–")
         return
     display_val = f"{value:,.2f}" if isinstance(value, (int | float | Decimal)) else str(value)
     delta_val = None if delta is None else f"{delta:,.2f}"
     st.metric(label, display_val, delta=delta_val)
+
 
 def _get_value(item: Any, key: str) -> Any:
     """Safely fetch attribute or mapping key from objects."""
@@ -106,7 +111,9 @@ def render_realtime_pnl() -> None:
 
     cols = st.columns(3)
     cols[0].metric("Open Positions", len(positions))
-    cols[1].metric("Unrealized P&L", f"{total_unrealized:,.2f}" if total_unrealized is not None else "–")
+    cols[1].metric(
+        "Unrealized P&L", f"{total_unrealized:,.2f}" if total_unrealized is not None else "–"
+    )
     cols[2].metric(
         "Unrealized P&L %",
         f"{total_unrealized_pct:,.2f}%" if total_unrealized_pct is not None else "–",

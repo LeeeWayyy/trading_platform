@@ -179,7 +179,7 @@ class TestRecordContext:
         save_state = MagicMock()
 
         rules = DelegationRules(load_state=load_state, save_state=save_state)
-        snapshot = rules.record_context(250000)  # Exceeds max
+        rules.record_context(250000)  # Exceeds max
 
         captured = capsys.readouterr()
         assert "Warning: Token usage (250000) exceeds max (200000)" in captured.out
@@ -192,7 +192,7 @@ class TestRecordContext:
         save_state = MagicMock()
 
         rules = DelegationRules(load_state=load_state, save_state=save_state)
-        snapshot = rules.record_context(10000)
+        rules.record_context(10000)
 
         assert "context" in state
         assert state["context"]["current_tokens"] == 10000
@@ -455,7 +455,7 @@ class TestRecordDelegation:
         save_state = MagicMock()
 
         rules = DelegationRules(load_state=load_state, save_state=save_state)
-        result = rules.record_delegation("Test task")
+        rules.record_delegation("Test task")
 
         assert "subagent_delegations" in state
         assert len(state["subagent_delegations"]) == 1

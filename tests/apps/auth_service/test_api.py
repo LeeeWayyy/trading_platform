@@ -243,7 +243,9 @@ def test_refresh_rate_limit_exceeded(client, mock_oauth2_handler, mock_rate_limi
     mock_oauth2_handler.refresh_tokens.assert_not_called()
 
 
-def test_refresh_internal_bypass_uses_shared_secret(client, mock_oauth2_handler, mock_rate_limiters):
+def test_refresh_internal_bypass_uses_shared_secret(
+    client, mock_oauth2_handler, mock_rate_limiters
+):
     """Internal callers with shared secret should bypass binding validation."""
     # Patch the module-level constant directly (env var is evaluated at import time)
     with patch("apps.auth_service.routes.refresh.INTERNAL_REFRESH_SECRET", "test-internal-secret"):

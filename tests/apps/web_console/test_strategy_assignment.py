@@ -1,6 +1,6 @@
 """Tests for strategy assignment component and service functions."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -51,7 +51,7 @@ class MockTransaction:
 class TestGrantStrategy:
     """Tests for grant_strategy function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_grant_strategy_success(self):
         """Test successful strategy grant."""
 
@@ -67,10 +67,12 @@ class TestGrantStrategy:
         # 2) INSERT ... ON CONFLICT DO NOTHING (rowcount=1 when inserted)
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
         mock_cursor_inserted = MockAsyncCursor(rowcount=1)  # insert succeeded
-        mock_conn.execute = AsyncMock(side_effect=[
-            mock_cursor_exists,   # SELECT strategy exists
-            mock_cursor_inserted, # INSERT grant
-        ])
+        mock_conn.execute = AsyncMock(
+            side_effect=[
+                mock_cursor_exists,  # SELECT strategy exists
+                mock_cursor_inserted,  # INSERT grant
+            ]
+        )
 
         mock_audit = AsyncMock()
 
@@ -87,7 +89,7 @@ class TestGrantStrategy:
         mock_audit.log_admin_change.assert_called_once()
         assert mock_conn.execute.call_count == 2  # SELECT exists + INSERT
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_grant_strategy_already_granted_denied(self):
         """[v1.2] Test already granted logs denied attempt."""
 
@@ -125,7 +127,7 @@ class TestGrantStrategy:
 class TestRevokeStrategy:
     """Tests for revoke_strategy function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_revoke_strategy_success(self):
         """Test successful strategy revoke."""
 
@@ -141,10 +143,12 @@ class TestRevokeStrategy:
         # Second call: DELETE with rowcount=1
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
         mock_cursor_deleted = MockAsyncCursor(rowcount=1)  # row deleted
-        mock_conn.execute = AsyncMock(side_effect=[
-            mock_cursor_exists,  # SELECT strategy exists
-            mock_cursor_deleted, # DELETE
-        ])
+        mock_conn.execute = AsyncMock(
+            side_effect=[
+                mock_cursor_exists,  # SELECT strategy exists
+                mock_cursor_deleted,  # DELETE
+            ]
+        )
 
         mock_audit = AsyncMock()
 
@@ -159,7 +163,7 @@ class TestRevokeStrategy:
         assert success is True
         mock_audit.log_admin_change.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_revoke_strategy_not_assigned_denied(self):
         """[v1.2] Test revoke of non-assigned strategy logs denied."""
 
@@ -175,10 +179,12 @@ class TestRevokeStrategy:
         # Second call: DELETE with rowcount=0 (not assigned)
         mock_cursor_exists = MockAsyncCursor(single_row=(1,))  # strategy exists
         mock_cursor_not_deleted = MockAsyncCursor(rowcount=0)  # no rows deleted
-        mock_conn.execute = AsyncMock(side_effect=[
-            mock_cursor_exists,      # SELECT strategy exists
-            mock_cursor_not_deleted, # DELETE (0 rows)
-        ])
+        mock_conn.execute = AsyncMock(
+            side_effect=[
+                mock_cursor_exists,  # SELECT strategy exists
+                mock_cursor_not_deleted,  # DELETE (0 rows)
+            ]
+        )
 
         mock_audit = AsyncMock()
 

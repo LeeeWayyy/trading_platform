@@ -4,17 +4,17 @@ Tests for delegation.py module.
 Tests DelegationRules for context monitoring and delegation recommendations.
 """
 
-import json
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from datetime import datetime
+from unittest.mock import MagicMock
 
-from ai_workflow.delegation import DelegationRules
+import pytest
+
 from ai_workflow.constants import (
-    CONTEXT_WARN_PCT,
     CONTEXT_CRITICAL_PCT,
+    CONTEXT_WARN_PCT,
     DEFAULT_MAX_TOKENS,
 )
+from ai_workflow.delegation import DelegationRules
 
 
 class TestDelegationRulesInit:

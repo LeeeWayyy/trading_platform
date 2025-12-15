@@ -3,14 +3,13 @@ Shared fixtures for risk module tests.
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, UTC
-from unittest.mock import MagicMock
+from datetime import date, timedelta
 
 import numpy as np
 import polars as pl
 import pytest
 
-from libs.risk import CovarianceConfig, CovarianceResult, CANONICAL_FACTOR_ORDER
+from libs.risk import CANONICAL_FACTOR_ORDER, CovarianceConfig, CovarianceResult
 
 
 @dataclass
@@ -43,9 +42,7 @@ class MockCRSPProvider:
         end_date: date,
     ) -> pl.DataFrame:
         if self._data is not None:
-            return self._data.filter(
-                (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-            )
+            return self._data.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
         return create_mock_crsp_data(start_date, end_date)
 
     def get_daily_prices(
@@ -108,14 +105,16 @@ def create_mock_crsp_data(
 
             price = base_price * (1 + ret) ** i
 
-            data.append({
-                "date": dt,
-                "permno": permno,
-                "prc": price,
-                "ret": ret,
-                "vol": np.random.uniform(10000, 1000000),
-                "shrout": shrout,
-            })
+            data.append(
+                {
+                    "date": dt,
+                    "permno": permno,
+                    "prc": price,
+                    "ret": ret,
+                    "vol": np.random.uniform(10000, 1000000),
+                    "shrout": shrout,
+                }
+            )
 
     return pl.DataFrame(data)
 
@@ -129,13 +128,15 @@ def create_mock_fundamentals(n_stocks: int = 100) -> pl.DataFrame:
     data = []
     for permno in permnos:
         for year in [2021, 2022, 2023]:
-            data.append({
-                "permno": permno,
-                "datadate": date(year, 12, 31),
-                "ceq": np.random.uniform(100, 10000),
-                "ni": np.random.uniform(-50, 500),
-                "gsector": str(np.random.choice([10, 15, 20, 25, 30, 35, 40, 45, 50, 55])),
-            })
+            data.append(
+                {
+                    "permno": permno,
+                    "datadate": date(year, 12, 31),
+                    "ceq": np.random.uniform(100, 10000),
+                    "ni": np.random.uniform(-50, 500),
+                    "gsector": str(np.random.choice([10, 15, 20, 25, 30, 35, 40, 45, 50, 55])),
+                }
+            )
 
     return pl.DataFrame(data)
 
@@ -158,13 +159,15 @@ def create_mock_factor_returns(
     data = []
     for dt in trading_days:
         for factor_name in factor_names:
-            data.append({
-                "date": dt,
-                "factor_name": factor_name,
-                "daily_return": np.random.normal(0, 0.01),
-                "t_statistic": np.random.normal(0, 2),
-                "r_squared": np.random.uniform(0.01, 0.1),
-            })
+            data.append(
+                {
+                    "date": dt,
+                    "factor_name": factor_name,
+                    "daily_return": np.random.normal(0, 0.01),
+                    "t_statistic": np.random.normal(0, 2),
+                    "r_squared": np.random.uniform(0.01, 0.1),
+                }
+            )
 
     return pl.DataFrame(data)
 
@@ -187,14 +190,16 @@ def create_mock_factor_exposures(
     data = []
     for permno in permnos:
         for factor_name in factor_names:
-            data.append({
-                "permno": permno,
-                "date": as_of_date,
-                "factor_name": factor_name,
-                "zscore": np.random.normal(0, 1),
-                "raw_value": np.random.normal(0, 0.1),
-                "percentile": np.random.uniform(0, 1),
-            })
+            data.append(
+                {
+                    "permno": permno,
+                    "date": as_of_date,
+                    "factor_name": factor_name,
+                    "zscore": np.random.normal(0, 1),
+                    "raw_value": np.random.normal(0, 0.1),
+                    "percentile": np.random.uniform(0, 1),
+                }
+            )
 
     return pl.DataFrame(data)
 
@@ -209,42 +214,42 @@ def create_mock_covariance_matrix(n_factors: int = 5) -> np.ndarray:
 
     # Scale to reasonable variance (~1% daily vol)
     daily_vol = 0.01
-    cov = cov * (daily_vol ** 2)
+    cov = cov * (daily_vol**2)
 
     return cov
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_crsp_data() -> pl.DataFrame:
     """Fixture for mock CRSP data."""
     return create_mock_crsp_data()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_fundamentals() -> pl.DataFrame:
     """Fixture for mock fundamental data."""
     return create_mock_fundamentals()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_crsp_provider(mock_crsp_data: pl.DataFrame) -> MockCRSPProvider:
     """Fixture for mock CRSP provider."""
     return MockCRSPProvider(mock_crsp_data)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_compustat_provider(mock_fundamentals: pl.DataFrame) -> MockCompustatProvider:
     """Fixture for mock Compustat provider."""
     return MockCompustatProvider(mock_fundamentals)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_manifest_manager() -> MockManifestManager:
     """Fixture for mock manifest manager."""
     return MockManifestManager()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_factor_builder(
     mock_crsp_provider: MockCRSPProvider,
     mock_compustat_provider: MockCompustatProvider,
@@ -260,13 +265,13 @@ def mock_factor_builder(
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def covariance_config() -> CovarianceConfig:
     """Fixture for default covariance config."""
     return CovarianceConfig()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_factor_returns() -> pl.DataFrame:
     """Fixture for mock factor returns."""
     return create_mock_factor_returns(
@@ -275,19 +280,19 @@ def mock_factor_returns() -> pl.DataFrame:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_factor_exposures() -> pl.DataFrame:
     """Fixture for mock factor exposures."""
     return create_mock_factor_exposures()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_covariance_matrix() -> np.ndarray:
     """Fixture for a valid covariance matrix."""
     return create_mock_covariance_matrix()
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_covariance_result(mock_factor_returns: pl.DataFrame) -> CovarianceResult:
     """Fixture for a sample CovarianceResult."""
     return CovarianceResult(
@@ -318,14 +323,16 @@ def create_mock_specific_risks(
     for permno in permnos:
         # Daily specific variance (~1-5% daily idiosyncratic vol)
         daily_vol = np.random.uniform(0.01, 0.05)
-        specific_variance = daily_vol ** 2
+        specific_variance = daily_vol**2
         specific_vol = daily_vol * np.sqrt(252)  # Annualized
 
-        data.append({
-            "permno": permno,
-            "specific_variance": specific_variance,
-            "specific_vol": specific_vol,
-        })
+        data.append(
+            {
+                "permno": permno,
+                "specific_variance": specific_variance,
+                "specific_vol": specific_vol,
+            }
+        )
 
     return pl.DataFrame(data)
 
@@ -341,25 +348,27 @@ def create_mock_portfolio(
     weights = np.random.uniform(0.01, 0.05, n_stocks)
     weights = weights / weights.sum()  # Normalize to sum to 1
 
-    return pl.DataFrame({
-        "permno": permnos,
-        "weight": weights.tolist(),
-    })
+    return pl.DataFrame(
+        {
+            "permno": permnos,
+            "weight": weights.tolist(),
+        }
+    )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_specific_risks() -> pl.DataFrame:
     """Fixture for mock specific risk data."""
     return create_mock_specific_risks()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_portfolio() -> pl.DataFrame:
     """Fixture for mock portfolio."""
     return create_mock_portfolio()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_factor_loadings_wide() -> pl.DataFrame:
     """Fixture for factor loadings in wide format."""
     exposures = create_mock_factor_exposures()

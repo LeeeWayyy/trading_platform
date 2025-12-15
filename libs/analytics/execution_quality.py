@@ -88,9 +88,7 @@ class Fill(BaseModel):
     )
 
     # Fee handling (REQUIRED for accurate IS)
-    fee_amount: float = Field(
-        default=0.0, description="Total fee (positive) or rebate (negative)"
-    )
+    fee_amount: float = Field(default=0.0, description="Total fee (positive) or rebate (negative)")
     fee_currency: str = Field(default="USD", description="Currency of fee")
 
     @field_validator("timestamp")
@@ -153,12 +151,8 @@ class FillBatch(BaseModel):
     decision_time: datetime = Field(
         ..., description="When signal was generated (arrival price source)"
     )
-    submission_time: datetime = Field(
-        ..., description="When order was submitted to broker"
-    )
-    total_target_qty: int = Field(
-        ..., gt=0, description="Total quantity intended to fill"
-    )
+    submission_time: datetime = Field(..., description="When order was submitted to broker")
+    total_target_qty: int = Field(..., gt=0, description="Total quantity intended to fill")
 
     @field_validator("decision_time", "submission_time")
     @classmethod
@@ -208,9 +202,7 @@ class FillBatch(BaseModel):
         return [
             f
             for f in self.fills
-            if f.symbol == self.symbol
-            and f.side == self.side
-            and f.timestamp >= self.decision_time
+            if f.symbol == self.symbol and f.side == self.side and f.timestamp >= self.decision_time
         ]
 
     @property
@@ -332,25 +324,17 @@ class ExtendedFill(Fill):
     """
 
     status: FillStatus = Field(default=FillStatus.FILLED, description="Fill status")
-    amends_fill_id: str | None = Field(
-        default=None, description="ID of fill being amended"
-    )
+    amends_fill_id: str | None = Field(default=None, description="ID of fill being amended")
     cancel_reason: str | None = Field(default=None, description="Reason for cancel")
 
     # Timing for latency analysis (all UTC-validated)
     broker_received_at: datetime | None = Field(
         default=None, description="When broker received order"
     )
-    exchange_ack_at: datetime | None = Field(
-        default=None, description="When exchange acknowledged"
-    )
-    fill_reported_at: datetime | None = Field(
-        default=None, description="When fill was reported"
-    )
+    exchange_ack_at: datetime | None = Field(default=None, description="When exchange acknowledged")
+    fill_reported_at: datetime | None = Field(default=None, description="When fill was reported")
 
-    @field_validator(
-        "broker_received_at", "exchange_ack_at", "fill_reported_at", mode="before"
-    )
+    @field_validator("broker_received_at", "exchange_ack_at", "fill_reported_at", mode="before")
     @classmethod
     def validate_optional_utc(cls, v: datetime | None) -> datetime | None:
         """Validate optional timestamps are UTC if provided."""
@@ -575,15 +559,11 @@ class ExecutionQualityAnalyzer:
 
         if fills_before_decision_warning:
             count = len(fill_batch.fills_before_decision)
-            warnings.append(
-                f"{count} fill(s) before decision_time excluded from analysis"
-            )
+            warnings.append(f"{count} fill(s) before decision_time excluded from analysis")
 
         if side_mismatch_warning:
             count = len(fill_batch.mismatched_side_fills)
-            warnings.append(
-                f"{count} fill(s) with mismatched side excluded from analysis"
-            )
+            warnings.append(f"{count} fill(s) with mismatched side excluded from analysis")
 
         if mixed_currency_warning:
             warnings.append("Mixed fee currencies detected - fee aggregation may be incorrect")
@@ -707,19 +687,15 @@ class ExecutionQualityAnalyzer:
         # Total cost (true IS) - weight filled components by fill_rate
         # price_shortfall and fee_cost apply only to filled portion
         # opportunity_cost is already weighted by unfilled_fraction
-        total_cost_bps = (
-            (price_shortfall_bps + fee_cost_bps) * fill_rate + opportunity_cost_bps
-        )
+        total_cost_bps = (price_shortfall_bps + fee_cost_bps) * fill_rate + opportunity_cost_bps
 
         # Market impact estimation with timing/permanent decomposition
-        market_impact_bps, timing_cost_bps, mid_price_at_arrival = (
-            self._estimate_market_impact(
-                fill_batch=fill_batch,
-                arrival_price=arrival_price,
-                execution_price=execution_price,
-                spread_stats=spread_stats,
-                warnings=warnings,
-            )
+        market_impact_bps, timing_cost_bps, mid_price_at_arrival = self._estimate_market_impact(
+            fill_batch=fill_batch,
+            arrival_price=arrival_price,
+            execution_price=execution_price,
+            spread_stats=spread_stats,
+            warnings=warnings,
         )
         total_notional = execution_price * total_filled_qty
 
@@ -812,9 +788,7 @@ class ExecutionQualityAnalyzer:
             return float("nan"), 0.0
 
         # Filter to time window
-        bars_df = bars_df.filter(
-            (pl.col("ts") >= start_time) & (pl.col("ts") <= end_time)
-        )
+        bars_df = bars_df.filter((pl.col("ts") >= start_time) & (pl.col("ts") <= end_time))
 
         if bars_df.is_empty():
             return float("nan"), 0.0
@@ -830,9 +804,7 @@ class ExecutionQualityAnalyzer:
             total_value = (valid_bars["vwap"] * valid_bars["volume"]).sum()
         else:
             # Fallback: use typical price = (high + low + close) / 3
-            typical_price = (
-                valid_bars["high"] + valid_bars["low"] + valid_bars["close"]
-            ) / 3
+            typical_price = (valid_bars["high"] + valid_bars["low"] + valid_bars["close"]) / 3
             total_value = (typical_price * valid_bars["volume"]).sum()
 
         total_volume = valid_bars["volume"].sum()
@@ -887,9 +859,7 @@ class ExecutionQualityAnalyzer:
             return float("nan")
 
         # Filter to time window
-        bars_df = bars_df.filter(
-            (pl.col("ts") >= start_time) & (pl.col("ts") <= end_time)
-        )
+        bars_df = bars_df.filter((pl.col("ts") >= start_time) & (pl.col("ts") <= end_time))
 
         if bars_df.is_empty():
             return float("nan")
@@ -992,9 +962,7 @@ class ExecutionQualityAnalyzer:
         # Total impact = price shortfall
         total_impact_bps: float
         if arrival_price > 0:
-            total_impact_bps = (
-                side_sign * (execution_price - arrival_price) / arrival_price * 10000
-            )
+            total_impact_bps = side_sign * (execution_price - arrival_price) / arrival_price * 10000
         else:
             return float("nan"), float("nan"), None
 
@@ -1016,9 +984,7 @@ class ExecutionQualityAnalyzer:
             timing_cost_bps = half_spread / arrival_price * 10000
         else:
             if spread_stats is None:
-                warnings.append(
-                    "No spread data - cannot decompose timing/permanent impact"
-                )
+                warnings.append("No spread data - cannot decompose timing/permanent impact")
 
         # Permanent impact = total impact minus timing cost
         # If we paid more than half-spread, it's market movement
@@ -1144,13 +1110,21 @@ class ExecutionQualityAnalyzer:
             )
 
         # Find period with highest liquidity (highest volume concentration)
-        bars_df = bars_df.with_columns([
-            pl.col("ts").dt.hour().alias("hour"),
-        ])
+        bars_df = bars_df.with_columns(
+            [
+                pl.col("ts").dt.hour().alias("hour"),
+            ]
+        )
 
-        hourly_volume = bars_df.group_by("hour").agg([
-            pl.col("volume").sum().alias("total_volume"),
-        ]).sort("total_volume", descending=True)
+        hourly_volume = (
+            bars_df.group_by("hour")
+            .agg(
+                [
+                    pl.col("volume").sum().alias("total_volume"),
+                ]
+            )
+            .sort("total_volume", descending=True)
+        )
 
         # Recommend window around highest volume hour
         if not hourly_volume.is_empty():

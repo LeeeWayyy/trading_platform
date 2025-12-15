@@ -9,8 +9,6 @@ Location: apps/execution_gateway/main.py:submit_order
 Fix: Catch UniqueViolation, return existing order (idempotent response)
 """
 
-import pytest
-
 
 class TestIdempotencyRaceHandling:
     """Test idempotency race condition handling logic.

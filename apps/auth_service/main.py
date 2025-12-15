@@ -75,9 +75,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     # Build CSP policy using centralized utility (Gemini + Codex Fresh Review: MEDIUM)
     # Avoids duplication with middleware CSP policy logic
     header_name = (
-        "Content-Security-Policy-Report-Only"
-        if enable_report_only
-        else "Content-Security-Policy"
+        "Content-Security-Policy-Report-Only" if enable_report_only else "Content-Security-Policy"
     )
 
     csp_policy = build_csp_policy(nonce, config.auth0_domain, "/csp-report")

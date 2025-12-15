@@ -3,11 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import hashlib
-import json
-import os
-import shutil
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -16,13 +11,13 @@ import pytest
 
 from libs.data_providers.locking import atomic_lock
 from libs.data_providers.sync_manager import SyncManager, SyncProgress
-from libs.data_quality.exceptions import DiskSpaceError, SchemaError
+from libs.data_quality.exceptions import DiskSpaceError
 from libs.data_quality.manifest import ManifestManager, SyncManifest
-from libs.data_quality.schema import SchemaRegistry, SchemaDrift
+from libs.data_quality.schema import SchemaRegistry
 from libs.data_quality.validation import DataValidator
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_dirs(tmp_path: Path) -> dict[str, Path]:
     """Create test directories."""
     dirs = {
@@ -38,20 +33,22 @@ def test_dirs(tmp_path: Path) -> dict[str, Path]:
     return dirs
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_wrds_client() -> MagicMock:
     """Create a mock WRDS client."""
     client = MagicMock()
     # Return sample DataFrame for queries
-    client.execute_query.return_value = pl.DataFrame({
-        "date": ["2024-01-01", "2024-01-02"],
-        "permno": [10001, 10001],
-        "ret": [0.01, -0.02],
-    })
+    client.execute_query.return_value = pl.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-01-02"],
+            "permno": [10001, 10001],
+            "ret": [0.01, -0.02],
+        }
+    )
     return client
 
 
-@pytest.fixture
+@pytest.fixture()
 def sync_manager(
     test_dirs: dict[str, Path],
     mock_wrds_client: MagicMock,
@@ -108,7 +105,7 @@ class TestAtomicWrite:
         # Make write fail by making directory read-only
         # This is tricky to test, so we'll mock the write
         with patch.object(pl.DataFrame, "write_parquet", side_effect=OSError("Write failed")):
-            with pytest.raises(OSError):
+            with pytest.raises(OSError, match="Write failed"):
                 sync_manager._atomic_write_parquet(df, target)
 
         # Temp file should be cleaned
@@ -226,15 +223,11 @@ class TestProgressCheckpointing:
 class TestDiskSpaceChecks:
     """Tests for disk space monitoring."""
 
-    def test_disk_space_check_blocks_at_95_percent(
-        self, sync_manager: SyncManager
-    ) -> None:
+    def test_disk_space_check_blocks_at_95_percent(self, sync_manager: SyncManager) -> None:
         """Test 26: Disk space check blocks at 95%."""
         # Mock disk usage to show 96% used
         with patch("shutil.disk_usage") as mock_usage:
-            mock_usage.return_value = type(
-                "DiskUsage", (), {"total": 100, "free": 4, "used": 96}
-            )()
+            mock_usage.return_value = type("DiskUsage", (), {"total": 100, "free": 4, "used": 96})()
 
             with pytest.raises(DiskSpaceError):
                 sync_manager._check_disk_space_and_alert(required_bytes=0)
@@ -280,9 +273,7 @@ class TestManifestOperations:
             # fsync should be called (for file and directory)
             assert mock_fsync.call_count >= 1
 
-    def test_manifest_validation_gate_blocks_on_failure(
-        self, sync_manager: SyncManager
-    ) -> None:
+    def test_manifest_validation_gate_blocks_on_failure(self, sync_manager: SyncManager) -> None:
         """Test 29: Manifest validation gate blocks if validation fails."""
         # This is tested through schema drift handling
         # If breaking schema drift detected, sync should fail before manifest update
@@ -310,15 +301,17 @@ class TestIncrementalSync:
         # Create initial data file with existing rows (dates in current year)
         storage_dir = test_dirs["storage"] / "crsp_daily"
         storage_dir.mkdir(parents=True, exist_ok=True)
-        initial_df = pl.DataFrame({
-            "date": [
-                (yesterday - datetime.timedelta(days=2)).isoformat(),
-                (yesterday - datetime.timedelta(days=1)).isoformat(),
-                yesterday.isoformat(),
-            ],
-            "permno": [10001, 10001, 10001],
-            "ret": [0.01, -0.02, 0.03],
-        })
+        initial_df = pl.DataFrame(
+            {
+                "date": [
+                    (yesterday - datetime.timedelta(days=2)).isoformat(),
+                    (yesterday - datetime.timedelta(days=1)).isoformat(),
+                    yesterday.isoformat(),
+                ],
+                "permno": [10001, 10001, 10001],
+                "ret": [0.01, -0.02, 0.03],
+            }
+        )
         initial_file = storage_dir / f"{current_year}.parquet"
         initial_df.write_parquet(initial_file)
 
@@ -344,11 +337,13 @@ class TestIncrementalSync:
             sync_manager.manifest_manager.save_manifest(initial_manifest, token)
 
         # Mock WRDS to return new data (today's date)
-        new_data = pl.DataFrame({
-            "date": [today.isoformat()],
-            "permno": [10001],
-            "ret": [0.04],
-        })
+        new_data = pl.DataFrame(
+            {
+                "date": [today.isoformat()],
+                "permno": [10001],
+                "ret": [0.04],
+            }
+        )
         mock_wrds_client.execute_query.return_value = new_data
 
         # Call incremental sync

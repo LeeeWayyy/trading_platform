@@ -156,7 +156,7 @@ def _session_data(session_version: int = 1) -> SessionData:
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_refresh_tokens_updates_session_and_persists(monkeypatch):
     pool = FakePool(session_version=1)
     handler, store, redis_client = _make_handler(_session_data(), pool, monkeypatch)
@@ -177,12 +177,12 @@ async def test_refresh_tokens_updates_session_and_persists(monkeypatch):
     assert store.deleted is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_refresh_tokens_rejects_on_session_version_mismatch(monkeypatch):
     pool = FakePool(session_version=5)
     handler, store, _ = _make_handler(_session_data(session_version=1), pool, monkeypatch)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Session invalidated"):
         await handler.refresh_tokens(
             session_id="sid",
             ip_address="1.1.1.1",

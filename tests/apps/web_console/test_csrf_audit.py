@@ -3,8 +3,6 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-import streamlit as st
-
 
 def _run_and_close(coro):
     """Execute a coroutine to completion to avoid unawaited warnings."""

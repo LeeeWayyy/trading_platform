@@ -2,14 +2,18 @@
 Shared fixtures for factor module tests.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, UTC
-from typing import Any
-from unittest.mock import MagicMock
+from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 import pytest
+
+if TYPE_CHECKING:
+    from libs.factors import FactorResult
 
 
 @dataclass
@@ -49,9 +53,7 @@ class MockCRSPProvider:
         as_of_date: date | None = None,
     ) -> pl.DataFrame:
         if self._data is not None:
-            return self._data.filter(
-                (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-            )
+            return self._data.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
         return create_mock_prices(start_date, end_date)
 
 
@@ -143,37 +145,37 @@ def create_mock_fundamentals(n_stocks: int = 50) -> pl.DataFrame:
     return pl.DataFrame(data)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_prices() -> pl.DataFrame:
     """Fixture for mock price data."""
     return create_mock_prices()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_fundamentals() -> pl.DataFrame:
     """Fixture for mock fundamental data."""
     return create_mock_fundamentals()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_crsp_provider(mock_prices: pl.DataFrame) -> MockCRSPProvider:
     """Fixture for mock CRSP provider."""
     return MockCRSPProvider(mock_prices)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_compustat_provider(mock_fundamentals: pl.DataFrame) -> MockCompustatProvider:
     """Fixture for mock Compustat provider."""
     return MockCompustatProvider(mock_fundamentals)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_manifest_manager() -> MockManifestManager:
     """Fixture for mock manifest manager."""
     return MockManifestManager()
 
 
-@pytest.fixture
+@pytest.fixture()
 def factor_builder(
     mock_crsp_provider: MockCRSPProvider,
     mock_compustat_provider: MockCompustatProvider,
@@ -189,8 +191,8 @@ def factor_builder(
     )
 
 
-@pytest.fixture
-def sample_factor_result() -> "FactorResult":
+@pytest.fixture()
+def sample_factor_result() -> FactorResult:
     """Fixture for a sample FactorResult."""
     from libs.factors import FactorResult
 

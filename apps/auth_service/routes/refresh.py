@@ -87,7 +87,10 @@ async def refresh_token(
             )
             logger.debug(
                 "Internal refresh (binding bypass via shared secret)",
-                extra={"client_ip": client_ip, "trusted_proxy": bool(request.headers.get("X-Forwarded-For"))},
+                extra={
+                    "client_ip": client_ip,
+                    "trusted_proxy": bool(request.headers.get("X-Forwarded-For")),
+                },
             )
         else:
             # Standard path: enforce binding validation

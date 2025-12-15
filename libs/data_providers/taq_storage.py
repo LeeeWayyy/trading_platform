@@ -710,9 +710,7 @@ class TAQStorageManager:
                     "New columns detected in TAQ tick data",
                     extra={"symbol": symbol, "new_columns": drift.added_columns},
                 )
-                self.schema_registry.apply_drift_policy(
-                    schema_name, drift, current_schema
-                )
+                self.schema_registry.apply_drift_policy(schema_name, drift, current_schema)
 
         # Write atomically
         self._atomic_write_parquet(df, output_path)

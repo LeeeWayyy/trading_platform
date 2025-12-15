@@ -6,12 +6,10 @@ Addresses review feedback:
 - H9: Continuation ID persistence for multi-round reviews
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import List, Dict, Tuple, Optional
-import json
 import sys
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import Enum
 
 from .config import WorkflowConfig
 from .constants import DIFF_TRUNCATION_LIMIT
@@ -28,6 +26,7 @@ class ReviewStatus(Enum):
 
     Addresses Claude HIGH review: Added DISMISSED state for when reviewers dismiss their review.
     """
+
     NOT_REQUESTED = "NOT_REQUESTED"
     PENDING = "PENDING"
     APPROVED = "APPROVED"
@@ -39,6 +38,7 @@ class ReviewStatus(Enum):
 @dataclass
 class ReviewResult:
     """Result from a code review."""
+
     reviewer: str
     status: ReviewStatus
     continuation_id: str = ""
@@ -71,7 +71,7 @@ class ReviewerOrchestrator:
                     "last_updated": None,
                 }
 
-    def get_continuation_id(self, reviewer_name: str) -> Optional[str]:
+    def get_continuation_id(self, reviewer_name: str) -> str | None:
         """Get continuation_id for multi-round review context."""
         reviewer_state = self.state["reviewers"].get(reviewer_name, {})
         return reviewer_state.get("continuation_id")
@@ -81,29 +81,22 @@ class ReviewerOrchestrator:
         if reviewer_name not in self.state["reviewers"]:
             self.state["reviewers"][reviewer_name] = {}
         self.state["reviewers"][reviewer_name]["continuation_id"] = continuation_id
-        self.state["reviewers"][reviewer_name]["last_updated"] = (
-            datetime.now(timezone.utc).isoformat()
-        )
+        self.state["reviewers"][reviewer_name]["last_updated"] = datetime.now(UTC).isoformat()
 
     def record_review_result(
-        self,
-        reviewer_name: str,
-        status: ReviewStatus,
-        continuation_id: str = None
+        self, reviewer_name: str, status: ReviewStatus, continuation_id: str = None
     ) -> None:
         """Record result of a review."""
         if reviewer_name not in self.state["reviewers"]:
             self.state["reviewers"][reviewer_name] = {}
 
         self.state["reviewers"][reviewer_name]["status"] = status.value
-        self.state["reviewers"][reviewer_name]["last_updated"] = (
-            datetime.now(timezone.utc).isoformat()
-        )
+        self.state["reviewers"][reviewer_name]["last_updated"] = datetime.now(UTC).isoformat()
 
         if continuation_id:
             self.state["reviewers"][reviewer_name]["continuation_id"] = continuation_id
 
-    def check_all_approved(self) -> Tuple[bool, str]:
+    def check_all_approved(self) -> tuple[bool, str]:
         """
         Check if minimum required reviewers have approved.
 
@@ -118,8 +111,10 @@ class ReviewerOrchestrator:
         error_reviewers = []
 
         for reviewer in enabled:
-            status = self.state["reviewers"].get(reviewer, {}).get(
-                "status", ReviewStatus.NOT_REQUESTED.value
+            status = (
+                self.state["reviewers"]
+                .get(reviewer, {})
+                .get("status", ReviewStatus.NOT_REQUESTED.value)
             )
             if status == ReviewStatus.APPROVED.value:
                 approved_count += 1
@@ -153,8 +148,8 @@ class ReviewerOrchestrator:
         self,
         reviewer_name: str,
         diff: str,
-        file_paths: List[str] = None,
-        continuation_id: str = None
+        file_paths: list[str] = None,
+        continuation_id: str = None,
     ) -> dict:
         """
         Build parameters for mcp__zen__clink call.
@@ -182,7 +177,7 @@ class ReviewerOrchestrator:
             truncated_diff = diff[:DIFF_TRUNCATION_LIMIT]
             print(
                 f"Warning: Diff truncated from {len(diff)} to {DIFF_TRUNCATION_LIMIT} chars",
-                file=sys.stderr
+                file=sys.stderr,
             )
 
         prompt = f"""Review the following code changes:

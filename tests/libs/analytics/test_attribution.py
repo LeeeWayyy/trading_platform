@@ -15,37 +15,35 @@ Target: >90% code coverage
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import Any
-from unittest.mock import MagicMock, patch
+from dataclasses import FrozenInstanceError
+from datetime import date
+from unittest.mock import MagicMock
 
 import numpy as np
 import polars as pl
 import pytest
 
 from libs.analytics.attribution import (
+    FACTOR_COLS_BY_MODEL,
+    FF3_FACTOR_COLS,
+    FF5_FACTOR_COLS,
+    FF6_FACTOR_COLS,
     AttributionResult,
     DataMismatchError,
     FactorAttribution,
     FactorAttributionConfig,
-    FactorAttributionError,
     InsufficientObservationsError,
     PITViolationError,
     ReturnDecompositionResult,
     RollingExposureResult,
-    FF3_FACTOR_COLS,
-    FF5_FACTOR_COLS,
-    FF6_FACTOR_COLS,
-    FACTOR_COLS_BY_MODEL,
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_ff_factors() -> pl.DataFrame:
     """Create sample Fama-French factor data."""
     np.random.seed(42)
@@ -54,31 +52,35 @@ def sample_ff_factors() -> pl.DataFrame:
     # Convert to proper date list
     dates = pl.date_range(date(2020, 1, 1), date(2020, 10, 26), eager=True).to_list()[:n_days]
 
-    return pl.DataFrame({
-        "date": dates,
-        "mkt_rf": np.random.normal(0.0004, 0.01, n_days),
-        "smb": np.random.normal(0.0001, 0.005, n_days),
-        "hml": np.random.normal(0.0001, 0.005, n_days),
-        "rmw": np.random.normal(0.0001, 0.004, n_days),
-        "cma": np.random.normal(0.0001, 0.004, n_days),
-        "umd": np.random.normal(0.0002, 0.006, n_days),
-        "rf": np.full(n_days, 0.0001),
-    })
+    return pl.DataFrame(
+        {
+            "date": dates,
+            "mkt_rf": np.random.normal(0.0004, 0.01, n_days),
+            "smb": np.random.normal(0.0001, 0.005, n_days),
+            "hml": np.random.normal(0.0001, 0.005, n_days),
+            "rmw": np.random.normal(0.0001, 0.004, n_days),
+            "cma": np.random.normal(0.0001, 0.004, n_days),
+            "umd": np.random.normal(0.0002, 0.006, n_days),
+            "rf": np.full(n_days, 0.0001),
+        }
+    )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_portfolio_returns(sample_ff_factors: pl.DataFrame) -> pl.DataFrame:
     """Create sample portfolio returns matching factor dates."""
     np.random.seed(43)
     dates = sample_ff_factors["date"].to_list()
     returns = np.random.normal(0.0005, 0.015, len(dates))
-    return pl.DataFrame({
-        "date": dates,
-        "return": returns,
-    })
+    return pl.DataFrame(
+        {
+            "date": dates,
+            "return": returns,
+        }
+    )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_permno_returns() -> pl.DataFrame:
     """Create sample per-stock returns with permno."""
     np.random.seed(44)
@@ -88,16 +90,18 @@ def sample_permno_returns() -> pl.DataFrame:
     rows = []
     for d in dates:
         for p in permnos:
-            rows.append({
-                "date": d,
-                "permno": p,
-                "return": np.random.normal(0.0005, 0.02),
-            })
+            rows.append(
+                {
+                    "date": d,
+                    "permno": p,
+                    "return": np.random.normal(0.0005, 0.02),
+                }
+            )
 
     return pl.DataFrame(rows)
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_market_caps() -> pl.DataFrame:
     """Create sample market cap data."""
     np.random.seed(45)
@@ -106,7 +110,7 @@ def sample_market_caps() -> pl.DataFrame:
 
     # Different market caps: 10001 is microcap, others are larger
     base_caps = {
-        10001: 50_000_000,   # $50M - below $100M threshold
+        10001: 50_000_000,  # $50M - below $100M threshold
         10002: 200_000_000,  # $200M
         10003: 500_000_000,  # $500M
         10004: 1_000_000_000,  # $1B
@@ -116,25 +120,29 @@ def sample_market_caps() -> pl.DataFrame:
     rows = []
     for d in dates:
         for p in permnos:
-            rows.append({
-                "date": d,
-                "permno": p,
-                "market_cap": base_caps[p] * (1 + np.random.normal(0, 0.01)),
-            })
+            rows.append(
+                {
+                    "date": d,
+                    "permno": p,
+                    "market_cap": base_caps[p] * (1 + np.random.normal(0, 0.01)),
+                }
+            )
 
     return pl.DataFrame(rows)
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_currencies() -> pl.DataFrame:
     """Create sample currency data."""
-    return pl.DataFrame({
-        "permno": [10001, 10002, 10003, 10004, 10005],
-        "currency": ["USD", "USD", "USD", "CAD", "USD"],  # 10004 is CAD
-    })
+    return pl.DataFrame(
+        {
+            "permno": [10001, 10002, 10003, 10004, 10005],
+            "currency": ["USD", "USD", "USD", "CAD", "USD"],  # 10004 is CAD
+        }
+    )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_ff_provider(sample_ff_factors: pl.DataFrame) -> MagicMock:
     """Create mock Fama-French provider."""
     provider = MagicMock()
@@ -143,15 +151,17 @@ def mock_ff_provider(sample_ff_factors: pl.DataFrame) -> MagicMock:
     return provider
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_crsp_provider(sample_market_caps: pl.DataFrame) -> MagicMock:
     """Create mock CRSP provider."""
     provider = MagicMock()
     # Return price data that will result in market caps
-    prices = sample_market_caps.with_columns([
-        (pl.col("market_cap") / 1000 / 100).alias("prc"),  # price
-        pl.lit(100.0).alias("shrout"),  # shares in thousands
-    ]).select(["date", "permno", "prc", "shrout"])
+    prices = sample_market_caps.with_columns(
+        [
+            (pl.col("market_cap") / 1000 / 100).alias("prc"),  # price
+            pl.lit(100.0).alias("shrout"),  # shares in thousands
+        ]
+    ).select(["date", "permno", "prc", "shrout"])
     provider.get_daily_prices.return_value = prices
     provider.data_version = "v2.0"
     return provider
@@ -193,7 +203,7 @@ class TestFactorAttributionConfig:
     def test_config_frozen(self) -> None:
         """Test that config is immutable."""
         config = FactorAttributionConfig()
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             config.model = "ff3"  # type: ignore
 
 
@@ -557,15 +567,17 @@ class TestVIFCheck:
         dates = sample_portfolio_returns["date"].to_list()
         factor_vals = np.random.normal(0, 0.01, n_days)
 
-        ff_factors = pl.DataFrame({
-            "date": dates,
-            "mkt_rf": np.random.normal(0, 0.01, n_days),
-            "smb": factor_vals,
-            "hml": factor_vals,  # Identical to SMB
-            "rmw": np.random.normal(0, 0.01, n_days),
-            "cma": np.random.normal(0, 0.01, n_days),
-            "rf": np.full(n_days, 0.0001),
-        })
+        ff_factors = pl.DataFrame(
+            {
+                "date": dates,
+                "mkt_rf": np.random.normal(0, 0.01, n_days),
+                "smb": factor_vals,
+                "hml": factor_vals,  # Identical to SMB
+                "rmw": np.random.normal(0, 0.01, n_days),
+                "cma": np.random.normal(0, 0.01, n_days),
+                "rf": np.full(n_days, 0.0001),
+            }
+        )
 
         mock_provider = MagicMock()
         mock_provider.get_factors.return_value = ff_factors
@@ -591,13 +603,15 @@ class TestVIFCheck:
         n_days = len(sample_portfolio_returns)
         dates = sample_portfolio_returns["date"].to_list()
 
-        ff_factors = pl.DataFrame({
-            "date": dates,
-            "mkt_rf": np.random.normal(0, 0.01, n_days),
-            "smb": np.full(n_days, 0.001),  # Constant!
-            "hml": np.random.normal(0, 0.01, n_days),
-            "rf": np.full(n_days, 0.0001),
-        })
+        ff_factors = pl.DataFrame(
+            {
+                "date": dates,
+                "mkt_rf": np.random.normal(0, 0.01, n_days),
+                "smb": np.full(n_days, 0.001),  # Constant!
+                "hml": np.random.normal(0, 0.01, n_days),
+                "rf": np.full(n_days, 0.0001),
+            }
+        )
 
         mock_provider = MagicMock()
         mock_provider.get_factors.return_value = ff_factors
@@ -612,7 +626,9 @@ class TestVIFCheck:
         )
 
         # Should have warning about constant column
-        assert any("Constant" in w or "constant" in w.lower() for w in result.multicollinearity_warnings)
+        assert any(
+            "Constant" in w or "constant" in w.lower() for w in result.multicollinearity_warnings
+        )
 
 
 # =============================================================================
@@ -679,13 +695,15 @@ class TestRollingExposures:
         """Test that insufficient observation windows are skipped."""
         # Create sparse factor data
         sparse_dates = sample_portfolio_returns["date"].to_list()[::10]  # Every 10th day
-        ff_factors = pl.DataFrame({
-            "date": sparse_dates,
-            "mkt_rf": np.random.normal(0, 0.01, len(sparse_dates)),
-            "smb": np.random.normal(0, 0.01, len(sparse_dates)),
-            "hml": np.random.normal(0, 0.01, len(sparse_dates)),
-            "rf": np.full(len(sparse_dates), 0.0001),
-        })
+        ff_factors = pl.DataFrame(
+            {
+                "date": sparse_dates,
+                "mkt_rf": np.random.normal(0, 0.01, len(sparse_dates)),
+                "smb": np.random.normal(0, 0.01, len(sparse_dates)),
+                "hml": np.random.normal(0, 0.01, len(sparse_dates)),
+                "rf": np.full(len(sparse_dates), 0.0001),
+            }
+        )
 
         mock_provider = MagicMock()
         mock_provider.get_factors.return_value = ff_factors
@@ -749,9 +767,7 @@ class TestReturnDecomposition:
         assert "residual" in df.columns
 
         # Check reconciliation: excess_return ≈ alpha + factor_contrib + residual
-        computed = (
-            df["alpha_contrib"] + df["total_factor_contrib"] + df["residual"]
-        ).to_numpy()
+        computed = (df["alpha_contrib"] + df["total_factor_contrib"] + df["residual"]).to_numpy()
         actual = df["excess_return"].to_numpy()
 
         np.testing.assert_allclose(computed, actual, rtol=1e-10)
@@ -771,10 +787,12 @@ class TestPITCompliance:
     ) -> None:
         """Test that PIT violation raises error."""
         # Create portfolio with future dates
-        future_portfolio = pl.DataFrame({
-            "date": [date(2025, 1, 1), date(2025, 1, 2)],
-            "return": [0.01, -0.01],
-        })
+        future_portfolio = pl.DataFrame(
+            {
+                "date": [date(2025, 1, 1), date(2025, 1, 2)],
+                "return": [0.01, -0.01],
+            }
+        )
 
         config = FactorAttributionConfig(currency=None)
         attribution = FactorAttribution(ff_provider=mock_ff_provider, config=config)
@@ -887,17 +905,21 @@ class TestErrorHandling:
     ) -> None:
         """Test InsufficientObservationsError is raised."""
         # Create minimal data
-        short_portfolio = pl.DataFrame({
-            "date": [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)],
-            "return": [0.01, -0.01, 0.005],
-        })
-        short_factors = pl.DataFrame({
-            "date": [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)],
-            "mkt_rf": [0.01, -0.01, 0.005],
-            "smb": [0.001, -0.001, 0.0005],
-            "hml": [0.002, -0.002, 0.001],
-            "rf": [0.0001, 0.0001, 0.0001],
-        })
+        short_portfolio = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)],
+                "return": [0.01, -0.01, 0.005],
+            }
+        )
+        short_factors = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)],
+                "mkt_rf": [0.01, -0.01, 0.005],
+                "smb": [0.001, -0.001, 0.0005],
+                "hml": [0.002, -0.002, 0.001],
+                "rf": [0.0001, 0.0001, 0.0001],
+            }
+        )
 
         mock_provider = MagicMock()
         mock_provider.get_factors.return_value = short_factors
@@ -920,17 +942,21 @@ class TestErrorHandling:
         self,
     ) -> None:
         """Test DataMismatchError when no date overlap."""
-        portfolio = pl.DataFrame({
-            "date": [date(2020, 1, 1), date(2020, 1, 2)],
-            "return": [0.01, -0.01],
-        })
-        factors = pl.DataFrame({
-            "date": [date(2021, 1, 1), date(2021, 1, 2)],  # Different year!
-            "mkt_rf": [0.01, -0.01],
-            "smb": [0.001, -0.001],
-            "hml": [0.002, -0.002],
-            "rf": [0.0001, 0.0001],
-        })
+        portfolio = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1), date(2020, 1, 2)],
+                "return": [0.01, -0.01],
+            }
+        )
+        factors = pl.DataFrame(
+            {
+                "date": [date(2021, 1, 1), date(2021, 1, 2)],  # Different year!
+                "mkt_rf": [0.01, -0.01],
+                "smb": [0.001, -0.001],
+                "hml": [0.002, -0.002],
+                "rf": [0.0001, 0.0001],
+            }
+        )
 
         mock_provider = MagicMock()
         mock_provider.get_factors.return_value = factors
@@ -1302,17 +1328,21 @@ class TestAdditionalCoverage:
     ) -> None:
         """Test that windows with insufficient observations are tracked."""
         # Create minimal data - only 1 observation but need 60
-        portfolio = pl.DataFrame({
-            "date": [date(2020, 1, 1)],
-            "return": [0.01],
-        })
-        factors = pl.DataFrame({
-            "date": [date(2020, 1, 1)],
-            "mkt_rf": [0.01],
-            "smb": [0.001],
-            "hml": [0.002],
-            "rf": [0.0001],
-        })
+        portfolio = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1)],
+                "return": [0.01],
+            }
+        )
+        factors = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1)],
+                "mkt_rf": [0.01],
+                "smb": [0.001],
+                "hml": [0.002],
+                "rf": [0.0001],
+            }
+        )
 
         mock_provider = MagicMock()
         mock_provider.get_factors.return_value = factors
@@ -1345,17 +1375,21 @@ class TestAdditionalCoverage:
     ) -> None:
         """Test rolling exposures handles no-overlap windows."""
         # Create portfolio and factors with no overlapping dates
-        portfolio = pl.DataFrame({
-            "date": [date(2020, 1, 1), date(2020, 1, 2)],
-            "return": [0.01, 0.02],
-        })
-        factors = pl.DataFrame({
-            "date": [date(2020, 2, 1), date(2020, 2, 2)],  # Different dates!
-            "mkt_rf": [0.01, 0.02],
-            "smb": [0.001, 0.002],
-            "hml": [0.002, 0.003],
-            "rf": [0.0001, 0.0001],
-        })
+        portfolio = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1), date(2020, 1, 2)],
+                "return": [0.01, 0.02],
+            }
+        )
+        factors = pl.DataFrame(
+            {
+                "date": [date(2020, 2, 1), date(2020, 2, 2)],  # Different dates!
+                "mkt_rf": [0.01, 0.02],
+                "smb": [0.001, 0.002],
+                "hml": [0.002, 0.003],
+                "rf": [0.0001, 0.0001],
+            }
+        )
 
         mock_provider = MagicMock()
         mock_provider.get_factors.return_value = factors
@@ -1384,13 +1418,15 @@ class TestAdditionalCoverage:
     ) -> None:
         """Test NaN values are handled in serialization."""
         # Create result with NaN values
-        exposures = pl.DataFrame({
-            "date": [date(2020, 1, 1)],
-            "factor_name": ["mkt_rf"],
-            "beta": [float("nan")],
-            "t_stat": [float("nan")],
-            "p_value": [float("nan")],
-        })
+        exposures = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1)],
+                "factor_name": ["mkt_rf"],
+                "beta": [float("nan")],
+                "t_stat": [float("nan")],
+                "p_value": [float("nan")],
+            }
+        )
 
         result = RollingExposureResult(
             portfolio_id="test",
@@ -1402,14 +1438,16 @@ class TestAdditionalCoverage:
 
     def test_decomposition_nan_serialization(self) -> None:
         """Test decomposition result handles NaN serialization."""
-        decomp = pl.DataFrame({
-            "date": [date(2020, 1, 1)],
-            "portfolio_return": [float("nan")],
-            "risk_free": [0.0001],
-            "excess_return": [float("nan")],
-            "alpha_contrib": [0.001],
-            "residual": [float("nan")],
-        })
+        decomp = pl.DataFrame(
+            {
+                "date": [date(2020, 1, 1)],
+                "portfolio_return": [float("nan")],
+                "risk_free": [0.0001],
+                "excess_return": [float("nan")],
+                "alpha_contrib": [0.001],
+                "residual": [float("nan")],
+            }
+        )
 
         result = ReturnDecompositionResult(
             portfolio_id="test",
@@ -1447,13 +1485,17 @@ class TestAdditionalCoverage:
     ) -> None:
         """Test handling when FF provider has no version."""
         mock_provider = MagicMock(spec=[])  # No auto-created attributes
-        mock_provider.get_factors = MagicMock(return_value=pl.DataFrame({
-            "date": sample_portfolio_returns["date"].to_list(),
-            "mkt_rf": np.random.normal(0, 0.01, len(sample_portfolio_returns)),
-            "smb": np.random.normal(0, 0.01, len(sample_portfolio_returns)),
-            "hml": np.random.normal(0, 0.01, len(sample_portfolio_returns)),
-            "rf": np.full(len(sample_portfolio_returns), 0.0001),
-        }))
+        mock_provider.get_factors = MagicMock(
+            return_value=pl.DataFrame(
+                {
+                    "date": sample_portfolio_returns["date"].to_list(),
+                    "mkt_rf": np.random.normal(0, 0.01, len(sample_portfolio_returns)),
+                    "smb": np.random.normal(0, 0.01, len(sample_portfolio_returns)),
+                    "hml": np.random.normal(0, 0.01, len(sample_portfolio_returns)),
+                    "rf": np.full(len(sample_portfolio_returns), 0.0001),
+                }
+            )
+        )
         # No data_version attribute
 
         config = FactorAttributionConfig(model="ff3", currency=None)

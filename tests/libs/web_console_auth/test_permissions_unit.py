@@ -18,15 +18,23 @@ sys.modules.setdefault("jwt.utils", jwt_stub.utils)
 
 # Stub jwt_manager to avoid cryptography dependency
 jwt_mgr_stub = ModuleType("libs.web_console_auth.jwt_manager")
+
+
 class _DummyJWTManager:
     def __init__(self, *args, **kwargs): ...
+
+
 jwt_mgr_stub.JWTManager = _DummyJWTManager
 sys.modules.setdefault("libs.web_console_auth.jwt_manager", jwt_mgr_stub)
 
 # Stub session module to avoid redis dependency
 session_stub = ModuleType("libs.web_console_auth.session")
+
+
 class _DummySessionManager:
     def __init__(self, *args, **kwargs): ...
+
+
 session_stub.SessionManager = _DummySessionManager
 sys.modules.setdefault("libs.web_console_auth.session", session_stub)
 
@@ -82,9 +90,12 @@ def test_require_permission_sync_and_async():
     asyncio.run(view_async(user=user))
     assert calls == ["sync", "async"]
 
-    with pytest.raises(PermissionError):
+    def _call_guarded():
         guarded = perms.require_permission(perms.Permission.MANAGE_USERS)(lambda user=None: True)
         guarded(user={"role": "viewer"})
+
+    with pytest.raises(PermissionError):
+        _call_guarded()
 
 
 def test_require_permission_extracts_from_request_like_object():

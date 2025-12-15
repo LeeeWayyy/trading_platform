@@ -209,9 +209,7 @@ class VersionCompatibilityChecker:
             MissingDatasetError: If required dataset is missing.
             VersionDriftError: If drift detected in strict mode.
         """
-        result = self.check_compatibility(
-            model_versions, current_versions, strict_mode
-        )
+        result = self.check_compatibility(model_versions, current_versions, strict_mode)
 
         if not result.compatible:
             if result.level == "missing":
@@ -223,6 +221,7 @@ class VersionCompatibilityChecker:
                     warning = result.warnings[0]
                     # Parse: "Dataset 'crsp' (version v1.2.3) required..."
                     import re
+
                     match = re.search(r"Dataset '([^']+)' \(version ([^)]+)\)", warning)
                     if match:
                         dataset = match.group(1)

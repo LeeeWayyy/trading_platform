@@ -283,9 +283,7 @@ class RegistryManifestManager:
         self.registry_dir.mkdir(parents=True, exist_ok=True)
 
         # Write to temp file then atomic rename
-        fd, temp_path = tempfile.mkstemp(
-            dir=self.registry_dir, prefix=".manifest_", suffix=".json"
-        )
+        fd, temp_path = tempfile.mkstemp(dir=self.registry_dir, prefix=".manifest_", suffix=".json")
         try:
             content = manifest.model_dump_json(indent=2)
             with os.fdopen(fd, "w") as f:

@@ -53,9 +53,7 @@ class CircuitBreakerTripped(Exception):
     def __init__(self, model_type: str, failure_count: int) -> None:
         self.model_type = model_type
         self.failure_count = failure_count
-        super().__init__(
-            f"Circuit breaker tripped for {model_type} after {failure_count} failures"
-        )
+        super().__init__(f"Circuit breaker tripped for {model_type} after {failure_count} failures")
 
 
 class CachedModel:
@@ -339,9 +337,7 @@ class ProductionModelLoader:
             with self._cache_lock:
                 self._inflight.pop(cache_key, None)
 
-    def _load_from_registry(
-        self, model_type: str, version: str
-    ) -> tuple[Any, ModelMetadata]:
+    def _load_from_registry(self, model_type: str, version: str) -> tuple[Any, ModelMetadata]:
         """Load model from registry with checksum verification and compatibility check.
 
         Args:
@@ -451,9 +447,7 @@ class ProductionModelLoader:
             # Reset failure counter
             self._failures[model_type] = 0
 
-    def _handle_load_failure(
-        self, model_type: str, version: str | None, error: Exception
-    ) -> Any:
+    def _handle_load_failure(self, model_type: str, version: str | None, error: Exception) -> Any:
         """Handle load failure with fallback.
 
         Args:
@@ -615,9 +609,7 @@ class ProductionModelLoader:
                 self._cache.clear()
             else:
                 count = 0
-                keys_to_remove = [
-                    k for k in self._cache if k.startswith(f"{model_type}/")
-                ]
+                keys_to_remove = [k for k in self._cache if k.startswith(f"{model_type}/")]
                 for key in keys_to_remove:
                     del self._cache[key]
                     count += 1

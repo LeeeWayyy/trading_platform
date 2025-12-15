@@ -11,11 +11,26 @@ import pytest
 
 _missing = [
     mod
-    for mod in ("structlog", "psutil", "polars", "duckdb", "pydantic_settings", "hvac", "boto3", "botocore", "dotenv", "sqlalchemy", "rq")
+    for mod in (
+        "structlog",
+        "psutil",
+        "polars",
+        "duckdb",
+        "pydantic_settings",
+        "hvac",
+        "boto3",
+        "botocore",
+        "dotenv",
+        "sqlalchemy",
+        "rq",
+    )
     if importlib.util.find_spec(mod) is None
 ]
 if _missing:
-    pytest.skip(f"Skipping backtest worker tests because dependencies are missing: {', '.join(_missing)}", allow_module_level=True)
+    pytest.skip(
+        f"Skipping backtest worker tests because dependencies are missing: {', '.join(_missing)}",
+        allow_module_level=True,
+    )
 
 import libs.backtest.worker as worker_module
 from libs.alpha.exceptions import JobCancelled

@@ -130,9 +130,7 @@ class TestSchemaRegistry:
             lock_dir=temp_dirs["locks"],
         )
 
-    def test_get_expected_schema_success(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_get_expected_schema_success(self, registry: SchemaRegistry) -> None:
         """Test get_expected_schema returns schema when found."""
         # Register a schema first
         version = registry.register_schema(
@@ -148,17 +146,13 @@ class TestSchemaRegistry:
         assert result.version == version
         assert result.columns == {"col_a": "int64", "col_b": "str"}
 
-    def test_get_expected_schema_not_found(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_get_expected_schema_not_found(self, registry: SchemaRegistry) -> None:
         """Test get_expected_schema returns None when not found."""
         result = registry.get_expected_schema("nonexistent")
 
         assert result is None
 
-    def test_get_expected_schema_specific_version(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_get_expected_schema_specific_version(self, registry: SchemaRegistry) -> None:
         """Test get_expected_schema retrieves specific version from history."""
         # Register first version
         registry.register_schema(
@@ -179,9 +173,7 @@ class TestSchemaRegistry:
         assert result.version == "v1.0.0"
         assert "col_b" not in result.columns
 
-    def test_detect_drift_no_drift(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_detect_drift_no_drift(self, registry: SchemaRegistry) -> None:
         """Test detect_drift returns empty drift when schemas match."""
         registry.register_schema("no_drift", {"col_a": "int64"})
 
@@ -189,38 +181,38 @@ class TestSchemaRegistry:
 
         assert drift.has_drift is False
 
-    def test_detect_drift_new_columns_warning(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_detect_drift_new_columns_warning(self, registry: SchemaRegistry) -> None:
         """Test detect_drift detects new columns."""
         registry.register_schema("add_cols", {"col_a": "int64"})
 
-        drift = registry.detect_drift("add_cols", {
-            "col_a": "int64",
-            "col_b": "str",  # New
-        })
+        drift = registry.detect_drift(
+            "add_cols",
+            {
+                "col_a": "int64",
+                "col_b": "str",  # New
+            },
+        )
 
         assert drift.has_additions is True
         assert "col_b" in drift.added_columns
         assert drift.is_breaking is False
 
-    def test_detect_drift_removed_columns_error(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_detect_drift_removed_columns_error(self, registry: SchemaRegistry) -> None:
         """Test detect_drift detects removed columns as breaking."""
-        registry.register_schema("remove_cols", {
-            "col_a": "int64",
-            "col_b": "str",
-        })
+        registry.register_schema(
+            "remove_cols",
+            {
+                "col_a": "int64",
+                "col_b": "str",
+            },
+        )
 
         drift = registry.detect_drift("remove_cols", {"col_a": "int64"})
 
         assert drift.is_breaking is True
         assert "col_b" in drift.removed_columns
 
-    def test_detect_drift_type_changes_error(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_detect_drift_type_changes_error(self, registry: SchemaRegistry) -> None:
         """Test detect_drift detects type changes as breaking."""
         registry.register_schema("type_change", {"col_a": "int64"})
 
@@ -230,25 +222,19 @@ class TestSchemaRegistry:
         assert len(drift.changed_columns) == 1
         assert drift.changed_columns[0][0] == "col_a"
 
-    def test_drift_policy_additions_triggers_version_bump(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_additions_triggers_version_bump(self, registry: SchemaRegistry) -> None:
         """Test apply_drift_policy auto-bumps version for additions."""
         registry.register_schema("auto_bump", {"col_a": "int64"})
 
         drift = SchemaDrift(added_columns=["col_b"])
         new_schema = {"col_a": "int64", "col_b": "str"}
 
-        version, message = registry.apply_drift_policy(
-            "auto_bump", drift, new_schema
-        )
+        version, message = registry.apply_drift_policy("auto_bump", drift, new_schema)
 
         assert version == "v1.1.0"  # Minor bump
         assert "auto" in message.lower() or "bump" in message.lower()
 
-    def test_drift_policy_persists_new_schema(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_persists_new_schema(self, registry: SchemaRegistry) -> None:
         """Test apply_drift_policy persists new schema atomically."""
         registry.register_schema("persist_test", {"col_a": "int64"})
 
@@ -262,42 +248,32 @@ class TestSchemaRegistry:
         assert loaded is not None
         assert "col_b" in loaded.columns
 
-    def test_drift_policy_returns_version_string(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_returns_version_string(self, registry: SchemaRegistry) -> None:
         """Test apply_drift_policy returns correct version string."""
         registry.register_schema("version_test", {"col_a": "int64"})
 
         drift = SchemaDrift(added_columns=["col_b"])
         new_schema = {"col_a": "int64", "col_b": "str"}
 
-        version, _ = registry.apply_drift_policy(
-            "version_test", drift, new_schema
-        )
+        version, _ = registry.apply_drift_policy("version_test", drift, new_schema)
 
         assert version.startswith("v")
         assert "." in version
 
-    def test_drift_policy_version_format(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_version_format(self, registry: SchemaRegistry) -> None:
         """Test version format is v{major}.{minor}.{patch}."""
         registry.register_schema("format_test", {"col_a": "int64"})
 
         drift = SchemaDrift(added_columns=["col_b"])
         new_schema = {"col_a": "int64", "col_b": "str"}
 
-        version, _ = registry.apply_drift_policy(
-            "format_test", drift, new_schema
-        )
+        version, _ = registry.apply_drift_policy("format_test", drift, new_schema)
 
         parts = version.lstrip("v").split(".")
         assert len(parts) == 3
         assert all(p.isdigit() for p in parts)
 
-    def test_drift_policy_minor_increments_on_new_columns(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_minor_increments_on_new_columns(self, registry: SchemaRegistry) -> None:
         """Test minor version increments when columns are added."""
         registry.register_schema("minor_test", {"col_a": "int64"})
 
@@ -313,14 +289,15 @@ class TestSchemaRegistry:
         v2, _ = registry.apply_drift_policy("minor_test", drift2, schema2)
         assert v2 == "v1.2.0"
 
-    def test_drift_policy_rejects_breaking_changes(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_rejects_breaking_changes(self, registry: SchemaRegistry) -> None:
         """Test apply_drift_policy raises SchemaError for breaking drift."""
-        registry.register_schema("breaking_test", {
-            "col_a": "int64",
-            "col_b": "str",
-        })
+        registry.register_schema(
+            "breaking_test",
+            {
+                "col_a": "int64",
+                "col_b": "str",
+            },
+        )
 
         drift = SchemaDrift(removed_columns=["col_b"])
         new_schema = {"col_a": "int64"}
@@ -346,9 +323,7 @@ class TestSchemaRegistry:
 
         assert data["dataset"] == "atomic_test"
 
-    def test_version_increment_persisted(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_version_increment_persisted(self, registry: SchemaRegistry) -> None:
         """Test version increments are persisted after additive drift."""
         registry.register_schema("increment_test", {"col_a": "int64"})
 
@@ -362,9 +337,7 @@ class TestSchemaRegistry:
         assert loaded is not None
         assert loaded.version == "v1.1.0"
 
-    def test_concurrent_writer_with_locking(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_concurrent_writer_with_locking(self, registry: SchemaRegistry) -> None:
         """Test schema registry handles concurrent writes."""
         # Register initial schema
         registry.register_schema("concurrent_test", {"col_a": "int64"})
@@ -384,36 +357,36 @@ class TestSchemaRegistry:
         assert v1 == "v1.1.0"
         assert v2 == "v1.2.0"
 
-    def test_register_schema_first_version(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_register_schema_first_version(self, registry: SchemaRegistry) -> None:
         """Test registering first schema gets v1.0.0."""
         version = registry.register_schema("first_test", {"col_a": "int64"})
 
         assert version == "v1.0.0"
 
-    def test_register_schema_subsequent_versions(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_register_schema_subsequent_versions(self, registry: SchemaRegistry) -> None:
         """Test subsequent registrations increment minor version."""
         v1 = registry.register_schema("multi_test", {"col_a": "int64"})
-        v2 = registry.register_schema("multi_test", {
-            "col_a": "int64",
-            "col_b": "str",
-        })
-        v3 = registry.register_schema("multi_test", {
-            "col_a": "int64",
-            "col_b": "str",
-            "col_c": "float64",
-        })
+        v2 = registry.register_schema(
+            "multi_test",
+            {
+                "col_a": "int64",
+                "col_b": "str",
+            },
+        )
+        v3 = registry.register_schema(
+            "multi_test",
+            {
+                "col_a": "int64",
+                "col_b": "str",
+                "col_c": "float64",
+            },
+        )
 
         assert v1 == "v1.0.0"
         assert v2 == "v1.1.0"
         assert v3 == "v1.2.0"
 
-    def test_drift_policy_no_drift_returns_current_version(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_no_drift_returns_current_version(self, registry: SchemaRegistry) -> None:
         """Test apply_drift_policy returns current version when no drift."""
         registry.register_schema("no_change", {"col_a": "int64"})
 
@@ -426,24 +399,18 @@ class TestSchemaRegistry:
         assert "no" in message.lower()
         assert "change" in message.lower()
 
-    def test_drift_policy_first_sync_registers_schema(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_drift_policy_first_sync_registers_schema(self, registry: SchemaRegistry) -> None:
         """Test apply_drift_policy registers schema on first sync."""
         # No existing schema
         drift = SchemaDrift()  # Empty drift for new dataset
         schema = {"col_a": "int64", "col_b": "str"}
 
-        version, message = registry.apply_drift_policy(
-            "new_dataset", drift, schema
-        )
+        version, message = registry.apply_drift_policy("new_dataset", drift, schema)
 
         assert version == "v1.0.0"
         assert "initial" in message.lower() or "register" in message.lower()
 
-    def test_register_schema_creates_and_releases_lock(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_register_schema_creates_and_releases_lock(self, registry: SchemaRegistry) -> None:
         """Test register_schema acquires and releases lock correctly."""
         schema = {"col_a": "int64"}
         lock_path = registry._lock_path("lock_test")
@@ -458,9 +425,7 @@ class TestSchemaRegistry:
         assert not lock_path.exists()
         assert version == "v1.0.0"
 
-    def test_concurrent_register_blocked_by_lock(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_concurrent_register_blocked_by_lock(self, registry: SchemaRegistry) -> None:
         """Test second register_schema is blocked when lock is held."""
         import os
         import threading
@@ -503,9 +468,7 @@ class TestSchemaRegistry:
         assert len(results) == 1
         assert isinstance(results[0], LockNotHeldError)
 
-    def test_stale_lock_is_cleaned_up(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_stale_lock_is_cleaned_up(self, registry: SchemaRegistry) -> None:
         """Test stale lock (>5 min old, local host, dead PID) is automatically cleaned up."""
         import os
         import socket
@@ -537,9 +500,7 @@ class TestSchemaRegistry:
         # Lock should be released
         assert not lock_path.exists()
 
-    def test_remote_stale_lock_is_not_deleted(
-        self, registry: SchemaRegistry
-    ) -> None:
+    def test_remote_stale_lock_is_not_deleted(self, registry: SchemaRegistry) -> None:
         """Test remote stale lock (different hostname) is NOT cleaned up.
 
         When a lock is held by a different host, we cannot verify if the

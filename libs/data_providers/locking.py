@@ -172,9 +172,7 @@ class AtomicFileLock:
             LockNotHeldError: If token doesn't match current lock or on-disk state.
         """
         if not self._validate_token(token):
-            raise LockNotHeldError(
-                f"Token does not match current lock for {self.dataset}"
-            )
+            raise LockNotHeldError(f"Token does not match current lock for {self.dataset}")
 
         # Use atomic rename to prevent TOCTOU race condition:
         # 1. Atomically rename lock file to .releasing (claims exclusive access)
@@ -219,9 +217,7 @@ class AtomicFileLock:
                 # Not our lock! Atomically restore it
                 release_path.rename(self.lock_path)
                 self._current_token = None
-                raise LockNotHeldError(
-                    f"Lock was recovered by another process for {self.dataset}"
-                )
+                raise LockNotHeldError(f"Lock was recovered by another process for {self.dataset}")
 
             # It's our lock, delete it
             release_path.unlink()
@@ -295,9 +291,7 @@ class AtomicFileLock:
                 ) from e
         else:
             self._current_token = None
-            raise LockNotHeldError(
-                f"Cannot refresh - lock file missing for {self.dataset}"
-            )
+            raise LockNotHeldError(f"Cannot refresh - lock file missing for {self.dataset}")
 
         now = datetime.datetime.now(datetime.UTC)
         new_expires = now + datetime.timedelta(hours=self.LOCK_TIMEOUT_HOURS)

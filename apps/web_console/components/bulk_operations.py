@@ -370,9 +370,7 @@ def _render_bulk_strategy_revoke(
     # First confirmation
     if st.session_state.get(confirm1_key) and not st.session_state.get(confirm2_key):
         pending = st.session_state[confirm1_key]
-        st.warning(
-            f"**Revoke {pending['strategy_id']} from {len(pending['users'])} users?**"
-        )
+        st.warning(f"**Revoke {pending['strategy_id']} from {len(pending['users'])} users?**")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Proceed to Final", key="revoke_proceed"):
@@ -456,9 +454,7 @@ def _run_async(coro: Coroutine[Any, Any, T]) -> T:
         return asyncio.run(coro)
 
 
-def _log_csrf_failure_sync(
-    audit_logger: AuditLogger, admin_user_id: str, action: str
-) -> None:
+def _log_csrf_failure_sync(audit_logger: AuditLogger, admin_user_id: str, action: str) -> None:
     """Log CSRF failure to audit trail."""
 
     import concurrent.futures

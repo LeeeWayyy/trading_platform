@@ -39,12 +39,16 @@ class CurrentModelResponse(BaseModel):
         ..., description="Dataset versions used for training"
     )
 
-    model_config = {"json_schema_extra": {"example": {
-        "model_type": "risk_model",
-        "version": "v1.0.0",
-        "checksum": "abc123def456...",
-        "dataset_version_ids": {"crsp": "v1.2.3", "compustat": "v1.0.1"},
-    }}}
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "model_type": "risk_model",
+                "version": "v1.0.0",
+                "checksum": "abc123def456...",
+                "dataset_version_ids": {"crsp": "v1.2.3", "compustat": "v1.0.1"},
+            }
+        }
+    }
 
 
 class ModelMetadataResponse(BaseModel):
@@ -84,13 +88,17 @@ class ValidationResultResponse(BaseModel):
     load_successful: bool = Field(..., description="Model loaded successfully")
     errors: list[str] = Field(default_factory=list, description="Validation errors")
 
-    model_config = {"json_schema_extra": {"example": {
-        "valid": True,
-        "model_id": "uuid-1234",
-        "checksum_verified": True,
-        "load_successful": True,
-        "errors": [],
-    }}}
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "valid": True,
+                "model_id": "uuid-1234",
+                "checksum_verified": True,
+                "load_successful": True,
+                "errors": [],
+            }
+        }
+    }
 
 
 class ModelListResponse(BaseModel):
@@ -106,10 +114,14 @@ class ErrorResponse(BaseModel):
     detail: str = Field(..., description="Error message")
     code: str = Field(..., description="Error code")
 
-    model_config = {"json_schema_extra": {"example": {
-        "detail": "Model risk_model/v1.0.0 not found",
-        "code": "MODEL_NOT_FOUND",
-    }}}
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "detail": "Model risk_model/v1.0.0 not found",
+                "code": "MODEL_NOT_FOUND",
+            }
+        }
+    }
 
 
 # =============================================================================

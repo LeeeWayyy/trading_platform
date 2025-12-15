@@ -114,8 +114,7 @@ class FactorBuilder:
         """
         if factor_name not in self._registry:
             raise ValueError(
-                f"Unknown factor: {factor_name}. "
-                f"Available: {list(self._registry.keys())}"
+                f"Unknown factor: {factor_name}. " f"Available: {list(self._registry.keys())}"
             )
 
         factor_def = self._registry[factor_name]
@@ -124,9 +123,7 @@ class FactorBuilder:
         snapshot_ctx: _SnapshotContext | None = None
         if snapshot_date is not None:
             if self.version_manager is None:
-                raise ValueError(
-                    "snapshot_date requires DatasetVersionManager for PIT time-travel"
-                )
+                raise ValueError("snapshot_date requires DatasetVersionManager for PIT time-travel")
             snapshot_ctx = self._build_snapshot_context(snapshot_date, factor_def)
 
         crsp_manifest: SyncManifest | None
@@ -141,9 +138,7 @@ class FactorBuilder:
 
         # Get version strings (handle None manifests)
         crsp_version = crsp_manifest.manifest_version if crsp_manifest else "unknown"
-        compustat_version = (
-            compustat_manifest.manifest_version if compustat_manifest else "unknown"
-        )
+        compustat_version = compustat_manifest.manifest_version if compustat_manifest else "unknown"
         snapshot_id = snapshot_ctx.snapshot_id if snapshot_ctx else None
 
         # Compute reproducibility hash (includes config and universe for full reproducibility)
@@ -257,9 +252,7 @@ class FactorBuilder:
         version_ids: dict[str, str] = {}
 
         for factor_name in self._registry:
-            result = self.compute_factor(
-                factor_name, as_of_date, universe, snapshot_date
-            )
+            result = self.compute_factor(factor_name, as_of_date, universe, snapshot_date)
             all_exposures.append(result.exposures)
             version_ids.update(result.dataset_version_ids)
 
@@ -310,9 +303,7 @@ class FactorBuilder:
         # Compute individual factors
         results: list[FactorResult] = []
         for name in factor_names:
-            results.append(
-                self.compute_factor(name, as_of_date, universe, snapshot_date)
-            )
+            results.append(self.compute_factor(name, as_of_date, universe, snapshot_date))
 
         # Determine weights
         if weights == "equal":
@@ -336,9 +327,7 @@ class FactorBuilder:
             ["permno", pl.col("zscore").alias(factor_names[0])]
         )
         for i, result in enumerate(results[1:], start=1):
-            factor_df = result.exposures.select(
-                ["permno", pl.col("zscore").alias(factor_names[i])]
-            )
+            factor_df = result.exposures.select(["permno", pl.col("zscore").alias(factor_names[i])])
             combined_df = combined_df.join(factor_df, on="permno", how="inner")
 
         # Compute weighted sum (build expression explicitly to ensure proper typing)
@@ -346,9 +335,9 @@ class FactorBuilder:
         for name, weight in zip(factor_names[1:], w[1:], strict=False):
             composite_expr = composite_expr + pl.col(name) * weight
 
-        composite_df = combined_df.with_columns(
-            composite_expr.alias("raw_value")
-        ).select(["permno", "raw_value"])
+        composite_df = combined_df.with_columns(composite_expr.alias("raw_value")).select(
+            ["permno", "raw_value"]
+        )
 
         # Re-standardize
         transformed = self._transform_factor(composite_df, as_of_date, col="raw_value")
@@ -425,9 +414,7 @@ class FactorBuilder:
         # Compute percentile from z-scores
         n = result.height
         if n > 0:
-            result = result.with_columns(
-                (pl.col("zscore").rank() / n).alias("percentile")
-            )
+            result = result.with_columns((pl.col("zscore").rank() / n).alias("percentile"))
         else:
             result = result.with_columns(pl.lit(None).alias("percentile"))
 
@@ -483,9 +470,7 @@ class FactorBuilder:
             # All same value - set z-scores to 0
             return df.with_columns(pl.lit(0.0).alias("zscore"))
 
-        return df.with_columns(
-            ((pl.col(col) - mean_val) / std_val).alias("zscore")
-        )
+        return df.with_columns(((pl.col(col) - mean_val) / std_val).alias("zscore"))
 
     def _get_pit_sector_mappings(
         self,
@@ -574,16 +559,13 @@ class FactorBuilder:
         elif "date" in fundamentals.columns:
             fundamentals = fundamentals.sort(["permno", "date"])
 
-        sectors = (
-            fundamentals.group_by("permno")
-            .agg(pl.col(sector_col).last().alias("gics_sector"))
+        sectors = fundamentals.group_by("permno").agg(
+            pl.col(sector_col).last().alias("gics_sector")
         )
 
         return sectors
 
-    def _neutralize_sector(
-        self, df: pl.DataFrame, col: str, as_of_date: date
-    ) -> pl.DataFrame:
+    def _neutralize_sector(self, df: pl.DataFrame, col: str, as_of_date: date) -> pl.DataFrame:
         """
         Sector-neutralize factor using PIT-correct GICS codes.
 
@@ -609,23 +591,18 @@ class FactorBuilder:
         df_with_sector = df.join(sectors, on="permno", how="left")
 
         # Check minimum stocks per sector
-        sector_counts = df_with_sector.group_by("gics_sector").agg(
-            pl.len().alias("n")
-        )
+        sector_counts = df_with_sector.group_by("gics_sector").agg(pl.len().alias("n"))
 
         # Neutralize within sectors that have enough stocks
         # Exclude None/null sectors to avoid masking data quality issues
         valid_sectors = sector_counts.filter(
-            (pl.col("n") >= self.config.min_stocks_per_sector)
-            & pl.col("gics_sector").is_not_null()
+            (pl.col("n") >= self.config.min_stocks_per_sector) & pl.col("gics_sector").is_not_null()
         ).select("gics_sector")
 
         # For securities in valid sectors, demean within sector
         result = df_with_sector.with_columns(
             pl.when(pl.col("gics_sector").is_in(valid_sectors["gics_sector"].to_list()))
-            .then(
-                pl.col(col) - pl.col(col).mean().over("gics_sector")
-            )
+            .then(pl.col(col) - pl.col(col).mean().over("gics_sector"))
             .otherwise(pl.col(col))
             .alias(col)
         ).drop("gics_sector")
@@ -647,9 +624,7 @@ class FactorBuilder:
 
         assert self.version_manager is not None  # enforced by caller
 
-        crsp_path, crsp_snapshot = self.version_manager.query_as_of(
-            "crsp_daily", snapshot_date
-        )
+        crsp_path, crsp_snapshot = self.version_manager.query_as_of("crsp_daily", snapshot_date)
         if "crsp_daily" not in crsp_snapshot.datasets:
             raise ValueError("crsp_daily not present in snapshot for PIT query")
 
@@ -691,9 +666,7 @@ class FactorBuilder:
         )
 
     @contextmanager
-    def _use_snapshot_manifests(
-        self, adapter: "SnapshotManifestAdapter"
-    ) -> Iterator[None]:
+    def _use_snapshot_manifests(self, adapter: "SnapshotManifestAdapter") -> Iterator[None]:
         """Temporarily swap provider manifest managers to snapshot adapter."""
 
         original_crsp = getattr(self.crsp, "manifest_manager", None)

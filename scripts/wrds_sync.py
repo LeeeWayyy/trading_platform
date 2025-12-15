@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -25,7 +24,7 @@ import typer
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from libs.data_providers.locking import AtomicFileLock, LockAcquisitionError
+from libs.data_providers.locking import LockAcquisitionError
 from libs.data_providers.sync_manager import SyncManager
 from libs.data_providers.wrds_client import WRDSClient, WRDSConfig
 from libs.data_quality.manifest import ManifestManager
@@ -39,6 +38,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S%z",
 )
 
+
 # Create a custom formatter that includes extra fields
 class StructuredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -46,11 +46,14 @@ class StructuredFormatter(logging.Formatter):
         record.extra = str(extra) if extra else "{}"
         return super().format(record)
 
+
 for handler in logging.root.handlers:
-    handler.setFormatter(StructuredFormatter(
-        '{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s", "extra": %(extra)s}',
-        datefmt="%Y-%m-%dT%H:%M:%S%z",
-    ))
+    handler.setFormatter(
+        StructuredFormatter(
+            '{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s", "extra": %(extra)s}',
+            datefmt="%Y-%m-%dT%H:%M:%S%z",
+        )
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -112,16 +115,18 @@ def full_sync(
         manager, client = get_sync_manager()
         try:
             manifest = manager.full_sync(dataset, start_year, end_year)
-            typer.echo(f"✓ Sync complete: {manifest.row_count} rows in {len(manifest.file_paths)} files")
+            typer.echo(
+                f"✓ Sync complete: {manifest.row_count} rows in {len(manifest.file_paths)} files"
+            )
             typer.echo(f"  Checksum: {manifest.checksum[:16]}...")
         finally:
             client.close()
-    except LockAcquisitionError:
+    except LockAcquisitionError as err:
         typer.echo("✗ Error: Could not acquire lock. Another sync may be running.", err=True)
-        raise typer.Exit(2)
-    except Exception as e:
-        typer.echo(f"✗ Error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(2) from err
+    except Exception as err:
+        typer.echo(f"✗ Error: {err}", err=True)
+        raise typer.Exit(1) from err
 
 
 @app.command()
@@ -148,12 +153,12 @@ def incremental(
                     typer.echo(f"  ✗ {ds}: {e}", err=True)
         finally:
             client.close()
-    except LockAcquisitionError:
+    except LockAcquisitionError as err:
         typer.echo("✗ Error: Could not acquire lock.", err=True)
-        raise typer.Exit(2)
-    except Exception as e:
-        typer.echo(f"✗ Error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(2) from err
+    except Exception as err:
+        typer.echo(f"✗ Error: {err}", err=True)
+        raise typer.Exit(1) from err
 
 
 @app.command()
@@ -220,6 +225,7 @@ def lock_status() -> None:
         lock_path = LOCK_DIR / f"{ds}.lock"
         if lock_path.exists():
             import json
+
             with open(lock_path) as f:
                 lock_data = json.load(f)
             typer.echo(f"\n{ds}: LOCKED")

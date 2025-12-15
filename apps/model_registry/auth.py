@@ -167,9 +167,7 @@ async def verify_token(
     configured_tokens = _get_expected_tokens()
     if not configured_tokens:
         # Fail closed: reject all requests if no token is configured
-        logger.error(
-            "Authentication failed: no MODEL_REGISTRY_* tokens configured"
-        )
+        logger.error("Authentication failed: no MODEL_REGISTRY_* tokens configured")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(

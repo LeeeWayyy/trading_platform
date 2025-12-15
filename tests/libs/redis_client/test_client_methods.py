@@ -13,6 +13,7 @@ pytest.importorskip("pydantic")
 redis_stub = ModuleType("redis")
 redis_stub.asyncio = ModuleType("redis.asyncio")
 
+
 class _ConnectionPool:
     def __init__(self, *args, **kwargs):
         pass
@@ -31,11 +32,16 @@ redis_stub.exceptions = ModuleType("redis.exceptions")
 redis_stub.exceptions.RedisError = _RedisError
 redis_stub.exceptions.ConnectionError = _RedisError
 redis_stub.exceptions.TimeoutError = _RedisError
+
+
 class _Redis:
     def __init__(self, *args, **kwargs):
         pass
+
     def ping(self):
         return True
+
+
 redis_stub.Redis = _Redis
 
 sys.modules.setdefault("redis", redis_stub)
@@ -113,7 +119,7 @@ class FakePool:
 def patch_redis(monkeypatch):
     monkeypatch.setattr(client_mod, "ConnectionPool", FakePool)
     monkeypatch.setattr(client_mod.redis, "Redis", FakeRedis)
-    yield
+    return
 
 
 def test_sadd_and_smembers_round_trip():
@@ -134,4 +140,4 @@ def test_delete_handles_multiple_keys():
 def test_pipeline_passthrough():
     client = client_mod.RedisClient()
     pipe = client.pipeline(transaction=False)
-    assert getattr(pipe, "transaction") is False
+    assert pipe.transaction is False

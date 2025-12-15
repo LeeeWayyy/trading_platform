@@ -467,9 +467,7 @@ class TestGVKEYTickerMapping:
             data_root=data_root,
         ) as provider:
             # Query after 2021 annual data is available (90 days after 2021-12-31)
-            ticker = provider.gvkey_to_ticker(
-                "GVKEY001", date(2022, 4, 1), dataset="annual"
-            )
+            ticker = provider.gvkey_to_ticker("GVKEY001", date(2022, 4, 1), dataset="annual")
 
         assert ticker == "AAPL"
 
@@ -1198,9 +1196,7 @@ class TestRequiredAsOfDate:
             data_root=data_root,
         ) as provider:
             with pytest.raises(DataNotFoundError, match="not found"):
-                provider.gvkey_to_ticker(
-                    "UNKNOWN_GVKEY", date(2022, 4, 1), dataset="annual"
-                )
+                provider.gvkey_to_ticker("UNKNOWN_GVKEY", date(2022, 4, 1), dataset="annual")
 
     def test_ticker_not_found_raises(
         self,
@@ -1357,9 +1353,7 @@ class TestUniversePITBoundaries:
 
             # Annual should fail (90-day lag not yet passed)
             with pytest.raises(DataNotFoundError):
-                provider.gvkey_to_ticker(
-                    "GVKEY001", date(2021, 3, 1), dataset="annual"
-                )
+                provider.gvkey_to_ticker("GVKEY001", date(2021, 3, 1), dataset="annual")
 
         assert ticker_quarterly == "AAPL"
 
@@ -1387,9 +1381,7 @@ class TestAmbiguousTicker:
             # 2022-06-30 + 45 = 2022-08-14
             # Query on 2022-08-15 when both have "RENAMED"
             with pytest.raises(AmbiguousGVKEYError) as exc_info:
-                provider.ticker_to_gvkey(
-                    "RENAMED", date(2022, 8, 15), dataset="quarterly"
-                )
+                provider.ticker_to_gvkey("RENAMED", date(2022, 8, 15), dataset="quarterly")
 
         assert exc_info.value.ticker == "RENAMED"
         assert set(exc_info.value.gvkeys) == {"GVKEY004", "GVKEY005"}

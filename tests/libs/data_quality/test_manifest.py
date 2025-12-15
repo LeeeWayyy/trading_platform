@@ -54,9 +54,7 @@ class TestSyncManifest:
 
     def test_utc_timestamp_with_offset_zero_passes(self) -> None:
         """Test UTC timestamp with offset == 0 passes validation."""
-        data = self._create_valid_manifest(
-            sync_timestamp=datetime.now(UTC)
-        )
+        data = self._create_valid_manifest(sync_timestamp=datetime.now(UTC))
         manifest = SyncManifest(**data)
 
         assert manifest.sync_timestamp.tzinfo is not None
@@ -120,9 +118,7 @@ class TestSyncManifest:
 
     def test_file_paths_non_empty_passes(self) -> None:
         """Test non-empty file_paths passes validation."""
-        data = self._create_valid_manifest(
-            file_paths=["file1.parquet", "file2.parquet"]
-        )
+        data = self._create_valid_manifest(file_paths=["file1.parquet", "file2.parquet"])
         manifest = SyncManifest(**data)
 
         assert len(manifest.file_paths) == 2
@@ -190,9 +186,7 @@ class TestManifestManager:
 
         return token
 
-    def test_load_manifest_returns_none_if_not_found(
-        self, manager: ManifestManager
-    ) -> None:
+    def test_load_manifest_returns_none_if_not_found(self, manager: ManifestManager) -> None:
         """Test load_manifest returns None if manifest doesn't exist."""
         result = manager.load_manifest("nonexistent")
         assert result is None
@@ -275,9 +269,7 @@ class TestManifestManager:
 
         assert "mismatch" in str(exc_info.value).lower()
 
-    def test_check_disk_space_80_percent_warning(
-        self, manager: ManifestManager
-    ) -> None:
+    def test_check_disk_space_80_percent_warning(self, manager: ManifestManager) -> None:
         """Test check_disk_space returns warning at 80% usage."""
         with patch("shutil.disk_usage") as mock_usage:
             # 80% used
@@ -291,9 +283,7 @@ class TestManifestManager:
             assert status.level == "warning"
             assert 0.79 < status.used_pct < 0.81
 
-    def test_check_disk_space_90_percent_critical(
-        self, manager: ManifestManager
-    ) -> None:
+    def test_check_disk_space_90_percent_critical(self, manager: ManifestManager) -> None:
         """Test check_disk_space returns critical at 90% usage."""
         with patch("shutil.disk_usage") as mock_usage:
             # 90% used
@@ -307,9 +297,7 @@ class TestManifestManager:
             assert status.level == "critical"
             assert 0.89 < status.used_pct < 0.91
 
-    def test_check_disk_space_95_percent_blocked(
-        self, manager: ManifestManager
-    ) -> None:
+    def test_check_disk_space_95_percent_blocked(self, manager: ManifestManager) -> None:
         """Test check_disk_space raises at 95% usage."""
         with patch("shutil.disk_usage") as mock_usage:
             # 95% used
@@ -379,9 +367,7 @@ class TestManifestManager:
         )
 
         # Update lock path to match dataset
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "test_dataset.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "test_dataset.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -421,9 +407,7 @@ class TestManifestManager:
         and then using it to write to dataset B's manifest.
         """
         # Lock is for "dataset_a"
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "dataset_a.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "dataset_a.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -461,9 +445,7 @@ class TestManifestManager:
         test_file.write_text("test content")
 
         # Update lock path
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "rollback_test.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "rollback_test.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -516,9 +498,7 @@ class TestManifestManager:
         test_file.write_text("test content")
 
         # Update lock path
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "no_previous.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "no_previous.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -558,13 +538,16 @@ class TestManifestManager:
         for dataset in datasets:
             lock_path = valid_lock_token.lock_path.parent / f"{dataset}.lock"
             with open(lock_path, "w") as f:
-                json.dump({
-                    "pid": valid_lock_token.pid,
-                    "hostname": valid_lock_token.hostname,
-                    "writer_id": valid_lock_token.writer_id,
-                    "acquired_at": valid_lock_token.acquired_at.isoformat(),
-                    "expires_at": valid_lock_token.expires_at.isoformat(),
-                }, f)
+                json.dump(
+                    {
+                        "pid": valid_lock_token.pid,
+                        "hostname": valid_lock_token.hostname,
+                        "writer_id": valid_lock_token.writer_id,
+                        "acquired_at": valid_lock_token.acquired_at.isoformat(),
+                        "expires_at": valid_lock_token.expires_at.isoformat(),
+                    },
+                    f,
+                )
 
             token = LockToken(
                 pid=valid_lock_token.pid,
@@ -606,9 +589,7 @@ class TestManifestManager:
         test_file.write_text("test content")
 
         # Update lock path
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "snapshot_test.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "snapshot_test.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -635,9 +616,7 @@ class TestManifestManager:
         assert snapshot_dir.exists()
         assert (snapshot_dir / "snapshot_test.json").exists()
 
-    def test_create_snapshot_fails_on_duplicate(
-        self, manager: ManifestManager
-    ) -> None:
+    def test_create_snapshot_fails_on_duplicate(self, manager: ManifestManager) -> None:
         """Test create_snapshot fails when snapshot already exists."""
         # Create first snapshot
         manager.create_snapshot("duplicate-tag")
@@ -653,9 +632,7 @@ class TestManifestManager:
     ) -> None:
         """Test quarantine_data creates quarantine directory correctly."""
         # Update lock path
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "quarantine_test.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "quarantine_test.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -688,9 +665,7 @@ class TestManifestManager:
     ) -> None:
         """Test quarantine_data updates manifest validation_status."""
         # Update lock path
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "status_test.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "status_test.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -707,9 +682,7 @@ class TestManifestManager:
             validation_status="failed",
         )
 
-        quarantine_path = manager.quarantine_data(
-            manifest, "Status update test", valid_lock_token
-        )
+        quarantine_path = manager.quarantine_data(manifest, "Status update test", valid_lock_token)
 
         # Load quarantined manifest
         with open(Path(quarantine_path) / "manifest.json") as f:
@@ -725,9 +698,7 @@ class TestManifestManager:
     ) -> None:
         """Test quarantine_data actually moves parquet files to quarantine."""
         # Update lock path
-        valid_lock_token.lock_path = (
-            valid_lock_token.lock_path.parent / "parquet_test.lock"
-        )
+        valid_lock_token.lock_path = valid_lock_token.lock_path.parent / "parquet_test.lock"
         with open(valid_lock_token.lock_path, "w") as f:
             json.dump(valid_lock_token.to_dict(), f)
 
@@ -753,9 +724,7 @@ class TestManifestManager:
             validation_status="failed",
         )
 
-        quarantine_path = manager.quarantine_data(
-            manifest, "Parquet move test", valid_lock_token
-        )
+        quarantine_path = manager.quarantine_data(manifest, "Parquet move test", valid_lock_token)
 
         # Verify original files are gone
         assert not file1.exists(), "Original file1 should be moved"

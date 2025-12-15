@@ -5,19 +5,19 @@ Tests SubtaskOrchestrator for context-isolated subtask management.
 """
 
 import json
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from ai_workflow.subtasks import (
-    SubtaskType,
-    SubtaskStatus,
     AgentInstruction,
     SubagentPrompts,
     SubtaskOrchestrator,
+    SubtaskStatus,
+    SubtaskType,
     validate_file_path,
 )
-from ai_workflow.config import WorkflowConfig
 
 
 class TestSubtaskType:
@@ -139,9 +139,7 @@ class TestSubagentPrompts:
         test_file.touch()
 
         with patch("pathlib.Path.cwd", return_value=temp_dir):
-            prompt = SubagentPrompts.fix_comments_prompt(
-                str(test_file), [123, 456], pr_number=789
-            )
+            prompt = SubagentPrompts.fix_comments_prompt(str(test_file), [123, 456], pr_number=789)
 
         assert "sub-agent" in prompt.lower()
         assert "[123, 456]" in prompt
@@ -185,7 +183,7 @@ class TestSubtaskOrchestratorInit:
 
         with patch("ai_workflow.config.CONFIG_FILE", config_file):
             with patch("ai_workflow.config.WORKFLOW_DIR", temp_dir / ".ai_workflow"):
-                orchestrator = SubtaskOrchestrator(state)
+                SubtaskOrchestrator(state)
 
         assert "subtasks" in state
         assert "queue" in state["subtasks"]

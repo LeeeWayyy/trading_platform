@@ -24,9 +24,7 @@ class SyncValidationError(DataQualityError):
         errors: List of ValidationError objects describing each failure.
     """
 
-    def __init__(
-        self, errors: list[ValidationError], message: str = ""
-    ) -> None:
+    def __init__(self, errors: list[ValidationError], message: str = "") -> None:
         self.errors = errors
         super().__init__(message or f"Validation failed: {len(errors)} error(s)")
 
@@ -56,9 +54,7 @@ class ChecksumMismatchError(DataQualityError):
         self.file_path = file_path
         self.expected = expected
         self.actual = actual
-        super().__init__(
-            f"Checksum mismatch for {file_path}: expected {expected}, got {actual}"
-        )
+        super().__init__(f"Checksum mismatch for {file_path}: expected {expected}, got {actual}")
 
 
 class QuarantineError(DataQualityError):
@@ -134,9 +130,7 @@ class SnapshotReferencedError(DataQualityError):
     def __init__(self, version_tag: str, referenced_by: list[str]) -> None:
         self.version_tag = version_tag
         self.referenced_by = referenced_by
-        super().__init__(
-            f"Cannot delete snapshot {version_tag}: referenced by {referenced_by}"
-        )
+        super().__init__(f"Cannot delete snapshot {version_tag}: referenced by {referenced_by}")
 
 
 class SnapshotCorruptedError(DataQualityError):
@@ -167,9 +161,7 @@ class SnapshotInconsistentError(DataQualityError):
         actual_version: Version at snapshot end.
     """
 
-    def __init__(
-        self, dataset: str, expected_version: int, actual_version: int
-    ) -> None:
+    def __init__(self, dataset: str, expected_version: int, actual_version: int) -> None:
         self.dataset = dataset
         self.expected_version = expected_version
         self.actual_version = actual_version

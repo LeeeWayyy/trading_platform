@@ -88,7 +88,9 @@ class RateLimiter:
                 result = eval_result
             count = int(result)  # Lua script returns count as int
             allowed = count <= max_requests
-            rate_limit_checks_total.labels(action=action, result="allowed" if allowed else "blocked").inc()
+            rate_limit_checks_total.labels(
+                action=action, result="allowed" if allowed else "blocked"
+            ).inc()
             return allowed, max(0, max_requests - count)
         except Exception as exc:  # pragma: no cover - defensive path
             rate_limit_redis_errors_total.labels(action=action).inc()
@@ -144,7 +146,11 @@ def get_rate_limiter(fallback_mode: str | None = None) -> RateLimiter:
     if _rate_limiter_singleton:
         return _rate_limiter_singleton
 
-    mode = fallback_mode if fallback_mode is not None else os.getenv("RATE_LIMITER_FALLBACK_MODE", "deny")
+    mode = (
+        fallback_mode
+        if fallback_mode is not None
+        else os.getenv("RATE_LIMITER_FALLBACK_MODE", "deny")
+    )
     max_requests = _int_env("RATE_LIMIT_MAX", 100)
     window_seconds = _int_env("RATE_LIMIT_WINDOW", 60)
     _rate_limiter_singleton = RateLimiter(

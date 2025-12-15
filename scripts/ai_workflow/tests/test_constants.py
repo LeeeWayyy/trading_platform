@@ -4,26 +4,27 @@ Tests for constants.py module.
 Tests path definitions, step types, and transition rules.
 """
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from ai_workflow.constants import (
-    PROJECT_ROOT,
-    WORKFLOW_DIR,
-    STATE_FILE,
-    CONFIG_FILE,
     AUDIT_LOG,
+    CONFIG_FILE,
+    CONTEXT_CRITICAL_PCT,
+    CONTEXT_WARN_PCT,
+    DEFAULT_MAX_TOKENS,
     LEGACY_CLAUDE_DIR,
     LEGACY_STATE_FILE,
-    VALID_TRANSITIONS,
-    STEP_DESCRIPTIONS,
+    PLACEHOLDER_PATTERNS,
+    PROJECT_ROOT,
     REVIEW_APPROVED,
     REVIEW_NEEDS_REVISION,
     REVIEW_NOT_REQUESTED,
-    PLACEHOLDER_PATTERNS,
-    CONTEXT_WARN_PCT,
-    CONTEXT_CRITICAL_PCT,
-    DEFAULT_MAX_TOKENS,
+    STATE_FILE,
+    STEP_DESCRIPTIONS,
+    VALID_TRANSITIONS,
+    WORKFLOW_DIR,
 )
 
 
@@ -108,7 +109,7 @@ class TestStepDescriptions:
 
     def test_descriptions_are_strings(self):
         """All descriptions should be non-empty strings."""
-        for step, desc in STEP_DESCRIPTIONS.items():
+        for _step, desc in STEP_DESCRIPTIONS.items():
             assert isinstance(desc, str)
             assert len(desc.strip()) > 0
 

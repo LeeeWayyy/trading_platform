@@ -20,9 +20,7 @@ class TestCORSConfiguration:
     environment variable checks.
     """
 
-    def _get_cors_origins(
-        self, environment: str, allowed_origins: str
-    ) -> list[str] | None:
+    def _get_cors_origins(self, environment: str, allowed_origins: str) -> list[str] | None:
         """Simulate the CORS origin resolution logic from main.py.
 
         Returns the list of allowed origins, or None if a RuntimeError should be raised.
@@ -50,18 +48,16 @@ class TestCORSConfiguration:
     @pytest.mark.parametrize("environment", ["dev", "test"])
     def test_cors_default_origins_in_dev_test(self, environment: str):
         """Verify CORS uses safe defaults in dev/test environments."""
-        origins = self._get_cors_origins(
-            environment=environment,
-            allowed_origins=""
-        )
+        origins = self._get_cors_origins(environment=environment, allowed_origins="")
 
         assert origins is not None, f"Should not require ALLOWED_ORIGINS in {environment} mode"
         assert len(origins) > 0, "Should have default origins"
 
         # Should only contain localhost origins
         for origin in origins:
-            assert "localhost" in origin or "127.0.0.1" in origin, \
-                f"Dev/test should only allow localhost, got: {origin}"
+            assert (
+                "localhost" in origin or "127.0.0.1" in origin
+            ), f"Dev/test should only allow localhost, got: {origin}"
 
         # Should NOT contain wildcard
         assert "*" not in origins
@@ -69,10 +65,7 @@ class TestCORSConfiguration:
     def test_cors_custom_origins_from_env(self):
         """Verify CORS respects ALLOWED_ORIGINS environment variable."""
         custom_origins = "https://app.example.com,https://admin.example.com"
-        origins = self._get_cors_origins(
-            environment="production",
-            allowed_origins=custom_origins
-        )
+        origins = self._get_cors_origins(environment="production", allowed_origins=custom_origins)
 
         assert origins is not None
         assert "https://app.example.com" in origins
@@ -81,19 +74,13 @@ class TestCORSConfiguration:
 
     def test_cors_required_in_production(self):
         """Verify CORS configuration fails in production without ALLOWED_ORIGINS."""
-        origins = self._get_cors_origins(
-            environment="production",
-            allowed_origins=""
-        )
+        origins = self._get_cors_origins(environment="production", allowed_origins="")
 
         assert origins is None, "Should require ALLOWED_ORIGINS in production"
 
     def test_cors_required_in_staging(self):
         """Verify CORS configuration fails in staging without ALLOWED_ORIGINS."""
-        origins = self._get_cors_origins(
-            environment="staging",
-            allowed_origins=""
-        )
+        origins = self._get_cors_origins(environment="staging", allowed_origins="")
 
         assert origins is None, "Should require ALLOWED_ORIGINS in staging"
 
@@ -101,10 +88,7 @@ class TestCORSConfiguration:
         """Verify CORS correctly parses origins with whitespace."""
         # Origins with extra whitespace
         custom_origins = "  https://app.example.com  ,  https://admin.example.com  ,  "
-        origins = self._get_cors_origins(
-            environment="production",
-            allowed_origins=custom_origins
-        )
+        origins = self._get_cors_origins(environment="production", allowed_origins=custom_origins)
 
         assert origins is not None
         # Should strip whitespace and filter empty strings
@@ -118,10 +102,7 @@ class TestCORSConfiguration:
         """Verify wildcard "*" is explicitly rejected."""
         # Wildcard is incompatible with allow_credentials=True
         # Should raise error instead of crashing at startup
-        origins = self._get_cors_origins(
-            environment="production",
-            allowed_origins="*"
-        )
+        origins = self._get_cors_origins(environment="production", allowed_origins="*")
 
         # Wildcard "*" should be rejected
         assert origins is None, "Wildcard '*' should be rejected"
@@ -130,14 +111,14 @@ class TestCORSConfiguration:
         """Verify wildcard "*" is rejected even when mixed with other origins."""
         origins = self._get_cors_origins(
             environment="production",
-            allowed_origins="https://app.example.com,*,https://admin.example.com"
+            allowed_origins="https://app.example.com,*,https://admin.example.com",
         )
 
         # Wildcard "*" anywhere in the list should be rejected
         assert origins is None, "Wildcard '*' in origin list should be rejected"
 
     @pytest.mark.parametrize(
-        "environment,allowed_origins,expect_error",
+        ("environment", "allowed_origins", "expect_error"),
         [
             # Dev/test: always OK with defaults
             ("dev", "", False),
@@ -155,10 +136,7 @@ class TestCORSConfiguration:
         self, environment: str, allowed_origins: str, expect_error: bool
     ):
         """Comprehensive matrix test for CORS configuration."""
-        origins = self._get_cors_origins(
-            environment=environment,
-            allowed_origins=allowed_origins
-        )
+        origins = self._get_cors_origins(environment=environment, allowed_origins=allowed_origins)
 
         got_error = origins is None
         assert got_error == expect_error, (

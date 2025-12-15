@@ -13,7 +13,6 @@ Contract:
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -65,7 +64,7 @@ class TestPrecomputeFeaturesMethod:
 
                 mock_features.return_value = pd.DataFrame()
 
-                result = generator.precompute_features(
+                generator.precompute_features(
                     symbols=["AAPL"],
                     as_of_date=datetime(2024, 1, 15, tzinfo=UTC),
                 )
@@ -130,7 +129,7 @@ class TestPrecomputeEndpoint:
         """Endpoint should reject empty symbols list."""
         from apps.signal_service.main import app
 
-        with patch("apps.signal_service.main.signal_generator") as mock_gen:
+        with patch("apps.signal_service.main.signal_generator"):
             client = TestClient(app)
             response = client.post(
                 "/api/v1/features/precompute",
@@ -144,7 +143,7 @@ class TestPrecomputeEndpoint:
         """Endpoint should reject invalid date format."""
         from apps.signal_service.main import app
 
-        with patch("apps.signal_service.main.signal_generator") as mock_gen:
+        with patch("apps.signal_service.main.signal_generator"):
             client = TestClient(app)
             response = client.post(
                 "/api/v1/features/precompute",

@@ -2,11 +2,8 @@
 
 import os
 
-import pytest
-
 from libs.models.compatibility import (
     CompatibilityResult,
-    MissingDatasetError,
     VersionCompatibilityChecker,
     VersionDriftError,
 )
@@ -71,9 +68,7 @@ class TestVersionCompatibilityChecker:
         current_versions = {"crsp": "v1.2.4"}
 
         # Override to non-strict
-        result = checker.check_compatibility(
-            model_versions, current_versions, strict_mode=False
-        )
+        result = checker.check_compatibility(model_versions, current_versions, strict_mode=False)
 
         assert result.compatible is True
         assert result.level == "drift"

@@ -1,11 +1,10 @@
 """Tests for trusted proxy validation."""
 
-import os
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from starlette.datastructures import Headers
 
-from apps.web_console.utils import validate_trusted_proxy, extract_client_ip_from_fastapi
+from apps.web_console.utils import extract_client_ip_from_fastapi, validate_trusted_proxy
 
 
 def test_validate_trusted_proxy_allows_trusted_ip(monkeypatch):

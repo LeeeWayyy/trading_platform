@@ -7,16 +7,14 @@ Addresses review feedback:
 - L5: Single tracking location for comments
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import List, Dict, Optional, Tuple
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
+from enum import Enum
 
 from .config import WorkflowConfig
-from .git_utils import get_owner_repo, gh_api, gh_graphql
+from .git_utils import gh_api
 
 
 class CIStatus(Enum):
@@ -25,11 +23,12 @@ class CIStatus(Enum):
 
     Addresses L3: Clear distinction between states
     """
-    PENDING = "pending"      # CI hasn't started yet
-    RUNNING = "running"      # CI is currently running
-    PASSED = "passed"        # All checks passed
-    FAILED = "failed"        # At least one check failed
-    ERROR = "error"          # Could not determine status (API error)
+
+    PENDING = "pending"  # CI hasn't started yet
+    RUNNING = "running"  # CI is currently running
+    PASSED = "passed"  # All checks passed
+    FAILED = "failed"  # At least one check failed
+    ERROR = "error"  # Could not determine status (API error)
 
 
 class PRWorkflowHandler:
@@ -105,7 +104,7 @@ class PRWorkflowHandler:
         }
         return True
 
-    def advance_step(self, new_step: str) -> Tuple[bool, str]:
+    def advance_step(self, new_step: str) -> tuple[bool, str]:
         """
         Advance to next PR workflow step.
 
@@ -124,7 +123,7 @@ class PRWorkflowHandler:
         self.state["pr_review"]["step"] = new_step
 
         # datetime already imported at module level
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self.state["pr_review"]["last_updated"] = now
 
         return True, f"Advanced to {new_step}"
@@ -177,19 +176,17 @@ class PRWorkflowHandler:
             # Use gh_api helper for consistency (addresses Gemini review)
             result = gh_api(
                 f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/reviews",
-                jq=".[] | {author: .user.login, state: .state}"
+                jq=".[] | {author: .user.login, state: .state}",
             )
 
             if result.returncode != 0:
                 # Log warning but don't fail - reviews might not exist yet
-                print(f"Warning: Could not fetch PR reviews: {result.stderr}",
-                      file=sys.stderr)
-                print("   Ensure 'gh' CLI is installed and authenticated",
-                      file=sys.stderr)
+                print(f"Warning: Could not fetch PR reviews: {result.stderr}", file=sys.stderr)
+                print("   Ensure 'gh' CLI is installed and authenticated", file=sys.stderr)
                 return
 
             # Parse reviews and update state
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
                 try:
@@ -221,9 +218,9 @@ class PRWorkflowHandler:
                             if reviewer_name not in self.state["reviewers"]:
                                 self.state["reviewers"][reviewer_name] = {}
                             self.state["reviewers"][reviewer_name]["status"] = new_status
-                            self.state["reviewers"][reviewer_name]["last_updated"] = (
-                                datetime.now(timezone.utc).isoformat()
-                            )
+                            self.state["reviewers"][reviewer_name]["last_updated"] = datetime.now(
+                                UTC
+                            ).isoformat()
                             break
 
                 except json.JSONDecodeError as e:
@@ -233,7 +230,7 @@ class PRWorkflowHandler:
         except Exception as e:
             print(f"Warning: Failed to sync PR reviews: {e}", file=sys.stderr)
 
-    def fetch_pr_comment_metadata(self, pr_number: int) -> List[dict]:
+    def fetch_pr_comment_metadata(self, pr_number: int) -> list[dict]:
         """
         Fetch PR review comment metadata (IDs and file paths only).
 
@@ -245,14 +242,14 @@ class PRWorkflowHandler:
         """
         result = gh_api(
             f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/comments",
-            jq=".[] | {id: .id, file_path: .path, resolved: (.position == null)}"
+            jq=".[] | {id: .id, file_path: .path, resolved: (.position == null)}",
         )
 
         if result.returncode != 0:
             return []
 
         comments = []
-        for line in result.stdout.strip().split('\n'):
+        for line in result.stdout.strip().split("\n"):
             if line:
                 try:
                     comments.append(json.loads(line))
@@ -266,10 +263,7 @@ class PRWorkflowHandler:
 
         Returns CIStatus enum value.
         """
-        result = gh_api(
-            f"repos/{{owner}}/{{repo}}/pulls/{pr_number}",
-            jq=".mergeable_state"
-        )
+        result = gh_api(f"repos/{{owner}}/{{repo}}/pulls/{pr_number}", jq=".mergeable_state")
 
         if result.returncode != 0:
             return CIStatus.ERROR
@@ -288,7 +282,7 @@ class PRWorkflowHandler:
         else:
             return CIStatus.ERROR
 
-    def _check_all_reviewers_approved(self) -> Tuple[bool, str]:
+    def _check_all_reviewers_approved(self) -> tuple[bool, str]:
         """
         Check if all required reviewers have approved.
 
@@ -321,7 +315,7 @@ class PRWorkflowHandler:
         orchestrator = ReviewerOrchestrator(self.state, self.config)
         return orchestrator.check_all_approved()
 
-    def record_commit_and_push(self, commit_hash: str, message: str) -> Tuple[bool, str]:
+    def record_commit_and_push(self, commit_hash: str, message: str) -> tuple[bool, str]:
         """
         Record commit and verify push succeeded.
 
@@ -329,8 +323,7 @@ class PRWorkflowHandler:
         """
         # First verify the commit exists locally
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", commit_hash],
-            capture_output=True, text=True
+            ["git", "rev-parse", "--verify", commit_hash], capture_output=True, text=True
         )
         if result.returncode != 0:
             return False, f"Commit {commit_hash} not found locally"
@@ -343,32 +336,30 @@ class PRWorkflowHandler:
         if not branch:
             # Fallback to current branch
             branch_result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True, text=True
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True
             )
             branch = branch_result.stdout.strip() if branch_result.returncode == 0 else None
 
-        for attempt in range(max_retries):
+        for _attempt in range(max_retries):
             # Use explicit remote and branch if available
             push_cmd = ["git", "push"]
             if branch:
                 push_cmd.extend(["origin", branch])
 
-            result = subprocess.run(
-                push_cmd,
-                capture_output=True, text=True, timeout=120
-            )
+            result = subprocess.run(push_cmd, capture_output=True, text=True, timeout=120)
 
             if result.returncode == 0:
                 # Record successful commit
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
                 if "pr_commits" not in self.state["git"]:
                     self.state["git"]["pr_commits"] = []
-                self.state["git"]["pr_commits"].append({
-                    "hash": commit_hash,
-                    "message": message,
-                    "at": now,
-                })
+                self.state["git"]["pr_commits"].append(
+                    {
+                        "hash": commit_hash,
+                        "message": message,
+                        "at": now,
+                    }
+                )
                 self.state["pr_review"]["step"] = "pr-review-check"
                 return True, "Commit pushed successfully"
 
@@ -394,11 +385,13 @@ class PRWorkflowHandler:
         if "completed_tasks" not in self.state:
             self.state["completed_tasks"] = []
 
-        self.state["completed_tasks"].append({
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "pr_url": self.state.get("pr_review", {}).get("pr_url"),
-            "branch": self.state.get("git", {}).get("branch"),
-        })
+        self.state["completed_tasks"].append(
+            {
+                "completed_at": datetime.now(UTC).isoformat(),
+                "pr_url": self.state.get("pr_review", {}).get("pr_url"),
+                "branch": self.state.get("git", {}).get("branch"),
+            }
+        )
 
         # Reset to fresh state
         self.state["phase"] = "component"

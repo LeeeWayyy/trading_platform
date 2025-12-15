@@ -61,9 +61,7 @@ class TestVersioningFixtures:
         return dirs
 
     @pytest.fixture()
-    def manifest_manager(
-        self, temp_dirs: dict[str, Path], tmp_path: Path
-    ) -> ManifestManager:
+    def manifest_manager(self, temp_dirs: dict[str, Path], tmp_path: Path) -> ManifestManager:
         """Create ManifestManager with temp directories."""
         return ManifestManager(
             storage_path=temp_dirs["manifests"],
@@ -174,9 +172,7 @@ class TestCoreCreateSnapshot(TestVersioningFixtures):
     ) -> None:
         """Test basic snapshot creation."""
         # Setup: create manifest with data
-        self._create_manifest_with_data(
-            manifest_manager, "crsp_daily", temp_dirs
-        )
+        self._create_manifest_with_data(manifest_manager, "crsp_daily", temp_dirs)
 
         # Create snapshot
         snapshot = version_manager.create_snapshot("v1.0.0")
@@ -220,9 +216,7 @@ class TestCoreCreateSnapshot(TestVersioningFixtures):
         self._create_manifest_with_data(manifest_manager, "compustat", temp_dirs)
 
         # Create snapshot with only crsp_daily
-        snapshot = version_manager.create_snapshot(
-            "selected-v1", datasets=["crsp_daily"]
-        )
+        snapshot = version_manager.create_snapshot("selected-v1", datasets=["crsp_daily"])
 
         # Verify
         assert len(snapshot.datasets) == 1
@@ -383,9 +377,7 @@ class TestTimeTravel(TestVersioningFixtures):
             data = json.load(f)
 
         # Set created_at to noon UTC on the target date
-        backdated_dt = datetime(
-            backdate.year, backdate.month, backdate.day, 12, 0, 0, tzinfo=UTC
-        )
+        backdated_dt = datetime(backdate.year, backdate.month, backdate.day, 12, 0, 0, tzinfo=UTC)
         data["created_at"] = backdated_dt.isoformat()
 
         with open(snapshot_path, "w") as f:
@@ -412,9 +404,7 @@ class TestTimeTravel(TestVersioningFixtures):
         self._backdate_snapshot(temp_dirs, "2024-01-31", date(2024, 1, 31))
 
         # Query as of Jan 20 - should get Jan 15
-        path, snapshot = version_manager.query_as_of(
-            "crsp_daily", date(2024, 1, 20)
-        )
+        path, snapshot = version_manager.query_as_of("crsp_daily", date(2024, 1, 20))
 
         assert snapshot.version_tag == "2024-01-15"
 
@@ -431,9 +421,7 @@ class TestTimeTravel(TestVersioningFixtures):
         self._backdate_snapshot(temp_dirs, "2024-01-15", date(2024, 1, 15))
 
         # Query exact date
-        path, snapshot = version_manager.query_as_of(
-            "crsp_daily", date(2024, 1, 15)
-        )
+        path, snapshot = version_manager.query_as_of("crsp_daily", date(2024, 1, 15))
 
         assert snapshot.version_tag == "2024-01-15"
 
@@ -487,9 +475,7 @@ class TestTimeTravel(TestVersioningFixtures):
         version_manager.create_snapshot("release-candidate")  # Non-date tag
 
         # Query should only consider date-based
-        path, snapshot = version_manager.query_as_of(
-            "crsp_daily", date(2024, 1, 20)
-        )
+        path, snapshot = version_manager.query_as_of("crsp_daily", date(2024, 1, 20))
 
         assert snapshot.version_tag == "2024-01-15"
 
@@ -624,9 +610,7 @@ class TestStorageCAS(TestVersioningFixtures):
         breaking the immutability guarantee required for reproducible backtests.
         """
         # Setup
-        self._create_manifest_with_data(
-            manifest_manager, "crsp_daily", temp_dirs, "copy test"
-        )
+        self._create_manifest_with_data(manifest_manager, "crsp_daily", temp_dirs, "copy test")
 
         # Create snapshot with CAS disabled - should use copy (NOT hardlink)
         snapshot = version_manager.create_snapshot("copy-v1", use_cas=False)
@@ -634,9 +618,9 @@ class TestStorageCAS(TestVersioningFixtures):
         # Verify storage mode is copy (never hardlink for immutability)
         ds_snapshot = snapshot.datasets["crsp_daily"]
         for file_info in ds_snapshot.files:
-            assert file_info.storage_mode == "copy", (
-                f"Expected 'copy' for immutability, got '{file_info.storage_mode}'"
-            )
+            assert (
+                file_info.storage_mode == "copy"
+            ), f"Expected 'copy' for immutability, got '{file_info.storage_mode}'"
 
     def test_cas_storage_deduplicates(
         self,
@@ -647,12 +631,8 @@ class TestStorageCAS(TestVersioningFixtures):
         """Test CAS storage deduplicates identical files."""
         # Setup - create two datasets with same content
         content = "identical content for dedup test"
-        self._create_manifest_with_data(
-            manifest_manager, "crsp_daily", temp_dirs, content
-        )
-        self._create_manifest_with_data(
-            manifest_manager, "compustat", temp_dirs, content
-        )
+        self._create_manifest_with_data(manifest_manager, "crsp_daily", temp_dirs, content)
+        self._create_manifest_with_data(manifest_manager, "compustat", temp_dirs, content)
 
         # Force CAS mode by making hardlinks fail
         with patch("os.link", side_effect=OSError("Cross-device link")):
@@ -663,9 +643,7 @@ class TestStorageCAS(TestVersioningFixtures):
 
         # Verify deduplication - should have only one CAS entry
         # (both files have same content -> same hash)
-        cas_entries_with_refs = [
-            e for e in cas_index.files.values() if e.ref_count >= 2
-        ]
+        cas_entries_with_refs = [e for e in cas_index.files.values() if e.ref_count >= 2]
         assert len(cas_entries_with_refs) >= 1
 
     def test_cas_ref_count_increments(
@@ -677,9 +655,7 @@ class TestStorageCAS(TestVersioningFixtures):
         """Test CAS reference count increments on reuse."""
         # Setup
         content = "test content for ref count"
-        self._create_manifest_with_data(
-            manifest_manager, "crsp_daily", temp_dirs, content
-        )
+        self._create_manifest_with_data(manifest_manager, "crsp_daily", temp_dirs, content)
 
         # Force CAS mode by making hardlinks fail
         with patch("os.link", side_effect=OSError("Cross-device link")):
@@ -693,9 +669,7 @@ class TestStorageCAS(TestVersioningFixtures):
         cas_index = version_manager._load_cas_index()
 
         # Find entry with ref_count >= 2
-        high_ref_entries = [
-            e for e in cas_index.files.values() if e.ref_count >= 2
-        ]
+        high_ref_entries = [e for e in cas_index.files.values() if e.ref_count >= 2]
         assert len(high_ref_entries) >= 1
 
     def test_gc_cas_removes_unreferenced(
@@ -714,8 +688,7 @@ class TestStorageCAS(TestVersioningFixtures):
 
         # Get CAS file count before (exclude index file)
         cas_files_before = [
-            f for f in temp_dirs["cas"].iterdir()
-            if f.is_file() and f.name != "cas_index.json"
+            f for f in temp_dirs["cas"].iterdir() if f.is_file() and f.name != "cas_index.json"
         ]
         assert len(cas_files_before) > 0, "Should have CAS files after snapshot"
 
@@ -727,8 +700,7 @@ class TestStorageCAS(TestVersioningFixtures):
 
         # Verify files removed (exclude index file)
         cas_files_after = [
-            f for f in temp_dirs["cas"].iterdir()
-            if f.is_file() and f.name != "cas_index.json"
+            f for f in temp_dirs["cas"].iterdir() if f.is_file() and f.name != "cas_index.json"
         ]
         assert len(cas_files_after) < len(cas_files_before)
         assert bytes_freed > 0
@@ -881,9 +853,9 @@ class TestChecksumsIntegrity(TestVersioningFixtures):
         assert reloaded.aggregate_checksum == original_aggregate
 
         for file_info in reloaded.datasets["crsp_daily"].files:
-            assert file_info.checksum == original_file_checksums[file_info.path], (
-                f"Snapshot file {file_info.path} checksum changed after source modification"
-            )
+            assert (
+                file_info.checksum == original_file_checksums[file_info.path]
+            ), f"Snapshot file {file_info.path} checksum changed after source modification"
 
 
 # =============================================================================
@@ -906,8 +878,9 @@ class TestErrorHandlingRecovery(TestVersioningFixtures):
 
         # Force failure during snapshot creation
         with patch.object(
-            version_manager, "_compute_aggregate_checksum",
-            side_effect=RuntimeError("Simulated failure")
+            version_manager,
+            "_compute_aggregate_checksum",
+            side_effect=RuntimeError("Simulated failure"),
         ):
             with pytest.raises(RuntimeError, match="Simulated failure"):
                 version_manager.create_snapshot("cleanup-v1")

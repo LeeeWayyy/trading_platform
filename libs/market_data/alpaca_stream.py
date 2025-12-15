@@ -252,15 +252,25 @@ class AlpacaMarketDataStream:
             symbol = quote["symbol"] if isinstance(quote, Mapping) else quote.symbol
             bid_price_value = quote["bid_price"] if isinstance(quote, Mapping) else quote.bid_price
             ask_price_value = quote["ask_price"] if isinstance(quote, Mapping) else quote.ask_price
-            bid_size_value = quote.get("bid_size", 0) if isinstance(quote, Mapping) else quote.bid_size
-            ask_size_value = quote.get("ask_size", 0) if isinstance(quote, Mapping) else quote.ask_size
-            raw_timestamp = quote.get("timestamp") if isinstance(quote, Mapping) else quote.timestamp
+            bid_size_value = (
+                quote.get("bid_size", 0) if isinstance(quote, Mapping) else quote.bid_size
+            )
+            ask_size_value = (
+                quote.get("ask_size", 0) if isinstance(quote, Mapping) else quote.ask_size
+            )
+            raw_timestamp = (
+                quote.get("timestamp") if isinstance(quote, Mapping) else quote.timestamp
+            )
             if raw_timestamp is None:
                 logger.warning("Received quote without timestamp for symbol %s", symbol)
                 return
             if isinstance(raw_timestamp, str):
                 # Handle ISO8601 'Z' suffix (Zulu/UTC time) which fromisoformat may not parse
-                ts_str = raw_timestamp.replace("Z", "+00:00") if raw_timestamp.endswith("Z") else raw_timestamp
+                ts_str = (
+                    raw_timestamp.replace("Z", "+00:00")
+                    if raw_timestamp.endswith("Z")
+                    else raw_timestamp
+                )
                 timestamp_value = datetime.fromisoformat(ts_str)
             else:
                 timestamp_value = raw_timestamp

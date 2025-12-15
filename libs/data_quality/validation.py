@@ -328,9 +328,7 @@ class DataValidator:
         # Build expected dates set
         expected_dates: set[datetime.date]
         if calendar:
-            expected_dates = set(
-                calendar.trading_days_between(dates[0], dates[-1])
-            )
+            expected_dates = set(calendar.trading_days_between(dates[0], dates[-1]))
         else:
             # Without calendar, expect all weekdays
             expected_dates = set()
@@ -412,9 +410,7 @@ class DataValidator:
         actual = self.compute_checksum(file_path)
         return actual == expected
 
-    def verify_aggregate_checksum(
-        self, file_paths: list[Path], expected: str
-    ) -> bool:
+    def verify_aggregate_checksum(self, file_paths: list[Path], expected: str) -> bool:
         """Verify aggregate checksum for multiple files.
 
         Args:

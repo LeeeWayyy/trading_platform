@@ -219,8 +219,6 @@ def get_trusted_proxy_ips(
     trusted_proxies = [ip.strip() for ip in raw_ips.split(",") if ip.strip()]
 
     if not trusted_proxies and env in fail_closed_envs:
-        raise RuntimeError(
-            f"TRUSTED_PROXY_IPS must be configured in {env} environment"
-        )
+        raise RuntimeError(f"TRUSTED_PROXY_IPS must be configured in {env} environment")
 
     return trusted_proxies

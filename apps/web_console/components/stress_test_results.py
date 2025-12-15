@@ -77,7 +77,9 @@ def render_stress_tests(results: Sequence[dict[str, Any]]) -> None:
 
     # Render waterfall for worst case
     st.divider()
-    st.subheader(f"Factor Impact: {_get_scenario_display_name(worst_scenario.get('scenario_name', ''))}")
+    st.subheader(
+        f"Factor Impact: {_get_scenario_display_name(worst_scenario.get('scenario_name', ''))}"
+    )
     render_factor_waterfall(worst_scenario)
 
 
@@ -88,17 +90,15 @@ def render_scenario_table(results: Sequence[dict[str, Any]]) -> None:
         results: List of validated stress test results
     """
     # Build results lookup for efficient access
-    results_map = {
-        r.get("scenario_name"): r
-        for r in results
-        if r.get("scenario_name")
-    }
+    results_map = {r.get("scenario_name"): r for r in results if r.get("scenario_name")}
 
     # Build ordered scenario list: predefined order first, then any extras
     predefined_set = set(SCENARIO_DISPLAY_ORDER)
     ordered_scenarios = [s for s in SCENARIO_DISPLAY_ORDER if s in results_map]
     # Type guard: keys are str (filtered in comprehension above), but mypy needs explicit check
-    ordered_scenarios.extend(s for s in results_map if isinstance(s, str) and s not in predefined_set)
+    ordered_scenarios.extend(
+        s for s in results_map if isinstance(s, str) and s not in predefined_set
+    )
 
     # Single-pass table data construction
     table_data = []
@@ -111,12 +111,14 @@ def render_scenario_table(results: Sequence[dict[str, Any]]) -> None:
         display_name = info.get("name", scenario)
         description = info.get("description", "")
 
-        table_data.append({
-            "Scenario": display_name,
-            "Type": scenario_type.title(),
-            "Description": description,
-            "Portfolio P&L": f"{pnl:+.2%}",
-        })
+        table_data.append(
+            {
+                "Scenario": display_name,
+                "Type": scenario_type.title(),
+                "Description": description,
+                "Portfolio P&L": f"{pnl:+.2%}",
+            }
+        )
 
     st.dataframe(
         table_data,

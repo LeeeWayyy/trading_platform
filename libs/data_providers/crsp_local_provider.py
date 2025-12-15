@@ -46,8 +46,7 @@ class AmbiguousTickerError(Exception):
         self.as_of_date = as_of_date
         self.permnos = permnos
         super().__init__(
-            f"Ticker '{ticker}' is ambiguous on {as_of_date}: "
-            f"maps to PERMNOs {permnos}"
+            f"Ticker '{ticker}' is ambiguous on {as_of_date}: " f"maps to PERMNOs {permnos}"
         )
 
 
@@ -198,9 +197,7 @@ class CRSPLocalProvider:
         pinned_version = manifest.manifest_version
 
         # Get partition paths from manifest (not filesystem)
-        partition_paths = self._get_partition_paths_from_manifest(
-            manifest, start_date, end_date
-        )
+        partition_paths = self._get_partition_paths_from_manifest(manifest, start_date, end_date)
 
         if not partition_paths:
             return self._empty_result(columns)
@@ -389,9 +386,7 @@ class CRSPLocalProvider:
             )
 
         if result.is_empty():
-            raise DataNotFoundError(
-                f"Ticker '{ticker}' not found or not trading on {as_of_date}"
-            )
+            raise DataNotFoundError(f"Ticker '{ticker}' not found or not trading on {as_of_date}")
 
         permnos = result["permno"].to_list()
         if len(permnos) > 1:
@@ -456,9 +451,7 @@ class CRSPLocalProvider:
             )
 
         if result.is_empty():
-            raise DataNotFoundError(
-                f"PERMNO {permno} not found or not trading on {as_of_date}"
-            )
+            raise DataNotFoundError(f"PERMNO {permno} not found or not trading on {as_of_date}")
 
         return str(result["ticker"][0])
 
@@ -501,9 +494,7 @@ class CRSPLocalProvider:
             WHERE permno = $permno
             ORDER BY date
         """
-        result = conn.execute(
-            query, {"paths": [str(p) for p in paths], "permno": permno}
-        ).pl()
+        result = conn.execute(query, {"paths": [str(p) for p in paths], "permno": permno}).pl()
 
         # Verify manifest version unchanged (snapshot consistency)
         current_manifest = self._get_manifest()
@@ -662,9 +653,7 @@ class CRSPLocalProvider:
             # Point-in-time: exclude securities that IPO'd after as_of_date
             # This requires knowing each security's first trade date
             metadata = self._get_security_metadata()
-            valid_permnos = metadata.filter(pl.col("first_date") <= as_of_date)[
-                "permno"
-            ].to_list()
+            valid_permnos = metadata.filter(pl.col("first_date") <= as_of_date)["permno"].to_list()
             params["valid_permnos"] = valid_permnos
             where_clauses.append("permno = ANY($valid_permnos)")
 
@@ -679,9 +668,7 @@ class CRSPLocalProvider:
 
         return conn.execute(query, params).pl()
 
-    def _get_security_metadata(
-        self, manifest: SyncManifest | None = None
-    ) -> pl.DataFrame:
+    def _get_security_metadata(self, manifest: SyncManifest | None = None) -> pl.DataFrame:
         """Get or compute security metadata (first/last trade dates).
 
         Caches the result for efficiency. Cache is tied to manifest version
@@ -745,9 +732,7 @@ class CRSPLocalProvider:
             FROM read_parquet($paths)
             GROUP BY permno
         """
-        self._security_metadata = conn.execute(
-            query, {"paths": [str(p) for p in paths]}
-        ).pl()
+        self._security_metadata = conn.execute(query, {"paths": [str(p) for p in paths]}).pl()
         self._security_metadata_version = manifest.manifest_version
 
         return self._security_metadata

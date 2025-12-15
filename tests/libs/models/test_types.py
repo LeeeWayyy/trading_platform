@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from libs.models.types import (
     ARTIFACT_REQUIRED_FIELDS,
@@ -72,14 +73,14 @@ class TestEnvironmentMetadata:
             numpy_version="1.24.0",
             polars_version="0.20.0",
         )
-        with pytest.raises(Exception):  # ValidationError for frozen model
+        with pytest.raises(ValidationError, match="frozen"):
             env.python_version = "3.12.0"
 
 
 class TestModelMetadata:
     """Tests for ModelMetadata."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_env(self) -> EnvironmentMetadata:
         """Create sample environment metadata."""
         return EnvironmentMetadata(
@@ -101,7 +102,11 @@ class TestModelMetadata:
             dataset_version_ids={"crsp": "v1.2.3"},
             snapshot_id="snap_123",
             factor_list=["momentum", "value"],
-            parameters={"halflife_days": 60, "shrinkage_intensity": 0.5, "factor_list": ["momentum", "value"]},
+            parameters={
+                "halflife_days": 60,
+                "shrinkage_intensity": 0.5,
+                "factor_list": ["momentum", "value"],
+            },
             checksum_sha256="abc123def456",
             metrics={"ic": 0.05, "sharpe": 1.2},
             env=sample_env,
@@ -114,7 +119,7 @@ class TestModelMetadata:
 
     def test_version_format_validation(self, sample_env: EnvironmentMetadata) -> None:
         """Test that version must be semantic."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="pattern"):
             ModelMetadata(
                 model_id="test-123",
                 model_type=ModelType.risk_model,
@@ -217,7 +222,9 @@ class TestArtifactRequiredFields:
         )
         with pytest.raises(MissingRequiredFieldError) as exc_info:
             validate_artifact_metadata(ModelType.risk_model, metadata)
-        assert "halflife_days" in str(exc_info.value) or "shrinkage_intensity" in str(exc_info.value)
+        assert "halflife_days" in str(exc_info.value) or "shrinkage_intensity" in str(
+            exc_info.value
+        )
 
 
 class TestPromotionGates:

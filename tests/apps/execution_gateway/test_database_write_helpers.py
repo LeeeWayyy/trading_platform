@@ -45,7 +45,9 @@ class _Pool:
         self.row = row
 
     def connection(self):
-        return SimpleNamespace(__enter__=lambda self=self: _Conn(self.row), __exit__=lambda *args, **kwargs: False)
+        return SimpleNamespace(
+            __enter__=lambda self=self: _Conn(self.row), __exit__=lambda *args, **kwargs: False
+        )
 
     def close(self):
         return None

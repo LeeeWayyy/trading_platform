@@ -63,34 +63,40 @@ def provider_with_baseline(tmp_path: Path) -> YFinanceProvider:
 @pytest.fixture()
 def mock_ohlcv_data() -> pl.DataFrame:
     """Create mock OHLCV data."""
-    return pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-        "symbol": ["SPY", "SPY", "SPY"],
-        "open": [471.50, 473.20, 472.80],
-        "high": [474.00, 475.50, 476.20],
-        "low": [470.00, 472.00, 471.50],
-        "close": [473.00, 474.80, 475.50],
-        "volume": [50000000.0, 48000000.0, 52000000.0],
-        "adj_close": [473.00, 474.80, 475.50],
-    })
+    return pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "symbol": ["SPY", "SPY", "SPY"],
+            "open": [471.50, 473.20, 472.80],
+            "high": [474.00, 475.50, 476.20],
+            "low": [470.00, 472.00, 471.50],
+            "close": [473.00, 474.80, 475.50],
+            "volume": [50000000.0, 48000000.0, 52000000.0],
+            "adj_close": [473.00, 474.80, 475.50],
+        }
+    )
 
 
 @pytest.fixture()
 def mock_baseline_data() -> pl.DataFrame:
     """Create mock baseline data for drift detection."""
-    return pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-        "close": [473.00, 474.80, 475.50],  # Matches mock_ohlcv_data
-    })
+    return pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "close": [473.00, 474.80, 475.50],  # Matches mock_ohlcv_data
+        }
+    )
 
 
 @pytest.fixture()
 def mock_baseline_data_with_drift() -> pl.DataFrame:
     """Create mock baseline data with significant drift (>1%)."""
-    return pl.DataFrame({
-        "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-        "close": [473.00, 474.80, 490.00],  # Last price drifts >1%
-    })
+    return pl.DataFrame(
+        {
+            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "close": [473.00, 474.80, 490.00],  # Last price drifts >1%
+        }
+    )
 
 
 @pytest.fixture()
@@ -207,9 +213,7 @@ class TestBasicFunctionality:
                 end_date=date(2024, 1, 31),
             )
 
-    def test_symbols_normalized_to_uppercase(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_symbols_normalized_to_uppercase(self, provider_with_cache: YFinanceProvider) -> None:
         """Test symbols are normalized to uppercase."""
         # Cache has SPY, query with lowercase
         df = provider_with_cache.get_daily_prices(
@@ -221,9 +225,7 @@ class TestBasicFunctionality:
         assert df.height > 0
         assert df["symbol"][0] == "SPY"
 
-    def test_cache_hit_returns_data(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_cache_hit_returns_data(self, provider_with_cache: YFinanceProvider) -> None:
         """Test cache hit returns cached data without network call.
 
         Cache only returns data when it FULLY covers the requested range.
@@ -239,9 +241,7 @@ class TestBasicFunctionality:
         assert "open" in df.columns
         assert "close" in df.columns
 
-    def test_partial_cache_triggers_refetch(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_partial_cache_triggers_refetch(self, provider_with_cache: YFinanceProvider) -> None:
         """Test partial cache coverage triggers fresh fetch.
 
         Cache only has Jan 2-4. Requesting Jan 1-31 should trigger refetch
@@ -304,23 +304,18 @@ class TestBasicFunctionality:
 
             # Should have logged warning about failed symbols
             assert any(
-                "Some symbols failed to fetch" in record.message
-                for record in caplog.records
+                "Some symbols failed to fetch" in record.message for record in caplog.records
             )
             del _df
 
-    def test_verify_data_with_valid_cache(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_verify_data_with_valid_cache(self, provider_with_cache: YFinanceProvider) -> None:
         """Test verify_data returns True for valid cache."""
         results = provider_with_cache.verify_data()
 
         assert "SPY.parquet" in results
         assert results["SPY.parquet"] is True
 
-    def test_invalidate_cache_removes_files(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_invalidate_cache_removes_files(self, provider_with_cache: YFinanceProvider) -> None:
         """Test invalidate_cache removes cache files."""
         # Verify cache exists
         cache_path = provider_with_cache._daily_dir / "SPY.parquet"
@@ -332,9 +327,7 @@ class TestBasicFunctionality:
         assert removed == 1
         assert not cache_path.exists()
 
-    def test_invalidate_cache_all(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_invalidate_cache_all(self, provider_with_cache: YFinanceProvider) -> None:
         """Test invalidate_cache(None) removes all cache."""
         removed = provider_with_cache.invalidate_cache(symbols=None)
 
@@ -342,9 +335,7 @@ class TestBasicFunctionality:
         assert not (provider_with_cache._daily_dir / "SPY.parquet").exists()
         assert not (provider_with_cache._storage_path / "yfinance_manifest.json").exists()
 
-    def test_invalidate_cache_updates_manifest(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_invalidate_cache_updates_manifest(self, provider_with_cache: YFinanceProvider) -> None:
         """Test invalidate_cache for specific symbols updates manifest."""
         # Verify manifest has SPY entry
         manifest_before = provider_with_cache.get_manifest()
@@ -584,10 +575,12 @@ class TestDriftDetection:
     ) -> None:
         """Test no overlapping dates passes with warning."""
         # Create baseline with different dates
-        baseline_data = pl.DataFrame({
-            "date": [date(2023, 1, 2), date(2023, 1, 3)],  # Different year
-            "close": [400.0, 401.0],
-        })
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 2), date(2023, 1, 3)],  # Different year
+                "close": [400.0, 401.0],
+            }
+        )
         baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
         baseline_data.write_parquet(baseline_path)
 
@@ -680,10 +673,12 @@ class TestDriftDetection:
     ) -> None:
         """Test drift check handles zero baseline prices (avoids division by zero)."""
         # Create baseline with zero price
-        baseline_data = pl.DataFrame({
-            "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
-            "close": [0.0, 0.0, 0.0],  # All zeros
-        })
+        baseline_data = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+                "close": [0.0, 0.0, 0.0],  # All zeros
+            }
+        )
         baseline_path = provider_with_baseline._baseline_path / "spy_60d.parquet"
         baseline_data.write_parquet(baseline_path)
 
@@ -710,15 +705,17 @@ class TestDriftDetection:
         # Mock yfinance download
         import pandas as pd
 
-        mock_pdf = pd.DataFrame({
-            "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
-            "Open": [471.50, 473.20, 472.80],
-            "High": [474.00, 475.50, 476.20],
-            "Low": [470.00, 472.00, 471.50],
-            "Close": [473.00, 474.80, 475.50],
-            "Volume": [50000000, 48000000, 52000000],
-            "Adj Close": [473.00, 474.80, 475.50],
-        }).set_index("Date")
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+                "Open": [471.50, 473.20, 472.80],
+                "High": [474.00, 475.50, 476.20],
+                "Low": [470.00, 472.00, 471.50],
+                "Close": [473.00, 474.80, 475.50],
+                "Volume": [50000000, 48000000, 52000000],
+                "Adj Close": [473.00, 474.80, 475.50],
+            }
+        ).set_index("Date")
 
         with patch("yfinance.Ticker") as mock_ticker_cls:
             mock_ticker = MagicMock()
@@ -766,9 +763,7 @@ class TestAtomicWrites:
 
         assert not temp_path.exists()
 
-    def test_empty_dataframe_quarantined(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_empty_dataframe_quarantined(self, provider: YFinanceProvider) -> None:
         """Test empty DataFrame triggers quarantine."""
         empty_df = pl.DataFrame(schema={"date": pl.Date, "close": pl.Float64})
         target_path = provider._daily_dir / "EMPTY.parquet"
@@ -780,9 +775,7 @@ class TestAtomicWrites:
         quarantine_files = list(provider._quarantine_dir.glob("*empty_dataframe*"))
         assert len(quarantine_files) == 1
 
-    def test_checksum_mismatch_detected(
-        self, provider_with_cache: YFinanceProvider
-    ) -> None:
+    def test_checksum_mismatch_detected(self, provider_with_cache: YFinanceProvider) -> None:
         """Test checksum mismatch is detected by verify_data."""
         # Corrupt the cache file
         cache_path = provider_with_cache._daily_dir / "SPY.parquet"
@@ -806,15 +799,17 @@ class TestRateLimiting:
         """Test delay is applied between symbol fetches."""
         import pandas as pd
 
-        mock_pdf = pd.DataFrame({
-            "Date": pd.to_datetime(["2024-01-02"]),
-            "Open": [100.0],
-            "High": [101.0],
-            "Low": [99.0],
-            "Close": [100.5],
-            "Volume": [1000000],
-            "Adj Close": [100.5],
-        }).set_index("Date")
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
 
         call_times: list[float] = []
 
@@ -854,15 +849,17 @@ class TestRateLimiting:
             if call_count < 3:  # Fail first 2 times
                 ticker.history.side_effect = Exception("Network error")
             else:
-                ticker.history.return_value = pd.DataFrame({
-                    "Date": pd.to_datetime(["2024-01-02"]),
-                    "Open": [100.0],
-                    "High": [101.0],
-                    "Low": [99.0],
-                    "Close": [100.5],
-                    "Volume": [1000000],
-                    "Adj Close": [100.5],
-                }).set_index("Date")
+                ticker.history.return_value = pd.DataFrame(
+                    {
+                        "Date": pd.to_datetime(["2024-01-02"]),
+                        "Open": [100.0],
+                        "High": [101.0],
+                        "Low": [99.0],
+                        "Close": [100.5],
+                        "Volume": [1000000],
+                        "Adj Close": [100.5],
+                    }
+                ).set_index("Date")
 
             return ticker
 
@@ -889,9 +886,7 @@ class TestRateLimiting:
 class TestManifest:
     """Tests for manifest operations."""
 
-    def test_get_manifest_returns_none_if_missing(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_get_manifest_returns_none_if_missing(self, provider: YFinanceProvider) -> None:
         """Test get_manifest returns None if no manifest exists."""
         result = provider.get_manifest()
         assert result is None
@@ -900,15 +895,17 @@ class TestManifest:
         """Test manifest is updated after fetch_and_cache."""
         import pandas as pd
 
-        mock_pdf = pd.DataFrame({
-            "Date": pd.to_datetime(["2024-01-02"]),
-            "Open": [100.0],
-            "High": [101.0],
-            "Low": [99.0],
-            "Close": [100.5],
-            "Volume": [1000000],
-            "Adj Close": [100.5],
-        }).set_index("Date")
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [100.0],
+                "High": [101.0],
+                "Low": [99.0],
+                "Close": [100.5],
+                "Volume": [1000000],
+                "Adj Close": [100.5],
+            }
+        ).set_index("Date")
 
         with patch("yfinance.Ticker") as mock_ticker_cls:
             mock_ticker = MagicMock()
@@ -933,15 +930,17 @@ class TestManifest:
         """Test manifest preserves existing entries on new fetch."""
         import pandas as pd
 
-        mock_pdf = pd.DataFrame({
-            "Date": pd.to_datetime(["2024-01-02"]),
-            "Open": [200.0],
-            "High": [201.0],
-            "Low": [199.0],
-            "Close": [200.5],
-            "Volume": [2000000],
-            "Adj Close": [200.5],
-        }).set_index("Date")
+        mock_pdf = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2024-01-02"]),
+                "Open": [200.0],
+                "High": [201.0],
+                "Low": [199.0],
+                "Close": [200.5],
+                "Volume": [2000000],
+                "Adj Close": [200.5],
+            }
+        ).set_index("Date")
 
         with patch("yfinance.Ticker") as mock_ticker_cls:
             mock_ticker = MagicMock()
@@ -969,9 +968,7 @@ class TestManifest:
 class TestErrorHandling:
     """Tests for error handling."""
 
-    def test_yfinance_not_installed_raises(
-        self, provider: YFinanceProvider
-    ) -> None:
+    def test_yfinance_not_installed_raises(self, provider: YFinanceProvider) -> None:
         """Test YFinanceError raised if yfinance not installed."""
         import sys
         from datetime import date
@@ -1020,9 +1017,7 @@ class TestErrorHandling:
 class TestDevOnlyWarnings:
     """Tests for dev-only warnings in logs."""
 
-    def test_warning_in_staging(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_warning_in_staging(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Test warning is logged when initialized in staging."""
         YFinanceProvider(
             storage_path=tmp_path / "yfinance",
@@ -1043,9 +1038,7 @@ class TestDevOnlyWarnings:
 
         assert "non-development environment" not in caplog.text
 
-    def test_no_warning_in_test(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_no_warning_in_test(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Test no warning in test environment."""
         YFinanceProvider(
             storage_path=tmp_path / "yfinance",

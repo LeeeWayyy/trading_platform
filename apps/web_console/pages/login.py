@@ -26,7 +26,7 @@ def main() -> None:
     # Login button (links to FastAPI /login endpoint)
     st.markdown(
         f'<a href="{login_url}"><button style="background-color:#4CAF50;color:white;'
-        'padding:15px 32px;text-align:center;font-size:16px;border:none;'
+        "padding:15px 32px;text-align:center;font-size:16px;border:none;"
         'border-radius:4px;cursor:pointer;">Login with Auth0</button></a>',
         unsafe_allow_html=True,
     )

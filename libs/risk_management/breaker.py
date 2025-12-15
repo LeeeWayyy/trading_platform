@@ -314,9 +314,7 @@ class CircuitBreaker:
                             "manually reinitialize if appropriate."
                         )
 
-                    state_data: dict[str, Any] = json.loads(
-                        cast(str, state_json)
-                    )
+                    state_data: dict[str, Any] = json.loads(cast(str, state_json))
 
                     # Check if already tripped (idempotent behavior)
                     if state_data["state"] == CircuitBreakerState.TRIPPED.value:
@@ -417,9 +415,7 @@ class CircuitBreaker:
                             "manually reinitialize if appropriate."
                         )
 
-                    state_data: dict[str, Any] = json.loads(
-                        cast(str, state_json)
-                    )
+                    state_data: dict[str, Any] = json.loads(cast(str, state_json))
 
                     # Validate current state
                     current_state = CircuitBreakerState(state_data["state"])

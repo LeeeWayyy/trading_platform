@@ -7,13 +7,11 @@ Addresses review feedback:
 - C4: Owner/repo format validation added
 """
 
-import subprocess
 import re
-from typing import Optional, Tuple
-
+import subprocess
 
 # Valid GitHub owner/repo pattern (alphanumeric, hyphens, underscores, dots)
-GITHUB_NAME_PATTERN = re.compile(r'^[\w.-]+$')
+GITHUB_NAME_PATTERN = re.compile(r"^[\w.-]+$")
 
 
 def _validate_github_name(name: str, field: str) -> None:
@@ -30,13 +28,13 @@ def _validate_github_name(name: str, field: str) -> None:
             f"Invalid {field} format: '{name}'. "
             f"Must contain only alphanumeric, hyphens, underscores, or dots."
         )
-    if name.startswith('.') or name.endswith('.'):
+    if name.startswith(".") or name.endswith("."):
         raise ValueError(f"Invalid {field}: cannot start or end with dot")
-    if '..' in name:
+    if ".." in name:
         raise ValueError(f"Invalid {field}: cannot contain consecutive dots")
 
 
-def get_owner_repo(repo_path: str = None) -> Tuple[str, str]:
+def get_owner_repo(repo_path: str = None) -> tuple[str, str]:
     """
     Auto-detect owner and repo from git remote.
 
@@ -74,7 +72,7 @@ def get_owner_repo(repo_path: str = None) -> Tuple[str, str]:
     return owner, repo
 
 
-def _parse_github_url(url: str) -> Tuple[str, str]:
+def _parse_github_url(url: str) -> tuple[str, str]:
     """
     Parse owner/repo from GitHub URL.
 
@@ -90,12 +88,12 @@ def _parse_github_url(url: str) -> Tuple[str, str]:
         ValueError if URL format not recognized
     """
     # SSH format: git@github.com:owner/repo.git
-    ssh_match = re.match(r'git@github\.com:([^/]+)/(.+?)(?:\.git)?$', url)
+    ssh_match = re.match(r"git@github\.com:([^/]+)/(.+?)(?:\.git)?$", url)
     if ssh_match:
         return ssh_match.group(1), ssh_match.group(2)
 
     # HTTPS format: https://github.com/owner/repo.git or .../repo
-    https_match = re.match(r'https://github\.com/([^/]+)/(.+?)(?:\.git)?$', url)
+    https_match = re.match(r"https://github\.com/([^/]+)/(.+?)(?:\.git)?$", url)
     if https_match:
         return https_match.group(1), https_match.group(2)
 
@@ -103,10 +101,7 @@ def _parse_github_url(url: str) -> Tuple[str, str]:
 
 
 def gh_api(
-    endpoint: str,
-    paginate: bool = False,
-    jq: str = None,
-    repo_path: str = None
+    endpoint: str, paginate: bool = False, jq: str = None, repo_path: str = None
 ) -> subprocess.CompletedProcess:
     """
     Call GitHub API via gh CLI with owner/repo auto-substitution.
@@ -135,8 +130,7 @@ def gh_api(
         except ValueError as e:
             # Return failed result instead of raising
             return subprocess.CompletedProcess(
-                args=["gh", "api"], returncode=1,
-                stdout="", stderr=str(e)
+                args=["gh", "api"], returncode=1, stdout="", stderr=str(e)
             )
 
     # Build command with optional cwd for multi-repo support
@@ -169,15 +163,19 @@ def gh_graphql(query: str) -> subprocess.CompletedProcess:
         owner, repo = get_owner_repo()
     except ValueError as e:
         return subprocess.CompletedProcess(
-            args=["gh", "api", "graphql"],
-            returncode=1, stdout="", stderr=str(e)
+            args=["gh", "api", "graphql"], returncode=1, stdout="", stderr=str(e)
         )
 
     cmd = [
-        "gh", "api", "graphql",
-        "-f", f"owner={owner}",
-        "-f", f"repo={repo}",
-        "-f", f"query={query}"
+        "gh",
+        "api",
+        "graphql",
+        "-f",
+        f"owner={owner}",
+        "-f",
+        f"repo={repo}",
+        "-f",
+        f"query={query}",
     ]
 
     return subprocess.run(cmd, capture_output=True, text=True, timeout=60)

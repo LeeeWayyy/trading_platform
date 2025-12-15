@@ -3,10 +3,11 @@
 These tests use unittest.mock to patch the redis module at the method level,
 avoiding module reloads that can interfere with other tests.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

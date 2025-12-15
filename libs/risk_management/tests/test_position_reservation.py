@@ -45,9 +45,7 @@ class TestPositionReservation:
         """Reserve should succeed when position is within limit."""
         mock_redis.eval.return_value = [1, "abc123", 0, 100]
 
-        result = reservation.reserve(
-            symbol="AAPL", side="buy", qty=100, max_limit=1000
-        )
+        result = reservation.reserve(symbol="AAPL", side="buy", qty=100, max_limit=1000)
 
         assert result.success is True
         assert result.token is not None
@@ -69,9 +67,7 @@ class TestPositionReservation:
         """Reserve should work for sell orders (negative delta)."""
         mock_redis.eval.return_value = [1, "abc123", 100, 0]
 
-        result = reservation.reserve(
-            symbol="AAPL", side="sell", qty=100, max_limit=1000
-        )
+        result = reservation.reserve(symbol="AAPL", side="sell", qty=100, max_limit=1000)
 
         assert result.success is True
         call_args = mock_redis.eval.call_args
@@ -83,9 +79,7 @@ class TestPositionReservation:
         """Reserve should fail when position would exceed limit."""
         mock_redis.eval.return_value = [0, "LIMIT_EXCEEDED", 900, 1100]
 
-        result = reservation.reserve(
-            symbol="AAPL", side="buy", qty=200, max_limit=1000
-        )
+        result = reservation.reserve(symbol="AAPL", side="buy", qty=200, max_limit=1000)
 
         assert result.success is False
         assert result.token is None
@@ -93,9 +87,7 @@ class TestPositionReservation:
         assert result.previous_position == 900
         assert result.new_position == 1100
 
-    def test_release_success(
-        self, reservation: PositionReservation, mock_redis: MagicMock
-    ) -> None:
+    def test_release_success(self, reservation: PositionReservation, mock_redis: MagicMock) -> None:
         """Release should return reserved position to pool."""
         mock_redis.eval.return_value = [1, "RELEASED", 100, 0]
 
@@ -117,9 +109,7 @@ class TestPositionReservation:
         assert result.success is False
         assert result.reason == "TOKEN_NOT_FOUND"
 
-    def test_confirm_success(
-        self, reservation: PositionReservation, mock_redis: MagicMock
-    ) -> None:
+    def test_confirm_success(self, reservation: PositionReservation, mock_redis: MagicMock) -> None:
         """Confirm should delete token while keeping position."""
         mock_redis.eval.return_value = [1, "CONFIRMED"]
 
@@ -160,9 +150,7 @@ class TestPositionReservation:
 
         assert position == 0
 
-    def test_sync_position(
-        self, reservation: PositionReservation, mock_redis: MagicMock
-    ) -> None:
+    def test_sync_position(self, reservation: PositionReservation, mock_redis: MagicMock) -> None:
         """Sync should set reserved position to actual position (no TTL).
 
         NOTE: Aggregate position key intentionally has NO TTL to prevent
@@ -173,13 +161,9 @@ class TestPositionReservation:
 
         # Codex MEDIUM fix: sync_position intentionally omits TTL
         # to prevent aggregate position from expiring and resetting to 0
-        mock_redis.set.assert_called_once_with(
-            f"{RESERVATION_KEY_PREFIX}:AAPL", "500"
-        )
+        mock_redis.set.assert_called_once_with(f"{RESERVATION_KEY_PREFIX}:AAPL", "500")
 
-    def test_clear_all(
-        self, reservation: PositionReservation, mock_redis: MagicMock
-    ) -> None:
+    def test_clear_all(self, reservation: PositionReservation, mock_redis: MagicMock) -> None:
         """Clear should delete all reservations for symbol."""
         reservation.clear_all("AAPL")
 

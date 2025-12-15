@@ -109,9 +109,7 @@ class OptimizationResult:
         Returns:
             Tuple of (optimizer_solutions_df, optimal_weights_df)
         """
-        version_str = "|".join(
-            f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items())
-        )
+        version_str = "|".join(f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items()))
 
         solutions_df = pl.DataFrame(
             {
@@ -145,9 +143,7 @@ class OptimizationResult:
 class Constraint(Protocol):
     """Protocol for optimization constraints."""
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]: ...
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]: ...
 
     def validate(self, context: dict[str, Any]) -> list[str]: ...
 
@@ -163,9 +159,7 @@ class BudgetConstraint:
     target: float = 1.0  # Fully invested
     tolerance: float = 0.0  # If >0, allows sum(w) in [target-tol, target+tol]
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]:
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]:
         if self.tolerance == 0:
             return [cp.sum(w) == self.target]  # type: ignore[attr-defined]
         return [
@@ -187,9 +181,7 @@ class GrossLeverageConstraint:
 
     max_leverage: float = 1.0  # Long-only: 1.0, 130/30: 1.6
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]:
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]:
         return [cp.norm(w, 1) <= self.max_leverage]  # type: ignore[attr-defined]
 
     def validate(self, context: dict[str, Any]) -> list[str]:
@@ -209,17 +201,13 @@ class BoxConstraint:
     min_weight: float = 0.0
     max_weight: float = 0.10
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]:
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]:
         return [w >= self.min_weight, w <= self.max_weight]
 
     def validate(self, context: dict[str, Any]) -> list[str]:
         errors = []
         if self.min_weight > self.max_weight:
-            errors.append(
-                f"min_weight ({self.min_weight}) > max_weight ({self.max_weight})"
-            )
+            errors.append(f"min_weight ({self.min_weight}) > max_weight ({self.max_weight})")
         return errors
 
 
@@ -235,9 +223,7 @@ class SectorConstraint:
     max_sector_weight: float = 0.30
     min_sector_weight: float = 0.0  # Optional minimum
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]:
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]:
         constraints: list[cp.Constraint] = []
         permnos: list[int] = context["permnos"]
 
@@ -283,9 +269,7 @@ class FactorExposureConstraint:
     target_exposure: float = 0.0  # Target exposure (0 = neutral)
     tolerance: float = 0.50  # |exposure - target| <= tolerance
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]:
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]:
         B: NDArray[np.floating[Any]] = context["factor_loadings"]  # N×K matrix
         factor_names: list[str] = context["factor_names"]
 
@@ -322,9 +306,7 @@ class TurnoverConstraint:
     current_weights: dict[int, float]  # permno -> weight
     max_turnover: float = 0.50
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]:
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]:
         permnos: list[int] = context["permnos"]
         w_current = np.array([self.current_weights.get(p, 0.0) for p in permnos])
         return [cp.norm(w - w_current, 1) <= self.max_turnover]  # type: ignore[attr-defined]
@@ -342,9 +324,7 @@ class ReturnTargetConstraint:
     expected_returns: dict[int, float]  # permno -> expected return
     min_return: float
 
-    def apply(
-        self, w: cp.Variable, context: dict[str, Any]
-    ) -> list[cp.Constraint]:
+    def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]:
         permnos: list[int] = context["permnos"]
         mu = np.array([self.expected_returns.get(p, 0.0) for p in permnos])
         return [mu @ w >= self.min_return]
@@ -481,9 +461,7 @@ class PortfolioOptimizer:
         r_f_daily = self.config.risk_free_rate / 252
 
         # Find feasible return range
-        min_ret, max_ret = self._find_return_range(
-            mu, sigma, permnos, constraints or [], context
-        )
+        min_ret, max_ret = self._find_return_range(mu, sigma, permnos, constraints or [], context)
 
         if min_ret is None or max_ret is None:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
@@ -705,9 +683,7 @@ class PortfolioOptimizer:
 
         status = "optimal" if rc_spread < tolerance * 10 else "suboptimal"
         if rc_spread > tolerance * 10:
-            logger.warning(
-                f"Risk parity did not fully converge: RC spread = {rc_spread:.6f}"
-            )
+            logger.warning(f"Risk parity did not fully converge: RC spread = {rc_spread:.6f}")
 
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -725,9 +701,7 @@ class PortfolioOptimizer:
     # Private Helper Methods
     # ========================================================================
 
-    def _build_covariance(
-        self, universe: list[int]
-    ) -> tuple[
+    def _build_covariance(self, universe: list[int]) -> tuple[
         NDArray[np.floating[Any]],
         list[int],
         NDArray[np.floating[Any]],
@@ -754,9 +728,7 @@ class PortfolioOptimizer:
         # Filter to covered permnos (have both loadings and specific risk)
         loadings_permnos = set(self.risk_model.factor_loadings["permno"].to_list())
         specific_permnos = set(self.risk_model.specific_risks["permno"].to_list())
-        covered = [
-            p for p in universe if p in loadings_permnos and p in specific_permnos
-        ]
+        covered = [p for p in universe if p in loadings_permnos and p in specific_permnos]
 
         coverage = len(covered) / len(universe) if universe else 1.0
         if coverage < self.config.min_coverage:
@@ -766,9 +738,7 @@ class PortfolioOptimizer:
             )
 
         if len(covered) < len(universe):
-            logger.warning(
-                f"Universe coverage: {len(covered)}/{len(universe)} ({coverage:.1%})"
-            )
+            logger.warning(f"Universe coverage: {len(covered)}/{len(universe)} ({coverage:.1%})")
 
         # Sort for consistent ordering
         covered = sorted(covered)
@@ -804,9 +774,7 @@ class PortfolioOptimizer:
 
         return sigma, covered, B
 
-    def _regularize_covariance(
-        self, sigma: NDArray[np.floating[Any]]
-    ) -> NDArray[np.floating[Any]]:
+    def _regularize_covariance(self, sigma: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
         """Add small ridge to handle near-singular covariance."""
         min_eigenvalue = np.linalg.eigvalsh(sigma).min()
         if min_eigenvalue < 1e-8:
@@ -966,9 +934,7 @@ class PortfolioOptimizer:
         n = len(permnos)
 
         # Minimum return: solve min-variance, compute return
-        w_min, problem_min = self._build_min_variance_problem(
-            sigma, n, None, constraints, context
-        )
+        w_min, problem_min = self._build_min_variance_problem(sigma, n, None, constraints, context)
         self._solve_with_fallback(problem_min)
 
         if problem_min.status not in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
@@ -1024,9 +990,7 @@ class PortfolioOptimizer:
         # Defensive check: OPTIMAL status should guarantee non-None weights,
         # but some solvers may have bugs. Handle gracefully for production safety.
         if weights is None:
-            logger.error(
-                "Solver bug: OPTIMAL status but None weights - this should not happen"
-            )
+            logger.error("Solver bug: OPTIMAL status but None weights - this should not happen")
             return self._infeasible_result(
                 "Solver returned None weights (solver bug)",
                 objective=objective,

@@ -99,9 +99,7 @@ class FactorResult:
 
         This matches P4T2_TASK.md schema while preserving full provenance.
         """
-        version_str = "|".join(
-            f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items())
-        )
+        version_str = "|".join(f"{k}:{v}" for k, v in sorted(self.dataset_version_ids.items()))
         return self.exposures.with_columns(
             [
                 pl.lit(version_str).alias("dataset_version_id"),
@@ -147,9 +145,7 @@ class FactorResult:
         if "zscore" in self.exposures.columns:
             extreme_count = self.exposures.filter(pl.col("zscore").abs() > 5.0).height
             if extreme_count > 0:
-                errors.append(
-                    f"Found {extreme_count} z-scores exceeding +/- 5 sigma"
-                )
+                errors.append(f"Found {extreme_count} z-scores exceeding +/- 5 sigma")
 
         return errors
 
@@ -203,9 +199,7 @@ class MomentumFactor:
         start_date = as_of_date - timedelta(days=365)  # 12 months ago (calendar)
 
         # Filter to lookback window (PIT correct: only past data)
-        window_data = prices.filter(
-            (pl.col("date") >= start_date) & (pl.col("date") <= end_date)
-        )
+        window_data = prices.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
 
         # Compute cumulative return per security
         # Using geometric compounding of simple returns: product(1+r) - 1
@@ -485,9 +479,7 @@ class RealizedVolFactor:
         start_date = as_of_date - timedelta(days=90)  # ~60 trading days
 
         # Filter to lookback window
-        window_data = prices.filter(
-            (pl.col("date") >= start_date) & (pl.col("date") <= as_of_date)
-        )
+        window_data = prices.filter((pl.col("date") >= start_date) & (pl.col("date") <= as_of_date))
 
         # Compute volatility per security
         vol = (
@@ -503,9 +495,7 @@ class RealizedVolFactor:
         )
 
         # Annualize volatility (multiply by sqrt(252))
-        vol = vol.with_columns(
-            (pl.col("factor_value") * np.sqrt(252)).alias("factor_value")
-        )
+        vol = vol.with_columns((pl.col("factor_value") * np.sqrt(252)).alias("factor_value"))
 
         return vol
 

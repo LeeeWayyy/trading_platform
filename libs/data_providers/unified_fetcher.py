@@ -150,9 +150,7 @@ class FetcherConfig:
                     raise ConfigurationError(f"{name} is not a directory: {path}")
                 # Check read and execute permissions (needed to list/read directory contents)
                 if not os.access(path, os.R_OK | os.X_OK):
-                    raise ConfigurationError(
-                        f"{name} is not readable/accessible: {path}"
-                    )
+                    raise ConfigurationError(f"{name} is not readable/accessible: {path}")
 
     @classmethod
     def from_env(cls) -> FetcherConfig:
@@ -271,9 +269,7 @@ class UnifiedDataFetcher:
 
         # Initialize available adapters
         if yfinance_provider is not None:
-            self._adapters[ProviderType.YFINANCE] = YFinanceDataProviderAdapter(
-                yfinance_provider
-            )
+            self._adapters[ProviderType.YFINANCE] = YFinanceDataProviderAdapter(yfinance_provider)
         if crsp_provider is not None:
             self._adapters[ProviderType.CRSP] = CRSPDataProviderAdapter(crsp_provider)
 
@@ -312,10 +308,7 @@ class UnifiedDataFetcher:
                     available_providers=[p.value for p in self._adapters.keys()],
                 )
             # CRITICAL: Block non-production-ready providers in production
-            if (
-                self._config.environment == "production"
-                and not provider.is_production_ready
-            ):
+            if self._config.environment == "production" and not provider.is_production_ready:
                 raise ProductionProviderRequiredError(
                     f"Production environment requires a production-ready provider. "
                     f"'{provider.name}' is not suitable for production. "

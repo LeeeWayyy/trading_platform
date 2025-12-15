@@ -3,14 +3,15 @@
 FIX (Codex Critical #1): Tests verify tokens are fetched from Redis (NEVER session_state).
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
+
 from apps.web_console.auth.api_client import (
-    get_access_token_from_redis,
     call_api_with_auth,
+    get_access_token_from_redis,
 )
 from apps.web_console.auth.session_store import SessionData
 
@@ -18,7 +19,7 @@ from apps.web_console.auth.session_store import SessionData
 class TestGetAccessTokenFromRedis:
     """Test secure token fetching from Redis (Codex Critical #1 Fix)."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_access_token_from_redis_valid_session(self) -> None:
         """Test fetching access token with valid session."""
         # Mock session store
@@ -58,7 +59,7 @@ class TestGetAccessTokenFromRedis:
             update_activity=False,
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_access_token_from_redis_invalid_session(self) -> None:
         """Test returns None when session invalid."""
         # Mock session store returning None (invalid session)
@@ -76,7 +77,7 @@ class TestGetAccessTokenFromRedis:
         # Verify returns None
         assert token is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_get_access_token_from_redis_binding_mismatch(self) -> None:
         """Test returns None when binding validation fails (IP mismatch)."""
         # Mock session store returning None (binding failed)
@@ -98,7 +99,7 @@ class TestGetAccessTokenFromRedis:
 class TestCallApiWithAuth:
     """Test authenticated API calls with OAuth2 bearer tokens."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_call_api_with_auth_missing_parameters(self) -> None:
         """Test raises ValueError when required parameters missing."""
         with pytest.raises(ValueError, match="Missing required parameters"):
@@ -111,7 +112,7 @@ class TestCallApiWithAuth:
                 user_agent=None,
             )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_call_api_with_auth_invalid_session(self) -> None:
         """Test raises ValueError when session invalid."""
         # Mock session store returning None
@@ -128,7 +129,7 @@ class TestCallApiWithAuth:
                 user_agent="Mozilla/5.0",
             )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_call_api_with_auth_successful_get_request(self) -> None:
         """Test successful GET request with Authorization header."""
         # Mock session store
@@ -177,7 +178,7 @@ class TestCallApiWithAuth:
             assert response.status_code == 200
             assert response.json() == {"data": "test_data"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_call_api_with_auth_successful_post_request(self) -> None:
         """Test successful POST request with JSON body."""
         # Mock session store
@@ -227,7 +228,7 @@ class TestCallApiWithAuth:
             # Verify response
             assert response.status_code == 201
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_call_api_with_auth_custom_headers_preserved(self) -> None:
         """Test custom headers are preserved alongside Authorization header."""
         # Mock session store
@@ -262,7 +263,7 @@ class TestCallApiWithAuth:
                 "Content-Type": "application/json",
             }
 
-            response = await call_api_with_auth(
+            await call_api_with_auth(
                 url="https://api.example.com/data",
                 method="GET",
                 session_id="test_session",

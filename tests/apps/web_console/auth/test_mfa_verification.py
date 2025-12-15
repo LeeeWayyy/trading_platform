@@ -31,7 +31,7 @@ def test_verify_step_up_auth_failures():
     assert err == "mfa_method_not_allowed"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_require_2fa_for_action_requires_claims():
     class DummyAudit:
         def __init__(self):

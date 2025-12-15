@@ -11,13 +11,13 @@ import pytest
 from libs.factors import FactorAnalytics, ICAnalysis
 
 
-@pytest.fixture
+@pytest.fixture()
 def factor_analytics() -> FactorAnalytics:
     """Fixture for FactorAnalytics instance."""
     return FactorAnalytics()
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_exposures() -> pl.DataFrame:
     """Sample factor exposures for testing."""
     np.random.seed(42)
@@ -28,23 +28,27 @@ def sample_exposures() -> pl.DataFrame:
 
     for dt in dates:
         for permno in permnos:
-            data.append({
-                "date": dt,
-                "permno": permno,
-                "factor_name": "momentum_12_1",
-                "zscore": np.random.normal(0, 1),
-            })
-            data.append({
-                "date": dt,
-                "permno": permno,
-                "factor_name": "log_market_cap",
-                "zscore": np.random.normal(0, 1),
-            })
+            data.append(
+                {
+                    "date": dt,
+                    "permno": permno,
+                    "factor_name": "momentum_12_1",
+                    "zscore": np.random.normal(0, 1),
+                }
+            )
+            data.append(
+                {
+                    "date": dt,
+                    "permno": permno,
+                    "factor_name": "log_market_cap",
+                    "zscore": np.random.normal(0, 1),
+                }
+            )
 
     return pl.DataFrame(data)
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_returns() -> pl.DataFrame:
     """Sample return data for testing."""
     np.random.seed(42)
@@ -55,14 +59,16 @@ def sample_returns() -> pl.DataFrame:
 
     for dt in dates:
         for permno in permnos:
-            data.append({
-                "date": dt,
-                "permno": permno,
-                "ret": np.random.normal(0.0005, 0.02),
-                "ret_1d": np.random.normal(0.0005, 0.02),
-                "ret_5d": np.random.normal(0.0025, 0.04),
-                "ret_20d": np.random.normal(0.01, 0.08),
-            })
+            data.append(
+                {
+                    "date": dt,
+                    "permno": permno,
+                    "ret": np.random.normal(0.0005, 0.02),
+                    "ret_1d": np.random.normal(0.0005, 0.02),
+                    "ret_5d": np.random.normal(0.0025, 0.04),
+                    "ret_20d": np.random.normal(0.01, 0.08),
+                }
+            )
 
     return pl.DataFrame(data)
 
@@ -124,7 +130,7 @@ class TestComputeIC:
             horizons=[1, 5],
         )
 
-        for factor_name, horizons in result.items():
+        for _factor_name, horizons in result.items():
             assert 1 in horizons or 5 in horizons
 
     def test_compute_ic_returns_icanalysis(
@@ -141,7 +147,7 @@ class TestComputeIC:
         )
 
         for factor_name, horizons in result.items():
-            for horizon, analysis in horizons.items():
+            for _horizon, analysis in horizons.items():
                 assert isinstance(analysis, ICAnalysis)
                 assert analysis.factor_name == factor_name
                 assert analysis.n_periods > 0
@@ -337,11 +343,13 @@ class TestForwardReturns:
     ):
         """Forward returns only use FUTURE data (no look-ahead)."""
         # Create simple test data with known returns
-        returns_data = pl.DataFrame({
-            "date": [date(2023, 1, i) for i in range(1, 11)],
-            "permno": [100] * 10,
-            "ret": [0.01, 0.02, 0.03, 0.04, 0.05, -0.01, -0.02, -0.03, -0.04, -0.05],
-        })
+        returns_data = pl.DataFrame(
+            {
+                "date": [date(2023, 1, i) for i in range(1, 11)],
+                "permno": [100] * 10,
+                "ret": [0.01, 0.02, 0.03, 0.04, 0.05, -0.01, -0.02, -0.03, -0.04, -0.05],
+            }
+        )
 
         result = factor_analytics._compute_forward_returns(returns_data, horizon=3)
 
@@ -359,11 +367,13 @@ class TestForwardReturns:
         factor_analytics: FactorAnalytics,
     ):
         """Last rows without full forward window are excluded."""
-        returns_data = pl.DataFrame({
-            "date": [date(2023, 1, i) for i in range(1, 6)],
-            "permno": [100] * 5,
-            "ret": [0.01, 0.02, 0.03, 0.04, 0.05],
-        })
+        returns_data = pl.DataFrame(
+            {
+                "date": [date(2023, 1, i) for i in range(1, 6)],
+                "permno": [100] * 5,
+                "ret": [0.01, 0.02, 0.03, 0.04, 0.05],
+            }
+        )
 
         result = factor_analytics._compute_forward_returns(returns_data, horizon=3)
 

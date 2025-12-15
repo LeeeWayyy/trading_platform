@@ -34,16 +34,12 @@ Test Cases (19 total):
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import tempfile
-import threading
-import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import duckdb
 import polars as pl
 import pytest
 
@@ -52,11 +48,9 @@ from libs.data_pipeline.historical_etl import (
     DataQualityError,
     DiskSpaceError,
     ETLProgressManifest,
-    ETLResult,
     HistoricalETL,
 )
-from libs.data_quality.manifest import ManifestManager, SyncManifest
-
+from libs.data_quality.manifest import ManifestManager
 
 # =============================================================================
 # Fixtures
@@ -83,30 +77,38 @@ def mock_fetcher() -> MagicMock:
         while current <= end_date:
             if current.weekday() < 5:  # Skip weekends
                 for symbol in symbols:
-                    rows.append({
-                        "date": current,
-                        "symbol": symbol,
-                        "close": 100.0 + len(rows) * 0.1,
-                        "volume": 1000000.0,
-                        "ret": 0.01,
-                        "open": 99.0,
-                        "high": 101.0,
-                        "low": 98.0,
-                        "adj_close": 100.0 + len(rows) * 0.1,
-                    })
+                    rows.append(
+                        {
+                            "date": current,
+                            "symbol": symbol,
+                            "close": 100.0 + len(rows) * 0.1,
+                            "volume": 1000000.0,
+                            "ret": 0.01,
+                            "open": 99.0,
+                            "high": 101.0,
+                            "low": 98.0,
+                            "adj_close": 100.0 + len(rows) * 0.1,
+                        }
+                    )
             current += timedelta(days=1)
 
-        return pl.DataFrame(rows) if rows else pl.DataFrame({
-            "date": [],
-            "symbol": [],
-            "close": [],
-            "volume": [],
-            "ret": [],
-            "open": [],
-            "high": [],
-            "low": [],
-            "adj_close": [],
-        })
+        return (
+            pl.DataFrame(rows)
+            if rows
+            else pl.DataFrame(
+                {
+                    "date": [],
+                    "symbol": [],
+                    "close": [],
+                    "volume": [],
+                    "ret": [],
+                    "open": [],
+                    "high": [],
+                    "low": [],
+                    "adj_close": [],
+                }
+            )
+        )
 
     fetcher.get_daily_prices.side_effect = get_daily_prices
     return fetcher
@@ -200,7 +202,7 @@ class TestIncrementalETL:
             end_date=date(2024, 1, 15),
         )
 
-        initial_checksum = etl.get_partition_checksum(2024)
+        etl.get_partition_checksum(2024)
 
         # Update progress to simulate partial sync
         progress = etl._load_etl_progress()
@@ -217,9 +219,7 @@ class TestIncrementalETL:
         new_checksum = etl.get_partition_checksum(2024)
         assert new_checksum is not None
 
-    def test_multi_year_incremental_handles_boundary(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_multi_year_incremental_handles_boundary(self, etl: HistoricalETL) -> None:
         """Test incremental updates crossing year boundaries."""
         # Initial run for 2023
         etl.run_full_etl(
@@ -240,7 +240,7 @@ class TestIncrementalETL:
         etl._save_etl_progress(progress)
 
         # Incremental for 2024 (crosses year boundary)
-        result = etl.run_incremental_etl(symbols=["AAPL"])
+        etl.run_incremental_etl(symbols=["AAPL"])
 
         # Should have 2024 data
         years = etl.list_partitions()
@@ -272,18 +272,18 @@ class TestDuckDBCatalog:
         )
 
         # Query with date filter
-        df = etl.query_sql("""
+        df = etl.query_sql(
+            """
             SELECT * FROM daily_prices
             WHERE date >= '2024-01-15'
-        """)
+        """
+        )
 
         # All dates should be >= 2024-01-15
         for row_date in df["date"].to_list():
             assert row_date >= date(2024, 1, 15)
 
-    def test_reader_cache_invalidation_sees_new_data(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_reader_cache_invalidation_sees_new_data(self, etl: HistoricalETL) -> None:
         """Test readers see new data after catalog update."""
         # Initial data
         etl.run_full_etl(
@@ -292,9 +292,7 @@ class TestDuckDBCatalog:
             end_date=date(2024, 1, 15),
         )
 
-        initial_count = etl.query_sql("SELECT COUNT(*) as cnt FROM daily_prices")[
-            "cnt"
-        ][0]
+        initial_count = etl.query_sql("SELECT COUNT(*) as cnt FROM daily_prices")["cnt"][0]
 
         # Add more data (simulate by running full ETL with more dates)
         etl.run_full_etl(
@@ -308,9 +306,7 @@ class TestDuckDBCatalog:
         new_count = etl.query_sql("SELECT COUNT(*) as cnt FROM daily_prices")["cnt"][0]
         assert new_count >= initial_count
 
-    def test_duckdb_view_hot_swap_no_missing_view_errors(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_duckdb_view_hot_swap_no_missing_view_errors(self, etl: HistoricalETL) -> None:
         """Test CREATE OR REPLACE VIEW is atomic (no missing view window)."""
         # Initial data
         etl.run_full_etl(
@@ -345,22 +341,22 @@ class TestAtomicWrites:
         temp_files = list(etl.storage_path.glob("**/*.tmp"))
         assert len(temp_files) == 0, f"Found temp files: {temp_files}"
 
-    def test_checksum_mismatch_triggers_quarantine(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_checksum_mismatch_triggers_quarantine(self, etl: HistoricalETL) -> None:
         """Test checksum mismatch triggers quarantine and raises error."""
         # Create valid data
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "symbol": ["AAPL"],
-            "close": [100.0],
-            "volume": [1000000.0],
-            "ret": [0.01],
-            "open": [99.0],
-            "high": [101.0],
-            "low": [98.0],
-            "adj_close": [100.0],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "symbol": ["AAPL"],
+                "close": [100.0],
+                "volume": [1000000.0],
+                "ret": [0.01],
+                "open": [99.0],
+                "high": [101.0],
+                "low": [98.0],
+                "adj_close": [100.0],
+            }
+        )
 
         partition_path = etl.storage_path / "daily" / "2024.parquet"
 
@@ -397,9 +393,7 @@ class TestAtomicWrites:
 class TestDeduplication:
     """Tests for data deduplication."""
 
-    def test_dedup_across_reruns_produces_identical_checksums(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_dedup_across_reruns_produces_identical_checksums(self, etl: HistoricalETL) -> None:
         """Test reruns produce identical checksums (deterministic)."""
         # Run 1
         etl.run_full_etl(
@@ -421,9 +415,7 @@ class TestDeduplication:
 
         assert checksum_1 == checksum_2, "Reruns must produce identical checksums"
 
-    def test_deterministic_incremental_merge_identical_checksum(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_deterministic_incremental_merge_identical_checksum(self, etl: HistoricalETL) -> None:
         """Test incremental merge is deterministic."""
         # Initial run
         etl.run_full_etl(
@@ -453,9 +445,7 @@ class TestDeduplication:
 class TestProgressManifest:
     """Tests for ETL progress tracking."""
 
-    def test_etl_progress_manifest_separate_from_sync_manifest(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_etl_progress_manifest_separate_from_sync_manifest(self, etl: HistoricalETL) -> None:
         """Test ETL progress uses separate file from SyncManifest."""
         etl.run_full_etl(
             symbols=["AAPL"],
@@ -474,9 +464,7 @@ class TestProgressManifest:
         assert progress.status == "completed"
         assert 2024 in progress.years_completed
 
-    def test_resume_with_corrupted_progress_manifest(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_resume_with_corrupted_progress_manifest(self, etl: HistoricalETL) -> None:
         """Test corrupted progress manifest is backed up and fresh start works."""
         # Create corrupted progress file
         progress_path = etl.PROGRESS_DIR / f"{etl.DATASET_ID}_progress.json"
@@ -505,22 +493,22 @@ class TestProgressManifest:
 class TestValidation:
     """Tests for data validation."""
 
-    def test_validation_gate_rejects_invalid_data(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_validation_gate_rejects_invalid_data(self, etl: HistoricalETL) -> None:
         """Test validation gate catches data quality issues."""
         # Create DataFrame with duplicates
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2), date(2024, 1, 2)],  # Duplicate
-            "symbol": ["AAPL", "AAPL"],
-            "close": [100.0, 101.0],
-            "volume": [1000000.0, 1000000.0],
-            "ret": [0.01, 0.01],
-            "open": [99.0, 99.0],
-            "high": [101.0, 101.0],
-            "low": [98.0, 98.0],
-            "adj_close": [100.0, 101.0],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 2)],  # Duplicate
+                "symbol": ["AAPL", "AAPL"],
+                "close": [100.0, 101.0],
+                "volume": [1000000.0, 1000000.0],
+                "ret": [0.01, 0.01],
+                "open": [99.0, 99.0],
+                "high": [101.0, 101.0],
+                "low": [98.0, 98.0],
+                "adj_close": [100.0, 101.0],
+            }
+        )
 
         errors = etl._validate_partition(df, 2024)
         assert len(errors) > 0
@@ -531,17 +519,19 @@ class TestValidation:
     ) -> None:
         """Test validation failure quarantines data without saving manifest."""
         # Create DataFrame with null primary key
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2), None],  # Null date
-            "symbol": ["AAPL", "AAPL"],
-            "close": [100.0, 101.0],
-            "volume": [1000000.0, 1000000.0],
-            "ret": [0.01, 0.01],
-            "open": [99.0, 99.0],
-            "high": [101.0, 101.0],
-            "low": [98.0, 98.0],
-            "adj_close": [100.0, 101.0],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), None],  # Null date
+                "symbol": ["AAPL", "AAPL"],
+                "close": [100.0, 101.0],
+                "volume": [1000000.0, 1000000.0],
+                "ret": [0.01, 0.01],
+                "open": [99.0, 99.0],
+                "high": [101.0, 101.0],
+                "low": [98.0, 98.0],
+                "adj_close": [100.0, 101.0],
+            }
+        )
 
         errors = etl._validate_partition(df, 2024)
         assert len(errors) > 0
@@ -564,17 +554,19 @@ class TestValidation:
         original_checksum = etl.get_partition_checksum(2024)
 
         # Create data that will fail validation (missing required column 'close')
-        bad_df = pl.DataFrame({
-            "date": [date(2024, 1, 20)],
-            "symbol": ["AAPL"],
-            # Missing 'close' column!
-            "volume": [1000000.0],
-            "ret": [0.01],
-            "open": [99.0],
-            "high": [101.0],
-            "low": [98.0],
-            "adj_close": [100.0],
-        })
+        bad_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 20)],
+                "symbol": ["AAPL"],
+                # Missing 'close' column!
+                "volume": [1000000.0],
+                "ret": [0.01],
+                "open": [99.0],
+                "high": [101.0],
+                "low": [98.0],
+                "adj_close": [100.0],
+            }
+        )
 
         # Direct atomic write should fail validation
         with pytest.raises(DataQualityError) as exc_info:
@@ -586,9 +578,7 @@ class TestValidation:
         assert partition_path.exists(), "Good partition was deleted!"
         assert etl.get_partition_checksum(2024) == original_checksum, "Good partition was modified!"
 
-    def test_corrupt_existing_partition_halts_pipeline(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_corrupt_existing_partition_halts_pipeline(self, etl: HistoricalETL) -> None:
         """Test corrupt partition during incremental merge halts pipeline.
 
         CRITICAL: We must NOT silently proceed with only new data when an
@@ -609,17 +599,19 @@ class TestValidation:
         partition_path.write_bytes(b"CORRUPT_DATA_NOT_PARQUET")
 
         # Prepare new data for merge
-        new_df = pl.DataFrame({
-            "date": [date(2024, 1, 20)],
-            "symbol": ["AAPL"],
-            "close": [150.0],
-            "volume": [2000000.0],
-            "ret": [0.02],
-            "open": [148.0],
-            "high": [152.0],
-            "low": [147.0],
-            "adj_close": [150.0],
-        })
+        new_df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 20)],
+                "symbol": ["AAPL"],
+                "close": [150.0],
+                "volume": [2000000.0],
+                "ret": [0.02],
+                "open": [148.0],
+                "high": [152.0],
+                "low": [147.0],
+                "adj_close": [150.0],
+            }
+        )
 
         # Attempting to merge with corrupt partition should raise DataQualityError
         with pytest.raises(DataQualityError) as exc_info:
@@ -683,31 +675,29 @@ class TestLocking:
 class TestDiskSpace:
     """Tests for disk space handling."""
 
-    def test_disk_full_quarantines_temp(
-        self, etl: HistoricalETL, temp_dir: Path
-    ) -> None:
+    def test_disk_full_quarantines_temp(self, etl: HistoricalETL, temp_dir: Path) -> None:
         """Test disk full error quarantines temp files."""
         # This would require mocking disk space to be full
         # Verify disk space check is called
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 2)],
-            "symbol": ["AAPL"],
-            "close": [100.0],
-            "volume": [1000000.0],
-            "ret": [0.01],
-            "open": [99.0],
-            "high": [101.0],
-            "low": [98.0],
-            "adj_close": [100.0],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2)],
+                "symbol": ["AAPL"],
+                "close": [100.0],
+                "volume": [1000000.0],
+                "ret": [0.01],
+                "open": [99.0],
+                "high": [101.0],
+                "low": [98.0],
+                "adj_close": [100.0],
+            }
+        )
 
         # Estimate should work without error
         size = etl._estimate_parquet_size(df)
         assert size > 0
 
-    def test_enospc_during_merge_cleans_temp_preserves_manifest(
-        self, etl: HistoricalETL
-    ) -> None:
+    def test_enospc_during_merge_cleans_temp_preserves_manifest(self, etl: HistoricalETL) -> None:
         """Test ENOSPC during merge cleans temp and preserves manifest."""
         # Initial ETL
         etl.run_full_etl(
@@ -728,17 +718,19 @@ class TestDiskSpace:
         etl._check_disk_space_on_path = mock_disk_check
 
         # Attempt merge should fail
-        df = pl.DataFrame({
-            "date": [date(2024, 1, 20)],
-            "symbol": ["AAPL"],
-            "close": [100.0],
-            "volume": [1000000.0],
-            "ret": [0.01],
-            "open": [99.0],
-            "high": [101.0],
-            "low": [98.0],
-            "adj_close": [100.0],
-        })
+        df = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 20)],
+                "symbol": ["AAPL"],
+                "close": [100.0],
+                "volume": [1000000.0],
+                "ret": [0.01],
+                "open": [99.0],
+                "high": [101.0],
+                "low": [98.0],
+                "adj_close": [100.0],
+            }
+        )
 
         with pytest.raises(DiskSpaceError):
             etl._merge_partition_deterministic(2024, df)

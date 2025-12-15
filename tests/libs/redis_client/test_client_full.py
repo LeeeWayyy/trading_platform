@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-import builtins
+import importlib.util
 import sys
-from types import SimpleNamespace, ModuleType
+from types import ModuleType, SimpleNamespace
 
 # Only stub redis stack if it's not available (CI often has it preinstalled)
-try:  # pragma: no cover - best-effort import
-    import redis  # type: ignore
-except ImportError:  # pragma: no cover
+if importlib.util.find_spec("redis") is None:  # pragma: no cover
     redis_stub = ModuleType("redis")
     redis_stub.exceptions = ModuleType("redis.exceptions")
+
     class _RedisError(Exception): ...
+
     class _ConnectionError(_RedisError): ...
+
     class _TimeoutError(_RedisError): ...
+
     redis_stub.exceptions.RedisError = _RedisError
     redis_stub.exceptions.ConnectionError = _ConnectionError
     redis_stub.exceptions.TimeoutError = _TimeoutError
@@ -23,22 +25,31 @@ except ImportError:  # pragma: no cover
     sys.modules.setdefault("redis", redis_stub)
     sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
     sys.modules.setdefault("redis.connection", redis_stub.connection)
+else:  # pragma: no cover
+    import redis  # noqa: F401  # type: ignore
 
 # Stub event_publisher to avoid heavy dependencies
 event_pub_stub = ModuleType("libs.redis_client.event_publisher")
+
+
 class _DummyPublisher:
-    def __init__(self, *_args, **_kwargs):
-        ...
+    def __init__(self, *_args, **_kwargs): ...
     def publish(self, *_args, **_kwargs):
         return True
+
+
 event_pub_stub.EventPublisher = _DummyPublisher
 sys.modules.setdefault("libs.redis_client.event_publisher", event_pub_stub)
 
 # Stub events module (pydantic-free)
 events_stub = ModuleType("libs.redis_client.events")
+
+
 class _BaseModel:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+
+
 events_stub.BaseModel = _BaseModel
 events_stub.Field = lambda *args, **kwargs: None
 events_stub.field_validator = lambda *args, **kwargs: (lambda f: f)

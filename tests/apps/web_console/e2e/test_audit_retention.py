@@ -29,7 +29,7 @@ class FakePool:
         return self.conn
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_audit_cleanup_updates_metrics():
     pool = FakePool()
     logger = AuditLogger(pool)

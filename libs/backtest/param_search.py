@@ -209,7 +209,9 @@ def random_search(
     rng = random.Random(seed)
 
     # Calculate total combinations without materializing them
-    total_combos = math.prod(len(v) for v in param_distributions.values()) if param_distributions else 1
+    total_combos = (
+        math.prod(len(v) for v in param_distributions.values()) if param_distributions else 1
+    )
 
     # Note: total_combos is guaranteed > 0 here because:
     # - If param_distributions is empty → total_combos = 1

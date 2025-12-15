@@ -94,9 +94,7 @@ async def csp_report(request: Request) -> dict[str, str]:
                 "client_ip": request.client.host if request.client else "unknown",
             },
         )
-        raise HTTPException(
-            status_code=400, detail="Malformed Content-Length header"
-        ) from err
+        raise HTTPException(status_code=400, detail="Malformed Content-Length header") from err
 
     # Step 2: Check Content-Length if present (fast path - reject before reading body)
     if content_length > 10240:  # 10KB limit

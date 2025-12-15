@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -80,7 +80,11 @@ def test_get_positions_for_strategies_filters_multi_strategy(monkeypatch):
 def test_get_daily_pnl_history_returns_rows(monkeypatch):
     db = DatabaseClient("postgresql://user:pass@localhost/db")
     expected_rows = [
-        {"trade_date": date(2024, 1, 1), "daily_realized_pl": Decimal("5"), "closing_trade_count": 1}
+        {
+            "trade_date": date(2024, 1, 1),
+            "daily_realized_pl": Decimal("5"),
+            "closing_trade_count": 1,
+        }
     ]
     _mock_execute_with_conn(db, expected_rows)
 

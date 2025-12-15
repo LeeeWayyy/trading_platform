@@ -14,34 +14,28 @@ Addresses review feedback:
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
 from ai_workflow.config import WorkflowConfig
+from ai_workflow.constants import LEGACY_CLAUDE_DIR, LEGACY_STATE_FILE, STATE_FILE, WORKFLOW_DIR
 from ai_workflow.core import (
     WorkflowGate,
-    migrate_v1_to_v2,
-    WorkflowError,
+    WorkflowGateBlockedError,
     WorkflowTransitionError,
     WorkflowValidationError,
-    WorkflowGateBlockedError,
+    migrate_v1_to_v2,
 )
-from ai_workflow.pr_workflow import PRWorkflowHandler, CIStatus
-from ai_workflow.subtasks import SubtaskOrchestrator, AgentInstruction
-from ai_workflow.git_utils import get_owner_repo
-from ai_workflow.constants import (
-    WORKFLOW_DIR, STATE_FILE, LEGACY_CLAUDE_DIR, LEGACY_STATE_FILE
-)
+from ai_workflow.pr_workflow import PRWorkflowHandler
+from ai_workflow.subtasks import AgentInstruction, SubtaskOrchestrator
 
 # Module-level WorkflowGate instance for file locking
 # Uses fcntl for cross-process atomic operations
@@ -52,9 +46,9 @@ _gate = WorkflowGate(state_file=STATE_FILE)
 # =============================================================================
 
 # Valid patterns for user input sanitization
-BRANCH_NAME_PATTERN = re.compile(r'^[\w./-]+$')
-COMPONENT_NAME_PATTERN = re.compile(r'^[\w\s.-]+$')
-CONTINUATION_ID_PATTERN = re.compile(r'^[\w-]+$')
+BRANCH_NAME_PATTERN = re.compile(r"^[\w./-]+$")
+COMPONENT_NAME_PATTERN = re.compile(r"^[\w\s.-]+$")
+CONTINUATION_ID_PATTERN = re.compile(r"^[\w-]+$")
 VALID_REVIEWERS = {"claude", "gemini", "codex"}
 VALID_REVIEW_STATUSES = {"approved", "changes_requested", "pending", "error"}
 
@@ -74,9 +68,9 @@ def _validate_branch_name(branch: str) -> str:
             f"Invalid branch name '{branch}'. "
             "Must contain only alphanumeric, dots, slashes, hyphens."
         )
-    if branch.startswith('/') or branch.endswith('/'):
+    if branch.startswith("/") or branch.endswith("/"):
         raise ValueError("Branch name cannot start or end with '/'")
-    if '//' in branch:
+    if "//" in branch:
         raise ValueError("Branch name cannot contain consecutive slashes")
     return branch
 
@@ -111,16 +105,13 @@ def _validate_continuation_id(cont_id: str) -> str:
         raise ValueError("Continuation ID too long (max 100 chars)")
     if not CONTINUATION_ID_PATTERN.match(cont_id):
         raise ValueError(
-            f"Invalid continuation ID '{cont_id}'. "
-            "Must contain only alphanumeric and hyphens."
+            f"Invalid continuation ID '{cont_id}'. " "Must contain only alphanumeric and hyphens."
         )
     return cont_id
 
 
 def _validate_reviewer(
-    reviewer: str,
-    config: Optional[WorkflowConfig] = None,
-    warn_if_disabled: bool = True
+    reviewer: str, config: WorkflowConfig | None = None, warn_if_disabled: bool = True
 ) -> str:
     """
     Validate reviewer name.
@@ -157,7 +148,7 @@ def _validate_reviewer(
         print(
             f"Warning: Reviewer '{reviewer_lower}' is available but not enabled. "
             f"Enabled reviewers: {', '.join(sorted(enabled_lower))}",
-            file=sys.stderr
+            file=sys.stderr,
         )
 
     return reviewer_lower
@@ -173,7 +164,7 @@ def _validate_task_file(task_file: str) -> str:
         raise ValueError("Task file path cannot be empty")
 
     # Prevent path traversal
-    if '..' in task_file:
+    if ".." in task_file:
         raise ValueError("Task file path cannot contain '..'")
 
     # Ensure it's a reasonable file path
@@ -186,6 +177,7 @@ def _validate_task_file(task_file: str) -> str:
 # =============================================================================
 # State Management with Atomic Updates (H7 + Gemini: fcntl locking)
 # =============================================================================
+
 
 @contextmanager
 def state_transaction():
@@ -258,6 +250,7 @@ def load_state() -> dict:
         backup_path = LEGACY_CLAUDE_DIR.parent / ".claude.backup"
         if not backup_path.exists():
             import shutil
+
             shutil.copytree(LEGACY_CLAUDE_DIR, backup_path)
             _log(f"Backed up legacy folder to {backup_path}")
 
@@ -292,8 +285,8 @@ def save_state(state: dict) -> None:
     WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
 
     # Write to temp file first
-    temp_file = STATE_FILE.with_suffix('.tmp')
-    with open(temp_file, 'w') as f:
+    temp_file = STATE_FILE.with_suffix(".tmp")
+    with open(temp_file, "w") as f:
         json.dump(state, f, indent=2)
 
     # Atomic rename
@@ -308,6 +301,7 @@ def _log(message: str) -> None:
 # =============================================================================
 # Component Phase Commands
 # =============================================================================
+
 
 def cmd_status(args):
     """Show current workflow status."""
@@ -350,11 +344,15 @@ def cmd_start_task(args):
             "list": [],
         }
 
-        print(json.dumps({
-            "success": True,
-            "task_file": task_file,
-            "branch": branch,
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "task_file": task_file,
+                    "branch": branch,
+                }
+            )
+        )
     return 0
 
 
@@ -414,9 +412,14 @@ def cmd_advance(args):
 
     if new_step not in COMPONENT_TRANSITIONS[current]:
         valid = COMPONENT_TRANSITIONS[current]
-        print(f"Error: Cannot transition from {current} to {new_step}. "
-              f"Valid: {valid}", file=sys.stderr)
-        print("   See @docs/AI/Workflows/12-component-cycle.md for workflow transitions", file=sys.stderr)
+        print(
+            f"Error: Cannot transition from {current} to {new_step}. " f"Valid: {valid}",
+            file=sys.stderr,
+        )
+        print(
+            "   See @docs/AI/Workflows/12-component-cycle.md for workflow transitions",
+            file=sys.stderr,
+        )
         return 1
 
     # Delegate to core.py for the actual advance (includes plan-review gate logic)
@@ -432,10 +435,16 @@ def cmd_advance(args):
         details = e.details
         if details:
             print(f"   Enabled reviewers: {details.get('enabled_reviewers', [])}", file=sys.stderr)
-            print(f"   Required approvals: {details.get('required', 0)}, Got: {details.get('approved', 0)}", file=sys.stderr)
+            print(
+                f"   Required approvals: {details.get('required', 0)}, Got: {details.get('approved', 0)}",
+                file=sys.stderr,
+            )
             for reviewer, status in details.get("review_status", {}).items():
                 id_note = "(placeholder)" if status.get("is_placeholder") else ""
-                print(f"   {reviewer}: {status.get('status', 'NOT_REQUESTED')} {id_note}", file=sys.stderr)
+                print(
+                    f"   {reviewer}: {status.get('status', 'NOT_REQUESTED')} {id_note}",
+                    file=sys.stderr,
+                )
         print("   See @docs/AI/Workflows/03-reviews.md for review process", file=sys.stderr)
         return 1
 
@@ -452,7 +461,9 @@ def cmd_record_review(args):
     # Validate inputs (C4) - pass config for dynamic available reviewers
     try:
         reviewer = _validate_reviewer(args.reviewer, config)
-        continuation_id = _validate_continuation_id(args.continuation_id) if args.continuation_id else None
+        continuation_id = (
+            _validate_continuation_id(args.continuation_id) if args.continuation_id else None
+        )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -476,12 +487,16 @@ def cmd_record_review(args):
     # Delegate to core.py for the actual recording
     try:
         _gate.record_review(continuation_id, status, reviewer, config)
-        print(json.dumps({
-            "success": True,
-            "reviewer": reviewer,
-            "status": status,
-            "continuation_id": continuation_id,
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "reviewer": reviewer,
+                    "status": status,
+                    "continuation_id": continuation_id,
+                }
+            )
+        )
         return 0
     except WorkflowValidationError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -522,12 +537,16 @@ def cmd_check_commit(args):
     status = _gate.get_commit_status(config)
 
     # Output JSON result for CLI consumption
-    print(json.dumps({
-        "ready": status["ready"],
-        "override": status.get("override", False),
-        "checks": status["checks"],
-        "config": status["config"],
-    }))
+    print(
+        json.dumps(
+            {
+                "ready": status["ready"],
+                "override": status.get("override", False),
+                "checks": status["checks"],
+                "config": status["config"],
+            }
+        )
+    )
 
     return 0 if status["ready"] else 1
 
@@ -541,7 +560,10 @@ def cmd_record_commit(args):
         if not current:
             print("Error: No current component set", file=sys.stderr)
             print("   Use: ./scripts/workflow_gate.py set-component '<name>'", file=sys.stderr)
-            print("   See @docs/AI/Workflows/12-component-cycle.md for component workflow", file=sys.stderr)
+            print(
+                "   See @docs/AI/Workflows/12-component-cycle.md for component workflow",
+                file=sys.stderr,
+            )
             return 1
 
         # Record commit
@@ -551,12 +573,14 @@ def cmd_record_commit(args):
             state["git"]["commits"] = []
 
         # datetime imported at module level
-        state["git"]["commits"].append({
-            "component": current,
-            "hash": args.hash,
-            "message": getattr(args, 'message', ''),
-            "at": datetime.now(timezone.utc).isoformat(),
-        })
+        state["git"]["commits"].append(
+            {
+                "component": current,
+                "hash": args.hash,
+                "message": getattr(args, "message", ""),
+                "at": datetime.now(UTC).isoformat(),
+            }
+        )
 
         # Reset for next component
         state["component"]["step"] = "plan"
@@ -564,17 +588,22 @@ def cmd_record_commit(args):
         state["reviews"] = {}
         state["ci"]["component_passed"] = False
 
-        print(json.dumps({
-            "success": True,
-            "component": current,
-            "hash": args.hash,
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "component": current,
+                    "hash": args.hash,
+                }
+            )
+        )
     return 0
 
 
 # =============================================================================
 # PR Phase Commands
 # =============================================================================
+
 
 def cmd_start_pr_phase(args):
     """Start PR review phase."""
@@ -586,18 +615,23 @@ def cmd_start_pr_phase(args):
         pr_number = args.pr_number
         if args.pr_url and not pr_number:
             import re
-            match = re.search(r'/pull/(\d+)', args.pr_url)
+
+            match = re.search(r"/pull/(\d+)", args.pr_url)
             if match:
                 pr_number = int(match.group(1))
 
         handler.start_pr_phase(args.pr_url, pr_number)
 
-        print(json.dumps({
-            "success": True,
-            "phase": "pr-review",
-            "pr_url": args.pr_url,
-            "pr_number": pr_number,
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "phase": "pr-review",
+                    "pr_url": args.pr_url,
+                    "pr_number": pr_number,
+                }
+            )
+        )
     return 0
 
 
@@ -640,20 +674,28 @@ def cmd_pr_record_commit(args):
         # Validate we're in PR phase (Gemini HIGH fix: use hyphen not underscore)
         phase = state.get("phase", "")
         if phase != "pr-review":
-            print(json.dumps({
-                "success": False,
-                "error": f"Not in PR phase (current phase: {phase}). Use 'record-commit' for component phase."
-            }))
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Not in PR phase (current phase: {phase}). Use 'record-commit' for component phase.",
+                    }
+                )
+            )
             return 1
 
         message = args.message or ""
         success, msg = handler.record_commit_and_push(args.hash, message)
 
-        print(json.dumps({
-            "success": success,
-            "message": msg,
-            "step": state.get("pr_review", {}).get("step", ""),
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": success,
+                    "message": msg,
+                    "step": state.get("pr_review", {}).get("step", ""),
+                }
+            )
+        )
 
         return 0 if success else 1
 
@@ -671,7 +713,9 @@ def cmd_subtask_create(args):
         pr_number = state.get("pr_review", {}).get("pr_number")
         if not pr_number:
             print("Error: No PR number set", file=sys.stderr)
-            print("   Use: ./scripts/workflow_gate.py start-pr-phase --pr-url <url>", file=sys.stderr)
+            print(
+                "   Use: ./scripts/workflow_gate.py start-pr-phase --pr-url <url>", file=sys.stderr
+            )
             print("   See @docs/AI/Workflows/01-git.md for PR workflow", file=sys.stderr)
             return 1
 
@@ -714,7 +758,9 @@ def cmd_review_create(args):
         try:
             diff_result = subprocess.run(
                 ["git", "diff", state.get("git", {}).get("base_branch", "master") + "...HEAD"],
-                capture_output=True, text=True, timeout=60
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             diff = diff_result.stdout if diff_result.returncode == 0 else ""
         except Exception as e:
@@ -724,14 +770,19 @@ def cmd_review_create(args):
         # Get changed files and resolve to absolute paths (Gemini HIGH fix)
         try:
             files_result = subprocess.run(
-                ["git", "diff", "--name-only", state.get("git", {}).get("base_branch", "master") + "...HEAD"],
-                capture_output=True, text=True, timeout=30
+                [
+                    "git",
+                    "diff",
+                    "--name-only",
+                    state.get("git", {}).get("base_branch", "master") + "...HEAD",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             # Resolve relative paths from git to absolute paths
             file_paths = [
-                str(Path(f).resolve())
-                for f in files_result.stdout.strip().split('\n')
-                if f
+                str(Path(f).resolve()) for f in files_result.stdout.strip().split("\n") if f
             ]
         except Exception:
             file_paths = []
@@ -764,19 +815,24 @@ def cmd_review_create(args):
             # Track in state
             if "review_tasks" not in state:
                 state["review_tasks"] = []
-            state["review_tasks"].append({
-                "id": task_id,
-                "reviewer": reviewer,
-                "status": "queued",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
+            state["review_tasks"].append(
+                {
+                    "id": task_id,
+                    "reviewer": reviewer,
+                    "status": "queued",
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
 
         # Output JSON for agent
-        output = json.dumps({
-            "action": "request_reviews",
-            "instruction": "For each reviewer, call mcp__zen__clink with the provided params",
-            "tasks": instructions,
-        }, indent=2)
+        output = json.dumps(
+            {
+                "action": "request_reviews",
+                "instruction": "For each reviewer, call mcp__zen__clink with the provided params",
+                "tasks": instructions,
+            },
+            indent=2,
+        )
         print(output)
 
     return 0
@@ -791,7 +847,10 @@ def cmd_subtask_start(args):
             print(f"✓ Task {args.task_id} marked as delegated")
         else:
             print(f"✗ Task {args.task_id} not found in queue", file=sys.stderr)
-            print("   Use: ./scripts/workflow_gate.py subtask-status to see available tasks", file=sys.stderr)
+            print(
+                "   Use: ./scripts/workflow_gate.py subtask-status to see available tasks",
+                file=sys.stderr,
+            )
             return 1
     return 0
 
@@ -811,7 +870,10 @@ def cmd_subtask_complete(args):
             summary = sys.stdin.read()
         else:
             print(f"Error: Summary file not found: {args.summary_file}", file=sys.stderr)
-            print("   Create a JSON file with the subtask summary or use --summary for text", file=sys.stderr)
+            print(
+                "   Create a JSON file with the subtask summary or use --summary for text",
+                file=sys.stderr,
+            )
             return 1
     else:
         summary = args.summary or ""
@@ -822,10 +884,14 @@ def cmd_subtask_complete(args):
 
         success = orchestrator.record_completion(args.task_id, summary)
 
-        print(json.dumps({
-            "success": success,
-            "task_id": args.task_id,
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": success,
+                    "task_id": args.task_id,
+                }
+            )
+        )
 
     return 0 if success else 1
 
@@ -882,6 +948,7 @@ def cmd_reset(args):
 # Config Commands
 # =============================================================================
 
+
 def cmd_config_show(args):
     """Show configuration."""
     config = WorkflowConfig()
@@ -893,16 +960,21 @@ def cmd_check_reviewers(args):
     """Check reviewer availability."""
     config = WorkflowConfig()
     enabled = config.get_enabled_reviewers()
-    print(json.dumps({
-        "enabled": enabled,
-        "min_required": config.get_min_required_approvals(),
-    }))
+    print(
+        json.dumps(
+            {
+                "enabled": enabled,
+                "min_required": config.get_min_required_approvals(),
+            }
+        )
+    )
     return 0
 
 
 # =============================================================================
 # Main Entry Point
 # =============================================================================
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -963,7 +1035,9 @@ def main():
     subparsers.add_parser("pr-check", help="Check PR status")
 
     # PR phase commit (for recording commits during PR review cycle)
-    pr_rec_commit = subparsers.add_parser("pr-record-commit", help="Record commit during PR review phase")
+    pr_rec_commit = subparsers.add_parser(
+        "pr-record-commit", help="Record commit during PR review phase"
+    )
     pr_rec_commit.add_argument("hash", help="Commit hash")
     pr_rec_commit.add_argument("--message", help="Commit message")
 
@@ -983,7 +1057,9 @@ def main():
     st_complete.add_argument("task_id", help="Task ID")
     # G3 fix: Accept --summary-file for complex JSON to avoid shell escaping
     st_complete.add_argument("--summary", help="Simple text summary")
-    st_complete.add_argument("--summary-file", help="Path to JSON file with summary (use - for stdin)")
+    st_complete.add_argument(
+        "--summary-file", help="Path to JSON file with summary (use - for stdin)"
+    )
 
     subparsers.add_parser("subtask-status", help="Show subtask status")
 

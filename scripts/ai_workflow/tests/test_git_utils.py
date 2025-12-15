@@ -4,14 +4,14 @@ Tests for git_utils.py module.
 Tests GitHub URL parsing, owner/repo detection, and gh API helpers.
 """
 
-import subprocess
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from ai_workflow.git_utils import (
-    get_owner_repo,
     _parse_github_url,
     _validate_github_name,
+    get_owner_repo,
     gh_api,
     gh_graphql,
 )
@@ -133,9 +133,7 @@ class TestGetOwnerRepo:
 
     def test_handles_missing_remote(self):
         """Should raise ValueError when no remote."""
-        mock_result = MagicMock(
-            returncode=1, stdout="", stderr="fatal: No remote configured"
-        )
+        mock_result = MagicMock(returncode=1, stdout="", stderr="fatal: No remote configured")
 
         with patch("subprocess.run", return_value=mock_result):
             with pytest.raises(ValueError, match="Cannot get git remote"):
@@ -143,9 +141,7 @@ class TestGetOwnerRepo:
 
     def test_with_custom_repo_path(self):
         """Should use custom repo path."""
-        mock_result = MagicMock(
-            returncode=0, stdout="git@github.com:owner/repo.git\n", stderr=""
-        )
+        mock_result = MagicMock(returncode=0, stdout="git@github.com:owner/repo.git\n", stderr="")
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             get_owner_repo(repo_path="/custom/path")
@@ -175,9 +171,7 @@ class TestGhApi:
 
     def test_substitutes_owner_repo(self):
         """Should substitute {owner}/{repo} placeholders."""
-        mock_git_result = MagicMock(
-            returncode=0, stdout="git@github.com:testowner/testrepo.git\n"
-        )
+        mock_git_result = MagicMock(returncode=0, stdout="git@github.com:testowner/testrepo.git\n")
         mock_api_result = MagicMock(returncode=0, stdout='{"data": "test"}', stderr="")
 
         with patch("subprocess.run") as mock_run:
@@ -226,12 +220,8 @@ class TestGhGraphql:
 
     def test_executes_graphql_query(self):
         """Should execute GraphQL query."""
-        mock_git_result = MagicMock(
-            returncode=0, stdout="git@github.com:owner/repo.git\n"
-        )
-        mock_graphql_result = MagicMock(
-            returncode=0, stdout='{"data": {}}', stderr=""
-        )
+        mock_git_result = MagicMock(returncode=0, stdout="git@github.com:owner/repo.git\n")
+        mock_graphql_result = MagicMock(returncode=0, stdout='{"data": {}}', stderr="")
 
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = [mock_git_result, mock_graphql_result]
@@ -243,9 +233,7 @@ class TestGhGraphql:
 
     def test_passes_owner_repo_variables(self):
         """Should pass owner/repo as variables."""
-        mock_git_result = MagicMock(
-            returncode=0, stdout="git@github.com:testowner/testrepo.git\n"
-        )
+        mock_git_result = MagicMock(returncode=0, stdout="git@github.com:testowner/testrepo.git\n")
         mock_graphql_result = MagicMock(returncode=0, stdout="{}", stderr="")
 
         with patch("subprocess.run") as mock_run:

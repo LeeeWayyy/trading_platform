@@ -14,19 +14,21 @@ def _result(mean_ic=None, icir=None, hit_rate=None):
     return SimpleNamespace(mean_ic=mean_ic, icir=icir, hit_rate=hit_rate)
 
 
-@pytest.fixture
+@pytest.fixture()
 def backtester():
     bt = MagicMock()
     return bt
 
 
-@pytest.fixture
+@pytest.fixture()
 def alpha_factory():
     return lambda **kwargs: SimpleNamespace(params=kwargs)
 
 
 def test_search_result_dataclass_structure():
-    res = SearchResult(best_params={"p": 1}, best_score=0.2, all_results=[{"params": {"p": 1}, "score": 0.2}])
+    res = SearchResult(
+        best_params={"p": 1}, best_score=0.2, all_results=[{"params": {"p": 1}, "score": 0.2}]
+    )
     assert res.best_params["p"] == 1
     assert res.best_score == 0.2
     assert res.all_results[0]["score"] == 0.2
@@ -48,7 +50,9 @@ def test_grid_search_enumerates_and_picks_best(backtester, alpha_factory):
     assert res.best_params == {"a": 2}
     assert res.best_score == 0.3
     assert len(res.all_results) == 2
-    assert all(call.kwargs["snapshot_id"] == "snap" for call in backtester.run_backtest.call_args_list)
+    assert all(
+        call.kwargs["snapshot_id"] == "snap" for call in backtester.run_backtest.call_args_list
+    )
 
 
 def test_grid_search_empty_grid_single_run(backtester, alpha_factory):
@@ -66,7 +70,7 @@ def test_grid_search_empty_grid_single_run(backtester, alpha_factory):
 
 
 def test_grid_search_empty_value_list_raises(backtester, alpha_factory):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="param_grid contains empty value list"):
         grid_search(
             alpha_factory=alpha_factory,
             param_grid={"a": []},
@@ -171,7 +175,7 @@ def test_random_search_without_and_with_replacement(backtester, alpha_factory):
 
 
 def test_random_search_invalid_inputs(backtester, alpha_factory):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="n_iter must be positive"):
         random_search(
             alpha_factory=alpha_factory,
             param_distributions={"a": [1]},
@@ -202,5 +206,5 @@ def test_extract_metric_supported_and_unsupported():
     none_result = _result(mean_ic=None, icir=None, hit_rate=None)
     assert math.isnan(_extract_metric(none_result, "mean_ic"))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unsupported metric: unknown"):
         _extract_metric(result, "unknown")

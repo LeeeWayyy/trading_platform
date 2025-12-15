@@ -864,12 +864,9 @@ class DailyPerformanceResponse(BaseModel):
     start_date: date
     end_date: date
     data_source: str = "realized_only"
-    note: str = (
-        "Shows realized P&L from closed positions. Unrealized P&L is not included."
-    )
+    note: str = "Shows realized P&L from closed positions. Unrealized P&L is not included."
     data_available_from: date | None
     last_updated: datetime
-
 
 
 class ErrorResponse(TimestampSerializerMixin, BaseModel):

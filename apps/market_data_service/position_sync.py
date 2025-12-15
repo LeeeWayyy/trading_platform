@@ -104,7 +104,7 @@ class PositionBasedSubscription:
                         # If we get here, shutdown event was set
                         logger.info("Subscription sync loop received shutdown signal")
                         break
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         # Normal timeout - time for next sync
                         pass
 
@@ -154,7 +154,7 @@ class PositionBasedSubscription:
             try:
                 await asyncio.wait_for(self._sync_task, timeout=timeout)
                 logger.info("Subscription sync task completed gracefully")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     f"Subscription sync task did not complete within {timeout}s, cancelling"
                 )

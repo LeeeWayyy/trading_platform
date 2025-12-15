@@ -167,8 +167,9 @@ def _check_freshness_per_symbol(
         .agg(pl.col("timestamp").max().alias("latest_timestamp"))
         .with_columns(
             # Calculate age in minutes using vectorized datetime operations
-            ((pl.lit(now) - pl.col("latest_timestamp")).dt.total_seconds() / 60.0)
-            .alias("age_minutes")
+            ((pl.lit(now) - pl.col("latest_timestamp")).dt.total_seconds() / 60.0).alias(
+                "age_minutes"
+            )
         )
         .with_columns(
             # Determine if each symbol is fresh

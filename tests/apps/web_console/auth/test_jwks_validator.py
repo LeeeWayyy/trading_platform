@@ -41,7 +41,7 @@ def mock_jwks_rs256(rsa_keypair):
     _, public_key = rsa_keypair
 
     # Get public key in PEM format
-    public_pem = public_key.public_bytes(
+    public_key.public_bytes(
         encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
 

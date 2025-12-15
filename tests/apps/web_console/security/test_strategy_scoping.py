@@ -5,7 +5,6 @@ import pytest
 
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
 
-
 # Generate a valid 32-byte encryption key for tests
 _TEST_ENCRYPTION_KEY = base64.b64encode(os.urandom(32)).decode()
 
@@ -61,7 +60,7 @@ class FakeRedis:
         self.store[key] = value
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_strategy_scoping_enforces_access():
     pool = FakeConn()
     redis = FakeRedis()
@@ -75,7 +74,7 @@ async def test_strategy_scoping_enforces_access():
     assert len(pool.calls) == 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_strategy_scoping_denies_empty():
     pool = FakeConn()
     redis = FakeRedis()
@@ -85,7 +84,7 @@ async def test_strategy_scoping_denies_empty():
         await scoped.get_positions()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_strategy_scoping_applies_filters_in_queries():
     pool = FakeConn()
     redis = FakeRedis()
@@ -102,7 +101,7 @@ async def test_strategy_scoping_applies_filters_in_queries():
     assert params[2] == "buy"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_strategy_scoping_cache_keys_include_filters():
     pool = FakeConn()
     redis = FakeRedis()

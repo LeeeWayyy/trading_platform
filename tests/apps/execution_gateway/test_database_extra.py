@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, date
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from types import SimpleNamespace
 
 import pytest
 

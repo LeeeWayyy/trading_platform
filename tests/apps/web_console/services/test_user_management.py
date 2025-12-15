@@ -45,7 +45,6 @@ class MockTransaction:
 
 
 from apps.web_console.services.user_management import (
-    UserInfo,
     change_user_role,
     list_users,
 )
@@ -54,7 +53,7 @@ from apps.web_console.services.user_management import (
 class TestListUsers:
     """Tests for list_users function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_list_users_returns_user_info(self):
         """Test list_users returns UserInfo objects."""
 
@@ -82,7 +81,7 @@ class TestListUsers:
 class TestChangeUserRole:
     """Tests for change_user_role function."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_change_role_success(self):
         """Test successful role change."""
 
@@ -112,7 +111,7 @@ class TestChangeUserRole:
         assert "operator" in msg
         mock_audit.log_admin_change.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_change_role_invalid_role(self):
         """Test invalid role rejected."""
 
@@ -131,7 +130,7 @@ class TestChangeUserRole:
         assert success is False
         assert "Invalid role" in msg
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_change_role_user_not_found(self):
         """Test user not found error."""
 

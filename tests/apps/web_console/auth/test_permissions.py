@@ -38,7 +38,7 @@ def test_require_permission_decorator_sync():
     assert calls["called"] is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_require_permission_decorator_async():
     @require_permission(Permission.FLATTEN_ALL)
     async def do_action(user=None):

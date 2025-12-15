@@ -5,16 +5,13 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
 
 from libs.data_providers.crsp_local_provider import (
     CRSP_COLUMNS,
-    CRSP_SCHEMA,
-    VALID_COLUMNS,
     AmbiguousTickerError,
     CRSPLocalProvider,
     ManifestVersionChangedError,
@@ -23,7 +20,7 @@ from libs.data_quality.exceptions import DataNotFoundError
 from libs.data_quality.manifest import ManifestManager, SyncManifest
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_crsp_data(tmp_path: Path) -> tuple[Path, ManifestManager, list[Path]]:
     """Create mock CRSP parquet files and manifest for testing.
 
@@ -340,9 +337,7 @@ class TestCRSPLocalProviderPointInTime:
             universe_before = provider.get_universe(
                 as_of_date=date(2022, 1, 2), include_delisted=False
             )
-            universe_on = provider.get_universe(
-                as_of_date=date(2022, 1, 3), include_delisted=False
-            )
+            universe_on = provider.get_universe(as_of_date=date(2022, 1, 3), include_delisted=False)
 
         # NEWIPO should not be in universe before IPO
         assert 10003 not in universe_before["permno"].to_list()
@@ -366,9 +361,7 @@ class TestCRSPLocalProviderSurvivorshipBias:
             data_root=data_root,
         ) as provider:
             # Get universe after DELISTED was delisted
-            universe = provider.get_universe(
-                as_of_date=date(2022, 6, 1), include_delisted=True
-            )
+            universe = provider.get_universe(as_of_date=date(2022, 6, 1), include_delisted=True)
 
         # DELISTED (10002) should be included
         assert 10002 in universe["permno"].to_list()
@@ -634,14 +627,10 @@ class TestCRSPLocalProviderTickerMapping:
         ) as provider:
             # PERMNO 10004 was "RENAMED" in 2020, later changed to "NEWNAME" in late 2021
             # Use 2020-06-15 when only PERMNO 10004 had "RENAMED" (10005 didn't exist yet)
-            permno_by_old_ticker = provider.ticker_to_permno(
-                "RENAMED", date(2020, 6, 15)
-            )
+            permno_by_old_ticker = provider.ticker_to_permno("RENAMED", date(2020, 6, 15))
 
             # Also verify we can look up by the new ticker on a later date
-            permno_by_new_ticker = provider.ticker_to_permno(
-                "NEWNAME", date(2021, 12, 30)
-            )
+            permno_by_new_ticker = provider.ticker_to_permno("NEWNAME", date(2021, 12, 30))
 
             # Both should return the same PERMNO
             assert permno_by_old_ticker == 10004

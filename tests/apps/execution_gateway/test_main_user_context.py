@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -72,8 +71,10 @@ def _make_user_context_override(user_ctx: dict) -> callable:
     Using lambda *_, **__: causes FastAPI to treat _ and __ as required
     query parameters, resulting in 422 errors.
     """
+
     def override(request: Request) -> dict:
         return user_ctx
+
     return override
 
 
@@ -132,9 +133,7 @@ def test_daily_performance_invalid_strategy_subset(monkeypatch, test_client):
     }
     main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(req_user)
 
-    with (
-        monkeypatch.context() as m,
-    ):
+    with (monkeypatch.context() as m,):
         m.setattr(main, "db_client", main.db_client)
         m.setattr(main, "redis_client", main.redis_client)
         m.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)

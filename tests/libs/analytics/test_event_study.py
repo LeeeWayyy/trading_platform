@@ -18,11 +18,9 @@ Tests cover:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import polars as pl
@@ -31,12 +29,10 @@ from scipy.stats import t as t_dist
 
 from libs.analytics.event_study import (
     ClusteringMitigation,
-    EventStudyAnalysis,
     EventStudyConfig,
     EventStudyFramework,
     ExpectedReturnModel,
     IndexRebalanceResult,
-    MarketModelResult,
     OverlapPolicy,
     PEADAnalysisResult,
     SignificanceTest,
@@ -50,13 +46,12 @@ from libs.analytics.event_study import (
     _winsorize,
 )
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_crsp_provider() -> MagicMock:
     """Create mock CRSP provider."""
     provider = MagicMock()
@@ -65,7 +60,7 @@ def mock_crsp_provider() -> MagicMock:
     return provider
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_ff_provider() -> MagicMock:
     """Create mock Fama-French provider."""
     provider = MagicMock()
@@ -73,7 +68,7 @@ def mock_ff_provider() -> MagicMock:
     return provider
 
 
-@pytest.fixture
+@pytest.fixture()
 def trading_calendar() -> pl.DataFrame:
     """Create sample trading calendar."""
     # Generate trading days (weekdays only)
@@ -86,7 +81,7 @@ def trading_calendar() -> pl.DataFrame:
     return pl.DataFrame({"date": dates})
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_returns() -> pl.DataFrame:
     """Create sample stock returns data."""
     np.random.seed(42)
@@ -109,7 +104,7 @@ def sample_returns() -> pl.DataFrame:
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_ff_data() -> pl.DataFrame:
     """Create sample Fama-French factor data."""
     np.random.seed(42)
@@ -321,7 +316,7 @@ class TestNeweyWest:
 
     def test_deterministic_vs_statsmodels(self) -> None:
         """Validate Newey-West SE against statsmodels if available."""
-        statsmodels = pytest.importorskip("statsmodels")
+        pytest.importorskip("statsmodels")
         from statsmodels.tsa.stattools import acovf  # type: ignore[import-untyped]
 
         np.random.seed(42)
@@ -597,7 +592,7 @@ class TestGapEnforcement:
         assert config.gap_days == 1
 
         # Invalid: gap_days = 0
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="gap_days must be >= 1"):
             EventStudyConfig(gap_days=0)
 
 
@@ -807,8 +802,8 @@ class TestVersionTracking:
     ) -> None:
         """Test that version info can be retrieved."""
         # Create mock manifest file
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -843,8 +838,8 @@ class TestIntegration:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test market model estimation with mocked data."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -879,8 +874,8 @@ class TestIntegration:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test CAR computation with mocked data."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -992,8 +987,8 @@ class TestPEADAnalysis:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test basic PEAD analysis."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1050,8 +1045,8 @@ class TestPEADAnalysis:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test PEAD analysis with clustered events."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1109,8 +1104,8 @@ class TestPEADAnalysis:
         mock_ff_provider: MagicMock,
     ) -> None:
         """Test that missing columns raises ValueError."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1151,8 +1146,8 @@ class TestIndexRebalanceAnalysis:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test basic index rebalance analysis."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1206,8 +1201,8 @@ class TestIndexRebalanceAnalysis:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test index rebalance with clustered SE."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1259,8 +1254,8 @@ class TestIndexRebalanceAnalysis:
         mock_ff_provider: MagicMock,
     ) -> None:
         """Test that missing columns raises ValueError."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1292,8 +1287,8 @@ class TestIndexRebalanceAnalysis:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test index rebalance with announcement date."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1350,8 +1345,8 @@ class TestPatellBMPComputation:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test CAR computation with Patell test."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1392,8 +1387,8 @@ class TestPatellBMPComputation:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test CAR computation with BMP test."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1442,8 +1437,8 @@ class TestDelistingInComputeCar:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test delisting is detected when data ends early."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1506,8 +1501,8 @@ class TestDelistingInComputeCar:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test delisting with provider that supports get_delisting."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1581,8 +1576,8 @@ class TestFactorModels:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test Fama-French 3-factor model estimation."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1619,8 +1614,8 @@ class TestFactorModels:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test Fama-French 5-factor model estimation."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)
@@ -1656,8 +1651,8 @@ class TestFactorModels:
         sample_ff_data: pl.DataFrame,
     ) -> None:
         """Test mean-adjusted model estimation."""
-        import tempfile
         import json
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_ff_provider._storage_path = Path(tmpdir)

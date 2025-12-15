@@ -10,14 +10,14 @@ import pytest
 from libs.factors.cache import DiskExpressionCache
 
 
-@pytest.fixture
+@pytest.fixture()
 def cache_dir() -> Path:
     """Create temporary cache directory."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
-@pytest.fixture
+@pytest.fixture()
 def cache(cache_dir: Path) -> DiskExpressionCache:
     """Create cache instance."""
     return DiskExpressionCache(cache_dir, ttl_days=7)

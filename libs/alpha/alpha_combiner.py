@@ -308,9 +308,7 @@ class AlphaCombiner:
             weight_history = None
 
         # Compute correlation analysis (limited to trailing window)
-        correlation_analysis = self.compute_correlation_matrix(
-            signals, as_of_date, lookback
-        )
+        correlation_analysis = self.compute_correlation_matrix(signals, as_of_date, lookback)
         warnings.extend(correlation_analysis.warnings)
 
         # Compute turnover if we have composite
@@ -380,9 +378,7 @@ class AlphaCombiner:
 
         # Resolve as_of_date and lookback
         if as_of_date is None:
-            max_dates = [
-                sig.select(pl.col("date").max()).item() for sig in signals.values()
-            ]
+            max_dates = [sig.select(pl.col("date").max()).item() for sig in signals.values()]
             as_of_date = min(d for d in max_dates if d is not None)
 
         lookback = lookback_days or self.config.lookback_days
@@ -418,9 +414,7 @@ class AlphaCombiner:
                 sig_j = signals_windowed[name_j]
 
                 joined = sig_i.join(
-                    sig_j.select(
-                        ["permno", "date", pl.col("signal").alias("signal_j")]
-                    ),
+                    sig_j.select(["permno", "date", pl.col("signal").alias("signal_j")]),
                     on=["permno", "date"],
                     how="inner",
                 )
@@ -428,12 +422,20 @@ class AlphaCombiner:
                 if joined.height == 0:
                     # Add both (i,j) and (j,i) as NaN
                     correlations.append(
-                        {"signal_i": name_i, "signal_j": name_j,
-                         "pearson": float("nan"), "spearman": float("nan")}
+                        {
+                            "signal_i": name_i,
+                            "signal_j": name_j,
+                            "pearson": float("nan"),
+                            "spearman": float("nan"),
+                        }
                     )
                     correlations.append(
-                        {"signal_i": name_j, "signal_j": name_i,
-                         "pearson": float("nan"), "spearman": float("nan")}
+                        {
+                            "signal_i": name_j,
+                            "signal_j": name_i,
+                            "pearson": float("nan"),
+                            "spearman": float("nan"),
+                        }
                     )
                     continue
 
@@ -459,12 +461,20 @@ class AlphaCombiner:
 
                 # Add both (i,j) and (j,i) - symmetric matrix
                 correlations.append(
-                    {"signal_i": name_i, "signal_j": name_j,
-                     "pearson": pearson_val, "spearman": spearman_val}
+                    {
+                        "signal_i": name_i,
+                        "signal_j": name_j,
+                        "pearson": pearson_val,
+                        "spearman": spearman_val,
+                    }
                 )
                 correlations.append(
-                    {"signal_i": name_j, "signal_j": name_i,
-                     "pearson": pearson_val, "spearman": spearman_val}
+                    {
+                        "signal_i": name_j,
+                        "signal_j": name_i,
+                        "pearson": pearson_val,
+                        "spearman": spearman_val,
+                    }
                 )
 
         corr_df = pl.DataFrame(correlations)
@@ -491,9 +501,7 @@ class AlphaCombiner:
 
         if high_corr_pairs:
             pair_strs = [f"({a}, {b}): {c:.2f}" for a, b, c in high_corr_pairs]
-            warnings.append(
-                f"Highly correlated pairs (|corr| > {threshold}): {pair_strs}"
-            )
+            warnings.append(f"Highly correlated pairs (|corr| > {threshold}): {pair_strs}")
 
         # Build numpy matrix for condition number calculation
         # Diagonals should be 1.0 (self-correlation), off-diagonals use computed values
@@ -608,9 +616,7 @@ class AlphaCombiner:
 
             missing = required_cols - set(sig.columns)
             if missing:
-                raise ValueError(
-                    f"Signal '{name}' missing required columns: {missing}"
-                )
+                raise ValueError(f"Signal '{name}' missing required columns: {missing}")
 
     def _validate_returns_if_needed(self, returns: pl.DataFrame | None) -> None:
         """Validate returns DataFrame if IC/IR weighting is used."""
@@ -704,9 +710,7 @@ class AlphaCombiner:
 
         return normalized
 
-    def _resolve_default_as_of_date(
-        self, signals: dict[str, pl.DataFrame]
-    ) -> date:
+    def _resolve_default_as_of_date(self, signals: dict[str, pl.DataFrame]) -> date:
         """Resolve default as_of_date to min(max_date_per_signal).
 
         This is the latest date where ALL signals have data,
@@ -752,9 +756,7 @@ class AlphaCombiner:
             sig_window = sig.filter(
                 (pl.col("date") >= lookback_start) & (pl.col("date") < as_of_date)
             )
-            unique_dates = (
-                sig_window.select("date").unique().sort("date").to_series().to_list()
-            )
+            unique_dates = sig_window.select("date").unique().sort("date").to_series().to_list()
 
             values: list[float] = []
             for day in unique_dates:
@@ -820,9 +822,7 @@ class AlphaCombiner:
     ) -> dict[str, float]:
         """Shared helper to derive weights from daily IC statistics."""
         scores: dict[str, float] = {}
-        daily_ic = self._collect_daily_ic_values(
-            signals, returns, as_of_date, lookback_days
-        )
+        daily_ic = self._collect_daily_ic_values(signals, returns, as_of_date, lookback_days)
 
         for name, values in daily_ic.items():
             if len(values) < self.config.min_lookback_days:
@@ -938,8 +938,7 @@ class AlphaCombiner:
 
         # Filter to as_of_date only
         filtered_signals = {
-            name: sig.filter(pl.col("date") == as_of_date)
-            for name, sig in signals.items()
+            name: sig.filter(pl.col("date") == as_of_date) for name, sig in signals.items()
         }
 
         # Combine
@@ -978,9 +977,7 @@ class AlphaCombiner:
         min_eligible_date = min_date + timedelta(days=lookback_days)
 
         # Filter to eligible dates [min_date + lookback, as_of_date]
-        eligible_dates = [
-            d for d in sorted_dates if min_eligible_date <= d <= as_of_date
-        ]
+        eligible_dates = [d for d in sorted_dates if min_eligible_date <= d <= as_of_date]
 
         if not eligible_dates:
             empty_df = pl.DataFrame(
@@ -1003,14 +1000,10 @@ class AlphaCombiner:
 
             # Record weight history
             for name, w in weights.items():
-                weight_history_rows.append(
-                    {"date": d, "signal_name": name, "weight": w}
-                )
+                weight_history_rows.append({"date": d, "signal_name": name, "weight": w})
 
             # Filter signals to this date
-            day_signals = {
-                name: sig.filter(pl.col("date") == d) for name, sig in signals.items()
-            }
+            day_signals = {name: sig.filter(pl.col("date") == d) for name, sig in signals.items()}
 
             # Combine
             day_composite = self._weighted_combine(day_signals, weights)
@@ -1036,9 +1029,7 @@ class AlphaCombiner:
     ) -> pl.DataFrame:
         """Apply weights and sum signals."""
         if not signals or not weights:
-            return pl.DataFrame(
-                schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
-            )
+            return pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
 
         # Start with first signal
         signal_names = list(signals.keys())
@@ -1046,9 +1037,7 @@ class AlphaCombiner:
         first_sig = signals[first_name]
 
         if first_sig.height == 0:
-            return pl.DataFrame(
-                schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64}
-            )
+            return pl.DataFrame(schema={"permno": pl.Int64, "date": pl.Date, "signal": pl.Float64})
 
         # Initialize with weighted first signal
         result = first_sig.select(
@@ -1114,10 +1103,7 @@ class AlphaCombiner:
 
         # Get unique permnos in composite on as_of_date
         composite_permnos = (
-            composite.filter(pl.col("date") == as_of_date)
-            .select("permno")
-            .unique()
-            .height
+            composite.filter(pl.col("date") == as_of_date).select("permno").unique().height
         )
 
         # Get max permnos across all signals on as_of_date

@@ -6,7 +6,6 @@ from datetime import date
 
 import numpy as np
 import polars as pl
-import pytest
 
 from libs.risk import (
     CANONICAL_FACTOR_ORDER,
@@ -142,11 +141,13 @@ class TestSpecificRiskResultValidation:
 
     def test_validate_no_negative_variance(self):
         """Validation catches negative variances."""
-        df = pl.DataFrame({
-            "permno": [1, 2],
-            "specific_variance": [0.01, -0.01],  # Negative!
-            "specific_vol": [0.1, 0.1],
-        })
+        df = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "specific_variance": [0.01, -0.01],  # Negative!
+                "specific_vol": [0.1, 0.1],
+            }
+        )
         result = SpecificRiskResult(
             specific_risks=df,
             as_of_date=date(2023, 6, 30),
@@ -157,11 +158,13 @@ class TestSpecificRiskResultValidation:
 
     def test_validate_no_nan_inf(self):
         """Validation catches NaN values."""
-        df = pl.DataFrame({
-            "permno": [1, 2],
-            "specific_variance": [0.01, np.nan],
-            "specific_vol": [0.1, 0.1],
-        })
+        df = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "specific_variance": [0.01, np.nan],
+                "specific_vol": [0.1, 0.1],
+            }
+        )
         result = SpecificRiskResult(
             specific_risks=df,
             as_of_date=date(2023, 6, 30),
@@ -172,11 +175,13 @@ class TestSpecificRiskResultValidation:
 
     def test_validate_reasonable_range(self):
         """Validation catches unreasonable volatility."""
-        df = pl.DataFrame({
-            "permno": [1, 2],
-            "specific_variance": [0.01, 100.0],  # 100 -> vol = 158 = 15800%!
-            "specific_vol": [0.1, 158.0],
-        })
+        df = pl.DataFrame(
+            {
+                "permno": [1, 2],
+                "specific_variance": [0.01, 100.0],  # 100 -> vol = 158 = 15800%!
+                "specific_vol": [0.1, 158.0],
+            }
+        )
         result = SpecificRiskResult(
             specific_risks=df,
             as_of_date=date(2023, 6, 30),

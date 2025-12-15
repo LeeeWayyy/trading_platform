@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import streamlit as st
 
 from apps.web_console.pages.admin_users import render_admin_users
-from apps.web_console.auth.permissions import Permission
 
 
 class TestAdminUsersPage:

@@ -11,7 +11,7 @@ Contract:
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -60,7 +60,7 @@ class TestShutdownEventSignal:
 class TestShutdownCancelsTasks:
     """Test that shutdown properly cancels background tasks."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_shutdown_with_no_task(self) -> None:
         """shutdown() should handle case where no task is running."""
         mock_stream = MagicMock()
@@ -80,7 +80,7 @@ class TestShutdownCancelsTasks:
         # Event should be set
         assert manager._shutdown_event.is_set()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_shutdown_waits_for_task_completion(self) -> None:
         """shutdown() should wait for task to complete gracefully."""
         mock_stream = MagicMock()
@@ -107,7 +107,7 @@ class TestShutdownCancelsTasks:
         assert elapsed < 1.5
         assert task.done()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_set_task_stores_handle(self) -> None:
         """set_task() should store the task handle for shutdown management."""
         mock_stream = MagicMock()
@@ -134,7 +134,7 @@ class TestShutdownCancelsTasks:
 class TestShutdownActiveSleep:
     """Test that task in long wait is cancelled promptly."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_event_wait_is_interruptible(self) -> None:
         """Event.wait() with timeout should be interruptible, unlike sleep()."""
         mock_stream = MagicMock()
@@ -164,7 +164,7 @@ class TestShutdownActiveSleep:
         assert elapsed < 1.0, f"Shutdown took {elapsed}s - Event wait not interruptible"
         assert task.done()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_shutdown_cancels_on_timeout(self) -> None:
         """shutdown() should forcefully cancel task if it doesn't complete in time."""
         mock_stream = MagicMock()
@@ -202,7 +202,7 @@ class TestShutdownActiveSleep:
 class TestSyncLoopBehavior:
     """Test that sync loop properly responds to shutdown signal."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_exits_on_shutdown_event(self) -> None:
         """Sync loop should exit when shutdown event is set."""
         mock_stream = MagicMock()
@@ -234,7 +234,7 @@ class TestSyncLoopBehavior:
         assert task.done()
         assert not task.cancelled()  # Should exit cleanly, not cancel
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sync_loop_handles_cancelled_error(self) -> None:
         """Sync loop should handle CancelledError gracefully."""
         mock_stream = MagicMock()

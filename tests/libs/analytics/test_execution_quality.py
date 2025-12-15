@@ -159,17 +159,19 @@ def _create_minute_bars(
         timestamps.append(ts)
         prices.append(base_price + i * 0.01)  # Gradual increase
 
-    return pl.DataFrame({
-        "ts": timestamps,
-        "symbol": [symbol.upper()] * n_bars,
-        "open": prices,
-        "high": [p + 0.1 for p in prices],
-        "low": [p - 0.1 for p in prices],
-        "close": prices,
-        "volume": [1000] * n_bars,
-        "vwap": prices,
-        "date": [target_date] * n_bars,
-    })
+    return pl.DataFrame(
+        {
+            "ts": timestamps,
+            "symbol": [symbol.upper()] * n_bars,
+            "open": prices,
+            "high": [p + 0.1 for p in prices],
+            "low": [p - 0.1 for p in prices],
+            "close": prices,
+            "volume": [1000] * n_bars,
+            "vwap": prices,
+            "date": [target_date] * n_bars,
+        }
+    )
 
 
 # =============================================================================
@@ -595,9 +597,7 @@ class TestFillBatchValidationV5V6:
                 total_target_qty=100,
             )
 
-    def test_clock_drift_100ms_threshold(
-        self, decision_time: datetime
-    ) -> None:
+    def test_clock_drift_100ms_threshold(self, decision_time: datetime) -> None:
         """Test 16: clock_drift_detected=True only if >100ms (v6)."""
         # Fill 50ms before submission (within threshold)
         submission = decision_time + timedelta(milliseconds=100)
@@ -699,12 +699,14 @@ class TestBenchmarkComputation:
         """Test 19: no divide-by-zero on zero volume bars."""
         bars = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=10)
         # Set some bars to zero volume
-        bars = bars.with_columns([
-            pl.when(pl.col("volume").cum_count() <= 3)
-            .then(pl.lit(0))
-            .otherwise(pl.col("volume"))
-            .alias("volume")
-        ])
+        bars = bars.with_columns(
+            [
+                pl.when(pl.col("volume").cum_count() <= 3)
+                .then(pl.lit(0))
+                .otherwise(pl.col("volume"))
+                .alias("volume")
+            ]
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
 
         start = datetime(2024, 12, 8, 9, 30, tzinfo=UTC)
@@ -857,17 +859,19 @@ class TestImplementationShortfall:
         )
 
         # Mock TAQ data returning arrival price of 100
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -919,17 +923,19 @@ class TestDataQuality:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -978,17 +984,19 @@ class TestDataQuality:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -1037,17 +1045,19 @@ class TestDataQuality:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -1085,17 +1095,19 @@ class TestDataQuality:
         )
 
         # Bar at decision_time
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],  # Arrival price
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],  # Arrival price
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -1134,17 +1146,19 @@ class TestDataQuality:
         )
 
         # Only bar at submission_time, not decision_time
-        bars = pl.DataFrame({
-            "ts": [submission],
-            "symbol": ["AAPL"],
-            "open": [100.2],
-            "high": [100.3],
-            "low": [100.1],
-            "close": [100.25],  # Fallback arrival price
-            "volume": [1000],
-            "vwap": [100.25],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [submission],
+                "symbol": ["AAPL"],
+                "open": [100.2],
+                "high": [100.3],
+                "low": [100.1],
+                "close": [100.25],  # Fallback arrival price
+                "volume": [1000],
+                "vwap": [100.25],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -1182,17 +1196,19 @@ class TestDataQuality:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -1264,14 +1280,12 @@ class TestMarketImpact:
         analyzer = ExecutionQualityAnalyzer(mock_taq)
 
         warnings: list[str] = []
-        permanent_impact_bps, timing_cost_bps, mid_price = (
-            analyzer._estimate_market_impact(
-                fill_batch=batch,
-                arrival_price=100.0,
-                execution_price=100.5,
-                spread_stats=spread_stats,
-                warnings=warnings,
-            )
+        permanent_impact_bps, timing_cost_bps, mid_price = analyzer._estimate_market_impact(
+            fill_batch=batch,
+            arrival_price=100.0,
+            execution_price=100.5,
+            spread_stats=spread_stats,
+            warnings=warnings,
         )
 
         # Total impact = 1 * (100.5 - 100) / 100 * 10000 = 50 bps
@@ -1310,14 +1324,12 @@ class TestMarketImpact:
         analyzer = ExecutionQualityAnalyzer(mock_taq)
 
         warnings: list[str] = []
-        permanent_impact_bps, timing_cost_bps, mid_price = (
-            analyzer._estimate_market_impact(
-                fill_batch=batch,
-                arrival_price=100.0,
-                execution_price=100.5,
-                spread_stats=None,
-                warnings=warnings,
-            )
+        permanent_impact_bps, timing_cost_bps, mid_price = analyzer._estimate_market_impact(
+            fill_batch=batch,
+            arrival_price=100.0,
+            execution_price=100.5,
+            spread_stats=None,
+            warnings=warnings,
         )
 
         assert mid_price == pytest.approx(100.0)
@@ -1574,19 +1586,23 @@ class TestVersionPropagation:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="test_v1")
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
+            checksum="test_v1"
+        )
 
         result = analyzer.analyze_execution(batch)
 
@@ -1622,17 +1638,19 @@ class TestVersionPropagation:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v123")
 
@@ -1670,17 +1688,19 @@ class TestVersionPropagation:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -1689,9 +1709,7 @@ class TestVersionPropagation:
         assert result.computation_timestamp is not None
         assert result.computation_timestamp.tzinfo == UTC
 
-    def test_pit_version_propagation(
-        self, mock_taq_provider: MagicMock
-    ) -> None:
+    def test_pit_version_propagation(self, mock_taq_provider: MagicMock) -> None:
         """Test 45: as_of flows through correctly."""
         mock_version_manager = MagicMock()
         mock_taq_provider.version_manager = mock_version_manager
@@ -1731,17 +1749,19 @@ class TestVersionPropagation:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
 
         as_of_date = date(2024, 12, 15)
@@ -1862,17 +1882,19 @@ class TestCostDecomposition:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -1940,21 +1962,21 @@ class TestPartialFillRegression:
             total_target_qty=100,  # Target was 100
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision, decision + timedelta(minutes=5)],
-            "symbol": ["AAPL", "AAPL"],
-            "open": [100.0, 100.0],
-            "high": [100.1, 100.1],
-            "low": [99.9, 99.9],
-            "close": [100.0, 100.0],  # Close = arrival (no opp cost)
-            "volume": [1000, 1000],
-            "vwap": [100.0, 100.0],
-            "date": [date(2024, 12, 8), date(2024, 12, 8)],
-        })
-        mock_taq_provider.fetch_minute_bars.return_value = bars
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
-            checksum="v1"
+        bars = pl.DataFrame(
+            {
+                "ts": [decision, decision + timedelta(minutes=5)],
+                "symbol": ["AAPL", "AAPL"],
+                "open": [100.0, 100.0],
+                "high": [100.1, 100.1],
+                "low": [99.9, 99.9],
+                "close": [100.0, 100.0],  # Close = arrival (no opp cost)
+                "volume": [1000, 1000],
+                "vwap": [100.0, 100.0],
+                "date": [date(2024, 12, 8), date(2024, 12, 8)],
+            }
         )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
         result = analyzer.analyze_execution(batch)
 
@@ -1996,21 +2018,21 @@ class TestPartialFillRegression:
             total_target_qty=100,
         )
 
-        bars = pl.DataFrame({
-            "ts": [decision, decision + timedelta(minutes=5)],
-            "symbol": ["AAPL", "AAPL"],
-            "open": [100.0, 100.0],
-            "high": [100.1, 102.1],
-            "low": [99.9, 101.9],
-            "close": [100.0, 102.0],  # Close 2% above arrival
-            "volume": [1000, 1000],
-            "vwap": [100.0, 102.0],
-            "date": [date(2024, 12, 8), date(2024, 12, 8)],
-        })
-        mock_taq_provider.fetch_minute_bars.return_value = bars
-        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(
-            checksum="v1"
+        bars = pl.DataFrame(
+            {
+                "ts": [decision, decision + timedelta(minutes=5)],
+                "symbol": ["AAPL", "AAPL"],
+                "open": [100.0, 100.0],
+                "high": [100.1, 102.1],
+                "low": [99.9, 101.9],
+                "close": [100.0, 102.0],  # Close 2% above arrival
+                "volume": [1000, 1000],
+                "vwap": [100.0, 102.0],
+                "date": [date(2024, 12, 8), date(2024, 12, 8)],
+            }
         )
+        mock_taq_provider.fetch_minute_bars.return_value = bars
+        mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
         result = analyzer.analyze_execution(batch)
 
@@ -2042,9 +2064,7 @@ class TestOpportunityCost:
         side_sign = 1
 
         unfilled_fraction = unfilled_qty / total_target_qty
-        opportunity_cost_bps = (
-            side_sign * (close - arrival) / arrival * 10000 * unfilled_fraction
-        )
+        opportunity_cost_bps = side_sign * (close - arrival) / arrival * 10000 * unfilled_fraction
 
         # Price moved against us by 2%, we missed 50%
         assert opportunity_cost_bps == pytest.approx(100.0)  # 100 bps
@@ -2059,9 +2079,7 @@ class TestOpportunityCost:
         side_sign = -1
 
         unfilled_fraction = unfilled_qty / total_target_qty
-        opportunity_cost_bps = (
-            side_sign * (close - arrival) / arrival * 10000 * unfilled_fraction
-        )
+        opportunity_cost_bps = side_sign * (close - arrival) / arrival * 10000 * unfilled_fraction
 
         # Price moved against us by 2%, we missed 50%
         assert opportunity_cost_bps == pytest.approx(100.0)  # 100 bps
@@ -2110,17 +2128,19 @@ class TestOpportunityCost:
         )
 
         # Only arrival bar, no close bar
-        bars = pl.DataFrame({
-            "ts": [decision],
-            "symbol": ["AAPL"],
-            "open": [100.0],
-            "high": [100.1],
-            "low": [99.9],
-            "close": [100.0],
-            "volume": [1000],
-            "vwap": [100.0],
-            "date": [date(2024, 12, 8)],
-        })
+        bars = pl.DataFrame(
+            {
+                "ts": [decision],
+                "symbol": ["AAPL"],
+                "open": [100.0],
+                "high": [100.1],
+                "low": [99.9],
+                "close": [100.0],
+                "volume": [1000],
+                "vwap": [100.0],
+                "date": [date(2024, 12, 8)],
+            }
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
@@ -2403,9 +2423,7 @@ class TestIntegration:
 class TestEdgeCases:
     """Edge case tests."""
 
-    def test_empty_fills_list(
-        self, decision_time: datetime, submission_time: datetime
-    ) -> None:
+    def test_empty_fills_list(self, decision_time: datetime, submission_time: datetime) -> None:
         """Edge case 1: Empty fills list."""
         batch = FillBatch(
             symbol="AAPL",
@@ -2491,9 +2509,7 @@ class TestEdgeCases:
 
         assert len(batch.valid_fills) == 0
 
-    def test_clock_drift_warning_flag(
-        self, decision_time: datetime
-    ) -> None:
+    def test_clock_drift_warning_flag(self, decision_time: datetime) -> None:
         """Edge case 4: Clock drift >100ms sets warning flag."""
         submission = decision_time + timedelta(milliseconds=200)
         fill_time = decision_time + timedelta(milliseconds=50)  # Before submission
@@ -2568,19 +2584,23 @@ class TestEdgeCases:
         # Return bars with many zero-volume (low coverage)
         bars = _create_minute_bars("AAPL", date(2024, 12, 8), n_bars=10)
         # Set 80% of bars to zero volume
-        bars = bars.with_columns([
-            pl.when(pl.col("volume").cum_count() <= 8)
-            .then(pl.lit(0))
-            .otherwise(pl.col("volume"))
-            .alias("volume")
-        ])
+        bars = bars.with_columns(
+            [
+                pl.when(pl.col("volume").cum_count() <= 8)
+                .then(pl.lit(0))
+                .otherwise(pl.col("volume"))
+                .alias("volume")
+            ]
+        )
         mock_taq_provider.fetch_minute_bars.return_value = bars
         mock_taq_provider.manifest_manager.load_manifest.return_value = MagicMock(checksum="v1")
 
         result = analyzer.analyze_execution(batch)
 
         # Should have low coverage warning
-        assert result.vwap_coverage_pct < 0.8 or any("coverage" in w.lower() for w in result.warnings)
+        assert result.vwap_coverage_pct < 0.8 or any(
+            "coverage" in w.lower() for w in result.warnings
+        )
 
     def test_decision_time_after_first_fill_warning(
         self, decision_time: datetime, submission_time: datetime

@@ -6,13 +6,13 @@ Tests git diff hashing for workflow enforcement.
 
 import hashlib
 import subprocess
+from unittest.mock import MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from ai_workflow.hash_utils import (
-    is_merge_commit,
     compute_git_diff_hash,
+    is_merge_commit,
 )
 
 
@@ -22,9 +22,7 @@ class TestIsMergeCommit:
     def test_detects_regular_commit(self):
         """Should return False for regular (non-merge) commit."""
         # Regular commit has format: "<sha> <parent1_sha>"
-        mock_result = MagicMock(
-            returncode=0, stdout="abc123 def456\n", stderr=""
-        )
+        mock_result = MagicMock(returncode=0, stdout="abc123 def456\n", stderr="")
 
         with patch("subprocess.run", return_value=mock_result):
             result = is_merge_commit("abc123")
@@ -34,9 +32,7 @@ class TestIsMergeCommit:
     def test_detects_merge_commit(self):
         """Should return True for merge commit."""
         # Merge commit has format: "<sha> <parent1_sha> <parent2_sha>"
-        mock_result = MagicMock(
-            returncode=0, stdout="abc123 def456 ghi789\n", stderr=""
-        )
+        mock_result = MagicMock(returncode=0, stdout="abc123 def456 ghi789\n", stderr="")
 
         with patch("subprocess.run", return_value=mock_result):
             result = is_merge_commit("abc123")
@@ -46,9 +42,7 @@ class TestIsMergeCommit:
     def test_detects_octopus_merge(self):
         """Should return True for octopus merge (3+ parents)."""
         # Octopus merge has multiple parents
-        mock_result = MagicMock(
-            returncode=0, stdout="abc123 def456 ghi789 jkl012\n", stderr=""
-        )
+        mock_result = MagicMock(returncode=0, stdout="abc123 def456 ghi789 jkl012\n", stderr="")
 
         with patch("subprocess.run", return_value=mock_result):
             result = is_merge_commit("abc123")
@@ -120,9 +114,7 @@ class TestComputeGitDiffHash:
         expected_hash = hashlib.sha256(diff_output).hexdigest()
 
         # First call: is_merge_commit returns True
-        mock_merge_result = MagicMock(
-            returncode=0, stdout="abc123 def456 ghi789\n", stderr=""
-        )
+        mock_merge_result = MagicMock(returncode=0, stdout="abc123 def456 ghi789\n", stderr="")
         mock_diff_result = MagicMock(returncode=0, stdout=diff_output, stderr=b"")
 
         with patch("subprocess.run") as mock_run:

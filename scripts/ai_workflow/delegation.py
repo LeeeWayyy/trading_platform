@@ -13,19 +13,16 @@ Thresholds:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional
+from datetime import UTC, datetime
 
 from .constants import (
-    PROJECT_ROOT,
-    CONTEXT_WARN_PCT,
     CONTEXT_CRITICAL_PCT,
+    CONTEXT_WARN_PCT,
     DEFAULT_MAX_TOKENS,
+    PROJECT_ROOT,
 )
 
 
@@ -57,7 +54,7 @@ class DelegationRules:
         self,
         load_state: Callable[[], dict],
         save_state: Callable[[dict], None],
-        locked_modify_state: Optional[Callable[[Callable[[dict], None]], dict]] = None,
+        locked_modify_state: Callable[[Callable[[dict], None]], dict] | None = None,
     ) -> None:
         """
         Initialize DelegationRules with state management callables.
@@ -71,7 +68,7 @@ class DelegationRules:
         self._save_state = save_state
         self._locked_modify_state = locked_modify_state
 
-    def get_context_snapshot(self, state: Optional[dict] = None) -> dict:
+    def get_context_snapshot(self, state: dict | None = None) -> dict:
         """
         Get current context usage snapshot.
 
@@ -141,7 +138,7 @@ class DelegationRules:
             if "context" not in state:
                 state["context"] = {}
             state["context"]["current_tokens"] = tokens
-            state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+            state["context"]["last_check_timestamp"] = datetime.now(UTC).isoformat()
             if "max_tokens" not in state["context"]:
                 state["context"]["max_tokens"] = self.DEFAULT_MAX_TOKENS
 
@@ -169,7 +166,7 @@ class DelegationRules:
             print(f"Warning: Could not update state: {e}")
             return self.get_context_snapshot({})
 
-    def check_threshold(self, state: Optional[dict] = None) -> dict:
+    def check_threshold(self, state: dict | None = None) -> dict:
         """
         Check context usage against thresholds.
 
@@ -256,16 +253,18 @@ class DelegationRules:
             # Record delegation
             if "subagent_delegations" not in state:
                 state["subagent_delegations"] = []
-            state["subagent_delegations"].append({
-                "description": description,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            state["subagent_delegations"].append(
+                {
+                    "description": description,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
 
             # Reset context
             if "context" not in state:
                 state["context"] = {}
             state["context"]["current_tokens"] = 0
-            state["context"]["last_check_timestamp"] = datetime.now(timezone.utc).isoformat()
+            state["context"]["last_check_timestamp"] = datetime.now(UTC).isoformat()
 
             # Clear cache
             state["context_cache"] = {

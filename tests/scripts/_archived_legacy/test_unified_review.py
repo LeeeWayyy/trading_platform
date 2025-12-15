@@ -370,7 +370,7 @@ class TestRequestReview:
         """Test request_review raises ValueError for invalid scope."""
         reviewer = UnifiedReviewSystem(state_file=temp_state_file)
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError, match="Invalid scope: invalid") as excinfo:
             reviewer.request_review(scope="invalid")
 
         assert "Invalid scope: invalid" in str(excinfo.value)

@@ -73,7 +73,7 @@ class DummyStreamlit(types.SimpleNamespace):
         return _Spinner()
 
     def columns(self, spec):
-        count = len(spec) if isinstance(spec, (list, tuple)) else spec
+        count = len(spec) if isinstance(spec, list | tuple) else spec
         return [self for _ in range(count)]
 
     def slider(self, *_args, **_kwargs):
