@@ -103,7 +103,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "E402",  # Module level import not at top (intentional for stubbing)
-    "PT004", # Fixture doesn't return (valid pattern)
+    "PT004", # Use `@pytest.fixture()` with parentheses
 ]
 "scripts/**/*.py" = [
     "E402",  # Path manipulation before imports
