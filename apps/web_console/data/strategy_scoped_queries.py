@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 STRATEGY_CACHE_DB_ENV = "REDIS_STRATEGY_CACHE_DB"
 DEFAULT_STRATEGY_CACHE_DB = 3
 STRATEGY_CACHE_KEY_ENV = "STRATEGY_CACHE_ENCRYPTION_KEY"
+BREAK_EVEN_EPSILON = Decimal("0.01")
 
 
 def _get_cache_encryption_key() -> bytes | None:
@@ -230,6 +231,21 @@ class StrategyScopedDataAccess:
         rows = await cursor.fetchall()
         return cast(list[Any], rows)
 
+    @staticmethod
+    def _add_date_filters(
+        clauses: list[str],
+        params: list[Any],
+        date_from: date | None,
+        date_to: date | None,
+    ) -> None:
+        """Append executed_at date filters to clauses/params in-place."""
+        if date_from:
+            clauses.append("executed_at >= %s")
+            params.append(_date_to_utc_datetime(date_from))
+        if date_to:
+            clauses.append("executed_at < %s")
+            params.append(_date_to_utc_datetime(date_to))
+
     async def get_positions(
         self, limit: int = DEFAULT_LIMIT, offset: int = 0, use_cache: bool = True, **filters: Any
     ) -> list[dict[str, Any]]:
@@ -312,12 +328,7 @@ class StrategyScopedDataAccess:
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
 
-        if date_from:
-            clauses.append("executed_at >= %s")
-            params.append(_date_to_utc_datetime(date_from))
-        if date_to:
-            clauses.append("executed_at < %s")
-            params.append(_date_to_utc_datetime(date_to))
+        self._add_date_filters(clauses, params, date_from, date_to)
 
         query = f"""
             SELECT * FROM trades
@@ -343,24 +354,19 @@ class StrategyScopedDataAccess:
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
 
-        if date_from:
-            clauses.append("executed_at >= %s")
-            params.append(_date_to_utc_datetime(date_from))
-        if date_to:
-            clauses.append("executed_at < %s")
-            params.append(_date_to_utc_datetime(date_to))
+        self._add_date_filters(clauses, params, date_from, date_to)
 
         query = f"""
             SELECT
                 COUNT(*) AS total_trades,
-                COUNT(*) FILTER (WHERE realized_pnl > 0.01) AS winning_trades,
-                COUNT(*) FILTER (WHERE realized_pnl < -0.01) AS losing_trades,
-                COUNT(*) FILTER (WHERE realized_pnl BETWEEN -0.01 AND 0.01) AS break_even_trades,
+                COUNT(*) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}) AS winning_trades,
+                COUNT(*) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS losing_trades,
+                COUNT(*) FILTER (WHERE realized_pnl BETWEEN -{BREAK_EVEN_EPSILON} AND {BREAK_EVEN_EPSILON}) AS break_even_trades,
                 COALESCE(SUM(realized_pnl), 0) AS total_realized_pnl,
                 COALESCE(SUM(realized_pnl) FILTER (WHERE realized_pnl > 0), 0) AS gross_profit,
                 COALESCE(ABS(SUM(realized_pnl) FILTER (WHERE realized_pnl < 0)), 0) AS gross_loss,
-                AVG(realized_pnl) FILTER (WHERE realized_pnl > 0.01) AS avg_win,
-                AVG(realized_pnl) FILTER (WHERE realized_pnl < -0.01) AS avg_loss,
+                AVG(realized_pnl) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}) AS avg_win,
+                AVG(realized_pnl) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS avg_loss,
                 MAX(realized_pnl) AS largest_win,
                 MIN(realized_pnl) AS largest_loss
             FROM trades
@@ -381,10 +387,10 @@ class StrategyScopedDataAccess:
             "total_realized_pnl": Decimal(str(row.get("total_realized_pnl", 0))),
             "gross_profit": Decimal(str(row.get("gross_profit", 0))),
             "gross_loss": Decimal(str(row.get("gross_loss", 0))),
-            "avg_win": Decimal(str(row["avg_win"])) if row.get("avg_win") is not None else None,
-            "avg_loss": Decimal(str(row["avg_loss"])) if row.get("avg_loss") is not None else None,
-            "largest_win": Decimal(str(row["largest_win"])) if row.get("largest_win") is not None else None,
-            "largest_loss": Decimal(str(row["largest_loss"])) if row.get("largest_loss") is not None else None,
+            "avg_win": Decimal(str(avg_win)) if (avg_win := row.get("avg_win")) is not None else None,
+            "avg_loss": Decimal(str(avg_loss)) if (avg_loss := row.get("avg_loss")) is not None else None,
+            "largest_win": Decimal(str(largest_win)) if (largest_win := row.get("largest_win")) is not None else None,
+            "largest_loss": Decimal(str(largest_loss)) if (largest_loss := row.get("largest_loss")) is not None else None,
         }
 
     async def stream_trades_for_export(
@@ -397,12 +403,7 @@ class StrategyScopedDataAccess:
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
 
-        if date_from:
-            clauses.append("executed_at >= %s")
-            params.append(_date_to_utc_datetime(date_from))
-        if date_to:
-            clauses.append("executed_at < %s")
-            params.append(_date_to_utc_datetime(date_to))
+        self._add_date_filters(clauses, params, date_from, date_to)
 
         query = f"""
             SELECT * FROM trades

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from decimal import Decimal
 from typing import Any
 
 import pandas as pd
@@ -58,8 +57,6 @@ def _format_decimal(value: Any) -> float:
 
     if value is None:
         return 0.0
-    if isinstance(value, Decimal):
-        return float(value)
     try:
         return float(value)
     except (TypeError, ValueError):
