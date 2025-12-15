@@ -259,13 +259,9 @@ class MonteCarloSimulator:
         n_obs = arr.shape[0]
         if n_obs == 0:
             return np.empty((self.config.n_simulations, 0), dtype=np.float64)
-        # Using vectorized permutations is not directly supported; loop is confined to index shuffling only.
-        permutations = np.empty((self.config.n_simulations, n_obs), dtype=np.float64)
-        base_indices = np.arange(n_obs)
-        for i in range(self.config.n_simulations):
-            self.rng.shuffle(base_indices)
-            permutations[i] = arr[base_indices]
-        return permutations
+        arr = arr.astype(np.float64, copy=False)
+        arr_2d = np.broadcast_to(arr, (self.config.n_simulations, n_obs))
+        return cast(NDArray[np.float64], self.rng.permuted(arr_2d, axis=1))
 
     def _compute_sharpe_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
         """Vectorized Sharpe computation for simulated paths."""
@@ -273,12 +269,6 @@ class MonteCarloSimulator:
         stds = returns.std(axis=1, ddof=1)
         with np.errstate(divide="ignore", invalid="ignore"):
             sharpe = np.sqrt(252.0) * means / stds
-        zero_vol_mask = stds == 0
-        sharpe = np.where(
-            zero_vol_mask,
-            np.where(means > 0, math.inf, np.where(means < 0, -math.inf, math.nan)),
-            sharpe,
-        )
         return sharpe
 
     def _compute_max_drawdown_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
