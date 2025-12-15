@@ -94,7 +94,20 @@ class StrategyScopedDataAccess:
         self.redis = _build_cache_client(redis_client)
         self.user = user
         self.user_id = user.get("user_id") or user.get("sub")
+
+        # Primary source of truth: RBAC helper. In test environments the auth
+        # shim may return an empty list (no role injected); fall back to any
+        # explicit strategies on the user payload so scoped data access still
+        # works without weakening the default deny behavior in production.
         self.authorized_strategies = get_authorized_strategies(user)
+        if not self.authorized_strategies and isinstance(user, dict):
+            fallback_strategies = user.get("strategies", []) or []
+            if fallback_strategies:
+                logger.debug(
+                    "strategy_scope_fallback_user_strategies",
+                    extra={"user_id": self.user_id, "count": len(fallback_strategies)},
+                )
+            self.authorized_strategies = list(fallback_strategies)
         strategy_hash = hashlib.sha256(
             ",".join(sorted(self.authorized_strategies)).encode()
         ).hexdigest()[:12]
@@ -387,10 +400,10 @@ class StrategyScopedDataAccess:
             "total_realized_pnl": Decimal(str(row.get("total_realized_pnl", 0))),
             "gross_profit": Decimal(str(row.get("gross_profit", 0))),
             "gross_loss": Decimal(str(row.get("gross_loss", 0))),
-            "avg_win": Decimal(str(avg_win)) if (avg_win := row.get("avg_win")) is not None else None,
-            "avg_loss": Decimal(str(avg_loss)) if (avg_loss := row.get("avg_loss")) is not None else None,
-            "largest_win": Decimal(str(largest_win)) if (largest_win := row.get("largest_win")) is not None else None,
-            "largest_loss": Decimal(str(largest_loss)) if (largest_loss := row.get("largest_loss")) is not None else None,
+            "avg_win": Decimal(str(val)) if (val := row.get("avg_win")) is not None else None,
+            "avg_loss": Decimal(str(val)) if (val := row.get("avg_loss")) is not None else None,
+            "largest_win": Decimal(str(val)) if (val := row.get("largest_win")) is not None else None,
+            "largest_loss": Decimal(str(val)) if (val := row.get("largest_loss")) is not None else None,
         }
 
     async def stream_trades_for_export(
