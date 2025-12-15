@@ -291,14 +291,11 @@ async def _export_csv(
     writer.writerow(["Date", "Symbol", "Side", "Qty", "Price", "Realized P&L", "Strategy"])
 
     row_count = 0
-    filters: dict[str, Any] = {
-        key: value
-        for key, value in {
-            "symbol": symbol_filter,
-            "side": side_filter,
-        }.items()
-        if value
-    }
+    filters: dict[str, Any] = {}
+    if symbol_filter:
+        filters["symbol"] = symbol_filter
+    if side_filter:
+        filters["side"] = side_filter
 
     async for trade in data_access.stream_trades_for_export(
         date_from=start_date,
@@ -339,14 +336,11 @@ async def _export_excel(
     ws.append(["Date", "Symbol", "Side", "Qty", "Price", "Realized P&L", "Strategy"])
 
     row_count = 0
-    filters: dict[str, Any] = {
-        key: value
-        for key, value in {
-            "symbol": symbol_filter,
-            "side": side_filter,
-        }.items()
-        if value
-    }
+    filters: dict[str, Any] = {}
+    if symbol_filter:
+        filters["symbol"] = symbol_filter
+    if side_filter:
+        filters["side"] = side_filter
 
     async for trade in data_access.stream_trades_for_export(
         date_from=start_date,

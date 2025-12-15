@@ -95,19 +95,8 @@ class StrategyScopedDataAccess:
         self.user = user
         self.user_id = user.get("user_id") or user.get("sub")
 
-        # Primary source of truth: RBAC helper. In test environments the auth
-        # shim may return an empty list (no role injected); fall back to any
-        # explicit strategies on the user payload so scoped data access still
-        # works without weakening the default deny behavior in production.
+        # Primary source of truth: RBAC helper.
         self.authorized_strategies = get_authorized_strategies(user)
-        if not self.authorized_strategies and isinstance(user, dict):
-            fallback_strategies = user.get("strategies", []) or []
-            if fallback_strategies:
-                logger.debug(
-                    "strategy_scope_fallback_user_strategies",
-                    extra={"user_id": self.user_id, "count": len(fallback_strategies)},
-                )
-            self.authorized_strategies = list(fallback_strategies)
         strategy_hash = hashlib.sha256(
             ",".join(sorted(self.authorized_strategies)).encode()
         ).hexdigest()[:12]
@@ -383,8 +372,8 @@ class StrategyScopedDataAccess:
                 COUNT(*) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS losing_trades,
                 COUNT(*) FILTER (WHERE realized_pnl BETWEEN -{BREAK_EVEN_EPSILON} AND {BREAK_EVEN_EPSILON}) AS break_even_trades,
                 COALESCE(SUM(realized_pnl), 0) AS total_realized_pnl,
-                COALESCE(SUM(realized_pnl) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}), 0) AS gross_profit,
-                COALESCE(ABS(SUM(realized_pnl) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON})), 0) AS gross_loss,
+                COALESCE(SUM(realized_pnl) FILTER (WHERE realized_pnl > 0), 0) AS gross_profit,
+                COALESCE(ABS(SUM(realized_pnl) FILTER (WHERE realized_pnl < 0)), 0) AS gross_loss,
                 AVG(realized_pnl) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}) AS avg_win,
                 AVG(realized_pnl) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS avg_loss,
                 MAX(realized_pnl) AS largest_win,
