@@ -65,6 +65,11 @@ class BacktestResult:
     decay_curve: pl.DataFrame  # [horizon, ic, rank_ic]
     decay_half_life: float | None
 
+    # Portfolio returns (for Monte Carlo and risk metrics)
+    daily_portfolio_returns: pl.DataFrame = field(
+        default_factory=lambda: pl.DataFrame(schema={"date": pl.Date, "return": pl.Float64})
+    )  # [date, return]
+
     # Metadata
     computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     n_days: int = 0
@@ -497,6 +502,13 @@ class PITBacktester:
             turnover_calc = TurnoverCalculator()
             turnover_result = turnover_calc.compute_turnover_result(daily_weights)
 
+            daily_portfolio_returns = (
+                daily_weights.join(daily_returns, on=["permno", "date"], how="inner")
+                .group_by("date")
+                .agg((pl.col("weight") * pl.col("return")).sum().alias("return"))
+                .sort("date")
+            )
+
             # Decay curve
             returns_by_horizon = {}
             for horizon in decay_horizons:
@@ -543,6 +555,7 @@ class PITBacktester:
                 autocorrelation=autocorr,
                 weight_method=weight_method,
                 daily_weights=daily_weights,
+                daily_portfolio_returns=daily_portfolio_returns,
                 turnover_result=turnover_result,
                 decay_curve=decay_result.decay_curve,
                 decay_half_life=decay_result.half_life,
