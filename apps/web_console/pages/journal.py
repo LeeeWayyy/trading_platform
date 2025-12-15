@@ -50,8 +50,6 @@ def main() -> None:
         st.warning("You don't have access to any strategies. Contact administrator.")
         st.stop()
 
-    start_date, end_date = _select_date_range()
-
     # Initialize pagination state before filters (needed for on_change callback)
     if "journal_page" not in st.session_state:
         st.session_state.journal_page = 0
@@ -59,6 +57,8 @@ def main() -> None:
     def _reset_pagination() -> None:
         """Reset pagination when filters change."""
         st.session_state.journal_page = 0
+
+    start_date, end_date = _select_date_range(on_change=_reset_pagination)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -113,8 +113,14 @@ def main() -> None:
     _render_export_section(data_access, user, start_date, end_date, symbol_filter, side_filter)
 
 
-def _select_date_range() -> tuple[date, date]:
-    """Date range selector with UTC semantics."""
+def _select_date_range(
+    on_change: Any = None,
+) -> tuple[date, date]:
+    """Date range selector with UTC semantics.
+
+    Args:
+        on_change: Optional callback when date selection changes (resets pagination).
+    """
 
     today = date.today()
     presets = {
@@ -125,7 +131,10 @@ def _select_date_range() -> tuple[date, date]:
         "Custom": None,
     }
 
-    preset = st.selectbox("Date Range", list(presets.keys()), index=1)
+    preset = st.selectbox(
+        "Date Range", list(presets.keys()), index=1,
+        on_change=on_change, key="journal_date_preset"
+    )
 
     if preset != "Custom":
         result = presets[preset]
@@ -136,6 +145,8 @@ def _select_date_range() -> tuple[date, date]:
         "Select Date Range",
         value=(today - timedelta(days=30), today),
         max_value=today,
+        on_change=on_change,
+        key="journal_date_custom",
     )
 
     if isinstance(date_input, tuple) and len(date_input) == 2:
