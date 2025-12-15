@@ -16,7 +16,7 @@ from apps.web_console.components.trade_stats import render_trade_stats
 from apps.web_console.components.trade_table import render_trade_table
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
 from apps.web_console.utils.async_helpers import run_async
-from apps.web_console.utils.db_pool import get_db_pool
+from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +24,6 @@ FEATURE_TRADE_JOURNAL = os.getenv("FEATURE_TRADE_JOURNAL", "false").lower() in {
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 MAX_RANGE_DAYS = 365
-
-
-def _get_redis_client() -> Any:
-    """Helper to reuse the session manager's Redis client."""
-
-    from apps.web_console.auth.session_manager import _get_redis_client
-
-    return _get_redis_client()
 
 
 @require_auth
@@ -85,7 +77,7 @@ def main() -> None:
     page_size = min(page_size, MAX_PAGE_SIZE)
 
     db_pool = get_db_pool()
-    redis_client = _get_redis_client()
+    redis_client = get_redis_client()
     data_access = StrategyScopedDataAccess(db_pool, redis_client, user)
 
     with st.spinner("Loading statistics..."):
@@ -363,12 +355,12 @@ async def _export_excel(
     ):
         ws.append(
             [
-                str(trade.get("executed_at")),
+                trade.get("executed_at"),
                 trade.get("symbol"),
                 trade.get("side"),
                 trade.get("qty"),
-                float(trade.get("price", 0)),
-                float(trade.get("realized_pnl", 0)),
+                trade.get("price"),
+                trade.get("realized_pnl"),
                 trade.get("strategy_id"),
             ]
         )

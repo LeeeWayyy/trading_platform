@@ -7,8 +7,6 @@ from typing import Any
 
 import streamlit as st
 
-BREAK_EVEN_EPSILON = Decimal("0.01")
-
 
 def calculate_win_rate(winning: int, total: int) -> float:
     """Calculate win rate with divide-by-zero protection."""
@@ -101,4 +99,3 @@ def render_trade_stats(stats: dict[str, Any]) -> None:
     cols3[1].metric("Avg Loss", _format_currency(avg_loss))
     cols3[2].metric("Largest Win", _format_currency(largest_win))
     cols3[3].metric("Largest Loss", _format_currency(largest_loss))
-

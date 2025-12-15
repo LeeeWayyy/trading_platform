@@ -126,6 +126,13 @@ class StrategyScopedDataAccess:
                 },
             )
 
+    def _to_decimal_or_none(self, value: Any) -> Decimal | None:
+        """Convert value to Decimal when present, otherwise return None."""
+
+        if value is None:
+            return None
+        return Decimal(str(value))
+
     def _encrypt_cache_data(self, data: str) -> str:
         """Encrypt cache data with AES-256-GCM."""
         if not self._cipher:
@@ -376,8 +383,8 @@ class StrategyScopedDataAccess:
                 COUNT(*) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS losing_trades,
                 COUNT(*) FILTER (WHERE realized_pnl BETWEEN -{BREAK_EVEN_EPSILON} AND {BREAK_EVEN_EPSILON}) AS break_even_trades,
                 COALESCE(SUM(realized_pnl), 0) AS total_realized_pnl,
-                COALESCE(SUM(realized_pnl) FILTER (WHERE realized_pnl > 0), 0) AS gross_profit,
-                COALESCE(ABS(SUM(realized_pnl) FILTER (WHERE realized_pnl < 0)), 0) AS gross_loss,
+                COALESCE(SUM(realized_pnl) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}), 0) AS gross_profit,
+                COALESCE(ABS(SUM(realized_pnl) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON})), 0) AS gross_loss,
                 AVG(realized_pnl) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}) AS avg_win,
                 AVG(realized_pnl) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS avg_loss,
                 MAX(realized_pnl) AS largest_win,
@@ -400,10 +407,10 @@ class StrategyScopedDataAccess:
             "total_realized_pnl": Decimal(str(row.get("total_realized_pnl", 0))),
             "gross_profit": Decimal(str(row.get("gross_profit", 0))),
             "gross_loss": Decimal(str(row.get("gross_loss", 0))),
-            "avg_win": Decimal(str(val)) if (val := row.get("avg_win")) is not None else None,
-            "avg_loss": Decimal(str(val)) if (val := row.get("avg_loss")) is not None else None,
-            "largest_win": Decimal(str(val)) if (val := row.get("largest_win")) is not None else None,
-            "largest_loss": Decimal(str(val)) if (val := row.get("largest_loss")) is not None else None,
+            "avg_win": self._to_decimal_or_none(row.get("avg_win")),
+            "avg_loss": self._to_decimal_or_none(row.get("avg_loss")),
+            "largest_win": self._to_decimal_or_none(row.get("largest_win")),
+            "largest_loss": self._to_decimal_or_none(row.get("largest_loss")),
         }
 
     async def stream_trades_for_export(
