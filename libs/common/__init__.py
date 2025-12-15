@@ -6,6 +6,7 @@ from libs.common.exceptions import (
     StalenessError,
     TradingPlatformError,
 )
+from libs.common.file_utils import hash_file_sha256
 from libs.common.schemas import TimestampSerializerMixin
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "StalenessError",
     "OutlierError",
     "TimestampSerializerMixin",
+    "hash_file_sha256",
 ]

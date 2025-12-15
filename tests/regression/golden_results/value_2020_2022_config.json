@@ -1,0 +1,11 @@
+{
+  "alpha_name": "value",
+  "alpha_params": {
+    "winsorize_pct": 0.01
+  },
+  "start_date": "2020-01-01",
+  "end_date": "2022-12-31",
+  "weight_method": "zscore",
+  "random_seed": 42,
+  "snapshot_id": "golden_v1.0.0"
+}

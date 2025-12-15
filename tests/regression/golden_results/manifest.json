@@ -1,0 +1,32 @@
+{
+  "version": "v1.0.0",
+  "created_at": "2025-12-15T19:40:01.402661Z",
+  "dataset_snapshot_id": "golden_v1.0.0",
+  "regeneration_triggers": [
+    "Major alpha logic change",
+    "Dataset schema change",
+    "Quarterly refresh (optional)"
+  ],
+  "last_regenerated": "2025-12-15T19:40:01.402819Z",
+  "regenerated_by": "scripts/generate_golden_results.py",
+  "storage_size_mb": 0.0,
+  "storage_size_note": "Decimal MB (1MB = 1,000,000 bytes), includes manifest",
+  "golden_files": [
+    {
+      "name": "momentum_2020_2022.json",
+      "checksum": "sha256:c2f3ac2bdb8873cf310f5c1effd88b305e8fc979d9088baaebddb658a1106477"
+    },
+    {
+      "name": "momentum_2020_2022_config.json",
+      "checksum": "sha256:007fe427b0adcdf3d5ca9627758fad253267923a35f858681e469d04cd849536"
+    },
+    {
+      "name": "value_2020_2022.json",
+      "checksum": "sha256:95e38f8578c8fa30cb4d893a1dc0c5bdeb8a1b95af7d01ed1c0175bae2df848b"
+    },
+    {
+      "name": "value_2020_2022_config.json",
+      "checksum": "sha256:b12ea6594d27bf5efc4df09cbf5fcb51693957b5ab613406daad89e743de90ea"
+    }
+  ]
+}

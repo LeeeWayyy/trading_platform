@@ -1,0 +1,9 @@
+{
+  "mean_ic": 0.025,
+  "icir": 0.85,
+  "hit_rate": 0.52,
+  "coverage": 0.95,
+  "long_short_spread": 0.008,
+  "average_turnover": 0.15,
+  "decay_half_life": 15.0
+}
