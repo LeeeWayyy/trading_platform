@@ -256,6 +256,30 @@ def mock_db_pool():
     return pool
 
 
+@pytest.fixture(autouse=True)
+def mock_authorized_strategies(monkeypatch):
+    """Ensure tests use user-provided strategies via auth helper.
+
+    StrategyScopedDataAccess now requires get_authorized_strategies to
+    return non-empty strategy lists; we mock the permission helper to
+    mirror the test user's ``strategies`` field for both the data access
+    module and the journal page.
+    """
+
+    permissions_mod = import_module("apps.web_console.auth.permissions")
+    strategy_scoped_queries = import_module("apps.web_console.data.strategy_scoped_queries")
+
+    def _authorized(user):
+        return user.get("strategies", []) if isinstance(user, dict) else []
+
+    # Patch both the permissions helper and the data access module's local import
+    # so StrategyScopedDataAccess always uses the test user's strategies.
+    monkeypatch.setattr(permissions_mod, "get_authorized_strategies", _authorized, raising=False)
+    monkeypatch.setattr(strategy_scoped_queries, "get_authorized_strategies", _authorized, raising=False)
+    monkeypatch.setattr(journal_page, "get_authorized_strategies", _authorized, raising=False)
+    return _authorized
+
+
 # ---------------------------------------------------------------------------
 # Trade statistics helpers
 # ---------------------------------------------------------------------------

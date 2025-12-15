@@ -365,6 +365,12 @@ class StrategyScopedDataAccess:
 
         self._add_date_filters(clauses, params, date_from, date_to)
 
+        # Trade counts use BREAK_EVEN_EPSILON to ignore micro-pnl noise when
+        # classifying wins/losses/break-evens and computing avg_win/avg_loss.
+        # Gross profit/loss stay strict (> 0 / < 0) so financial totals
+        # reconcile exactly: total_realized_pnl = gross_profit - gross_loss.
+        # This hybrid keeps profit_factor accurate while filtering tiny fills
+        # from the win-rate calculation.
         query = f"""
             SELECT
                 COUNT(*) AS total_trades,

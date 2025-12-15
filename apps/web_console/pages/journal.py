@@ -210,17 +210,25 @@ def _do_export(
     user_id = user.get("user_id", "unknown")
     authorized_strategies = get_authorized_strategies(user)
 
+    # Build filters once so CSV/Excel exporters stay in sync and future filters
+    # are added in a single place.
+    filters: dict[str, Any] = {}
+    if symbol_filter:
+        filters["symbol"] = symbol_filter
+    if side_filter:
+        filters["side"] = side_filter
+
     try:
         with st.spinner(f"Exporting to {export_type.upper()}..."):
             if export_type == "csv":
                 content, row_count = run_async(
-                    _export_csv(data_access, start_date, end_date, symbol_filter, side_filter)
+                    _export_csv(data_access, start_date, end_date, filters)
                 )
                 mime_type = "text/csv"
                 file_ext = "csv"
             else:
                 content, row_count = run_async(
-                    _export_excel(data_access, start_date, end_date, symbol_filter, side_filter)
+                    _export_excel(data_access, start_date, end_date, filters)
                 )
                 mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 file_ext = "xlsx"
@@ -238,7 +246,7 @@ def _do_export(
                     metadata={
                         "date_from": start_date,
                         "date_to": end_date,
-                        "filters": {"symbol": symbol_filter, "side": side_filter},
+                        "filters": filters,
                         "strategy_ids": authorized_strategies,
                     },
                 )
@@ -251,7 +259,7 @@ def _do_export(
                     "export_type": export_type,
                     "row_count": row_count,
                     "date_range": f"{start_date}_{end_date}",
-                    "filters": {"symbol": symbol_filter, "side": side_filter},
+                    "filters": filters,
                     "strategy_ids": authorized_strategies,
                 },
             )
@@ -266,7 +274,7 @@ def _do_export(
                 "export_type": export_type,
                 "error": str(exc),
                 "date_range": f"{start_date}_{end_date}",
-                "filters": {"symbol": symbol_filter, "side": side_filter},
+                "filters": filters,
                 "strategy_ids": authorized_strategies,
             },
             exc_info=True,
@@ -278,8 +286,7 @@ async def _export_csv(
     data_access: StrategyScopedDataAccess,
     start_date: date,
     end_date: date,
-    symbol_filter: str | None,
-    side_filter: str | None,
+    filters: dict[str, Any],
 ) -> tuple[bytes, int]:
     """Export trades to CSV using streaming."""
 
@@ -290,12 +297,9 @@ async def _export_csv(
     writer = csv.writer(output)
     writer.writerow(["Date", "Symbol", "Side", "Qty", "Price", "Realized P&L", "Strategy"])
 
+    # Filters are pre-computed in _do_export to keep CSV/Excel parity and make
+    # future filter additions a single-point change.
     row_count = 0
-    filters: dict[str, Any] = {}
-    if symbol_filter:
-        filters["symbol"] = symbol_filter
-    if side_filter:
-        filters["side"] = side_filter
 
     async for trade in data_access.stream_trades_for_export(
         date_from=start_date,
@@ -322,8 +326,7 @@ async def _export_excel(
     data_access: StrategyScopedDataAccess,
     start_date: date,
     end_date: date,
-    symbol_filter: str | None,
-    side_filter: str | None,
+    filters: dict[str, Any],
 ) -> tuple[bytes, int]:
     """Export trades to Excel using streaming write mode."""
 
@@ -335,12 +338,9 @@ async def _export_excel(
     ws = wb.create_sheet("Trades")
     ws.append(["Date", "Symbol", "Side", "Qty", "Price", "Realized P&L", "Strategy"])
 
+    # Filters are pre-computed in _do_export to keep CSV/Excel parity and make
+    # future filter additions a single-point change.
     row_count = 0
-    filters: dict[str, Any] = {}
-    if symbol_filter:
-        filters["symbol"] = symbol_filter
-    if side_filter:
-        filters["side"] = side_filter
 
     async for trade in data_access.stream_trades_for_export(
         date_from=start_date,
