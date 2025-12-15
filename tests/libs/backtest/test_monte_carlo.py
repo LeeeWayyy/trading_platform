@@ -141,6 +141,31 @@ def test_p_value_bounds():
     assert 0.0 <= res.p_value_sharpe <= 1.0
 
 
+def test_p_value_nan_when_observed_is_nan():
+    """If observed Sharpe is undefined, p-value should also be NaN."""
+    result = _build_backtest_result([0.01], [0.1])  # single observation -> Sharpe NaN
+    simulator = MonteCarloSimulator(MonteCarloConfig(n_simulations=20, random_seed=13))
+
+    res = simulator.run_bootstrap(result)
+
+    assert math.isnan(res.sharpe_ci.observed)
+    assert math.isnan(res.p_value_sharpe)
+
+
+def test_custom_confidence_levels_are_used():
+    returns = [0.01, -0.02, 0.015, 0.0, 0.01]
+    ic_values = [0.1, 0.05, 0.2, -0.05, 0.0]
+    result = _build_backtest_result(returns, ic_values)
+    config = MonteCarloConfig(
+        n_simulations=120, random_seed=17, confidence_levels=(0.1, 0.25, 0.75, 0.9)
+    )
+
+    res = MonteCarloSimulator(config).run_bootstrap(result)
+
+    assert set(res.sharpe_ci.quantiles.keys()) == {0.1, 0.25, 0.75, 0.9}
+    assert math.isnan(res.sharpe_ci.lower_5)
+
+
 def test_all_confidence_intervals_present():
     returns = [0.01, 0.02, 0.03, -0.01, 0.0]
     ic_values = [0.1, 0.05, 0.2, 0.0, -0.05]

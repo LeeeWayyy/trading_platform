@@ -150,7 +150,9 @@ class MonteCarloSimulator:
             observed=observed_hit, simulated=hit_rate_dist, metric_name="hit_rate"
         )
 
-        p_value_sharpe = float(np.mean(sharpe_dist >= observed_sharpe))
+        p_value_sharpe = (
+            math.nan if math.isnan(observed_sharpe) else float(np.mean(sharpe_dist >= observed_sharpe))
+        )
 
         return MonteCarloResult(
             config=self.config,

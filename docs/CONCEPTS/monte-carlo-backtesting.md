@@ -1,6 +1,6 @@
 # Monte Carlo Backtesting
 
-Monte Carlo simulation stress‑tests a backtest by resampling the observed daily portfolio returns and IC series to understand how sensitive the results are to randomness.
+Monte Carlo simulation stress-tests a backtest by resampling the observed daily portfolio returns and IC series to understand how sensitive the results are to randomness.
 
 ## Methods
 - **Bootstrap (with replacement):** Draws daily returns randomly with replacement. Preserves distributional properties but breaks temporal order. Good for estimating variance of metrics under the same return distribution.
