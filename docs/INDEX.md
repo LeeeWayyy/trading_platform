@@ -152,6 +152,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
 - [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1a_PLAN.md](./PLANS/P4T3_T6.1a_PLAN.md) - T6.1a Auth/RBAC Core implementation plan
 - [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1b_PLAN.md](./PLANS/P4T3_T6.1b_PLAN.md) - T6.1b Admin User Management UI implementation plan
+- [CURRENT, 2025-12-14, Plan] [PLANS/P4T3_T6.5_PLAN.md](./PLANS/P4T3_T6.5_PLAN.md) - T6.5 Trade Journal & Analysis implementation plan
 - [CURRENT, 2025-12-07, Plan] [PLANS/P4T1.9-ETL-Pipeline.md](./PLANS/P4T1.9-ETL-Pipeline.md) - Data storage and ETL pipeline implementation plan
 - [CURRENT, 2025-12-07, Plan] [PLANS/T1.3-CRSP-Local-Provider.md](./PLANS/T1.3-CRSP-Local-Provider.md) - CRSP local data provider implementation plan
 - [CURRENT, 2025-12-07, Plan] [PLANS/T1.4-Compustat-Local-Provider.md](./PLANS/T1.4-Compustat-Local-Provider.md) - Compustat local data provider implementation plan

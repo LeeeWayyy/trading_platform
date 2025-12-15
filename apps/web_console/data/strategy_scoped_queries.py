@@ -8,6 +8,8 @@ import json
 import logging
 import os
 from collections.abc import AsyncGenerator
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any, cast
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -20,6 +22,7 @@ logger = logging.getLogger(__name__)
 STRATEGY_CACHE_DB_ENV = "REDIS_STRATEGY_CACHE_DB"
 DEFAULT_STRATEGY_CACHE_DB = 3
 STRATEGY_CACHE_KEY_ENV = "STRATEGY_CACHE_ENCRYPTION_KEY"
+BREAK_EVEN_EPSILON = Decimal("0.01")
 
 
 def _get_cache_encryption_key() -> bytes | None:
@@ -75,6 +78,12 @@ def _build_cache_client(redis_client: Any) -> Any:
     return None
 
 
+def _date_to_utc_datetime(d: date) -> datetime:
+    """Convert date to UTC-aware datetime for timestamptz comparisons."""
+
+    return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=UTC)
+
+
 class StrategyScopedDataAccess:
     DEFAULT_LIMIT = 100
     MAX_LIMIT = 5000  # Raised from 1000 to support multi-year comparisons
@@ -85,6 +94,8 @@ class StrategyScopedDataAccess:
         self.redis = _build_cache_client(redis_client)
         self.user = user
         self.user_id = user.get("user_id") or user.get("sub")
+
+        # Primary source of truth: RBAC helper.
         self.authorized_strategies = get_authorized_strategies(user)
         strategy_hash = hashlib.sha256(
             ",".join(sorted(self.authorized_strategies)).encode()
@@ -103,6 +114,13 @@ class StrategyScopedDataAccess:
                     "cache_enabled": self.redis is not None,
                 },
             )
+
+    def _to_decimal_or_none(self, value: Any) -> Decimal | None:
+        """Convert value to Decimal when present, otherwise return None."""
+
+        if value is None:
+            return None
+        return Decimal(str(value))
 
     def _encrypt_cache_data(self, data: str) -> str:
         """Encrypt cache data with AES-256-GCM."""
@@ -222,6 +240,21 @@ class StrategyScopedDataAccess:
         rows = await cursor.fetchall()
         return cast(list[Any], rows)
 
+    @staticmethod
+    def _add_date_filters(
+        clauses: list[str],
+        params: list[Any],
+        date_from: date | None,
+        date_to: date | None,
+    ) -> None:
+        """Append executed_at date filters to clauses/params in-place."""
+        if date_from:
+            clauses.append("executed_at >= %s")
+            params.append(_date_to_utc_datetime(date_from))
+        if date_to:
+            clauses.append("executed_at < %s")
+            params.append(_date_to_utc_datetime(date_to))
+
     async def get_positions(
         self, limit: int = DEFAULT_LIMIT, offset: int = 0, use_cache: bool = True, **filters: Any
     ) -> list[dict[str, Any]]:
@@ -292,12 +325,20 @@ class StrategyScopedDataAccess:
         return [dict(row) for row in rows]
 
     async def get_trades(
-        self, limit: int = DEFAULT_LIMIT, offset: int = 0, **filters: Any
+        self,
+        limit: int = DEFAULT_LIMIT,
+        offset: int = 0,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        **filters: Any,
     ) -> list[dict[str, Any]]:
         limit = self._limit(limit)
         strategies = self._get_strategy_filter()
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
+
+        self._add_date_filters(clauses, params, date_from, date_to)
+
         query = f"""
             SELECT * FROM trades
             WHERE strategy_id = ANY(%s)
@@ -310,12 +351,75 @@ class StrategyScopedDataAccess:
             rows = await self._execute_fetchall(conn, query, tuple(exec_params))
         return [dict(row) for row in rows]
 
+    async def get_trade_stats(
+        self,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        **filters: Any,
+    ) -> dict[str, Any]:
+        """Aggregate trade statistics using SQL for accuracy."""
+
+        strategies = self._get_strategy_filter()
+        allowed_filters = {"symbol": "symbol", "side": "side"}
+        clauses, params = self._build_filter_clauses(filters, allowed_filters)
+
+        self._add_date_filters(clauses, params, date_from, date_to)
+
+        # Trade counts use BREAK_EVEN_EPSILON to ignore micro-pnl noise when
+        # classifying wins/losses/break-evens and computing avg_win/avg_loss.
+        # Gross profit/loss stay strict (> 0 / < 0) so financial totals
+        # reconcile exactly: total_realized_pnl = gross_profit - gross_loss.
+        # This hybrid keeps profit_factor accurate while filtering tiny fills
+        # from the win-rate calculation.
+        query = f"""
+            SELECT
+                COUNT(*) AS total_trades,
+                COUNT(*) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}) AS winning_trades,
+                COUNT(*) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS losing_trades,
+                COUNT(*) FILTER (WHERE realized_pnl BETWEEN -{BREAK_EVEN_EPSILON} AND {BREAK_EVEN_EPSILON}) AS break_even_trades,
+                COALESCE(SUM(realized_pnl), 0) AS total_realized_pnl,
+                COALESCE(SUM(realized_pnl) FILTER (WHERE realized_pnl > 0), 0) AS gross_profit,
+                COALESCE(ABS(SUM(realized_pnl) FILTER (WHERE realized_pnl < 0)), 0) AS gross_loss,
+                AVG(realized_pnl) FILTER (WHERE realized_pnl > {BREAK_EVEN_EPSILON}) AS avg_win,
+                AVG(realized_pnl) FILTER (WHERE realized_pnl < -{BREAK_EVEN_EPSILON}) AS avg_loss,
+                MAX(realized_pnl) AS largest_win,
+                MIN(realized_pnl) AS largest_loss
+            FROM trades
+            WHERE strategy_id = ANY(%s)
+            {(' AND ' + ' AND '.join(clauses)) if clauses else ''}
+        """
+        exec_params = [strategies, *params]
+        async with acquire_connection(self.db_pool) as conn:
+            rows = await self._execute_fetchall(conn, query, tuple(exec_params))
+            # Convert Row to dict to support .get() access (psycopg3 Row doesn't have .get)
+            row: dict[str, Any] = dict(rows[0]) if rows else {}
+
+        return {
+            "total_trades": int(row.get("total_trades", 0)),
+            "winning_trades": int(row.get("winning_trades", 0)),
+            "losing_trades": int(row.get("losing_trades", 0)),
+            "break_even_trades": int(row.get("break_even_trades", 0)),
+            "total_realized_pnl": Decimal(str(row.get("total_realized_pnl", 0))),
+            "gross_profit": Decimal(str(row.get("gross_profit", 0))),
+            "gross_loss": Decimal(str(row.get("gross_loss", 0))),
+            "avg_win": self._to_decimal_or_none(row.get("avg_win")),
+            "avg_loss": self._to_decimal_or_none(row.get("avg_loss")),
+            "largest_win": self._to_decimal_or_none(row.get("largest_win")),
+            "largest_loss": self._to_decimal_or_none(row.get("largest_loss")),
+        }
+
     async def stream_trades_for_export(
-        self, **filters: Any
+        self,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        **filters: Any,
     ) -> AsyncGenerator[dict[str, Any], None]:
         strategies = self._get_strategy_filter()
         allowed_filters = {"symbol": "symbol", "side": "side"}
         clauses, params = self._build_filter_clauses(filters, allowed_filters)
+
+        self._add_date_filters(clauses, params, date_from, date_to)
+
         query = f"""
             SELECT * FROM trades
             WHERE strategy_id = ANY(%s)

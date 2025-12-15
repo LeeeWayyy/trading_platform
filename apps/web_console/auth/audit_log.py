@@ -214,7 +214,11 @@ class AuditLogger:
         export_type: str,
         resource_type: str,
         row_count: int,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
+        details: dict[str, Any] = {"row_count": row_count}
+        if metadata:
+            details["metadata"] = metadata
         await self._write(
             user_id=user_id,
             action=f"export_{export_type}",
@@ -222,7 +226,7 @@ class AuditLogger:
             resource_type=resource_type,
             resource_id=None,
             outcome="success",
-            details={"row_count": row_count},
+            details=details,
         )
 
     async def cleanup_old_events(self) -> int:
