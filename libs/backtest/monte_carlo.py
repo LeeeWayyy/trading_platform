@@ -269,7 +269,7 @@ class MonteCarloSimulator:
         stds = returns.std(axis=1, ddof=1)
         with np.errstate(divide="ignore", invalid="ignore"):
             sharpe = np.sqrt(252.0) * means / stds
-        return sharpe
+        return cast(NDArray[np.float64], sharpe)
 
     def _compute_max_drawdown_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
         """Vectorized max drawdown using geometric compounding."""
