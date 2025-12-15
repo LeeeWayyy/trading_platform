@@ -368,12 +368,14 @@ def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
     required_signal_schema = {"date": pl.Date, "permno": pl.Int64, "signal": pl.Float64}
     required_weight_schema = {"date": pl.Date, "permno": pl.Int64, "weight": pl.Float64}
     required_ic_schema = {"date": pl.Date, "ic": pl.Float64, "rank_ic": pl.Float64}
+    required_portfolio_schema = {"date": pl.Date, "return": pl.Float64}
 
     _validate_schema(result.daily_signals, required_signal_schema)
     _validate_schema(result.daily_weights, required_weight_schema)
     if result.daily_ic is None:
         raise ValueError("daily_ic DataFrame must be populated before parquet export")
     _validate_schema(result.daily_ic, required_ic_schema)
+    _validate_schema(result.daily_portfolio_returns, required_portfolio_schema)
 
     result.daily_signals.select(["date", "permno", "signal"]).cast(required_signal_schema).write_parquet(  # type: ignore[arg-type]
         result_dir / "daily_signals.parquet",
@@ -387,6 +389,11 @@ def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
 
     result.daily_ic.select(["date", "ic", "rank_ic"]).cast(required_ic_schema).write_parquet(  # type: ignore[arg-type]
         result_dir / "daily_ic.parquet",
+        compression="snappy",
+    )
+
+    result.daily_portfolio_returns.select(["date", "return"]).cast(required_portfolio_schema).write_parquet(  # type: ignore[arg-type]
+        result_dir / "daily_portfolio_returns.parquet",
         compression="snappy",
     )
 

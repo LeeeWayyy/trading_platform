@@ -191,6 +191,13 @@ class BacktestResultStorage:
             signals = pl.read_parquet(path / "daily_signals.parquet")
             weights = pl.read_parquet(path / "daily_weights.parquet")
             ic = pl.read_parquet(path / "daily_ic.parquet")
+            daily_portfolio_returns_path = path / "daily_portfolio_returns.parquet"
+            if daily_portfolio_returns_path.exists():
+                daily_portfolio_returns = pl.read_parquet(daily_portfolio_returns_path)
+            else:
+                daily_portfolio_returns = pl.DataFrame(
+                    schema={"date": pl.Date, "return": pl.Float64}
+                )
 
             summary_path = path / "summary.json"
             if not summary_path.exists():
@@ -296,6 +303,7 @@ class BacktestResultStorage:
             autocorrelation={},  # Not persisted; empty dict avoids None
             weight_method=weight_method,
             daily_weights=weights,
+            daily_portfolio_returns=daily_portfolio_returns,
             turnover_result=turnover_result,
             decay_curve=decay_curve,
             decay_half_life=decay_half_life,

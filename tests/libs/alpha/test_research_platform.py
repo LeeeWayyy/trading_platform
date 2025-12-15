@@ -458,6 +458,7 @@ class TestPITBacktesterRunBacktest:
         assert result.weight_method == "zscore"
         assert result.daily_signals.height > 0
         assert result.daily_weights.height > 0
+        assert result.daily_portfolio_returns.height > 0
 
 
 class TestPITBacktesterCallbacks:
@@ -834,6 +835,7 @@ class TestBacktestResult:
             autocorrelation={1: 0.8},
             weight_method="zscore",
             daily_weights=pl.DataFrame(),
+            daily_portfolio_returns=pl.DataFrame(schema={"date": pl.Date, "return": pl.Float64}),
             turnover_result=turnover_result,
             decay_curve=pl.DataFrame(),
             decay_half_life=10.0,

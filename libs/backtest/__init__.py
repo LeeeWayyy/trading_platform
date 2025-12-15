@@ -1,5 +1,11 @@
 # Models and result_storage have lighter dependencies - always import
 from .models import BacktestJob, JobNotFound, ResultPathMissing, row_to_backtest_job
+from .monte_carlo import (
+    ConfidenceInterval,
+    MonteCarloConfig,
+    MonteCarloResult,
+    MonteCarloSimulator,
+)
 
 # Walk-forward optimization and parameter search utilities
 from .param_search import SearchResult, grid_search, random_search
@@ -35,6 +41,11 @@ __all__ = [
     "BacktestJobQueue",
     "BacktestResultStorage",
     "BacktestWorker",
+    # Monte Carlo
+    "ConfidenceInterval",
+    "MonteCarloConfig",
+    "MonteCarloResult",
+    "MonteCarloSimulator",
     # Walk-forward optimization
     "WalkForwardConfig",
     "WalkForwardOptimizer",
