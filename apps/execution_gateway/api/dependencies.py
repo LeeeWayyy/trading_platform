@@ -81,12 +81,11 @@ DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 MFA_TOKEN_MAX_AGE_SECONDS = 60
 
 # Singletons initialized lazily
+# Note: Functions WITH Depends() parameters cannot use @lru_cache due to FastAPI's
+# dependency injection mechanism - they need the global pattern for proper initialization.
 _rate_limiter: RateLimiter | None = None
 _audit_logger: AuditLogger | None = None
 _gateway_authenticator: GatewayAuthenticator | None = None
-_jwks_validator: JWKSValidator | None = None
-_db_client: DatabaseClient | None = None
-_alpaca_executor: AlpacaExecutor | None = None
 
 
 def error_detail(error: str, message: str, retry_after: int | None = None) -> dict[str, Any]:
@@ -124,7 +123,11 @@ def get_sync_redis() -> redis.Redis:
 
 
 def get_rate_limiter(redis_client: redis_async.Redis = Depends(get_async_redis)) -> RateLimiter:
-    """Return singleton rate limiter with fail-closed fallback."""
+    """Return singleton rate limiter with fail-closed fallback.
+
+    Note: Cannot use @lru_cache because FastAPI's Depends() injection is incompatible with it.
+    The global pattern ensures singleton behavior while allowing dependency injection.
+    """
 
     global _rate_limiter
     if _rate_limiter is None:
@@ -133,7 +136,11 @@ def get_rate_limiter(redis_client: redis_async.Redis = Depends(get_async_redis))
 
 
 def get_audit_logger(db_pool: AsyncConnectionPool = Depends(get_db_pool)) -> AuditLogger:
-    """Return audit logger backed by shared async pool."""
+    """Return audit logger backed by shared async pool.
+
+    Note: Cannot use @lru_cache because FastAPI's Depends() injection is incompatible with it.
+    The global pattern ensures singleton behavior while allowing dependency injection.
+    """
 
     global _audit_logger
     if _audit_logger is None:
@@ -145,7 +152,11 @@ def get_gateway_authenticator(
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
     redis_client: redis_async.Redis = Depends(get_async_redis),
 ) -> GatewayAuthenticator:
-    """Return GatewayAuthenticator configured with JWT manager and Redis."""
+    """Return GatewayAuthenticator configured with JWT manager and Redis.
+
+    Note: Cannot use @lru_cache because FastAPI's Depends() injection is incompatible with it.
+    The global pattern ensures singleton behavior while allowing dependency injection.
+    """
 
     global _gateway_authenticator
     if _gateway_authenticator is None:
@@ -159,36 +170,29 @@ def get_gateway_authenticator(
     return _gateway_authenticator
 
 
+@lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_jwks_validator() -> JWKSValidator | None:
     """Return JWKS validator for 2FA tokens, or None if Auth0 is not configured."""
 
-    global _jwks_validator
-    if _jwks_validator is None:
-        # Fail-fast: require proper Auth0 configuration for MFA
-        if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID:
-            return None
-        _jwks_validator = JWKSValidator(auth0_domain=AUTH0_DOMAIN)
-    return _jwks_validator
+    # Fail-fast: require proper Auth0 configuration for MFA
+    if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID:
+        return None
+    return JWKSValidator(auth0_domain=AUTH0_DOMAIN)
 
 
+@lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_db_client() -> DatabaseClient:
     """Database client for manual control operations (sync)."""
 
-    global _db_client
-    if _db_client is None:
-        _db_client = DatabaseClient(DATABASE_URL)
-    return _db_client
+    return DatabaseClient(DATABASE_URL)
 
 
+@lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_alpaca_executor() -> AlpacaExecutor | None:
     """Create Alpaca executor if credentials are configured."""
 
     if DRY_RUN:
         return None
-
-    global _alpaca_executor
-    if _alpaca_executor is not None:
-        return _alpaca_executor
 
     api_key = os.getenv("ALPACA_API_KEY_ID", "")
     secret_key = os.getenv("ALPACA_API_SECRET_KEY", "")
@@ -199,14 +203,13 @@ def get_alpaca_executor() -> AlpacaExecutor | None:
         return None
 
     try:
-        _alpaca_executor = AlpacaExecutor(
+        return AlpacaExecutor(
             api_key=api_key, secret_key=secret_key, base_url=base_url, paper=paper_flag
         )
     except Exception:
         # Keep None to allow fail-closed responses; actual errors logged by caller
         logger.exception("alpaca_executor_init_failed")
-        _alpaca_executor = None
-    return _alpaca_executor
+        return None
 
 
 async def get_authenticated_user(

@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from apps.execution_gateway.alpaca_client import AlpacaExecutor
+from apps.execution_gateway.alpaca_client import AlpacaClientError, AlpacaExecutor
 from apps.execution_gateway.api.dependencies import (
     TwoFaResult,
     TwoFaValidator,
@@ -258,7 +258,7 @@ async def cancel_order(
                 "broker_timeout", "Broker timeout - order may or may not be cancelled"
             ),
         ) from exc
-    except Exception as exc:  # pragma: no cover - safety net
+    except AlpacaClientError as exc:
         await audit_logger.log_action(
             user_id=user.user_id,
             action="cancel_order",
@@ -381,7 +381,7 @@ async def cancel_all_orders(
                 alpaca_executor.cancel_order(order.broker_order_id)
             db_client.update_order_status(order.client_order_id, "canceled")
             cancelled_ids.append(order.client_order_id)
-        except Exception as exc:  # pragma: no cover - defensive
+        except AlpacaClientError as exc:
             failed_ids.append(order.client_order_id)
             await audit_logger.log_action(
                 user_id=user.user_id,
@@ -565,7 +565,7 @@ async def close_position(
             outcome="success",
             details={"reason": request.reason, "qty": float(qty_to_close), "order_id": order_id},
         )
-    except Exception as exc:  # pragma: no cover - safety net
+    except AlpacaClientError as exc:
         await audit_logger.log_action(
             user_id=user.user_id,
             action="close_position",
@@ -725,7 +725,7 @@ async def adjust_position(
                 "order_id": order_id,
             },
         )
-    except Exception as exc:  # pragma: no cover
+    except AlpacaClientError as exc:
         await audit_logger.log_action(
             user_id=user.user_id,
             action="adjust_position",
@@ -936,7 +936,7 @@ async def flatten_all_positions(
             # Use the strategy_id from the order record for audit consistency
             # (Position schema doesn't include strategy_id as positions are per-symbol)
             strategies_affected.add("manual_controls_flatten_all")
-        except Exception as exc:  # pragma: no cover
+        except AlpacaClientError as exc:
             # Log failure with partial progress
             await audit_logger.log_action(
                 user_id=user.user_id,
