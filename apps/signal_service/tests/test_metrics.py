@@ -141,6 +141,10 @@ class TestPrometheusMetrics:
             "signal_service_shadow_validation_sign_change_rate",
             "signal_service_database_connection_status",
             "signal_service_redis_connection_status",
+            "signal_service_redis_fallback_buffer_size",
+            "signal_service_signals_buffered_total",
+            "signal_service_signals_replayed_total",
+            "signal_service_signals_dropped_total",
             "signal_service_model_loaded_status",
             "signal_service_model_version",
         ]
@@ -182,6 +186,10 @@ class TestPrometheusMetrics:
             "signal_service_shadow_validation_sign_change_rate",
             "signal_service_database_connection_status",
             "signal_service_redis_connection_status",
+            "signal_service_redis_fallback_buffer_size",
+            "signal_service_signals_buffered_total",
+            "signal_service_signals_replayed_total",
+            "signal_service_signals_dropped_total",
             "signal_service_model_loaded_status",
             "signal_service_model_version",
         ]
@@ -207,6 +215,10 @@ class TestPrometheusMetrics:
             "signal_service_shadow_validation_sign_change_rate",
             "signal_service_database_connection_status",
             "signal_service_redis_connection_status",
+            "signal_service_redis_fallback_buffer_size",
+            "signal_service_signals_buffered_total",
+            "signal_service_signals_replayed_total",
+            "signal_service_signals_dropped_total",
             "signal_service_model_loaded_status",
         ]
 
@@ -226,6 +238,9 @@ class TestPrometheusMetrics:
             "signal_service_model_predictions_total",
             "signal_service_model_reload_total",
             "signal_service_shadow_validation_total",
+            "signal_service_signals_buffered_total",
+            "signal_service_signals_replayed_total",
+            "signal_service_signals_dropped_total",
         ]
 
         for metric in counter_metrics:
@@ -250,6 +265,7 @@ class TestPrometheusMetrics:
         gauge_metrics = [
             "signal_service_database_connection_status",
             "signal_service_redis_connection_status",
+            "signal_service_redis_fallback_buffer_size",
             "signal_service_model_loaded_status",
             "signal_service_shadow_validation_correlation",
             "signal_service_shadow_validation_mean_abs_diff_ratio",

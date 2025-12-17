@@ -48,7 +48,14 @@ from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, Info, make_asgi_app
 from pydantic import BaseModel, Field, validator
 
-from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
+from libs.redis_client import (
+    EventPublisher,
+    FallbackBuffer,
+    FeatureCache,
+    RedisClient,
+    RedisConnectionError,
+    SignalEvent,
+)
 
 from .config import Settings
 from .model_registry import ModelMetadata, ModelRegistry
@@ -80,6 +87,8 @@ settings = Settings()
 model_registry: ModelRegistry | None = None
 signal_generator: SignalGenerator | None = None
 redis_client: RedisClient | None = None
+event_publisher: EventPublisher | None = None
+fallback_buffer: FallbackBuffer | None = None
 feature_cache: FeatureCache | None = None
 shadow_validator: ShadowModeValidator | None = None
 hydration_complete = True
@@ -243,6 +252,77 @@ async def feature_hydration_task(symbols: list[str], history_days: int) -> None:
         hydration_complete = True
 
 
+def _attempt_redis_reconnect() -> bool:
+    """Attempt to reconnect Redis for publishing buffered signals."""
+    global redis_client, event_publisher
+
+    if redis_client is not None:
+        return True
+
+    try:
+        redis_client = RedisClient(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+        )
+        event_publisher = EventPublisher(redis_client)
+        logger.info("Redis reconnected successfully for fallback replay")
+        return True
+    except RedisConnectionError as exc:
+        logger.warning("Redis reconnect attempt failed: %s", exc)
+        return False
+
+
+def _publish_buffered_message(channel: str, payload: str) -> None:
+    """Publish a buffered message via Redis (raises on failure)."""
+    if redis_client is None:
+        raise RuntimeError("Redis client not initialized")
+    redis_client.publish(channel, payload)
+
+
+async def redis_fallback_replay_task() -> None:
+    """Background task to replay buffered signals when Redis recovers."""
+    logger.info(
+        "Starting Redis fallback replay task (interval: %ss)",
+        settings.redis_fallback_replay_interval_seconds,
+    )
+
+    redis_was_healthy = False
+
+    while True:
+        await asyncio.sleep(settings.redis_fallback_replay_interval_seconds)
+
+        if not settings.redis_enabled or fallback_buffer is None:
+            continue
+
+        if redis_client is None and not _attempt_redis_reconnect():
+            redis_was_healthy = False
+            continue
+
+        if redis_client is None:
+            redis_was_healthy = False
+            continue
+
+        is_healthy = redis_client.health_check()
+        if is_healthy and not redis_was_healthy:
+            logger.info("Redis recovered; attempting fallback replay")
+        elif not is_healthy and redis_was_healthy:
+            logger.warning("Redis unavailable; buffering signals until recovery")
+
+        redis_was_healthy = is_healthy
+
+        if not is_healthy or fallback_buffer.size == 0:
+            continue
+
+        replayed = await asyncio.to_thread(
+            fallback_buffer.replay, _publish_buffered_message
+        )
+        if replayed:
+            signals_replayed_total.inc(replayed)
+            redis_fallback_buffer_size.set(fallback_buffer.size)
+            logger.info("Replayed %s buffered signal events", replayed)
+
+
 # ==============================================================================
 # Application Lifespan
 # ==============================================================================
@@ -277,7 +357,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Raises:
         RuntimeError: If model loading fails at startup
     """
-    global model_registry, signal_generator, redis_client, feature_cache, shadow_validator, hydration_complete
+    global model_registry
+    global signal_generator
+    global redis_client
+    global event_publisher
+    global fallback_buffer
+    global feature_cache
+    global shadow_validator
+    global hydration_complete
 
     logger.info("=" * 60)
     logger.info("Signal Service Starting...")
@@ -363,12 +450,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 f"Initializing Redis client: {settings.redis_host}:{settings.redis_port} "
                 f"(db={settings.redis_db})"
             )
+            fallback_buffer = FallbackBuffer(
+                max_size=settings.redis_fallback_buffer_max_size,
+                persist_path=settings.redis_fallback_buffer_path,
+            )
+            redis_fallback_buffer_size.set(fallback_buffer.size)
             try:
                 redis_client = RedisClient(
                     host=settings.redis_host,
                     port=settings.redis_port,
                     db=settings.redis_db,
                 )
+                event_publisher = EventPublisher(redis_client)
 
                 # Verify connection
                 if redis_client.health_check():
@@ -382,17 +475,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     logger.info(f"Feature cache initialized (TTL: {settings.redis_ttl}s)")
                 else:
                     logger.warning("Redis health check failed, running without cache")
-                    redis_client = None
                     feature_cache = None
 
             except RedisConnectionError as e:
                 logger.warning(f"Failed to connect to Redis: {e}")
                 logger.warning("Service will continue without Redis (graceful degradation)")
                 redis_client = None
+                event_publisher = None
                 feature_cache = None
         else:
             logger.info("Redis disabled (settings.redis_enabled=False)")
             redis_client = None
+            event_publisher = None
+            fallback_buffer = None
             feature_cache = None
 
         # Step 4: Initialize SignalGenerator (skip in TESTING mode if model not loaded)
@@ -471,6 +566,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Step 5: Start background model reload task
         logger.info("Starting background model reload task...")
         reload_task = asyncio.create_task(model_reload_task())
+        redis_replay_task = None
+        if settings.redis_enabled and fallback_buffer is not None:
+            logger.info("Starting Redis fallback replay task...")
+            redis_replay_task = asyncio.create_task(redis_fallback_replay_task())
 
         yield  # Application runs here
 
@@ -485,6 +584,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             reload_task.cancel()
             try:
                 await reload_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("Stopping Redis fallback replay task...")
+        if "redis_replay_task" in locals() and redis_replay_task is not None:
+            redis_replay_task.cancel()
+            try:
+                await redis_replay_task
             except asyncio.CancelledError:
                 pass
 
@@ -632,6 +739,26 @@ redis_connection_status = Gauge(
     "Redis connection status (1=connected, 0=disconnected)",
 )
 
+redis_fallback_buffer_size = Gauge(
+    "signal_service_redis_fallback_buffer_size",
+    "Number of buffered signal events waiting for Redis publish",
+)
+
+signals_buffered_total = Counter(
+    "signal_service_signals_buffered_total",
+    "Total number of signal events buffered due to Redis publish failures",
+)
+
+signals_replayed_total = Counter(
+    "signal_service_signals_replayed_total",
+    "Total number of buffered signal events replayed after Redis recovery",
+)
+
+signals_dropped_total = Counter(
+    "signal_service_signals_dropped_total",
+    "Total number of buffered signal events dropped due to buffer limits",
+)
+
 model_loaded_status = Gauge(
     "signal_service_model_loaded_status",
     "Model loaded status (1=loaded, 0=not loaded)",
@@ -645,6 +772,7 @@ model_version_info = Info(
 # Set initial values
 database_connection_status.set(1)  # Will be updated by health check
 redis_connection_status.set(1 if redis_client else 0)
+redis_fallback_buffer_size.set(0)
 model_loaded_status.set(0)  # Will be updated after model loads
 
 # Mount Prometheus metrics endpoint
@@ -706,6 +834,59 @@ def _shadow_validate(old_model: Any, new_model: Any) -> ShadowValidationResult:
     except Exception as exc:
         _record_shadow_validation(None, "failed")
         raise
+
+
+# ==============================================================================
+# Redis Fallback Helpers (T6)
+# ==============================================================================
+
+
+def _record_fallback_buffer_metrics(buffered: int, dropped: int, size: int) -> None:
+    """Record fallback buffer metrics after buffering events."""
+    if buffered:
+        signals_buffered_total.inc(buffered)
+    if dropped:
+        signals_dropped_total.inc(dropped)
+    redis_fallback_buffer_size.set(size)
+
+
+def _buffer_signal_payload(payload: str, reason: str) -> None:
+    """Buffer a signal event payload when Redis publish fails."""
+    if fallback_buffer is None:
+        logger.warning(
+            "Redis publish failed (%s) but fallback buffer is not initialized",
+            reason,
+        )
+        return
+
+    outcome = fallback_buffer.buffer_message(EventPublisher.CHANNEL_SIGNALS, payload)
+    _record_fallback_buffer_metrics(outcome.buffered, outcome.dropped, outcome.size)
+    logger.warning("Buffered signal event due to Redis publish failure: %s", reason)
+
+
+def _publish_signal_event_with_fallback(event: SignalEvent) -> None:
+    """Publish signal event to Redis or buffer locally on failure."""
+    if not settings.redis_enabled:
+        return
+
+    try:
+        payload = event.model_dump_json()
+    except (TypeError, ValueError) as exc:
+        logger.error("Failed to serialize signal event for publish: %s", exc)
+        return
+
+    if event_publisher is None:
+        _buffer_signal_payload(payload, "publisher not initialized")
+        return
+
+    try:
+        num_subscribers = event_publisher.publish_signal_event(event)
+    except ValueError as exc:
+        logger.error("Failed to serialize signal event for publish: %s", exc)
+        return
+
+    if num_subscribers is None:
+        _buffer_signal_payload(payload, "redis publish error")
 
 
 # ==============================================================================
@@ -1260,6 +1441,7 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
         # Validate all dict keys are strings (pandas returns dict[Hashable, Any])
         # This ensures type safety even if DataFrame has non-string column names
         signals: list[dict[str, Any]] = []
+        event_symbols: list[str] = []
         for signal in raw_signals:
             if not all(isinstance(k, str) for k in signal.keys()):
                 logger.error(f"Non-string keys found in signal dict: {list(signal.keys())}")
@@ -1272,6 +1454,24 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
             symbol = signal.get("symbol")
             if isinstance(symbol, str):
                 signals_generated_total.labels(symbol=symbol).inc()
+                event_symbols.append(symbol)
+
+        # Publish signal event to Redis (with fallback buffer on failure)
+        strategy_id = (
+            model_registry.current_metadata.strategy_name
+            if model_registry.current_metadata
+            else "unknown"
+        )
+        if event_symbols:
+            _publish_signal_event_with_fallback(
+                SignalEvent(
+                    timestamp=datetime.now(UTC),
+                    strategy_id=strategy_id,
+                    symbols=event_symbols,
+                    num_signals=len(signals),
+                    as_of_date=as_of_date.date().isoformat(),
+                )
+            )
 
         # Build response
         return SignalResponse(

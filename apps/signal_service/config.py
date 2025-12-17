@@ -315,6 +315,34 @@ class Settings(BaseSettings):
     """
 
     # ========================================================================
+    # Redis Fallback Buffer (T6)
+    # ========================================================================
+
+    redis_fallback_buffer_max_size: int = 1000
+    """
+    Maximum number of signal events to buffer locally when Redis is unavailable.
+
+    When the buffer is full, the oldest signal is dropped to preserve FIFO order.
+    """
+
+    redis_fallback_buffer_path: Path | None = None
+    """
+    Optional file path to persist the Redis fallback buffer on disk.
+
+    When set:
+        - Buffered signals are persisted as JSON on each update
+        - Signals survive process restarts (best effort)
+
+    When unset:
+        - Buffer is in-memory only
+    """
+
+    redis_fallback_replay_interval_seconds: int = 5
+    """
+    Interval (seconds) to check Redis health and replay buffered signals.
+    """
+
+    # ========================================================================
     # Feature Hydration Configuration (T2)
     # ========================================================================
 
