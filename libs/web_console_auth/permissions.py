@@ -32,6 +32,7 @@ class Permission(str, Enum):
     VIEW_TRADES = "view_trades"
     CANCEL_ORDER = "cancel_order"
     CLOSE_POSITION = "close_position"
+    ADJUST_POSITION = "adjust_position"
     FLATTEN_ALL = "flatten_all"
     MANAGE_USERS = "manage_users"
     MANAGE_STRATEGIES = "manage_strategies"  # [v1.5] Strategy configuration
@@ -53,6 +54,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_TRADES,
         Permission.CANCEL_ORDER,
         Permission.CLOSE_POSITION,
+        Permission.ADJUST_POSITION,
         Permission.FLATTEN_ALL,
         Permission.EXPORT_DATA,
         Permission.MANAGE_STRATEGIES,  # [v1.5] Operators can manage strategies

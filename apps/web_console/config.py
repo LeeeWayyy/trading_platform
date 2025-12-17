@@ -168,3 +168,26 @@ FEATURE_STRATEGY_COMPARISON = os.getenv("FEATURE_STRATEGY_COMPARISON", "false").
     "yes",
     "on",
 }
+
+# ============================================================================
+# Manual Controls Configuration (T6.6)
+# ============================================================================
+
+# Manual controls API base URL (separate from existing endpoints for clarity)
+MANUAL_CONTROLS_API_BASE = f"{EXECUTION_GATEWAY_URL}/api/v1"
+
+# Feature flag for manual trade controls (T6.6)
+FEATURE_MANUAL_CONTROLS = os.getenv("FEATURE_MANUAL_CONTROLS", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+# Minimum reason length for flatten-all action (stricter than regular actions)
+MIN_FLATTEN_ALL_REASON_LENGTH = 20
+
+# MFA step-up token maximum age in seconds
+# Must match backend verify_2fa_token max age (60s in apps/execution_gateway/api/dependencies.py)
+# Using slightly lower value (55s) to account for network/clock skew
+MFA_STEP_UP_MAX_AGE_SECONDS = 55

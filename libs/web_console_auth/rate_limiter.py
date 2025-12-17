@@ -1,4 +1,4 @@
-"""Redis sliding-window rate limiter for web console auth endpoints."""
+"""Redis sliding-window rate limiter shared across services."""
 
 from __future__ import annotations
 
@@ -9,17 +9,21 @@ from collections.abc import Awaitable
 from typing import Any
 
 import redis.asyncio as redis
-
-# Import shared Prometheus metrics from libs to avoid duplicate registration
-from libs.web_console_auth.rate_limiter import (
-    rate_limit_checks_total,
-    rate_limit_redis_errors_total,
-)
+from prometheus_client import Counter
 
 logger = logging.getLogger(__name__)
 
+rate_limit_checks_total = Counter(
+    "rate_limit_checks_total", "Total rate limit checks", ["action", "result"]
+)
+rate_limit_redis_errors_total = Counter(
+    "rate_limit_redis_errors_total", "Redis errors during rate limit checks", ["action"]
+)
+
 
 class RateLimiter:
+    """Sliding-window rate limiter using Redis sorted sets."""
+
     def __init__(
         self,
         redis_client: redis.Redis,
@@ -34,8 +38,6 @@ class RateLimiter:
         self.default_window_seconds = window_seconds
         self.key_prefix = key_prefix
 
-    # Lua script for atomic sliding window rate limiting
-    # Ensures zadd, zremrangebyscore, zcard, and expire run atomically
     _RATE_LIMIT_SCRIPT = """
     local key = KEYS[1]
     local now = tonumber(ARGV[1])
@@ -43,13 +45,9 @@ class RateLimiter:
     local max_requests = tonumber(ARGV[3])
     local member = ARGV[4]
 
-    -- Add new request
     redis.call('ZADD', key, now, member)
-    -- Remove old entries outside window
     redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
-    -- Count current requests in window
     local count = redis.call('ZCARD', key)
-    -- Set expiry
     redis.call('EXPIRE', key, window)
 
     return count
@@ -68,23 +66,20 @@ class RateLimiter:
         key = f"{self.key_prefix}{action}:{user_id}"
         try:
             member = f"{user_id}:{time.time_ns()}"
-            # Use Lua script for atomic execution
-            # Convert int args to str for mypy (redis.eval expects *str args)
             eval_result = self.redis.eval(
                 self._RATE_LIMIT_SCRIPT,
-                1,  # number of keys
-                key,  # KEYS[1]
-                str(now),  # ARGV[1]
-                str(window_seconds),  # ARGV[2]
-                str(max_requests),  # ARGV[3]
-                member,  # ARGV[4]
+                1,
+                key,
+                str(now),
+                str(window_seconds),
+                str(max_requests),
+                member,
             )
-            # redis.eval returns Awaitable[str] | str; handle both for async client
             if hasattr(eval_result, "__await__"):
                 result = await eval_result
             else:
                 result = eval_result
-            count = int(result)  # Lua script returns count as int
+            count = int(result)
             allowed = count <= max_requests
             rate_limit_checks_total.labels(
                 action=action, result="allowed" if allowed else "blocked"
@@ -126,7 +121,7 @@ def _build_redis_client() -> redis.Redis:
     return redis.Redis(
         host=os.getenv("REDIS_HOST", "redis"),
         port=int(os.getenv("REDIS_PORT", "6379")),
-        db=2,  # dedicated DB for rate limiting
+        db=2,
         decode_responses=True,
     )
 
@@ -189,5 +184,5 @@ __all__ = [
     "rate_limiter_health_check",
 ]
 
-# Backwards compatibility for auth_service dependency imports
+# Backwards compatibility alias
 RedisRateLimiter = RateLimiter

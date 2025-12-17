@@ -131,4 +131,4 @@ repomix-output.xml
 
 # backtest and test result data
 data/backtest_results/*
-data/manifests/backups/crsp_daily_v1.json
+data/manifests/backups/*

@@ -28,9 +28,7 @@ def render_trade_table(
         hide_index=True,
     )
 
-    st.caption(
-        f"Showing {len(trades)} trades (page {current_page + 1}, page size {page_size})"
-    )
+    st.caption(f"Showing {len(trades)} trades (page {current_page + 1}, page size {page_size})")
 
 
 def _trades_to_dataframe(trades: Sequence[dict[str, Any]]) -> pd.DataFrame:

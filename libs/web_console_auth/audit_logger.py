@@ -1,8 +1,4 @@
-"""Audit logging helpers for the web console.
-
-All functions are async-friendly and fail-open (log-only) if the database is
-unavailable, ensuring auth flows are not blocked.
-"""
+"""Audit logging helpers shared across services."""
 
 from __future__ import annotations
 
@@ -14,16 +10,26 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from apps.web_console.utils.db import acquire_connection
+from prometheus_client import Counter, Histogram
 
-# Import shared Prometheus metrics from libs to avoid duplicate registration
-from libs.web_console_auth.audit_logger import (
-    _audit_cleanup_duration_seconds,
-    _audit_events_total,
-    _audit_write_failures_total,
-)
+from libs.web_console_auth.db import acquire_connection
 
 logger = logging.getLogger(__name__)
+
+_audit_events_total = Counter(
+    "audit_log_events_total",
+    "Total audit log events written",
+    ["event_type", "outcome"],
+)
+_audit_write_failures_total = Counter(
+    "audit_log_write_failures_total",
+    "Audit log write failures by reason",
+    ["reason"],
+)
+_audit_cleanup_duration_seconds = Histogram(
+    "audit_log_cleanup_duration_seconds",
+    "Duration of audit log cleanup runs",
+)
 
 
 @asynccontextmanager
@@ -58,16 +64,6 @@ class AuditLogger:
         details: dict[str, Any] | None = None,
         amr_method: str | None = None,
     ) -> None:
-        """Persist a single audit event synchronously.
-
-        This function is intentionally awaited inline so the trading console
-        confirms user-visible actions only after the audit record is durably
-        written. If this ever becomes a performance bottleneck, we can
-        introduce a buffered/background queue (e.g., asyncio task + channel)
-        that preserves ordering guarantees before acknowledging to the user.
-        Note: payload serialization uses synchronous ``json.dumps``; keep
-        ``details`` payloads small to avoid blocking the event loop.
-        """
         details = details or {}
         if not self.db_pool:
             logger.info("audit_log_fallback", extra={"event_type": event_type, "action": action})
@@ -76,7 +72,6 @@ class AuditLogger:
         try:
             async with acquire_connection(self.db_pool) as conn:
                 async with _maybe_transaction(conn):
-                    # [v1.5] Use psycopg3-style %s placeholders for compatibility
                     await conn.execute(
                         """
                         INSERT INTO audit_log (
@@ -104,7 +99,7 @@ class AuditLogger:
                         ),
                     )
             _audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
-        except Exception as exc:  # pragma: no cover - defensive logging
+        except Exception as exc:  # pragma: no cover
             _audit_write_failures_total.labels(reason=exc.__class__.__name__).inc()
             logger.exception(
                 "audit_log_write_failed",
@@ -219,11 +214,7 @@ class AuditLogger:
         )
 
     async def cleanup_old_events(self) -> int:
-        """Delete audit rows older than retention window.
-
-        Returns the number of rows deleted. Failures are logged and return 0.
-        """
-
+        """Delete audit rows older than retention window."""
         if not self.db_pool:
             return 0
 
@@ -232,7 +223,6 @@ class AuditLogger:
         try:
             async with acquire_connection(self.db_pool) as conn:
                 async with _maybe_transaction(conn):
-                    # [v1.5] Use psycopg3-style %s placeholders
                     result = await conn.execute(
                         "DELETE FROM audit_log WHERE timestamp < %s",
                         (cutoff,),
@@ -248,7 +238,7 @@ class AuditLogger:
                 extra={"result_type": type(result).__name__},
             )
             return 0
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.exception("audit_log_cleanup_failed", extra={"error": str(exc)})
             return 0
 

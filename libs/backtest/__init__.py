@@ -10,12 +10,23 @@ from .monte_carlo import (
 # Walk-forward optimization and parameter search utilities
 from .param_search import SearchResult, grid_search, random_search
 from .result_storage import BacktestResultStorage
-from .walk_forward import (
-    WalkForwardConfig,
-    WalkForwardOptimizer,
-    WalkForwardResult,
-    WindowResult,
-)
+
+# walk_forward depends on structlog; guard to keep lightweight test imports working
+try:
+    from .walk_forward import (
+        WalkForwardConfig,
+        WalkForwardOptimizer,
+        WalkForwardResult,
+        WindowResult,
+    )
+
+    _HAS_WALK_FORWARD = True
+except ImportError:
+    WalkForwardConfig = None  # type: ignore[assignment,misc]
+    WalkForwardOptimizer = None  # type: ignore[assignment,misc]
+    WalkForwardResult = None  # type: ignore[assignment,misc]
+    WindowResult = None  # type: ignore[assignment,misc]
+    _HAS_WALK_FORWARD = False
 
 # job_queue and worker require rq - import conditionally to allow tests to run
 # in environments without rq installed

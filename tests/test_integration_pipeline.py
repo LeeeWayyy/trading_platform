@@ -62,7 +62,7 @@ class TestCompleteDataPipeline:
                 raw_data=raw_data,
                 splits_df=splits,
                 dividends_df=dividends,
-                freshness_minutes=10_000_000,  # Large value to disable for mock/historical data
+                freshness_minutes=99999999,  # Effectively disable for mock data (~190 years)
                 outlier_threshold=0.30,
                 output_dir=temp_dir,
                 run_date=date(2024, 1, 15),
