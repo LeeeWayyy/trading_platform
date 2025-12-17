@@ -751,3 +751,66 @@ class TestCrossMidnightIdempotency:
                 f"Slice {slice1.slice_num} client_order_id mismatch: "
                 f"{slice1.client_order_id} != {slice2.client_order_id}"
             )
+
+    def test_liquidity_max_slice_qty_increases_slices(self) -> None:
+        """
+        Liquidity constraint: if max_slice_qty is smaller than base slice size,
+        slicer should create additional smaller slices.
+        """
+        slicer = TWAPSlicer()
+        plan = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            max_slice_qty=10,
+        )
+
+        assert plan.total_slices == 10
+        assert all(s.qty == 10 for s in plan.slices)
+        assert sum(s.qty for s in plan.slices) == 100
+
+    def test_liquidity_max_slice_qty_no_change(self) -> None:
+        """Liquidity constraint does not change plan when base slices already below max."""
+        slicer = TWAPSlicer()
+        plan = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=5,
+            order_type="market",
+            max_slice_qty=25,
+        )
+
+        assert plan.total_slices == 5
+        assert sum(s.qty for s in plan.slices) == 100
+
+    def test_liquidity_max_slice_qty_invalid(self) -> None:
+        """Invalid max_slice_qty should raise a validation error."""
+        slicer = TWAPSlicer()
+        with pytest.raises(ValueError):
+            slicer.plan(
+                symbol="AAPL",
+                side="buy",
+                qty=100,
+                duration_minutes=5,
+                order_type="market",
+                max_slice_qty=0,
+            )
+
+    def test_liquidity_interval_adjusts_to_duration(self) -> None:
+        """Liquidity-driven extra slices must still fit within requested duration."""
+        slicer = TWAPSlicer()
+        duration_minutes = 5
+        plan = slicer.plan(
+            symbol="AAPL",
+            side="buy",
+            qty=100,
+            duration_minutes=duration_minutes,
+            order_type="market",
+            max_slice_qty=10,
+        )
+
+        total_span_seconds = (plan.total_slices - 1) * plan.interval_seconds
+        assert total_span_seconds <= duration_minutes * 60

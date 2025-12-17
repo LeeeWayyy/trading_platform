@@ -64,6 +64,7 @@ from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests
     DatabaseClient,
     calculate_position_update,
 )
+from apps.execution_gateway.liquidity_service import LiquidityService
 from apps.execution_gateway.order_id_generator import (
     generate_client_order_id,
     reconstruct_order_params_hash,
@@ -129,6 +130,17 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Env parsing helpers
+def _get_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Invalid float for %s=%s; using default=%s", name, raw, default)
+        return default
+
 # Legacy TWAP slicer interval (seconds). Legacy plans scheduled slices once per minute
 # and did not persist the interval, so backward-compatibility fallbacks must only apply
 # when callers request the same default pacing.
@@ -143,6 +155,19 @@ STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
+LIQUIDITY_CHECK_ENABLED = os.getenv("LIQUIDITY_CHECK_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+MAX_SLICE_PCT_OF_ADV = _get_float_env("MAX_SLICE_PCT_OF_ADV", 0.01)
+if MAX_SLICE_PCT_OF_ADV <= 0:
+    logger.warning(
+        "MAX_SLICE_PCT_OF_ADV must be > 0; falling back to default=0.01",
+        extra={"max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV},
+    )
+    MAX_SLICE_PCT_OF_ADV = 0.01
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
@@ -289,6 +314,18 @@ if not DRY_RUN:
             logger.info("Alpaca client initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Alpaca client: {e}")
+
+# Liquidity service (ADV lookup for TWAP slicing)
+liquidity_service: LiquidityService | None = None
+if LIQUIDITY_CHECK_ENABLED:
+    try:
+        liquidity_service = LiquidityService(
+            api_key=ALPACA_API_KEY_ID,
+            api_secret=ALPACA_API_SECRET_KEY,
+        )
+        logger.info("Liquidity service initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Liquidity service: {e}")
 
 # Circuit Breaker (for post-trade risk monitoring)
 # Codex CRITICAL fix: Track initialization failures and fail closed
@@ -1519,6 +1556,8 @@ async def get_config() -> ConfigResponse:
         dry_run=DRY_RUN,
         alpaca_paper=ALPACA_PAPER,
         circuit_breaker_enabled=CIRCUIT_BREAKER_ENABLED,
+        liquidity_check_enabled=LIQUIDITY_CHECK_ENABLED,
+        max_slice_pct_of_adv=MAX_SLICE_PCT_OF_ADV,
         timestamp=datetime.now(UTC),
     )
 
@@ -2588,12 +2627,16 @@ def _find_existing_twap_plan(
         total_qty=request.qty,
         total_slices=len(slice_details),
         duration_minutes=request.duration_minutes,
-        interval_seconds=request.interval_seconds,
+        interval_seconds=slicing_plan.interval_seconds,
         slices=slice_details,
     )
 
 
-def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> SlicingPlan | None:
+def _create_twap_in_db(
+    request: SlicingRequest,
+    slicing_plan: SlicingPlan,
+    parent_metadata: dict[str, Any] | None,
+) -> SlicingPlan | None:
     """
     Create parent + child orders atomically in database.
 
@@ -2604,6 +2647,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
     Args:
         request: TWAP order request
         slicing_plan: Generated slicing plan
+        parent_metadata: Optional metadata to persist with the parent order
 
     Returns:
         SlicingPlan if concurrent submission detected, None if created successfully
@@ -2636,6 +2680,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
                 strategy_id=slicing_plan.parent_strategy_id,  # Use strategy_id from plan
                 order_request=parent_order_request,
                 total_slices=slicing_plan.total_slices,
+                metadata=parent_metadata,
                 conn=conn,  # Use shared transaction connection
             )
 
@@ -2703,7 +2748,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
             total_qty=request.qty,
             total_slices=len(slice_details),
             duration_minutes=request.duration_minutes,
-            interval_seconds=request.interval_seconds,
+            interval_seconds=slicing_plan.interval_seconds,
             slices=slice_details,
         )
 
@@ -2890,13 +2935,62 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         # If client retries after midnight, must pass same trade_date to avoid duplicate orders
         trade_date = request.trade_date or datetime.now(UTC).date()
 
-        # Step 3: Create slicing plan with consistent trade_date
+        # Step 3: Apply liquidity constraints (ADV-based) before slicing
+        adv_20d: int | None = None
+        max_slice_qty: int | None = None
+        if LIQUIDITY_CHECK_ENABLED:
+            if liquidity_service is None:
+                logger.warning(
+                    "Liquidity check enabled but service unavailable; rejecting TWAP request",
+                    extra={"symbol": request.symbol},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Liquidity service unavailable; please retry",
+                )
+            else:
+                adv_20d = liquidity_service.get_adv(request.symbol)
+                if adv_20d is None:
+                    logger.warning(
+                        "ADV lookup unavailable with no cache; rejecting TWAP request to preserve idempotency",
+                        extra={"symbol": request.symbol},
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Liquidity data unavailable (ADV lookup failed); please retry",
+                    )
+                computed = int(adv_20d * MAX_SLICE_PCT_OF_ADV)
+                if computed < 1:
+                    logger.warning(
+                        "Computed max_slice_qty < 1; clamping to 1 share",
+                        extra={
+                            "symbol": request.symbol,
+                            "adv_20d": adv_20d,
+                            "max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV,
+                            "computed": computed,
+                            "clamped": 1,
+                        },
+                    )
+                max_slice_qty = max(1, computed)
+
+        liquidity_constraints = {
+            "enabled": LIQUIDITY_CHECK_ENABLED,
+            "adv_20d": adv_20d,
+            "max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV,
+            "max_slice_qty": max_slice_qty,
+        }
+        if adv_20d is not None:
+            liquidity_constraints["calculated_at"] = datetime.now(UTC).isoformat()
+            liquidity_constraints["source"] = "alpaca_bars_20d"
+
+        # Step 4: Create slicing plan with consistent trade_date
         slicing_plan = twap_slicer.plan(
             symbol=request.symbol,
             side=request.side,
             qty=request.qty,
             duration_minutes=request.duration_minutes,
             interval_seconds=request.interval_seconds,
+            max_slice_qty=max_slice_qty,
             order_type=request.order_type,
             limit_price=request.limit_price,
             stop_price=request.stop_price,
@@ -2904,21 +2998,23 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             trade_date=trade_date,  # Pass consistent trade_date
         )
 
-        # Step 4: Check for existing order (idempotency + backward compatibility)
+        # Step 5: Check for existing order (idempotency + backward compatibility)
         existing_plan = _find_existing_twap_plan(request, slicing_plan, trade_date)
         if existing_plan:
             return existing_plan
 
-        # Step 5: Create parent + child orders atomically in database
+        # Step 6: Create parent + child orders atomically in database
         # Handles concurrent submissions by catching UniqueViolation
-        concurrent_plan = _create_twap_in_db(request, slicing_plan)
+        concurrent_plan = _create_twap_in_db(
+            request, slicing_plan, {"liquidity_constraints": liquidity_constraints}
+        )
         if concurrent_plan:
             return concurrent_plan
 
-        # Step 6: Schedule slices for execution with failure compensation
+        # Step 7: Schedule slices for execution with failure compensation
         job_ids = _schedule_slices_with_compensation(request, slicing_plan)
 
-        # Step 7: Log success and return
+        # Step 8: Log success and return
         logger.info(
             f"TWAP order created: parent={slicing_plan.parent_order_id}, slices={len(job_ids)}",
             extra={

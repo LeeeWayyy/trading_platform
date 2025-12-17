@@ -83,6 +83,7 @@ class TWAPSlicer:
         duration_minutes: int,
         order_type: Literal["market", "limit", "stop", "stop_limit"],
         interval_seconds: int = 60,
+        max_slice_qty: int | None = None,
         limit_price: Decimal | None = None,
         stop_price: Decimal | None = None,
         time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day",
@@ -98,6 +99,7 @@ class TWAPSlicer:
             duration_minutes: Total slicing duration in minutes
             order_type: Order type ("market", "limit", "stop", "stop_limit")
             interval_seconds: Interval between slices in seconds
+            max_slice_qty: Optional max quantity per slice (liquidity constraint)
             limit_price: Limit price for limit/stop_limit orders (required if order_type is limit/stop_limit)
             stop_price: Stop price for stop/stop_limit orders (required if order_type is stop/stop_limit)
             time_in_force: Time in force ("day", "gtc", "ioc", "fok")
@@ -109,7 +111,8 @@ class TWAPSlicer:
         Raises:
             ValueError: If qty < 1, duration_minutes < 1, interval_seconds < 1,
                        or qty insufficient for computed slice count,
-                       or required prices are missing for limit/stop orders
+                       or required prices are missing for limit/stop orders,
+                       or max_slice_qty is provided but < 1
 
         Example:
             >>> slicer = TWAPSlicer()
@@ -126,7 +129,7 @@ class TWAPSlicer:
             [21, 21, 21, 20, 20]
 
         Notes:
-            - Remainder is distributed front-loaded (first slices get +1)
+            - Remainder is distributed uniformly (deterministic random, not front-loaded)
             - Parent order ID uses total quantity + configuration parameters
             - Child order IDs use individual slice quantities
             - All IDs are deterministic (repeatable for same inputs)
@@ -143,6 +146,29 @@ class TWAPSlicer:
 
         total_duration_seconds = duration_minutes * 60
         num_slices = max(1, math.ceil(total_duration_seconds / interval_seconds))
+        base_slices = num_slices
+        effective_interval_seconds = interval_seconds
+
+        if max_slice_qty is not None:
+            if max_slice_qty < 1:
+                raise ValueError(f"max_slice_qty must be at least 1, got {max_slice_qty}")
+            liquidity_slices = max(1, math.ceil(qty / max_slice_qty))
+            if liquidity_slices > num_slices:
+                num_slices = liquidity_slices
+
+        # If liquidity constraints increase slice count, recompute interval to
+        # keep total span within the requested duration.
+        if max_slice_qty is not None and num_slices > base_slices:
+            if num_slices == 1:
+                effective_interval_seconds = interval_seconds
+            else:
+                max_interval = total_duration_seconds // (num_slices - 1)
+                if max_interval < 1:
+                    raise ValueError(
+                        "Liquidity constraint requires more slices than can fit within duration "
+                        "at 1s minimum interval"
+                    )
+                effective_interval_seconds = max_interval
 
         if qty < num_slices:
             raise ValueError(
@@ -160,6 +186,8 @@ class TWAPSlicer:
         # H6 Fix: Calculate slice quantities with uniform remainder distribution
         # Use deterministic seed based on order params for idempotency
         # This hides the pattern from market makers while ensuring same inputs = same output
+        interval_seconds = effective_interval_seconds
+
         base_qty = qty // num_slices
         remainder = qty % num_slices
 
@@ -245,6 +273,13 @@ class TWAPSlicer:
             interval_seconds,
             parent_order_id[:8],
         )
+        if max_slice_qty is not None and num_slices > base_slices:
+            logger.info(
+                "Liquidity constraint increased slices: base=%s max_slice_qty=%s adjusted=%s",
+                base_slices,
+                max_slice_qty,
+                num_slices,
+            )
 
         return SlicingPlan(
             parent_order_id=parent_order_id,

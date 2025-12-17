@@ -480,6 +480,7 @@ class DatabaseClient:
         order_request: OrderRequest,
         total_slices: int,
         status: str = "pending_new",
+        metadata: dict[str, Any] | None = None,
         conn: psycopg.Connection | None = None,
     ) -> OrderDetail:
         """
@@ -495,6 +496,7 @@ class DatabaseClient:
             order_request: Order parameters (symbol, side, qty, etc.)
             total_slices: Number of child slices planned
             status: Initial order status (default: "pending_new")
+            metadata: Optional metadata to persist with the parent order
             conn: Optional database connection for transactional use
                   (if provided, caller is responsible for commit/rollback)
 
@@ -534,6 +536,7 @@ class DatabaseClient:
 
         def _execute_insert(conn: psycopg.Connection) -> OrderDetail:
             """Helper to execute parent order insert and return OrderDetail."""
+            metadata_json = json.dumps(metadata) if metadata is not None else None
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     """
@@ -547,6 +550,7 @@ class DatabaseClient:
                         limit_price,
                         stop_price,
                         time_in_force,
+                        metadata,
                         status,
                         parent_order_id,
                         total_slices,
@@ -566,6 +570,7 @@ class DatabaseClient:
                         order_request.limit_price,
                         order_request.stop_price,
                         order_request.time_in_force,
+                        metadata_json,
                         status,
                         total_slices,
                     ),

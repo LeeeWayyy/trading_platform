@@ -510,6 +510,12 @@ class ConfigResponse(TimestampSerializerMixin, BaseModel):
     dry_run: bool = Field(..., description="Dry-run mode enabled (no real orders)")
     alpaca_paper: bool = Field(..., description="Alpaca paper trading mode")
     circuit_breaker_enabled: bool = Field(..., description="Circuit breaker feature enabled")
+    liquidity_check_enabled: bool = Field(
+        ..., description="Liquidity-aware slicing enabled (ADV-based limits)"
+    )
+    max_slice_pct_of_adv: float = Field(
+        ..., description="Max slice size as pct of ADV when liquidity checks enabled"
+    )
     timestamp: datetime = Field(..., description="Response timestamp (UTC)")
 
     model_config = {
@@ -522,6 +528,8 @@ class ConfigResponse(TimestampSerializerMixin, BaseModel):
                     "dry_run": True,
                     "alpaca_paper": True,
                     "circuit_breaker_enabled": True,
+                    "liquidity_check_enabled": True,
+                    "max_slice_pct_of_adv": 0.01,
                     "timestamp": "2025-10-22T10:30:00Z",
                 }
             ]
