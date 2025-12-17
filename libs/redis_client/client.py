@@ -202,6 +202,25 @@ class RedisClient:
             logger.error(f"Redis MGET failed for {len(keys)} keys: {e}")
             raise
 
+    def lock(
+        self, name: str, timeout: int, blocking_timeout: float | None = None
+    ) -> redis.lock.Lock:
+        """
+        Create a Redis-based distributed lock.
+
+        Args:
+            name: Lock key name
+            timeout: Lock lease time in seconds
+            blocking_timeout: Max seconds to wait to acquire the lock (None = wait forever)
+
+        Returns:
+            redis.lock.Lock instance
+        """
+        lock: redis.lock.Lock = self._client.lock(
+            name, timeout=timeout, blocking_timeout=blocking_timeout
+        )
+        return lock
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),

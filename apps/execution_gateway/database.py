@@ -29,6 +29,54 @@ from apps.execution_gateway.schemas import OrderDetail, OrderRequest, Position
 
 logger = logging.getLogger(__name__)
 
+# Terminal statuses used for conflict resolution and reconciliation locking.
+TERMINAL_STATUSES: set[str] = {
+    "filled",
+    "canceled",
+    "expired",
+    "failed",
+    "rejected",
+    "replaced",
+    "done_for_day",
+    "blocked_kill_switch",
+    "blocked_circuit_breaker",
+}
+
+# Status rank ordering for conflict resolution (kept in sync with reconciliation)
+_STATUS_RANKS: dict[str, int] = {
+    # Rank 1: initial
+    "pending_new": 1,
+    "dry_run": 1,
+    # Rank 2: submitted
+    "submitted": 2,
+    "submitted_unconfirmed": 2,
+    "new": 2,
+    "accepted": 2,
+    # Rank 3: active
+    "pending_cancel": 3,
+    "pending_replace": 3,
+    "calculated": 3,
+    "stopped": 3,
+    "suspended": 3,
+    "partially_filled": 3,
+    # Rank 4: terminal (non-fill)
+    "canceled": 4,
+    "expired": 4,
+    "failed": 4,
+    "rejected": 4,
+    "replaced": 4,
+    "done_for_day": 4,
+    "blocked_kill_switch": 4,
+    "blocked_circuit_breaker": 4,
+    # Rank 5: terminal (fill)
+    "filled": 5,
+}
+
+
+def status_rank_for(status: str) -> int:
+    """Return status rank for local status updates (unknown -> 0)."""
+    return _STATUS_RANKS.get(status, 0)
+
 # H2 Fix: Configurable pool settings via environment variables
 # Defaults: min=2, max=10, timeout=10s (per Codex review feedback)
 DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
@@ -854,6 +902,190 @@ class DatabaseClient:
             logger.error(f"Database error fetching order: {e}")
             raise
 
+    def get_order_ids_by_client_ids(self, client_order_ids: list[str]) -> set[str]:
+        """
+        Return existing client_order_ids for the provided list.
+
+        Used by reconciliation to avoid misclassifying terminal orders as orphans.
+        """
+        ids = [client_id for client_id in dict.fromkeys(client_order_ids) if client_id]
+        if not ids:
+            return set()
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT client_order_id
+                        FROM orders
+                        WHERE client_order_id = ANY(%s)
+                        """,
+                        (ids,),
+                    )
+                    rows = cur.fetchall()
+                    return {row["client_order_id"] for row in rows if row.get("client_order_id")}
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching order ids: {e}")
+            raise
+
+    def get_non_terminal_orders(self, created_before: datetime | None = None) -> list[OrderDetail]:
+        """Return all non-terminal orders (optionally filtered by created_at)."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    if created_before is None:
+                        cur.execute(
+                            "SELECT * FROM orders WHERE is_terminal = FALSE ORDER BY created_at ASC",
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT * FROM orders
+                            WHERE is_terminal = FALSE AND created_at <= %s
+                            ORDER BY created_at ASC
+                            """,
+                            (created_before,),
+                        )
+                    rows = cur.fetchall()
+                    return [OrderDetail(**row) for row in rows]
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching non-terminal orders: {e}")
+            raise
+
+    def get_reconciliation_high_water_mark(self, name: str = "orders") -> datetime | None:
+        """Return reconciliation high-water mark timestamp for the given name."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT last_check_time
+                        FROM reconciliation_high_water_mark
+                        WHERE name = %s
+                        """,
+                        (name,),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        return None
+                    last_check: datetime = row["last_check_time"]
+                    return last_check
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching reconciliation high-water mark: {e}")
+            raise
+
+    def set_reconciliation_high_water_mark(
+        self, last_check_time: datetime, name: str = "orders"
+    ) -> None:
+        """Upsert reconciliation high-water mark timestamp."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO reconciliation_high_water_mark (name, last_check_time, updated_at)
+                        VALUES (%s, %s, NOW())
+                        ON CONFLICT (name)
+                        DO UPDATE SET last_check_time = EXCLUDED.last_check_time, updated_at = NOW()
+                        """,
+                        (name, last_check_time),
+                    )
+                    conn.commit()
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error updating reconciliation high-water mark: {e}")
+            raise
+
+    def create_orphan_order(
+        self,
+        broker_order_id: str,
+        client_order_id: str | None,
+        symbol: str,
+        strategy_id: str,
+        side: str,
+        qty: int,
+        estimated_notional: Decimal,
+        status: str,
+    ) -> None:
+        """Insert a broker order that is missing from local DB into orphan_orders."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO orphan_orders (
+                            broker_order_id,
+                            client_order_id,
+                            symbol,
+                            strategy_id,
+                            side,
+                            qty,
+                            estimated_notional,
+                            status,
+                            detected_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        ON CONFLICT (broker_order_id) DO NOTHING
+                        """,
+                        (
+                            broker_order_id,
+                            client_order_id,
+                            symbol,
+                            strategy_id,
+                            side,
+                            qty,
+                            estimated_notional,
+                            status,
+                        ),
+                    )
+                    conn.commit()
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error creating orphan order: {e}")
+            raise
+
+    def update_orphan_order_status(
+        self, broker_order_id: str, status: str, resolved_at: datetime | None = None
+    ) -> None:
+        """Update orphan order status and optionally mark as resolved."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE orphan_orders
+                        SET status = %s,
+                            resolved_at = COALESCE(%s, resolved_at)
+                        WHERE broker_order_id = %s
+                        """,
+                        (status, resolved_at, broker_order_id),
+                    )
+                    conn.commit()
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error updating orphan order: {e}")
+            raise
+
+    def get_orphan_exposure(self, symbol: str, strategy_id: str) -> Decimal:
+        """Return total unresolved orphan notional for symbol/strategy (includes external)."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(estimated_notional), 0) AS total
+                        FROM orphan_orders
+                        WHERE resolved_at IS NULL
+                          AND symbol = %s
+                          AND strategy_id IN (%s, 'external')
+                        """,
+                        (symbol, strategy_id),
+                    )
+                    row = cur.fetchone()
+                    total = row["total"] if row else 0
+                    return Decimal(str(total))
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching orphan exposure: {e}")
+            raise
+
     def update_order_status(
         self,
         client_order_id: str,
@@ -895,6 +1127,9 @@ class DatabaseClient:
         try:
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
+                    status_rank = status_rank_for(status)
+                    is_terminal = status in TERMINAL_STATUSES
+
                     # Determine filled_at timestamp
                     filled_at = None
                     if status == "filled" and filled_qty is not None:
@@ -914,6 +1149,9 @@ class DatabaseClient:
                             filled_avg_price = COALESCE(%s, filled_avg_price),
                             error_message = %s,
                             filled_at = COALESCE(%s, filled_at),
+                            last_updated_at = NOW(),
+                            status_rank = %s,
+                            is_terminal = %s,
                             updated_at = NOW()
                         WHERE client_order_id = %s
                         RETURNING *
@@ -925,6 +1163,8 @@ class DatabaseClient:
                             filled_avg_price,
                             error_message,
                             filled_at,
+                            status_rank,
+                            is_terminal,
                             client_order_id,
                         ),
                     )
@@ -950,6 +1190,101 @@ class DatabaseClient:
         except (OperationalError, DatabaseError) as e:
             logger.error(f"Database error updating order: {e}")
             raise
+
+    def update_order_status_cas(
+        self,
+        client_order_id: str,
+        status: str,
+        broker_updated_at: datetime,
+        status_rank: int,
+        source_priority: int,
+        filled_qty: Decimal | None = None,
+        filled_avg_price: Decimal | None = None,
+        filled_at: datetime | None = None,
+        broker_order_id: str | None = None,
+        broker_event_id: str | None = None,
+        conn: psycopg.Connection | None = None,
+    ) -> OrderDetail | None:
+        """
+        Update order status with conflict resolution (CAS).
+
+        Ensures we don't overwrite newer broker updates while still allowing
+        broker corrections for terminal orders (e.g., late fills). This is
+        used by reconciliation/webhook paths and accepts a broker timestamp
+        for ordering.
+        """
+
+        new_filled_qty = filled_qty if filled_qty is not None else Decimal("0")
+
+        def _execute(connection: psycopg.Connection) -> OrderDetail | None:
+            with connection.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    UPDATE orders
+                    SET status = %s,
+                        last_updated_at = %s,
+                        status_rank = %s,
+                        source_priority = %s,
+                        broker_event_id = COALESCE(%s, broker_event_id),
+                        broker_order_id = COALESCE(%s, broker_order_id),
+                        filled_qty = GREATEST(filled_qty, %s),
+                        filled_avg_price = CASE
+                            WHEN %s IS NOT NULL
+                                 AND (filled_avg_price IS NULL OR %s > COALESCE(filled_qty, 0))
+                                THEN %s
+                            ELSE filled_avg_price
+                        END,
+                        filled_at = COALESCE(%s, filled_at),
+                        is_terminal = %s,
+                        updated_at = NOW()
+                    WHERE client_order_id = %s
+                      AND (
+                            last_updated_at IS NULL
+                            OR last_updated_at < %s
+                            OR (last_updated_at = %s AND status_rank < %s)
+                            OR (last_updated_at = %s AND status_rank = %s AND filled_qty < %s)
+                            OR (
+                                last_updated_at = %s
+                                AND status_rank = %s
+                                AND filled_qty = %s
+                                AND source_priority < %s
+                            )
+                          )
+                    RETURNING *
+                    """,
+                    (
+                        status,
+                        broker_updated_at,
+                        status_rank,
+                        source_priority,
+                        broker_event_id,
+                        broker_order_id,
+                        new_filled_qty,
+                        filled_avg_price,
+                        new_filled_qty,
+                        filled_avg_price,
+                        filled_at,
+                        status in TERMINAL_STATUSES,
+                        client_order_id,
+                        broker_updated_at,
+                        broker_updated_at,
+                        status_rank,
+                        broker_updated_at,
+                        status_rank,
+                        new_filled_qty,
+                        broker_updated_at,
+                        status_rank,
+                        new_filled_qty,
+                        source_priority,
+                    ),
+                )
+
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                return OrderDetail(**row)
+
+        return self._execute_with_conn(conn, _execute)
 
     def get_order_for_update(
         self, client_order_id: str, conn: psycopg.Connection
@@ -989,6 +1324,10 @@ class DatabaseClient:
         filled_at: datetime | None,
         conn: psycopg.Connection,
         broker_order_id: str | None = None,
+        broker_updated_at: datetime | None = None,
+        status_rank: int | None = None,
+        source_priority: int | None = None,
+        broker_event_id: str | None = None,
     ) -> OrderDetail | None:
         """
         Update order status using an existing transaction connection.
@@ -1008,6 +1347,20 @@ class DatabaseClient:
         Returns:
             Updated OrderDetail if found, otherwise None
         """
+        if broker_updated_at is not None and status_rank is not None and source_priority is not None:
+            return self.update_order_status_cas(
+                client_order_id=client_order_id,
+                status=status,
+                broker_updated_at=broker_updated_at,
+                status_rank=status_rank,
+                source_priority=source_priority,
+                filled_qty=Decimal(str(filled_qty)),
+                filled_avg_price=filled_avg_price,
+                filled_at=filled_at,
+                broker_order_id=broker_order_id,
+                broker_event_id=broker_event_id,
+                conn=conn,
+            )
 
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -1407,6 +1760,49 @@ class DatabaseClient:
 
         except (OperationalError, DatabaseError) as e:
             logger.error(f"Database error updating position: {e}")
+            raise
+
+    def upsert_position_snapshot(
+        self,
+        symbol: str,
+        qty: Decimal,
+        avg_entry_price: Decimal,
+        current_price: Decimal | None,
+        updated_at: datetime,
+    ) -> Position:
+        """Upsert position from broker reconciliation snapshot."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO positions (
+                            symbol,
+                            qty,
+                            avg_entry_price,
+                            current_price,
+                            updated_at,
+                            last_trade_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (symbol)
+                        DO UPDATE SET
+                            qty = EXCLUDED.qty,
+                            avg_entry_price = EXCLUDED.avg_entry_price,
+                            current_price = EXCLUDED.current_price,
+                            updated_at = EXCLUDED.updated_at,
+                            last_trade_at = EXCLUDED.last_trade_at
+                        RETURNING *
+                        """,
+                        (symbol, qty, avg_entry_price, current_price, updated_at, updated_at),
+                    )
+                    row = cur.fetchone()
+                    conn.commit()
+                    if row is None:
+                        raise ValueError(f"Failed to upsert position snapshot: {symbol}")
+                    return Position(**row)
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error upserting position snapshot: {e}")
             raise
 
     def get_position_by_symbol(self, symbol: str) -> int:

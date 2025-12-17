@@ -66,7 +66,7 @@
 ```
 
 **Checkpoint captures:**
-- Current task state (.claude/task-state.json)
+- Current task state (.ai_workflow/workflow-state.json)
 - Workflow state (.claude/workflow-state.json)
 - Git state (branch, commit, staged files)
 - Token usage estimate (if available)

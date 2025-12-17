@@ -11,7 +11,7 @@ Checkpoints preserve critical state before context-modifying operations:
 ## What Checkpoints Capture
 
 Each checkpoint includes:
-- Current task state from `.claude/task-state.json`
+- Current task state from `.ai_workflow/workflow-state.json`
 - Workflow state from `.claude/workflow-state.json`
 - Git state (branch, commit, staged files)
 - Critical findings and pending decisions

@@ -23,7 +23,9 @@ from libs.common import TimestampSerializerMixin
 # DRY principle: Define once, use everywhere
 OrderStatus: TypeAlias = Literal[
     "pending_new",
+    "new",
     "accepted",
+    "partially_filled",
     "filled",
     "canceled",
     "rejected",
@@ -568,6 +570,19 @@ class KillSwitchDisengageRequest(BaseModel):
             ]
         }
     }
+
+
+# ============================================================================
+# Reconciliation Schemas
+# ============================================================================
+
+
+class ReconciliationForceCompleteRequest(BaseModel):
+    """Request to force-complete startup reconciliation."""
+
+    reason: str | None = Field(
+        None, description="Operator-provided reason for forcing reconciliation completion"
+    )
 
 
 # ============================================================================

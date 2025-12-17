@@ -60,6 +60,7 @@ from apps.execution_gateway.alpaca_client import (
     AlpacaValidationError,
 )
 from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests)
+    TERMINAL_STATUSES,
     DatabaseClient,
     calculate_position_update,
 )
@@ -68,6 +69,12 @@ from apps.execution_gateway.order_id_generator import (
     reconstruct_order_params_hash,
 )
 from apps.execution_gateway.order_slicer import TWAPSlicer
+from apps.execution_gateway.reconciliation import (
+    SOURCE_PRIORITY_MANUAL,
+    SOURCE_PRIORITY_WEBHOOK,
+    ReconciliationService,
+    status_rank_for,
+)
 from apps.execution_gateway.schemas import (
     ConfigResponse,
     DailyPerformanceResponse,
@@ -84,6 +91,7 @@ from apps.execution_gateway.schemas import (
     PositionsResponse,
     RealtimePnLResponse,
     RealtimePositionPnL,
+    ReconciliationForceCompleteRequest,
     SliceDetail,
     SlicingPlan,
     SlicingRequest,
@@ -162,6 +170,8 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
     "yes",
     "on",
 )
+REDUCE_ONLY_LOCK_TIMEOUT_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_TIMEOUT_SECONDS", "30"))
+REDUCE_ONLY_LOCK_BLOCKING_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_BLOCKING_SECONDS", "10"))
 
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
@@ -348,6 +358,10 @@ if kill_switch and circuit_breaker:
         logger.error(f"Failed to initialize slice scheduler: {e}")
 else:
     logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
+
+# Reconciliation service (startup gating + periodic sync)
+reconciliation_service: ReconciliationService | None = None
+reconciliation_task: asyncio.Task[None] | None = None
 
 # ============================================================================
 # FastAPI Application
@@ -550,6 +564,264 @@ def _handle_idempotency_race(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Database inconsistency: order not found after UniqueViolation",
     )
+
+
+def _is_reconciliation_ready() -> bool:
+    """Return True when startup reconciliation gate is open."""
+    if DRY_RUN:
+        return True
+    if reconciliation_service is None:
+        return False
+    return reconciliation_service.is_startup_complete()
+
+
+async def _check_quarantine(symbol: str, strategy_id: str) -> None:
+    """Block trading when symbol is quarantined."""
+    if DRY_RUN:
+        return
+    if not redis_client:
+        logger.error(
+            "Redis unavailable for quarantine check; failing closed",
+            extra={"symbol": symbol},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Quarantine check unavailable",
+                "message": "Redis unavailable for quarantine enforcement (fail-closed).",
+            },
+        )
+
+    try:
+        symbol = symbol.upper()
+        strategy_key = RedisKeys.quarantine(strategy_id=strategy_id, symbol=symbol)
+        wildcard_key = RedisKeys.quarantine(strategy_id="*", symbol=symbol)
+        values = await asyncio.to_thread(redis_client.mget, [strategy_key, wildcard_key])
+        strategy_value, wildcard_value = (values + [None, None])[:2] if values else (None, None)
+        if strategy_value or wildcard_value:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Symbol quarantined",
+                    "message": f"Trading blocked for {symbol} due to orphan order quarantine",
+                    "symbol": symbol,
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Quarantine check failed",
+            extra={"symbol": symbol, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Quarantine check unavailable",
+                "message": "Redis unavailable for quarantine enforcement (fail-closed).",
+            },
+        ) from exc
+
+
+async def _require_reconciliation_ready_or_reduce_only(order: OrderRequest) -> None:
+    """Gate order submissions until reconciliation completes (reduce-only allowed)."""
+    if reconciliation_service and reconciliation_service.override_active():
+        logger.warning(
+            "Reconciliation override active; allowing order",
+            extra={
+                "client_order_id": generate_client_order_id(order, STRATEGY_ID),
+                "override": reconciliation_service.override_context(),
+            },
+        )
+        return
+
+    if _is_reconciliation_ready():
+        return
+
+    if reconciliation_service and reconciliation_service.startup_timed_out():
+        logger.critical(
+            "Startup reconciliation timed out; remaining in gated mode",
+            extra={"timeout_seconds": reconciliation_service.timeout_seconds},
+        )
+
+    await _enforce_reduce_only_order(order)
+
+
+async def _enforce_reduce_only_order(order: OrderRequest) -> None:
+    """Allow only reduce-only orders during reconciliation gating."""
+    if not alpaca_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Broker client unavailable during reconciliation gating",
+        )
+
+    if not redis_client:
+        logger.error(
+            "Redis unavailable for reduce-only lock; failing closed",
+            extra={"symbol": order.symbol},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock unavailable",
+                "message": "Redis unavailable for reduce-only validation (fail-closed).",
+            },
+        )
+
+    lock_key = RedisKeys.reduce_only_lock(order.symbol.upper())
+    lock = redis_client.lock(
+        lock_key,
+        timeout=REDUCE_ONLY_LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=REDUCE_ONLY_LOCK_BLOCKING_SECONDS,
+    )
+    acquired = False
+    try:
+        acquired = await asyncio.to_thread(lock.acquire, blocking=True)
+    except Exception as exc:
+        logger.error(
+            "Failed to acquire reduce-only lock",
+            extra={"symbol": order.symbol, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock unavailable",
+                "message": "Unable to acquire reduce-only validation lock (fail-closed).",
+            },
+        ) from exc
+
+    if not acquired:
+        logger.error(
+            "Reduce-only lock acquisition timed out",
+            extra={"symbol": order.symbol, "lock_key": lock_key},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock timeout",
+                "message": "Reduce-only validation lock could not be acquired in time.",
+            },
+        )
+
+    try:
+        position = await asyncio.to_thread(alpaca_client.get_open_position, order.symbol)
+        open_orders = await asyncio.to_thread(
+            alpaca_client.get_orders, status="open", limit=500, after=None
+        )
+
+        current_position = Decimal("0")
+        if position:
+            current_position = Decimal(str(position.get("qty") or 0))
+
+        open_buy_qty = Decimal("0")
+        open_sell_qty = Decimal("0")
+        for open_order in open_orders:
+            if open_order.get("symbol") != order.symbol:
+                continue
+            qty = Decimal(str(open_order.get("qty") or 0))
+            filled_qty = Decimal(str(open_order.get("filled_qty") or 0))
+            remaining = qty - filled_qty
+            if remaining <= 0:
+                continue
+            if open_order.get("side") == "buy":
+                open_buy_qty += remaining
+            elif open_order.get("side") == "sell":
+                open_sell_qty += remaining
+
+        if current_position > 0:
+            open_reduce_qty = open_sell_qty
+            open_increase_qty = open_buy_qty
+            effective_position = current_position + open_increase_qty - open_reduce_qty
+        elif current_position < 0:
+            open_reduce_qty = open_buy_qty
+            open_increase_qty = open_sell_qty
+            effective_position = current_position + open_increase_qty - open_reduce_qty
+        else:
+            net_open = open_buy_qty - open_sell_qty
+            if net_open == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "Reduce-only required",
+                        "message": "No position available to reduce during reconciliation",
+                    },
+                )
+            effective_position = net_open
+
+        if effective_position == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "Reduce-only required",
+                    "message": "No position available to reduce during reconciliation",
+                },
+            )
+
+        side_multiplier = Decimal("1") if order.side == "buy" else Decimal("-1")
+        projected_position = effective_position + (Decimal(order.qty) * side_multiplier)
+
+        if effective_position > 0:
+            if order.side != "sell":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "Reduce-only required",
+                        "message": "Only sell orders are allowed during reconciliation gating",
+                    },
+                )
+            if projected_position < 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "Reduce-only required",
+                        "message": "Order would flip position during reconciliation gating",
+                    },
+                )
+        else:
+            if order.side != "buy":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "Reduce-only required",
+                        "message": "Only buy orders are allowed during reconciliation gating",
+                    },
+                )
+            if projected_position > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "Reduce-only required",
+                        "message": "Order would flip position during reconciliation gating",
+                    },
+                )
+
+        logger.info(
+            "Allowing reduce-only order during reconciliation gating",
+            extra={
+                "symbol": order.symbol,
+                "side": order.side,
+                "qty": order.qty,
+                "effective_position": str(effective_position),
+                "projected_position": str(projected_position),
+            },
+        )
+    except AlpacaConnectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Broker connection error",
+                "message": "Cannot evaluate reduce-only order during reconciliation gating",
+            },
+        ) from exc
+    finally:
+        if acquired and lock.locked():
+            try:
+                await asyncio.to_thread(lock.release)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to release reduce-only lock",
+                    extra={"symbol": order.symbol, "error": str(exc)},
+                )
 
 
 # ============================================================================
@@ -1401,6 +1673,83 @@ async def get_kill_switch_status() -> dict[str, Any]:
         ) from e
 
 
+@app.get("/api/v1/reconciliation/status", tags=["Reconciliation"])
+async def get_reconciliation_status() -> dict[str, Any]:
+    """Return reconciliation gating status and override state."""
+    if DRY_RUN:
+        return {
+            "startup_complete": True,
+            "dry_run": True,
+            "message": "DRY_RUN mode - reconciliation gating disabled",
+        }
+
+    if not reconciliation_service:
+        return {
+            "startup_complete": False,
+            "dry_run": False,
+            "message": "Reconciliation service not initialized",
+        }
+
+    return {
+        "startup_complete": reconciliation_service.is_startup_complete(),
+        "dry_run": DRY_RUN,
+        "startup_elapsed_seconds": reconciliation_service.startup_elapsed_seconds(),
+        "startup_timed_out": reconciliation_service.startup_timed_out(),
+        "override_active": reconciliation_service.override_active(),
+        "override_context": reconciliation_service.override_context(),
+    }
+
+
+@app.post("/api/v1/reconciliation/run", tags=["Reconciliation"])
+@require_permission(Permission.MANAGE_RECONCILIATION)
+async def run_reconciliation(
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> dict[str, Any]:
+    """Manually trigger reconciliation."""
+    if DRY_RUN:
+        return {"status": "skipped", "message": "DRY_RUN mode - reconciliation disabled"}
+    if not reconciliation_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation service not initialized",
+        )
+
+    await reconciliation_service.run_reconciliation_once("manual")
+    return {"status": "ok", "message": "Reconciliation run complete"}
+
+
+@app.post("/api/v1/reconciliation/force-complete", tags=["Reconciliation"])
+@require_permission(Permission.MANAGE_RECONCILIATION)
+async def force_complete_reconciliation(
+    payload: ReconciliationForceCompleteRequest,
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> dict[str, Any]:
+    """Force-complete reconciliation (operator override)."""
+    if DRY_RUN:
+        return {"status": "skipped", "message": "DRY_RUN mode - reconciliation disabled"}
+    if not reconciliation_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation service not initialized",
+        )
+
+    user_id = user.get("user_id") if isinstance(user, dict) else None
+
+    reconciliation_service.mark_startup_complete(
+        forced=True, user_id=user_id, reason=payload.reason
+    )
+    logger.warning(
+        "Reconciliation force-complete invoked",
+        extra={"user_id": user_id, "reason": payload.reason},
+    )
+    return {
+        "status": "override_enabled",
+        "message": "Reconciliation marked complete by operator override",
+        "user_id": user_id,
+        "reason": payload.reason,
+    }
+
+
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
 async def submit_order(order: OrderRequest) -> OrderResponse:
     """
@@ -1658,6 +2007,10 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                     "fail_closed": True,
                 },
             ) from e
+
+    # Reconciliation gating + quarantine enforcement
+    await _check_quarantine(order.symbol, STRATEGY_ID)
+    await _require_reconciliation_ready_or_reduce_only(order)
 
     # Position reservation for atomic limit checking (prevents race conditions)
     # Codex HIGH fix: Wire PositionReservation to prevent concurrent orders from both
@@ -1940,6 +2293,52 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Order submission failed: {str(e)}",
             ) from e
+
+
+@app.post("/api/v1/orders/{client_order_id}/cancel", tags=["Orders"])
+@require_permission(Permission.CANCEL_ORDER)
+async def cancel_order(client_order_id: str) -> dict[str, Any]:
+    """Cancel a single order by client_order_id."""
+    order = db_client.get_order_by_client_id(client_order_id)
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Order not found: {client_order_id}",
+        )
+
+    if order.status in TERMINAL_STATUSES:
+        return {
+            "client_order_id": client_order_id,
+            "status": order.status,
+            "message": "Order already in terminal state",
+        }
+
+    if not DRY_RUN:
+        if not alpaca_client:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Alpaca client not initialized. Check credentials.",
+            )
+        if order.broker_order_id:
+            alpaca_client.cancel_order(order.broker_order_id)
+
+    updated = db_client.update_order_status_cas(
+        client_order_id=client_order_id,
+        status="canceled",
+        broker_updated_at=datetime.now(UTC),
+        status_rank=status_rank_for("canceled"),
+        source_priority=SOURCE_PRIORITY_MANUAL,
+        filled_qty=order.filled_qty,
+        filled_avg_price=order.filled_avg_price,
+        filled_at=order.filled_at,
+        broker_order_id=order.broker_order_id,
+    )
+
+    return {
+        "client_order_id": client_order_id,
+        "status": updated.status if updated else "canceled",
+        "message": "Order canceled",
+    }
 
 
 # ============================================================================
@@ -2452,6 +2851,20 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
 
     # Step 2: Check prerequisites (scheduler availability, kill-switch)
     _check_twap_prerequisites()
+
+    # Reconciliation gating (no reduce-only path for TWAP)
+    await _check_quarantine(request.symbol, STRATEGY_ID)
+    if not _is_reconciliation_ready():
+        if reconciliation_service and reconciliation_service.override_active():
+            logger.warning(
+                "Reconciliation override active; allowing TWAP order",
+                extra={"symbol": request.symbol, "override": reconciliation_service.override_context()},
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Reconciliation in progress - TWAP orders blocked",
+            )
 
     try:
         # CRITICAL: Use consistent trade_date for idempotency across midnight
@@ -3032,15 +3445,35 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
         # Fast path: if no fill info, just update status and return
         if event_type not in ("fill", "partial_fill") or not filled_qty or not filled_avg_price:
-            updated_order = db_client.update_order_status(
+            broker_updated_at = (
+                order_data.get("updated_at")
+                or payload.get("timestamp")
+                or order_data.get("created_at")
+            )
+            if broker_updated_at:
+                try:
+                    broker_updated_at = datetime.fromisoformat(
+                        str(broker_updated_at).replace("Z", "+00:00")
+                    )
+                except (ValueError, TypeError):
+                    broker_updated_at = datetime.now(UTC)
+            else:
+                broker_updated_at = datetime.now(UTC)
+
+            updated_order = db_client.update_order_status_cas(
                 client_order_id=client_order_id,
                 status=order_status,
-                broker_order_id=broker_order_id,
-                filled_qty=Decimal(str(filled_qty)) if filled_qty else None,
+                broker_updated_at=broker_updated_at,
+                status_rank=status_rank_for(order_status or ""),
+                source_priority=SOURCE_PRIORITY_WEBHOOK,
+                filled_qty=Decimal(str(filled_qty)) if filled_qty else Decimal("0"),
                 filled_avg_price=Decimal(str(filled_avg_price)) if filled_avg_price else None,
+                filled_at=None,
+                broker_order_id=broker_order_id,
+                broker_event_id=payload.get("execution_id"),
             )
             if not updated_order:
-                logger.warning(f"Order not found for webhook: {client_order_id}")
+                logger.warning(f"Order not found for webhook or CAS skipped: {client_order_id}")
                 return {"status": "ignored", "reason": "order_not_found"}
             return {"status": "ok", "client_order_id": client_order_id}
 
@@ -3069,6 +3502,18 @@ async def order_webhook(request: Request) -> dict[str, str]:
                 "Missing broker timestamp; using server time",
                 extra={"client_order_id": client_order_id},
             )
+
+        broker_updated_at = (
+            order_data.get("updated_at")
+            or payload.get("timestamp")
+            or order_data.get("filled_at")
+            or fill_timestamp
+        )
+        if broker_updated_at and not isinstance(broker_updated_at, datetime):
+            try:
+                broker_updated_at = datetime.fromisoformat(str(broker_updated_at).replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                broker_updated_at = fill_timestamp
 
         with db_client.transaction() as conn:
             order = db_client.get_order_for_update(client_order_id, conn)
@@ -3123,6 +3568,10 @@ async def order_webhook(request: Request) -> dict[str, str]:
                 filled_at=fill_timestamp if order_status == "filled" else None,
                 conn=conn,
                 broker_order_id=broker_order_id,
+                broker_updated_at=broker_updated_at,
+                status_rank=status_rank_for(order_status or ""),
+                source_priority=SOURCE_PRIORITY_WEBHOOK,
+                broker_event_id=payload.get("execution_id"),
             )
 
         # Invalidate performance cache after successful fill
@@ -3178,6 +3627,23 @@ async def startup_event() -> None:
     else:
         logger.warning("Slice scheduler not available (not started)")
 
+    # Start reconciliation service (startup gating + periodic sync)
+    global reconciliation_service, reconciliation_task
+    if DRY_RUN:
+        logger.info("DRY_RUN enabled - skipping reconciliation startup gating")
+    elif not alpaca_client:
+        logger.error("Alpaca client unavailable - reconciliation not started (gating remains active)")
+    else:
+        reconciliation_service = ReconciliationService(
+            db_client=db_client,
+            alpaca_client=alpaca_client,
+            redis_client=redis_client,
+            dry_run=DRY_RUN,
+        )
+        await reconciliation_service.run_startup_reconciliation()
+        reconciliation_task = asyncio.create_task(reconciliation_service.run_periodic_loop())
+        logger.info("Reconciliation service started")
+
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
@@ -3193,6 +3659,12 @@ async def shutdown_event() -> None:
     # H2 Fix: Close database connection pool for clean shutdown
     db_client.close()
     logger.info("Database connection pool closed")
+
+    # Stop reconciliation task
+    if reconciliation_service:
+        reconciliation_service.stop()
+    if reconciliation_task:
+        reconciliation_task.cancel()
 
 
 if __name__ == "__main__":

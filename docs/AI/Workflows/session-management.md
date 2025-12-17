@@ -10,10 +10,10 @@
 
 ```bash
 # Does task state file exist?
-[ -f .claude/task-state.json ]
+[ -f .ai_workflow/workflow-state.json ]
 
 # Is there incomplete work?
-TASK_STATE=$(jq -r '.current_task.state' .claude/task-state.json)
+TASK_STATE=$(jq -r '.current_task.state' .ai_workflow/workflow-state.json)
 if [ "$TASK_STATE" = "IN_PROGRESS" ] || [ "$TASK_STATE" = "PENDING" ]; then
   echo "🤖 INCOMPLETE TASK DETECTED - AUTO-RESUMING"
   # Trigger resume workflow
@@ -27,7 +27,7 @@ fi
 
 ## 📋 Current Task Status
 
-Reading from `.claude/task-state.json`:
+Reading from `.ai_workflow/workflow-state.json`:
 
 ```json
 {
@@ -54,7 +54,7 @@ Reading from `.claude/task-state.json`:
 
 When this file is detected, Claude should:
 
-1. **Read task state** from `.claude/task-state.json`
+1. **Read task state** from `.ai_workflow/workflow-state.json`
 2. **Verify branch**: `git checkout <branch-from-state>`
 3. **Load task document**: Read `docs/TASKS/<task_id>_*.md`
 4. **Display summary**:
@@ -78,10 +78,10 @@ If you want to start fresh (ignore incomplete work):
 
 ```bash
 # Temporarily disable
-mv .claude/task-state.json .claude/task-state.json.bak
+mv .ai_workflow/workflow-state.json .ai_workflow/workflow-state.json.bak
 
 # Re-enable
-mv .claude/task-state.json.bak .claude/task-state.json
+mv .ai_workflow/workflow-state.json.bak .ai_workflow/workflow-state.json
 ```
 
 Or edit the state file:

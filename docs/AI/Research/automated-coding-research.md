@@ -10,7 +10,7 @@
 
 1. How to automate the 4-step pattern (implement → test → review → commit) per component?
 2. How to handle review feedback automatically (auto-fix vs. escalate)?
-3. How to integrate task state tracking (`.claude/task-state.json`)?
+3. How to integrate task state tracking (`.ai_workflow/workflow-state.json`)?
 4. What error handling patterns are needed for robust automation?
 5. How to ensure quality gates remain MANDATORY while being automated?
 
@@ -89,7 +89,7 @@ FOR EACH component:
     │ Step 5: Commit + Update State       │
     │ - git add <files>                   │
     │ - git commit with zen review ID     │
-    │ - Update .claude/task-state.json    │
+    │ - Update .ai_workflow/workflow-state.json    │
     └─────────────────────────────────────┘
 ```
 
@@ -280,7 +280,7 @@ escalation = {
 
 ## Task State Tracking Integration
 
-### `.claude/task-state.json` Schema
+### `.ai_workflow/workflow-state.json` Schema
 
 ```json
 {
@@ -475,7 +475,7 @@ Phase 3 implementation succeeds when:
 - [  ] 4-step pattern enforced per component (impl → test → ci → review → commit)
 - [  ] Auto-fix strategies implemented (CI + review feedback)
 - [  ] Escalation logic functional (max iterations, low confidence, timeout)
-- [  ] Task state tracking integrated (.claude/task-state.json)
+- [  ] Task state tracking integrated (.ai_workflow/workflow-state.json)
 - [  ] Quality gates preserved (all zen-mcp reviews MANDATORY)
 - [  ] Time savings measured (≥20% reduction per component)
 - [  ] Test with sample feature (verify end-to-end automation)

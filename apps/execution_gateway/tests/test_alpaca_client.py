@@ -55,12 +55,23 @@ class TestAlpacaClientTypeGuards:
                 self.trading_blocked = None
                 self.transfers_blocked = None
 
+        class MockPosition:
+            """Mock Position type for isinstance() checks."""
+
+            def __init__(self):
+                self.symbol = None
+                self.qty = None
+                self.avg_entry_price = None
+                self.current_price = None
+                self.market_value = None
+
         # Mock all dependencies including the model classes
         with (
             patch("apps.execution_gateway.alpaca_client.ALPACA_AVAILABLE", True),
             patch("apps.execution_gateway.alpaca_client.TradingClient"),
             patch("apps.execution_gateway.alpaca_client.StockHistoricalDataClient"),
             patch("apps.execution_gateway.alpaca_client.Order", MockOrder),
+            patch("apps.execution_gateway.alpaca_client.Position", MockPosition),
             patch("apps.execution_gateway.alpaca_client.TradeAccount", MockTradeAccount),
         ):
 
@@ -71,6 +82,7 @@ class TestAlpacaClientTypeGuards:
             # These are test-only attributes, not part of the production class
             client._mock_order_class = MockOrder  # type: ignore[attr-defined]
             client._mock_account_class = MockTradeAccount  # type: ignore[attr-defined]
+            client._mock_position_class = MockPosition  # type: ignore[attr-defined]
 
             yield client
 
@@ -190,6 +202,70 @@ class TestAlpacaClientTypeGuards:
         result = alpaca_client.get_account_info()
 
         assert result is None, "Should return None for unexpected response type"
+
+    def test_get_orders_happy_path(self, alpaca_client):
+        """get_orders should return list of order dicts."""
+        mock_order = alpaca_client._mock_order_class()
+        mock_order.id = "order_123"
+        mock_order.client_order_id = "client_123"
+        mock_order.symbol = "AAPL"
+        mock_order.side.value = "buy"
+        mock_order.qty = 10.0
+        mock_order.order_type.value = "market"
+        mock_order.status.value = "accepted"
+        mock_order.filled_qty = 0.0
+        mock_order.filled_avg_price = None
+        mock_order.limit_price = None
+        mock_order.notional = None
+        mock_order.created_at = None
+        mock_order.updated_at = None
+        mock_order.submitted_at = None
+        mock_order.filled_at = None
+
+        alpaca_client.client.get_orders = MagicMock(return_value=[mock_order])
+
+        result = alpaca_client.get_orders(status="open", limit=100, after=None)
+        assert len(result) == 1
+        assert result[0]["client_order_id"] == "client_123"
+        assert result[0]["symbol"] == "AAPL"
+        assert result[0]["side"] == "buy"
+
+    def test_get_orders_unexpected_type_raises(self, alpaca_client):
+        """get_orders should raise AlpacaClientError on unexpected response type."""
+        alpaca_client.client.get_orders = MagicMock(return_value=[{"id": "bad"}])
+
+        with pytest.raises(AlpacaClientError):
+            alpaca_client.get_orders(status="open", limit=100, after=None)
+
+    def test_get_all_positions_happy_path(self, alpaca_client):
+        """get_all_positions should return list of position dicts."""
+        mock_position = alpaca_client._mock_position_class()
+        mock_position.symbol = "AAPL"
+        mock_position.qty = 5
+        mock_position.avg_entry_price = 150.0
+        mock_position.current_price = 151.0
+        mock_position.market_value = 755.0
+
+        alpaca_client.client.get_all_positions = MagicMock(return_value=[mock_position])
+
+        result = alpaca_client.get_all_positions()
+        assert len(result) == 1
+        assert result[0]["symbol"] == "AAPL"
+        assert result[0]["qty"] == 5
+
+    def test_get_open_position_returns_none_on_404(self, alpaca_client):
+        """get_open_position returns None when Alpaca responds 404 (flat)."""
+
+        class MockAPIError(Exception):
+            def __init__(self, status_code: int):
+                super().__init__("Not Found")
+                self.status_code = status_code
+
+        with patch("apps.execution_gateway.alpaca_client.AlpacaAPIError", MockAPIError):
+            alpaca_client.client.get_open_position = MagicMock(
+                side_effect=MockAPIError(status_code=404)
+            )
+            assert alpaca_client.get_open_position("AAPL") is None
 
 
 class TestAlpacaClientTypeGuardsDocumentation:

@@ -449,7 +449,7 @@ pytest tests/test_file.py -v
 **Tier 1: Pre-Commit Gates (Enforce Before EVERY Commit)**
 
 1. **Zen-MCP Quick Review Gate:**
-   - Check for `continuation_id` in commit message or `.claude/task-state.json`
+   - Check for `continuation_id` in commit message or `.ai_workflow/workflow-state.json`
    - Verify review happened within last 30 minutes (timestamp check)
    - **Why:** Prevents committing unreviewed code (PRIMARY root cause of fix commits)
 
@@ -485,13 +485,13 @@ echo "Step 4/4: Verifying zen-mcp quick review..."
 
 # NOTE: This is a simplified example showing basic file existence check.
 # A production implementation should include:
-# 1. JSON parsing to extract continuation_id from .claude/task-state.json
+# 1. JSON parsing to extract continuation_id from .ai_workflow/workflow-state.json
 # 2. Timestamp validation (review within last 30 minutes)
 # 3. See description on lines 452-453 for complete requirements
 
 # Simplified check for continuation_id in commit message or task-state.json
 if ! git log -1 --format=%B | grep -q "continuation_id:" && \
-   ! test -f .claude/task-state.json; then
+   ! test -f .ai_workflow/workflow-state.json; then
     echo "⚠️  WARNING: No zen-mcp review detected"
     echo "   MANDATORY: Run zen-mcp quick review before commit"
     echo "   See .claude/workflows/03-reviews.md"

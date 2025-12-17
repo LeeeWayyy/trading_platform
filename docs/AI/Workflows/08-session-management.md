@@ -16,7 +16,7 @@
 
 ```bash
 # Check task state
-jq '.current_task.state, .progress.completion_percentage' .claude/task-state.json
+jq '.current_task.state, .progress.completion_percentage' .ai_workflow/workflow-state.json
 
 # If state is "IN_PROGRESS" or "PENDING", load context:
 if [ -L .claude/checkpoints/latest_session_end.json ]; then
@@ -25,8 +25,8 @@ if [ -L .claude/checkpoints/latest_session_end.json ]; then
 fi
 
 # Read task details
-TASK_ID=$(jq -r '.current_task.task_id' .claude/task-state.json)
-BRANCH=$(jq -r '.current_task.branch_name' .claude/task-state.json)
+TASK_ID=$(jq -r '.current_task.task_id' .ai_workflow/workflow-state.json)
+BRANCH=$(jq -r '.current_task.branch_name' .ai_workflow/workflow-state.json)
 
 # Display current task
 cat docs/TASKS/${TASK_ID}.md
@@ -49,7 +49,7 @@ Use `scripts/update_task_state.py` to track progress:
   --components 6
 ```
 
-Creates `.claude/task-state.json` with initial state.
+Creates `.ai_workflow/workflow-state.json` with initial state.
 
 ### Mark Component Complete
 
@@ -85,7 +85,7 @@ Preserves state for next session (auto-resume).
 
 ```bash
 # 1. Check state
-jq '.' .claude/task-state.json
+jq '.' .ai_workflow/workflow-state.json
 
 # 2. Restore checkpoint
 ./scripts/context_checkpoint.py restore --id <checkpoint_id>
@@ -97,10 +97,10 @@ jq '.' .claude/task-state.json
 
 ```bash
 # 1. Check what was being worked on
-jq '.current_task, .progress' .claude/task-state.json
+jq '.current_task, .progress' .ai_workflow/workflow-state.json
 
 # 2. Review task document
-cat docs/TASKS/$(jq -r '.current_task.task_id' .claude/task-state.json).md
+cat docs/TASKS/$(jq -r '.current_task.task_id' .ai_workflow/workflow-state.json).md
 
 # 3. Check git status
 git status
@@ -116,7 +116,7 @@ git log --oneline -5
 ./scripts/update_task_state.py complete-component --component 3 --name "DelegationRules"
 
 # Check updated state
-jq '.progress' .claude/task-state.json
+jq '.progress' .ai_workflow/workflow-state.json
 ```
 
 ---
