@@ -129,7 +129,9 @@ def _import_modules(monkeypatch, stub_streamlit):
             FLATTEN_ALL="flatten_all",
         ),
         has_permission=lambda *_args, **_kwargs: True,
-        get_authorized_strategies=lambda user: user.get("strategies", []) if isinstance(user, dict) else [],
+        get_authorized_strategies=lambda user: (
+            user.get("strategies", []) if isinstance(user, dict) else []
+        ),
     )
     monkeypatch.setitem(sys.modules, "apps.web_console.auth.permissions", perm_stub)
 
@@ -143,9 +145,13 @@ def _import_modules(monkeypatch, stub_streamlit):
 
     jwt_manager_stub = SimpleNamespace(JWTManager=FakeJWTManager)
     monkeypatch.setitem(sys.modules, "libs.web_console_auth.jwt_manager", jwt_manager_stub)
-    monkeypatch.setitem(sys.modules, "libs.web_console_auth.__init__", SimpleNamespace(JWTManager=FakeJWTManager))
+    monkeypatch.setitem(
+        sys.modules, "libs.web_console_auth.__init__", SimpleNamespace(JWTManager=FakeJWTManager)
+    )
 
-    auth_config_stub = SimpleNamespace(AuthConfig=SimpleNamespace(from_env=lambda: SimpleNamespace()))
+    auth_config_stub = SimpleNamespace(
+        AuthConfig=SimpleNamespace(from_env=lambda: SimpleNamespace())
+    )
     monkeypatch.setitem(sys.modules, "libs.web_console_auth.config", auth_config_stub)
     monkeypatch.setitem(sys.modules, "redis", SimpleNamespace(Redis=lambda **kwargs: None))
 
@@ -252,7 +258,9 @@ def test_close_position_partial_qty(monkeypatch, stub_streamlit, user_with_sessi
 
     from decimal import Decimal
 
-    manual_controls.close_position("AAPL", "closing partial position", Decimal("50"), user_with_session)
+    manual_controls.close_position(
+        "AAPL", "closing partial position", Decimal("50"), user_with_session
+    )
 
     assert "/positions/AAPL/close" in captured["url"]
     assert captured["json"]["qty"] == Decimal("50")

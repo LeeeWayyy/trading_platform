@@ -48,15 +48,30 @@ TwoFaValidator = Callable[[str, str], Awaitable[TwoFaResult]]
 # Environment configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+
+# Parse REDIS_PORT with safe fallback
+try:
+    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+except ValueError:
+    logger.warning("Invalid REDIS_PORT, using default 6379")
+    REDIS_PORT = 6379
+
+# Parse REDIS_DB with safe fallback
+try:
+    REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+except ValueError:
+    logger.warning("Invalid REDIS_DB, using default 0")
+    REDIS_DB = 0
+
 AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "")
 
 # Parse Auth0 domain using urllib.parse for robust URL handling
 _raw_auth0_domain = os.getenv("AUTH0_DOMAIN", "").strip()
 if _raw_auth0_domain:
     # Handle both full URLs (https://domain.auth0.com) and bare domains (domain.auth0.com)
-    parsed = urlparse(_raw_auth0_domain if "://" in _raw_auth0_domain else f"https://{_raw_auth0_domain}")
+    parsed = urlparse(
+        _raw_auth0_domain if "://" in _raw_auth0_domain else f"https://{_raw_auth0_domain}"
+    )
     AUTH0_DOMAIN = parsed.netloc if parsed.netloc else parsed.path.strip("/")
     AUTH0_ISSUER = f"https://{AUTH0_DOMAIN}/" if AUTH0_DOMAIN else ""
 else:
@@ -66,8 +81,6 @@ DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 MFA_TOKEN_MAX_AGE_SECONDS = 60
 
 # Singletons initialized lazily
-_async_redis: redis_async.Redis | None = None
-_sync_redis: redis.Redis | None = None
 _rate_limiter: RateLimiter | None = None
 _audit_logger: AuditLogger | None = None
 _gateway_authenticator: GatewayAuthenticator | None = None
@@ -96,26 +109,18 @@ def get_db_pool() -> AsyncConnectionPool:
     return AsyncConnectionPool(DATABASE_URL, open=True)
 
 
+@lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_async_redis() -> redis_async.Redis:
     """Return shared async Redis client (decode responses for string keys)."""
 
-    global _async_redis
-    if _async_redis is None:
-        _async_redis = redis_async.Redis(
-            host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True
-        )
-    return _async_redis
+    return redis_async.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
 
 
+@lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_sync_redis() -> redis.Redis:
     """Return sync Redis client (used by JWTManager blacklist)."""
 
-    global _sync_redis
-    if _sync_redis is None:
-        _sync_redis = redis.Redis(
-            host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True
-        )
-    return _sync_redis
+    return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
 
 
 def get_rate_limiter(redis_client: redis_async.Redis = Depends(get_async_redis)) -> RateLimiter:
@@ -331,7 +336,9 @@ async def check_rate_limit_with_fallback(
     """
 
     try:
-        allowed, remaining = await rate_limiter.check_rate_limit(user_id, action, max_requests, window_seconds)
+        allowed, remaining = await rate_limiter.check_rate_limit(
+            user_id, action, max_requests, window_seconds
+        )
         return allowed, remaining, False
     except Exception as exc:
         # Fail closed per task doc - log error for debugging
@@ -391,7 +398,9 @@ async def verify_2fa_token(
     if auth_age > MFA_TOKEN_MAX_AGE_SECONDS:
         return False, "mfa_expired", None
 
-    amr_method = next((m for m in ["webauthn", "hwk", "otp", "sms", "push", "mfa"] if m in amr), None)
+    amr_method = next(
+        (m for m in ["webauthn", "hwk", "otp", "sms", "push", "mfa"] if m in amr), None
+    )
     return True, None, amr_method
 
 

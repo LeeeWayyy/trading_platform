@@ -56,7 +56,9 @@ def cancel_all_orders(symbol: str, reason: str, user: Mapping[str, Any]) -> dict
     return post_manual_controls_api("/orders/cancel-all", user=user, json_body=body)
 
 
-def close_position(symbol: str, reason: str, qty: Decimal | None, user: Mapping[str, Any]) -> dict[str, Any]:
+def close_position(
+    symbol: str, reason: str, qty: Decimal | None, user: Mapping[str, Any]
+) -> dict[str, Any]:
     body: dict[str, Any] = {
         "reason": reason,
         "requested_by": _user_id(user),
@@ -154,7 +156,11 @@ def handle_api_error(e: Exception, action: str) -> None:
         if e.status_code == 422:
             detail = e.detail
             if isinstance(detail, list) and detail:
-                msg = detail[0].get("msg", "Invalid input") if isinstance(detail[0], Mapping) else "Invalid input"
+                msg = (
+                    detail[0].get("msg", "Invalid input")
+                    if isinstance(detail[0], Mapping)
+                    else "Invalid input"
+                )
             else:
                 msg = "Invalid input"
             st.error(f"Validation error: {msg}")
@@ -428,7 +434,9 @@ def render_flatten_all(user: Mapping[str, Any]) -> None:
 # -----------------------------------------------------------------------------
 
 
-def render_manual_controls(user: Mapping[str, Any], db_pool: Any, audit_logger: Any) -> None:  # noqa: ARG001
+def render_manual_controls(
+    user: Mapping[str, Any], db_pool: Any, audit_logger: Any
+) -> None:  # noqa: ARG001
     """Render manual controls page."""
 
     if not FEATURE_MANUAL_CONTROLS:

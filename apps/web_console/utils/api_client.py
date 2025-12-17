@@ -239,7 +239,11 @@ def _handle_manual_controls_error(response: requests.Response) -> None:
     message = response.reason or "Request failed"
 
     if isinstance(detail, Mapping):
-        error_code = detail.get("error") or detail.get("code") or STATUS_CODE_FALLBACK.get(status, error_code)
+        error_code = (
+            detail.get("error")
+            or detail.get("code")
+            or STATUS_CODE_FALLBACK.get(status, error_code)
+        )
         message = detail.get("message") or message
         retry_after = detail.get("retry_after") or response.headers.get("Retry-After")
         if retry_after is not None:

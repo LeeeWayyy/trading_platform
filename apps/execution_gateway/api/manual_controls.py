@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
-import uuid
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -84,6 +84,37 @@ def _apply_strategy_scope(
     if strategies is None:
         return []
     return list(strategies)
+
+
+def _generate_manual_order_id(
+    action: str,
+    symbol: str,
+    side: str,
+    qty: Decimal,
+    user_id: str,
+    as_of_date: date | None = None,
+) -> str:
+    """Generate deterministic order ID for manual control operations.
+
+    Ensures idempotency for manual operations by creating reproducible IDs
+    based on operation parameters and date.
+
+    Args:
+        action: Operation type (close_position, adjust_position, flatten_all)
+        symbol: Trading symbol
+        side: Order side (buy/sell)
+        qty: Order quantity
+        user_id: User initiating the operation
+        as_of_date: Date for ID generation (defaults to today)
+
+    Returns:
+        24-character alphanumeric ID compatible with Alpaca
+    """
+
+    target_date = as_of_date or date.today()
+    components = f"{action}:{symbol}:{side}:{qty}:{user_id}:{target_date}"
+    digest = hashlib.sha256(components.encode()).hexdigest()
+    return digest[:24]
 
 
 async def _enforce_rate_limit(
@@ -268,7 +299,9 @@ async def cancel_all_orders(
 ) -> CancelAllOrdersResponse:
     """Cancel all pending orders for a symbol within authorized strategies."""
 
-    await _ensure_permission_with_audit(user, Permission.CANCEL_ORDER, "cancel_all_orders", audit_logger)
+    await _ensure_permission_with_audit(
+        user, Permission.CANCEL_ORDER, "cancel_all_orders", audit_logger
+    )
     await _enforce_rate_limit(rate_limiter, user.user_id, "cancel_all", audit_logger)
 
     strategy_scope = _apply_strategy_scope(user, get_authorized_strategies(user))
@@ -289,9 +322,7 @@ async def cancel_all_orders(
                 "User has no authorized strategies",
             ),
         )
-    orders, _ = db_client.get_pending_orders(
-        symbol=request.symbol, strategy_ids=strategy_scope
-    )
+    orders, _ = db_client.get_pending_orders(symbol=request.symbol, strategy_ids=strategy_scope)
 
     if not orders:
         # Audit no-op case before raising 404
@@ -414,7 +445,9 @@ async def close_position(
 ) -> ClosePositionResponse:
     """Close (fully or partially) a position."""
 
-    await _ensure_permission_with_audit(user, Permission.CLOSE_POSITION, "close_position", audit_logger)
+    await _ensure_permission_with_audit(
+        user, Permission.CLOSE_POSITION, "close_position", audit_logger
+    )
     await _enforce_rate_limit(rate_limiter, user.user_id, "close_position", audit_logger)
 
     strategies = get_authorized_strategies(user)
@@ -501,7 +534,14 @@ async def close_position(
         order_type="market",
     )
 
-    order_id = str(uuid.uuid4())
+    # Generate deterministic order ID for idempotency
+    order_id = _generate_manual_order_id(
+        action="close_position",
+        symbol=symbol.upper(),
+        side=side,
+        qty=qty_to_close,
+        user_id=user.user_id,
+    )
     try:
         # Persist order in DB BEFORE broker submission to ensure webhooks can find it
         # Strategy ID uses manual_controls prefix to identify operator-initiated orders
@@ -559,7 +599,9 @@ async def adjust_position(
 ) -> AdjustPositionResponse:
     """Force position adjustment to a target quantity."""
 
-    await _ensure_permission_with_audit(user, Permission.CLOSE_POSITION, "adjust_position", audit_logger)
+    await _ensure_permission_with_audit(
+        user, Permission.CLOSE_POSITION, "adjust_position", audit_logger
+    )
     await _enforce_rate_limit(rate_limiter, user.user_id, "adjust_position", audit_logger)
 
     strategies = get_authorized_strategies(user)
@@ -647,7 +689,14 @@ async def adjust_position(
         limit_price=request.limit_price,
     )
 
-    order_id = str(uuid.uuid4())
+    # Generate deterministic order ID for idempotency
+    order_id = _generate_manual_order_id(
+        action="adjust_position",
+        symbol=symbol.upper(),
+        side=side,
+        qty=abs(delta),
+        user_id=user.user_id,
+    )
     try:
         # Persist order in DB BEFORE broker submission to ensure webhooks can find it
         # Strategy ID uses manual_controls prefix to identify operator-initiated orders
@@ -725,19 +774,59 @@ async def flatten_all_positions(
         # Error messages are specific enough to aid debugging but generic enough to avoid
         # leaking sensitive authentication details (e.g., token structure, validation internals)
         error_map = {
-            "token_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification expired. Please re-authenticate."),
-            "invalid_issuer": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification failed: invalid provider."),
-            "invalid_audience": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification failed: invalid audience."),
-            "token_not_yet_valid": (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification failed: token not yet valid."),
-            "token_mismatch": (status.HTTP_403_FORBIDDEN, "token_mismatch", "MFA verification failed: user mismatch."),
-            "mfa_required": (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification required. Please authenticate with MFA."),
-            "mfa_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification expired. Please re-authenticate."),
-            "invalid_jwt": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification failed: invalid token."),
-            "mfa_misconfigured": (status.HTTP_503_SERVICE_UNAVAILABLE, "mfa_unavailable", "MFA service is not configured."),
+            "token_expired": (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_expired",
+                "MFA verification expired. Please re-authenticate.",
+            ),
+            "invalid_issuer": (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_invalid",
+                "MFA verification failed: invalid provider.",
+            ),
+            "invalid_audience": (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_invalid",
+                "MFA verification failed: invalid audience.",
+            ),
+            "token_not_yet_valid": (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_required",
+                "MFA verification failed: token not yet valid.",
+            ),
+            "token_mismatch": (
+                status.HTTP_403_FORBIDDEN,
+                "token_mismatch",
+                "MFA verification failed: user mismatch.",
+            ),
+            "mfa_required": (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_required",
+                "MFA verification required. Please authenticate with MFA.",
+            ),
+            "mfa_expired": (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_expired",
+                "MFA verification expired. Please re-authenticate.",
+            ),
+            "invalid_jwt": (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_invalid",
+                "MFA verification failed: invalid token.",
+            ),
+            "mfa_misconfigured": (
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "mfa_unavailable",
+                "MFA service is not configured.",
+            ),
         }
         status_code, code, message = error_map.get(
             mfa_error or "mfa_required",
-            (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification required. Please re-authenticate."),
+            (
+                status.HTTP_403_FORBIDDEN,
+                "mfa_required",
+                "MFA verification required. Please re-authenticate.",
+            ),
         )
         # Audit log MFA denial before raising
         await audit_logger.log_action(
@@ -822,7 +911,14 @@ async def flatten_all_positions(
             qty=qty,
             order_type="market",
         )
-        order_id = str(uuid.uuid4())
+        # Generate deterministic order ID for idempotency
+        order_id = _generate_manual_order_id(
+            action="flatten_all",
+            symbol=position.symbol,
+            side=side,
+            qty=Decimal(qty),
+            user_id=user.user_id,
+        )
         try:
             # Persist order in DB BEFORE broker submission to ensure webhooks can find it
             # Strategy ID uses manual_controls prefix to identify operator-initiated orders
@@ -893,7 +989,9 @@ async def list_pending_orders(
 ) -> PendingOrdersResponse:
     """List pending orders scoped to authorized strategies."""
 
-    await _ensure_permission_with_audit(user, Permission.VIEW_TRADES, "list_pending_orders", audit_logger)
+    await _ensure_permission_with_audit(
+        user, Permission.VIEW_TRADES, "list_pending_orders", audit_logger
+    )
     await _enforce_rate_limit(rate_limiter, user.user_id, "pending_orders", audit_logger)
 
     if sort_by not in {"created_at", "updated_at", "symbol", "strategy_id", "status"}:

@@ -96,7 +96,9 @@ class StubDB:
     def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         return self.orders.get(client_order_id)
 
-    def update_order_status(self, client_order_id: str, status: str, **_: Any) -> OrderDetail | None:
+    def update_order_status(
+        self, client_order_id: str, status: str, **_: Any
+    ) -> OrderDetail | None:
         self.status_updates[client_order_id] = status
         order = self.orders.get(client_order_id)
         if order:
@@ -163,7 +165,9 @@ class StubAuthenticator:
         self.exc = exc
         self.role = role
 
-    async def authenticate(self, token: str, x_user_id: str, x_request_id: str, x_session_version: int) -> AuthenticatedUser:  # noqa: D401
+    async def authenticate(
+        self, token: str, x_user_id: str, x_request_id: str, x_session_version: int
+    ) -> AuthenticatedUser:  # noqa: D401
         if self.exc:
             raise self.exc
         return AuthenticatedUser(
@@ -219,9 +223,20 @@ def _auth_headers() -> dict[str, str]:
 
 def test_cancel_order_permission_denied_for_viewer():
     client = build_client(
-        {deps.get_authenticated_user: lambda: AuthenticatedUser("user-1", Role.VIEWER, ["s1"], 1, "req")}
+        {
+            deps.get_authenticated_user: lambda: AuthenticatedUser(
+                "user-1", Role.VIEWER, ["s1"], 1, "req"
+            )
+        }
     )
-    response = client.post("/orders/ord-1/cancel", json={"reason": "too risky cancel", "requested_by": "u", "requested_at": datetime.now(UTC).isoformat()})
+    response = client.post(
+        "/orders/ord-1/cancel",
+        json={
+            "reason": "too risky cancel",
+            "requested_by": "u",
+            "requested_at": datetime.now(UTC).isoformat(),
+        },
+    )
     assert response.status_code == 403
     assert _err(response)["error"] == "permission_denied"
 
@@ -264,9 +279,7 @@ def test_cancel_order_strategy_unauthorized():
 
 
 def test_rate_limit_blocked():
-    client = build_client(
-        overrides={deps.get_rate_limiter: lambda: StubRateLimiter(allow=False)}
-    )
+    client = build_client(overrides={deps.get_rate_limiter: lambda: StubRateLimiter(allow=False)})
     response = client.post(
         "/orders/ord-1/cancel",
         json={
@@ -289,7 +302,9 @@ def test_pending_orders_strategy_scope_denied():
 def test_pending_orders_admin_allowed():
     client = build_client(
         overrides={
-            deps.get_authenticated_user: lambda: AuthenticatedUser("admin", Role.ADMIN, ["s1", "s2"], 1, "req")
+            deps.get_authenticated_user: lambda: AuthenticatedUser(
+                "admin", Role.ADMIN, ["s1", "s2"], 1, "req"
+            )
         }
     )
     response = client.get("/orders/pending")
@@ -363,11 +378,7 @@ def test_flatten_all_requires_mfa():
     async def mock_2fa_fail(token: str, uid: str) -> tuple[bool, str | None, str | None]:
         return (False, "mfa_required", None)
 
-    client = build_client(
-        overrides={
-            deps.get_2fa_validator: lambda: mock_2fa_fail
-        }
-    )
+    client = build_client(overrides={deps.get_2fa_validator: lambda: mock_2fa_fail})
     response = client.post(
         "/positions/flatten-all",
         json={
@@ -378,7 +389,12 @@ def test_flatten_all_requires_mfa():
         },
     )
     assert response.status_code == 403
-    assert _err(response)["error"] in {"mfa_required", "mfa_invalid", "token_mismatch", "mfa_expired"}
+    assert _err(response)["error"] in {
+        "mfa_required",
+        "mfa_invalid",
+        "token_mismatch",
+        "mfa_expired",
+    }
 
 
 def test_flatten_all_success():

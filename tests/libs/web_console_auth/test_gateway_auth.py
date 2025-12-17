@@ -68,7 +68,9 @@ class _FakeCursor:
 
 
 class _FakeDB:
-    def __init__(self, role: str = "operator", strategies: list[str] | None = None, session_version: int = 1):
+    def __init__(
+        self, role: str = "operator", strategies: list[str] | None = None, session_version: int = 1
+    ):
         self.role = role
         self.strategies = strategies or ["alpha"]
         self.session_version = session_version
@@ -108,7 +110,9 @@ def async_redis():
 
 @pytest.fixture()
 def gateway_auth(jwt_manager, async_redis):
-    return GatewayAuthenticator(jwt_manager=jwt_manager, db_pool=_FakeDB(), redis_client=async_redis)
+    return GatewayAuthenticator(
+        jwt_manager=jwt_manager, db_pool=_FakeDB(), redis_client=async_redis
+    )
 
 
 def _make_service_token(jwt_manager: JWTManager, *, overrides: dict[str, Any] | None = None) -> str:
@@ -157,12 +161,16 @@ async def test_invalid_signature_rejected(jwt_manager, async_redis, tmp_path):
 
     # Sign token with a different key
     alt_priv, _ = _generate_rsa_pair(tmp_path)
-    alt_private_key = serialization.load_pem_private_key(
-        open(alt_priv, "rb").read(), password=None
-    )
+    alt_private_key = serialization.load_pem_private_key(open(alt_priv, "rb").read(), password=None)
     token = jwt.encode(
-        {"sub": "user-123", "iss": jwt_manager.config.jwt_issuer, "aud": jwt_manager.config.jwt_audience,
-         "exp": int(datetime.now(UTC).timestamp()) + 60, "jti": str(uuid.uuid4()), "type": "service"},
+        {
+            "sub": "user-123",
+            "iss": jwt_manager.config.jwt_issuer,
+            "aud": jwt_manager.config.jwt_audience,
+            "exp": int(datetime.now(UTC).timestamp()) + 60,
+            "jti": str(uuid.uuid4()),
+            "type": "service",
+        },
         alt_private_key,
         algorithm=jwt_manager.config.jwt_algorithm,
     )

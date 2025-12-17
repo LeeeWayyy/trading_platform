@@ -91,7 +91,9 @@ class GatewayAuthenticator:
         role = await self.get_user_role(x_user_id)
         strategies = await self.get_user_strategies(x_user_id)
 
-        is_valid_session = await validate_session_version(x_user_id, x_session_version, self.db_pool)
+        is_valid_session = await validate_session_version(
+            x_user_id, x_session_version, self.db_pool
+        )
         if not is_valid_session:
             raise SessionExpiredError("Session invalidated")
 
@@ -115,14 +117,14 @@ class GatewayAuthenticator:
                     algorithms=[config.jwt_algorithm],
                     issuer=config.jwt_issuer,
                     audience=config.jwt_audience,
-                options={
-                    "verify_signature": True,
-                    "verify_exp": True,
-                    "verify_nbf": True,
-                    "verify_iss": True,
-                    "verify_aud": True,
-                },
-                leeway=config.clock_skew_seconds,
+                    options={
+                        "verify_signature": True,
+                        "verify_exp": True,
+                        "verify_nbf": True,
+                        "verify_iss": True,
+                        "verify_aud": True,
+                    },
+                    leeway=config.clock_skew_seconds,
                 ),
             )
         except jwt.ExpiredSignatureError as exc:
@@ -169,7 +171,9 @@ class GatewayAuthenticator:
 
     async def get_user_strategies(self, user_id: str) -> list[str]:
         """Fetch authorized strategies from user_strategy_access table."""
-        query = "SELECT strategy_id FROM user_strategy_access WHERE user_id = %s ORDER BY strategy_id"
+        query = (
+            "SELECT strategy_id FROM user_strategy_access WHERE user_id = %s ORDER BY strategy_id"
+        )
         async with acquire_connection(self.db_pool) as conn:
             cursor = await conn.execute(query, (user_id,))
             rows = await cursor.fetchall()
