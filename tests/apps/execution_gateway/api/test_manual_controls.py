@@ -128,6 +128,16 @@ class StubDB:
     def get_all_positions(self) -> list[Position]:
         return self.positions
 
+    def create_order(self, **kwargs: Any) -> OrderDetail:
+        """Stub create_order for manual controls order persistence."""
+        order = _order(
+            strategy=kwargs.get("strategy_id", "stub"),
+            client_id=kwargs.get("client_order_id", "stub-order"),
+            status=kwargs.get("status", "pending_new"),
+        )
+        self.orders[order.client_order_id] = order
+        return order
+
 
 class StubAudit(AuditLogger):
     async def log_action(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover - no-op

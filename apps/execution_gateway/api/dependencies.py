@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
 import jwt
 import redis
@@ -51,10 +52,16 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "")
 
+# Parse Auth0 domain using urllib.parse for robust URL handling
 _raw_auth0_domain = os.getenv("AUTH0_DOMAIN", "").strip()
-_clean_domain = _raw_auth0_domain.replace("https://", "").replace("http://", "").strip("/")
-AUTH0_DOMAIN = _clean_domain
-AUTH0_ISSUER = f"https://{_clean_domain}/" if _clean_domain else ""
+if _raw_auth0_domain:
+    # Handle both full URLs (https://domain.auth0.com) and bare domains (domain.auth0.com)
+    parsed = urlparse(_raw_auth0_domain if "://" in _raw_auth0_domain else f"https://{_raw_auth0_domain}")
+    AUTH0_DOMAIN = parsed.netloc if parsed.netloc else parsed.path.strip("/")
+    AUTH0_ISSUER = f"https://{AUTH0_DOMAIN}/" if AUTH0_DOMAIN else ""
+else:
+    AUTH0_DOMAIN = ""
+    AUTH0_ISSUER = ""
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 MFA_TOKEN_MAX_AGE_SECONDS = 60
 

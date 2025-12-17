@@ -203,6 +203,12 @@ async def cancel_order(
     )
 
     try:
+        # DESIGN TRADEOFF: Broker cancellation before DB update
+        # This approach is acceptable because:
+        # 1. Broker cancellation is idempotent (safe to retry)
+        # 2. DB failure is logged and can be reconciled later
+        # 3. Broker state is source of truth - DB is eventually consistent
+        # Alternative (DB first) risks orphaned pending orders if broker call fails
         if alpaca_executor and order.broker_order_id:
             alpaca_executor.cancel_order(order.broker_order_id)
         db_client.update_order_status(order_id, "canceled")
@@ -497,7 +503,19 @@ async def close_position(
 
     order_id = str(uuid.uuid4())
     try:
+        # Persist order in DB BEFORE broker submission to ensure webhooks can find it
+        # Strategy ID uses manual_controls prefix to identify operator-initiated orders
+        db_client.create_order(
+            client_order_id=order_id,
+            strategy_id="manual_controls_close_position",
+            order_request=order_req,
+            status="pending_new",
+            broker_order_id=None,
+        )
+
+        # Submit to broker after DB persistence
         alpaca_executor.submit_order(order_req, order_id)
+
         # Log success after broker submission
         await audit_logger.log_action(
             user_id=user.user_id,
@@ -631,7 +649,19 @@ async def adjust_position(
 
     order_id = str(uuid.uuid4())
     try:
+        # Persist order in DB BEFORE broker submission to ensure webhooks can find it
+        # Strategy ID uses manual_controls prefix to identify operator-initiated orders
+        db_client.create_order(
+            client_order_id=order_id,
+            strategy_id="manual_controls_adjust_position",
+            order_request=order_req,
+            status="pending_new",
+            broker_order_id=None,
+        )
+
+        # Submit to broker after DB persistence
         alpaca_executor.submit_order(order_req, order_id)
+
         # Log success after broker submission
         await audit_logger.log_action(
             user_id=user.user_id,
@@ -692,15 +722,17 @@ async def flatten_all_positions(
     mfa_result: TwoFaResult = await two_fa_validator(request.id_token, user.user_id)
     valid_mfa, mfa_error, amr_method = mfa_result
     if not valid_mfa:
+        # Error messages are specific enough to aid debugging but generic enough to avoid
+        # leaking sensitive authentication details (e.g., token structure, validation internals)
         error_map = {
-            "token_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification required. Please re-authenticate."),
-            "invalid_issuer": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification required. Please re-authenticate."),
-            "invalid_audience": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification required. Please re-authenticate."),
-            "token_not_yet_valid": (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification required. Please re-authenticate."),
-            "token_mismatch": (status.HTTP_403_FORBIDDEN, "token_mismatch", "MFA verification required. Please re-authenticate."),
-            "mfa_required": (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification required. Please re-authenticate."),
-            "mfa_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification required. Please re-authenticate."),
-            "invalid_jwt": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification required. Please re-authenticate."),
+            "token_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification expired. Please re-authenticate."),
+            "invalid_issuer": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification failed: invalid provider."),
+            "invalid_audience": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification failed: invalid audience."),
+            "token_not_yet_valid": (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification failed: token not yet valid."),
+            "token_mismatch": (status.HTTP_403_FORBIDDEN, "token_mismatch", "MFA verification failed: user mismatch."),
+            "mfa_required": (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification required. Please authenticate with MFA."),
+            "mfa_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification expired. Please re-authenticate."),
+            "invalid_jwt": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification failed: invalid token."),
             "mfa_misconfigured": (status.HTTP_503_SERVICE_UNAVAILABLE, "mfa_unavailable", "MFA service is not configured."),
         }
         status_code, code, message = error_map.get(
@@ -792,6 +824,17 @@ async def flatten_all_positions(
         )
         order_id = str(uuid.uuid4())
         try:
+            # Persist order in DB BEFORE broker submission to ensure webhooks can find it
+            # Strategy ID uses manual_controls prefix to identify operator-initiated orders
+            db_client.create_order(
+                client_order_id=order_id,
+                strategy_id="manual_controls_flatten_all",
+                order_request=order_req,
+                status="pending_new",
+                broker_order_id=None,
+            )
+
+            # Submit to broker after DB persistence
             alpaca_executor.submit_order(order_req, order_id)
             orders_created.append(order_id)
             strategies_affected.add(getattr(position, "strategy_id", "") or "")
