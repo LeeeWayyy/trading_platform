@@ -37,6 +37,17 @@ DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "10.0"))
 
 T = TypeVar("T")
 
+# Order statuses treated as pending/active for manual controls and monitoring
+PENDING_STATUSES: tuple[str, ...] = (
+    "pending_new",
+    "submitted",
+    "submitted_unconfirmed",
+    "accepted",
+    "pending_cancel",
+    "pending_replace",
+    "partially_filled",
+)
+
 
 def calculate_position_update(
     old_qty: int,
@@ -854,6 +865,84 @@ class DatabaseClient:
             logger.error(f"Database error fetching order: {e}")
             raise
 
+    def get_pending_orders(
+        self,
+        *,
+        symbol: str | None = None,
+        strategy_ids: list[str] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[OrderDetail], int]:
+        """
+        Return active/pending orders with optional symbol and strategy filters.
+
+        Args:
+            symbol: Optional symbol filter
+            strategy_ids: Optional list of strategies to scope results (fail-closed when empty)
+            limit: Max rows to return (default 100)
+            offset: Pagination offset
+            sort_by: Column to sort by (whitelist enforced)
+            sort_order: "asc" or "desc" (default desc)
+
+        Returns:
+            (orders, total_count)
+        """
+        allowed_sort_by = {"created_at", "updated_at", "symbol", "strategy_id", "status"}
+        sort_column = sort_by if sort_by in allowed_sort_by else "created_at"
+        sort_direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+
+        filters: list[str] = ["status = ANY(%s)"]
+        params: list[Any] = [list(PENDING_STATUSES)]
+
+        if symbol:
+            filters.append("symbol = %s")
+            params.append(symbol.upper())
+
+        if strategy_ids is not None:
+            filters.append("strategy_id = ANY(%s)")
+            params.append(strategy_ids)
+
+        where_clause = " AND ".join(filters)
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        f"""
+                        SELECT * FROM orders
+                        WHERE {where_clause}
+                        ORDER BY {sort_column} {sort_direction}
+                        LIMIT %s OFFSET %s
+                        """,
+                        (*params, limit, offset),
+                    )
+                    rows = cur.fetchall()
+
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT COUNT(*) FROM orders WHERE {where_clause}",
+                        params,
+                    )
+                    count_row = cur.fetchone()
+                    total = int(count_row[0]) if count_row else 0
+
+            return [OrderDetail(**row) for row in rows], total
+
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching pending orders",
+                extra={
+                    "symbol": symbol,
+                    "strategies": strategy_ids,
+                    "limit": limit,
+                    "offset": offset,
+                    "error": str(exc),
+                },
+            )
+            raise
+
     def update_order_status(
         self,
         client_order_id: str,
@@ -1540,6 +1629,50 @@ class DatabaseClient:
                 return [Position(**row) for row in cur.fetchall()]
 
         return self._execute_with_conn(None, _execute)
+
+    def get_strategy_map_for_symbols(self, symbols: list[str]) -> dict[str, str | None]:
+        """
+        Return a best-effort mapping of symbol -> strategy_id.
+
+        For each symbol, if exactly one distinct strategy_id is found in the orders table,
+        return that strategy_id. Otherwise (no orders or multiple strategies), return None.
+
+        This is used to improve auditability for manual control actions without introducing
+        a strategy_id column on the positions table.
+        """
+        if not symbols:
+            return {}
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT symbol, ARRAY_AGG(DISTINCT strategy_id) AS strategies
+                        FROM orders
+                        WHERE strategy_id IS NOT NULL
+                          AND symbol = ANY(%s)
+                        GROUP BY symbol
+                        """,
+                        (symbols,),
+                    )
+                    rows = cur.fetchall()
+
+            strategy_map: dict[str, str | None] = {symbol: None for symbol in symbols}
+            for row in rows:
+                strategies = row.get("strategies") if isinstance(row, dict) else row[1]
+                symbol = row.get("symbol") if isinstance(row, dict) else row[0]
+                if isinstance(strategies, list) and len(strategies) == 1:
+                    strategy_map[str(symbol)] = strategies[0]
+                else:
+                    strategy_map[str(symbol)] = None
+            return strategy_map
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching strategy map",
+                extra={"symbols": symbols, "error": str(exc)},
+            )
+            raise
 
     def check_connection(self) -> bool:
         """

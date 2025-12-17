@@ -20,7 +20,12 @@ from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
 
 logger = logging.getLogger(__name__)
 
-FEATURE_TRADE_JOURNAL = os.getenv("FEATURE_TRADE_JOURNAL", "false").lower() in {"1", "true", "yes", "on"}
+FEATURE_TRADE_JOURNAL = os.getenv("FEATURE_TRADE_JOURNAL", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 MAX_RANGE_DAYS = 365
@@ -62,17 +67,27 @@ def main() -> None:
 
     col1, col2 = st.columns(2)
     with col1:
-        symbol_filter = st.text_input(
-            "Filter by Symbol", "", on_change=_reset_pagination, key="journal_symbol"
-        ).upper().strip() or None
+        symbol_filter = (
+            st.text_input("Filter by Symbol", "", on_change=_reset_pagination, key="journal_symbol")
+            .upper()
+            .strip()
+            or None
+        )
     with col2:
         side_choice = st.selectbox(
-            "Filter by Side", ["All", "buy", "sell"], on_change=_reset_pagination, key="journal_side"
+            "Filter by Side",
+            ["All", "buy", "sell"],
+            on_change=_reset_pagination,
+            key="journal_side",
         )
         side_filter: str | None = None if side_choice == "All" else side_choice
 
     page_size = st.selectbox(
-        "Trades per page", [25, 50, 100], index=1, on_change=_reset_pagination, key="journal_page_size"
+        "Trades per page",
+        [25, 50, 100],
+        index=1,
+        on_change=_reset_pagination,
+        key="journal_page_size",
     )
     page_size = min(page_size, MAX_PAGE_SIZE)
 
@@ -132,8 +147,7 @@ def _select_date_range(
     }
 
     preset = st.selectbox(
-        "Date Range", list(presets.keys()), index=1,
-        on_change=on_change, key="journal_date_preset"
+        "Date Range", list(presets.keys()), index=1, on_change=on_change, key="journal_date_preset"
     )
 
     if preset != "Custom":

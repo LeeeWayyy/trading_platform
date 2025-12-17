@@ -59,6 +59,7 @@ from apps.execution_gateway.alpaca_client import (
     AlpacaRejectionError,
     AlpacaValidationError,
 )
+from apps.execution_gateway.api.manual_controls import router as manual_controls_router
 from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests)
     DatabaseClient,
     calculate_position_update,
@@ -360,6 +361,8 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Controls"])
 
 
 # ============================================================================

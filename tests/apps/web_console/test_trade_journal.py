@@ -53,13 +53,16 @@ permissions_stub = types.SimpleNamespace(
         {"VIEW_TRADES": "view_trades", "EXPORT_DATA": "export_data"},
     ),
     has_permission=lambda user, perm: True,
-    get_authorized_strategies=lambda user: user.get("strategies", []) if isinstance(user, dict) else [],
+    get_authorized_strategies=lambda user: (
+        user.get("strategies", []) if isinstance(user, dict) else []
+    ),
 )
 session_stub = types.SimpleNamespace(
     get_current_user=lambda: {"user_id": "u1", "strategies": ["strat_A"]},
     require_auth=lambda fn: fn,
 )
 audit_stub = types.ModuleType("apps.web_console.auth.audit_log")
+
 
 class _AuditLogger:
     def __init__(self, *_args, **_kwargs):
@@ -275,7 +278,9 @@ def mock_authorized_strategies(monkeypatch):
     # Patch both the permissions helper and the data access module's local import
     # so StrategyScopedDataAccess always uses the test user's strategies.
     monkeypatch.setattr(permissions_mod, "get_authorized_strategies", _authorized, raising=False)
-    monkeypatch.setattr(strategy_scoped_queries, "get_authorized_strategies", _authorized, raising=False)
+    monkeypatch.setattr(
+        strategy_scoped_queries, "get_authorized_strategies", _authorized, raising=False
+    )
     monkeypatch.setattr(journal_page, "get_authorized_strategies", _authorized, raising=False)
     return _authorized
 
@@ -432,7 +437,9 @@ class TestJournalPage:
         journal_page.main()
         assert any("Feature not available" in msg for msg in mock_streamlit._infos)
 
-    def test_permission_denied_without_view_trades(self, monkeypatch, mock_streamlit: DummyStreamlit):
+    def test_permission_denied_without_view_trades(
+        self, monkeypatch, mock_streamlit: DummyStreamlit
+    ):
         monkeypatch.setattr(journal_page, "FEATURE_TRADE_JOURNAL", True)
         monkeypatch.setattr(journal_page, "get_current_user", lambda: {"user_id": "u1"})
         monkeypatch.setattr(journal_page, "has_permission", lambda _user, _perm: False)

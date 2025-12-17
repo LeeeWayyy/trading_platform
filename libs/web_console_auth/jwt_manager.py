@@ -14,7 +14,16 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from redis import Redis
 
 from libs.web_console_auth.config import AuthConfig
-from libs.web_console_auth.exceptions import InvalidTokenError, TokenExpiredError, TokenRevokedError
+from libs.web_console_auth.exceptions import (
+    ImmatureSignatureError,
+    InvalidAudienceError,
+    InvalidIssuerError,
+    InvalidSignatureError,
+    InvalidTokenError,
+    MissingJtiError,
+    TokenExpiredError,
+    TokenRevokedError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,12 +190,66 @@ class JWTManager:
 
         return token
 
+    def generate_service_token(
+        self, user_id: str, session_id: str, client_ip: str, user_agent: str
+    ) -> str:
+        """Generate service-to-service token for internal API calls.
+
+        Unlike access tokens (for end-user sessions), service tokens are used
+        for trusted service-to-service communication (Web Console → Execution Gateway).
+
+        Args:
+            user_id: User identifier (becomes sub claim, must match X-User-ID header)
+            session_id: Session identifier for binding
+            client_ip: Client IP address for binding
+            user_agent: Client User-Agent for fingerprinting
+
+        Returns:
+            Signed JWT service token (RS256)
+
+        Note:
+            Token has type="service" which is REQUIRED by GatewayAuthenticator.
+            GatewayAuthenticator fetches role/strategies from database, not JWT claims.
+            One-time-use JTI enforcement prevents replay attacks.
+        """
+        now = datetime.now(UTC)
+        jti = str(uuid.uuid4())
+        user_agent_hash = hashlib.sha256(user_agent.encode()).hexdigest()
+
+        payload = {
+            "sub": user_id,
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(seconds=self.config.access_token_ttl)).timestamp()),
+            "jti": jti,
+            "iss": self.config.jwt_issuer,
+            "aud": self.config.jwt_audience,
+            "type": "service",  # CRITICAL: Must be "service" for GatewayAuthenticator
+            "session_id": session_id,
+            "ip": client_ip,
+            "user_agent_hash": user_agent_hash,
+        }
+
+        token = jwt.encode(payload, self.private_key, algorithm=self.config.jwt_algorithm)
+
+        logger.info(
+            "service_token_generated",
+            extra={
+                "user_id": user_id,
+                "session_id": session_id,
+                "jti": jti,  # Log token ID only, NEVER full token
+                "ip": client_ip,
+                "exp": payload["exp"],
+            },
+        )
+
+        return token
+
     def validate_token(self, token: str, expected_type: str) -> dict[str, Any]:
         """Validate token signature and claims.
 
         Args:
             token: JWT token to validate
-            expected_type: Expected token type ("access" or "refresh")
+            expected_type: Expected token type ("access", "refresh", or "service")
 
         Returns:
             Decoded token payload with verified claims
@@ -212,6 +275,7 @@ class JWTManager:
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_iat": True,
+                    "verify_nbf": True,
                 },
                 leeway=self.config.clock_skew_seconds,
             )
@@ -224,6 +288,42 @@ class JWTManager:
                 },
             )
             raise TokenExpiredError("Token has expired") from e
+        except jwt.ImmatureSignatureError as e:
+            logger.warning(
+                "token_not_yet_valid",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise ImmatureSignatureError("Token not yet valid") from e
+        except jwt.InvalidIssuerError as e:
+            logger.warning(
+                "token_invalid_issuer",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise InvalidIssuerError("Token issuer not trusted") from e
+        except jwt.InvalidAudienceError as e:
+            logger.warning(
+                "token_invalid_audience",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise InvalidAudienceError("Token not intended for this service") from e
+        except jwt.InvalidSignatureError as e:
+            logger.warning(
+                "token_invalid_signature",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise InvalidSignatureError("Token signature verification failed") from e
         except jwt.InvalidTokenError as e:
             logger.warning(
                 "token_invalid",
@@ -249,7 +349,7 @@ class JWTManager:
         # Check revocation blacklist
         jti = payload.get("jti")
         if not jti:
-            raise InvalidTokenError("Token missing jti claim")
+            raise MissingJtiError("Token missing jti claim")
 
         if self.is_token_revoked(jti):
             logger.warning(

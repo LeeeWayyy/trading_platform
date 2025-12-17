@@ -15,6 +15,8 @@ Author: Claude Code
 Date: 2025-11-02
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
