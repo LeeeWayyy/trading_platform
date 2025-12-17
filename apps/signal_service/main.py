@@ -80,6 +80,7 @@ model_registry: ModelRegistry | None = None
 signal_generator: SignalGenerator | None = None
 redis_client: RedisClient | None = None
 feature_cache: FeatureCache | None = None
+hydration_complete = True
 
 # H8 Fix: Cache SignalGenerators by (top_n, bottom_n) to avoid per-request allocation
 # Key: (top_n, bottom_n) tuple, Value: SignalGenerator instance
@@ -188,6 +189,53 @@ async def model_reload_task() -> None:
             # This provides resilience against transient errors
 
 
+def _should_hydrate_features() -> bool:
+    """Return True when feature hydration should run."""
+    return (
+        settings.feature_hydration_enabled
+        and feature_cache is not None
+        and signal_generator is not None
+        and model_registry is not None
+        and model_registry.is_loaded
+    )
+
+
+async def feature_hydration_task(symbols: list[str], history_days: int) -> None:
+    """
+    Background task to hydrate feature cache at startup.
+
+    Runs in a separate thread to avoid blocking the event loop.
+    """
+    global hydration_complete
+
+    logger.info(
+        "Hydrating feature cache with %s days of history for %s symbols...",
+        history_days,
+        len(symbols),
+    )
+
+    try:
+        assert signal_generator is not None, "signal_generator should be initialized"
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                signal_generator.hydrate_feature_cache,
+                symbols=symbols,
+                history_days=history_days,
+            ),
+            timeout=settings.feature_hydration_timeout_seconds,
+        )
+        logger.info("Feature cache hydration completed")
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Feature cache hydration timed out after %s seconds",
+            settings.feature_hydration_timeout_seconds,
+        )
+    except Exception as e:
+        logger.error(f"Feature cache hydration failed: {e}", exc_info=True)
+    finally:
+        hydration_complete = True
+
+
 # ==============================================================================
 # Application Lifespan
 # ==============================================================================
@@ -222,7 +270,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Raises:
         RuntimeError: If model loading fails at startup
     """
-    global model_registry, signal_generator, redis_client, feature_cache
+    global model_registry, signal_generator, redis_client, feature_cache, hydration_complete
 
     logger.info("=" * 60)
     logger.info("Signal Service Starting...")
@@ -351,6 +399,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 feature_cache=feature_cache,  # Pass feature cache (None if disabled)
             )
 
+        # Step 4.5: Start background feature hydration task
+        hydration_task = None
+        if _should_hydrate_features():
+            hydration_complete = False
+            logger.info("Starting background feature hydration task...")
+            hydration_task = asyncio.create_task(
+                feature_hydration_task(
+                    symbols=settings.tradable_symbols,
+                    history_days=SignalGenerator.DEFAULT_FEATURE_HYDRATION_DAYS,
+                )
+            )
+        else:
+            hydration_complete = True
+            if not settings.feature_hydration_enabled:
+                logger.info("Feature hydration disabled (FEATURE_HYDRATION_ENABLED=false)")
+            elif feature_cache is None:
+                logger.info("Feature cache not enabled, skipping hydration")
+            elif model_registry is None or not model_registry.is_loaded:
+                logger.info("Model not loaded, skipping hydration")
+
         logger.info("=" * 60)
         if model_registry.is_loaded and model_registry.current_metadata:
             logger.info("Signal Service Ready!")
@@ -390,6 +458,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             reload_task.cancel()
             try:
                 await reload_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("Stopping background feature hydration task...")
+        if "hydration_task" in locals() and hydration_task is not None:
+            hydration_task.cancel()
+            try:
+                await hydration_task
             except asyncio.CancelledError:
                 pass
 
@@ -649,7 +725,7 @@ class HealthResponse(BaseModel):
     Response body for health check.
 
     Attributes:
-        status: Service health status ("healthy" or "unhealthy")
+        status: Service health status ("healthy", "degraded", or "unhealthy")
         model_loaded: Whether ML model is loaded
         model_info: Information about loaded model
         redis_status: Redis connection status (T1.2)
@@ -768,7 +844,7 @@ async def health_check() -> HealthResponse:
         HealthResponse with service, model, and Redis status
 
     Status Codes:
-        - 200: Service is healthy
+        - 200: Service is healthy or degraded (warming)
         - 503: Service is unhealthy (model not loaded)
 
     Example:
@@ -851,8 +927,12 @@ async def health_check() -> HealthResponse:
     else:
         redis_status_str = "disconnected"
 
+    health_status = "healthy"
+    if _should_hydrate_features() and not hydration_complete:
+        health_status = "degraded"
+
     return HealthResponse(
-        status="healthy",
+        status=health_status,
         model_loaded=True,
         model_info={
             "strategy": metadata.strategy_name,
@@ -864,6 +944,23 @@ async def health_check() -> HealthResponse:
         timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         service="signal_service",
     )
+
+
+@app.get("/ready", response_model=HealthResponse, tags=["Health"])
+async def readiness_check() -> HealthResponse:
+    """
+    Readiness check endpoint.
+
+    Returns 200 only when the service is fully healthy (including hydration).
+    Returns 503 if service is degraded or unhealthy.
+    """
+    response = await health_check()
+    if response.status != "healthy":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service not ready: {response.status}",
+        )
+    return response
 
 
 @app.post(

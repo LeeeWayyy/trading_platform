@@ -315,6 +315,39 @@ class Settings(BaseSettings):
     """
 
     # ========================================================================
+    # Feature Hydration Configuration (T2)
+    # ========================================================================
+
+    feature_hydration_enabled: bool = True
+    """
+    Enable startup hydration of the feature cache.
+
+    When enabled:
+        - Service warms the feature cache in the background at startup
+        - Health reports "degraded" until hydration completes
+
+    When disabled:
+        - No startup hydration runs
+        - Service is immediately "healthy" (no readiness gate for hydration)
+
+    Notes:
+        - Requires Redis feature cache to be enabled
+        - Safe to disable in development or when cache is not needed
+    """
+
+    feature_hydration_timeout_seconds: int = 300
+    """
+    Maximum time to allow for startup feature hydration (seconds).
+
+    If hydration exceeds this timeout, the background task logs a warning
+    and exits. The service remains running and no crash occurs.
+
+    Notes:
+        - Applies only when feature_hydration_enabled is True
+        - Does not block service startup
+    """
+
+    # ========================================================================
     # Pydantic Settings Configuration
     # ========================================================================
 
