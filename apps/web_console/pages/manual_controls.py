@@ -190,6 +190,12 @@ def handle_api_error(e: Exception, action: str) -> None:
 # -----------------------------------------------------------------------------
 # UI Sections
 # -----------------------------------------------------------------------------
+# DESIGN DECISION: Streamlit widget keys use f-string patterns (e.g., key=f"cancel_reason_{order_id}")
+# This is a known Streamlit consideration when list items may change. Current implementation uses
+# unique identifiers (order_id, symbol) which prevents key collision. A modal-based approach would
+# be cleaner but requires significant refactoring. The current pattern works correctly for this
+# use case and can be revisited if UI state issues emerge. See Streamlit docs on widget keys.
+# -----------------------------------------------------------------------------
 
 
 def render_pending_orders(user: Mapping[str, Any]) -> None:

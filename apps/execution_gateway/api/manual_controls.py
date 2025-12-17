@@ -599,6 +599,11 @@ async def adjust_position(
 ) -> AdjustPositionResponse:
     """Force position adjustment to a target quantity."""
 
+    # DESIGN DECISION: Using CLOSE_POSITION permission for adjust_position
+    # Rationale: Position adjustment is conceptually similar to partial close/extend.
+    # A dedicated ADJUST_POSITION permission could be added later if more granular
+    # access control is needed, but current design keeps permission model simple.
+    # This is a non-breaking change that can be revisited based on operational needs.
     await _ensure_permission_with_audit(
         user, Permission.CLOSE_POSITION, "adjust_position", audit_logger
     )

@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
 import jwt
 import redis
 import redis.asyncio as redis_async
@@ -381,6 +382,10 @@ async def verify_2fa_token(
         return False, "invalid_audience", None
     except jwt.ImmatureSignatureError:
         return False, "token_not_yet_valid", None
+    except httpx.RequestError as exc:
+        # Network error fetching JWKS - return specific error for observability
+        logger.warning("mfa_jwks_fetch_failed", extra={"error": str(exc)})
+        return False, "mfa_unavailable", None
     except Exception:
         logger.exception("mfa_token_validation_failed")
         return False, "invalid_jwt", None
