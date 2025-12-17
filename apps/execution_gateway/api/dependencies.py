@@ -23,11 +23,11 @@ from apps.execution_gateway.database import DatabaseClient
 from libs.web_console_auth.audit_logger import AuditLogger
 from libs.web_console_auth.config import AuthConfig
 from libs.web_console_auth.exceptions import (
+    AuthError,
     ImmatureSignatureError,
     InvalidAudienceError,
     InvalidIssuerError,
     InvalidSignatureError,
-    InvalidTokenError,
     MissingJtiError,
     SessionExpiredError,
     SubjectMismatchError,
@@ -40,6 +40,11 @@ from libs.web_console_auth.jwks_validator import JWKSValidator
 from libs.web_console_auth.jwt_manager import JWTManager
 from libs.web_console_auth.permissions import Permission, has_permission
 from libs.web_console_auth.rate_limiter import RateLimiter
+from libs.web_console_auth.redis_client import (
+    create_async_redis,
+    create_sync_redis,
+    load_redis_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,21 +53,7 @@ TwoFaValidator = Callable[[str, str], Awaitable[TwoFaResult]]
 
 # Environment configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader")
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-
-# Parse REDIS_PORT with safe fallback
-try:
-    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-except ValueError:
-    logger.warning("Invalid REDIS_PORT, using default 6379")
-    REDIS_PORT = 6379
-
-# Parse REDIS_DB with safe fallback
-try:
-    REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-except ValueError:
-    logger.warning("Invalid REDIS_DB, using default 0")
-    REDIS_DB = 0
+REDIS_CONFIG = load_redis_config()
 
 AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "")
 
@@ -87,6 +78,48 @@ MFA_TOKEN_MAX_AGE_SECONDS = 60
 _rate_limiter: RateLimiter | None = None
 _audit_logger: AuditLogger | None = None
 _gateway_authenticator: GatewayAuthenticator | None = None
+
+# Map auth exceptions to HTTP responses for consistent error handling.
+AUTH_EXCEPTION_MAP: dict[type[Exception], tuple[int, str, str]] = {
+    InvalidSignatureError: (
+        status.HTTP_401_UNAUTHORIZED,
+        "invalid_signature",
+        "Token signature verification failed",
+    ),
+    TokenExpiredError: (status.HTTP_401_UNAUTHORIZED, "token_expired", "Token has expired"),
+    ImmatureSignatureError: (
+        status.HTTP_401_UNAUTHORIZED,
+        "token_not_valid_yet",
+        "Token not yet valid",
+    ),
+    TokenRevokedError: (status.HTTP_401_UNAUTHORIZED, "token_revoked", "Token has been revoked"),
+    TokenReplayedError: (status.HTTP_401_UNAUTHORIZED, "token_replayed", "Token already used"),
+    MissingJtiError: (
+        status.HTTP_401_UNAUTHORIZED,
+        "invalid_token",
+        "Token missing required jti claim",
+    ),
+    InvalidIssuerError: (
+        status.HTTP_403_FORBIDDEN,
+        "invalid_issuer",
+        "Token issuer not trusted",
+    ),
+    InvalidAudienceError: (
+        status.HTTP_403_FORBIDDEN,
+        "invalid_audience",
+        "Token not intended for this service",
+    ),
+    SubjectMismatchError: (
+        status.HTTP_403_FORBIDDEN,
+        "subject_mismatch",
+        "Token subject does not match X-User-ID",
+    ),
+    SessionExpiredError: (
+        status.HTTP_403_FORBIDDEN,
+        "session_expired",
+        "Session invalidated. Please log in again.",
+    ),
+}
 
 
 def error_detail(error: str, message: str, retry_after: int | None = None) -> dict[str, Any]:
@@ -113,14 +146,14 @@ def get_db_pool() -> AsyncConnectionPool:
 def get_async_redis() -> redis_async.Redis:
     """Return shared async Redis client (decode responses for string keys)."""
 
-    return redis_async.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+    return create_async_redis(REDIS_CONFIG, decode_responses=True)
 
 
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_sync_redis() -> redis.Redis:
     """Return sync Redis client (used by JWTManager blacklist)."""
 
-    return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+    return create_sync_redis(REDIS_CONFIG, decode_responses=True)
 
 
 def get_rate_limiter(redis_client: redis_async.Redis = Depends(get_async_redis)) -> RateLimiter:
@@ -183,7 +216,14 @@ def get_jwks_validator() -> JWKSValidator | None:
 
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
 def get_db_client() -> DatabaseClient:
-    """Database client for manual control operations (sync)."""
+    """Database client for manual control operations (sync).
+
+    KNOWN LIMITATION: This returns a synchronous DatabaseClient used in async FastAPI
+    endpoints. Sync DB calls can block the event loop under high load. For production
+    scale, consider refactoring DatabaseClient to use AsyncConnectionPool from get_db_pool.
+    Current implementation is acceptable for manual control operations which are
+    low-frequency, human-initiated actions with rate limiting in place.
+    """
 
     return DatabaseClient(DATABASE_URL)
 
@@ -269,57 +309,13 @@ async def get_authenticated_user(
             x_request_id=request_id,
             x_session_version=session_version,
         )
-    except InvalidSignatureError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_detail("invalid_signature", "Token signature verification failed"),
-        ) from exc
-    except TokenExpiredError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_detail("token_expired", "Token has expired"),
-        ) from exc
-    except ImmatureSignatureError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_detail("token_not_valid_yet", "Token not yet valid"),
-        ) from exc
-    except TokenRevokedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_detail("token_revoked", "Token has been revoked"),
-        ) from exc
-    except TokenReplayedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_detail("token_replayed", "Token already used"),
-        ) from exc
-    except MissingJtiError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_detail("invalid_token", "Token missing required jti claim"),
-        ) from exc
-    except InvalidIssuerError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=error_detail("invalid_issuer", "Token issuer not trusted"),
-        ) from exc
-    except InvalidAudienceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=error_detail("invalid_audience", "Token not intended for this service"),
-        ) from exc
-    except SubjectMismatchError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=error_detail("subject_mismatch", "Token subject does not match X-User-ID"),
-        ) from exc
-    except SessionExpiredError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=error_detail("session_expired", "Session invalidated. Please log in again."),
-        ) from exc
-    except InvalidTokenError as exc:
+    except AuthError as exc:
+        if type(exc) in AUTH_EXCEPTION_MAP:
+            status_code, code, message = AUTH_EXCEPTION_MAP[type(exc)]
+            raise HTTPException(
+                status_code=status_code,
+                detail=error_detail(code, message),
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=error_detail("invalid_token", str(exc)),
@@ -372,7 +368,7 @@ async def verify_2fa_token(
             id_token=id_token,
             expected_nonce=None,
             expected_audience=AUTH0_CLIENT_ID,
-            expected_issuer=AUTH0_ISSUER or f"https://{AUTH0_DOMAIN}/",
+            expected_issuer=AUTH0_ISSUER,
         )
     except jwt.ExpiredSignatureError:
         return False, "token_expired", None
@@ -403,6 +399,8 @@ async def verify_2fa_token(
         return False, "mfa_required", None
 
     auth_age = (datetime.now(UTC) - datetime.fromtimestamp(int(auth_time), tz=UTC)).total_seconds()
+    if auth_age < 0:
+        return False, "token_not_yet_valid", None
     if auth_age > MFA_TOKEN_MAX_AGE_SECONDS:
         return False, "mfa_expired", None
 

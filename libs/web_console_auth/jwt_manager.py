@@ -14,7 +14,16 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from redis import Redis
 
 from libs.web_console_auth.config import AuthConfig
-from libs.web_console_auth.exceptions import InvalidTokenError, TokenExpiredError, TokenRevokedError
+from libs.web_console_auth.exceptions import (
+    ImmatureSignatureError,
+    InvalidAudienceError,
+    InvalidIssuerError,
+    InvalidSignatureError,
+    InvalidTokenError,
+    MissingJtiError,
+    TokenExpiredError,
+    TokenRevokedError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +249,7 @@ class JWTManager:
 
         Args:
             token: JWT token to validate
-            expected_type: Expected token type ("access" or "refresh")
+            expected_type: Expected token type ("access", "refresh", or "service")
 
         Returns:
             Decoded token payload with verified claims
@@ -266,6 +275,7 @@ class JWTManager:
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_iat": True,
+                    "verify_nbf": True,
                 },
                 leeway=self.config.clock_skew_seconds,
             )
@@ -278,6 +288,42 @@ class JWTManager:
                 },
             )
             raise TokenExpiredError("Token has expired") from e
+        except jwt.ImmatureSignatureError as e:
+            logger.warning(
+                "token_not_yet_valid",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise ImmatureSignatureError("Token not yet valid") from e
+        except jwt.InvalidIssuerError as e:
+            logger.warning(
+                "token_invalid_issuer",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise InvalidIssuerError("Token issuer not trusted") from e
+        except jwt.InvalidAudienceError as e:
+            logger.warning(
+                "token_invalid_audience",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise InvalidAudienceError("Token not intended for this service") from e
+        except jwt.InvalidSignatureError as e:
+            logger.warning(
+                "token_invalid_signature",
+                extra={
+                    "error": str(e),
+                    "expected_type": expected_type,
+                },
+            )
+            raise InvalidSignatureError("Token signature verification failed") from e
         except jwt.InvalidTokenError as e:
             logger.warning(
                 "token_invalid",
@@ -303,7 +349,7 @@ class JWTManager:
         # Check revocation blacklist
         jti = payload.get("jti")
         if not jti:
-            raise InvalidTokenError("Token missing jti claim")
+            raise MissingJtiError("Token missing jti claim")
 
         if self.is_token_revoked(jti):
             logger.warning(

@@ -190,11 +190,10 @@ def handle_api_error(e: Exception, action: str) -> None:
 # -----------------------------------------------------------------------------
 # UI Sections
 # -----------------------------------------------------------------------------
-# DESIGN DECISION: Streamlit widget keys use f-string patterns (e.g., key=f"cancel_reason_{order_id}")
-# This is a known Streamlit consideration when list items may change. Current implementation uses
-# unique identifiers (order_id, symbol) which prevents key collision. A modal-based approach would
-# be cleaner but requires significant refactoring. The current pattern works correctly for this
-# use case and can be revisited if UI state issues emerge. See Streamlit docs on widget keys.
+# DESIGN DECISION: Avoid dynamic input widgets inside loops.
+# We use a two-step flow: per-order buttons set session state, and a single
+# stable form renders below the list. This prevents Streamlit key churn when
+# the list of orders changes after cancels.
 # -----------------------------------------------------------------------------
 
 
@@ -216,6 +215,9 @@ def render_pending_orders(user: Mapping[str, Any]) -> None:
         st.info("No pending orders found.")
         return
 
+    order_ids = {order.get("client_order_id") for order in orders if order.get("client_order_id")}
+    symbols = sorted({order.get("symbol") for order in orders if order.get("symbol")})
+
     for order in orders:
         order_id = order.get("client_order_id")
         symbol = order.get("symbol")
@@ -225,43 +227,76 @@ def render_pending_orders(user: Mapping[str, Any]) -> None:
         with st.expander(f"{symbol} ({strategy_id}) - {status}"):
             st.write(order)
 
-            if has_permission(user, Permission.CANCEL_ORDER):
-                reason = st.text_input(
-                    "Cancel reason",
-                    key=f"cancel_reason_{order_id}",
-                    placeholder="Enter reason (min 10 chars)",
-                )
+            if has_permission(user, Permission.CANCEL_ORDER) and order_id:
                 if st.button("Cancel Order", key=f"cancel_btn_{order_id}"):
-                    if len(reason.strip()) < 10:
-                        st.error("Reason must be at least 10 characters")
-                    else:
-                        try:
-                            cancel_order(order_id, reason.strip(), user)
-                        except Exception as exc:
-                            handle_api_error(exc, "cancel order")
-                        else:
-                            st.success(f"Cancel requested for {order_id}")
-                            st.rerun()
+                    st.session_state["pending_cancel_order_id"] = order_id
+                    st.session_state["pending_cancel_symbol"] = symbol
+                    st.rerun()
             else:
                 st.caption("Permission required: CANCEL_ORDER")
 
-            if has_permission(user, Permission.CANCEL_ORDER):
-                ca_reason = st.text_input(
-                    "Cancel all for symbol reason",
-                    key=f"cancel_all_reason_{symbol}_{order_id}",
-                    placeholder="Enter reason (min 10 chars)",
-                )
-                if st.button("Cancel All For Symbol", key=f"cancel_all_btn_{symbol}_{order_id}"):
-                    if len(ca_reason.strip()) < 10:
-                        st.error("Reason must be at least 10 characters")
-                    else:
-                        try:
-                            cancel_all_orders(symbol, ca_reason.strip(), user)
-                        except Exception as exc:
-                            handle_api_error(exc, "cancel all orders")
-                        else:
-                            st.success(f"Cancel-all requested for {symbol}")
-                            st.rerun()
+    pending_order_id = st.session_state.get("pending_cancel_order_id")
+    if pending_order_id and pending_order_id not in order_ids:
+        st.session_state.pop("pending_cancel_order_id", None)
+        st.session_state.pop("pending_cancel_symbol", None)
+        pending_order_id = None
+
+    if has_permission(user, Permission.CANCEL_ORDER) and pending_order_id:
+        pending_symbol = st.session_state.get("pending_cancel_symbol", "")
+        st.markdown("---")
+        st.subheader(f"Cancel Order {pending_order_id}")
+        reason = st.text_input(
+            "Cancel reason",
+            key="pending_cancel_reason",
+            placeholder="Enter reason (min 10 chars)",
+        )
+        confirm = st.button("Confirm Cancel", key="confirm_cancel_order")
+        dismiss = st.button("Dismiss", key="dismiss_cancel_order")
+        if dismiss:
+            st.session_state.pop("pending_cancel_order_id", None)
+            st.session_state.pop("pending_cancel_symbol", None)
+            st.session_state.pop("pending_cancel_reason", None)
+            st.rerun()
+        if confirm:
+            if len(reason.strip()) < 10:
+                st.error("Reason must be at least 10 characters")
+            else:
+                try:
+                    cancel_order(pending_order_id, reason.strip(), user)
+                except Exception as exc:
+                    handle_api_error(exc, "cancel order")
+                else:
+                    st.success(f"Cancel requested for {pending_symbol or pending_order_id}")
+                    st.session_state.pop("pending_cancel_order_id", None)
+                    st.session_state.pop("pending_cancel_symbol", None)
+                    st.session_state.pop("pending_cancel_reason", None)
+                    st.rerun()
+
+    if has_permission(user, Permission.CANCEL_ORDER) and symbols:
+        st.markdown("---")
+        st.subheader("Cancel All Orders For Symbol")
+        cancel_symbol = st.selectbox(
+            "Symbol",
+            symbols,
+            key="cancel_all_symbol_select",
+        )
+        ca_reason = st.text_input(
+            "Cancel all reason",
+            key="cancel_all_reason",
+            placeholder="Enter reason (min 10 chars)",
+        )
+        if st.button("Cancel All For Symbol", key="cancel_all_confirm"):
+            if len(ca_reason.strip()) < 10:
+                st.error("Reason must be at least 10 characters")
+            else:
+                try:
+                    cancel_all_orders(cancel_symbol, ca_reason.strip(), user)
+                except Exception as exc:
+                    handle_api_error(exc, "cancel all orders")
+                else:
+                    st.success(f"Cancel-all requested for {cancel_symbol}")
+                    st.session_state.pop("cancel_all_reason", None)
+                    st.rerun()
 
 
 def render_positions(user: Mapping[str, Any]) -> None:
@@ -297,6 +332,7 @@ def render_positions(user: Mapping[str, Any]) -> None:
                     min_value=0.0,
                     value=0.0,
                     step=1.0,
+                    format="%.0f",
                 )
                 if st.button("Close Position", key=f"close_btn_{symbol}"):
                     if len(reason.strip()) < 10:
@@ -313,11 +349,13 @@ def render_positions(user: Mapping[str, Any]) -> None:
             else:
                 st.caption("Permission required: CLOSE_POSITION")
 
-            if has_permission(user, Permission.CLOSE_POSITION):
+            if has_permission(user, Permission.ADJUST_POSITION):
                 target_qty = st.number_input(
                     "Target quantity (can be negative)",
                     key=f"adjust_target_{symbol}",
                     value=float(qty) if qty is not None else 0.0,
+                    step=1.0,
+                    format="%.0f",
                 )
                 order_type = st.selectbox(
                     "Order type",
@@ -359,6 +397,8 @@ def render_positions(user: Mapping[str, Any]) -> None:
                         else:
                             st.success(f"Adjust requested for {symbol}")
                             st.rerun()
+            else:
+                st.caption("Permission required: ADJUST_POSITION")
 
 
 def _is_mfa_token_valid() -> bool:

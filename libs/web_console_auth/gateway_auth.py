@@ -5,22 +5,16 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
-import jwt
-import redis.asyncio as redis
+import redis.asyncio as redis_async
 
 from libs.web_console_auth.db import acquire_connection
 from libs.web_console_auth.exceptions import (
-    ImmatureSignatureError,
-    InvalidAudienceError,
-    InvalidIssuerError,
-    InvalidSignatureError,
     InvalidTokenError,
     MissingJtiError,
     SessionExpiredError,
     SubjectMismatchError,
-    TokenExpiredError,
     TokenReplayedError,
     TokenRevokedError,
 )
@@ -51,7 +45,7 @@ class GatewayAuthenticator:
         self,
         jwt_manager: JWTManager,
         db_pool: Any,
-        redis_client: redis.Redis,
+        redis_client: redis_async.Redis,
     ) -> None:
         self.jwt_manager = jwt_manager
         self.db_pool = db_pool
@@ -107,43 +101,7 @@ class GatewayAuthenticator:
 
     def _decode_and_validate(self, token: str) -> dict[str, Any]:
         """Decode JWT and map errors to domain exceptions."""
-        config = self.jwt_manager.config
-        try:
-            claims = cast(
-                dict[str, Any],
-                jwt.decode(
-                    token,
-                    self.jwt_manager.public_key,
-                    algorithms=[config.jwt_algorithm],
-                    issuer=config.jwt_issuer,
-                    audience=config.jwt_audience,
-                    options={
-                        "verify_signature": True,
-                        "verify_exp": True,
-                        "verify_nbf": True,
-                        "verify_iss": True,
-                        "verify_aud": True,
-                    },
-                    leeway=config.clock_skew_seconds,
-                ),
-            )
-        except jwt.ExpiredSignatureError as exc:
-            raise TokenExpiredError("Token has expired") from exc
-        except jwt.ImmatureSignatureError as exc:
-            raise ImmatureSignatureError("Token not yet valid") from exc
-        except jwt.InvalidIssuerError as exc:
-            raise InvalidIssuerError("Token issuer not trusted") from exc
-        except jwt.InvalidAudienceError as exc:
-            raise InvalidAudienceError("Token not intended for this service") from exc
-        except jwt.InvalidSignatureError as exc:
-            raise InvalidSignatureError("Token signature verification failed") from exc
-        except jwt.InvalidTokenError as exc:
-            raise InvalidTokenError(str(exc)) from exc
-
-        if claims.get("type") != "service":
-            raise InvalidTokenError(f"Expected service token, got {claims.get('type')}")
-
-        return claims
+        return self.jwt_manager.validate_token(token, expected_type="service")
 
     async def _check_jti_one_time_use(self, jti: str, exp: int) -> None:
         """Ensure JTI is only used once by leveraging atomic Redis SET NX EX."""
