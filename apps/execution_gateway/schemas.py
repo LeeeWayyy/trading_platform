@@ -538,6 +538,72 @@ class ConfigResponse(TimestampSerializerMixin, BaseModel):
 
 
 # ============================================================================
+# Fat-Finger Threshold Schemas
+# ============================================================================
+
+
+class FatFingerThresholds(BaseModel):
+    """Fat-finger thresholds for order validation."""
+
+    max_notional: Decimal | None = Field(
+        default=None, gt=0, description="Max order notional (in USD)"
+    )
+    max_qty: int | None = Field(default=None, gt=0, description="Max order quantity (shares)")
+    max_adv_pct: Decimal | None = Field(
+        default=None,
+        gt=0,
+        le=1,
+        description="Max order size as fraction of ADV (0-1)",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"max_notional": "100000", "max_qty": 10000, "max_adv_pct": "0.05"}
+            ]
+        }
+    }
+
+
+class FatFingerThresholdsUpdateRequest(BaseModel):
+    """Update fat-finger thresholds (defaults + per-symbol overrides)."""
+
+    default_thresholds: FatFingerThresholds | None = Field(
+        default=None, description="Default thresholds applied when no override exists"
+    )
+    symbol_overrides: dict[str, FatFingerThresholds | None] | None = Field(
+        default=None,
+        description="Per-symbol overrides; set value to null to remove override",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "default_thresholds": {
+                        "max_notional": "150000",
+                        "max_qty": 12000,
+                        "max_adv_pct": "0.06",
+                    },
+                    "symbol_overrides": {
+                        "AAPL": {"max_qty": 5000},
+                        "TSLA": {"max_notional": "200000", "max_adv_pct": "0.03"},
+                    },
+                }
+            ]
+        }
+    }
+
+
+class FatFingerThresholdsResponse(TimestampSerializerMixin, BaseModel):
+    """Current fat-finger threshold configuration."""
+
+    default_thresholds: FatFingerThresholds
+    symbol_overrides: dict[str, FatFingerThresholds]
+    updated_at: datetime
+
+
+# ============================================================================
 # Kill-Switch Schemas
 # ============================================================================
 

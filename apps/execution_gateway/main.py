@@ -64,6 +64,10 @@ from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests
     DatabaseClient,
     calculate_position_update,
 )
+from apps.execution_gateway.fat_finger_validator import (
+    FatFingerValidator,
+    iter_breach_types,
+)
 from apps.execution_gateway.liquidity_service import LiquidityService
 from apps.execution_gateway.order_id_generator import (
     generate_client_order_id,
@@ -81,6 +85,9 @@ from apps.execution_gateway.schemas import (
     DailyPerformanceResponse,
     DailyPnL,
     ErrorResponse,
+    FatFingerThresholds,
+    FatFingerThresholdsResponse,
+    FatFingerThresholdsUpdateRequest,
     HealthResponse,
     KillSwitchDisengageRequest,
     KillSwitchEngageRequest,
@@ -141,6 +148,17 @@ def _get_float_env(name: str, default: float) -> float:
         logger.warning("Invalid float for %s=%s; using default=%s", name, raw, default)
         return default
 
+
+def _get_decimal_env(name: str, default: Decimal) -> Decimal:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return Decimal(raw)
+    except (ValueError, InvalidOperation):
+        logger.warning("Invalid decimal for %s=%s; using default=%s", name, raw, default)
+        return default
+
 # Legacy TWAP slicer interval (seconds). Legacy plans scheduled slices once per minute
 # and did not persist the interval, so backward-compatibility fallbacks must only apply
 # when callers request the same default pacing.
@@ -168,6 +186,75 @@ if MAX_SLICE_PCT_OF_ADV <= 0:
         extra={"max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV},
     )
     MAX_SLICE_PCT_OF_ADV = 0.01
+
+# Fat-finger thresholds (order size warnings)
+FAT_FINGER_MAX_NOTIONAL_DEFAULT = Decimal("100000")
+FAT_FINGER_MAX_QTY_DEFAULT = 10_000
+FAT_FINGER_MAX_ADV_PCT_DEFAULT = Decimal("0.05")
+FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT = 30
+
+FAT_FINGER_MAX_NOTIONAL = _get_decimal_env(
+    "FAT_FINGER_MAX_NOTIONAL", FAT_FINGER_MAX_NOTIONAL_DEFAULT
+)
+FAT_FINGER_MAX_QTY_RAW = os.getenv("FAT_FINGER_MAX_QTY")
+if FAT_FINGER_MAX_QTY_RAW is None:
+    FAT_FINGER_MAX_QTY = FAT_FINGER_MAX_QTY_DEFAULT
+else:
+    try:
+        FAT_FINGER_MAX_QTY = int(FAT_FINGER_MAX_QTY_RAW)
+    except ValueError:
+        logger.warning(
+            "Invalid int for FAT_FINGER_MAX_QTY=%s; using default=%s",
+            FAT_FINGER_MAX_QTY_RAW,
+            FAT_FINGER_MAX_QTY_DEFAULT,
+        )
+        FAT_FINGER_MAX_QTY = FAT_FINGER_MAX_QTY_DEFAULT
+
+FAT_FINGER_MAX_ADV_PCT = _get_decimal_env(
+    "FAT_FINGER_MAX_ADV_PCT", FAT_FINGER_MAX_ADV_PCT_DEFAULT
+)
+
+FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW = os.getenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS")
+if FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW is None:
+    FAT_FINGER_MAX_PRICE_AGE_SECONDS = FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+else:
+    try:
+        FAT_FINGER_MAX_PRICE_AGE_SECONDS = int(FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW)
+    except ValueError:
+        logger.warning(
+            "Invalid int for FAT_FINGER_MAX_PRICE_AGE_SECONDS=%s; using default=%s",
+            FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW,
+            FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT,
+        )
+        FAT_FINGER_MAX_PRICE_AGE_SECONDS = FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+
+if FAT_FINGER_MAX_PRICE_AGE_SECONDS <= 0:
+    logger.warning(
+        "FAT_FINGER_MAX_PRICE_AGE_SECONDS must be > 0; using default=%s",
+        FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT,
+    )
+    FAT_FINGER_MAX_PRICE_AGE_SECONDS = FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+
+if FAT_FINGER_MAX_NOTIONAL <= 0:
+    logger.warning(
+        "FAT_FINGER_MAX_NOTIONAL must be > 0; disabling notional threshold",
+        extra={"fat_finger_max_notional": str(FAT_FINGER_MAX_NOTIONAL)},
+    )
+    FAT_FINGER_MAX_NOTIONAL = None
+
+if FAT_FINGER_MAX_QTY <= 0:
+    logger.warning(
+        "FAT_FINGER_MAX_QTY must be > 0; disabling qty threshold",
+        extra={"fat_finger_max_qty": FAT_FINGER_MAX_QTY},
+    )
+    FAT_FINGER_MAX_QTY = None
+
+if FAT_FINGER_MAX_ADV_PCT <= 0 or FAT_FINGER_MAX_ADV_PCT > 1:
+    logger.warning(
+        "FAT_FINGER_MAX_ADV_PCT must be within (0, 1]; disabling ADV threshold",
+        extra={"fat_finger_max_adv_pct": str(FAT_FINGER_MAX_ADV_PCT)},
+    )
+    FAT_FINGER_MAX_ADV_PCT = None
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
@@ -353,6 +440,15 @@ logger.info(
     f"Risk config initialized: max_position_size={risk_config.position_limits.max_position_size}"
 )
 
+# Fat-finger validator (size-based warnings/rejections)
+fat_finger_validator = FatFingerValidator(
+    default_thresholds=FatFingerThresholds(
+        max_notional=FAT_FINGER_MAX_NOTIONAL,
+        max_qty=FAT_FINGER_MAX_QTY,
+        max_adv_pct=FAT_FINGER_MAX_ADV_PCT,
+    )
+)
+
 # Position Reservation (for atomic position limit checking - prevents race conditions)
 # Codex HIGH fix: Wire PositionReservation into production to prevent concurrent orders
 # from both passing position limit check before either executes
@@ -468,6 +564,18 @@ order_placement_duration = Histogram(
     "execution_gateway_order_placement_duration_seconds",
     "Time taken to place an order",
     ["symbol", "side"],
+)
+
+fat_finger_warnings_total = Counter(
+    "execution_gateway_fat_finger_warnings_total",
+    "Total fat-finger threshold warnings",
+    ["threshold_type"],
+)
+
+fat_finger_rejections_total = Counter(
+    "execution_gateway_fat_finger_rejections_total",
+    "Total fat-finger threshold rejections",
+    ["threshold_type"],
 )
 
 positions_current = Gauge(
@@ -600,6 +708,67 @@ def _handle_idempotency_race(
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Database inconsistency: order not found after UniqueViolation",
+    )
+
+
+def _resolve_fat_finger_context(
+    order: OrderRequest,
+    thresholds: FatFingerThresholds,
+) -> tuple[Decimal | None, int | None]:
+    """Resolve price and ADV context needed for fat-finger validation."""
+
+    price: Decimal | None = None
+    if thresholds.max_notional is not None:
+        if order.limit_price is not None:
+            price = order.limit_price
+        elif order.stop_price is not None:
+            price = order.stop_price
+        else:
+            realtime_prices = _batch_fetch_realtime_prices_from_redis(
+                [order.symbol], redis_client
+            )
+            price, price_timestamp = realtime_prices.get(order.symbol, (None, None))
+            if price is not None:
+                if price_timestamp is None:
+                    logger.warning(
+                        "Fat-finger price missing timestamp; treating as unavailable",
+                        extra={
+                            "symbol": order.symbol,
+                            "max_price_age_seconds": FAT_FINGER_MAX_PRICE_AGE_SECONDS,
+                        },
+                    )
+                    price = None
+                else:
+                    if price_timestamp.tzinfo is None:
+                        price_timestamp = price_timestamp.replace(tzinfo=UTC)
+                    now = datetime.now(UTC)
+                    price_age_seconds = (now - price_timestamp).total_seconds()
+                    if price_age_seconds > FAT_FINGER_MAX_PRICE_AGE_SECONDS:
+                        logger.warning(
+                            "Fat-finger price stale; treating as unavailable",
+                            extra={
+                                "symbol": order.symbol,
+                                "price_timestamp": price_timestamp.isoformat(),
+                                "price_age_seconds": max(price_age_seconds, 0),
+                                "max_price_age_seconds": FAT_FINGER_MAX_PRICE_AGE_SECONDS,
+                            },
+                        )
+                        price = None
+
+    adv: int | None = None
+    if thresholds.max_adv_pct is not None and liquidity_service is not None:
+        adv = liquidity_service.get_adv(order.symbol)
+
+    return price, adv
+
+
+def _fat_finger_thresholds_snapshot() -> FatFingerThresholdsResponse:
+    """Build a response payload with current fat-finger thresholds."""
+
+    return FatFingerThresholdsResponse(
+        default_thresholds=fat_finger_validator.get_default_thresholds(),
+        symbol_overrides=fat_finger_validator.get_symbol_overrides(),
+        updated_at=datetime.now(UTC),
     )
 
 
@@ -1562,6 +1731,51 @@ async def get_config() -> ConfigResponse:
     )
 
 
+@app.get(
+    "/api/v1/fat-finger/thresholds",
+    response_model=FatFingerThresholdsResponse,
+    tags=["Configuration"],
+)
+async def get_fat_finger_thresholds() -> FatFingerThresholdsResponse:
+    """Get current fat-finger threshold configuration."""
+
+    return _fat_finger_thresholds_snapshot()
+
+
+@app.put(
+    "/api/v1/fat-finger/thresholds",
+    response_model=FatFingerThresholdsResponse,
+    tags=["Configuration"],
+)
+@require_permission(Permission.MANAGE_STRATEGIES)
+async def update_fat_finger_thresholds(
+    payload: FatFingerThresholdsUpdateRequest,
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> FatFingerThresholdsResponse:
+    """Update fat-finger thresholds (defaults and per-symbol overrides)."""
+
+    if payload.default_thresholds is not None:
+        fat_finger_validator.update_defaults(payload.default_thresholds)
+
+    if payload.symbol_overrides is not None:
+        fat_finger_validator.update_symbol_overrides(payload.symbol_overrides)
+
+    logger.info(
+        "Fat-finger thresholds updated",
+        extra={
+            "user_id": user.get("user_id"),
+            "default_thresholds": payload.default_thresholds.model_dump(mode=\"json\")
+            if payload.default_thresholds
+            else None,
+            "symbol_overrides": list(payload.symbol_overrides.keys())
+            if payload.symbol_overrides
+            else [],
+        },
+    )
+
+    return _fat_finger_thresholds_snapshot()
+
+
 @app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
 async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]:
     """
@@ -2186,6 +2400,75 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             created_at=existing_order.created_at,
             message=f"Order already submitted (status: {existing_order.status})",
         )
+
+    # Fat-finger validation (size-based warnings/rejections)
+    effective_thresholds = fat_finger_validator.get_effective_thresholds(order.symbol)
+    if (
+        effective_thresholds.max_notional is not None
+        or effective_thresholds.max_qty is not None
+        or effective_thresholds.max_adv_pct is not None
+    ):
+        price, adv = _resolve_fat_finger_context(order, effective_thresholds)
+        fat_finger_result = fat_finger_validator.validate(
+            symbol=order.symbol,
+            qty=order.qty,
+            price=price,
+            adv=adv,
+            thresholds=effective_thresholds,
+        )
+
+        if fat_finger_result.breached:
+            missing_fields: set[str] = set()
+            for breach in fat_finger_result.breaches:
+                if breach.threshold_type != "data_unavailable":
+                    continue
+                raw_missing = breach.metadata.get("missing", [])
+                if isinstance(raw_missing, list):
+                    missing_fields.update(str(item) for item in raw_missing)
+            if missing_fields:
+                logger.warning(
+                    "Fat-finger data unavailable; treating as breach",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "symbol": order.symbol,
+                        "side": order.side,
+                        "qty": order.qty,
+                        "missing_fields": sorted(missing_fields),
+                    },
+                )
+            logger.warning(
+                "Fat-finger threshold breached",
+                extra={
+                    "client_order_id": client_order_id,
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "qty": order.qty,
+                    **fat_finger_result.log_fields(),
+                },
+            )
+            for threshold_type in iter_breach_types(fat_finger_result.breaches):
+                fat_finger_warnings_total.labels(threshold_type=threshold_type).inc()
+
+            if not DRY_RUN:
+                if position_reservation and reservation_token:
+                    position_reservation.release(order.symbol, reservation_token)
+                    logger.debug(
+                        f"Released reservation on fat-finger rejection: {reservation_token}"
+                    )
+
+                for threshold_type in iter_breach_types(fat_finger_result.breaches):
+                    fat_finger_rejections_total.labels(threshold_type=threshold_type).inc()
+
+                _record_order_metrics(order, start_time, "blocked")
+
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "Fat-finger threshold exceeded",
+                        "message": "Order rejected due to size safety checks",
+                        **fat_finger_result.to_response(),
+                    },
+                )
 
     # Submit order based on DRY_RUN mode
     if DRY_RUN:
