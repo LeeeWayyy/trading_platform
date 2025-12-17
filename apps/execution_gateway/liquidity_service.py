@@ -106,7 +106,7 @@ class LiquidityService:
             return _maybe_use_stale_cache("missing_credentials")
 
         url = f"{self._base_url}/v1beta1/stocks/{symbol}/bars"
-        params = {"timeframe": "1Day", "limit": self._lookback_days}
+        params: dict[str, str | int] = {"timeframe": "1Day", "limit": self._lookback_days}
         headers = {
             "APCA-API-KEY-ID": self._api_key,
             "APCA-API-SECRET-KEY": self._api_secret,

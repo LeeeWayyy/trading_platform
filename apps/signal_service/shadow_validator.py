@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from strategies.alpha_baseline.features import get_alpha158_features
@@ -161,7 +162,7 @@ def _list_data_dates(data_dir: Path) -> list[date]:
     return sorted(dates)
 
 
-def _safe_correlation(a: np.ndarray, b: np.ndarray) -> float:
+def _safe_correlation(a: npt.NDArray[Any], b: npt.NDArray[Any]) -> float:
     """Compute correlation safely, handling constant vectors."""
     if a.size < 2 or b.size < 2:
         return 1.0
@@ -174,7 +175,7 @@ def _safe_correlation(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.corrcoef(a, b)[0, 1])
 
 
-def _mean_abs_diff_ratio(a: np.ndarray, b: np.ndarray) -> float:
+def _mean_abs_diff_ratio(a: npt.NDArray[Any], b: npt.NDArray[Any]) -> float:
     """Compute mean absolute difference ratio against baseline a."""
     baseline = float(np.mean(np.abs(a)))
     if baseline < 1e-12:

@@ -324,7 +324,7 @@ class RedisClient:
             ...     if message['type'] == 'message':
             ...         print(message['data'])
         """
-        return self._client.pubsub()  # type: ignore[no-untyped-call]
+        return self._client.pubsub()
 
     def pipeline(self, transaction: bool = True) -> Any:
         """

@@ -193,10 +193,12 @@ FAT_FINGER_MAX_QTY_DEFAULT = 10_000
 FAT_FINGER_MAX_ADV_PCT_DEFAULT = Decimal("0.05")
 FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT = 30
 
-FAT_FINGER_MAX_NOTIONAL = _get_decimal_env(
+_FAT_FINGER_MAX_NOTIONAL_INIT = _get_decimal_env(
     "FAT_FINGER_MAX_NOTIONAL", FAT_FINGER_MAX_NOTIONAL_DEFAULT
 )
+FAT_FINGER_MAX_NOTIONAL: Decimal | None = _FAT_FINGER_MAX_NOTIONAL_INIT
 FAT_FINGER_MAX_QTY_RAW = os.getenv("FAT_FINGER_MAX_QTY")
+FAT_FINGER_MAX_QTY: int | None
 if FAT_FINGER_MAX_QTY_RAW is None:
     FAT_FINGER_MAX_QTY = FAT_FINGER_MAX_QTY_DEFAULT
 else:
@@ -210,9 +212,10 @@ else:
         )
         FAT_FINGER_MAX_QTY = FAT_FINGER_MAX_QTY_DEFAULT
 
-FAT_FINGER_MAX_ADV_PCT = _get_decimal_env(
+_FAT_FINGER_MAX_ADV_PCT_INIT = _get_decimal_env(
     "FAT_FINGER_MAX_ADV_PCT", FAT_FINGER_MAX_ADV_PCT_DEFAULT
 )
+FAT_FINGER_MAX_ADV_PCT: Decimal | None = _FAT_FINGER_MAX_ADV_PCT_INIT
 
 FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW = os.getenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS")
 if FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW is None:
@@ -235,21 +238,21 @@ if FAT_FINGER_MAX_PRICE_AGE_SECONDS <= 0:
     )
     FAT_FINGER_MAX_PRICE_AGE_SECONDS = FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
 
-if FAT_FINGER_MAX_NOTIONAL <= 0:
+if _FAT_FINGER_MAX_NOTIONAL_INIT <= 0:
     logger.warning(
         "FAT_FINGER_MAX_NOTIONAL must be > 0; disabling notional threshold",
         extra={"fat_finger_max_notional": str(FAT_FINGER_MAX_NOTIONAL)},
     )
     FAT_FINGER_MAX_NOTIONAL = None
 
-if FAT_FINGER_MAX_QTY <= 0:
+if FAT_FINGER_MAX_QTY is not None and FAT_FINGER_MAX_QTY <= 0:
     logger.warning(
         "FAT_FINGER_MAX_QTY must be > 0; disabling qty threshold",
         extra={"fat_finger_max_qty": FAT_FINGER_MAX_QTY},
     )
     FAT_FINGER_MAX_QTY = None
 
-if FAT_FINGER_MAX_ADV_PCT <= 0 or FAT_FINGER_MAX_ADV_PCT > 1:
+if _FAT_FINGER_MAX_ADV_PCT_INIT <= 0 or _FAT_FINGER_MAX_ADV_PCT_INIT > 1:
     logger.warning(
         "FAT_FINGER_MAX_ADV_PCT must be within (0, 1]; disabling ADV threshold",
         extra={"fat_finger_max_adv_pct": str(FAT_FINGER_MAX_ADV_PCT)},
@@ -3265,7 +3268,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
                     )
                 max_slice_qty = max(1, computed)
 
-        liquidity_constraints = {
+        liquidity_constraints: dict[str, bool | int | float | str | None] = {
             "enabled": LIQUIDITY_CHECK_ENABLED,
             "adv_20d": adv_20d,
             "max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV,

@@ -1312,7 +1312,7 @@ class DatabaseClient:
                                 last_updated_at = %s
                                 AND status_rank = %s
                                 AND filled_qty = %s
-                                AND source_priority < %s
+                                AND source_priority > %s
                             )
                           )
                     RETURNING *

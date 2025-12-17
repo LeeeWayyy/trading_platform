@@ -155,7 +155,7 @@ class TestShadowValidationReload:
         self, test_db_url, sample_model_metadata, monkeypatch
     ):
         registry = ModelRegistry(test_db_url)
-        registry._current_model = DummyModel(num_features=2, scale=1.0)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
         registry._current_metadata = ModelMetadata(**sample_model_metadata)
 
         new_metadata_dict = dict(sample_model_metadata)
@@ -191,7 +191,7 @@ class TestShadowValidationReload:
         self, test_db_url, sample_model_metadata, monkeypatch
     ):
         registry = ModelRegistry(test_db_url)
-        registry._current_model = DummyModel(num_features=2, scale=1.0)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
         registry._current_metadata = ModelMetadata(**sample_model_metadata)
 
         new_metadata_dict = dict(sample_model_metadata)
@@ -227,7 +227,7 @@ class TestShadowValidationReload:
         self, test_db_url, sample_model_metadata, monkeypatch
     ):
         registry = ModelRegistry(test_db_url)
-        registry._current_model = DummyModel(num_features=2, scale=1.0)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)  # type: ignore[assignment]
         registry._current_metadata = ModelMetadata(**sample_model_metadata)
 
         new_metadata_dict = dict(sample_model_metadata)

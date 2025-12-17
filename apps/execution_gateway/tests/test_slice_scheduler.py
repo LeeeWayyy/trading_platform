@@ -312,13 +312,14 @@ class TestZombieSliceRecovery:
         scheduler.scheduler.add_job = MagicMock()
         scheduler.scheduler.get_job = MagicMock(return_value=None)
 
-        scheduler.recover_zombie_slices(now=datetime(2025, 1, 1, tzinfo=UTC))
+        recovery_now = datetime(2025, 1, 1, tzinfo=UTC)
+        scheduler.recover_zombie_slices(now=recovery_now)
 
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="blocked_circuit_breaker",
-            error_message="Circuit breaker is tripped - reason: TEST_TRIP",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "blocked_circuit_breaker"
+        assert "Circuit breaker is tripped" in call_kwargs["error_message"]
         scheduler.scheduler.add_job.assert_not_called()
 
     def test_recovery_within_grace_executes_immediately_when_market_open(self):
@@ -451,11 +452,11 @@ class TestZombieSliceRecovery:
 
         scheduler.recover_zombie_slices(now=now)
 
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="failed",
-            error_message="Slice missed grace period and next open unavailable",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "failed"
+        assert "Slice missed grace period" in call_kwargs["error_message"]
         scheduler.scheduler.add_job.assert_not_called()
 
 

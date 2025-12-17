@@ -520,6 +520,7 @@ class ModelRegistry:
                                     )
                                     return
 
+                            assert shadow_validator is not None  # Checked in validation_required
                             result = shadow_validator(current_model, new_model)
                             passed = _extract_validation_passed(result)
 
