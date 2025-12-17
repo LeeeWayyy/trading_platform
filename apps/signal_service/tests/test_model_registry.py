@@ -22,6 +22,7 @@ Usage:
 import pytest
 
 from apps.signal_service.model_registry import ModelMetadata, ModelRegistry
+from apps.signal_service.shadow_validator import ShadowValidationResult
 
 
 class TestModelMetadata:
@@ -129,6 +130,137 @@ class TestModelLoading:
         # (that's done by reload_if_changed)
         assert registry.current_model is None  # Not set yet
         assert model is not None
+
+
+class DummyModel:
+    """Lightweight model stub for shadow validation tests."""
+
+    def __init__(self, num_features: int, scale: float = 1.0) -> None:
+        self._num_features = num_features
+        self._scale = scale
+
+    def num_feature(self) -> int:
+        return self._num_features
+
+    def predict(self, features):
+        import numpy as np
+
+        return np.sum(features, axis=1) * self._scale
+
+
+class TestShadowValidationReload:
+    """Tests for shadow validation integration in reload_if_changed."""
+
+    def test_shadow_validation_passes_activates_model(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.01))
+
+        def validator(_old, _new):
+            return ShadowValidationResult(
+                passed=True,
+                correlation=0.99,
+                mean_abs_diff_ratio=0.1,
+                sign_change_rate=0.0,
+                sample_count=10,
+                old_range=1.0,
+                new_range=1.01,
+                message="ok",
+            )
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=validator,
+            shadow_validation_enabled=True,
+        )
+
+        assert reloaded is True
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == "v2.0.0"
+
+    def test_shadow_validation_failure_keeps_old_model(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 3.0))
+
+        def validator(_old, _new):
+            return ShadowValidationResult(
+                passed=False,
+                correlation=0.1,
+                mean_abs_diff_ratio=2.0,
+                sign_change_rate=0.7,
+                sample_count=10,
+                old_range=1.0,
+                new_range=3.0,
+                message="failed",
+            )
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=validator,
+            shadow_validation_enabled=True,
+        )
+
+        assert reloaded is False
+        assert registry.current_metadata is not None
+        assert registry.current_metadata.version == sample_model_metadata["version"]
+
+    def test_skip_shadow_validation_bypasses_validator(
+        self, test_db_url, sample_model_metadata, monkeypatch
+    ):
+        registry = ModelRegistry(test_db_url)
+        registry._current_model = DummyModel(num_features=2, scale=1.0)
+        registry._current_metadata = ModelMetadata(**sample_model_metadata)
+
+        new_metadata_dict = dict(sample_model_metadata)
+        new_metadata_dict["version"] = "v2.0.0"
+        new_metadata = ModelMetadata(**new_metadata_dict)
+
+        monkeypatch.setattr(registry, "get_active_model_metadata", lambda _: new_metadata)
+        monkeypatch.setattr(registry, "load_model_from_file", lambda _: DummyModel(2, 1.0))
+
+        called = {"value": False}
+
+        def validator(_old, _new):
+            called["value"] = True
+            return ShadowValidationResult(
+                passed=False,
+                correlation=0.0,
+                mean_abs_diff_ratio=1.0,
+                sign_change_rate=1.0,
+                sample_count=10,
+                old_range=1.0,
+                new_range=1.0,
+                message="should not run",
+            )
+
+        reloaded = registry.reload_if_changed(
+            "alpha_baseline",
+            shadow_validator=validator,
+            shadow_validation_enabled=True,
+            skip_shadow_validation=True,
+        )
+
+        assert reloaded is True
+        assert called["value"] is False
 
 
 @pytest.mark.integration()

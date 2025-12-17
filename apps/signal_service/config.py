@@ -348,6 +348,36 @@ class Settings(BaseSettings):
     """
 
     # ========================================================================
+    # Shadow Validation Configuration (T4)
+    # ========================================================================
+
+    shadow_validation_enabled: bool = True
+    """
+    Enable shadow validation for model hot swaps.
+
+    When enabled:
+        - New model is validated against current model before activation
+        - Validation runs in background and keeps old model active until pass
+
+    When disabled:
+        - Model reloads immediately upon version change
+    """
+
+    shadow_sample_count: int = 100
+    """
+    Number of recent feature samples to use for shadow validation.
+
+    Higher values provide more robust validation but increase compute time.
+    """
+
+    skip_shadow_validation: bool = False
+    """
+    Emergency override to skip shadow validation and activate new model immediately.
+
+    WARNING: Only use for operational emergencies.
+    """
+
+    # ========================================================================
     # Pydantic Settings Configuration
     # ========================================================================
 

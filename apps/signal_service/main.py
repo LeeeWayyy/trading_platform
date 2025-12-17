@@ -39,7 +39,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Callable
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, status
@@ -51,8 +51,9 @@ from pydantic import BaseModel, Field, validator
 from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
 
 from .config import Settings
-from .model_registry import ModelRegistry
+from .model_registry import ModelMetadata, ModelRegistry
 from .signal_generator import SignalGenerator
+from .shadow_validator import ShadowModeValidator, ShadowValidationResult
 
 
 def _format_database_url_for_logging(database_url: str) -> str:
@@ -80,6 +81,7 @@ model_registry: ModelRegistry | None = None
 signal_generator: SignalGenerator | None = None
 redis_client: RedisClient | None = None
 feature_cache: FeatureCache | None = None
+shadow_validator: ShadowModeValidator | None = None
 hydration_complete = True
 
 # H8 Fix: Cache SignalGenerators by (top_n, bottom_n) to avoid per-request allocation
@@ -145,7 +147,14 @@ async def model_reload_task() -> None:
                 # Attempt to load model (self-healing after startup failure)
                 # Use reload_if_changed() which handles loading when no model is loaded
                 try:
-                    model_registry.reload_if_changed(strategy=settings.default_strategy)
+                    reloaded = model_registry.reload_if_changed(
+                        strategy=settings.default_strategy,
+                        shadow_validator=_shadow_validate,
+                        shadow_validation_enabled=settings.shadow_validation_enabled,
+                        skip_shadow_validation=settings.skip_shadow_validation,
+                        schedule_validation=_schedule_shadow_validation,
+                        on_model_activated=_on_model_activated,
+                    )
                     if model_registry.is_loaded:
                         logger.info("Cold-load recovery successful - model now loaded")
                     else:
@@ -156,7 +165,15 @@ async def model_reload_task() -> None:
 
             # Check for model updates
             logger.debug("Checking for model updates...")
-            reloaded = model_registry.reload_if_changed(strategy=settings.default_strategy)
+            reloaded = model_registry.reload_if_changed(
+                strategy=settings.default_strategy,
+                shadow_validator=_shadow_validate,
+                shadow_validation_enabled=settings.shadow_validation_enabled,
+                skip_shadow_validation=settings.skip_shadow_validation,
+                schedule_validation=_schedule_shadow_validation,
+                on_model_activated=_on_model_activated,
+            )
+            _record_shadow_skip_if_bypassed(reloaded)
 
             if reloaded:
                 assert model_registry.current_metadata is not None
@@ -165,21 +182,11 @@ async def model_reload_task() -> None:
                     f"{model_registry.current_metadata.strategy_name} "
                     f"v{model_registry.current_metadata.version}"
                 )
-
-                # Update model metrics after successful reload
-                model_version_info.info(
-                    {
-                        "version": model_registry.current_metadata.version,
-                        "strategy": model_registry.current_metadata.strategy_name,
-                        "activated_at": (
-                            model_registry.current_metadata.activated_at.isoformat()
-                            if model_registry.current_metadata.activated_at
-                            else ""
-                        ),
-                    }
-                )
-                model_loaded_status.set(1)
-                model_reload_total.labels(status="success").inc()
+            elif model_registry.pending_validation:
+                extra = {}
+                if model_registry.pending_metadata is not None:
+                    extra["version"] = model_registry.pending_metadata.version
+                logger.info("Shadow validation running for model reload", extra=extra)
             else:
                 logger.debug("No model updates found")
 
@@ -270,7 +277,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Raises:
         RuntimeError: If model loading fails at startup
     """
-    global model_registry, signal_generator, redis_client, feature_cache, hydration_complete
+    global model_registry, signal_generator, redis_client, feature_cache, shadow_validator, hydration_complete
 
     logger.info("=" * 60)
     logger.info("Signal Service Starting...")
@@ -290,7 +297,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # In testing mode, allow service to start without model
         model_load_failed = False
         try:
+            had_current_model = model_registry.is_loaded
             reloaded = model_registry.reload_if_changed(settings.default_strategy)
+            if had_current_model:
+                _record_shadow_skip_if_bypassed(reloaded)
 
             if not model_registry.is_loaded:
                 model_load_failed = True
@@ -398,6 +408,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 bottom_n=settings.bottom_n,
                 feature_cache=feature_cache,  # Pass feature cache (None if disabled)
             )
+
+        # Step 4.2: Initialize shadow validator (T4)
+        if settings.shadow_validation_enabled:
+            shadow_validator = ShadowModeValidator(
+                data_dir=settings.data_dir,
+                symbols=settings.tradable_symbols,
+                sample_count=settings.shadow_sample_count,
+            )
+            logger.info(
+                "Shadow validation enabled",
+                extra={"sample_count": settings.shadow_sample_count},
+            )
+            if settings.skip_shadow_validation:
+                logger.warning("SKIP_SHADOW_VALIDATION enabled - bypassing shadow checks")
+        else:
+            shadow_validator = None
+            logger.info("Shadow validation disabled")
 
         # Step 4.5: Start background feature hydration task
         hydration_task = None
@@ -572,6 +599,28 @@ model_reload_total = Counter(
     ["status"],  # success, failed
 )
 
+# Shadow validation metrics (T4)
+shadow_validation_total = Counter(
+    "signal_service_shadow_validation_total",
+    "Total number of shadow validation runs",
+    ["status"],  # passed, rejected, failed, skipped
+)
+
+shadow_validation_correlation = Gauge(
+    "signal_service_shadow_validation_correlation",
+    "Correlation between old and new model predictions",
+)
+
+shadow_validation_mean_abs_diff_ratio = Gauge(
+    "signal_service_shadow_validation_mean_abs_diff_ratio",
+    "Mean absolute difference ratio between old and new predictions",
+)
+
+shadow_validation_sign_change_rate = Gauge(
+    "signal_service_shadow_validation_sign_change_rate",
+    "Rate of prediction sign changes between old and new models",
+)
+
 # Health metrics
 database_connection_status = Gauge(
     "signal_service_database_connection_status",
@@ -601,6 +650,62 @@ model_loaded_status.set(0)  # Will be updated after model loads
 # Mount Prometheus metrics endpoint
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
+
+
+# ==============================================================================
+# Shadow Validation Helpers (T4)
+# ==============================================================================
+
+
+def _record_shadow_validation(result: ShadowValidationResult | None, status: str) -> None:
+    """Record shadow validation metrics for monitoring."""
+    shadow_validation_total.labels(status=status).inc()
+    if result is None:
+        return
+    shadow_validation_correlation.set(result.correlation)
+    shadow_validation_mean_abs_diff_ratio.set(result.mean_abs_diff_ratio)
+    shadow_validation_sign_change_rate.set(result.sign_change_rate)
+
+
+def _record_shadow_skip_if_bypassed(reloaded: bool) -> None:
+    """Record when shadow validation is bypassed by configuration."""
+    if not reloaded:
+        return
+    if not settings.shadow_validation_enabled or settings.skip_shadow_validation:
+        _record_shadow_validation(None, "skipped")
+
+
+def _on_model_activated(metadata: ModelMetadata) -> None:
+    """Update model metrics after a model becomes active."""
+    model_version_info.info(
+        {
+            "version": metadata.version,
+            "strategy": metadata.strategy_name,
+            "activated_at": metadata.activated_at.isoformat() if metadata.activated_at else "",
+        }
+    )
+    model_loaded_status.set(1)
+    model_reload_total.labels(status="success").inc()
+
+
+def _schedule_shadow_validation(task: Callable[[], None]) -> None:
+    """Run shadow validation in the background without blocking the event loop."""
+    asyncio.create_task(asyncio.to_thread(task))
+
+
+def _shadow_validate(old_model: Any, new_model: Any) -> ShadowValidationResult:
+    """Validate a candidate model against the current model and emit metrics."""
+    if shadow_validator is None:
+        raise RuntimeError("Shadow validator not initialized")
+
+    try:
+        result = shadow_validator.validate(old_model, new_model)
+        status_label = "passed" if result.passed else "rejected"
+        _record_shadow_validation(result, status_label)
+        return result
+    except Exception as exc:
+        _record_shadow_validation(None, "failed")
+        raise
 
 
 # ==============================================================================
@@ -1459,10 +1564,20 @@ async def reload_model() -> dict[str, Any]:
             if (model_registry.is_loaded and model_registry.current_metadata)
             else None
         )
+        had_current_model = model_registry.is_loaded
 
         # Trigger reload check
         logger.info("Manual model reload requested")
-        reloaded = model_registry.reload_if_changed(strategy=settings.default_strategy)
+        reloaded = model_registry.reload_if_changed(
+            strategy=settings.default_strategy,
+            shadow_validator=_shadow_validate,
+            shadow_validation_enabled=settings.shadow_validation_enabled,
+            skip_shadow_validation=settings.skip_shadow_validation,
+            schedule_validation=_schedule_shadow_validation,
+            on_model_activated=_on_model_activated,
+        )
+        if had_current_model:
+            _record_shadow_skip_if_bypassed(reloaded)
 
         # Get current version
         current_version = (
@@ -1472,31 +1587,16 @@ async def reload_model() -> dict[str, Any]:
         )
 
         # Build response
-        response = {
-            "reloaded": reloaded,
-            "version": current_version,
-        }
+        response = {"reloaded": reloaded, "version": current_version}
 
         if reloaded:
             response["previous_version"] = previous_version
             response["message"] = "Model reloaded successfully"
             logger.info(f"Manual reload successful: {previous_version} -> {current_version}")
-
-            # Update model metrics after successful manual reload
-            assert model_registry.current_metadata is not None
-            model_version_info.info(
-                {
-                    "version": model_registry.current_metadata.version,
-                    "strategy": model_registry.current_metadata.strategy_name,
-                    "activated_at": (
-                        model_registry.current_metadata.activated_at.isoformat()
-                        if model_registry.current_metadata.activated_at
-                        else ""
-                    ),
-                }
-            )
-            model_loaded_status.set(1)
-            model_reload_total.labels(status="success").inc()
+        elif model_registry.pending_validation:
+            response["pending_validation"] = True
+            response["message"] = "Shadow validation in progress"
+            logger.info("Manual reload initiated shadow validation")
         else:
             response["message"] = "Model already up to date"
             logger.info("Manual reload: no changes detected")
