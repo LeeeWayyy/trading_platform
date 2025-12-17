@@ -824,6 +824,11 @@ async def flatten_all_positions(
                 "mfa_unavailable",
                 "MFA service is not configured.",
             ),
+            "mfa_unavailable": (
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "mfa_unavailable",
+                "MFA service temporarily unavailable. Please retry.",
+            ),
         }
         status_code, code, message = error_map.get(
             mfa_error or "mfa_required",
