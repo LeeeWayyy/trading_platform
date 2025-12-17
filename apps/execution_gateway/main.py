@@ -3910,17 +3910,36 @@ async def order_webhook(request: Request) -> dict[str, str]:
                 logger.warning(f"Order not found for webhook: {client_order_id}")
                 return {"status": "ignored", "reason": "order_not_found"}
 
-            prev_filled_qty = int(order.filled_qty or 0)
-            incremental_fill_qty = int(filled_qty_dec) - prev_filled_qty
+            # Use Decimal values but compute integer delta from cumulative quantities
+            # This ensures fractional fills accumulate at integer boundaries
+            # e.g., 0.3 + 0.4 + 0.3 = 1.0 triggers a position update when crossing 1
+            prev_filled_qty_dec = order.filled_qty or Decimal("0")
+            incremental_fill_qty_int = int(filled_qty_dec) - int(prev_filled_qty_dec)
+
+            # Log fractional remainder for observability (positions table uses integers)
+            fractional_current = filled_qty_dec % 1
+            fractional_prev = prev_filled_qty_dec % 1
+            if fractional_current != 0 or fractional_prev != 0:
+                logger.info(
+                    "Fractional fill quantities detected; position updates at integer boundaries",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "filled_qty_decimal": str(filled_qty_dec),
+                        "prev_filled_qty_decimal": str(prev_filled_qty_dec),
+                        "incremental_fill_int": incremental_fill_qty_int,
+                        "fractional_current": str(fractional_current),
+                        "fractional_prev": str(fractional_prev),
+                    },
+                )
 
             # Only update position and append fill metadata if there's an incremental fill
-            if incremental_fill_qty > 0:
+            if incremental_fill_qty_int > 0:
                 position_locked = db_client.get_position_for_update(order.symbol, conn)
                 old_realized = position_locked.realized_pl if position_locked else Decimal("0")
 
                 position = db_client.update_position_on_fill_with_conn(
                     symbol=order.symbol,
-                    fill_qty=incremental_fill_qty,
+                    fill_qty=incremental_fill_qty_int,
                     fill_price=per_fill_price,
                     side=order.side,
                     conn=conn,
@@ -3932,7 +3951,7 @@ async def order_webhook(request: Request) -> dict[str, str]:
                     client_order_id=client_order_id,
                     fill_data={
                         "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
-                        "fill_qty": incremental_fill_qty,
+                        "fill_qty": incremental_fill_qty_int,
                         "fill_price": str(per_fill_price),
                         "realized_pl": str(realized_delta),
                         "timestamp": fill_timestamp.isoformat(),
@@ -3944,8 +3963,8 @@ async def order_webhook(request: Request) -> dict[str, str]:
                     "No incremental fill; skipping position update but still updating order status",
                     extra={
                         "client_order_id": client_order_id,
-                        "prev_filled_qty": prev_filled_qty,
-                        "current_filled_qty": int(filled_qty_dec),
+                        "prev_filled_qty": str(prev_filled_qty_dec),
+                        "current_filled_qty": str(filled_qty_dec),
                         "order_status": order_status,
                     },
                 )
