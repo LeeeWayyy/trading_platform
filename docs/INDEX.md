@@ -171,6 +171,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-13, Plan] [PLANS/T6.3_RISK_DASHBOARD_PLAN.md](./PLANS/T6.3_RISK_DASHBOARD_PLAN.md) - T6.3 Risk Analytics Dashboard implementation plan
 - [CURRENT, 2025-12-13, Plan] [TASKS/PLANS/T6.4-implementation-plan.md](./TASKS/PLANS/T6.4-implementation-plan.md) - T6.4 Strategy Comparison Tool & Risk Dashboard DB integration plan
 - [CURRENT, 2025-12-15, Plan] [TASKS/PLANS/T6.6-Backend-API-Manual-Controls.md](./TASKS/PLANS/T6.6-Backend-API-Manual-Controls.md) - T6.6 Backend API Manual Trade Controls implementation plan
+- [CURRENT, 2025-12-15, Plan] [TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md](./TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md) - T6.6 Web Console UI Manual Trade Controls implementation plan
 - [CURRENT, 2025-12-14, Plan] [TASKS/FORMATTING_ENHANCEMENT_PLAN.md](./TASKS/FORMATTING_ENHANCEMENT_PLAN.md) - Code formatting enhancement plan (ruff config, Makefile improvements)
 
 **Prompts:**

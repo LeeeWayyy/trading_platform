@@ -181,6 +181,60 @@ class JWTManager:
 
         return token
 
+    def generate_service_token(
+        self, user_id: str, session_id: str, client_ip: str, user_agent: str
+    ) -> str:
+        """Generate service-to-service token for internal API calls.
+
+        Unlike access tokens (for end-user sessions), service tokens are used
+        for trusted service-to-service communication (Web Console → Execution Gateway).
+
+        Args:
+            user_id: User identifier (becomes sub claim, must match X-User-ID header)
+            session_id: Session identifier for binding
+            client_ip: Client IP address for binding
+            user_agent: Client User-Agent for fingerprinting
+
+        Returns:
+            Signed JWT service token (RS256)
+
+        Note:
+            Token has type="service" which is REQUIRED by GatewayAuthenticator.
+            GatewayAuthenticator fetches role/strategies from database, not JWT claims.
+            One-time-use JTI enforcement prevents replay attacks.
+        """
+        now = datetime.now(UTC)
+        jti = str(uuid.uuid4())
+        user_agent_hash = hashlib.sha256(user_agent.encode()).hexdigest()
+
+        payload = {
+            "sub": user_id,
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(seconds=self.config.access_token_ttl)).timestamp()),
+            "jti": jti,
+            "iss": self.config.jwt_issuer,
+            "aud": self.config.jwt_audience,
+            "type": "service",  # CRITICAL: Must be "service" for GatewayAuthenticator
+            "session_id": session_id,
+            "ip": client_ip,
+            "user_agent_hash": user_agent_hash,
+        }
+
+        token = jwt.encode(payload, self.private_key, algorithm=self.config.jwt_algorithm)
+
+        logger.info(
+            "service_token_generated",
+            extra={
+                "user_id": user_id,
+                "session_id": session_id,
+                "jti": jti,  # Log token ID only, NEVER full token
+                "ip": client_ip,
+                "exp": payload["exp"],
+            },
+        )
+
+        return token
+
     def validate_token(self, token: str, expected_type: str) -> dict[str, Any]:
         """Validate token signature and claims.
 

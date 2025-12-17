@@ -815,6 +815,8 @@ def main() -> None:
 
         # Navigation
         pages = ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"]
+        if config.FEATURE_MANUAL_CONTROLS and has_permission(user_info, Permission.VIEW_TRADES):
+            pages.insert(2, "Manual Trade Controls")
         if config.FEATURE_STRATEGY_COMPARISON:
             pages.append("Strategy Comparison")
         if has_permission(user_info, Permission.MANAGE_USERS):
@@ -847,6 +849,14 @@ def main() -> None:
         auto_refresh_loop()
     elif page == "Manual Order Entry":
         render_manual_order_entry()
+    elif page == "Manual Trade Controls":
+        from apps.web_console.pages.manual_controls import render_manual_controls
+
+        render_manual_controls(
+            user=user_info,
+            db_pool=get_db_pool(),
+            audit_logger=AuditLogger(get_db_pool()),
+        )
     elif page == "Kill Switch":
         render_kill_switch()
     elif page == "Audit Log":
