@@ -392,7 +392,46 @@ class TestZombieSliceRecovery:
         slice_detail = scheduler.scheduler.add_job.call_args[1]["kwargs"]["slice_detail"]
         assert slice_detail.scheduled_time == next_open
 
-    def test_recovery_beyond_grace_reschedules_to_next_open_even_if_market_open(self):
+    def test_recovery_beyond_grace_executes_immediately_if_market_open(self):
+        """Beyond grace period but market is open - execute immediately."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, tzinfo=UTC)
+        next_open = now + timedelta(hours=1)
+        # 300 seconds = 5 minutes, beyond default grace period of 60 seconds
+        slice_order = self._build_slice_order(scheduled_time=now - timedelta(seconds=300))
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=True, next_open=next_open),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        scheduler.recover_zombie_slices(now=now)
+
+        # Should execute immediately (at 'now'), not reschedule to next_open
+        db.update_order_scheduled_time.assert_called_once_with(
+            client_order_id="child0",
+            scheduled_time=now,
+        )
+        run_date = scheduler.scheduler.add_job.call_args[1]["run_date"]
+        assert run_date == now
+        slice_detail = scheduler.scheduler.add_job.call_args[1]["kwargs"]["slice_detail"]
+        assert slice_detail.scheduled_time == now
+
+    def test_recovery_beyond_grace_market_closed_reschedules_to_next_open(self):
+        """Beyond grace period, market closed, next_open available - reschedule."""
         kill_switch = MagicMock(spec=KillSwitch)
         breaker = MagicMock(spec=CircuitBreaker)
         breaker.is_tripped.return_value = False
@@ -411,23 +450,23 @@ class TestZombieSliceRecovery:
             breaker=breaker,
             db_client=db,
             executor=executor,
-            market_clock_provider=lambda: MarketClockSnapshot(is_open=True, next_open=next_open),
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=False, next_open=next_open),
         )
         scheduler.scheduler.add_job = MagicMock()
         scheduler.scheduler.get_job = MagicMock(return_value=None)
 
         scheduler.recover_zombie_slices(now=now)
 
+        # Should reschedule to next_open since market is closed
         db.update_order_scheduled_time.assert_called_once_with(
             client_order_id="child0",
             scheduled_time=next_open,
         )
         run_date = scheduler.scheduler.add_job.call_args[1]["run_date"]
         assert run_date == next_open
-        slice_detail = scheduler.scheduler.add_job.call_args[1]["kwargs"]["slice_detail"]
-        assert slice_detail.scheduled_time == next_open
 
-    def test_recovery_beyond_grace_market_closed_fails(self):
+    def test_recovery_beyond_grace_market_closed_no_next_open_fails(self):
+        """Beyond grace period, market closed, no next_open - fail the slice."""
         kill_switch = MagicMock(spec=KillSwitch)
         breaker = MagicMock(spec=CircuitBreaker)
         breaker.is_tripped.return_value = False

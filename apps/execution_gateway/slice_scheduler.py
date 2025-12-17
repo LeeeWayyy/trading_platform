@@ -425,34 +425,46 @@ class SliceScheduler:
                             counts["failed"] += 1
                             continue
                         run_time = market_clock.next_open
-                else:
-                    if market_clock.next_open is None:
-                        logger.error(
-                            "Slice missed grace period and next_open unavailable; failing slice",
+                else:  # beyond grace period
+                    if market_clock.is_open:
+                        # Market is open - execute immediately despite missing grace
+                        logger.warning(
+                            "Slice missed grace period but market is open; executing immediately",
                             extra={
                                 "client_order_id": slice_order.client_order_id,
                                 "delay_seconds": delay_seconds,
                             },
                         )
-                        self.db.update_order_status_cas(
-                            client_order_id=slice_order.client_order_id,
-                            status="failed",
-                            broker_updated_at=recovery_now,
-                            status_rank=status_rank_for("failed"),
-                            source_priority=SOURCE_PRIORITY_MANUAL,
-                            error_message="Slice missed grace period and next open unavailable",
+                        run_time = recovery_now
+                    else:
+                        # Market is closed - reschedule to next open
+                        if market_clock.next_open is None:
+                            logger.error(
+                                "Slice missed grace period and next_open unavailable; failing slice",
+                                extra={
+                                    "client_order_id": slice_order.client_order_id,
+                                    "delay_seconds": delay_seconds,
+                                },
+                            )
+                            self.db.update_order_status_cas(
+                                client_order_id=slice_order.client_order_id,
+                                status="failed",
+                                broker_updated_at=recovery_now,
+                                status_rank=status_rank_for("failed"),
+                                source_priority=SOURCE_PRIORITY_MANUAL,
+                                error_message="Slice missed grace period and next open unavailable",
+                            )
+                            counts["failed"] += 1
+                            continue
+                        logger.warning(
+                            "Slice missed grace period; rescheduling to next market open",
+                            extra={
+                                "client_order_id": slice_order.client_order_id,
+                                "delay_seconds": delay_seconds,
+                                "next_open": market_clock.next_open,
+                            },
                         )
-                        counts["failed"] += 1
-                        continue
-                    logger.warning(
-                        "Slice missed grace period; rescheduling to next market open",
-                        extra={
-                            "client_order_id": slice_order.client_order_id,
-                            "delay_seconds": delay_seconds,
-                            "next_open": market_clock.next_open,
-                        },
-                    )
-                    run_time = market_clock.next_open
+                        run_time = market_clock.next_open
 
             if run_time != scheduled_time:
                 self.db.update_order_scheduled_time(
