@@ -1293,10 +1293,7 @@ class DatabaseClient:
                         broker_event_id = COALESCE(%s, broker_event_id),
                         broker_order_id = COALESCE(%s, broker_order_id),
                         filled_qty = GREATEST(filled_qty, %s),
-                        filled_avg_price = CASE
-                            WHEN %s IS NOT NULL THEN %s
-                            ELSE filled_avg_price
-                        END,
+                        filled_avg_price = COALESCE(%s, filled_avg_price),
                         filled_at = COALESCE(%s, filled_at),
                         error_message = %s,
                         is_terminal = %s,
@@ -1325,7 +1322,6 @@ class DatabaseClient:
                         broker_event_id,
                         broker_order_id,
                         new_filled_qty,
-                        filled_avg_price,
                         filled_avg_price,
                         filled_at,
                         error_message,

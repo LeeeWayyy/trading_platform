@@ -40,7 +40,14 @@ symbols_quarantined_total = Counter(
     ["symbol"],
 )
 
-# Source priority ordering
+# Source priority ordering (lower number = higher priority)
+# Used as a tie-breaker in CAS when timestamp, status_rank, and filled_qty are equal.
+# Manual interventions have highest authority and can overwrite any other source.
+# Reconciliation (batch sync) can overwrite webhooks on timestamp ties.
+# Webhooks are real-time but lowest priority on ties to preserve authoritative corrections.
+#
+# CAS condition: `source_priority > %s` allows lower numbers to win
+# (e.g., Manual=1 overwrites Webhook=3 because 3 > 1 is True)
 SOURCE_PRIORITY_MANUAL = 1
 SOURCE_PRIORITY_RECONCILIATION = 2
 SOURCE_PRIORITY_WEBHOOK = 3

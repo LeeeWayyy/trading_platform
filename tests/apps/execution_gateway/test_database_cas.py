@@ -109,4 +109,6 @@ def test_update_order_status_cas_includes_tiebreakers():
     sql = conn.cursor_obj.last_sql or ""
     assert "status_rank <" in sql
     assert "filled_qty <" in sql
-    assert "source_priority <" in sql
+    # Lower source_priority number = higher priority (Manual=1 > Webhook=3)
+    # The > comparison allows higher priority sources to overwrite lower ones
+    assert "source_priority >" in sql
