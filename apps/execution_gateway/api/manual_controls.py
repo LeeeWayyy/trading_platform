@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -63,6 +64,29 @@ RATE_LIMITS = {
 }
 
 
+# Manual control operations use synthetic strategy IDs for audit trail.
+# Operators who can perform manual controls should be able to see/cancel these orders.
+MANUAL_CONTROL_STRATEGY_PREFIX = "manual_controls_"
+MANUAL_CONTROL_STRATEGIES = (
+    f"{MANUAL_CONTROL_STRATEGY_PREFIX}close_position",
+    f"{MANUAL_CONTROL_STRATEGY_PREFIX}adjust_position",
+    f"{MANUAL_CONTROL_STRATEGY_PREFIX}flatten_all",
+)
+MANUAL_CONTROL_PERMISSIONS = (
+    Permission.CANCEL_ORDER,
+    Permission.CLOSE_POSITION,
+    Permission.ADJUST_POSITION,
+    Permission.FLATTEN_ALL,
+)
+
+# Default MFA error mapping fallback (avoids per-request tuple creation).
+MFA_DEFAULT_ERROR: tuple[int, str, str] = (
+    status.HTTP_403_FORBIDDEN,
+    "mfa_required",
+    "MFA verification required. Please re-authenticate.",
+)
+
+
 def _strategy_allowed(user: AuthenticatedUser, strategy_id: str | None) -> bool:
     """Check if user is authorized for the given strategy."""
     # Admins with VIEW_ALL_STRATEGIES can access any strategy
@@ -71,7 +95,38 @@ def _strategy_allowed(user: AuthenticatedUser, strategy_id: str | None) -> bool:
     # For non-admins, require explicit strategy assignment
     if strategy_id is None:
         return False
+    # Allow access to manual-control orders for operators who can act on them.
+    # This enables users to view/cancel manual control orders without exposing
+    # unrelated strategy orders.
+    if strategy_id.startswith(MANUAL_CONTROL_STRATEGY_PREFIX):
+        return _manual_controls_allowed(user)
     return strategy_id in get_authorized_strategies(user)
+
+
+T = TypeVar("T")
+
+
+async def _db_call(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    """Run synchronous database calls in a thread to avoid blocking the event loop."""
+
+    return await asyncio.to_thread(func, *args, **kwargs)
+
+
+def _require_integral_qty(qty: Decimal, field_name: str) -> int:
+    """Ensure quantity is a whole number and return its int value."""
+
+    if qty != qty.to_integral_value():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("invalid_request", f"{field_name} must be a whole number"),
+        )
+    qty_int = int(qty)
+    if qty_int <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("invalid_request", f"{field_name} must be positive"),
+        )
+    return qty_int
 
 
 def _apply_strategy_scope(
@@ -81,16 +136,23 @@ def _apply_strategy_scope(
 
     if has_permission(user, Permission.VIEW_ALL_STRATEGIES):
         return None
-    if strategies is None:
-        return []
-    return list(strategies)
+    scope = list(strategies) if strategies else []
+    if _manual_controls_allowed(user):
+        scope.extend(MANUAL_CONTROL_STRATEGIES)
+    return sorted(set(scope))
+
+
+def _manual_controls_allowed(user: AuthenticatedUser) -> bool:
+    """Return True if the user can access manual-control orders."""
+
+    return any(has_permission(user, permission) for permission in MANUAL_CONTROL_PERMISSIONS)
 
 
 def _generate_manual_order_id(
     action: str,
     symbol: str,
     side: str,
-    qty: Decimal,
+    qty: Decimal | int,
     user_id: str,
     as_of_date: date | None = None,
 ) -> str:
@@ -111,8 +173,10 @@ def _generate_manual_order_id(
         24-character alphanumeric ID compatible with Alpaca
     """
 
-    target_date = as_of_date or date.today()
-    components = f"{action}:{symbol}:{side}:{qty}:{user_id}:{target_date}"
+    # Use UTC for timezone-aware deterministic date (avoids midnight edge cases)
+    target_date = as_of_date or datetime.now(UTC).date()
+    qty_int = int(qty)
+    components = f"{action}:{symbol}:{side}:{qty_int}:{user_id}:{target_date}"
     digest = hashlib.sha256(components.encode()).hexdigest()
     return digest[:24]
 
@@ -189,7 +253,7 @@ async def cancel_order(
     await _ensure_permission_with_audit(user, Permission.CANCEL_ORDER, "cancel_order", audit_logger)
     await _enforce_rate_limit(rate_limiter, user.user_id, "cancel_order", audit_logger)
 
-    order = db_client.get_order_by_client_id(order_id)
+    order = await _db_call(db_client.get_order_by_client_id, order_id)
     # Combine order existence and strategy authorization check to prevent
     # information leakage (403 vs 404 would reveal order existence across strategies)
     if not order or not _strategy_allowed(user, order.strategy_id):
@@ -234,15 +298,25 @@ async def cancel_order(
     )
 
     try:
-        # DESIGN TRADEOFF: Broker cancellation before DB update
-        # This approach is acceptable because:
-        # 1. Broker cancellation is idempotent (safe to retry)
-        # 2. DB failure is logged and can be reconciled later
-        # 3. Broker state is source of truth - DB is eventually consistent
-        # Alternative (DB first) risks orphaned pending orders if broker call fails
+        # Mark as pending_cancel BEFORE broker call to avoid stale active state.
+        await _db_call(db_client.update_order_status, order_id, "pending_cancel")
+    except Exception as exc:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="cancel_order",
+            resource_type="order",
+            resource_id=order_id,
+            outcome="failed",
+            details={"reason": request.reason, "error": f"db_update_failed: {exc}"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_detail("db_error", "Failed to update order status before cancel"),
+        ) from exc
+
+    try:
         if alpaca_executor and order.broker_order_id:
             alpaca_executor.cancel_order(order.broker_order_id)
-        db_client.update_order_status(order_id, "canceled")
     except TimeoutError as exc:
         await audit_logger.log_action(
             user_id=user.user_id,
@@ -272,6 +346,7 @@ async def cancel_order(
             detail=error_detail("broker_error", f"Broker error: {exc}"),
         ) from exc
 
+    # Broker cancel succeeded; keep status as pending_cancel until webhook confirmation.
     await audit_logger.log_action(
         user_id=user.user_id,
         action="cancel_order",
@@ -322,7 +397,9 @@ async def cancel_all_orders(
                 "User has no authorized strategies",
             ),
         )
-    orders, _ = db_client.get_pending_orders(symbol=request.symbol, strategy_ids=strategy_scope)
+    orders, _ = await _db_call(
+        db_client.get_pending_orders, symbol=request.symbol, strategy_ids=strategy_scope
+    )
 
     if not orders:
         # Audit no-op case before raising 404
@@ -377,9 +454,22 @@ async def cancel_all_orders(
             continue
         strategies_affected.add(order.strategy_id or "")
         try:
+            await _db_call(db_client.update_order_status, order.client_order_id, "pending_cancel")
+        except Exception as exc:
+            failed_ids.append(order.client_order_id)
+            await audit_logger.log_action(
+                user_id=user.user_id,
+                action="cancel_order",
+                resource_type="order",
+                resource_id=order.client_order_id,
+                outcome="failed",
+                details={"reason": request.reason, "error": f"db_update_failed: {exc}"},
+            )
+            continue
+
+        try:
             if order.broker_order_id:
                 alpaca_executor.cancel_order(order.broker_order_id)
-            db_client.update_order_status(order.client_order_id, "canceled")
             cancelled_ids.append(order.client_order_id)
         except AlpacaClientError as exc:
             failed_ids.append(order.client_order_id)
@@ -429,7 +519,7 @@ async def cancel_all_orders(
         symbol=request.symbol,
         cancelled_count=len(cancelled_ids),
         order_ids=cancelled_ids,
-        strategies_affected=sorted(strategies_affected),
+        strategies_affected=sorted(s for s in strategies_affected if s),
     )
 
 
@@ -467,9 +557,9 @@ async def close_position(
         )
 
     if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
-        positions = db_client.get_positions_for_strategies(strategies)
+        positions = await _db_call(db_client.get_positions_for_strategies, strategies)
     else:
-        positions = db_client.get_all_positions()
+        positions = await _db_call(db_client.get_all_positions)
 
     position = next((p for p in positions if p.symbol == symbol.upper()), None)
     if not position:
@@ -504,11 +594,7 @@ async def close_position(
 
     # Determine qty to close: use request.qty (always positive) or full position (abs value)
     qty_to_close = Decimal(request.qty) if request.qty is not None else abs(Decimal(position.qty))
-    if qty_to_close <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("invalid_request", "qty must be positive to close position"),
-        )
+    qty_int = _require_integral_qty(qty_to_close, "qty")
 
     # Fail-closed: require broker executor for destructive operations
     if alpaca_executor is None:
@@ -530,7 +616,7 @@ async def close_position(
     order_req = OrderRequest(
         symbol=symbol.upper(),
         side=side,
-        qty=int(qty_to_close),
+        qty=qty_int,
         order_type="market",
     )
 
@@ -539,13 +625,14 @@ async def close_position(
         action="close_position",
         symbol=symbol.upper(),
         side=side,
-        qty=qty_to_close,
+        qty=Decimal(qty_int),
         user_id=user.user_id,
     )
     try:
         # Persist order in DB BEFORE broker submission to ensure webhooks can find it
         # Strategy ID uses manual_controls prefix to identify operator-initiated orders
-        db_client.create_order(
+        await _db_call(
+            db_client.create_order,
             client_order_id=order_id,
             strategy_id="manual_controls_close_position",
             order_request=order_req,
@@ -599,13 +686,8 @@ async def adjust_position(
 ) -> AdjustPositionResponse:
     """Force position adjustment to a target quantity."""
 
-    # DESIGN DECISION: Using CLOSE_POSITION permission for adjust_position
-    # Rationale: Position adjustment is conceptually similar to partial close/extend.
-    # A dedicated ADJUST_POSITION permission could be added later if more granular
-    # access control is needed, but current design keeps permission model simple.
-    # This is a non-breaking change that can be revisited based on operational needs.
     await _ensure_permission_with_audit(
-        user, Permission.CLOSE_POSITION, "adjust_position", audit_logger
+        user, Permission.ADJUST_POSITION, "adjust_position", audit_logger
     )
     await _enforce_rate_limit(rate_limiter, user.user_id, "adjust_position", audit_logger)
 
@@ -626,9 +708,9 @@ async def adjust_position(
         )
 
     if not has_permission(user, Permission.VIEW_ALL_STRATEGIES):
-        positions = db_client.get_positions_for_strategies(strategies)
+        positions = await _db_call(db_client.get_positions_for_strategies, strategies)
     else:
-        positions = db_client.get_all_positions()
+        positions = await _db_call(db_client.get_all_positions)
 
     position = next((p for p in positions if p.symbol == symbol.upper()), None)
     if not position:
@@ -686,10 +768,11 @@ async def adjust_position(
         )
 
     side: Literal["buy", "sell"] = "buy" if delta > 0 else "sell"
+    qty_int = _require_integral_qty(abs(delta), "target_qty")
     order_req = OrderRequest(
         symbol=symbol.upper(),
         side=side,
-        qty=int(abs(delta)),
+        qty=qty_int,
         order_type=request.order_type,
         limit_price=request.limit_price,
     )
@@ -699,13 +782,14 @@ async def adjust_position(
         action="adjust_position",
         symbol=symbol.upper(),
         side=side,
-        qty=abs(delta),
+        qty=Decimal(qty_int),
         user_id=user.user_id,
     )
     try:
         # Persist order in DB BEFORE broker submission to ensure webhooks can find it
         # Strategy ID uses manual_controls prefix to identify operator-initiated orders
-        db_client.create_order(
+        await _db_call(
+            db_client.create_order,
             client_order_id=order_id,
             strategy_id="manual_controls_adjust_position",
             order_request=order_req,
@@ -830,14 +914,7 @@ async def flatten_all_positions(
                 "MFA service temporarily unavailable. Please retry.",
             ),
         }
-        status_code, code, message = error_map.get(
-            mfa_error or "mfa_required",
-            (
-                status.HTTP_403_FORBIDDEN,
-                "mfa_required",
-                "MFA verification required. Please re-authenticate.",
-            ),
-        )
+        status_code, code, message = error_map.get(mfa_error or "mfa_required", MFA_DEFAULT_ERROR)
         # Audit log MFA denial before raising
         await audit_logger.log_action(
             user_id=user.user_id,
@@ -853,7 +930,7 @@ async def flatten_all_positions(
         )
 
     if has_permission(user, Permission.VIEW_ALL_STRATEGIES):
-        positions = db_client.get_all_positions()
+        positions = await _db_call(db_client.get_all_positions)
     else:
         authorized_strategies = get_authorized_strategies(user)
         # Fail-closed: user with no authorized strategies cannot flatten
@@ -871,7 +948,7 @@ async def flatten_all_positions(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=error_detail("strategy_unauthorized", "User has no authorized strategies"),
             )
-        positions = db_client.get_positions_for_strategies(authorized_strategies)
+        positions = await _db_call(db_client.get_positions_for_strategies, authorized_strategies)
 
     if not positions:
         # Audit no-op case for completeness
@@ -909,6 +986,9 @@ async def flatten_all_positions(
 
     orders_created: list[str] = []
     strategies_affected: set[str] = set()
+    strategy_map = await _db_call(
+        db_client.get_strategy_map_for_symbols, [position.symbol for position in positions]
+    )
 
     for position in positions:
         if position.qty == 0:
@@ -932,7 +1012,8 @@ async def flatten_all_positions(
         try:
             # Persist order in DB BEFORE broker submission to ensure webhooks can find it
             # Strategy ID uses manual_controls prefix to identify operator-initiated orders
-            db_client.create_order(
+            await _db_call(
+                db_client.create_order,
                 client_order_id=order_id,
                 strategy_id="manual_controls_flatten_all",
                 order_request=order_req,
@@ -943,9 +1024,8 @@ async def flatten_all_positions(
             # Submit to broker after DB persistence
             alpaca_executor.submit_order(order_req, order_id)
             orders_created.append(order_id)
-            # Use the strategy_id from the order record for audit consistency
-            # (Position schema doesn't include strategy_id as positions are per-symbol)
-            strategies_affected.add("manual_controls_flatten_all")
+            strategy_id = strategy_map.get(position.symbol)
+            strategies_affected.add(strategy_id or "manual_controls_flatten_all")
         except AlpacaClientError as exc:
             # Log failure with partial progress
             await audit_logger.log_action(
@@ -1013,6 +1093,7 @@ async def list_pending_orders(
         sort_order = "desc"
 
     scope_strategies = get_authorized_strategies(user)
+    scope = _apply_strategy_scope(user, scope_strategies)
     filtered_by_strategy = True
 
     if has_permission(user, Permission.VIEW_ALL_STRATEGIES):
@@ -1020,7 +1101,7 @@ async def list_pending_orders(
         scope = [strategy_id] if strategy_id else None
     else:
         # Fail-closed: user with no authorized strategies cannot list orders
-        if not scope_strategies:
+        if not scope:
             await audit_logger.log_action(
                 user_id=user.user_id,
                 action="list_pending_orders",
@@ -1033,7 +1114,7 @@ async def list_pending_orders(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=error_detail("strategy_unauthorized", "User has no authorized strategies"),
             )
-        if strategy_id and strategy_id not in scope_strategies:
+        if strategy_id and strategy_id not in scope:
             await audit_logger.log_action(
                 user_id=user.user_id,
                 action="list_pending_orders",
@@ -1049,9 +1130,10 @@ async def list_pending_orders(
                     f"User not authorized for strategy {strategy_id}",
                 ),
             )
-        scope = [strategy_id] if strategy_id else scope_strategies
+        scope = [strategy_id] if strategy_id else scope
 
-    orders, total = db_client.get_pending_orders(
+    orders, total = await _db_call(
+        db_client.get_pending_orders,
         symbol=symbol.upper() if symbol else None,
         strategy_ids=scope,
         limit=limit,

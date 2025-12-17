@@ -126,6 +126,7 @@ def _import_modules(monkeypatch, stub_streamlit):
             VIEW_TRADES="view_trades",
             CANCEL_ORDER="cancel_order",
             CLOSE_POSITION="close_position",
+            ADJUST_POSITION="adjust_position",
             FLATTEN_ALL="flatten_all",
         ),
         has_permission=lambda *_args, **_kwargs: True,
@@ -154,6 +155,9 @@ def _import_modules(monkeypatch, stub_streamlit):
     )
     monkeypatch.setitem(sys.modules, "libs.web_console_auth.config", auth_config_stub)
     monkeypatch.setitem(sys.modules, "redis", SimpleNamespace(Redis=lambda **kwargs: None))
+    monkeypatch.setitem(
+        sys.modules, "redis.asyncio", SimpleNamespace(Redis=lambda **kwargs: None)
+    )
 
     import apps.web_console.pages.manual_controls as manual_controls  # type: ignore
     import apps.web_console.utils.api_client as api_client  # type: ignore

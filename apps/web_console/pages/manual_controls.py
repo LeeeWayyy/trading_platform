@@ -14,6 +14,7 @@ from apps.web_console.auth.permissions import Permission, has_permission
 from apps.web_console.config import (
     FEATURE_MANUAL_CONTROLS,
     MFA_STEP_UP_MAX_AGE_SECONDS,
+    MIN_REASON_LENGTH,
     MIN_FLATTEN_ALL_REASON_LENGTH,
 )
 from apps.web_console.utils.api_client import (
@@ -190,11 +191,10 @@ def handle_api_error(e: Exception, action: str) -> None:
 # -----------------------------------------------------------------------------
 # UI Sections
 # -----------------------------------------------------------------------------
-# DESIGN DECISION: Streamlit widget keys use f-string patterns (e.g., key=f"cancel_reason_{order_id}")
-# This is a known Streamlit consideration when list items may change. Current implementation uses
-# unique identifiers (order_id, symbol) which prevents key collision. A modal-based approach would
-# be cleaner but requires significant refactoring. The current pattern works correctly for this
-# use case and can be revisited if UI state issues emerge. See Streamlit docs on widget keys.
+# DESIGN DECISION: Avoid dynamic input widgets inside loops.
+# We use a two-step flow: per-order buttons set session state, and a single
+# stable form renders below the list. This prevents Streamlit key churn when
+# the list of orders changes after cancels.
 # -----------------------------------------------------------------------------
 
 
@@ -216,6 +216,9 @@ def render_pending_orders(user: Mapping[str, Any]) -> None:
         st.info("No pending orders found.")
         return
 
+    order_ids = {order.get("client_order_id") for order in orders if order.get("client_order_id")}
+    symbols = sorted({order.get("symbol") for order in orders if order.get("symbol")})
+
     for order in orders:
         order_id = order.get("client_order_id")
         symbol = order.get("symbol")
@@ -225,43 +228,76 @@ def render_pending_orders(user: Mapping[str, Any]) -> None:
         with st.expander(f"{symbol} ({strategy_id}) - {status}"):
             st.write(order)
 
-            if has_permission(user, Permission.CANCEL_ORDER):
-                reason = st.text_input(
-                    "Cancel reason",
-                    key=f"cancel_reason_{order_id}",
-                    placeholder="Enter reason (min 10 chars)",
-                )
+            if has_permission(user, Permission.CANCEL_ORDER) and order_id:
                 if st.button("Cancel Order", key=f"cancel_btn_{order_id}"):
-                    if len(reason.strip()) < 10:
-                        st.error("Reason must be at least 10 characters")
-                    else:
-                        try:
-                            cancel_order(order_id, reason.strip(), user)
-                        except Exception as exc:
-                            handle_api_error(exc, "cancel order")
-                        else:
-                            st.success(f"Cancel requested for {order_id}")
-                            st.rerun()
+                    st.session_state["pending_cancel_order_id"] = order_id
+                    st.session_state["pending_cancel_symbol"] = symbol
+                    st.rerun()
             else:
                 st.caption("Permission required: CANCEL_ORDER")
 
-            if has_permission(user, Permission.CANCEL_ORDER):
-                ca_reason = st.text_input(
-                    "Cancel all for symbol reason",
-                    key=f"cancel_all_reason_{symbol}_{order_id}",
-                    placeholder="Enter reason (min 10 chars)",
-                )
-                if st.button("Cancel All For Symbol", key=f"cancel_all_btn_{symbol}_{order_id}"):
-                    if len(ca_reason.strip()) < 10:
-                        st.error("Reason must be at least 10 characters")
-                    else:
-                        try:
-                            cancel_all_orders(symbol, ca_reason.strip(), user)
-                        except Exception as exc:
-                            handle_api_error(exc, "cancel all orders")
-                        else:
-                            st.success(f"Cancel-all requested for {symbol}")
-                            st.rerun()
+    pending_order_id = st.session_state.get("pending_cancel_order_id")
+    if pending_order_id and pending_order_id not in order_ids:
+        st.session_state.pop("pending_cancel_order_id", None)
+        st.session_state.pop("pending_cancel_symbol", None)
+        pending_order_id = None
+
+    if has_permission(user, Permission.CANCEL_ORDER) and pending_order_id:
+        pending_symbol = st.session_state.get("pending_cancel_symbol", "")
+        st.markdown("---")
+        st.subheader(f"Cancel Order {pending_order_id}")
+        reason = st.text_input(
+            "Cancel reason",
+            key="pending_cancel_reason",
+            placeholder=f"Enter reason (min {MIN_REASON_LENGTH} chars)",
+        )
+        confirm = st.button("Confirm Cancel", key="confirm_cancel_order")
+        dismiss = st.button("Dismiss", key="dismiss_cancel_order")
+        if dismiss:
+            st.session_state.pop("pending_cancel_order_id", None)
+            st.session_state.pop("pending_cancel_symbol", None)
+            st.session_state.pop("pending_cancel_reason", None)
+            st.rerun()
+        if confirm:
+            if len(reason.strip()) < MIN_REASON_LENGTH:
+                st.error(f"Reason must be at least {MIN_REASON_LENGTH} characters")
+            else:
+                try:
+                    cancel_order(pending_order_id, reason.strip(), user)
+                except Exception as exc:
+                    handle_api_error(exc, "cancel order")
+                else:
+                    st.success(f"Cancel requested for {pending_symbol or pending_order_id}")
+                    st.session_state.pop("pending_cancel_order_id", None)
+                    st.session_state.pop("pending_cancel_symbol", None)
+                    st.session_state.pop("pending_cancel_reason", None)
+                    st.rerun()
+
+    if has_permission(user, Permission.CANCEL_ORDER) and symbols:
+        st.markdown("---")
+        st.subheader("Cancel All Orders For Symbol")
+        cancel_symbol = st.selectbox(
+            "Symbol",
+            symbols,
+            key="cancel_all_symbol_select",
+        )
+        ca_reason = st.text_input(
+            "Cancel all reason",
+            key="cancel_all_reason",
+            placeholder=f"Enter reason (min {MIN_REASON_LENGTH} chars)",
+        )
+        if st.button("Cancel All For Symbol", key="cancel_all_confirm"):
+            if len(ca_reason.strip()) < MIN_REASON_LENGTH:
+                st.error(f"Reason must be at least {MIN_REASON_LENGTH} characters")
+            else:
+                try:
+                    cancel_all_orders(cancel_symbol, ca_reason.strip(), user)
+                except Exception as exc:
+                    handle_api_error(exc, "cancel all orders")
+                else:
+                    st.success(f"Cancel-all requested for {cancel_symbol}")
+                    st.session_state.pop("cancel_all_reason", None)
+                    st.rerun()
 
 
 def render_positions(user: Mapping[str, Any]) -> None:
@@ -279,6 +315,10 @@ def render_positions(user: Mapping[str, Any]) -> None:
         st.info("No open positions.")
         return
 
+    positions_by_symbol = {
+        pos.get("symbol"): pos for pos in positions if isinstance(pos, Mapping) and pos.get("symbol")
+    }
+
     for pos in positions:
         symbol = pos.get("symbol")
         qty = pos.get("qty")
@@ -286,79 +326,154 @@ def render_positions(user: Mapping[str, Any]) -> None:
             st.write(pos)
 
             if has_permission(user, Permission.CLOSE_POSITION):
-                reason = st.text_input(
-                    "Close reason",
-                    key=f"close_reason_{symbol}",
-                    placeholder="Enter reason (min 10 chars)",
-                )
-                partial_qty = st.number_input(
-                    "Qty to close (leave 0 for full)",
-                    key=f"close_qty_{symbol}",
-                    min_value=0.0,
-                    value=0.0,
-                    step=1.0,
-                )
-                if st.button("Close Position", key=f"close_btn_{symbol}"):
-                    if len(reason.strip()) < 10:
-                        st.error("Reason must be at least 10 characters")
-                    else:
-                        qty_param = Decimal(partial_qty) if partial_qty > 0 else None
-                        try:
-                            close_position(symbol, reason.strip(), qty_param, user)
-                        except Exception as exc:
-                            handle_api_error(exc, "close position")
-                        else:
-                            st.success(f"Close requested for {symbol}")
-                            st.rerun()
+                if st.button("Close Position", key=f"select_close_{symbol}"):
+                    st.session_state["position_action"] = "close"
+                    st.session_state["position_symbol"] = symbol
+                    st.session_state.pop("close_reason", None)
+                    st.session_state.pop("close_qty", None)
+                    st.rerun()
             else:
                 st.caption("Permission required: CLOSE_POSITION")
 
-            if has_permission(user, Permission.CLOSE_POSITION):
-                target_qty = st.number_input(
-                    "Target quantity (can be negative)",
-                    key=f"adjust_target_{symbol}",
-                    value=float(qty) if qty is not None else 0.0,
+            if has_permission(user, Permission.ADJUST_POSITION):
+                if st.button("Adjust Position", key=f"select_adjust_{symbol}"):
+                    st.session_state["position_action"] = "adjust"
+                    st.session_state["position_symbol"] = symbol
+                    st.session_state.pop("adjust_reason", None)
+                    st.session_state.pop("adjust_target_qty", None)
+                    st.session_state.pop("adjust_order_type", None)
+                    st.session_state.pop("adjust_limit_price", None)
+                    st.rerun()
+            else:
+                st.caption("Permission required: ADJUST_POSITION")
+
+    selected_action = st.session_state.get("position_action")
+    selected_symbol = st.session_state.get("position_symbol")
+    if selected_symbol and selected_symbol not in positions_by_symbol:
+        st.session_state.pop("position_action", None)
+        st.session_state.pop("position_symbol", None)
+        selected_action = None
+        selected_symbol = None
+
+    if not selected_action or not selected_symbol:
+        return
+
+    st.markdown("---")
+    if selected_action == "close":
+        if not has_permission(user, Permission.CLOSE_POSITION):
+            st.info("Permission required: CLOSE_POSITION")
+            return
+
+        st.subheader(f"Close Position {selected_symbol}")
+        reason = st.text_input(
+            "Close reason",
+            key="close_reason",
+            placeholder=f"Enter reason (min {MIN_REASON_LENGTH} chars)",
+        )
+        partial_qty = st.number_input(
+            "Qty to close (leave 0 for full)",
+            key="close_qty",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            format="%.0f",
+        )
+        confirm = st.button("Confirm Close", key="confirm_close_position")
+        dismiss = st.button("Dismiss", key="dismiss_close_position")
+        if dismiss:
+            st.session_state.pop("position_action", None)
+            st.session_state.pop("position_symbol", None)
+            st.session_state.pop("close_reason", None)
+            st.session_state.pop("close_qty", None)
+            st.rerun()
+        if confirm:
+            if len(reason.strip()) < MIN_REASON_LENGTH:
+                st.error(f"Reason must be at least {MIN_REASON_LENGTH} characters")
+            else:
+                qty_param = Decimal(partial_qty) if partial_qty > 0 else None
+                try:
+                    close_position(selected_symbol, reason.strip(), qty_param, user)
+                except Exception as exc:
+                    handle_api_error(exc, "close position")
+                else:
+                    st.success(f"Close requested for {selected_symbol}")
+                    st.session_state.pop("position_action", None)
+                    st.session_state.pop("position_symbol", None)
+                    st.session_state.pop("close_reason", None)
+                    st.session_state.pop("close_qty", None)
+                    st.rerun()
+    elif selected_action == "adjust":
+        if not has_permission(user, Permission.ADJUST_POSITION):
+            st.info("Permission required: ADJUST_POSITION")
+            return
+
+        current_qty = positions_by_symbol.get(selected_symbol, {}).get("qty")
+        default_target = float(current_qty) if current_qty is not None else 0.0
+
+        st.subheader(f"Adjust Position {selected_symbol}")
+        target_qty = st.number_input(
+            "Target quantity (can be negative)",
+            key="adjust_target_qty",
+            value=default_target,
+            step=1.0,
+            format="%.0f",
+        )
+        order_type = st.selectbox(
+            "Order type",
+            ["market", "limit"],
+            key="adjust_order_type",
+        )
+        limit_price = None
+        if order_type == "limit":
+            limit_price = Decimal(
+                st.number_input(
+                    "Limit price",
+                    key="adjust_limit_price",
+                    min_value=0.01,
+                    value=0.01,
+                    step=0.01,
+                    format="%.2f",
                 )
-                order_type = st.selectbox(
-                    "Order type",
-                    ["market", "limit"],
-                    key=f"adjust_type_{symbol}",
-                )
-                limit_price = None
-                if order_type == "limit":
-                    limit_price = Decimal(
-                        st.number_input(
-                            "Limit price",
-                            key=f"adjust_limit_{symbol}",
-                            min_value=0.01,
-                            value=0.01,
-                            step=0.01,
-                            format="%.2f",
-                        )
+            )
+        adj_reason = st.text_input(
+            "Adjust reason",
+            key="adjust_reason",
+            placeholder=f"Enter reason (min {MIN_REASON_LENGTH} chars)",
+        )
+        confirm = st.button("Confirm Adjust", key="confirm_adjust_position")
+        dismiss = st.button("Dismiss", key="dismiss_adjust_position")
+        if dismiss:
+            st.session_state.pop("position_action", None)
+            st.session_state.pop("position_symbol", None)
+            st.session_state.pop("adjust_reason", None)
+            st.session_state.pop("adjust_target_qty", None)
+            st.session_state.pop("adjust_order_type", None)
+            st.session_state.pop("adjust_limit_price", None)
+            st.rerun()
+        if confirm:
+            if len(adj_reason.strip()) < MIN_REASON_LENGTH:
+                st.error(f"Reason must be at least {MIN_REASON_LENGTH} characters")
+            else:
+                try:
+                    adjust_position(
+                        selected_symbol,
+                        Decimal(target_qty),
+                        adj_reason.strip(),
+                        order_type,
+                        limit_price,
+                        user,
                     )
-                adj_reason = st.text_input(
-                    "Adjust reason",
-                    key=f"adjust_reason_{symbol}",
-                    placeholder="Enter reason (min 10 chars)",
-                )
-                if st.button("Adjust Position", key=f"adjust_btn_{symbol}"):
-                    if len(adj_reason.strip()) < 10:
-                        st.error("Reason must be at least 10 characters")
-                    else:
-                        try:
-                            adjust_position(
-                                symbol,
-                                Decimal(target_qty),
-                                adj_reason.strip(),
-                                order_type,
-                                limit_price,
-                                user,
-                            )
-                        except Exception as exc:
-                            handle_api_error(exc, "adjust position")
-                        else:
-                            st.success(f"Adjust requested for {symbol}")
-                            st.rerun()
+                except Exception as exc:
+                    handle_api_error(exc, "adjust position")
+                else:
+                    st.success(f"Adjust requested for {selected_symbol}")
+                    st.session_state.pop("position_action", None)
+                    st.session_state.pop("position_symbol", None)
+                    st.session_state.pop("adjust_reason", None)
+                    st.session_state.pop("adjust_target_qty", None)
+                    st.session_state.pop("adjust_order_type", None)
+                    st.session_state.pop("adjust_limit_price", None)
+                    st.rerun()
 
 
 def _is_mfa_token_valid() -> bool:

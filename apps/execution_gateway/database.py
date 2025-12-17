@@ -1630,6 +1630,50 @@ class DatabaseClient:
 
         return self._execute_with_conn(None, _execute)
 
+    def get_strategy_map_for_symbols(self, symbols: list[str]) -> dict[str, str | None]:
+        """
+        Return a best-effort mapping of symbol -> strategy_id.
+
+        For each symbol, if exactly one distinct strategy_id is found in the orders table,
+        return that strategy_id. Otherwise (no orders or multiple strategies), return None.
+
+        This is used to improve auditability for manual control actions without introducing
+        a strategy_id column on the positions table.
+        """
+        if not symbols:
+            return {}
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT symbol, ARRAY_AGG(DISTINCT strategy_id) AS strategies
+                        FROM orders
+                        WHERE strategy_id IS NOT NULL
+                          AND symbol = ANY(%s)
+                        GROUP BY symbol
+                        """,
+                        (symbols,),
+                    )
+                    rows = cur.fetchall()
+
+            strategy_map: dict[str, str | None] = {symbol: None for symbol in symbols}
+            for row in rows:
+                strategies = row.get("strategies") if isinstance(row, dict) else row[1]
+                symbol = row.get("symbol") if isinstance(row, dict) else row[0]
+                if isinstance(strategies, list) and len(strategies) == 1:
+                    strategy_map[str(symbol)] = strategies[0]
+                else:
+                    strategy_map[str(symbol)] = None
+            return strategy_map
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching strategy map",
+                extra={"symbols": symbols, "error": str(exc)},
+            )
+            raise
+
     def check_connection(self) -> bool:
         """
         Check if database connection is healthy.

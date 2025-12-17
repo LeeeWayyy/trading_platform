@@ -130,6 +130,9 @@ class StubDB:
     def get_all_positions(self) -> list[Position]:
         return self.positions
 
+    def get_strategy_map_for_symbols(self, symbols: list[str]) -> dict[str, str | None]:
+        return {symbol: "s1" for symbol in symbols}
+
     def create_order(self, **kwargs: Any) -> OrderDetail:
         """Stub create_order for manual controls order persistence."""
         order = _order(

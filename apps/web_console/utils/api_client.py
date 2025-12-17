@@ -9,13 +9,11 @@ This module centralizes common API-related utilities used across pages:
 
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any, cast
 
-import redis
 import requests
 
 from apps.web_console.auth.permissions import get_authorized_strategies
@@ -27,6 +25,7 @@ from apps.web_console.config import (
 )
 from libs.web_console_auth.config import AuthConfig
 from libs.web_console_auth.jwt_manager import JWTManager
+from libs.web_console_auth.redis_client import create_sync_redis, load_redis_config
 
 
 def safe_current_user() -> Mapping[str, Any]:
@@ -105,18 +104,6 @@ def fetch_api(
         raise ValueError(f"Invalid JSON response from {endpoint}: {e}") from e
 
 
-__all__ = [
-    "safe_current_user",
-    "get_auth_headers",
-    "fetch_api",
-    "generate_service_token_for_user",
-    "get_manual_controls_headers",
-    "get_manual_controls_api",
-    "post_manual_controls_api",
-    "ManualControlsAPIError",
-]
-
-
 # ============================================================================
 # Manual Controls API Helpers (T6.6)
 # ============================================================================
@@ -144,13 +131,7 @@ def _get_jwt_manager() -> JWTManager:
     """Return singleton JWTManager for service token generation."""
 
     config = AuthConfig.from_env()
-    # Use environment variables for Redis configuration consistency across services
-    redis_client = redis.Redis(
-        host=os.getenv("REDIS_HOST", "localhost"),
-        port=int(os.getenv("REDIS_PORT", "6379")),
-        db=int(os.getenv("REDIS_DB", "0")),
-        decode_responses=True,
-    )
+    redis_client = create_sync_redis(load_redis_config(), decode_responses=True)
     return JWTManager(config=config, redis_client=redis_client)
 
 
@@ -306,3 +287,15 @@ def post_manual_controls_api(
     if response.status_code >= 400:
         _handle_manual_controls_error(response)
     return cast(dict[str, Any], response.json())
+
+
+__all__ = [
+    "safe_current_user",
+    "get_auth_headers",
+    "fetch_api",
+    "generate_service_token_for_user",
+    "get_manual_controls_headers",
+    "get_manual_controls_api",
+    "post_manual_controls_api",
+    "ManualControlsAPIError",
+]

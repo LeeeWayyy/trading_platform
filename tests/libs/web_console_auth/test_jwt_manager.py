@@ -17,7 +17,12 @@ import pytest
 from fakeredis import FakeRedis
 
 from libs.web_console_auth.config import AuthConfig
-from libs.web_console_auth.exceptions import InvalidTokenError, TokenExpiredError, TokenRevokedError
+from libs.web_console_auth.exceptions import (
+    InvalidTokenError,
+    MissingJtiError,
+    TokenExpiredError,
+    TokenRevokedError,
+)
 from libs.web_console_auth.jwt_manager import JWTManager
 
 
@@ -217,7 +222,7 @@ class TestTokenValidation:
         parts = token.split(".")
         tampered_token = parts[0] + ".eyJzdWIiOiJoYWNrZXIifQ." + parts[2]
 
-        with pytest.raises(InvalidTokenError, match="Invalid token"):
+        with pytest.raises(InvalidTokenError, match="Token signature verification failed"):
             jwt_manager.validate_token(tampered_token, "access")
 
     def test_validate_token_malformed(self, jwt_manager):
@@ -246,7 +251,7 @@ class TestTokenValidation:
 
         token_no_jti = pyjwt.encode(payload_no_jti, jwt_manager.private_key, algorithm="RS256")
 
-        with pytest.raises(InvalidTokenError, match="Token missing jti claim"):
+        with pytest.raises(MissingJtiError, match="Token missing jti claim"):
             jwt_manager.validate_token(token_no_jti, "access")
 
     def test_validate_token_clock_skew_tolerance(self, jwt_manager):

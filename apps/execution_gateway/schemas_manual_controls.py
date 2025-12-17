@@ -67,6 +67,13 @@ class ClosePositionRequest(BaseModel):
             raise ValueError("qty must be positive when provided")
         return value
 
+    @field_validator("qty")
+    @classmethod
+    def qty_integral(cls, value: Decimal | None) -> Decimal | None:
+        if value is not None and value != value.to_integral_value():
+            raise ValueError("qty must be a whole number")
+        return value
+
 
 class ClosePositionResponse(BaseModel):
     status: Literal["closing", "already_flat"]
@@ -86,6 +93,8 @@ class AdjustPositionRequest(BaseModel):
     @field_validator("target_qty")
     @classmethod
     def target_qty_any(cls, value: Decimal) -> Decimal:
+        if value != value.to_integral_value():
+            raise ValueError("target_qty must be a whole number")
         return value
 
     @field_validator("limit_price")
