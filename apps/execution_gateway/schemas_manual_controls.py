@@ -69,7 +69,7 @@ class ClosePositionRequest(BaseModel):
 
 
 class ClosePositionResponse(BaseModel):
-    status: Literal["closing"]
+    status: Literal["closing", "already_flat"]
     symbol: str
     order_id: str | None = None
     qty_to_close: Decimal

@@ -192,6 +192,7 @@ def get_alpaca_executor() -> AlpacaExecutor | None:
         )
     except Exception:
         # Keep None to allow fail-closed responses; actual errors logged by caller
+        logger.exception("alpaca_executor_init_failed")
         _alpaca_executor = None
     return _alpaca_executor
 
@@ -364,6 +365,7 @@ async def verify_2fa_token(
     except jwt.ImmatureSignatureError:
         return False, "token_not_yet_valid", None
     except Exception:
+        logger.exception("mfa_token_validation_failed")
         return False, "invalid_jwt", None
 
     if claims.get("sub") != requesting_user_id:

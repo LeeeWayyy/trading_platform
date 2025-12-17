@@ -453,12 +453,14 @@ async def close_position(
             action="close_position",
             resource_type="position",
             resource_id=symbol.upper(),
-            outcome="failed",
-            details={"reason": request.reason, "error": "position_already_flat"},
+            outcome="no_op",
+            details={"reason": request.reason, "message": "position_already_flat"},
         )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("position_already_flat", "Position already flat"),
+        return ClosePositionResponse(
+            status="already_flat",
+            symbol=symbol.upper(),
+            order_id=None,
+            qty_to_close=Decimal(0),
         )
 
     # Determine qty to close: use request.qty (always positive) or full position (abs value)
@@ -699,7 +701,6 @@ async def flatten_all_positions(
             "mfa_required": (status.HTTP_403_FORBIDDEN, "mfa_required", "MFA verification required. Please re-authenticate."),
             "mfa_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification required. Please re-authenticate."),
             "invalid_jwt": (status.HTTP_403_FORBIDDEN, "mfa_invalid", "MFA verification required. Please re-authenticate."),
-            "auth_expired": (status.HTTP_403_FORBIDDEN, "mfa_expired", "MFA verification required. Please re-authenticate."),
             "mfa_misconfigured": (status.HTTP_503_SERVICE_UNAVAILABLE, "mfa_unavailable", "MFA service is not configured."),
         }
         status_code, code, message = error_map.get(

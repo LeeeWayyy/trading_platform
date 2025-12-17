@@ -9,16 +9,14 @@ from collections.abc import Awaitable
 from typing import Any
 
 import redis.asyncio as redis
-from prometheus_client import Counter
+
+# Import shared Prometheus metrics from libs to avoid duplicate registration
+from libs.web_console_auth.rate_limiter import (
+    rate_limit_checks_total,
+    rate_limit_redis_errors_total,
+)
 
 logger = logging.getLogger(__name__)
-
-rate_limit_checks_total = Counter(
-    "rate_limit_checks_total", "Total rate limit checks", ["action", "result"]
-)
-rate_limit_redis_errors_total = Counter(
-    "rate_limit_redis_errors_total", "Redis errors during rate limit checks", ["action"]
-)
 
 
 class RateLimiter:
