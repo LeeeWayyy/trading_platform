@@ -14,27 +14,16 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from prometheus_client import Counter, Histogram
-
 from apps.web_console.utils.db import acquire_connection
 
-logger = logging.getLogger(__name__)
+# Import shared Prometheus metrics from libs to avoid duplicate registration
+from libs.web_console_auth.audit_logger import (
+    _audit_cleanup_duration_seconds,
+    _audit_events_total,
+    _audit_write_failures_total,
+)
 
-# Prometheus metrics
-_audit_events_total = Counter(
-    "audit_log_events_total",
-    "Total audit log events written",
-    ["event_type", "outcome"],
-)
-_audit_write_failures_total = Counter(
-    "audit_log_write_failures_total",
-    "Audit log write failures by reason",
-    ["reason"],
-)
-_audit_cleanup_duration_seconds = Histogram(
-    "audit_log_cleanup_duration_seconds",
-    "Duration of audit log cleanup runs",
-)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager

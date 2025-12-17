@@ -163,7 +163,7 @@ class GatewayAuthenticator:
         role_value = row["role"] if isinstance(row, dict) else row[0]
         try:
             return Role(role_value)
-        except Exception:
+        except ValueError:
             logger.warning("unknown_role_value", extra={"role": role_value})
             return None
 

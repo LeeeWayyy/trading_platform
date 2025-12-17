@@ -7,6 +7,7 @@ import os
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 
 import jwt
@@ -54,9 +55,10 @@ _raw_auth0_domain = os.getenv("AUTH0_DOMAIN", "").strip()
 _clean_domain = _raw_auth0_domain.replace("https://", "").replace("http://", "").strip("/")
 AUTH0_DOMAIN = _clean_domain
 AUTH0_ISSUER = f"https://{_clean_domain}/" if _clean_domain else ""
+DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+MFA_TOKEN_MAX_AGE_SECONDS = 60
 
 # Singletons initialized lazily
-_db_pool: AsyncConnectionPool | None = None
 _async_redis: redis_async.Redis | None = None
 _sync_redis: redis.Redis | None = None
 _rate_limiter: RateLimiter | None = None
@@ -80,13 +82,11 @@ def error_detail(error: str, message: str, retry_after: int | None = None) -> di
     return detail
 
 
+@lru_cache(maxsize=None)  # noqa: UP033 - explicit lru_cache requested for singleton behavior
 def get_db_pool() -> AsyncConnectionPool:
     """Return async connection pool for auth/session validation."""
 
-    global _db_pool
-    if _db_pool is None:
-        _db_pool = AsyncConnectionPool(DATABASE_URL, open=True)
-    return _db_pool
+    return AsyncConnectionPool(DATABASE_URL, open=True)
 
 
 def get_async_redis() -> redis_async.Redis:
@@ -170,6 +170,9 @@ def get_db_client() -> DatabaseClient:
 
 def get_alpaca_executor() -> AlpacaExecutor | None:
     """Create Alpaca executor if credentials are configured."""
+
+    if DRY_RUN:
+        return None
 
     global _alpaca_executor
     if _alpaca_executor is not None:
@@ -376,7 +379,7 @@ async def verify_2fa_token(
         return False, "mfa_required", None
 
     auth_age = (datetime.now(UTC) - datetime.fromtimestamp(int(auth_time), tz=UTC)).total_seconds()
-    if auth_age > 60:
+    if auth_age > MFA_TOKEN_MAX_AGE_SECONDS:
         return False, "mfa_expired", None
 
     amr_method = next((m for m in ["webauthn", "hwk", "otp", "sms", "push", "mfa"] if m in amr), None)

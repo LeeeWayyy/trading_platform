@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import Any, cast
 
 import redis
@@ -138,23 +139,18 @@ class ManualControlsAPIError(Exception):
         self.detail = detail
 
 
-_jwt_manager: JWTManager | None = None
-
-
+@lru_cache(maxsize=None)  # noqa: UP033 - explicit lru_cache requested for singleton behavior
 def _get_jwt_manager() -> JWTManager:
     """Return singleton JWTManager for service token generation."""
 
-    global _jwt_manager
-    if _jwt_manager is None:
-        config = AuthConfig.from_env()
-        redis_client = redis.Redis(
-            host=os.getenv("REDIS_HOST", "localhost"),
-            port=int(os.getenv("REDIS_PORT", "6379")),
-            db=0,
-            decode_responses=True,
-        )
-        _jwt_manager = JWTManager(config=config, redis_client=redis_client)
-    return _jwt_manager
+    config = AuthConfig.from_env()
+    redis_client = redis.Redis(
+        host=os.getenv("REDIS_HOST", "localhost"),
+        port=int(os.getenv("REDIS_PORT", "6379")),
+        db=0,
+        decode_responses=True,
+    )
+    return JWTManager(config=config, redis_client=redis_client)
 
 
 def generate_service_token_for_user(user: Mapping[str, Any]) -> str:

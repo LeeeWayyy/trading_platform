@@ -350,9 +350,12 @@ def test_jwt_error_mapping(exc: Exception, expected: str):
 
 
 def test_flatten_all_requires_mfa():
+    async def mock_2fa_fail(token: str, uid: str) -> tuple[bool, str | None, str | None]:
+        return (False, "mfa_required", None)
+
     client = build_client(
         overrides={
-            deps.get_2fa_validator: lambda: lambda token, uid: (False, "mfa_required", None)
+            deps.get_2fa_validator: lambda: mock_2fa_fail
         }
     )
     response = client.post(
@@ -369,13 +372,16 @@ def test_flatten_all_requires_mfa():
 
 
 def test_flatten_all_success():
+    async def mock_2fa_pass(token: str, uid: str) -> tuple[bool, str | None, str | None]:
+        return (True, None, "otp")
+
     positions = [_position("AAPL", 5)]
     db = StubDB()
     db.positions = positions
     client = build_client(
         overrides={
             deps.get_db_client: lambda: db,
-            deps.get_2fa_validator: lambda: lambda token, uid: (True, None, "otp"),
+            deps.get_2fa_validator: lambda: mock_2fa_pass,
         }
     )
     response = client.post(

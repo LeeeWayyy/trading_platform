@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -25,7 +25,7 @@ from apps.execution_gateway.api.dependencies import (
     get_rate_limiter,
 )
 from apps.execution_gateway.database import DatabaseClient
-from apps.execution_gateway.schemas import OrderRequest, Position
+from apps.execution_gateway.schemas import OrderRequest
 from apps.execution_gateway.schemas_manual_controls import (
     AdjustPositionRequest,
     AdjustPositionResponse,
@@ -114,23 +114,6 @@ async def _enforce_rate_limit(
             detail=error_detail("rate_limited", "Rate limit exceeded", retry_after=window),
             headers={"Retry-After": str(window)},
         )
-
-
-def _require_order_found(order: Any, order_id: str) -> None:
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=error_detail("not_found", f"Order {order_id} not found"),
-        )
-
-
-def _require_position_found(position: Position | None, symbol: str) -> Position:
-    if not position:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=error_detail("not_found", f"Position for {symbol} not found"),
-        )
-    return position
 
 
 async def _ensure_permission_with_audit(
@@ -462,6 +445,20 @@ async def close_position(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_detail("not_found", f"Position for {symbol} not found"),
+        )
+
+    if position.qty == 0:
+        await audit_logger.log_action(
+            user_id=user.user_id,
+            action="close_position",
+            resource_type="position",
+            resource_id=symbol.upper(),
+            outcome="failed",
+            details={"reason": request.reason, "error": "position_already_flat"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("position_already_flat", "Position already flat"),
         )
 
     # Determine qty to close: use request.qty (always positive) or full position (abs value)
