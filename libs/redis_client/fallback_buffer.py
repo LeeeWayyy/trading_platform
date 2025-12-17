@@ -9,11 +9,11 @@ replayed in order when Redis connectivity is restored.
 import json
 import logging
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class FallbackBuffer:
         entry = BufferedMessage(
             channel=channel,
             payload=payload,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
 
         with self._lock:
@@ -184,7 +184,7 @@ class FallbackBuffer:
             if not isinstance(channel, str) or not isinstance(payload, str):
                 continue
             if not isinstance(created_at, str):
-                created_at = datetime.now(timezone.utc).isoformat()
+                created_at = datetime.now(UTC).isoformat()
             loaded.append(
                 BufferedMessage(
                     channel=channel,

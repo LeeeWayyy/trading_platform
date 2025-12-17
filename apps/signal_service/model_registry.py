@@ -37,11 +37,12 @@ See Also:
 
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable
+from typing import Any
 
 import lightgbm as lgb
 from psycopg import DatabaseError, OperationalError

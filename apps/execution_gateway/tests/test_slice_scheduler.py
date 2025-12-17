@@ -505,11 +505,11 @@ class TestExecuteSliceKillSwitch:
         kill_switch.is_engaged.assert_called_once()
 
         # Verify DB updated to blocked_kill_switch with error message
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="blocked_kill_switch",
-            error_message="Kill switch is engaged - all new orders blocked",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "blocked_kill_switch"
+        assert "Kill switch is engaged" in call_kwargs["error_message"]
 
         # Verify executor NOT called (blocked)
         executor.submit_order.assert_not_called()
@@ -558,12 +558,12 @@ class TestExecuteSliceKillSwitch:
         executor.submit_order.assert_called_once()
 
         # Verify DB updated to submitted with error_message cleared
-        db.update_order_status.assert_called_with(
-            client_order_id="child0",
-            status="submitted",
-            broker_order_id="broker123",
-            error_message="",  # Clears any error from previous retry attempts
-        )
+        db.update_order_status_cas.assert_called()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "submitted"
+        assert call_kwargs["broker_order_id"] == "broker123"
+        assert call_kwargs["error_message"] == ""  # Clears any error from previous retry attempts
 
 
 class TestExecuteSliceCircuitBreaker:
@@ -614,11 +614,11 @@ class TestExecuteSliceCircuitBreaker:
         breaker.get_trip_reason.assert_called_once()
 
         # Verify DB updated to blocked_circuit_breaker with error message
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="blocked_circuit_breaker",
-            error_message="Circuit breaker is tripped - reason: DRAWDOWN_BREACH",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "blocked_circuit_breaker"
+        assert "Circuit breaker is tripped" in call_kwargs["error_message"]
 
         # Verify executor NOT called (blocked)
         executor.submit_order.assert_not_called()
@@ -675,12 +675,12 @@ class TestExecuteSliceSuccess:
         assert call_args[1]["order"].qty == 20
 
         # Verify DB updated to submitted with broker_order_id and error_message cleared
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="submitted",
-            broker_order_id="broker_abc123",
-            error_message="",  # Clears any error from previous retry attempts
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "submitted"
+        assert call_kwargs["broker_order_id"] == "broker_abc123"
+        assert call_kwargs["error_message"] == ""
 
     def test_execute_slice_db_failure_after_broker_submission_retries_then_fallback(self):
         """Test DB update failure after broker submission retries with backoff then falls back to submitted_unconfirmed."""
@@ -697,7 +697,7 @@ class TestExecuteSliceSuccess:
 
         # Mock DB to fail 3 times with status="submitted", then succeed with status="submitted_unconfirmed"
         db_error = Exception("DB connection lost")
-        db.update_order_status.side_effect = [
+        db.update_order_status_cas.side_effect = [
             db_error,  # Retry 1 fails
             db_error,  # Retry 2 fails
             db_error,  # Retry 3 fails (exhaust retries)
@@ -737,21 +737,21 @@ class TestExecuteSliceSuccess:
         # Verify executor called (broker submission succeeded)
         executor.submit_order.assert_called_once()
 
-        # Verify DB update_order_status called 4 times:
+        # Verify DB update_order_status_cas called 4 times:
         # - 3 attempts with status="submitted" (retries with exponential backoff)
         # - 1 attempt with status="submitted_unconfirmed" (fallback)
-        assert db.update_order_status.call_count == 4
+        assert db.update_order_status_cas.call_count == 4
 
         # Verify first 3 calls were retries for status="submitted"
         for i in range(3):
-            call = db.update_order_status.call_args_list[i]
+            call = db.update_order_status_cas.call_args_list[i]
             assert call[1]["client_order_id"] == "child0"
             assert call[1]["status"] == "submitted"
             assert call[1]["broker_order_id"] == "broker_abc123"
             assert call[1]["error_message"] == ""
 
         # Verify 4th call was fallback to submitted_unconfirmed
-        fallback_call = db.update_order_status.call_args_list[3]
+        fallback_call = db.update_order_status_cas.call_args_list[3]
         assert fallback_call[1]["client_order_id"] == "child0"
         assert fallback_call[1]["status"] == "submitted_unconfirmed"
         assert fallback_call[1]["broker_order_id"] == "broker_abc123"
@@ -803,10 +803,10 @@ class TestExecuteSliceDryRun:
         )
 
         # Verify DB updated to dry_run status (NOT submitted)
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="dry_run",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "dry_run"
 
         # Verify executor was NOT called (since it's None)
         assert scheduler.executor is None
@@ -852,11 +852,11 @@ class TestExecuteSliceDryRun:
         )
 
         # Verify slice blocked by kill switch with error message (NOT executed in dry-run)
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="blocked_kill_switch",
-            error_message="Kill switch is engaged - all new orders blocked",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "blocked_kill_switch"
+        assert "Kill switch is engaged" in call_kwargs["error_message"]
 
 
 class TestExecuteSliceErrors:
@@ -903,11 +903,11 @@ class TestExecuteSliceErrors:
         )
 
         # Verify DB updated to rejected
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="rejected",
-            error_message="Invalid qty",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "rejected"
+        assert call_kwargs["error_message"] == "Invalid qty"
 
     def test_execute_slice_rejection_error_updates_db(self):
         """Test rejection error updates DB to rejected (non-retryable)."""
@@ -950,11 +950,11 @@ class TestExecuteSliceErrors:
         )
 
         # Verify DB updated to rejected
-        db.update_order_status.assert_called_once_with(
-            client_order_id="child0",
-            status="rejected",
-            error_message="Insufficient buying power",
-        )
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "rejected"
+        assert call_kwargs["error_message"] == "Insufficient buying power"
 
     def test_execute_slice_connection_error_retries_then_fails(self):
         """Test connection error retries 3 times then updates DB to failed.
@@ -1008,11 +1008,11 @@ class TestExecuteSliceErrors:
         assert executor.submit_order.call_count == 3
 
         # Verify DB updated to failed (by the wrapper after all retries exhausted)
-        db.update_order_status.assert_called_with(
-            client_order_id="child0",
-            status="failed",
-            error_message="Retry exhausted: Connection timeout",
-        )
+        db.update_order_status_cas.assert_called()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "failed"
+        assert "Retry exhausted" in call_kwargs["error_message"]
 
 
 class TestExecuteSliceCancellation:
@@ -1066,7 +1066,7 @@ class TestExecuteSliceCancellation:
         executor.submit_order.assert_not_called()
 
         # Verify DB status was NOT updated (already canceled)
-        db.update_order_status.assert_not_called()
+        db.update_order_status_cas.assert_not_called()
 
     def test_execute_slice_aborted_when_db_shows_canceled_at_presubmit_guard(self):
         """Test _execute_slice aborts at pre-submit guard when DB shows 'canceled'."""
@@ -1123,7 +1123,7 @@ class TestExecuteSliceCancellation:
         executor.submit_order.assert_not_called()
 
         # Verify DB status was NOT updated
-        db.update_order_status.assert_not_called()
+        db.update_order_status_cas.assert_not_called()
 
 
 class TestCancelRemainingSlices:

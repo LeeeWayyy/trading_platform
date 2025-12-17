@@ -52,7 +52,7 @@ def test_hydrate_feature_cache_handles_date_failures() -> None:
         assert result["cached_count"] == 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_health_reports_degraded_when_hydration_incomplete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -74,7 +74,7 @@ async def test_health_reports_degraded_when_hydration_incomplete(
     assert response.status == "degraded"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_ready_returns_503_when_degraded(monkeypatch: pytest.MonkeyPatch) -> None:
     """Readiness should fail when hydration is incomplete."""
     import apps.signal_service.main as main
@@ -96,7 +96,7 @@ async def test_ready_returns_503_when_degraded(monkeypatch: pytest.MonkeyPatch) 
     assert exc.value.status_code == 503
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_ready_returns_200_when_healthy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Readiness should pass when hydration is complete."""
     import apps.signal_service.main as main

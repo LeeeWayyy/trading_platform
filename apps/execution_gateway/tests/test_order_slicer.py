@@ -789,7 +789,7 @@ class TestCrossMidnightIdempotency:
     def test_liquidity_max_slice_qty_invalid(self) -> None:
         """Invalid max_slice_qty should raise a validation error."""
         slicer = TWAPSlicer()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="max_slice_qty must be at least 1"):
             slicer.plan(
                 symbol="AAPL",
                 side="buy",

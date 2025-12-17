@@ -36,10 +36,10 @@ import logging
 import os
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, status
@@ -59,8 +59,8 @@ from libs.redis_client import (
 
 from .config import Settings
 from .model_registry import ModelMetadata, ModelRegistry
-from .signal_generator import SignalGenerator
 from .shadow_validator import ShadowModeValidator, ShadowValidationResult
+from .signal_generator import SignalGenerator
 
 
 def _format_database_url_for_logging(database_url: str) -> str:
@@ -242,7 +242,7 @@ async def feature_hydration_task(symbols: list[str], history_days: int) -> None:
         )
         logger.info("Feature cache hydration completed")
         hydration_complete = True  # Only mark complete on success
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(
             "Feature cache hydration timed out after %s seconds; health will remain degraded",
             settings.feature_hydration_timeout_seconds,
@@ -854,7 +854,7 @@ def _shadow_validate(old_model: Any, new_model: Any) -> ShadowValidationResult:
         status_label = "passed" if result.passed else "rejected"
         _record_shadow_validation(result, status_label)
         return result
-    except Exception as exc:
+    except Exception:
         _record_shadow_validation(None, "failed")
         raise
 

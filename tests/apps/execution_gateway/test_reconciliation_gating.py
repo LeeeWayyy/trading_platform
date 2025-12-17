@@ -17,7 +17,7 @@ class StubAlpaca:
             return None
         return {"symbol": symbol, "qty": self._position_qty}
 
-    def get_orders(self, status, limit, after):
+    def get_orders(self, status, limit, after, symbols=None):
         return self._open_orders
 
 

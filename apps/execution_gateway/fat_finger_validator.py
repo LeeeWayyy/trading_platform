@@ -9,9 +9,10 @@ be reused in API, tests, and other services.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 from apps.execution_gateway.schemas import FatFingerThresholds
 
