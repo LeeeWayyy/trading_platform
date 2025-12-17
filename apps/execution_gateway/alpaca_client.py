@@ -13,7 +13,7 @@ See ADR-0014 for design rationale.
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol, cast
 
 from tenacity import (
     retry,
@@ -51,6 +51,13 @@ except ImportError:
 from apps.execution_gateway.schemas import OrderRequest
 
 logger = logging.getLogger(__name__)
+
+
+class _ClockLike(Protocol):
+    timestamp: datetime
+    is_open: bool
+    next_open: datetime | None
+    next_close: datetime | None
 
 
 class AlpacaClientError(Exception):
@@ -492,6 +499,27 @@ class AlpacaExecutor:
 
         except AlpacaAPIError as e:
             raise AlpacaConnectionError(f"Error fetching orders: {e}") from e
+
+    def get_market_clock(self) -> dict[str, Any]:
+        """Return Alpaca market clock snapshot."""
+        try:
+            clock = self.client.get_clock()
+            if isinstance(clock, dict):
+                return {
+                    "timestamp": clock.get("timestamp"),
+                    "is_open": clock.get("is_open"),
+                    "next_open": clock.get("next_open"),
+                    "next_close": clock.get("next_close"),
+                }
+            clock_obj = cast(_ClockLike, clock)
+            return {
+                "timestamp": clock_obj.timestamp,
+                "is_open": clock_obj.is_open,
+                "next_open": clock_obj.next_open,
+                "next_close": clock_obj.next_close,
+            }
+        except AlpacaAPIError as e:
+            raise AlpacaConnectionError(f"Error fetching market clock: {e}") from e
 
     def get_all_positions(self) -> list[dict[str, Any]]:
         """Fetch all open positions from Alpaca."""

@@ -575,6 +575,25 @@ def _is_reconciliation_ready() -> bool:
     return reconciliation_service.is_startup_complete()
 
 
+async def _recover_zombie_slices_after_reconciliation() -> None:
+    """Recover pending TWAP slices after reconciliation gate opens."""
+    if not slice_scheduler:
+        logger.warning("Slice scheduler unavailable; skipping zombie slice recovery")
+        return
+    if not DRY_RUN and reconciliation_service is None:
+        logger.error("Reconciliation service unavailable; skipping zombie slice recovery")
+        return
+
+    poll_interval_seconds = 1.0
+    while not _is_reconciliation_ready():
+        if reconciliation_service and reconciliation_service.startup_timed_out():
+            logger.error("Startup reconciliation timed out; skipping zombie slice recovery")
+            return
+        await asyncio.sleep(poll_interval_seconds)
+
+    await asyncio.to_thread(slice_scheduler.recover_zombie_slices)
+
+
 async def _check_quarantine(symbol: str, strategy_id: str) -> None:
     """Block trading when symbol is quarantined."""
     if DRY_RUN:
@@ -3643,6 +3662,9 @@ async def startup_event() -> None:
         await reconciliation_service.run_startup_reconciliation()
         reconciliation_task = asyncio.create_task(reconciliation_service.run_periodic_loop())
         logger.info("Reconciliation service started")
+
+    # Recover any pending TWAP slices after reconciliation gate opens
+    asyncio.create_task(_recover_zombie_slices_after_reconciliation())
 
 
 @app.on_event("shutdown")

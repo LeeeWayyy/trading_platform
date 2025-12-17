@@ -803,6 +803,61 @@ class DatabaseClient:
             logger.error(f"Database error fetching slices: {e}")
             raise
 
+    def get_pending_child_slices(self) -> list[OrderDetail]:
+        """
+        Return pending child slices for recovery.
+
+        Filters to child slices (parent_order_id IS NOT NULL) with status="pending_new".
+        """
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM orders
+                        WHERE parent_order_id IS NOT NULL
+                          AND status = 'pending_new'
+                        ORDER BY scheduled_time NULLS LAST, slice_num
+                        """
+                    )
+                    rows = cur.fetchall()
+                    logger.info(
+                        f"Retrieved {len(rows)} pending child slices for recovery",
+                        extra={"pending_slice_count": len(rows)},
+                    )
+                    return [OrderDetail(**row) for row in rows]
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error fetching pending child slices: {e}")
+            raise
+
+    def update_order_scheduled_time(
+        self,
+        client_order_id: str,
+        scheduled_time: datetime,
+    ) -> OrderDetail | None:
+        """Update scheduled_time for a slice order."""
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """
+                        UPDATE orders
+                        SET scheduled_time = %s, updated_at = NOW()
+                        WHERE client_order_id = %s
+                        RETURNING *
+                        """,
+                        (scheduled_time, client_order_id),
+                    )
+                    row = cur.fetchone()
+                    conn.commit()
+                    if not row:
+                        return None
+                    return OrderDetail(**row)
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error updating scheduled_time: {e}")
+            raise
+
     def cancel_pending_slices(self, parent_order_id: str) -> int:
         """
         Cancel all pending child slices for a parent order.

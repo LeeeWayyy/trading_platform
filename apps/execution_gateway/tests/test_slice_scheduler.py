@@ -17,6 +17,8 @@ Test Coverage:
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock
 
 from apps.execution_gateway.alpaca_client import (
@@ -27,7 +29,7 @@ from apps.execution_gateway.alpaca_client import (
 )
 from apps.execution_gateway.database import DatabaseClient
 from apps.execution_gateway.schemas import SliceDetail
-from apps.execution_gateway.slice_scheduler import SliceScheduler
+from apps.execution_gateway.slice_scheduler import MarketClockSnapshot, SliceScheduler
 from libs.risk_management.breaker import CircuitBreaker
 from libs.risk_management.kill_switch import KillSwitch
 
@@ -231,6 +233,229 @@ class TestScheduleSlices:
         )
 
         assert job_ids == []
+        scheduler.scheduler.add_job.assert_not_called()
+
+
+class TestZombieSliceRecovery:
+    """Tests for zombie slice recovery on startup."""
+
+    def _build_slice_order(self, **overrides: Any) -> SimpleNamespace:
+        base_time = datetime(2025, 1, 1, tzinfo=UTC)
+        base: dict[str, Any] = {
+            "client_order_id": "child0",
+            "parent_order_id": "parent123",
+            "slice_num": 0,
+            "qty": 10,
+            "scheduled_time": base_time,
+            "strategy_id": "twap_slice_parent123_0",
+            "status": "pending_new",
+            "symbol": "AAPL",
+            "side": "buy",
+            "order_type": "market",
+            "limit_price": None,
+            "stop_price": None,
+            "time_in_force": "day",
+        }
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def _build_parent_order(self, status: str) -> SimpleNamespace:
+        return SimpleNamespace(status=status)
+
+    def test_recovery_cancels_when_parent_terminal(self):
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        slice_order = self._build_slice_order()
+        parent_order = self._build_parent_order("canceled")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+        db.cancel_pending_slices.return_value = 1
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=datetime(2025, 1, 1, tzinfo=UTC))
+
+        db.cancel_pending_slices.assert_called_once_with("parent123")
+        scheduler.scheduler.add_job.assert_not_called()
+        assert result["canceled"] == 1
+
+    def test_recovery_blocks_when_breaker_tripped(self):
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = True
+        breaker.get_trip_reason.return_value = "TEST_TRIP"
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        slice_order = self._build_slice_order()
+        parent_order = self._build_parent_order("accepted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        scheduler.recover_zombie_slices(now=datetime(2025, 1, 1, tzinfo=UTC))
+
+        db.update_order_status.assert_called_once_with(
+            client_order_id="child0",
+            status="blocked_circuit_breaker",
+            error_message="Circuit breaker is tripped - reason: TEST_TRIP",
+        )
+        scheduler.scheduler.add_job.assert_not_called()
+
+    def test_recovery_within_grace_executes_immediately_when_market_open(self):
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, tzinfo=UTC)
+        slice_order = self._build_slice_order(scheduled_time=now - timedelta(seconds=30))
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=True, next_open=None),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        scheduler.recover_zombie_slices(now=now)
+
+        db.update_order_scheduled_time.assert_called_once_with(
+            client_order_id="child0",
+            scheduled_time=now,
+        )
+        scheduler.scheduler.add_job.assert_called_once()
+        run_date = scheduler.scheduler.add_job.call_args[1]["run_date"]
+        assert run_date == now
+        slice_detail = scheduler.scheduler.add_job.call_args[1]["kwargs"]["slice_detail"]
+        assert slice_detail.scheduled_time == now
+
+    def test_recovery_within_grace_market_closed_reschedules_next_open(self):
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, tzinfo=UTC)
+        next_open = now + timedelta(hours=1)
+        slice_order = self._build_slice_order(scheduled_time=now - timedelta(seconds=30))
+        parent_order = self._build_parent_order("accepted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=False, next_open=next_open),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        scheduler.recover_zombie_slices(now=now)
+
+        db.update_order_scheduled_time.assert_called_once_with(
+            client_order_id="child0",
+            scheduled_time=next_open,
+        )
+        run_date = scheduler.scheduler.add_job.call_args[1]["run_date"]
+        assert run_date == next_open
+        slice_detail = scheduler.scheduler.add_job.call_args[1]["kwargs"]["slice_detail"]
+        assert slice_detail.scheduled_time == next_open
+
+    def test_recovery_beyond_grace_reschedules_to_next_open_even_if_market_open(self):
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, tzinfo=UTC)
+        next_open = now + timedelta(hours=1)
+        slice_order = self._build_slice_order(scheduled_time=now - timedelta(seconds=300))
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=True, next_open=next_open),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        scheduler.recover_zombie_slices(now=now)
+
+        db.update_order_scheduled_time.assert_called_once_with(
+            client_order_id="child0",
+            scheduled_time=next_open,
+        )
+        run_date = scheduler.scheduler.add_job.call_args[1]["run_date"]
+        assert run_date == next_open
+        slice_detail = scheduler.scheduler.add_job.call_args[1]["kwargs"]["slice_detail"]
+        assert slice_detail.scheduled_time == next_open
+
+    def test_recovery_beyond_grace_market_closed_fails(self):
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, tzinfo=UTC)
+        slice_order = self._build_slice_order(scheduled_time=now - timedelta(seconds=300))
+        parent_order = self._build_parent_order("submitted_unconfirmed")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=False, next_open=None),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        scheduler.recover_zombie_slices(now=now)
+
+        db.update_order_status.assert_called_once_with(
+            client_order_id="child0",
+            status="failed",
+            error_message="Slice missed grace period and next open unavailable",
+        )
         scheduler.scheduler.add_job.assert_not_called()
 
 
