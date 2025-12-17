@@ -144,10 +144,11 @@ def _get_jwt_manager() -> JWTManager:
     """Return singleton JWTManager for service token generation."""
 
     config = AuthConfig.from_env()
+    # Use environment variables for Redis configuration consistency across services
     redis_client = redis.Redis(
         host=os.getenv("REDIS_HOST", "localhost"),
         port=int(os.getenv("REDIS_PORT", "6379")),
-        db=0,
+        db=int(os.getenv("REDIS_DB", "0")),
         decode_responses=True,
     )
     return JWTManager(config=config, redis_client=redis_client)

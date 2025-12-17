@@ -933,7 +933,9 @@ async def flatten_all_positions(
             # Submit to broker after DB persistence
             alpaca_executor.submit_order(order_req, order_id)
             orders_created.append(order_id)
-            strategies_affected.add(getattr(position, "strategy_id", "") or "")
+            # Use the strategy_id from the order record for audit consistency
+            # (Position schema doesn't include strategy_id as positions are per-symbol)
+            strategies_affected.add("manual_controls_flatten_all")
         except Exception as exc:  # pragma: no cover
             # Log failure with partial progress
             await audit_logger.log_action(
