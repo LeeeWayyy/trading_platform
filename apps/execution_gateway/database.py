@@ -1263,15 +1263,20 @@ class DatabaseClient:
         filled_at: datetime | None = None,
         broker_order_id: str | None = None,
         broker_event_id: str | None = None,
+        error_message: str | None = None,
         conn: psycopg.Connection | None = None,
     ) -> OrderDetail | None:
         """
         Update order status with conflict resolution (CAS).
 
         Ensures we don't overwrite newer broker updates while still allowing
-        broker corrections for terminal orders (e.g., late fills). This is
-        used by reconciliation/webhook paths and accepts a broker timestamp
+        broker corrections for terminal orders (e.g., late fills, price corrections).
+        This is used by reconciliation/webhook paths and accepts a broker timestamp
         for ordering.
+
+        Terminal state lock: Once an order reaches a terminal status, it cannot
+        be reverted to an active state. 'filled' orders allow updates for late fills
+        and price corrections, while other terminal statuses remain locked.
         """
 
         new_filled_qty = filled_qty if filled_qty is not None else Decimal("0")
@@ -1289,15 +1294,15 @@ class DatabaseClient:
                         broker_order_id = COALESCE(%s, broker_order_id),
                         filled_qty = GREATEST(filled_qty, %s),
                         filled_avg_price = CASE
-                            WHEN %s IS NOT NULL
-                                 AND (filled_avg_price IS NULL OR %s > COALESCE(filled_qty, 0))
-                                THEN %s
+                            WHEN %s IS NOT NULL THEN %s
                             ELSE filled_avg_price
                         END,
                         filled_at = COALESCE(%s, filled_at),
+                        error_message = %s,
                         is_terminal = %s,
                         updated_at = NOW()
                     WHERE client_order_id = %s
+                      AND (is_terminal = FALSE OR status = 'filled')
                       AND (
                             last_updated_at IS NULL
                             OR last_updated_at < %s
@@ -1321,9 +1326,9 @@ class DatabaseClient:
                         broker_order_id,
                         new_filled_qty,
                         filled_avg_price,
-                        new_filled_qty,
                         filled_avg_price,
                         filled_at,
+                        error_message,
                         status in TERMINAL_STATUSES,
                         client_order_id,
                         broker_updated_at,
@@ -1379,7 +1384,7 @@ class DatabaseClient:
         self,
         client_order_id: str,
         status: str,
-        filled_qty: int,
+        filled_qty: Decimal | None,
         filled_avg_price: Decimal,
         filled_at: datetime | None,
         conn: psycopg.Connection,
@@ -1414,7 +1419,7 @@ class DatabaseClient:
                 broker_updated_at=broker_updated_at,
                 status_rank=status_rank,
                 source_priority=source_priority,
-                filled_qty=Decimal(str(filled_qty)),
+                filled_qty=filled_qty,
                 filled_avg_price=filled_avg_price,
                 filled_at=filled_at,
                 broker_order_id=broker_order_id,

@@ -241,20 +241,25 @@ async def feature_hydration_task(symbols: list[str], history_days: int) -> None:
             timeout=settings.feature_hydration_timeout_seconds,
         )
         logger.info("Feature cache hydration completed")
+        hydration_complete = True  # Only mark complete on success
     except asyncio.TimeoutError:
         logger.warning(
-            "Feature cache hydration timed out after %s seconds",
+            "Feature cache hydration timed out after %s seconds; health will remain degraded",
             settings.feature_hydration_timeout_seconds,
         )
+        # Keep hydration_complete = False to maintain degraded health status
     except Exception as e:
-        logger.error(f"Feature cache hydration failed: {e}", exc_info=True)
-    finally:
-        hydration_complete = True
+        logger.error(f"Feature cache hydration failed: {e}; health will remain degraded", exc_info=True)
+        # Keep hydration_complete = False to maintain degraded health status
 
 
 def _attempt_redis_reconnect() -> bool:
-    """Attempt to reconnect Redis for publishing buffered signals."""
-    global redis_client, event_publisher
+    """Attempt to reconnect Redis for publishing buffered signals.
+
+    On successful reconnection, also reinitializes FeatureCache and updates
+    SignalGenerator to prevent stale references to the old Redis client.
+    """
+    global redis_client, event_publisher, feature_cache
 
     if redis_client is not None:
         return True
@@ -266,7 +271,25 @@ def _attempt_redis_reconnect() -> bool:
             db=settings.redis_db,
         )
         event_publisher = EventPublisher(redis_client)
-        logger.info("Redis reconnected successfully for fallback replay")
+
+        # Reinitialize FeatureCache with new Redis client to avoid stale references
+        feature_cache = FeatureCache(
+            redis_client=redis_client,
+            ttl=settings.redis_ttl,
+        )
+
+        # Update SignalGenerator's feature_cache reference
+        if signal_generator is not None:
+            signal_generator.feature_cache = feature_cache
+
+        # Update generator cache entries
+        for gen in _generator_cache.values():
+            gen.feature_cache = feature_cache
+
+        logger.info(
+            "Redis reconnected successfully for fallback replay",
+            extra={"feature_cache_reinitialized": True},
+        )
         return True
     except RedisConnectionError as exc:
         logger.warning("Redis reconnect attempt failed: %s", exc)

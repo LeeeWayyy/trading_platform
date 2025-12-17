@@ -67,7 +67,8 @@ from apps.execution_gateway.alpaca_client import (
     AlpacaRejectionError,
     AlpacaValidationError,
 )
-from apps.execution_gateway.database import DatabaseClient
+from apps.execution_gateway.database import DatabaseClient, status_rank_for
+from apps.execution_gateway.reconciliation import SOURCE_PRIORITY_MANUAL
 from apps.execution_gateway.schemas import OrderRequest, SliceDetail
 from libs.risk_management.breaker import CircuitBreaker
 from libs.risk_management.kill_switch import KillSwitch
@@ -302,9 +303,12 @@ class SliceScheduler:
                     "Pending slice missing parent_order_id; marking failed",
                     extra={"client_order_id": slice_order.client_order_id},
                 )
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_order.client_order_id,
                     status="failed",
+                    broker_updated_at=recovery_now,
+                    status_rank=status_rank_for("failed"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message="Pending slice missing parent_order_id",
                 )
                 counts["failed"] += 1
@@ -316,9 +320,12 @@ class SliceScheduler:
                     "Parent order missing for pending slice; marking failed",
                     extra={"parent_order_id": parent_order_id, "client_order_id": slice_order.client_order_id},
                 )
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_order.client_order_id,
                     status="failed",
+                    broker_updated_at=recovery_now,
+                    status_rank=status_rank_for("failed"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message="Parent order missing for pending slice recovery",
                 )
                 counts["failed"] += 1
@@ -345,9 +352,12 @@ class SliceScheduler:
 
             if self.breaker.is_tripped():
                 reason = self.breaker.get_trip_reason()
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_order.client_order_id,
                     status="blocked_circuit_breaker",
+                    broker_updated_at=recovery_now,
+                    status_rank=status_rank_for("blocked_circuit_breaker"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Circuit breaker is tripped - reason: {reason}",
                 )
                 counts["blocked"] += 1
@@ -359,9 +369,12 @@ class SliceScheduler:
                     "Pending slice missing scheduled_time; marking failed",
                     extra={"client_order_id": slice_order.client_order_id},
                 )
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_order.client_order_id,
                     status="failed",
+                    broker_updated_at=recovery_now,
+                    status_rank=status_rank_for("failed"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message="Pending slice missing scheduled_time",
                 )
                 counts["failed"] += 1
@@ -373,9 +386,12 @@ class SliceScheduler:
                     "Pending slice missing slice_num; marking failed",
                     extra={"client_order_id": slice_order.client_order_id},
                 )
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_order.client_order_id,
                     status="failed",
+                    broker_updated_at=recovery_now,
+                    status_rank=status_rank_for("failed"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message="Pending slice missing slice_num",
                 )
                 counts["failed"] += 1
@@ -398,9 +414,12 @@ class SliceScheduler:
                                 "Market closed and next_open unavailable; failing slice",
                                 extra={"client_order_id": slice_order.client_order_id},
                             )
-                            self.db.update_order_status(
+                            self.db.update_order_status_cas(
                                 client_order_id=slice_order.client_order_id,
                                 status="failed",
+                                broker_updated_at=recovery_now,
+                                status_rank=status_rank_for("failed"),
+                                source_priority=SOURCE_PRIORITY_MANUAL,
                                 error_message="Market closed and next open unavailable during recovery",
                             )
                             counts["failed"] += 1
@@ -415,9 +434,12 @@ class SliceScheduler:
                                 "delay_seconds": delay_seconds,
                             },
                         )
-                        self.db.update_order_status(
+                        self.db.update_order_status_cas(
                             client_order_id=slice_order.client_order_id,
                             status="failed",
+                            broker_updated_at=recovery_now,
+                            status_rank=status_rank_for("failed"),
+                            source_priority=SOURCE_PRIORITY_MANUAL,
                             error_message="Slice missed grace period and next open unavailable",
                         )
                         counts["failed"] += 1
@@ -496,10 +518,10 @@ class SliceScheduler:
             )
         except Exception as exc:
             logger.error(
-                "Failed to fetch market clock; assuming market open",
+                "Failed to fetch market clock; assuming market closed for safety",
                 extra={"error": str(exc)},
             )
-            return MarketClockSnapshot(is_open=True, next_open=None)
+            return MarketClockSnapshot(is_open=False, next_open=None)
 
     def _execute_slice_job_wrapper(
         self,
@@ -531,9 +553,12 @@ class SliceScheduler:
             )
         except AlpacaConnectionError as e:
             # All retries exhausted - mark as failed in DB
-            self.db.update_order_status(
+            self.db.update_order_status_cas(
                 client_order_id=slice_detail.client_order_id,
                 status="failed",
+                broker_updated_at=datetime.now(UTC),
+                status_rank=status_rank_for("failed"),
+                source_priority=SOURCE_PRIORITY_MANUAL,
                 error_message=f"Retry exhausted: {e}",
             )
             logger.error(
@@ -634,9 +659,12 @@ class SliceScheduler:
                     },
                 )
                 # Update DB status to 'blocked_kill_switch' with error message for debuggability
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_detail.client_order_id,
                     status="blocked_kill_switch",
+                    broker_updated_at=datetime.now(UTC),
+                    status_rank=status_rank_for("blocked_kill_switch"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message="Kill switch is engaged - all new orders blocked",
                 )
                 # Do NOT raise - job should complete silently
@@ -657,9 +685,12 @@ class SliceScheduler:
                     },
                 )
                 # Update DB status to 'blocked_circuit_breaker' with error message for debuggability
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_detail.client_order_id,
                     status="blocked_circuit_breaker",
+                    broker_updated_at=datetime.now(UTC),
+                    status_rank=status_rank_for("blocked_circuit_breaker"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Circuit breaker is tripped - reason: {reason}",
                 )
                 return
@@ -679,9 +710,12 @@ class SliceScheduler:
             )
             # Try to mark slice as failed in DB (best effort)
             try:
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_detail.client_order_id,
                     status="failed",
+                    broker_updated_at=datetime.now(UTC),
+                    status_rank=status_rank_for("failed"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Infrastructure failure during pre-submission checks: {infra_error}",
                 )
             except Exception:
@@ -739,9 +773,12 @@ class SliceScheduler:
                 },
             )
             try:
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_detail.client_order_id,
                     status="failed",
+                    broker_updated_at=datetime.now(UTC),
+                    status_rank=status_rank_for("failed"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                     error_message=f"Infrastructure failure at pre-submit guard: {infra_error}",
                 )
             except Exception:
@@ -775,9 +812,12 @@ class SliceScheduler:
                     },
                 )
                 # Update DB status to 'dry_run'
-                self.db.update_order_status(
+                self.db.update_order_status_cas(
                     client_order_id=slice_detail.client_order_id,
                     status="dry_run",
+                    broker_updated_at=datetime.now(UTC),
+                    status_rank=status_rank_for("dry_run"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
                 )
             else:
                 # Production mode: Submit to broker (with automatic retry on connection errors via @retry decorator)
@@ -793,9 +833,12 @@ class SliceScheduler:
                 for retry_attempt in range(max_db_retries):
                     try:
                         # Update DB status to 'submitted' and clear any error message from failed retries
-                        self.db.update_order_status(
+                        self.db.update_order_status_cas(
                             client_order_id=slice_detail.client_order_id,
                             status="submitted",
+                            broker_updated_at=datetime.now(UTC),
+                            status_rank=status_rank_for("submitted"),
+                            source_priority=SOURCE_PRIORITY_MANUAL,
                             broker_order_id=broker_response["id"],
                             error_message="",  # Clear any error from previous retry attempts
                         )
@@ -847,9 +890,12 @@ class SliceScheduler:
                             # Last-ditch attempt: mark as submitted_unconfirmed to prevent cancellation/retry
                             # Reconciliation will eventually heal this, but we prevent immediate double execution
                             try:
-                                self.db.update_order_status(
+                                self.db.update_order_status_cas(
                                     client_order_id=slice_detail.client_order_id,
                                     status="submitted_unconfirmed",
+                                    broker_updated_at=datetime.now(UTC),
+                                    status_rank=status_rank_for("submitted_unconfirmed"),
+                                    source_priority=SOURCE_PRIORITY_MANUAL,
                                     broker_order_id=broker_response["id"],
                                     error_message=f"DB update failed after broker submission: {db_error}",
                                 )
@@ -882,9 +928,12 @@ class SliceScheduler:
 
         except (AlpacaValidationError, AlpacaRejectionError) as e:
             # Non-retryable errors - update DB and log
-            self.db.update_order_status(
+            self.db.update_order_status_cas(
                 client_order_id=slice_detail.client_order_id,
                 status="rejected",
+                broker_updated_at=datetime.now(UTC),
+                status_rank=status_rank_for("rejected"),
+                source_priority=SOURCE_PRIORITY_MANUAL,
                 error_message=str(e),
             )
             logger.error(

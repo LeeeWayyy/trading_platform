@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from libs.common import TimestampSerializerMixin
 
@@ -595,12 +595,19 @@ class FatFingerThresholdsUpdateRequest(BaseModel):
     }
 
 
-class FatFingerThresholdsResponse(TimestampSerializerMixin, BaseModel):
+class FatFingerThresholdsResponse(BaseModel):
     """Current fat-finger threshold configuration."""
 
     default_thresholds: FatFingerThresholds
     symbol_overrides: dict[str, FatFingerThresholds]
     updated_at: datetime
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, value: datetime) -> str:
+        """Serialize updated_at with Z suffix for UTC consistency."""
+        if value.tzinfo is None or value.utcoffset() == timedelta(0):
+            return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return value.isoformat()
 
 
 # ============================================================================

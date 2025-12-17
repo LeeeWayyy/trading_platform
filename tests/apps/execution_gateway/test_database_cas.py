@@ -58,7 +58,12 @@ def _make_row(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-def test_update_order_status_cas_does_not_block_terminal_updates():
+def test_update_order_status_cas_allows_filled_order_updates():
+    """Verify that filled orders can be updated (for price corrections and late fills).
+
+    The terminal lock should allow updates to filled orders while blocking
+    updates to other terminal statuses like canceled, rejected, etc.
+    """
     row = _make_row()
     db = DatabaseClient("postgresql://user:pass@localhost/db")
     conn = _Conn(row)
@@ -78,7 +83,9 @@ def test_update_order_status_cas_does_not_block_terminal_updates():
 
     assert updated is not None
     assert conn.cursor_obj.last_sql is not None
-    assert "is_terminal = FALSE" not in conn.cursor_obj.last_sql
+    # Terminal lock: (is_terminal = FALSE OR status = 'filled')
+    # This allows updates to non-terminal orders OR filled orders specifically
+    assert "is_terminal = FALSE OR status = 'filled'" in conn.cursor_obj.last_sql
 
 
 def test_update_order_status_cas_includes_tiebreakers():

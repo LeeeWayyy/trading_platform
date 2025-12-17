@@ -404,8 +404,15 @@ class AlpacaExecutor:
         status: str = "all",
         limit: int = 500,
         after: datetime | None = None,
+        symbols: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch orders with optional filtering and best-effort pagination."""
+        """Fetch orders with optional filtering and best-effort pagination.
+
+        Note: Pagination uses the 'after' timestamp which is exclusive. When multiple
+        orders have the same timestamp, some may be missed across page boundaries.
+        This is best-effort for historical data; the seen_ids set handles same-page
+        deduplication, and reconciliation will catch any missed orders later.
+        """
         if limit <= 0:
             raise ValueError("limit must be positive")
 
@@ -426,6 +433,7 @@ class AlpacaExecutor:
                     limit=limit,
                     after=cursor,
                     direction=direction,
+                    symbols=symbols,
                 )
                 response = self.client.get_orders(request)
 

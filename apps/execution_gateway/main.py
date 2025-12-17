@@ -63,6 +63,7 @@ from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests
     TERMINAL_STATUSES,
     DatabaseClient,
     calculate_position_update,
+    status_rank_for,
 )
 from apps.execution_gateway.fat_finger_validator import (
     FatFingerValidator,
@@ -78,7 +79,6 @@ from apps.execution_gateway.reconciliation import (
     SOURCE_PRIORITY_MANUAL,
     SOURCE_PRIORITY_WEBHOOK,
     ReconciliationService,
-    status_rank_for,
 )
 from apps.execution_gateway.schemas import (
     ConfigResponse,
@@ -326,6 +326,9 @@ _circuit_breaker_unavailable = False  # Track if circuit breaker initialization 
 # Gemini PR fix: Thread-safe position reservation unavailable flag (fail-closed pattern)
 _position_reservation_lock = threading.Lock()
 _position_reservation_unavailable = False  # Track if position reservation init failed (fail closed)
+
+# Recovery lock to prevent concurrent health checks from racing to reinitialize infrastructure
+_infrastructure_recovery_lock = threading.Lock()
 
 
 def is_kill_switch_unavailable() -> bool:
@@ -711,11 +714,40 @@ def _handle_idempotency_race(
     )
 
 
-def _resolve_fat_finger_context(
+def _parse_webhook_timestamp(*timestamps: Any, default: datetime) -> datetime:
+    """Parse the first valid timestamp from a list of candidates.
+
+    Iterates through the provided timestamp candidates and returns the first
+    one that can be successfully parsed. Falls back to the default if none
+    are valid.
+
+    Args:
+        *timestamps: Variable number of timestamp candidates (str, datetime, or None)
+        default: Fallback datetime if no valid timestamp is found
+
+    Returns:
+        Parsed datetime or the default value
+    """
+    for ts in timestamps:
+        if not ts:
+            continue
+        if isinstance(ts, datetime):
+            return ts
+        try:
+            return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+    return default
+
+
+async def _resolve_fat_finger_context(
     order: OrderRequest,
     thresholds: FatFingerThresholds,
 ) -> tuple[Decimal | None, int | None]:
-    """Resolve price and ADV context needed for fat-finger validation."""
+    """Resolve price and ADV context needed for fat-finger validation.
+
+    Uses asyncio.to_thread for ADV lookup to avoid blocking the event loop.
+    """
 
     price: Decimal | None = None
     if thresholds.max_notional is not None:
@@ -757,7 +789,7 @@ def _resolve_fat_finger_context(
 
     adv: int | None = None
     if thresholds.max_adv_pct is not None and liquidity_service is not None:
-        adv = liquidity_service.get_adv(order.symbol)
+        adv = await asyncio.to_thread(liquidity_service.get_adv, order.symbol)
 
     return price, adv
 
@@ -930,8 +962,9 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
 
     try:
         position = await asyncio.to_thread(alpaca_client.get_open_position, order.symbol)
+        # Filter by symbol at API level for efficiency
         open_orders = await asyncio.to_thread(
-            alpaca_client.get_orders, status="open", limit=500, after=None
+            alpaca_client.get_orders, status="open", limit=500, after=None, symbols=[order.symbol]
         )
 
         current_position = Decimal("0")
@@ -941,8 +974,6 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
         open_buy_qty = Decimal("0")
         open_sell_qty = Decimal("0")
         for open_order in open_orders:
-            if open_order.get("symbol") != order.symbol:
-                continue
             qty = Decimal(str(open_order.get("qty") or 0))
             filled_qty = Decimal(str(open_order.get("filled_qty") or 0))
             remaining = qty - filled_qty
@@ -953,25 +984,8 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
             elif open_order.get("side") == "sell":
                 open_sell_qty += remaining
 
-        if current_position > 0:
-            open_reduce_qty = open_sell_qty
-            open_increase_qty = open_buy_qty
-            effective_position = current_position + open_increase_qty - open_reduce_qty
-        elif current_position < 0:
-            open_reduce_qty = open_buy_qty
-            open_increase_qty = open_sell_qty
-            effective_position = current_position + open_increase_qty - open_reduce_qty
-        else:
-            net_open = open_buy_qty - open_sell_qty
-            if net_open == 0:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={
-                        "error": "Reduce-only required",
-                        "message": "No position available to reduce during reconciliation",
-                    },
-                )
-            effective_position = net_open
+        # Calculate effective position including pending orders
+        effective_position = current_position + open_buy_qty - open_sell_qty
 
         if effective_position == 0:
             raise HTTPException(
@@ -982,43 +996,27 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
                 },
             )
 
+        # Calculate projected position after this order
         side_multiplier = Decimal("1") if order.side == "buy" else Decimal("-1")
         projected_position = effective_position + (Decimal(order.qty) * side_multiplier)
 
-        if effective_position > 0:
-            if order.side != "sell":
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={
-                        "error": "Reduce-only required",
-                        "message": "Only sell orders are allowed during reconciliation gating",
-                    },
-                )
-            if projected_position < 0:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={
-                        "error": "Reduce-only required",
-                        "message": "Order would flip position during reconciliation gating",
-                    },
-                )
-        else:
-            if order.side != "buy":
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={
-                        "error": "Reduce-only required",
-                        "message": "Only buy orders are allowed during reconciliation gating",
-                    },
-                )
-            if projected_position > 0:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={
-                        "error": "Reduce-only required",
-                        "message": "Order would flip position during reconciliation gating",
-                    },
-                )
+        # An order is position-increasing if it moves the position's absolute value further from zero
+        is_increasing = abs(projected_position) > abs(effective_position)
+        # An order flips the position if the sign changes
+        is_flipping = effective_position * projected_position < 0
+
+        if is_increasing or is_flipping:
+            error_message = "Only position-reducing orders are allowed during reconciliation gating."
+            if is_flipping:
+                error_message = "Order would flip position during reconciliation gating."
+
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "Reduce-only required",
+                    "message": error_message,
+                },
+            )
 
         logger.info(
             "Allowing reduce-only order during reconciliation gating",
@@ -1543,104 +1541,115 @@ async def health_check() -> HealthResponse:
 
         # Attempt to recover kill-switch, circuit breaker, position reservation, and slice scheduler if Redis is back
         # Check if ANY safety mechanism is unavailable
+        # Use lock to prevent concurrent health checks from racing to reinitialize
         if redis_connected and (
             is_kill_switch_unavailable()
             or is_circuit_breaker_unavailable()
             or is_position_reservation_unavailable()
         ):
-            try:
-                # 1. Recover Kill Switch
-                if is_kill_switch_unavailable():
-                    if kill_switch is None:
-                        kill_switch = KillSwitch(redis_client=redis_client)
-                        logger.info(
-                            "Kill-switch re-initialized after Redis recovery",
-                            extra={"kill_switch_recovered": True},
-                        )
-
-                    # Verify it works
-                    kill_switch.is_engaged()
-                    set_kill_switch_unavailable(False)
-                    logger.info("Kill-switch recovered and validated")
-
-                # 2. Recover Circuit Breaker
-                if is_circuit_breaker_unavailable():
-                    if circuit_breaker is None:
-                        circuit_breaker = CircuitBreaker(redis_client=redis_client)
-                        logger.info(
-                            "Circuit breaker re-initialized after Redis recovery",
-                            extra={"breaker_recovered": True},
-                        )
-
-                    # Verify it works (check trip status - throws if state missing)
-                    try:
-                        circuit_breaker.is_tripped()
-                        set_circuit_breaker_unavailable(False)
-                        logger.info("Circuit breaker recovered and validated")
-                    except RuntimeError:
-                        # Still missing state, keep unavailable
-                        logger.warning("Circuit breaker re-initialized but state still missing")
-
-                # 3. Recover Position Reservation (Gemini PR fix)
-                if is_position_reservation_unavailable():
-                    if position_reservation is None:
-                        position_reservation = PositionReservation(redis=redis_client)
-                        logger.info(
-                            "Position reservation re-initialized after Redis recovery",
-                            extra={"position_reservation_recovered": True},
-                        )
-
-                    # Position reservation is stateless - just clear the flag
-                    set_position_reservation_unavailable(False)
-                    logger.info("Position reservation recovered and validated")
-
-                # 4. Recover Slice Scheduler (needs both KS and CB)
-                if (
-                    slice_scheduler is None
-                    and not is_kill_switch_unavailable()
-                    and not is_circuit_breaker_unavailable()
-                    and kill_switch is not None
-                    and circuit_breaker is not None
+            with _infrastructure_recovery_lock:
+                # Re-check conditions under lock (double-checked locking pattern)
+                if not (
+                    is_kill_switch_unavailable()
+                    or is_circuit_breaker_unavailable()
+                    or is_position_reservation_unavailable()
                 ):
-                    slice_scheduler = SliceScheduler(
-                        kill_switch=kill_switch,
-                        breaker=circuit_breaker,
-                        db_client=db_client,
-                        executor=alpaca_client,  # Can be None in DRY_RUN mode
-                    )
-                    # Start the scheduler
-                    if not slice_scheduler.scheduler.running:
-                        slice_scheduler.start()
+                    # Another thread already recovered, skip
+                    pass
+                else:
+                    try:
+                        # 1. Recover Kill Switch
+                        if is_kill_switch_unavailable():
+                            if kill_switch is None:
+                                kill_switch = KillSwitch(redis_client=redis_client)
+                                logger.info(
+                                    "Kill-switch re-initialized after Redis recovery",
+                                    extra={"kill_switch_recovered": True},
+                                )
+
+                            # Verify it works
+                            kill_switch.is_engaged()
+                            set_kill_switch_unavailable(False)
+                            logger.info("Kill-switch recovered and validated")
+
+                        # 2. Recover Circuit Breaker
+                        if is_circuit_breaker_unavailable():
+                            if circuit_breaker is None:
+                                circuit_breaker = CircuitBreaker(redis_client=redis_client)
+                                logger.info(
+                                    "Circuit breaker re-initialized after Redis recovery",
+                                    extra={"breaker_recovered": True},
+                                )
+
+                            # Verify it works (check trip status - throws if state missing)
+                            try:
+                                circuit_breaker.is_tripped()
+                                set_circuit_breaker_unavailable(False)
+                                logger.info("Circuit breaker recovered and validated")
+                            except RuntimeError:
+                                # Still missing state, keep unavailable
+                                logger.warning("Circuit breaker re-initialized but state still missing")
+
+                        # 3. Recover Position Reservation (Gemini PR fix)
+                        if is_position_reservation_unavailable():
+                            if position_reservation is None:
+                                position_reservation = PositionReservation(redis=redis_client)
+                                logger.info(
+                                    "Position reservation re-initialized after Redis recovery",
+                                    extra={"position_reservation_recovered": True},
+                                )
+
+                            # Position reservation is stateless - just clear the flag
+                            set_position_reservation_unavailable(False)
+                            logger.info("Position reservation recovered and validated")
+
+                        # 4. Recover Slice Scheduler (needs both KS and CB)
+                        if (
+                            slice_scheduler is None
+                            and not is_kill_switch_unavailable()
+                            and not is_circuit_breaker_unavailable()
+                            and kill_switch is not None
+                            and circuit_breaker is not None
+                        ):
+                            slice_scheduler = SliceScheduler(
+                                kill_switch=kill_switch,
+                                breaker=circuit_breaker,
+                                db_client=db_client,
+                                executor=alpaca_client,  # Can be None in DRY_RUN mode
+                            )
+                            # Start the scheduler
+                            if not slice_scheduler.scheduler.running:
+                                slice_scheduler.start()
+                                logger.info(
+                                    "Slice scheduler re-initialized and started after Redis recovery",
+                                    extra={"scheduler_recovered": True, "scheduler_started": True},
+                                )
+                            else:
+                                logger.info(
+                                    "Slice scheduler re-initialized but already running",
+                                    extra={"scheduler_recovered": True, "scheduler_already_running": True},
+                                )
+
                         logger.info(
-                            "Slice scheduler re-initialized and started after Redis recovery",
-                            extra={"scheduler_recovered": True, "scheduler_started": True},
-                        )
-                    else:
-                        logger.info(
-                            "Slice scheduler re-initialized but already running",
-                            extra={"scheduler_recovered": True, "scheduler_already_running": True},
+                            "Infrastructure recovery attempt completed",
+                            extra={
+                                "kill_switch_available": not is_kill_switch_unavailable(),
+                                "breaker_available": not is_circuit_breaker_unavailable(),
+                                "position_reservation_available": not is_position_reservation_unavailable(),
+                            },
                         )
 
-                logger.info(
-                    "Infrastructure recovery attempt completed",
-                    extra={
-                        "kill_switch_available": not is_kill_switch_unavailable(),
-                        "breaker_available": not is_circuit_breaker_unavailable(),
-                        "position_reservation_available": not is_position_reservation_unavailable(),
-                    },
-                )
-
-            except Exception as e:
-                # Still unavailable, keep flags set (fail closed)
-                logger.error(
-                    f"Infrastructure recovery failed: {e}",
-                    extra={
-                        "error": str(e),
-                        "kill_switch_unavailable": is_kill_switch_unavailable(),
-                        "breaker_unavailable": is_circuit_breaker_unavailable(),
-                        "position_reservation_unavailable": is_position_reservation_unavailable(),
-                    },
-                )
+                    except Exception as e:
+                        # Still unavailable, keep flags set (fail closed)
+                        logger.error(
+                            f"Infrastructure recovery failed: {e}",
+                            extra={
+                                "error": str(e),
+                                "kill_switch_unavailable": is_kill_switch_unavailable(),
+                                "breaker_unavailable": is_circuit_breaker_unavailable(),
+                                "position_reservation_unavailable": is_position_reservation_unavailable(),
+                            },
+                        )
 
     # Check Alpaca connection (if not DRY_RUN)
     alpaca_connected = True
@@ -1764,7 +1773,7 @@ async def update_fat_finger_thresholds(
         "Fat-finger thresholds updated",
         extra={
             "user_id": user.get("user_id"),
-            "default_thresholds": payload.default_thresholds.model_dump(mode=\"json\")
+            "default_thresholds": payload.default_thresholds.model_dump(mode="json")
             if payload.default_thresholds
             else None,
             "symbol_overrides": list(payload.symbol_overrides.keys())
@@ -2408,7 +2417,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         or effective_thresholds.max_qty is not None
         or effective_thresholds.max_adv_pct is not None
     ):
-        price, adv = _resolve_fat_finger_context(order, effective_thresholds)
+        price, adv = await _resolve_fat_finger_context(order, effective_thresholds)
         fat_finger_result = fat_finger_validator.validate(
             symbol=order.symbol,
             qty=order.qty,
@@ -3232,7 +3241,7 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
                     detail="Liquidity service unavailable; please retry",
                 )
             else:
-                adv_20d = liquidity_service.get_adv(request.symbol)
+                adv_20d = await asyncio.to_thread(liquidity_service.get_adv, request.symbol)
                 if adv_20d is None:
                     logger.warning(
                         "ADV lookup unavailable with no cache; rejecting TWAP request to preserve idempotency",
@@ -3843,20 +3852,12 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
         # Fast path: if no fill info, just update status and return
         if event_type not in ("fill", "partial_fill") or not filled_qty or not filled_avg_price:
-            broker_updated_at = (
-                order_data.get("updated_at")
-                or payload.get("timestamp")
-                or order_data.get("created_at")
+            broker_updated_at = _parse_webhook_timestamp(
+                order_data.get("updated_at"),
+                payload.get("timestamp"),
+                order_data.get("created_at"),
+                default=datetime.now(UTC),
             )
-            if broker_updated_at:
-                try:
-                    broker_updated_at = datetime.fromisoformat(
-                        str(broker_updated_at).replace("Z", "+00:00")
-                    )
-                except (ValueError, TypeError):
-                    broker_updated_at = datetime.now(UTC)
-            else:
-                broker_updated_at = datetime.now(UTC)
 
             updated_order = db_client.update_order_status_cas(
                 client_order_id=client_order_id,
@@ -3881,37 +3882,21 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
         per_fill_price = Decimal(str(payload.get("price", filled_avg_price_dec)))
 
-        # Broker-provided timestamp preferred
-        broker_ts = (
-            payload.get("timestamp") or payload.get("filled_at") or order_data.get("filled_at")
+        # Parse fill and broker timestamps using helper
+        server_now = datetime.now(UTC)
+        fill_timestamp = _parse_webhook_timestamp(
+            payload.get("timestamp"),
+            payload.get("filled_at"),
+            order_data.get("filled_at"),
+            default=server_now,
         )
-        if broker_ts:
-            try:
-                fill_timestamp = datetime.fromisoformat(str(broker_ts).replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                fill_timestamp = datetime.now(UTC)
-                logger.warning(
-                    "Failed to parse broker timestamp; using server time",
-                    extra={"client_order_id": client_order_id, "broker_ts": broker_ts},
-                )
-        else:
-            fill_timestamp = datetime.now(UTC)
-            logger.warning(
-                "Missing broker timestamp; using server time",
-                extra={"client_order_id": client_order_id},
-            )
 
-        broker_updated_at = (
-            order_data.get("updated_at")
-            or payload.get("timestamp")
-            or order_data.get("filled_at")
-            or fill_timestamp
+        broker_updated_at = _parse_webhook_timestamp(
+            order_data.get("updated_at"),
+            payload.get("timestamp"),
+            order_data.get("filled_at"),
+            default=fill_timestamp,
         )
-        if broker_updated_at and not isinstance(broker_updated_at, datetime):
-            try:
-                broker_updated_at = datetime.fromisoformat(str(broker_updated_at).replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                broker_updated_at = fill_timestamp
 
         with db_client.transaction() as conn:
             order = db_client.get_order_for_update(client_order_id, conn)
@@ -3922,46 +3907,49 @@ async def order_webhook(request: Request) -> dict[str, str]:
             prev_filled_qty = int(order.filled_qty or 0)
             incremental_fill_qty = int(filled_qty_dec) - prev_filled_qty
 
-            if incremental_fill_qty <= 0:
+            # Only update position and append fill metadata if there's an incremental fill
+            if incremental_fill_qty > 0:
+                position_locked = db_client.get_position_for_update(order.symbol, conn)
+                old_realized = position_locked.realized_pl if position_locked else Decimal("0")
+
+                position = db_client.update_position_on_fill_with_conn(
+                    symbol=order.symbol,
+                    fill_qty=incremental_fill_qty,
+                    fill_price=per_fill_price,
+                    side=order.side,
+                    conn=conn,
+                )
+
+                realized_delta = position.realized_pl - old_realized
+
+                db_client.append_fill_to_order_metadata(
+                    client_order_id=client_order_id,
+                    fill_data={
+                        "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
+                        "fill_qty": incremental_fill_qty,
+                        "fill_price": str(per_fill_price),
+                        "realized_pl": str(realized_delta),
+                        "timestamp": fill_timestamp.isoformat(),
+                    },
+                    conn=conn,
+                )
+            else:
                 logger.info(
-                    "No incremental fill; skipping",
+                    "No incremental fill; skipping position update but still updating order status",
                     extra={
                         "client_order_id": client_order_id,
                         "prev_filled_qty": prev_filled_qty,
                         "current_filled_qty": int(filled_qty_dec),
+                        "order_status": order_status,
                     },
                 )
-                return {"status": "skipped", "reason": "no_incremental_fill"}
 
-            position_locked = db_client.get_position_for_update(order.symbol, conn)
-            old_realized = position_locked.realized_pl if position_locked else Decimal("0")
-
-            position = db_client.update_position_on_fill_with_conn(
-                symbol=order.symbol,
-                fill_qty=incremental_fill_qty,
-                fill_price=per_fill_price,
-                side=order.side,
-                conn=conn,
-            )
-
-            realized_delta = position.realized_pl - old_realized
-
-            db_client.append_fill_to_order_metadata(
-                client_order_id=client_order_id,
-                fill_data={
-                    "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
-                    "fill_qty": incremental_fill_qty,
-                    "fill_price": str(per_fill_price),
-                    "realized_pl": str(realized_delta),
-                    "timestamp": fill_timestamp.isoformat(),
-                },
-                conn=conn,
-            )
-
+            # Always update order status/avg_price (even with no incremental fill)
+            # This ensures status-only updates and price corrections are captured
             db_client.update_order_status_with_conn(
                 client_order_id=client_order_id,
                 status=order_status,
-                filled_qty=int(filled_qty_dec),
+                filled_qty=filled_qty_dec,
                 filled_avg_price=filled_avg_price_dec,
                 filled_at=fill_timestamp if order_status == "filled" else None,
                 conn=conn,

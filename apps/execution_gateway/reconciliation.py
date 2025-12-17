@@ -12,7 +12,7 @@ from typing import Any
 from prometheus_client import Counter, Gauge
 
 from apps.execution_gateway.alpaca_client import AlpacaExecutor
-from apps.execution_gateway.database import TERMINAL_STATUSES, DatabaseClient
+from apps.execution_gateway.database import TERMINAL_STATUSES, DatabaseClient, status_rank_for
 from libs.redis_client import RedisClient
 from libs.redis_client.keys import RedisKeys
 
@@ -40,47 +40,12 @@ symbols_quarantined_total = Counter(
     ["symbol"],
 )
 
-# Status rank ordering for conflict resolution
-_STATUS_RANKS: dict[str, int] = {
-    # Rank 1: initial
-    "pending_new": 1,
-    "dry_run": 1,
-    # Rank 2: submitted
-    "submitted": 2,
-    "submitted_unconfirmed": 2,
-    "new": 2,
-    "accepted": 2,
-    # Rank 3: active
-    "pending_cancel": 3,
-    "pending_replace": 3,
-    "calculated": 3,
-    "stopped": 3,
-    "suspended": 3,
-    "partially_filled": 3,
-    # Rank 4: terminal (non-fill)
-    "canceled": 4,
-    "expired": 4,
-    "failed": 4,
-    "rejected": 4,
-    "replaced": 4,
-    "done_for_day": 4,
-    "blocked_kill_switch": 4,
-    "blocked_circuit_breaker": 4,
-    # Rank 5: terminal (fill)
-    "filled": 5,
-}
-
 # Source priority ordering
 SOURCE_PRIORITY_MANUAL = 1
 SOURCE_PRIORITY_RECONCILIATION = 2
 SOURCE_PRIORITY_WEBHOOK = 3
 
 QUARANTINE_STRATEGY_SENTINEL = "external"
-
-
-def status_rank_for(status: str) -> int:
-    """Return status rank for CAS updates (unknown -> 0)."""
-    return _STATUS_RANKS.get(status, 0)
 
 
 class ReconciliationService:
