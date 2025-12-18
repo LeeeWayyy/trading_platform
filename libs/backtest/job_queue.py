@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import Enum
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import structlog
 from psycopg.rows import dict_row
@@ -15,10 +15,18 @@ from redis import Redis
 from rq import Queue, Retry
 from rq.job import Job, NoSuchJobError  # type: ignore[attr-defined]
 
-WeightMethod = Literal["zscore", "quantile", "rank"]
+
+class WeightMethod(str, Enum):
+    """Weight method for converting signals to portfolio weights."""
+
+    ZSCORE = "zscore"
+    QUANTILE = "quantile"
+    RANK = "rank"
 
 
-class JobPriority(Enum):
+class JobPriority(str, Enum):
+    """Job priority in the queue."""
+
     HIGH = "high"
     NORMAL = "normal"
     LOW = "low"
@@ -50,7 +58,7 @@ class BacktestJobConfig:
     alpha_name: str
     start_date: date
     end_date: date
-    weight_method: WeightMethod = "zscore"
+    weight_method: WeightMethod = WeightMethod.ZSCORE
     extra_params: dict[str, Any] = field(default_factory=dict)
 
     def compute_job_id(self, created_by: str) -> str:
@@ -78,14 +86,16 @@ class BacktestJobConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BacktestJobConfig:
-        weight = data.get("weight_method", "zscore")
-        if weight not in ("zscore", "quantile", "rank"):
-            raise ValueError(f"Invalid weight_method: {weight}")
+        weight_str = data.get("weight_method", "zscore")
+        try:
+            weight = WeightMethod(weight_str)
+        except ValueError as e:
+            raise ValueError(f"Invalid weight_method: {weight_str}") from e
         return cls(
             alpha_name=data["alpha_name"],
             start_date=date.fromisoformat(data["start_date"]),
             end_date=date.fromisoformat(data["end_date"]),
-            weight_method=cast(WeightMethod, weight),
+            weight_method=weight,
             extra_params=data.get("extra_params", {}),
         )
 

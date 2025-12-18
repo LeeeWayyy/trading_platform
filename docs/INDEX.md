@@ -241,6 +241,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0023](./ADRs/ADR-0023-model-deployment.md) | Model Registry & Deployment Versioning | ✅ Accepted |
 | [ADR-024](./ADRs/ADR-024-analytics-security.md) | Web console analytics security & RBAC design | 🚧 Proposed |
 | [ADR-0025](./ADRs/ADR-0025-backtest-job-queue.md) | Backtest job queue infrastructure (RQ, Redis, psycopg) | ✅ Accepted |
+| [ADR-0025-UI](./ADRs/ADR-0025-backtest-ui-worker-contract.md) | Backtest UI-Worker contract (status vocabulary, progress, results) | ✅ Accepted |
 | [0020](./ADRs/0020-reconciliation-service-architecture.md) | Reconciliation service with startup gating and orphan handling | ✅ Accepted |
 | [0026](./ADRs/0026-shadow-mode-model-validation.md) | Shadow mode model validation for safe hot-swap | ✅ Accepted |
 | [0027](./ADRs/0027-liquidity-aware-slicing.md) | Liquidity-aware TWAP slicing with ADV constraints | ✅ Accepted |
@@ -273,6 +274,7 @@ Educational explanations of trading and ML concepts:
 | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) | Notional, realized, unrealized P&L | Beginner |
 | [alpha158-features.md](./CONCEPTS/alpha158-features.md) | Alpha158 feature set | Intermediate |
 | [backtest-result-storage.md](./CONCEPTS/backtest-result-storage.md) | Backtest result storage (Postgres + Parquet) | Intermediate |
+| [backtest-web-ui.md](./CONCEPTS/backtest-web-ui.md) | Backtest Web UI (Streamlit interface for job management) | Intermediate |
 | [walk-forward-optimization.md](./CONCEPTS/walk-forward-optimization.md) | Walk-forward optimization methodology | Intermediate |
 | [monte-carlo-backtesting.md](./CONCEPTS/monte-carlo-backtesting.md) | Monte Carlo simulation for backtest robustness | Intermediate |
 | [qlib-data-providers.md](./CONCEPTS/qlib-data-providers.md) | Qlib integration patterns | Intermediate |
