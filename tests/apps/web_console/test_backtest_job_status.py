@@ -95,7 +95,7 @@ class TestProgressTracking:
     """Tests for Redis progress tracking integration."""
 
     def test_progress_fetched_from_redis(self) -> None:
-        """Verify progress is fetched from Redis for each job."""
+        """Verify progress is fetched from Redis using MGET batch call."""
         import json
 
         from apps.web_console.pages.backtest import get_user_jobs
@@ -132,8 +132,8 @@ class TestProgressTracking:
         mock_pool.connection.return_value = mock_conn
 
         mock_redis = MagicMock()
-        # Redis returns progress as JSON bytes
-        mock_redis.get.return_value = json.dumps({"pct": 75}).encode()
+        # Redis MGET returns list of progress values as JSON bytes
+        mock_redis.mget.return_value = [json.dumps({"pct": 75}).encode()]
 
         with patch("apps.web_console.pages.backtest.get_sync_db_pool", return_value=mock_pool):
             with patch(
@@ -144,7 +144,7 @@ class TestProgressTracking:
 
         assert len(jobs) == 1
         assert jobs[0]["progress_pct"] == 75
-        mock_redis.get.assert_called_with("backtest:progress:job1")
+        mock_redis.mget.assert_called_with(["backtest:progress:job1"])
 
     def test_missing_progress_defaults_to_zero(self) -> None:
         """Verify missing Redis progress defaults to 0%."""
@@ -181,7 +181,7 @@ class TestProgressTracking:
         mock_pool.connection.return_value = mock_conn
 
         mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No progress in Redis
+        mock_redis.mget.return_value = [None]  # No progress in Redis (MGET returns list)
 
         with patch("apps.web_console.pages.backtest.get_sync_db_pool", return_value=mock_pool):
             with patch(

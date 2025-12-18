@@ -197,30 +197,19 @@ def render_backtest_result(
         render_export_buttons(result, user_info)
 
 
-def render_comparison_table(
-    results: list[BacktestResult],
-    selected_ids: list[str],
-) -> None:
+def render_comparison_table(results: list[BacktestResult]) -> None:
     """Render side-by-side comparison of multiple backtests.
 
     Args:
-        results: List of BacktestResult objects
-        selected_ids: List of backtest IDs to compare
+        results: List of BacktestResult objects to compare (caller pre-filters)
     """
-    if len(selected_ids) < 2:
+    if len(results) < 2:
         st.info("Select at least 2 backtests to compare")
-        return
-
-    # Filter to selected results
-    selected_results = [r for r in results if r.backtest_id in selected_ids]
-
-    if len(selected_results) < 2:
-        st.warning("Not enough backtests found for comparison")
         return
 
     # Build comparison data
     comparison_data = []
-    for result in selected_results:
+    for result in results:
         turnover = (
             result.turnover_result.average_turnover if result.turnover_result else None
         )

@@ -13,6 +13,9 @@ import streamlit as st
 if TYPE_CHECKING:
     import polars as pl
 
+# Minimum samples required for rolling calculations
+MIN_ROLLING_SAMPLES = 5
+
 
 def render_ic_timeseries(
     daily_ic: pl.DataFrame,
@@ -48,7 +51,7 @@ def render_ic_timeseries(
         sorted_df = daily_ic.sort("date")
 
         # Compute rolling mean for IC
-        min_samples = min(5, rolling_window)
+        min_samples = min(MIN_ROLLING_SAMPLES, rolling_window)
         rolling_ic = (
             sorted_df["ic"]
             .rolling_mean(window_size=rolling_window, min_samples=min_samples)

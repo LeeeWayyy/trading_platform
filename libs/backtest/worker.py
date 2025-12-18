@@ -277,7 +277,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 start_date=job_config.start_date,
                 end_date=job_config.end_date,
                 snapshot_id=snapshot_id,
-                weight_method=job_config.weight_method,
+                weight_method=job_config.weight_method.value,
                 progress_callback=lambda pct, d: worker.update_progress(
                     job_id,
                     20 + round(pct * 0.7),

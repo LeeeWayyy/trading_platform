@@ -11,13 +11,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Literal, cast
 
 import streamlit as st
 from rq.job import Job
 
 from libs.alpha.alpha_library import CANONICAL_ALPHAS
-from libs.backtest.job_queue import BacktestJobConfig, JobPriority
+from libs.backtest.job_queue import BacktestJobConfig, JobPriority, WeightMethod
+
+# Constants for default date calculations
+DEFAULT_END_DATE_OFFSET_DAYS = 1  # Days before today for default end date
+DEFAULT_BACKTEST_PERIOD_DAYS = 730  # ~2 years default backtest period
+MIN_BACKTEST_PERIOD_DAYS = 30  # Minimum required backtest period
 
 
 def get_available_alphas() -> list[str]:
@@ -58,8 +62,8 @@ def render_backtest_form(
             )
 
             # Default date range: last 2 years
-            default_end = date.today() - timedelta(days=1)
-            default_start = default_end - timedelta(days=730)  # ~2 years
+            default_end = date.today() - timedelta(days=DEFAULT_END_DATE_OFFSET_DAYS)
+            default_start = default_end - timedelta(days=DEFAULT_BACKTEST_PERIOD_DAYS)
 
             start_date = st.date_input(
                 "Start Date",
@@ -75,9 +79,9 @@ def render_backtest_form(
             )
 
         with col2:
-            weight_method = st.selectbox(
+            weight_method_str = st.selectbox(
                 "Weight Method",
-                options=["zscore", "quantile", "rank"],
+                options=[wm.value for wm in WeightMethod],
                 help="How to convert signals to portfolio weights:\n"
                 "- zscore: Standardized z-scores\n"
                 "- quantile: Quantile-based bucketing\n"
@@ -102,10 +106,10 @@ def render_backtest_form(
                 st.error("End date must be after start date")
                 return None
 
-            # Validate minimum date range (at least 30 days)
+            # Validate minimum date range
             date_diff = (end_date - start_date).days
-            if date_diff < 30:
-                st.error("Backtest period must be at least 30 days")
+            if date_diff < MIN_BACKTEST_PERIOD_DAYS:
+                st.error(f"Backtest period must be at least {MIN_BACKTEST_PERIOD_DAYS} days")
                 return None
 
             # Validate priority enum
@@ -115,15 +119,18 @@ def render_backtest_form(
                 st.error(f"Invalid priority: {priority_str}")
                 return None
 
-            # Build config
-            weight_method_typed = cast(
-                Literal["zscore", "quantile", "rank"], weight_method
-            )
+            # Build config with validated weight method enum
+            try:
+                weight_method = WeightMethod(weight_method_str)
+            except ValueError:
+                st.error(f"Invalid weight method: {weight_method_str}")
+                return None
+
             config = BacktestJobConfig(
                 alpha_name=alpha_name,
                 start_date=start_date,
                 end_date=end_date,
-                weight_method=weight_method_typed,
+                weight_method=weight_method,
             )
 
             # Get username

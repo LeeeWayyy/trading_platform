@@ -50,12 +50,13 @@ def initialize_mlflow(
     mlflow.set_tracking_uri(tracking_uri)
 
     # Create or get experiment
+    experiment_id: str
     try:
         experiment = mlflow.get_experiment_by_name(experiment_name)
         if experiment is None:
-            experiment_id = mlflow.create_experiment(experiment_name)
+            experiment_id = str(mlflow.create_experiment(experiment_name))
         else:
-            experiment_id = experiment.experiment_id
+            experiment_id = str(experiment.experiment_id)
     except Exception as e:
         warnings.warn(f"Failed to get/create experiment: {e}", stacklevel=2)
         experiment_id = "0"  # Default experiment

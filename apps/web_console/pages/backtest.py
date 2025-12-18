@@ -42,6 +42,10 @@ from libs.backtest.result_storage import BacktestResultStorage
 # Valid job statuses in the database
 VALID_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
+# Query and UI limits
+BACKTEST_JOB_QUERY_LIMIT = 50  # Max jobs to fetch per query
+MAX_COMPARISON_SELECTIONS = 5  # Max backtests to compare at once
+
 
 def _get_user_with_role() -> dict[str, Any]:
     """Get user info including role for RBAC checks.
@@ -102,13 +106,13 @@ def get_user_jobs(created_by: str, status: list[str]) -> list[dict[str, Any]]:
 
     pool = get_sync_db_pool()
     # Include error_message and summary metrics for terminal job display and comparison
-    sql = """
+    sql = f"""
         SELECT job_id, alpha_name, start_date, end_date, status, created_at,
                error_message, mean_ic, icir, hit_rate, coverage, average_turnover
         FROM backtest_jobs
         WHERE created_by = %s AND status = ANY(%s)
         ORDER BY created_at DESC
-        LIMIT 50
+        LIMIT {BACKTEST_JOB_QUERY_LIMIT}
     """
     with pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(sql, (created_by, status))
@@ -264,7 +268,7 @@ def render_backtest_results() -> None:
             selected = st.multiselect(
                 "Select backtests to compare",
                 options=list(options.keys()),
-                max_selections=5,
+                max_selections=MAX_COMPARISON_SELECTIONS,
             )
             if len(selected) >= 2:
                 # Load full results for comparison
@@ -280,7 +284,7 @@ def render_backtest_results() -> None:
                         st.error(f"Failed to load {label}: {e}")
 
                 if results:
-                    render_comparison_table(results, [r.backtest_id for r in results])
+                    render_comparison_table(results)
 
     else:
         # Single result view
