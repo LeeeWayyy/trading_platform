@@ -37,9 +37,11 @@ See Also:
 
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import lightgbm as lgb
@@ -176,6 +178,12 @@ class ModelRegistry:
         self._current_model: lgb.Booster | None = None
         self._current_metadata: ModelMetadata | None = None
         self._last_check: datetime | None = None
+        self._pending_model: lgb.Booster | None = None
+        self._pending_metadata: ModelMetadata | None = None
+        self._pending_validation: bool = False
+        self._pending_validation_id: int | None = None
+        self._pending_validation_counter = 0
+        self._shadow_state_lock = Lock()
 
         # H2 Fix: Connection pooling for 10x performance
         self._pool = ConnectionPool(
@@ -343,7 +351,16 @@ class ModelRegistry:
             logger.error(f"Failed to load model from {model_path}: {e}")
             raise ValueError(f"Invalid LightGBM model file: {model_path}") from e
 
-    def reload_if_changed(self, strategy: str = "alpha_baseline") -> bool:
+    def reload_if_changed(
+        self,
+        strategy: str = "alpha_baseline",
+        *,
+        shadow_validator: Callable[[lgb.Booster, lgb.Booster], Any] | None = None,
+        shadow_validation_enabled: bool = True,
+        skip_shadow_validation: bool = False,
+        schedule_validation: Callable[[Callable[[], None]], None] | None = None,
+        on_model_activated: Callable[[ModelMetadata], None] | None = None,
+    ) -> bool:
         """
         Check if active model changed and reload if needed.
 
@@ -407,6 +424,33 @@ class ModelRegistry:
             )
 
             if version_changed:
+                with self._shadow_state_lock:
+                    if (
+                        self._pending_validation
+                        and self._pending_metadata is not None
+                        and new_metadata.version == self._pending_metadata.version
+                    ):
+                        logger.info(
+                            "Shadow validation already in progress for new model",
+                            extra={"strategy": strategy, "version": new_metadata.version},
+                        )
+                        self._last_check = datetime.now(UTC)
+                        return False
+
+                    if self._pending_validation and self._pending_metadata is not None:
+                        logger.info(
+                            "Superseding pending shadow validation",
+                            extra={
+                                "strategy": strategy,
+                                "pending_version": self._pending_metadata.version,
+                                "new_version": new_metadata.version,
+                            },
+                        )
+                        self._pending_model = None
+                        self._pending_metadata = None
+                        self._pending_validation = False
+                        self._pending_validation_id = None
+
                 # Log version change
                 old_version = self._current_metadata.version if self._current_metadata else "None"
                 logger.info(
@@ -429,6 +473,115 @@ class ModelRegistry:
                 except Exception as e:
                     raise ValueError(f"Model prediction test failed: {e}") from e
 
+                if (
+                    shadow_validation_enabled
+                    and not skip_shadow_validation
+                    and self._current_model is not None
+                    and shadow_validator is None
+                ):
+                    logger.warning(
+                        "Shadow validation enabled but no validator provided; activating without validation",
+                        extra={"strategy": strategy, "version": new_metadata.version},
+                    )
+
+                validation_required = (
+                    shadow_validation_enabled
+                    and not skip_shadow_validation
+                    and shadow_validator is not None
+                    and self._current_model is not None
+                )
+
+                if validation_required:
+                    with self._shadow_state_lock:
+                        self._pending_validation_counter += 1
+                        validation_id = self._pending_validation_counter
+                        self._pending_model = new_model
+                        self._pending_metadata = new_metadata
+                        self._pending_validation = True
+                        self._pending_validation_id = validation_id
+                        self._last_check = datetime.now(UTC)
+
+                    current_model = self._current_model
+                    pending_version = new_metadata.version
+
+                    def _run_shadow_validation() -> None:
+                        try:
+                            if current_model is None:
+                                raise ValueError("No current model available for shadow validation")
+
+                            with self._shadow_state_lock:
+                                if (
+                                    self._pending_validation_id != validation_id
+                                    or self._pending_metadata is None
+                                    or self._pending_metadata.version != pending_version
+                                ):
+                                    logger.info(
+                                        "Shadow validation superseded; skipping run",
+                                        extra={"version": pending_version},
+                                    )
+                                    return
+
+                            assert shadow_validator is not None  # Checked in validation_required
+                            result = shadow_validator(current_model, new_model)
+                            passed = _extract_validation_passed(result)
+
+                            with self._shadow_state_lock:
+                                if (
+                                    self._pending_validation_id != validation_id
+                                    or self._pending_metadata is None
+                                    or self._pending_metadata.version != pending_version
+                                ):
+                                    logger.warning(
+                                        "Shadow validation result discarded; pending model changed",
+                                        extra={"version": pending_version},
+                                    )
+                                    return
+
+                                if passed:
+                                    self._current_model = new_model
+                                    self._current_metadata = new_metadata
+                                    logger.info(
+                                        "Shadow validation passed; model activated",
+                                        extra={
+                                            "version": new_metadata.version,
+                                            "model_path": new_metadata.model_path,
+                                        },
+                                    )
+                                    if on_model_activated is not None:
+                                        on_model_activated(new_metadata)
+                                else:
+                                    logger.warning(
+                                        "Shadow validation failed; keeping current model",
+                                        extra={"version": new_metadata.version},
+                                    )
+
+                                self._pending_model = None
+                                self._pending_metadata = None
+                                self._pending_validation = False
+                                self._pending_validation_id = None
+                        except Exception as exc:
+                            logger.error(
+                                f"Shadow validation error: {exc}",
+                                extra={"version": new_metadata.version},
+                                exc_info=True,
+                            )
+                        finally:
+                            with self._shadow_state_lock:
+                                if self._pending_validation_id == validation_id:
+                                    self._pending_model = None
+                                    self._pending_metadata = None
+                                    self._pending_validation = False
+                                    self._pending_validation_id = None
+
+                    if schedule_validation is not None:
+                        schedule_validation(_run_shadow_validation)
+                        return False
+
+                    _run_shadow_validation()
+                    return self._current_metadata is not None and (
+                        self._current_metadata.version == new_metadata.version
+                    )
+
                 # Update state (only after successful load and validation)
                 self._current_model = new_model
                 self._current_metadata = new_metadata
@@ -442,6 +595,9 @@ class ModelRegistry:
                         "performance_metrics": new_metadata.performance_metrics,
                     },
                 )
+
+                if on_model_activated is not None:
+                    on_model_activated(new_metadata)
 
                 return True
 
@@ -546,3 +702,24 @@ class ModelRegistry:
             - Updated on every reload_if_changed() call (success or failure)
         """
         return self._last_check
+
+    @property
+    def pending_validation(self) -> bool:
+        """Return True if shadow validation is in progress for a new model."""
+        return self._pending_validation
+
+    @property
+    def pending_metadata(self) -> ModelMetadata | None:
+        """Return metadata for model pending shadow validation (if any)."""
+        return self._pending_metadata
+
+
+def _extract_validation_passed(result: Any) -> bool:
+    """Interpret shadow validation result in a flexible way."""
+    if isinstance(result, bool):
+        return result
+
+    passed = getattr(result, "passed", None)
+    if passed is None:
+        raise ValueError("Shadow validator must return bool or object with 'passed' attribute")
+    return bool(passed)

@@ -30,6 +30,7 @@ See Also:
 from .client import RedisClient, RedisConnectionError
 from .event_publisher import EventPublisher
 from .events import OrderEvent, PositionEvent, SignalEvent
+from .fallback_buffer import FallbackBuffer
 from .feature_cache import FeatureCache
 from .keys import RedisKeys
 
@@ -41,6 +42,7 @@ __all__ = [
     "OrderEvent",
     "PositionEvent",
     "EventPublisher",
+    "FallbackBuffer",
     "RedisKeys",
 ]
 

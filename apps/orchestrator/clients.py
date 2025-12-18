@@ -61,16 +61,20 @@ class SignalServiceClient:
 
     async def health_check(self) -> bool:
         """
-        Check if Signal Service is healthy.
+        Check if Signal Service is ready for traffic.
+
+        Uses the /ready endpoint which returns 503 when service is degraded
+        (e.g., during feature hydration). This prevents the orchestrator from
+        proceeding with trading while the signal service is still initializing.
 
         Returns:
-            True if service is healthy, False otherwise
+            True if service is fully ready, False otherwise
         """
         try:
-            response = await self.client.get(f"{self.base_url}/health")
+            response = await self.client.get(f"{self.base_url}/ready")
             return response.status_code == 200
         except Exception as e:
-            logger.warning(f"Signal Service health check failed: {e}")
+            logger.warning(f"Signal Service readiness check failed: {e}")
             return False
 
     @retry(

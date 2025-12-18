@@ -30,6 +30,8 @@ def _restore_main_globals():
     original_kill_switch = getattr(main, "kill_switch", None)
     original_circuit_breaker = getattr(main, "circuit_breaker", None)
     original_position_reservation = getattr(main, "position_reservation", None)
+    original_reconciliation_service = getattr(main, "reconciliation_service", None)
+    original_reconciliation_task = getattr(main, "reconciliation_task", None)
     original_feature_flag = getattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
 
     yield
@@ -41,6 +43,8 @@ def _restore_main_globals():
     main.kill_switch = original_kill_switch
     main.circuit_breaker = original_circuit_breaker
     main.position_reservation = original_position_reservation
+    main.reconciliation_service = original_reconciliation_service
+    main.reconciliation_task = original_reconciliation_task
     main.FEATURE_PERFORMANCE_DASHBOARD = original_feature_flag
 
     # Clear dependency overrides

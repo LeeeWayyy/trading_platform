@@ -8,7 +8,7 @@ This guide provides complete instructions for Claude Code, Codex, Gemini, and ot
 
 ## 🤖 AUTO-RESUME: Check for Incomplete Work
 
-**CRITICAL:** Check `.claude/task-state.json` for incomplete work before starting. If found, follow [Workflows/08-session-management.md](./Workflows/08-session-management.md) to resume.
+**CRITICAL:** Check `.ai_workflow/workflow-state.json` for incomplete work before starting. If found, follow [Workflows/08-session-management.md](./Workflows/08-session-management.md) to resume.
 
 ---
 

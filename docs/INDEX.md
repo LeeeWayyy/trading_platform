@@ -173,6 +173,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-15, Plan] [TASKS/PLANS/T6.6-Backend-API-Manual-Controls.md](./TASKS/PLANS/T6.6-Backend-API-Manual-Controls.md) - T6.6 Backend API Manual Trade Controls implementation plan
 - [CURRENT, 2025-12-15, Plan] [TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md](./TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md) - T6.6 Web Console UI Manual Trade Controls implementation plan
 - [CURRENT, 2025-12-14, Plan] [TASKS/FORMATTING_ENHANCEMENT_PLAN.md](./TASKS/FORMATTING_ENHANCEMENT_PLAN.md) - Code formatting enhancement plan (ruff config, Makefile improvements)
+- [CURRENT, 2025-12-17, Task] [TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md](./TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md) - Reliability and safety bugfixes (reconciliation, hydration, shadow mode)
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index
@@ -240,6 +241,10 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0023](./ADRs/ADR-0023-model-deployment.md) | Model Registry & Deployment Versioning | ✅ Accepted |
 | [ADR-024](./ADRs/ADR-024-analytics-security.md) | Web console analytics security & RBAC design | 🚧 Proposed |
 | [ADR-0025](./ADRs/ADR-0025-backtest-job-queue.md) | Backtest job queue infrastructure (RQ, Redis, psycopg) | ✅ Accepted |
+| [0020](./ADRs/0020-reconciliation-service-architecture.md) | Reconciliation service with startup gating and orphan handling | ✅ Accepted |
+| [0026](./ADRs/0026-shadow-mode-model-validation.md) | Shadow mode model validation for safe hot-swap | ✅ Accepted |
+| [0027](./ADRs/0027-liquidity-aware-slicing.md) | Liquidity-aware TWAP slicing with ADV constraints | ✅ Accepted |
+| [0028](./ADRs/0028-market-data-fallback-buffer.md) | Market data fallback buffer for Redis outages | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption

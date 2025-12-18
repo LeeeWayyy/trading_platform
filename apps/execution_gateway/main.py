@@ -61,19 +61,34 @@ from apps.execution_gateway.alpaca_client import (
 )
 from apps.execution_gateway.api.manual_controls import router as manual_controls_router
 from apps.execution_gateway.database import (  # noqa: F401 (re-export for tests)
+    TERMINAL_STATUSES,
     DatabaseClient,
     calculate_position_update,
+    status_rank_for,
 )
+from apps.execution_gateway.fat_finger_validator import (
+    FatFingerValidator,
+    iter_breach_types,
+)
+from apps.execution_gateway.liquidity_service import LiquidityService
 from apps.execution_gateway.order_id_generator import (
     generate_client_order_id,
     reconstruct_order_params_hash,
 )
 from apps.execution_gateway.order_slicer import TWAPSlicer
+from apps.execution_gateway.reconciliation import (
+    SOURCE_PRIORITY_MANUAL,
+    SOURCE_PRIORITY_WEBHOOK,
+    ReconciliationService,
+)
 from apps.execution_gateway.schemas import (
     ConfigResponse,
     DailyPerformanceResponse,
     DailyPnL,
     ErrorResponse,
+    FatFingerThresholds,
+    FatFingerThresholdsResponse,
+    FatFingerThresholdsUpdateRequest,
     HealthResponse,
     KillSwitchDisengageRequest,
     KillSwitchEngageRequest,
@@ -85,6 +100,7 @@ from apps.execution_gateway.schemas import (
     PositionsResponse,
     RealtimePnLResponse,
     RealtimePositionPnL,
+    ReconciliationForceCompleteRequest,
     SliceDetail,
     SlicingPlan,
     SlicingRequest,
@@ -122,6 +138,28 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Env parsing helpers
+def _get_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Invalid float for %s=%s; using default=%s", name, raw, default)
+        return default
+
+
+def _get_decimal_env(name: str, default: Decimal) -> Decimal:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return Decimal(raw)
+    except (ValueError, InvalidOperation):
+        logger.warning("Invalid decimal for %s=%s; using default=%s", name, raw, default)
+        return default
+
 # Legacy TWAP slicer interval (seconds). Legacy plans scheduled slices once per minute
 # and did not persist the interval, so backward-compatibility fallbacks must only apply
 # when callers request the same default pacing.
@@ -136,6 +174,91 @@ STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 CIRCUIT_BREAKER_ENABLED = os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
+LIQUIDITY_CHECK_ENABLED = os.getenv("LIQUIDITY_CHECK_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+MAX_SLICE_PCT_OF_ADV = _get_float_env("MAX_SLICE_PCT_OF_ADV", 0.01)
+if MAX_SLICE_PCT_OF_ADV <= 0:
+    logger.warning(
+        "MAX_SLICE_PCT_OF_ADV must be > 0; falling back to default=0.01",
+        extra={"max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV},
+    )
+    MAX_SLICE_PCT_OF_ADV = 0.01
+
+# Fat-finger thresholds (order size warnings)
+FAT_FINGER_MAX_NOTIONAL_DEFAULT = Decimal("100000")
+FAT_FINGER_MAX_QTY_DEFAULT = 10_000
+FAT_FINGER_MAX_ADV_PCT_DEFAULT = Decimal("0.05")
+FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT = 30
+
+_FAT_FINGER_MAX_NOTIONAL_INIT = _get_decimal_env(
+    "FAT_FINGER_MAX_NOTIONAL", FAT_FINGER_MAX_NOTIONAL_DEFAULT
+)
+FAT_FINGER_MAX_NOTIONAL: Decimal | None = _FAT_FINGER_MAX_NOTIONAL_INIT
+FAT_FINGER_MAX_QTY_RAW = os.getenv("FAT_FINGER_MAX_QTY")
+FAT_FINGER_MAX_QTY: int | None
+if FAT_FINGER_MAX_QTY_RAW is None:
+    FAT_FINGER_MAX_QTY = FAT_FINGER_MAX_QTY_DEFAULT
+else:
+    try:
+        FAT_FINGER_MAX_QTY = int(FAT_FINGER_MAX_QTY_RAW)
+    except ValueError:
+        logger.warning(
+            "Invalid int for FAT_FINGER_MAX_QTY=%s; using default=%s",
+            FAT_FINGER_MAX_QTY_RAW,
+            FAT_FINGER_MAX_QTY_DEFAULT,
+        )
+        FAT_FINGER_MAX_QTY = FAT_FINGER_MAX_QTY_DEFAULT
+
+_FAT_FINGER_MAX_ADV_PCT_INIT = _get_decimal_env(
+    "FAT_FINGER_MAX_ADV_PCT", FAT_FINGER_MAX_ADV_PCT_DEFAULT
+)
+FAT_FINGER_MAX_ADV_PCT: Decimal | None = _FAT_FINGER_MAX_ADV_PCT_INIT
+
+FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW = os.getenv("FAT_FINGER_MAX_PRICE_AGE_SECONDS")
+if FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW is None:
+    FAT_FINGER_MAX_PRICE_AGE_SECONDS = FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+else:
+    try:
+        FAT_FINGER_MAX_PRICE_AGE_SECONDS = int(FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW)
+    except ValueError:
+        logger.warning(
+            "Invalid int for FAT_FINGER_MAX_PRICE_AGE_SECONDS=%s; using default=%s",
+            FAT_FINGER_MAX_PRICE_AGE_SECONDS_RAW,
+            FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT,
+        )
+        FAT_FINGER_MAX_PRICE_AGE_SECONDS = FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+
+if FAT_FINGER_MAX_PRICE_AGE_SECONDS <= 0:
+    logger.warning(
+        "FAT_FINGER_MAX_PRICE_AGE_SECONDS must be > 0; using default=%s",
+        FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT,
+    )
+    FAT_FINGER_MAX_PRICE_AGE_SECONDS = FAT_FINGER_MAX_PRICE_AGE_SECONDS_DEFAULT
+
+if _FAT_FINGER_MAX_NOTIONAL_INIT <= 0:
+    logger.warning(
+        "FAT_FINGER_MAX_NOTIONAL must be > 0; disabling notional threshold",
+        extra={"fat_finger_max_notional": str(FAT_FINGER_MAX_NOTIONAL)},
+    )
+    FAT_FINGER_MAX_NOTIONAL = None
+
+if FAT_FINGER_MAX_QTY is not None and FAT_FINGER_MAX_QTY <= 0:
+    logger.warning(
+        "FAT_FINGER_MAX_QTY must be > 0; disabling qty threshold",
+        extra={"fat_finger_max_qty": FAT_FINGER_MAX_QTY},
+    )
+    FAT_FINGER_MAX_QTY = None
+
+if _FAT_FINGER_MAX_ADV_PCT_INIT <= 0 or _FAT_FINGER_MAX_ADV_PCT_INIT > 1:
+    logger.warning(
+        "FAT_FINGER_MAX_ADV_PCT must be within (0, 1]; disabling ADV threshold",
+        extra={"fat_finger_max_adv_pct": str(FAT_FINGER_MAX_ADV_PCT)},
+    )
+    FAT_FINGER_MAX_ADV_PCT = None
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
 
@@ -163,6 +286,8 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
     "yes",
     "on",
 )
+REDUCE_ONLY_LOCK_TIMEOUT_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_TIMEOUT_SECONDS", "30"))
+REDUCE_ONLY_LOCK_BLOCKING_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_BLOCKING_SECONDS", "10"))
 
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
@@ -205,6 +330,9 @@ _circuit_breaker_unavailable = False  # Track if circuit breaker initialization 
 # Gemini PR fix: Thread-safe position reservation unavailable flag (fail-closed pattern)
 _position_reservation_lock = threading.Lock()
 _position_reservation_unavailable = False  # Track if position reservation init failed (fail closed)
+
+# Recovery lock to prevent concurrent health checks from racing to reinitialize infrastructure
+_infrastructure_recovery_lock = threading.Lock()
 
 
 def is_kill_switch_unavailable() -> bool:
@@ -281,6 +409,18 @@ if not DRY_RUN:
         except Exception as e:
             logger.error(f"Failed to initialize Alpaca client: {e}")
 
+# Liquidity service (ADV lookup for TWAP slicing)
+liquidity_service: LiquidityService | None = None
+if LIQUIDITY_CHECK_ENABLED:
+    try:
+        liquidity_service = LiquidityService(
+            api_key=ALPACA_API_KEY_ID,
+            api_secret=ALPACA_API_SECRET_KEY,
+        )
+        logger.info("Liquidity service initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Liquidity service: {e}")
+
 # Circuit Breaker (for post-trade risk monitoring)
 # Codex CRITICAL fix: Track initialization failures and fail closed
 circuit_breaker: CircuitBreaker | None = None
@@ -305,6 +445,15 @@ else:
 risk_config = RiskConfig()
 logger.info(
     f"Risk config initialized: max_position_size={risk_config.position_limits.max_position_size}"
+)
+
+# Fat-finger validator (size-based warnings/rejections)
+fat_finger_validator = FatFingerValidator(
+    default_thresholds=FatFingerThresholds(
+        max_notional=FAT_FINGER_MAX_NOTIONAL,
+        max_qty=FAT_FINGER_MAX_QTY,
+        max_adv_pct=FAT_FINGER_MAX_ADV_PCT,
+    )
 )
 
 # Position Reservation (for atomic position limit checking - prevents race conditions)
@@ -349,6 +498,10 @@ if kill_switch and circuit_breaker:
         logger.error(f"Failed to initialize slice scheduler: {e}")
 else:
     logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
+
+# Reconciliation service (startup gating + periodic sync)
+reconciliation_service: ReconciliationService | None = None
+reconciliation_task: asyncio.Task[None] | None = None
 
 # ============================================================================
 # FastAPI Application
@@ -420,6 +573,18 @@ order_placement_duration = Histogram(
     "execution_gateway_order_placement_duration_seconds",
     "Time taken to place an order",
     ["symbol", "side"],
+)
+
+fat_finger_warnings_total = Counter(
+    "execution_gateway_fat_finger_warnings_total",
+    "Total fat-finger threshold warnings",
+    ["threshold_type"],
+)
+
+fat_finger_rejections_total = Counter(
+    "execution_gateway_fat_finger_rejections_total",
+    "Total fat-finger threshold rejections",
+    ["threshold_type"],
 )
 
 positions_current = Gauge(
@@ -553,6 +718,339 @@ def _handle_idempotency_race(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Database inconsistency: order not found after UniqueViolation",
     )
+
+
+def _parse_webhook_timestamp(*timestamps: Any, default: datetime) -> datetime:
+    """Parse the first valid timestamp from a list of candidates.
+
+    Iterates through the provided timestamp candidates and returns the first
+    one that can be successfully parsed. Falls back to the default if none
+    are valid.
+
+    Args:
+        *timestamps: Variable number of timestamp candidates (str, datetime, or None)
+        default: Fallback datetime if no valid timestamp is found
+
+    Returns:
+        Parsed datetime or the default value
+    """
+    for ts in timestamps:
+        if not ts:
+            continue
+        if isinstance(ts, datetime):
+            return ts
+        try:
+            return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+    return default
+
+
+async def _resolve_fat_finger_context(
+    order: OrderRequest,
+    thresholds: FatFingerThresholds,
+) -> tuple[Decimal | None, int | None]:
+    """Resolve price and ADV context needed for fat-finger validation.
+
+    Uses asyncio.to_thread for ADV lookup to avoid blocking the event loop.
+    """
+
+    price: Decimal | None = None
+    if thresholds.max_notional is not None:
+        if order.limit_price is not None:
+            price = order.limit_price
+        elif order.stop_price is not None:
+            price = order.stop_price
+        else:
+            realtime_prices = _batch_fetch_realtime_prices_from_redis(
+                [order.symbol], redis_client
+            )
+            price, price_timestamp = realtime_prices.get(order.symbol, (None, None))
+            if price is not None:
+                if price_timestamp is None:
+                    logger.warning(
+                        "Fat-finger price missing timestamp; treating as unavailable",
+                        extra={
+                            "symbol": order.symbol,
+                            "max_price_age_seconds": FAT_FINGER_MAX_PRICE_AGE_SECONDS,
+                        },
+                    )
+                    price = None
+                else:
+                    if price_timestamp.tzinfo is None:
+                        price_timestamp = price_timestamp.replace(tzinfo=UTC)
+                    now = datetime.now(UTC)
+                    price_age_seconds = (now - price_timestamp).total_seconds()
+                    if price_age_seconds > FAT_FINGER_MAX_PRICE_AGE_SECONDS:
+                        logger.warning(
+                            "Fat-finger price stale; treating as unavailable",
+                            extra={
+                                "symbol": order.symbol,
+                                "price_timestamp": price_timestamp.isoformat(),
+                                "price_age_seconds": max(price_age_seconds, 0),
+                                "max_price_age_seconds": FAT_FINGER_MAX_PRICE_AGE_SECONDS,
+                            },
+                        )
+                        price = None
+
+    adv: int | None = None
+    if thresholds.max_adv_pct is not None and liquidity_service is not None:
+        adv = await asyncio.to_thread(liquidity_service.get_adv, order.symbol)
+
+    return price, adv
+
+
+def _fat_finger_thresholds_snapshot() -> FatFingerThresholdsResponse:
+    """Build a response payload with current fat-finger thresholds."""
+
+    return FatFingerThresholdsResponse(
+        default_thresholds=fat_finger_validator.get_default_thresholds(),
+        symbol_overrides=fat_finger_validator.get_symbol_overrides(),
+        updated_at=datetime.now(UTC),
+    )
+
+
+def _is_reconciliation_ready() -> bool:
+    """Return True when startup reconciliation gate is open."""
+    if DRY_RUN:
+        return True
+    if reconciliation_service is None:
+        return False
+    return reconciliation_service.is_startup_complete()
+
+
+async def _recover_zombie_slices_after_reconciliation() -> None:
+    """Recover pending TWAP slices after reconciliation gate opens."""
+    if not slice_scheduler:
+        logger.warning("Slice scheduler unavailable; skipping zombie slice recovery")
+        return
+    if not DRY_RUN and reconciliation_service is None:
+        logger.error("Reconciliation service unavailable; skipping zombie slice recovery")
+        return
+
+    poll_interval_seconds = 1.0
+    while not _is_reconciliation_ready():
+        if reconciliation_service and reconciliation_service.startup_timed_out():
+            logger.error("Startup reconciliation timed out; skipping zombie slice recovery")
+            return
+        await asyncio.sleep(poll_interval_seconds)
+
+    await asyncio.to_thread(slice_scheduler.recover_zombie_slices)
+
+
+async def _check_quarantine(symbol: str, strategy_id: str) -> None:
+    """Block trading when symbol is quarantined."""
+    if DRY_RUN:
+        return
+    if not redis_client:
+        logger.error(
+            "Redis unavailable for quarantine check; failing closed",
+            extra={"symbol": symbol},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Quarantine check unavailable",
+                "message": "Redis unavailable for quarantine enforcement (fail-closed).",
+            },
+        )
+
+    try:
+        symbol = symbol.upper()
+        strategy_key = RedisKeys.quarantine(strategy_id=strategy_id, symbol=symbol)
+        wildcard_key = RedisKeys.quarantine(strategy_id="*", symbol=symbol)
+        values = await asyncio.to_thread(redis_client.mget, [strategy_key, wildcard_key])
+        strategy_value, wildcard_value = (values + [None, None])[:2] if values else (None, None)
+        if strategy_value or wildcard_value:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Symbol quarantined",
+                    "message": f"Trading blocked for {symbol} due to orphan order quarantine",
+                    "symbol": symbol,
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Quarantine check failed",
+            extra={"symbol": symbol, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Quarantine check unavailable",
+                "message": "Redis unavailable for quarantine enforcement (fail-closed).",
+            },
+        ) from exc
+
+
+async def _require_reconciliation_ready_or_reduce_only(order: OrderRequest) -> None:
+    """Gate order submissions until reconciliation completes (reduce-only allowed)."""
+    if reconciliation_service and reconciliation_service.override_active():
+        logger.warning(
+            "Reconciliation override active; allowing order",
+            extra={
+                "client_order_id": generate_client_order_id(order, STRATEGY_ID),
+                "override": reconciliation_service.override_context(),
+            },
+        )
+        return
+
+    if _is_reconciliation_ready():
+        return
+
+    if reconciliation_service and reconciliation_service.startup_timed_out():
+        logger.critical(
+            "Startup reconciliation timed out; remaining in gated mode",
+            extra={"timeout_seconds": reconciliation_service.timeout_seconds},
+        )
+
+    await _enforce_reduce_only_order(order)
+
+
+async def _enforce_reduce_only_order(order: OrderRequest) -> None:
+    """Allow only reduce-only orders during reconciliation gating."""
+    if not alpaca_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Broker client unavailable during reconciliation gating",
+        )
+
+    if not redis_client:
+        logger.error(
+            "Redis unavailable for reduce-only lock; failing closed",
+            extra={"symbol": order.symbol},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock unavailable",
+                "message": "Redis unavailable for reduce-only validation (fail-closed).",
+            },
+        )
+
+    lock_key = RedisKeys.reduce_only_lock(order.symbol.upper())
+    lock = redis_client.lock(
+        lock_key,
+        timeout=REDUCE_ONLY_LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=REDUCE_ONLY_LOCK_BLOCKING_SECONDS,
+    )
+    acquired = False
+    try:
+        acquired = await asyncio.to_thread(lock.acquire, blocking=True)
+    except Exception as exc:
+        logger.error(
+            "Failed to acquire reduce-only lock",
+            extra={"symbol": order.symbol, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock unavailable",
+                "message": "Unable to acquire reduce-only validation lock (fail-closed).",
+            },
+        ) from exc
+
+    if not acquired:
+        logger.error(
+            "Reduce-only lock acquisition timed out",
+            extra={"symbol": order.symbol, "lock_key": lock_key},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Reduce-only lock timeout",
+                "message": "Reduce-only validation lock could not be acquired in time.",
+            },
+        )
+
+    try:
+        position = await asyncio.to_thread(alpaca_client.get_open_position, order.symbol)
+        # Filter by symbol at API level for efficiency
+        open_orders = await asyncio.to_thread(
+            alpaca_client.get_orders, status="open", limit=500, after=None, symbols=[order.symbol]
+        )
+
+        current_position = Decimal("0")
+        if position:
+            current_position = Decimal(str(position.get("qty") or 0))
+
+        open_buy_qty = Decimal("0")
+        open_sell_qty = Decimal("0")
+        for open_order in open_orders:
+            qty = Decimal(str(open_order.get("qty") or 0))
+            filled_qty = Decimal(str(open_order.get("filled_qty") or 0))
+            remaining = qty - filled_qty
+            if remaining <= 0:
+                continue
+            if open_order.get("side") == "buy":
+                open_buy_qty += remaining
+            elif open_order.get("side") == "sell":
+                open_sell_qty += remaining
+
+        # Calculate effective position including pending orders
+        effective_position = current_position + open_buy_qty - open_sell_qty
+
+        if effective_position == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "Reduce-only required",
+                    "message": "No position available to reduce during reconciliation",
+                },
+            )
+
+        # Calculate projected position after this order
+        side_multiplier = Decimal("1") if order.side == "buy" else Decimal("-1")
+        projected_position = effective_position + (Decimal(order.qty) * side_multiplier)
+
+        # An order is position-increasing if it moves the position's absolute value further from zero
+        is_increasing = abs(projected_position) > abs(effective_position)
+        # An order flips the position if the sign changes
+        is_flipping = effective_position * projected_position < 0
+
+        if is_increasing or is_flipping:
+            error_message = "Only position-reducing orders are allowed during reconciliation gating."
+            if is_flipping:
+                error_message = "Order would flip position during reconciliation gating."
+
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "Reduce-only required",
+                    "message": error_message,
+                },
+            )
+
+        logger.info(
+            "Allowing reduce-only order during reconciliation gating",
+            extra={
+                "symbol": order.symbol,
+                "side": order.side,
+                "qty": order.qty,
+                "effective_position": str(effective_position),
+                "projected_position": str(projected_position),
+            },
+        )
+    except AlpacaConnectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "Broker connection error",
+                "message": "Cannot evaluate reduce-only order during reconciliation gating",
+            },
+        ) from exc
+    finally:
+        if acquired and lock.locked():
+            try:
+                await asyncio.to_thread(lock.release)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to release reduce-only lock",
+                    extra={"symbol": order.symbol, "error": str(exc)},
+                )
 
 
 # ============================================================================
@@ -1049,104 +1547,115 @@ async def health_check() -> HealthResponse:
 
         # Attempt to recover kill-switch, circuit breaker, position reservation, and slice scheduler if Redis is back
         # Check if ANY safety mechanism is unavailable
+        # Use lock to prevent concurrent health checks from racing to reinitialize
         if redis_connected and (
             is_kill_switch_unavailable()
             or is_circuit_breaker_unavailable()
             or is_position_reservation_unavailable()
         ):
-            try:
-                # 1. Recover Kill Switch
-                if is_kill_switch_unavailable():
-                    if kill_switch is None:
-                        kill_switch = KillSwitch(redis_client=redis_client)
-                        logger.info(
-                            "Kill-switch re-initialized after Redis recovery",
-                            extra={"kill_switch_recovered": True},
-                        )
-
-                    # Verify it works
-                    kill_switch.is_engaged()
-                    set_kill_switch_unavailable(False)
-                    logger.info("Kill-switch recovered and validated")
-
-                # 2. Recover Circuit Breaker
-                if is_circuit_breaker_unavailable():
-                    if circuit_breaker is None:
-                        circuit_breaker = CircuitBreaker(redis_client=redis_client)
-                        logger.info(
-                            "Circuit breaker re-initialized after Redis recovery",
-                            extra={"breaker_recovered": True},
-                        )
-
-                    # Verify it works (check trip status - throws if state missing)
-                    try:
-                        circuit_breaker.is_tripped()
-                        set_circuit_breaker_unavailable(False)
-                        logger.info("Circuit breaker recovered and validated")
-                    except RuntimeError:
-                        # Still missing state, keep unavailable
-                        logger.warning("Circuit breaker re-initialized but state still missing")
-
-                # 3. Recover Position Reservation (Gemini PR fix)
-                if is_position_reservation_unavailable():
-                    if position_reservation is None:
-                        position_reservation = PositionReservation(redis=redis_client)
-                        logger.info(
-                            "Position reservation re-initialized after Redis recovery",
-                            extra={"position_reservation_recovered": True},
-                        )
-
-                    # Position reservation is stateless - just clear the flag
-                    set_position_reservation_unavailable(False)
-                    logger.info("Position reservation recovered and validated")
-
-                # 4. Recover Slice Scheduler (needs both KS and CB)
-                if (
-                    slice_scheduler is None
-                    and not is_kill_switch_unavailable()
-                    and not is_circuit_breaker_unavailable()
-                    and kill_switch is not None
-                    and circuit_breaker is not None
+            with _infrastructure_recovery_lock:
+                # Re-check conditions under lock (double-checked locking pattern)
+                if not (
+                    is_kill_switch_unavailable()
+                    or is_circuit_breaker_unavailable()
+                    or is_position_reservation_unavailable()
                 ):
-                    slice_scheduler = SliceScheduler(
-                        kill_switch=kill_switch,
-                        breaker=circuit_breaker,
-                        db_client=db_client,
-                        executor=alpaca_client,  # Can be None in DRY_RUN mode
-                    )
-                    # Start the scheduler
-                    if not slice_scheduler.scheduler.running:
-                        slice_scheduler.start()
+                    # Another thread already recovered, skip
+                    pass
+                else:
+                    try:
+                        # 1. Recover Kill Switch
+                        if is_kill_switch_unavailable():
+                            if kill_switch is None:
+                                kill_switch = KillSwitch(redis_client=redis_client)
+                                logger.info(
+                                    "Kill-switch re-initialized after Redis recovery",
+                                    extra={"kill_switch_recovered": True},
+                                )
+
+                            # Verify it works
+                            kill_switch.is_engaged()
+                            set_kill_switch_unavailable(False)
+                            logger.info("Kill-switch recovered and validated")
+
+                        # 2. Recover Circuit Breaker
+                        if is_circuit_breaker_unavailable():
+                            if circuit_breaker is None:
+                                circuit_breaker = CircuitBreaker(redis_client=redis_client)
+                                logger.info(
+                                    "Circuit breaker re-initialized after Redis recovery",
+                                    extra={"breaker_recovered": True},
+                                )
+
+                            # Verify it works (check trip status - throws if state missing)
+                            try:
+                                circuit_breaker.is_tripped()
+                                set_circuit_breaker_unavailable(False)
+                                logger.info("Circuit breaker recovered and validated")
+                            except RuntimeError:
+                                # Still missing state, keep unavailable
+                                logger.warning("Circuit breaker re-initialized but state still missing")
+
+                        # 3. Recover Position Reservation (Gemini PR fix)
+                        if is_position_reservation_unavailable():
+                            if position_reservation is None:
+                                position_reservation = PositionReservation(redis=redis_client)
+                                logger.info(
+                                    "Position reservation re-initialized after Redis recovery",
+                                    extra={"position_reservation_recovered": True},
+                                )
+
+                            # Position reservation is stateless - just clear the flag
+                            set_position_reservation_unavailable(False)
+                            logger.info("Position reservation recovered and validated")
+
+                        # 4. Recover Slice Scheduler (needs both KS and CB)
+                        if (
+                            slice_scheduler is None
+                            and not is_kill_switch_unavailable()
+                            and not is_circuit_breaker_unavailable()
+                            and kill_switch is not None
+                            and circuit_breaker is not None
+                        ):
+                            slice_scheduler = SliceScheduler(
+                                kill_switch=kill_switch,
+                                breaker=circuit_breaker,
+                                db_client=db_client,
+                                executor=alpaca_client,  # Can be None in DRY_RUN mode
+                            )
+                            # Start the scheduler
+                            if not slice_scheduler.scheduler.running:
+                                slice_scheduler.start()
+                                logger.info(
+                                    "Slice scheduler re-initialized and started after Redis recovery",
+                                    extra={"scheduler_recovered": True, "scheduler_started": True},
+                                )
+                            else:
+                                logger.info(
+                                    "Slice scheduler re-initialized but already running",
+                                    extra={"scheduler_recovered": True, "scheduler_already_running": True},
+                                )
+
                         logger.info(
-                            "Slice scheduler re-initialized and started after Redis recovery",
-                            extra={"scheduler_recovered": True, "scheduler_started": True},
-                        )
-                    else:
-                        logger.info(
-                            "Slice scheduler re-initialized but already running",
-                            extra={"scheduler_recovered": True, "scheduler_already_running": True},
+                            "Infrastructure recovery attempt completed",
+                            extra={
+                                "kill_switch_available": not is_kill_switch_unavailable(),
+                                "breaker_available": not is_circuit_breaker_unavailable(),
+                                "position_reservation_available": not is_position_reservation_unavailable(),
+                            },
                         )
 
-                logger.info(
-                    "Infrastructure recovery attempt completed",
-                    extra={
-                        "kill_switch_available": not is_kill_switch_unavailable(),
-                        "breaker_available": not is_circuit_breaker_unavailable(),
-                        "position_reservation_available": not is_position_reservation_unavailable(),
-                    },
-                )
-
-            except Exception as e:
-                # Still unavailable, keep flags set (fail closed)
-                logger.error(
-                    f"Infrastructure recovery failed: {e}",
-                    extra={
-                        "error": str(e),
-                        "kill_switch_unavailable": is_kill_switch_unavailable(),
-                        "breaker_unavailable": is_circuit_breaker_unavailable(),
-                        "position_reservation_unavailable": is_position_reservation_unavailable(),
-                    },
-                )
+                    except Exception as e:
+                        # Still unavailable, keep flags set (fail closed)
+                        logger.error(
+                            f"Infrastructure recovery failed: {e}",
+                            extra={
+                                "error": str(e),
+                                "kill_switch_unavailable": is_kill_switch_unavailable(),
+                                "breaker_unavailable": is_circuit_breaker_unavailable(),
+                                "position_reservation_unavailable": is_position_reservation_unavailable(),
+                            },
+                        )
 
     # Check Alpaca connection (if not DRY_RUN)
     alpaca_connected = True
@@ -1231,8 +1740,55 @@ async def get_config() -> ConfigResponse:
         dry_run=DRY_RUN,
         alpaca_paper=ALPACA_PAPER,
         circuit_breaker_enabled=CIRCUIT_BREAKER_ENABLED,
+        liquidity_check_enabled=LIQUIDITY_CHECK_ENABLED,
+        max_slice_pct_of_adv=MAX_SLICE_PCT_OF_ADV,
         timestamp=datetime.now(UTC),
     )
+
+
+@app.get(
+    "/api/v1/fat-finger/thresholds",
+    response_model=FatFingerThresholdsResponse,
+    tags=["Configuration"],
+)
+async def get_fat_finger_thresholds() -> FatFingerThresholdsResponse:
+    """Get current fat-finger threshold configuration."""
+
+    return _fat_finger_thresholds_snapshot()
+
+
+@app.put(
+    "/api/v1/fat-finger/thresholds",
+    response_model=FatFingerThresholdsResponse,
+    tags=["Configuration"],
+)
+@require_permission(Permission.MANAGE_STRATEGIES)
+async def update_fat_finger_thresholds(
+    payload: FatFingerThresholdsUpdateRequest,
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> FatFingerThresholdsResponse:
+    """Update fat-finger thresholds (defaults and per-symbol overrides)."""
+
+    if payload.default_thresholds is not None:
+        fat_finger_validator.update_defaults(payload.default_thresholds)
+
+    if payload.symbol_overrides is not None:
+        fat_finger_validator.update_symbol_overrides(payload.symbol_overrides)
+
+    logger.info(
+        "Fat-finger thresholds updated",
+        extra={
+            "user_id": user.get("user_id"),
+            "default_thresholds": payload.default_thresholds.model_dump(mode="json")
+            if payload.default_thresholds
+            else None,
+            "symbol_overrides": list(payload.symbol_overrides.keys())
+            if payload.symbol_overrides
+            else [],
+        },
+    )
+
+    return _fat_finger_thresholds_snapshot()
 
 
 @app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
@@ -1402,6 +1958,83 @@ async def get_kill_switch_status() -> dict[str, Any]:
                 "fail_closed": True,
             },
         ) from e
+
+
+@app.get("/api/v1/reconciliation/status", tags=["Reconciliation"])
+async def get_reconciliation_status() -> dict[str, Any]:
+    """Return reconciliation gating status and override state."""
+    if DRY_RUN:
+        return {
+            "startup_complete": True,
+            "dry_run": True,
+            "message": "DRY_RUN mode - reconciliation gating disabled",
+        }
+
+    if not reconciliation_service:
+        return {
+            "startup_complete": False,
+            "dry_run": False,
+            "message": "Reconciliation service not initialized",
+        }
+
+    return {
+        "startup_complete": reconciliation_service.is_startup_complete(),
+        "dry_run": DRY_RUN,
+        "startup_elapsed_seconds": reconciliation_service.startup_elapsed_seconds(),
+        "startup_timed_out": reconciliation_service.startup_timed_out(),
+        "override_active": reconciliation_service.override_active(),
+        "override_context": reconciliation_service.override_context(),
+    }
+
+
+@app.post("/api/v1/reconciliation/run", tags=["Reconciliation"])
+@require_permission(Permission.MANAGE_RECONCILIATION)
+async def run_reconciliation(
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> dict[str, Any]:
+    """Manually trigger reconciliation."""
+    if DRY_RUN:
+        return {"status": "skipped", "message": "DRY_RUN mode - reconciliation disabled"}
+    if not reconciliation_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation service not initialized",
+        )
+
+    await reconciliation_service.run_reconciliation_once("manual")
+    return {"status": "ok", "message": "Reconciliation run complete"}
+
+
+@app.post("/api/v1/reconciliation/force-complete", tags=["Reconciliation"])
+@require_permission(Permission.MANAGE_RECONCILIATION)
+async def force_complete_reconciliation(
+    payload: ReconciliationForceCompleteRequest,
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> dict[str, Any]:
+    """Force-complete reconciliation (operator override)."""
+    if DRY_RUN:
+        return {"status": "skipped", "message": "DRY_RUN mode - reconciliation disabled"}
+    if not reconciliation_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reconciliation service not initialized",
+        )
+
+    user_id = user.get("user_id") if isinstance(user, dict) else None
+
+    reconciliation_service.mark_startup_complete(
+        forced=True, user_id=user_id, reason=payload.reason
+    )
+    logger.warning(
+        "Reconciliation force-complete invoked",
+        extra={"user_id": user_id, "reason": payload.reason},
+    )
+    return {
+        "status": "override_enabled",
+        "message": "Reconciliation marked complete by operator override",
+        "user_id": user_id,
+        "reason": payload.reason,
+    }
 
 
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
@@ -1662,6 +2295,10 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 },
             ) from e
 
+    # Reconciliation gating + quarantine enforcement
+    await _check_quarantine(order.symbol, STRATEGY_ID)
+    await _require_reconciliation_ready_or_reduce_only(order)
+
     # Position reservation for atomic limit checking (prevents race conditions)
     # Codex HIGH fix: Wire PositionReservation to prevent concurrent orders from both
     # passing position limit check before either executes
@@ -1778,6 +2415,75 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             created_at=existing_order.created_at,
             message=f"Order already submitted (status: {existing_order.status})",
         )
+
+    # Fat-finger validation (size-based warnings/rejections)
+    effective_thresholds = fat_finger_validator.get_effective_thresholds(order.symbol)
+    if (
+        effective_thresholds.max_notional is not None
+        or effective_thresholds.max_qty is not None
+        or effective_thresholds.max_adv_pct is not None
+    ):
+        price, adv = await _resolve_fat_finger_context(order, effective_thresholds)
+        fat_finger_result = fat_finger_validator.validate(
+            symbol=order.symbol,
+            qty=order.qty,
+            price=price,
+            adv=adv,
+            thresholds=effective_thresholds,
+        )
+
+        if fat_finger_result.breached:
+            missing_fields: set[str] = set()
+            for breach in fat_finger_result.breaches:
+                if breach.threshold_type != "data_unavailable":
+                    continue
+                raw_missing = breach.metadata.get("missing", [])
+                if isinstance(raw_missing, list):
+                    missing_fields.update(str(item) for item in raw_missing)
+            if missing_fields:
+                logger.warning(
+                    "Fat-finger data unavailable; treating as breach",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "symbol": order.symbol,
+                        "side": order.side,
+                        "qty": order.qty,
+                        "missing_fields": sorted(missing_fields),
+                    },
+                )
+            logger.warning(
+                "Fat-finger threshold breached",
+                extra={
+                    "client_order_id": client_order_id,
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "qty": order.qty,
+                    **fat_finger_result.log_fields(),
+                },
+            )
+            for threshold_type in iter_breach_types(fat_finger_result.breaches):
+                fat_finger_warnings_total.labels(threshold_type=threshold_type).inc()
+
+            if not DRY_RUN:
+                if position_reservation and reservation_token:
+                    position_reservation.release(order.symbol, reservation_token)
+                    logger.debug(
+                        f"Released reservation on fat-finger rejection: {reservation_token}"
+                    )
+
+                for threshold_type in iter_breach_types(fat_finger_result.breaches):
+                    fat_finger_rejections_total.labels(threshold_type=threshold_type).inc()
+
+                _record_order_metrics(order, start_time, "blocked")
+
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "Fat-finger threshold exceeded",
+                        "message": "Order rejected due to size safety checks",
+                        **fat_finger_result.to_response(),
+                    },
+                )
 
     # Submit order based on DRY_RUN mode
     if DRY_RUN:
@@ -1943,6 +2649,52 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Order submission failed: {str(e)}",
             ) from e
+
+
+@app.post("/api/v1/orders/{client_order_id}/cancel", tags=["Orders"])
+@require_permission(Permission.CANCEL_ORDER)
+async def cancel_order(client_order_id: str) -> dict[str, Any]:
+    """Cancel a single order by client_order_id."""
+    order = db_client.get_order_by_client_id(client_order_id)
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Order not found: {client_order_id}",
+        )
+
+    if order.status in TERMINAL_STATUSES:
+        return {
+            "client_order_id": client_order_id,
+            "status": order.status,
+            "message": "Order already in terminal state",
+        }
+
+    if not DRY_RUN:
+        if not alpaca_client:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Alpaca client not initialized. Check credentials.",
+            )
+        if order.broker_order_id:
+            alpaca_client.cancel_order(order.broker_order_id)
+
+    updated = db_client.update_order_status_cas(
+        client_order_id=client_order_id,
+        status="canceled",
+        broker_updated_at=datetime.now(UTC),
+        status_rank=status_rank_for("canceled"),
+        source_priority=SOURCE_PRIORITY_MANUAL,
+        filled_qty=order.filled_qty,
+        filled_avg_price=order.filled_avg_price,
+        filled_at=order.filled_at,
+        broker_order_id=order.broker_order_id,
+    )
+
+    return {
+        "client_order_id": client_order_id,
+        "status": updated.status if updated else "canceled",
+        "message": "Order canceled",
+    }
 
 
 # ============================================================================
@@ -2173,12 +2925,16 @@ def _find_existing_twap_plan(
         total_qty=request.qty,
         total_slices=len(slice_details),
         duration_minutes=request.duration_minutes,
-        interval_seconds=request.interval_seconds,
+        interval_seconds=slicing_plan.interval_seconds,
         slices=slice_details,
     )
 
 
-def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> SlicingPlan | None:
+def _create_twap_in_db(
+    request: SlicingRequest,
+    slicing_plan: SlicingPlan,
+    parent_metadata: dict[str, Any] | None,
+) -> SlicingPlan | None:
     """
     Create parent + child orders atomically in database.
 
@@ -2189,6 +2945,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
     Args:
         request: TWAP order request
         slicing_plan: Generated slicing plan
+        parent_metadata: Optional metadata to persist with the parent order
 
     Returns:
         SlicingPlan if concurrent submission detected, None if created successfully
@@ -2221,6 +2978,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
                 strategy_id=slicing_plan.parent_strategy_id,  # Use strategy_id from plan
                 order_request=parent_order_request,
                 total_slices=slicing_plan.total_slices,
+                metadata=parent_metadata,
                 conn=conn,  # Use shared transaction connection
             )
 
@@ -2288,7 +3046,7 @@ def _create_twap_in_db(request: SlicingRequest, slicing_plan: SlicingPlan) -> Sl
             total_qty=request.qty,
             total_slices=len(slice_details),
             duration_minutes=request.duration_minutes,
-            interval_seconds=request.interval_seconds,
+            interval_seconds=slicing_plan.interval_seconds,
             slices=slice_details,
         )
 
@@ -2456,18 +3214,81 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
     # Step 2: Check prerequisites (scheduler availability, kill-switch)
     _check_twap_prerequisites()
 
+    # Reconciliation gating (no reduce-only path for TWAP)
+    await _check_quarantine(request.symbol, STRATEGY_ID)
+    if not _is_reconciliation_ready():
+        if reconciliation_service and reconciliation_service.override_active():
+            logger.warning(
+                "Reconciliation override active; allowing TWAP order",
+                extra={"symbol": request.symbol, "override": reconciliation_service.override_context()},
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Reconciliation in progress - TWAP orders blocked",
+            )
+
     try:
         # CRITICAL: Use consistent trade_date for idempotency across midnight
         # If client retries after midnight, must pass same trade_date to avoid duplicate orders
         trade_date = request.trade_date or datetime.now(UTC).date()
 
-        # Step 3: Create slicing plan with consistent trade_date
+        # Step 3: Apply liquidity constraints (ADV-based) before slicing
+        adv_20d: int | None = None
+        max_slice_qty: int | None = None
+        if LIQUIDITY_CHECK_ENABLED:
+            if liquidity_service is None:
+                logger.warning(
+                    "Liquidity check enabled but service unavailable; rejecting TWAP request",
+                    extra={"symbol": request.symbol},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Liquidity service unavailable; please retry",
+                )
+            else:
+                adv_20d = await asyncio.to_thread(liquidity_service.get_adv, request.symbol)
+                if adv_20d is None:
+                    logger.warning(
+                        "ADV lookup unavailable with no cache; rejecting TWAP request to preserve idempotency",
+                        extra={"symbol": request.symbol},
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Liquidity data unavailable (ADV lookup failed); please retry",
+                    )
+                computed = int(adv_20d * MAX_SLICE_PCT_OF_ADV)
+                if computed < 1:
+                    logger.warning(
+                        "Computed max_slice_qty < 1; clamping to 1 share",
+                        extra={
+                            "symbol": request.symbol,
+                            "adv_20d": adv_20d,
+                            "max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV,
+                            "computed": computed,
+                            "clamped": 1,
+                        },
+                    )
+                max_slice_qty = max(1, computed)
+
+        liquidity_constraints: dict[str, bool | int | float | str | None] = {
+            "enabled": LIQUIDITY_CHECK_ENABLED,
+            "adv_20d": adv_20d,
+            "max_slice_pct_of_adv": MAX_SLICE_PCT_OF_ADV,
+            "max_slice_qty": max_slice_qty,
+        }
+        if adv_20d is not None:
+            liquidity_constraints["calculated_at"] = datetime.now(UTC).isoformat()
+            liquidity_constraints["source"] = "alpaca_bars_20d"
+
+        # Step 4: Create slicing plan with consistent trade_date
         slicing_plan = twap_slicer.plan(
             symbol=request.symbol,
             side=request.side,
             qty=request.qty,
             duration_minutes=request.duration_minutes,
             interval_seconds=request.interval_seconds,
+            max_slice_qty=max_slice_qty,
             order_type=request.order_type,
             limit_price=request.limit_price,
             stop_price=request.stop_price,
@@ -2475,21 +3296,23 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
             trade_date=trade_date,  # Pass consistent trade_date
         )
 
-        # Step 4: Check for existing order (idempotency + backward compatibility)
+        # Step 5: Check for existing order (idempotency + backward compatibility)
         existing_plan = _find_existing_twap_plan(request, slicing_plan, trade_date)
         if existing_plan:
             return existing_plan
 
-        # Step 5: Create parent + child orders atomically in database
+        # Step 6: Create parent + child orders atomically in database
         # Handles concurrent submissions by catching UniqueViolation
-        concurrent_plan = _create_twap_in_db(request, slicing_plan)
+        concurrent_plan = _create_twap_in_db(
+            request, slicing_plan, {"liquidity_constraints": liquidity_constraints}
+        )
         if concurrent_plan:
             return concurrent_plan
 
-        # Step 6: Schedule slices for execution with failure compensation
+        # Step 7: Schedule slices for execution with failure compensation
         job_ids = _schedule_slices_with_compensation(request, slicing_plan)
 
-        # Step 7: Log success and return
+        # Step 8: Log success and return
         logger.info(
             f"TWAP order created: parent={slicing_plan.parent_order_id}, slices={len(job_ids)}",
             extra={
@@ -3035,15 +3858,27 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
         # Fast path: if no fill info, just update status and return
         if event_type not in ("fill", "partial_fill") or not filled_qty or not filled_avg_price:
-            updated_order = db_client.update_order_status(
+            broker_updated_at = _parse_webhook_timestamp(
+                order_data.get("updated_at"),
+                payload.get("timestamp"),
+                order_data.get("created_at"),
+                default=datetime.now(UTC),
+            )
+
+            updated_order = db_client.update_order_status_cas(
                 client_order_id=client_order_id,
                 status=order_status,
-                broker_order_id=broker_order_id,
-                filled_qty=Decimal(str(filled_qty)) if filled_qty else None,
+                broker_updated_at=broker_updated_at,
+                status_rank=status_rank_for(order_status or ""),
+                source_priority=SOURCE_PRIORITY_WEBHOOK,
+                filled_qty=Decimal(str(filled_qty)) if filled_qty else Decimal("0"),
                 filled_avg_price=Decimal(str(filled_avg_price)) if filled_avg_price else None,
+                filled_at=None,
+                broker_order_id=broker_order_id,
+                broker_event_id=payload.get("execution_id"),
             )
             if not updated_order:
-                logger.warning(f"Order not found for webhook: {client_order_id}")
+                logger.warning(f"Order not found for webhook or CAS skipped: {client_order_id}")
                 return {"status": "ignored", "reason": "order_not_found"}
             return {"status": "ok", "client_order_id": client_order_id}
 
@@ -3053,25 +3888,21 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
         per_fill_price = Decimal(str(payload.get("price", filled_avg_price_dec)))
 
-        # Broker-provided timestamp preferred
-        broker_ts = (
-            payload.get("timestamp") or payload.get("filled_at") or order_data.get("filled_at")
+        # Parse fill and broker timestamps using helper
+        server_now = datetime.now(UTC)
+        fill_timestamp = _parse_webhook_timestamp(
+            payload.get("timestamp"),
+            payload.get("filled_at"),
+            order_data.get("filled_at"),
+            default=server_now,
         )
-        if broker_ts:
-            try:
-                fill_timestamp = datetime.fromisoformat(str(broker_ts).replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                fill_timestamp = datetime.now(UTC)
-                logger.warning(
-                    "Failed to parse broker timestamp; using server time",
-                    extra={"client_order_id": client_order_id, "broker_ts": broker_ts},
-                )
-        else:
-            fill_timestamp = datetime.now(UTC)
-            logger.warning(
-                "Missing broker timestamp; using server time",
-                extra={"client_order_id": client_order_id},
-            )
+
+        broker_updated_at = _parse_webhook_timestamp(
+            order_data.get("updated_at"),
+            payload.get("timestamp"),
+            order_data.get("filled_at"),
+            default=fill_timestamp,
+        )
 
         with db_client.transaction() as conn:
             order = db_client.get_order_for_update(client_order_id, conn)
@@ -3079,53 +3910,79 @@ async def order_webhook(request: Request) -> dict[str, str]:
                 logger.warning(f"Order not found for webhook: {client_order_id}")
                 return {"status": "ignored", "reason": "order_not_found"}
 
-            prev_filled_qty = int(order.filled_qty or 0)
-            incremental_fill_qty = int(filled_qty_dec) - prev_filled_qty
+            # Use Decimal values but compute integer delta from cumulative quantities
+            # This ensures fractional fills accumulate at integer boundaries
+            # e.g., 0.3 + 0.4 + 0.3 = 1.0 triggers a position update when crossing 1
+            prev_filled_qty_dec = order.filled_qty or Decimal("0")
+            incremental_fill_qty_int = int(filled_qty_dec) - int(prev_filled_qty_dec)
 
-            if incremental_fill_qty <= 0:
+            # Log fractional remainder for observability (positions table uses integers)
+            fractional_current = filled_qty_dec % 1
+            fractional_prev = prev_filled_qty_dec % 1
+            if fractional_current != 0 or fractional_prev != 0:
                 logger.info(
-                    "No incremental fill; skipping",
+                    "Fractional fill quantities detected; position updates at integer boundaries",
                     extra={
                         "client_order_id": client_order_id,
-                        "prev_filled_qty": prev_filled_qty,
-                        "current_filled_qty": int(filled_qty_dec),
+                        "filled_qty_decimal": str(filled_qty_dec),
+                        "prev_filled_qty_decimal": str(prev_filled_qty_dec),
+                        "incremental_fill_int": incremental_fill_qty_int,
+                        "fractional_current": str(fractional_current),
+                        "fractional_prev": str(fractional_prev),
                     },
                 )
-                return {"status": "skipped", "reason": "no_incremental_fill"}
 
-            position_locked = db_client.get_position_for_update(order.symbol, conn)
-            old_realized = position_locked.realized_pl if position_locked else Decimal("0")
+            # Only update position and append fill metadata if there's an incremental fill
+            if incremental_fill_qty_int > 0:
+                position_locked = db_client.get_position_for_update(order.symbol, conn)
+                old_realized = position_locked.realized_pl if position_locked else Decimal("0")
 
-            position = db_client.update_position_on_fill_with_conn(
-                symbol=order.symbol,
-                fill_qty=incremental_fill_qty,
-                fill_price=per_fill_price,
-                side=order.side,
-                conn=conn,
-            )
+                position = db_client.update_position_on_fill_with_conn(
+                    symbol=order.symbol,
+                    fill_qty=incremental_fill_qty_int,
+                    fill_price=per_fill_price,
+                    side=order.side,
+                    conn=conn,
+                )
 
-            realized_delta = position.realized_pl - old_realized
+                realized_delta = position.realized_pl - old_realized
 
-            db_client.append_fill_to_order_metadata(
-                client_order_id=client_order_id,
-                fill_data={
-                    "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
-                    "fill_qty": incremental_fill_qty,
-                    "fill_price": str(per_fill_price),
-                    "realized_pl": str(realized_delta),
-                    "timestamp": fill_timestamp.isoformat(),
-                },
-                conn=conn,
-            )
+                db_client.append_fill_to_order_metadata(
+                    client_order_id=client_order_id,
+                    fill_data={
+                        "fill_id": f"{client_order_id}_{int(filled_qty_dec)}",
+                        "fill_qty": incremental_fill_qty_int,
+                        "fill_price": str(per_fill_price),
+                        "realized_pl": str(realized_delta),
+                        "timestamp": fill_timestamp.isoformat(),
+                    },
+                    conn=conn,
+                )
+            else:
+                logger.info(
+                    "No incremental fill; skipping position update but still updating order status",
+                    extra={
+                        "client_order_id": client_order_id,
+                        "prev_filled_qty": str(prev_filled_qty_dec),
+                        "current_filled_qty": str(filled_qty_dec),
+                        "order_status": order_status,
+                    },
+                )
 
+            # Always update order status/avg_price (even with no incremental fill)
+            # This ensures status-only updates and price corrections are captured
             db_client.update_order_status_with_conn(
                 client_order_id=client_order_id,
                 status=order_status,
-                filled_qty=int(filled_qty_dec),
+                filled_qty=filled_qty_dec,
                 filled_avg_price=filled_avg_price_dec,
                 filled_at=fill_timestamp if order_status == "filled" else None,
                 conn=conn,
                 broker_order_id=broker_order_id,
+                broker_updated_at=broker_updated_at,
+                status_rank=status_rank_for(order_status or ""),
+                source_priority=SOURCE_PRIORITY_WEBHOOK,
+                broker_event_id=payload.get("execution_id"),
             )
 
         # Invalidate performance cache after successful fill
@@ -3181,6 +4038,26 @@ async def startup_event() -> None:
     else:
         logger.warning("Slice scheduler not available (not started)")
 
+    # Start reconciliation service (startup gating + periodic sync)
+    global reconciliation_service, reconciliation_task
+    if DRY_RUN:
+        logger.info("DRY_RUN enabled - skipping reconciliation startup gating")
+    elif not alpaca_client:
+        logger.error("Alpaca client unavailable - reconciliation not started (gating remains active)")
+    else:
+        reconciliation_service = ReconciliationService(
+            db_client=db_client,
+            alpaca_client=alpaca_client,
+            redis_client=redis_client,
+            dry_run=DRY_RUN,
+        )
+        await reconciliation_service.run_startup_reconciliation()
+        reconciliation_task = asyncio.create_task(reconciliation_service.run_periodic_loop())
+        logger.info("Reconciliation service started")
+
+    # Recover any pending TWAP slices after reconciliation gate opens
+    asyncio.create_task(_recover_zombie_slices_after_reconciliation())
+
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
@@ -3196,6 +4073,12 @@ async def shutdown_event() -> None:
     # H2 Fix: Close database connection pool for clean shutdown
     db_client.close()
     logger.info("Database connection pool closed")
+
+    # Stop reconciliation task
+    if reconciliation_service:
+        reconciliation_service.stop()
+    if reconciliation_task:
+        reconciliation_task.cancel()
 
 
 if __name__ == "__main__":

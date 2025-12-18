@@ -129,5 +129,32 @@ class RedisKeys:
         """
         return f"model:version:{strategy_name}"
 
+    @staticmethod
+    def quarantine(strategy_id: str, symbol: str) -> str:
+        """
+        Generate Redis key for symbol quarantine.
+
+        Format: "quarantine:{strategy_id}:{symbol}"
+        """
+        return f"quarantine:{strategy_id}:{symbol}"
+
+    @staticmethod
+    def orphan_exposure(strategy_id: str, symbol: str) -> str:
+        """
+        Generate Redis key for orphan exposure tracking.
+
+        Format: "orphan_exposure:{strategy_id}:{symbol}"
+        """
+        return f"orphan_exposure:{strategy_id}:{symbol}"
+
+    @staticmethod
+    def reduce_only_lock(symbol: str) -> str:
+        """
+        Generate Redis key for reduce-only validation lock.
+
+        Format: "reduce_only_lock:{symbol}"
+        """
+        return f"reduce_only_lock:{symbol}"
+
 
 __all__ = ["RedisKeys"]

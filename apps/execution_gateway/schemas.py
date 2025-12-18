@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from libs.common import TimestampSerializerMixin
 
@@ -23,7 +23,9 @@ from libs.common import TimestampSerializerMixin
 # DRY principle: Define once, use everywhere
 OrderStatus: TypeAlias = Literal[
     "pending_new",
+    "new",
     "accepted",
+    "partially_filled",
     "filled",
     "canceled",
     "rejected",
@@ -508,6 +510,12 @@ class ConfigResponse(TimestampSerializerMixin, BaseModel):
     dry_run: bool = Field(..., description="Dry-run mode enabled (no real orders)")
     alpaca_paper: bool = Field(..., description="Alpaca paper trading mode")
     circuit_breaker_enabled: bool = Field(..., description="Circuit breaker feature enabled")
+    liquidity_check_enabled: bool = Field(
+        ..., description="Liquidity-aware slicing enabled (ADV-based limits)"
+    )
+    max_slice_pct_of_adv: float = Field(
+        ..., description="Max slice size as pct of ADV when liquidity checks enabled"
+    )
     timestamp: datetime = Field(..., description="Response timestamp (UTC)")
 
     model_config = {
@@ -520,11 +528,86 @@ class ConfigResponse(TimestampSerializerMixin, BaseModel):
                     "dry_run": True,
                     "alpaca_paper": True,
                     "circuit_breaker_enabled": True,
+                    "liquidity_check_enabled": True,
+                    "max_slice_pct_of_adv": 0.01,
                     "timestamp": "2025-10-22T10:30:00Z",
                 }
             ]
         }
     }
+
+
+# ============================================================================
+# Fat-Finger Threshold Schemas
+# ============================================================================
+
+
+class FatFingerThresholds(BaseModel):
+    """Fat-finger thresholds for order validation."""
+
+    max_notional: Decimal | None = Field(
+        default=None, gt=0, description="Max order notional (in USD)"
+    )
+    max_qty: int | None = Field(default=None, gt=0, description="Max order quantity (shares)")
+    max_adv_pct: Decimal | None = Field(
+        default=None,
+        gt=0,
+        le=1,
+        description="Max order size as fraction of ADV (0-1)",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"max_notional": "100000", "max_qty": 10000, "max_adv_pct": "0.05"}
+            ]
+        }
+    }
+
+
+class FatFingerThresholdsUpdateRequest(BaseModel):
+    """Update fat-finger thresholds (defaults + per-symbol overrides)."""
+
+    default_thresholds: FatFingerThresholds | None = Field(
+        default=None, description="Default thresholds applied when no override exists"
+    )
+    symbol_overrides: dict[str, FatFingerThresholds | None] | None = Field(
+        default=None,
+        description="Per-symbol overrides; set value to null to remove override",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "default_thresholds": {
+                        "max_notional": "150000",
+                        "max_qty": 12000,
+                        "max_adv_pct": "0.06",
+                    },
+                    "symbol_overrides": {
+                        "AAPL": {"max_qty": 5000},
+                        "TSLA": {"max_notional": "200000", "max_adv_pct": "0.03"},
+                    },
+                }
+            ]
+        }
+    }
+
+
+class FatFingerThresholdsResponse(BaseModel):
+    """Current fat-finger threshold configuration."""
+
+    default_thresholds: FatFingerThresholds
+    symbol_overrides: dict[str, FatFingerThresholds]
+    updated_at: datetime
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, value: datetime) -> str:
+        """Serialize updated_at with Z suffix for UTC consistency."""
+        if value.tzinfo is None or value.utcoffset() == timedelta(0):
+            return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return value.isoformat()
 
 
 # ============================================================================
@@ -568,6 +651,19 @@ class KillSwitchDisengageRequest(BaseModel):
             ]
         }
     }
+
+
+# ============================================================================
+# Reconciliation Schemas
+# ============================================================================
+
+
+class ReconciliationForceCompleteRequest(BaseModel):
+    """Request to force-complete startup reconciliation."""
+
+    reason: str | None = Field(
+        None, description="Operator-provided reason for forcing reconciliation completion"
+    )
 
 
 # ============================================================================

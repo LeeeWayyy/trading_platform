@@ -36,7 +36,7 @@ import logging
 import os
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -48,10 +48,18 @@ from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, Info, make_asgi_app
 from pydantic import BaseModel, Field, validator
 
-from libs.redis_client import FeatureCache, RedisClient, RedisConnectionError
+from libs.redis_client import (
+    EventPublisher,
+    FallbackBuffer,
+    FeatureCache,
+    RedisClient,
+    RedisConnectionError,
+    SignalEvent,
+)
 
 from .config import Settings
-from .model_registry import ModelRegistry
+from .model_registry import ModelMetadata, ModelRegistry
+from .shadow_validator import ShadowModeValidator, ShadowValidationResult
 from .signal_generator import SignalGenerator
 
 
@@ -79,7 +87,11 @@ settings = Settings()
 model_registry: ModelRegistry | None = None
 signal_generator: SignalGenerator | None = None
 redis_client: RedisClient | None = None
+event_publisher: EventPublisher | None = None
+fallback_buffer: FallbackBuffer | None = None
 feature_cache: FeatureCache | None = None
+shadow_validator: ShadowModeValidator | None = None
+hydration_complete = True
 
 # H8 Fix: Cache SignalGenerators by (top_n, bottom_n) to avoid per-request allocation
 # Key: (top_n, bottom_n) tuple, Value: SignalGenerator instance
@@ -144,7 +156,14 @@ async def model_reload_task() -> None:
                 # Attempt to load model (self-healing after startup failure)
                 # Use reload_if_changed() which handles loading when no model is loaded
                 try:
-                    model_registry.reload_if_changed(strategy=settings.default_strategy)
+                    reloaded = model_registry.reload_if_changed(
+                        strategy=settings.default_strategy,
+                        shadow_validator=_shadow_validate,
+                        shadow_validation_enabled=settings.shadow_validation_enabled,
+                        skip_shadow_validation=settings.skip_shadow_validation,
+                        schedule_validation=_schedule_shadow_validation,
+                        on_model_activated=_on_model_activated,
+                    )
                     if model_registry.is_loaded:
                         logger.info("Cold-load recovery successful - model now loaded")
                     else:
@@ -155,7 +174,15 @@ async def model_reload_task() -> None:
 
             # Check for model updates
             logger.debug("Checking for model updates...")
-            reloaded = model_registry.reload_if_changed(strategy=settings.default_strategy)
+            reloaded = model_registry.reload_if_changed(
+                strategy=settings.default_strategy,
+                shadow_validator=_shadow_validate,
+                shadow_validation_enabled=settings.shadow_validation_enabled,
+                skip_shadow_validation=settings.skip_shadow_validation,
+                schedule_validation=_schedule_shadow_validation,
+                on_model_activated=_on_model_activated,
+            )
+            _record_shadow_skip_if_bypassed(reloaded)
 
             if reloaded:
                 assert model_registry.current_metadata is not None
@@ -164,21 +191,11 @@ async def model_reload_task() -> None:
                     f"{model_registry.current_metadata.strategy_name} "
                     f"v{model_registry.current_metadata.version}"
                 )
-
-                # Update model metrics after successful reload
-                model_version_info.info(
-                    {
-                        "version": model_registry.current_metadata.version,
-                        "strategy": model_registry.current_metadata.strategy_name,
-                        "activated_at": (
-                            model_registry.current_metadata.activated_at.isoformat()
-                            if model_registry.current_metadata.activated_at
-                            else ""
-                        ),
-                    }
-                )
-                model_loaded_status.set(1)
-                model_reload_total.labels(status="success").inc()
+            elif model_registry.pending_validation:
+                extra = {}
+                if model_registry.pending_metadata is not None:
+                    extra["version"] = model_registry.pending_metadata.version
+                logger.info("Shadow validation running for model reload", extra=extra)
             else:
                 logger.debug("No model updates found")
 
@@ -186,6 +203,147 @@ async def model_reload_task() -> None:
             logger.error(f"Model reload task failed: {e}", exc_info=True)
             # Continue polling even if one check fails
             # This provides resilience against transient errors
+
+
+def _should_hydrate_features() -> bool:
+    """Return True when feature hydration should run."""
+    return (
+        settings.feature_hydration_enabled
+        and feature_cache is not None
+        and signal_generator is not None
+        and model_registry is not None
+        and model_registry.is_loaded
+    )
+
+
+async def feature_hydration_task(symbols: list[str], history_days: int) -> None:
+    """
+    Background task to hydrate feature cache at startup.
+
+    Runs in a separate thread to avoid blocking the event loop.
+    """
+    global hydration_complete
+
+    logger.info(
+        "Hydrating feature cache with %s days of history for %s symbols...",
+        history_days,
+        len(symbols),
+    )
+
+    try:
+        assert signal_generator is not None, "signal_generator should be initialized"
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                signal_generator.hydrate_feature_cache,
+                symbols=symbols,
+                history_days=history_days,
+            ),
+            timeout=settings.feature_hydration_timeout_seconds,
+        )
+        logger.info("Feature cache hydration completed")
+        hydration_complete = True  # Only mark complete on success
+    except TimeoutError:
+        logger.warning(
+            "Feature cache hydration timed out after %s seconds; health will remain degraded",
+            settings.feature_hydration_timeout_seconds,
+        )
+        # Keep hydration_complete = False to maintain degraded health status
+    except Exception as e:
+        logger.error(f"Feature cache hydration failed: {e}; health will remain degraded", exc_info=True)
+        # Keep hydration_complete = False to maintain degraded health status
+
+
+def _attempt_redis_reconnect() -> bool:
+    """Attempt to reconnect Redis for publishing buffered signals.
+
+    On successful reconnection, also reinitializes FeatureCache and updates
+    SignalGenerator to prevent stale references to the old Redis client.
+    """
+    global redis_client, event_publisher, feature_cache
+
+    if redis_client is not None:
+        return True
+
+    try:
+        redis_client = RedisClient(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+        )
+        event_publisher = EventPublisher(redis_client)
+
+        # Reinitialize FeatureCache with new Redis client to avoid stale references
+        feature_cache = FeatureCache(
+            redis_client=redis_client,
+            ttl=settings.redis_ttl,
+        )
+
+        # Update SignalGenerator's feature_cache reference
+        if signal_generator is not None:
+            signal_generator.feature_cache = feature_cache
+
+        # Update generator cache entries
+        for gen in _generator_cache.values():
+            gen.feature_cache = feature_cache
+
+        logger.info(
+            "Redis reconnected successfully for fallback replay",
+            extra={"feature_cache_reinitialized": True},
+        )
+        return True
+    except RedisConnectionError as exc:
+        logger.warning("Redis reconnect attempt failed: %s", exc)
+        return False
+
+
+def _publish_buffered_message(channel: str, payload: str) -> None:
+    """Publish a buffered message via Redis (raises on failure)."""
+    if redis_client is None:
+        raise RuntimeError("Redis client not initialized")
+    redis_client.publish(channel, payload)
+
+
+async def redis_fallback_replay_task() -> None:
+    """Background task to replay buffered signals when Redis recovers."""
+    logger.info(
+        "Starting Redis fallback replay task (interval: %ss)",
+        settings.redis_fallback_replay_interval_seconds,
+    )
+
+    redis_was_healthy = False
+
+    while True:
+        await asyncio.sleep(settings.redis_fallback_replay_interval_seconds)
+
+        if not settings.redis_enabled or fallback_buffer is None:
+            continue
+
+        if redis_client is None and not _attempt_redis_reconnect():
+            redis_was_healthy = False
+            continue
+
+        if redis_client is None:
+            redis_was_healthy = False
+            continue
+
+        is_healthy = redis_client.health_check()
+        if is_healthy and not redis_was_healthy:
+            logger.info("Redis recovered; attempting fallback replay")
+        elif not is_healthy and redis_was_healthy:
+            logger.warning("Redis unavailable; buffering signals until recovery")
+
+        redis_was_healthy = is_healthy
+
+        if not is_healthy or fallback_buffer.size == 0:
+            continue
+
+        replayed = await asyncio.to_thread(
+            fallback_buffer.replay, _publish_buffered_message
+        )
+        if replayed:
+            signals_replayed_total.inc(replayed)
+            redis_fallback_buffer_size.set(fallback_buffer.size)
+            logger.info("Replayed %s buffered signal events", replayed)
 
 
 # ==============================================================================
@@ -222,7 +380,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Raises:
         RuntimeError: If model loading fails at startup
     """
-    global model_registry, signal_generator, redis_client, feature_cache
+    global model_registry
+    global signal_generator
+    global redis_client
+    global event_publisher
+    global fallback_buffer
+    global feature_cache
+    global shadow_validator
+    global hydration_complete
 
     logger.info("=" * 60)
     logger.info("Signal Service Starting...")
@@ -242,7 +407,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # In testing mode, allow service to start without model
         model_load_failed = False
         try:
+            had_current_model = model_registry.is_loaded
             reloaded = model_registry.reload_if_changed(settings.default_strategy)
+            if had_current_model:
+                _record_shadow_skip_if_bypassed(reloaded)
 
             if not model_registry.is_loaded:
                 model_load_failed = True
@@ -305,12 +473,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 f"Initializing Redis client: {settings.redis_host}:{settings.redis_port} "
                 f"(db={settings.redis_db})"
             )
+            fallback_buffer = FallbackBuffer(
+                max_size=settings.redis_fallback_buffer_max_size,
+                persist_path=settings.redis_fallback_buffer_path,
+            )
+            redis_fallback_buffer_size.set(fallback_buffer.size)
             try:
                 redis_client = RedisClient(
                     host=settings.redis_host,
                     port=settings.redis_port,
                     db=settings.redis_db,
                 )
+                event_publisher = EventPublisher(redis_client)
 
                 # Verify connection
                 if redis_client.health_check():
@@ -324,17 +498,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     logger.info(f"Feature cache initialized (TTL: {settings.redis_ttl}s)")
                 else:
                     logger.warning("Redis health check failed, running without cache")
-                    redis_client = None
                     feature_cache = None
 
             except RedisConnectionError as e:
                 logger.warning(f"Failed to connect to Redis: {e}")
                 logger.warning("Service will continue without Redis (graceful degradation)")
                 redis_client = None
+                event_publisher = None
                 feature_cache = None
         else:
             logger.info("Redis disabled (settings.redis_enabled=False)")
             redis_client = None
+            event_publisher = None
+            fallback_buffer = None
             feature_cache = None
 
         # Step 4: Initialize SignalGenerator (skip in TESTING mode if model not loaded)
@@ -350,6 +526,43 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 bottom_n=settings.bottom_n,
                 feature_cache=feature_cache,  # Pass feature cache (None if disabled)
             )
+
+        # Step 4.2: Initialize shadow validator (T4)
+        if settings.shadow_validation_enabled:
+            shadow_validator = ShadowModeValidator(
+                data_dir=settings.data_dir,
+                symbols=settings.tradable_symbols,
+                sample_count=settings.shadow_sample_count,
+            )
+            logger.info(
+                "Shadow validation enabled",
+                extra={"sample_count": settings.shadow_sample_count},
+            )
+            if settings.skip_shadow_validation:
+                logger.warning("SKIP_SHADOW_VALIDATION enabled - bypassing shadow checks")
+        else:
+            shadow_validator = None
+            logger.info("Shadow validation disabled")
+
+        # Step 4.5: Start background feature hydration task
+        hydration_task = None
+        if _should_hydrate_features():
+            hydration_complete = False
+            logger.info("Starting background feature hydration task...")
+            hydration_task = asyncio.create_task(
+                feature_hydration_task(
+                    symbols=settings.tradable_symbols,
+                    history_days=SignalGenerator.DEFAULT_FEATURE_HYDRATION_DAYS,
+                )
+            )
+        else:
+            hydration_complete = True
+            if not settings.feature_hydration_enabled:
+                logger.info("Feature hydration disabled (FEATURE_HYDRATION_ENABLED=false)")
+            elif feature_cache is None:
+                logger.info("Feature cache not enabled, skipping hydration")
+            elif model_registry is None or not model_registry.is_loaded:
+                logger.info("Model not loaded, skipping hydration")
 
         logger.info("=" * 60)
         if model_registry.is_loaded and model_registry.current_metadata:
@@ -376,6 +589,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Step 5: Start background model reload task
         logger.info("Starting background model reload task...")
         reload_task = asyncio.create_task(model_reload_task())
+        redis_replay_task = None
+        if settings.redis_enabled and fallback_buffer is not None:
+            logger.info("Starting Redis fallback replay task...")
+            redis_replay_task = asyncio.create_task(redis_fallback_replay_task())
 
         yield  # Application runs here
 
@@ -390,6 +607,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             reload_task.cancel()
             try:
                 await reload_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("Stopping Redis fallback replay task...")
+        if "redis_replay_task" in locals() and redis_replay_task is not None:
+            redis_replay_task.cancel()
+            try:
+                await redis_replay_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("Stopping background feature hydration task...")
+        if "hydration_task" in locals() and hydration_task is not None:
+            hydration_task.cancel()
+            try:
+                await hydration_task
             except asyncio.CancelledError:
                 pass
 
@@ -496,6 +729,28 @@ model_reload_total = Counter(
     ["status"],  # success, failed
 )
 
+# Shadow validation metrics (T4)
+shadow_validation_total = Counter(
+    "signal_service_shadow_validation_total",
+    "Total number of shadow validation runs",
+    ["status"],  # passed, rejected, failed, skipped
+)
+
+shadow_validation_correlation = Gauge(
+    "signal_service_shadow_validation_correlation",
+    "Correlation between old and new model predictions",
+)
+
+shadow_validation_mean_abs_diff_ratio = Gauge(
+    "signal_service_shadow_validation_mean_abs_diff_ratio",
+    "Mean absolute difference ratio between old and new predictions",
+)
+
+shadow_validation_sign_change_rate = Gauge(
+    "signal_service_shadow_validation_sign_change_rate",
+    "Rate of prediction sign changes between old and new models",
+)
+
 # Health metrics
 database_connection_status = Gauge(
     "signal_service_database_connection_status",
@@ -505,6 +760,26 @@ database_connection_status = Gauge(
 redis_connection_status = Gauge(
     "signal_service_redis_connection_status",
     "Redis connection status (1=connected, 0=disconnected)",
+)
+
+redis_fallback_buffer_size = Gauge(
+    "signal_service_redis_fallback_buffer_size",
+    "Number of buffered signal events waiting for Redis publish",
+)
+
+signals_buffered_total = Counter(
+    "signal_service_signals_buffered_total",
+    "Total number of signal events buffered due to Redis publish failures",
+)
+
+signals_replayed_total = Counter(
+    "signal_service_signals_replayed_total",
+    "Total number of buffered signal events replayed after Redis recovery",
+)
+
+signals_dropped_total = Counter(
+    "signal_service_signals_dropped_total",
+    "Total number of buffered signal events dropped due to buffer limits",
 )
 
 model_loaded_status = Gauge(
@@ -520,11 +795,121 @@ model_version_info = Info(
 # Set initial values
 database_connection_status.set(1)  # Will be updated by health check
 redis_connection_status.set(1 if redis_client else 0)
+redis_fallback_buffer_size.set(0)
 model_loaded_status.set(0)  # Will be updated after model loads
 
 # Mount Prometheus metrics endpoint
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
+
+
+# ==============================================================================
+# Shadow Validation Helpers (T4)
+# ==============================================================================
+
+
+def _record_shadow_validation(result: ShadowValidationResult | None, status: str) -> None:
+    """Record shadow validation metrics for monitoring."""
+    shadow_validation_total.labels(status=status).inc()
+    if result is None:
+        return
+    shadow_validation_correlation.set(result.correlation)
+    shadow_validation_mean_abs_diff_ratio.set(result.mean_abs_diff_ratio)
+    shadow_validation_sign_change_rate.set(result.sign_change_rate)
+
+
+def _record_shadow_skip_if_bypassed(reloaded: bool) -> None:
+    """Record when shadow validation is bypassed by configuration."""
+    if not reloaded:
+        return
+    if not settings.shadow_validation_enabled or settings.skip_shadow_validation:
+        _record_shadow_validation(None, "skipped")
+
+
+def _on_model_activated(metadata: ModelMetadata) -> None:
+    """Update model metrics after a model becomes active."""
+    model_version_info.info(
+        {
+            "version": metadata.version,
+            "strategy": metadata.strategy_name,
+            "activated_at": metadata.activated_at.isoformat() if metadata.activated_at else "",
+        }
+    )
+    model_loaded_status.set(1)
+    model_reload_total.labels(status="success").inc()
+
+
+def _schedule_shadow_validation(task: Callable[[], None]) -> None:
+    """Run shadow validation in the background without blocking the event loop."""
+    asyncio.create_task(asyncio.to_thread(task))
+
+
+def _shadow_validate(old_model: Any, new_model: Any) -> ShadowValidationResult:
+    """Validate a candidate model against the current model and emit metrics."""
+    if shadow_validator is None:
+        raise RuntimeError("Shadow validator not initialized")
+
+    try:
+        result = shadow_validator.validate(old_model, new_model)
+        status_label = "passed" if result.passed else "rejected"
+        _record_shadow_validation(result, status_label)
+        return result
+    except Exception:
+        _record_shadow_validation(None, "failed")
+        raise
+
+
+# ==============================================================================
+# Redis Fallback Helpers (T6)
+# ==============================================================================
+
+
+def _record_fallback_buffer_metrics(buffered: int, dropped: int, size: int) -> None:
+    """Record fallback buffer metrics after buffering events."""
+    if buffered:
+        signals_buffered_total.inc(buffered)
+    if dropped:
+        signals_dropped_total.inc(dropped)
+    redis_fallback_buffer_size.set(size)
+
+
+def _buffer_signal_payload(payload: str, reason: str) -> None:
+    """Buffer a signal event payload when Redis publish fails."""
+    if fallback_buffer is None:
+        logger.warning(
+            "Redis publish failed (%s) but fallback buffer is not initialized",
+            reason,
+        )
+        return
+
+    outcome = fallback_buffer.buffer_message(EventPublisher.CHANNEL_SIGNALS, payload)
+    _record_fallback_buffer_metrics(outcome.buffered, outcome.dropped, outcome.size)
+    logger.warning("Buffered signal event due to Redis publish failure: %s", reason)
+
+
+def _publish_signal_event_with_fallback(event: SignalEvent) -> None:
+    """Publish signal event to Redis or buffer locally on failure."""
+    if not settings.redis_enabled:
+        return
+
+    try:
+        payload = event.model_dump_json()
+    except (TypeError, ValueError) as exc:
+        logger.error("Failed to serialize signal event for publish: %s", exc)
+        return
+
+    if event_publisher is None:
+        _buffer_signal_payload(payload, "publisher not initialized")
+        return
+
+    try:
+        num_subscribers = event_publisher.publish_signal_event(event)
+    except ValueError as exc:
+        logger.error("Failed to serialize signal event for publish: %s", exc)
+        return
+
+    if num_subscribers is None:
+        _buffer_signal_payload(payload, "redis publish error")
 
 
 # ==============================================================================
@@ -649,7 +1034,7 @@ class HealthResponse(BaseModel):
     Response body for health check.
 
     Attributes:
-        status: Service health status ("healthy" or "unhealthy")
+        status: Service health status ("healthy", "degraded", or "unhealthy")
         model_loaded: Whether ML model is loaded
         model_info: Information about loaded model
         redis_status: Redis connection status (T1.2)
@@ -768,7 +1153,7 @@ async def health_check() -> HealthResponse:
         HealthResponse with service, model, and Redis status
 
     Status Codes:
-        - 200: Service is healthy
+        - 200: Service is healthy or degraded (warming)
         - 503: Service is unhealthy (model not loaded)
 
     Example:
@@ -851,8 +1236,12 @@ async def health_check() -> HealthResponse:
     else:
         redis_status_str = "disconnected"
 
+    health_status = "healthy"
+    if _should_hydrate_features() and not hydration_complete:
+        health_status = "degraded"
+
     return HealthResponse(
-        status="healthy",
+        status=health_status,
         model_loaded=True,
         model_info={
             "strategy": metadata.strategy_name,
@@ -864,6 +1253,23 @@ async def health_check() -> HealthResponse:
         timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         service="signal_service",
     )
+
+
+@app.get("/ready", response_model=HealthResponse, tags=["Health"])
+async def readiness_check() -> HealthResponse:
+    """
+    Readiness check endpoint.
+
+    Returns 200 only when the service is fully healthy (including hydration).
+    Returns 503 if service is degraded or unhealthy.
+    """
+    response = await health_check()
+    if response.status != "healthy":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service not ready: {response.status}",
+        )
+    return response
 
 
 @app.post(
@@ -1058,6 +1464,7 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
         # Validate all dict keys are strings (pandas returns dict[Hashable, Any])
         # This ensures type safety even if DataFrame has non-string column names
         signals: list[dict[str, Any]] = []
+        event_symbols: list[str] = []
         for signal in raw_signals:
             if not all(isinstance(k, str) for k in signal.keys()):
                 logger.error(f"Non-string keys found in signal dict: {list(signal.keys())}")
@@ -1070,6 +1477,24 @@ async def generate_signals(request: SignalRequest) -> SignalResponse:
             symbol = signal.get("symbol")
             if isinstance(symbol, str):
                 signals_generated_total.labels(symbol=symbol).inc()
+                event_symbols.append(symbol)
+
+        # Publish signal event to Redis (with fallback buffer on failure)
+        strategy_id = (
+            model_registry.current_metadata.strategy_name
+            if model_registry.current_metadata
+            else "unknown"
+        )
+        if event_symbols:
+            _publish_signal_event_with_fallback(
+                SignalEvent(
+                    timestamp=datetime.now(UTC),
+                    strategy_id=strategy_id,
+                    symbols=event_symbols,
+                    num_signals=len(signals),
+                    as_of_date=as_of_date.date().isoformat(),
+                )
+            )
 
         # Build response
         return SignalResponse(
@@ -1362,10 +1787,20 @@ async def reload_model() -> dict[str, Any]:
             if (model_registry.is_loaded and model_registry.current_metadata)
             else None
         )
+        had_current_model = model_registry.is_loaded
 
         # Trigger reload check
         logger.info("Manual model reload requested")
-        reloaded = model_registry.reload_if_changed(strategy=settings.default_strategy)
+        reloaded = model_registry.reload_if_changed(
+            strategy=settings.default_strategy,
+            shadow_validator=_shadow_validate,
+            shadow_validation_enabled=settings.shadow_validation_enabled,
+            skip_shadow_validation=settings.skip_shadow_validation,
+            schedule_validation=_schedule_shadow_validation,
+            on_model_activated=_on_model_activated,
+        )
+        if had_current_model:
+            _record_shadow_skip_if_bypassed(reloaded)
 
         # Get current version
         current_version = (
@@ -1375,31 +1810,16 @@ async def reload_model() -> dict[str, Any]:
         )
 
         # Build response
-        response = {
-            "reloaded": reloaded,
-            "version": current_version,
-        }
+        response = {"reloaded": reloaded, "version": current_version}
 
         if reloaded:
             response["previous_version"] = previous_version
             response["message"] = "Model reloaded successfully"
             logger.info(f"Manual reload successful: {previous_version} -> {current_version}")
-
-            # Update model metrics after successful manual reload
-            assert model_registry.current_metadata is not None
-            model_version_info.info(
-                {
-                    "version": model_registry.current_metadata.version,
-                    "strategy": model_registry.current_metadata.strategy_name,
-                    "activated_at": (
-                        model_registry.current_metadata.activated_at.isoformat()
-                        if model_registry.current_metadata.activated_at
-                        else ""
-                    ),
-                }
-            )
-            model_loaded_status.set(1)
-            model_reload_total.labels(status="success").inc()
+        elif model_registry.pending_validation:
+            response["pending_validation"] = True
+            response["message"] = "Shadow validation in progress"
+            logger.info("Manual reload initiated shadow validation")
         else:
             response["message"] = "Model already up to date"
             logger.info("Manual reload: no changes detected")

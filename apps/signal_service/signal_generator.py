@@ -40,7 +40,7 @@ See Also:
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import TypedDict
 
@@ -61,6 +61,16 @@ class PrecomputeResult(TypedDict):
     skipped_count: int
     symbols_cached: list[str]
     symbols_skipped: list[str]
+
+
+class HydrationResult(TypedDict):
+    """Return type for hydrate_feature_cache method."""
+
+    dates_attempted: int
+    dates_succeeded: int
+    dates_failed: int
+    cached_count: int
+    skipped_count: int
 
 
 from strategies.alpha_baseline.data_loader import T1DataProvider  # noqa: E402
@@ -145,6 +155,9 @@ class SignalGenerator:
         - /docs/CONCEPTS/feature-parity.md for feature parity pattern
         - /docs/IMPLEMENTATION_GUIDES/t3-signal-service.md for deployment
     """
+
+    # Alpha158 features include 60-day lookbacks (e.g., ROC/BOLL), so hydrate 60 days.
+    DEFAULT_FEATURE_HYDRATION_DAYS = 60
 
     def __init__(
         self,
@@ -602,6 +615,124 @@ class SignalGenerator:
         )
 
         return results
+
+    def _resolve_hydration_end_date(self, symbols: list[str]) -> datetime | None:
+        """
+        Resolve the latest available date across symbols for hydration.
+
+        Returns:
+            Latest available date as timezone-aware datetime, or None if unavailable.
+        """
+        latest_dates: list[date] = []
+        for symbol in symbols:
+            _, max_date = self.data_provider.get_date_range(symbol)
+            if max_date is not None:
+                latest_dates.append(max_date)
+
+        if not latest_dates:
+            return None
+
+        return datetime.combine(max(latest_dates), time.min, tzinfo=UTC)
+
+    def hydrate_feature_cache(
+        self,
+        symbols: list[str],
+        history_days: int | None = None,
+        end_date: datetime | None = None,
+    ) -> HydrationResult:
+        """
+        Hydrate feature cache with recent history for a universe of symbols.
+
+        This is intended for startup cache warming to avoid cold-start
+        issues with rolling-window features.
+
+        Args:
+            symbols: List of stock symbols to hydrate.
+            history_days: Number of trailing days to hydrate (default: 60).
+            end_date: Optional end date; if None, uses latest available data date.
+
+        Returns:
+            HydrationResult with aggregate counts.
+        """
+        if history_days is None:
+            history_days = self.DEFAULT_FEATURE_HYDRATION_DAYS
+
+        if history_days <= 0:
+            logger.info("Feature hydration skipped (history_days <= 0)")
+            return HydrationResult(
+                dates_attempted=0,
+                dates_succeeded=0,
+                dates_failed=0,
+                cached_count=0,
+                skipped_count=0,
+            )
+
+        if not symbols:
+            logger.info("Feature hydration skipped (no symbols provided)")
+            return HydrationResult(
+                dates_attempted=0,
+                dates_succeeded=0,
+                dates_failed=0,
+                cached_count=0,
+                skipped_count=0,
+            )
+
+        if self.feature_cache is None:
+            logger.info("Feature cache not enabled, skipping hydration")
+            return HydrationResult(
+                dates_attempted=0,
+                dates_succeeded=0,
+                dates_failed=0,
+                cached_count=0,
+                skipped_count=0,
+            )
+
+        if end_date is None:
+            end_date = self._resolve_hydration_end_date(symbols)
+
+        if end_date is None:
+            logger.warning("No available data found for hydration, skipping")
+            return HydrationResult(
+                dates_attempted=0,
+                dates_succeeded=0,
+                dates_failed=0,
+                cached_count=0,
+                skipped_count=0,
+            )
+
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=UTC)
+
+        total_cached = 0
+        total_skipped = 0
+        dates_succeeded = 0
+        dates_failed = 0
+
+        for offset in range(history_days):
+            current_date = (end_date - timedelta(days=offset)).date()
+            try:
+                result = self.precompute_features(
+                    symbols=symbols,
+                    as_of_date=datetime.combine(current_date, time.min, tzinfo=UTC),
+                )
+                total_cached += result["cached_count"]
+                total_skipped += result["skipped_count"]
+                dates_succeeded += 1
+            except Exception as exc:
+                dates_failed += 1
+                logger.warning(
+                    "Feature hydration failed for %s: %s",
+                    current_date.isoformat(),
+                    exc,
+                )
+
+        return HydrationResult(
+            dates_attempted=history_days,
+            dates_succeeded=dates_succeeded,
+            dates_failed=dates_failed,
+            cached_count=total_cached,
+            skipped_count=total_skipped,
+        )
 
     def precompute_features(
         self,

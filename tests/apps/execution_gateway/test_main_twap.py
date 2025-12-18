@@ -91,6 +91,8 @@ def app_client(monkeypatch):
     main.kill_switch = SimpleNamespace(is_engaged=lambda: False)
     main.slice_scheduler = DummyScheduler()
     main.twap_slicer.plan = lambda **kwargs: make_plan()
+    # Stub liquidity service to return ADV data (avoids API call)
+    main.liquidity_service = SimpleNamespace(get_adv=lambda symbol: 1_000_000)
 
     # Minimal DB stubs
     class _Tx:

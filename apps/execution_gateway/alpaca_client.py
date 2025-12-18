@@ -11,8 +11,9 @@ See ADR-0014 for design rationale.
 """
 
 import logging
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol, cast
 
 from tenacity import (
     retry,
@@ -22,13 +23,15 @@ from tenacity import (
 )
 
 try:
+    from alpaca.common.enums import Sort
     from alpaca.common.exceptions import APIError as AlpacaAPIError
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockLatestQuoteRequest
     from alpaca.trading.client import TradingClient
-    from alpaca.trading.enums import OrderSide, TimeInForce
-    from alpaca.trading.models import Order, TradeAccount
+    from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
+    from alpaca.trading.models import Order, Position, TradeAccount
     from alpaca.trading.requests import (
+        GetOrdersRequest,
         LimitOrderRequest,
         MarketOrderRequest,
         StopLimitOrderRequest,
@@ -42,11 +45,19 @@ except ImportError:
     StockHistoricalDataClient = None  # type: ignore[assignment,misc]
     AlpacaAPIError = Exception  # type: ignore[assignment,misc]
     Order = None  # type: ignore[assignment,misc]
+    Position = None  # type: ignore[assignment,misc]
     TradeAccount = None  # type: ignore[assignment,misc]
 
 from apps.execution_gateway.schemas import OrderRequest
 
 logger = logging.getLogger(__name__)
+
+
+class _ClockLike(Protocol):
+    timestamp: datetime
+    is_open: bool
+    next_open: datetime | None
+    next_close: datetime | None
 
 
 class AlpacaClientError(Exception):
@@ -387,6 +398,211 @@ class AlpacaExecutor:
             if getattr(e, "status_code", None) == 404:
                 return None
             raise AlpacaConnectionError(f"Error fetching order: {e}") from e
+
+    def get_orders(
+        self,
+        status: str = "all",
+        limit: int = 500,
+        after: datetime | None = None,
+        symbols: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch orders with optional filtering and best-effort pagination.
+
+        Note: Pagination uses the 'after' timestamp which is exclusive. When multiple
+        orders have the same timestamp, some may be missed across page boundaries.
+        This is best-effort for historical data; the seen_ids set handles same-page
+        deduplication, and reconciliation will catch any missed orders later.
+        """
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+
+        try:
+            try:
+                status_enum = QueryOrderStatus(status)
+            except ValueError as exc:
+                raise ValueError(f"Unsupported status: {status}") from exc
+
+            results: list[dict[str, Any]] = []
+            seen_ids: set[str] = set()
+            cursor = after
+            direction = Sort.ASC
+
+            while True:
+                request = GetOrdersRequest(
+                    status=status_enum,
+                    limit=limit,
+                    after=cursor,
+                    direction=direction,
+                    symbols=symbols,
+                )
+                response = self.client.get_orders(request)
+
+                if isinstance(response, dict):
+                    orders = response.get("orders") or response.get("data") or []
+                else:
+                    orders = response
+
+                new_orders_added = 0
+                for order in orders:
+                    if not isinstance(order, Order):
+                        raise AlpacaClientError(
+                            f"Unexpected response type from Alpaca API: {type(order).__name__}. "
+                            f"Expected Order object."
+                        )
+
+                    order_id = str(order.id)
+                    if order_id in seen_ids:
+                        continue
+                    seen_ids.add(order_id)
+                    new_orders_added += 1
+
+                    results.append(
+                        {
+                            "id": order_id,
+                            "client_order_id": order.client_order_id,
+                            "symbol": order.symbol,
+                            "side": order.side.value if order.side is not None else None,
+                            "qty": Decimal(str(order.qty or 0)),
+                            "order_type": (
+                                order.order_type.value if order.order_type is not None else None
+                            ),
+                            "status": order.status.value if order.status is not None else None,
+                            "filled_qty": Decimal(str(order.filled_qty or 0)),
+                            "filled_avg_price": (
+                                Decimal(str(order.filled_avg_price))
+                                if order.filled_avg_price
+                                else None
+                            ),
+                            "limit_price": (
+                                Decimal(str(order.limit_price)) if order.limit_price else None
+                            ),
+                            "notional": (
+                                Decimal(str(order.notional)) if order.notional is not None else None
+                            ),
+                            "created_at": order.created_at,
+                            "updated_at": order.updated_at,
+                            "submitted_at": order.submitted_at,
+                            "filled_at": order.filled_at,
+                        }
+                    )
+
+                if not orders or len(orders) < limit:
+                    break
+
+                last_created_at = orders[-1].created_at if orders else None
+                if not last_created_at:
+                    break
+
+                if cursor is None or last_created_at > cursor:
+                    cursor = last_created_at
+                    continue
+
+                if new_orders_added > 0:
+                    continue
+
+                # No progress with identical timestamps; nudge cursor forward.
+                cursor = cursor + timedelta(microseconds=1)
+
+            return results
+
+        except AlpacaAPIError as e:
+            raise AlpacaConnectionError(f"Error fetching orders: {e}") from e
+
+    def get_market_clock(self) -> dict[str, Any]:
+        """Return Alpaca market clock snapshot."""
+        try:
+            clock = self.client.get_clock()
+            if isinstance(clock, dict):
+                return {
+                    "timestamp": clock.get("timestamp"),
+                    "is_open": clock.get("is_open"),
+                    "next_open": clock.get("next_open"),
+                    "next_close": clock.get("next_close"),
+                }
+            clock_obj = cast(_ClockLike, clock)
+            return {
+                "timestamp": clock_obj.timestamp,
+                "is_open": clock_obj.is_open,
+                "next_open": clock_obj.next_open,
+                "next_close": clock_obj.next_close,
+            }
+        except AlpacaAPIError as e:
+            raise AlpacaConnectionError(f"Error fetching market clock: {e}") from e
+
+    def get_all_positions(self) -> list[dict[str, Any]]:
+        """Fetch all open positions from Alpaca."""
+        try:
+            positions = self.client.get_all_positions()
+            if isinstance(positions, dict):
+                positions_list = positions.get("positions") or positions.get("data") or []
+            else:
+                positions_list = positions
+
+            result: list[dict[str, Any]] = []
+            for position in positions_list:
+                if not isinstance(position, Position):
+                    raise AlpacaClientError(
+                        f"Unexpected response type from Alpaca API: {type(position).__name__}. "
+                        f"Expected Position object."
+                    )
+
+                result.append(
+                    {
+                        "symbol": position.symbol,
+                        "qty": Decimal(str(position.qty or 0)),
+                        "avg_entry_price": Decimal(str(position.avg_entry_price or 0)),
+                        "current_price": (
+                            Decimal(str(position.current_price))
+                            if position.current_price is not None
+                            else None
+                        ),
+                        "market_value": (
+                            Decimal(str(position.market_value))
+                            if position.market_value is not None
+                            else None
+                        ),
+                    }
+                )
+
+            return result
+
+        except AlpacaAPIError as e:
+            raise AlpacaConnectionError(f"Error fetching positions: {e}") from e
+
+    def get_open_position(self, symbol: str) -> dict[str, Any] | None:
+        """Fetch open position for a symbol. Returns None when flat (404)."""
+        try:
+            position = self.client.get_open_position(symbol)
+
+            if position is None:
+                return None
+
+            if not isinstance(position, Position):
+                raise AlpacaClientError(
+                    f"Unexpected response type from Alpaca API: {type(position).__name__}. "
+                    f"Expected Position object."
+                )
+
+            return {
+                "symbol": position.symbol,
+                "qty": Decimal(str(position.qty or 0)),
+                "avg_entry_price": Decimal(str(position.avg_entry_price or 0)),
+                "current_price": (
+                    Decimal(str(position.current_price))
+                    if position.current_price is not None
+                    else None
+                ),
+                "market_value": (
+                    Decimal(str(position.market_value))
+                    if position.market_value is not None
+                    else None
+                ),
+            }
+
+        except AlpacaAPIError as e:
+            if getattr(e, "status_code", None) == 404:
+                return None
+            raise AlpacaConnectionError(f"Error fetching position: {e}") from e
 
     def cancel_order(self, order_id: str) -> bool:
         """

@@ -653,7 +653,8 @@ class TestWebhookSecurity:
 
 
 class TestOutOfOrderWebhooks:
-    def test_duplicate_fill_skipped(self, test_client):
+    def test_duplicate_fill_updates_status_but_no_position(self, test_client):
+        """Test duplicate fill (no incremental qty) updates order status but skips position update."""
         mock_db = MagicMock()
         ctx = MagicMock()
         ctx.__enter__.return_value = MagicMock()
@@ -682,7 +683,12 @@ class TestOutOfOrderWebhooks:
             )
 
         assert resp.status_code == 200
-        assert resp.json()["status"] == "skipped"
+        # Duplicate fills still return "ok" but don't update position
+        assert resp.json()["status"] == "ok"
+        # Position update should not be called for duplicate fill
+        mock_db.update_position_on_fill_with_conn.assert_not_called()
+        # But order status is still updated
+        mock_db.update_order_status_with_conn.assert_called_once()
 
 
 class TestRealtimePnlRbac:

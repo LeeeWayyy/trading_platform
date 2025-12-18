@@ -36,6 +36,7 @@ class Permission(str, Enum):
     FLATTEN_ALL = "flatten_all"
     MANAGE_USERS = "manage_users"
     MANAGE_STRATEGIES = "manage_strategies"  # [v1.5] Strategy configuration
+    MANAGE_RECONCILIATION = "manage_reconciliation"  # [v2.0] Reconciliation override
     VIEW_ALL_STRATEGIES = "view_all_strategies"
     VIEW_AUDIT = "view_audit"  # [v1.5] Audit log access
     EXPORT_DATA = "export_data"

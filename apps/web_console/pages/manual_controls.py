@@ -14,8 +14,8 @@ from apps.web_console.auth.permissions import Permission, has_permission
 from apps.web_console.config import (
     FEATURE_MANUAL_CONTROLS,
     MFA_STEP_UP_MAX_AGE_SECONDS,
-    MIN_REASON_LENGTH,
     MIN_FLATTEN_ALL_REASON_LENGTH,
+    MIN_REASON_LENGTH,
 )
 from apps.web_console.utils.api_client import (
     ManualControlsAPIError,

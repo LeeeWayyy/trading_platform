@@ -315,6 +315,97 @@ class Settings(BaseSettings):
     """
 
     # ========================================================================
+    # Redis Fallback Buffer (T6)
+    # ========================================================================
+
+    redis_fallback_buffer_max_size: int = 1000
+    """
+    Maximum number of signal events to buffer locally when Redis is unavailable.
+
+    When the buffer is full, the oldest signal is dropped to preserve FIFO order.
+    """
+
+    redis_fallback_buffer_path: Path | None = None
+    """
+    Optional file path to persist the Redis fallback buffer on disk.
+
+    When set:
+        - Buffered signals are persisted as JSON on each update
+        - Signals survive process restarts (best effort)
+
+    When unset:
+        - Buffer is in-memory only
+    """
+
+    redis_fallback_replay_interval_seconds: int = 5
+    """
+    Interval (seconds) to check Redis health and replay buffered signals.
+    """
+
+    # ========================================================================
+    # Feature Hydration Configuration (T2)
+    # ========================================================================
+
+    feature_hydration_enabled: bool = True
+    """
+    Enable startup hydration of the feature cache.
+
+    When enabled:
+        - Service warms the feature cache in the background at startup
+        - Health reports "degraded" until hydration completes
+
+    When disabled:
+        - No startup hydration runs
+        - Service is immediately "healthy" (no readiness gate for hydration)
+
+    Notes:
+        - Requires Redis feature cache to be enabled
+        - Safe to disable in development or when cache is not needed
+    """
+
+    feature_hydration_timeout_seconds: int = 300
+    """
+    Maximum time to allow for startup feature hydration (seconds).
+
+    If hydration exceeds this timeout, the background task logs a warning
+    and exits. The service remains running and no crash occurs.
+
+    Notes:
+        - Applies only when feature_hydration_enabled is True
+        - Does not block service startup
+    """
+
+    # ========================================================================
+    # Shadow Validation Configuration (T4)
+    # ========================================================================
+
+    shadow_validation_enabled: bool = True
+    """
+    Enable shadow validation for model hot swaps.
+
+    When enabled:
+        - New model is validated against current model before activation
+        - Validation runs in background and keeps old model active until pass
+
+    When disabled:
+        - Model reloads immediately upon version change
+    """
+
+    shadow_sample_count: int = 100
+    """
+    Number of recent feature samples to use for shadow validation.
+
+    Higher values provide more robust validation but increase compute time.
+    """
+
+    skip_shadow_validation: bool = False
+    """
+    Emergency override to skip shadow validation and activate new model immediately.
+
+    WARNING: Only use for operational emergencies.
+    """
+
+    # ========================================================================
     # Pydantic Settings Configuration
     # ========================================================================
 
