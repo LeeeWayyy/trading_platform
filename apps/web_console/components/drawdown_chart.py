@@ -82,19 +82,20 @@ def render_drawdown_chart(
             )
         )
 
-        # Find max drawdown for annotation
-        max_dd = chart_pd["drawdown"].min()
-        max_dd_date = chart_pd.loc[chart_pd["drawdown"].idxmin(), "date"]
+        # Find max drawdown for annotation (guard against empty/NaN series)
+        if not chart_pd.empty and not chart_pd["drawdown"].isnull().all():
+            max_dd = chart_pd["drawdown"].min()
+            max_dd_date = chart_pd.loc[chart_pd["drawdown"].idxmin(), "date"]
 
-        fig.add_annotation(
-            x=max_dd_date,
-            y=max_dd * 100,
-            text=f"Max DD: {max_dd * 100:.1f}%",
-            showarrow=True,
-            arrowhead=2,
-            ax=0,
-            ay=-40,
-        )
+            fig.add_annotation(
+                x=max_dd_date,
+                y=max_dd * 100,
+                text=f"Max DD: {max_dd * 100:.1f}%",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-40,
+            )
 
         fig.update_layout(
             title=title,

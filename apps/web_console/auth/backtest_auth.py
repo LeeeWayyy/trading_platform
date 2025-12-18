@@ -42,7 +42,7 @@ def backtest_requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
     Returns:
         Wrapped function with auth check
     """
-    if os.getenv("BACKTEST_DEV_AUTH", "false").lower() == "true":
+    if os.getenv("BACKTEST_DEV_AUTH", "false").lower() in ("true", "1", "yes", "on"):
         # Dev mode: set stub user with same session shape as OAuth2
         # CRITICAL: Must include role and strategies for RBAC parity
         @functools.wraps(func)

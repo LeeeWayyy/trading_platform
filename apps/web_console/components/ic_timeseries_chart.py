@@ -127,16 +127,17 @@ def render_ic_timeseries(
         # Add zero line
         fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
 
-        # Calculate mean IC for annotation
-        mean_ic = chart_pd["ic"].mean()
-        fig.add_hline(
-            y=mean_ic,
-            line_dash="dot",
-            line_color="#1f77b4",
-            opacity=0.7,
-            annotation_text=f"Mean IC: {mean_ic:.4f}",
-            annotation_position="right",
-        )
+        # Calculate mean IC for annotation (guard against empty/NaN series)
+        if not chart_pd.empty and not chart_pd["ic"].isnull().all():
+            mean_ic = chart_pd["ic"].mean()
+            fig.add_hline(
+                y=mean_ic,
+                line_dash="dot",
+                line_color="#1f77b4",
+                opacity=0.7,
+                annotation_text=f"Mean IC: {mean_ic:.4f}",
+                annotation_position="right",
+            )
 
         fig.update_layout(
             title=title,

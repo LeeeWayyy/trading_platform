@@ -114,14 +114,18 @@ def get_user_jobs(created_by: str, status: list[str]) -> list[dict[str, Any]]:
         cur.execute(sql, (created_by, status))
         jobs = cur.fetchall()
 
-    # Fetch progress from Redis for each job
+    # Return early if no jobs
+    if not jobs:
+        return []
+
+    # Fetch progress from Redis for all jobs at once using MGET for efficiency
     redis = get_sync_redis_client()
+    progress_keys = [f"backtest:progress:{job['job_id']}" for job in jobs]
+    # Sync Redis.mget returns list[bytes | None] (mypy stubs incorrectly suggest Awaitable)
+    progress_values_raw: list[bytes | None] = redis.mget(progress_keys)  # type: ignore[assignment]
+
     result = []
-    for job in jobs:
-        # Sync Redis.get returns bytes | None (mypy stubs incorrectly suggest Awaitable)
-        progress_raw: bytes | None = redis.get(  # type: ignore[assignment]
-            f"backtest:progress:{job['job_id']}"
-        )
+    for job, progress_raw in zip(jobs, progress_values_raw, strict=True):
         # Defensive parsing: handle malformed JSON from partial writes or manual debug
         progress = {"pct": 0}
         if progress_raw is not None:
