@@ -19,6 +19,8 @@ import json
 from typing import Any
 
 import streamlit as st
+from psycopg.rows import dict_row
+from rq.job import Job
 from streamlit_autorefresh import st_autorefresh  # type: ignore[import-untyped]
 
 from apps.web_console.auth.backtest_auth import backtest_requires_auth
@@ -94,8 +96,6 @@ def get_user_jobs(created_by: str, status: list[str]) -> list[dict[str, Any]]:
     CRITICAL: Use DB status vocabulary (pending, running, completed, failed, cancelled),
     NOT RQ vocabulary (queued, started, finished).
     """
-    from psycopg.rows import dict_row
-
     invalid = set(status) - VALID_STATUSES
     if invalid:
         raise ValueError(f"Invalid statuses: {invalid}. Valid: {VALID_STATUSES}")
@@ -165,7 +165,7 @@ def submit_backtest_job(
     config: BacktestJobConfig,
     priority: JobPriority,
     username: str,
-) -> Any:
+) -> Job:
     """Submit a backtest job to the queue.
 
     Args:
@@ -174,7 +174,7 @@ def submit_backtest_job(
         username: User submitting the job
 
     Returns:
-        BacktestJob object from queue.enqueue()
+        Job object from queue.enqueue()
     """
     with get_job_queue() as queue:
         job = queue.enqueue(config, priority=priority, created_by=username)

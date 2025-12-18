@@ -5,8 +5,10 @@ Combines metrics summary, visualization charts, and export functionality.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
+import pandas as pd
 import streamlit as st
 
 from apps.web_console.auth.permissions import Permission, has_permission
@@ -111,8 +113,6 @@ def render_export_buttons(result: BacktestResult, user_info: dict[str, Any]) -> 
 
     with col3:
         # Metrics Summary JSON
-        import json
-
         metrics_dict = {
             "backtest_id": result.backtest_id,
             "alpha_name": result.alpha_name,
@@ -202,8 +202,6 @@ def render_comparison_table(
         results: List of BacktestResult objects
         selected_ids: List of backtest IDs to compare
     """
-    import pandas as pd
-
     if len(selected_ids) < 2:
         st.info("Select at least 2 backtests to compare")
         return

@@ -9,10 +9,12 @@ Provides a form for submitting new backtest jobs with:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import streamlit as st
+from rq.job import Job
 
 from libs.alpha.alpha_library import CANONICAL_ALPHAS
 from libs.backtest.job_queue import BacktestJobConfig, JobPriority
@@ -28,19 +30,19 @@ def get_available_alphas() -> list[str]:
 
 
 def render_backtest_form(
-    on_submit: Any | None = None,
-    get_current_username: Any | None = None,
-) -> Any:
+    on_submit: Callable[[BacktestJobConfig, JobPriority, str], Job] | None = None,
+    get_current_username: Callable[[], str] | None = None,
+) -> Job | None:
     """Render backtest configuration form.
 
     Args:
-        on_submit: Callback function(config, priority, username) -> BacktestJob
+        on_submit: Callback function(config, priority, username) -> Job
                    If None, form submission is disabled
         get_current_username: Function to get current authenticated username
                               If None, uses "anonymous"
 
     Returns:
-        BacktestJob if submitted successfully, None otherwise
+        Job if submitted successfully, None otherwise
     """
     with st.form("backtest_config", clear_on_submit=False):
         st.subheader("Configure Backtest")
