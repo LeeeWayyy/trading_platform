@@ -191,3 +191,11 @@ MIN_FLATTEN_ALL_REASON_LENGTH = 20
 # Must match backend verify_2fa_token max age (60s in apps/execution_gateway/api/dependencies.py)
 # Using slightly lower value (55s) to account for network/clock skew
 MFA_STEP_UP_MAX_AGE_SECONDS = 55
+
+# Feature flag for backtest manager (T5.3)
+FEATURE_BACKTEST_MANAGER = os.getenv("FEATURE_BACKTEST_MANAGER", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
