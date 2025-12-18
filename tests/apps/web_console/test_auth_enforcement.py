@@ -122,11 +122,9 @@ class TestRBACIntegration:
     """Test RBAC permission checks for backtest page."""
 
     def test_get_user_with_role_adds_role_from_session(self) -> None:
-        """Verify _get_user_with_role adds role from session_state.
+        """Verify _get_user_with_role adds role from session_state."""
+        from apps.web_console.pages.backtest import _get_user_with_role
 
-        get_user_info() doesn't include role, so we need a wrapper
-        to add it from session_state for RBAC checks.
-        """
         mock_session_state = {
             "authenticated": True,
             "username": "test_user",
@@ -138,18 +136,9 @@ class TestRBACIntegration:
         }
 
         with patch("streamlit.session_state", mock_session_state):
-            # Import get_user_info to test the pattern
-            from apps.web_console.auth.streamlit_helpers import get_user_info
+            user_info = _get_user_with_role()
 
-            user_info = get_user_info()
-
-            # get_user_info doesn't include role
-            assert "role" not in user_info
-
-            # But we can add it from session_state
-            user_info["role"] = mock_session_state.get("role", "viewer")
-            user_info["strategies"] = mock_session_state.get("strategies", [])
-
+            assert "role" in user_info
             assert user_info["role"] == "operator"
             assert user_info["strategies"] == ["alpha_baseline"]
 

@@ -5,6 +5,7 @@ Combines metrics summary, visualization charts, and export functionality.
 
 from __future__ import annotations
 
+import io
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -90,10 +91,12 @@ def render_export_buttons(result: BacktestResult, user_info: dict[str, Any]) -> 
     with col1:
         # Signals CSV
         if result.daily_signals is not None and result.daily_signals.height > 0:
-            signals_csv = result.daily_signals.write_csv()
+            signals_buffer = io.BytesIO()
+            result.daily_signals.write_csv(signals_buffer)
+            signals_buffer.seek(0)
             st.download_button(
                 "Download Signals CSV",
-                signals_csv,
+                signals_buffer,
                 f"signals_{result.backtest_id}.csv",
                 "text/csv",
                 help="Daily signals: date, permno, signal",
@@ -102,10 +105,12 @@ def render_export_buttons(result: BacktestResult, user_info: dict[str, Any]) -> 
     with col2:
         # IC Series CSV
         if result.daily_ic is not None and result.daily_ic.height > 0:
-            ic_csv = result.daily_ic.write_csv()
+            ic_buffer = io.BytesIO()
+            result.daily_ic.write_csv(ic_buffer)
+            ic_buffer.seek(0)
             st.download_button(
                 "Download IC Series CSV",
-                ic_csv,
+                ic_buffer,
                 f"ic_series_{result.backtest_id}.csv",
                 "text/csv",
                 help="Daily IC: date, ic, rank_ic",
