@@ -29,7 +29,9 @@ class TestOperationsAuthGovernance:
     @pytest.fixture()
     def project_root(self) -> Path:
         """Get project root directory."""
-        return Path(__file__).parents[4]
+        # Path: tests/apps/web_console/test_operations_auth_governance.py
+        # parents[0] = tests/apps/web_console, [1] = tests/apps, [2] = tests, [3] = project root
+        return Path(__file__).parents[3]
 
     def test_no_dev_auth_in_prod_env(self, project_root: Path) -> None:
         """CI fails if OPERATIONS_DEV_AUTH is truthy in .env.prod."""

@@ -239,15 +239,11 @@ def _render_history_section(cb_service: CircuitBreakerService) -> None:
     # Convert to DataFrame for display
     df = pd.DataFrame(history)
 
-    # Reorder columns for better display
-    display_columns = []
-    for col in ["tripped_at", "reason", "reset_at", "reset_by", "details"]:
-        if col in df.columns:
-            display_columns.append(col)
-    # Add any remaining columns
-    for col in df.columns:
-        if col not in display_columns:
-            display_columns.append(col)
+    # Reorder columns for better display (Pythonic list comprehension)
+    preferred_order = ["tripped_at", "reason", "reset_at", "reset_by", "details"]
+    existing_cols = [col for col in preferred_order if col in df.columns]
+    other_cols = [col for col in df.columns if col not in existing_cols]
+    display_columns = existing_cols + other_cols
 
     if display_columns:
         df = df[display_columns]
@@ -256,13 +252,12 @@ def _render_history_section(cb_service: CircuitBreakerService) -> None:
 
 
 @operations_requires_auth
-def render_circuit_breaker(user: dict[str, Any], db_pool: Any, audit_logger: Any) -> None:
+def render_circuit_breaker(user: dict[str, Any], db_pool: Any) -> None:
     """Render the Circuit Breaker Dashboard page.
 
     Args:
         user: Current user session dict
         db_pool: Database connection pool for audit logging
-        audit_logger: Audit logger instance (unused, CB service has its own logging)
     """
     # Feature flag check
     if not FEATURE_CIRCUIT_BREAKER:
@@ -301,7 +296,7 @@ def render_circuit_breaker(user: dict[str, Any], db_pool: Any, audit_logger: Any
 def main() -> None:
     """Entry point for direct page access."""
     user = dict(st.session_state)
-    render_circuit_breaker(user=user, db_pool=None, audit_logger=None)
+    render_circuit_breaker(user=user, db_pool=None)
 
 
 __all__ = [

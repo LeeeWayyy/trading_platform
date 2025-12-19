@@ -381,12 +381,12 @@ class TestAuthStubRemovalGate:
         )
 ```
 
-### Step 3: Create ADR-0026 Outline
+### Step 3: Create ADR-0029 Outline
 
-**File:** `docs/ADRs/ADR-0026-alerting-system.md`
+**File:** `docs/ADRs/ADR-0029-alerting-system.md`
 
 ```markdown
-# ADR-0026: Alerting System Architecture
+# ADR-0029: Alerting System Architecture
 
 ## Status
 PROPOSED
@@ -453,7 +453,7 @@ ALERT_RECIPIENT_HASH_SECRET=your-secret-here-min-32-chars
 |------|---------|
 | `apps/web_console/auth/operations_auth.py` | Auth stub with runtime guard |
 | `tests/apps/web_console/test_operations_auth_governance.py` | CI governance tests |
-| `docs/ADRs/ADR-0026-alerting-system.md` | ADR outline for alerting |
+| `docs/ADRs/ADR-0029-alerting-system.md` | ADR outline for alerting |
 
 ## Files to Modify
 
@@ -496,7 +496,7 @@ ALERT_RECIPIENT_HASH_SECRET=your-secret-here-min-32-chars
 - [x] `pgcrypto` extension confirmed enabled
 - [x] `operations_auth.py` created with runtime guard
 - [x] Governance tests pass in CI
-- [x] ADR-0026 outline created
+- [x] ADR-0029 outline created
 - [x] `.env.example` updated with hash secret placeholder
 
 **All criteria met.** C0 completed and committed.
@@ -511,6 +511,6 @@ ALERT_RECIPIENT_HASH_SECRET=your-secret-here-min-32-chars
 
 - C1: T7.1 Circuit Breaker Dashboard (needs operations_auth)
 - C2: T7.2 System Health Monitor (needs operations_auth)
-- C3: T7.5 Alert Delivery Service (needs ADR-0026)
+- C3: T7.5 Alert Delivery Service (needs ADR-0029)
 - C4: T7.3 Alert Configuration UI (needs operations_auth)
 - C5: T7.4 Admin Dashboard (needs operations_auth)

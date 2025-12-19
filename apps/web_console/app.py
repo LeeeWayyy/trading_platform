@@ -871,7 +871,6 @@ def main() -> None:
         render_circuit_breaker(
             user=user_info,
             db_pool=get_db_pool(),
-            audit_logger=AuditLogger(get_db_pool()),
         )
     elif page == "Audit Log":
         render_audit_log()

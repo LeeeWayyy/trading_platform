@@ -9,7 +9,7 @@ state: TASK
 created: 2025-12-18
 dependencies: [T6.1, health-endpoints, secrets-provisioning]
 estimated_effort: "18-26 days"
-related_adrs: [ADR-0026-alerting-system]
+related_adrs: [ADR-0029-alerting-system]
 related_docs: [P4_PLANNING.md]
 features: [T7.1, T7.2, T7.5, T7.3, T7.4]
 ---
@@ -177,7 +177,7 @@ Build operational monitoring and control dashboards for the trading platform. Th
    - Verify prerequisites checklist
    - Provision secrets in dev environment
    - Confirm health endpoint schema stability
-   - Create ADR-0026 outline
+   - Create ADR-0029 outline
 
 2. **T7.1 Circuit Breaker Dashboard** (3-4 days)
    - Create circuit breaker status page with Redis integration
@@ -347,7 +347,7 @@ def operations_requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
 - Add all pages to navigation
 - Update feature flags
 - Create concept documentation
-- Create ADR-0026 for alerting system
+- Create ADR-0029 for alerting system
 - Update runbooks for alert routing and CB operations
 - Performance/soak tests
 - End-to-end integration testing
@@ -396,7 +396,7 @@ def operations_requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
 - `tests/libs/alerts/test_dedup.py`
 - `tests/libs/alerts/test_retry_logic.py`
 - `docs/CONCEPTS/alert-delivery.md`
-- `docs/ADRs/ADR-0026-alerting-system.md`
+- `docs/ADRs/ADR-0029-alerting-system.md`
 
 **T7.3 Alert Configuration UI:**
 - `apps/web_console/pages/alerts.py` - Alert configuration page
@@ -683,7 +683,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 - [ ] `docs/CONCEPTS/alert-delivery.md`
 - [ ] `docs/CONCEPTS/alerting.md`
 - [ ] `docs/CONCEPTS/platform-administration.md`
-- [ ] `docs/ADRs/ADR-0026-alerting-system.md` - Covers architecture, data retention, rate limits
+- [ ] `docs/ADRs/ADR-0029-alerting-system.md` - Covers architecture, data retention, rate limits
 
 ### Must Update
 - [ ] `docs/GETTING_STARTED/PROJECT_STATUS.md` when complete
@@ -696,7 +696,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 ## Related
 
 **ADRs:**
-- ADR-0026: Alerting System Architecture (to create)
+- ADR-0029: Alerting System Architecture (to create)
   - Scope: Architecture, channel handlers, data retention, rate limits, idempotency
 
 **Documentation:**

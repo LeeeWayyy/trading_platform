@@ -37,6 +37,9 @@ _ALLOWED_DEV_AUTH_ENVIRONMENTS = frozenset({
     "ci",
 })
 
+# Module-level constant: computed once at import time (DRY)
+_DEV_AUTH_ENABLED = os.getenv("OPERATIONS_DEV_AUTH", "false").lower() in ("true", "1", "yes", "on")
+
 
 def _check_dev_auth_safety() -> None:
     """Runtime guard: refuse to start if dev auth enabled outside allowed environments.
@@ -44,7 +47,7 @@ def _check_dev_auth_safety() -> None:
     SECURITY: Uses allowlist (fail-closed) - if ENVIRONMENT is unset, mistyped, or
     unknown, dev auth is blocked. Only explicitly allowed environments can use it.
     """
-    if os.getenv("OPERATIONS_DEV_AUTH", "false").lower() in ("true", "1", "yes", "on"):
+    if _DEV_AUTH_ENABLED:
         env = os.getenv("ENVIRONMENT", "").lower()  # Empty string if unset
         if env not in _ALLOWED_DEV_AUTH_ENVIRONMENTS:
             print(
@@ -79,7 +82,7 @@ def operations_requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
     Returns:
         Wrapped function with auth check
     """
-    if os.getenv("OPERATIONS_DEV_AUTH", "false").lower() in ("true", "1", "yes", "on"):
+    if _DEV_AUTH_ENABLED:
         # Dev mode: set stub user with same session shape as OAuth2
         # CRITICAL: Must include role and strategies for RBAC parity
         @functools.wraps(func)

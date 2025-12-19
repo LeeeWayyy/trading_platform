@@ -1,4 +1,4 @@
-# ADR-0026: Alerting System Architecture
+# ADR-0029: Alerting System Architecture
 
 ## Status
 
