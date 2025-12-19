@@ -36,6 +36,7 @@ See ADR-0014 for architecture decisions.
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -43,7 +44,7 @@ import threading
 import time
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -104,12 +105,15 @@ from apps.execution_gateway.schemas import (
     SliceDetail,
     SlicingPlan,
     SlicingRequest,
+    StrategiesListResponse,
+    StrategyStatusResponse,
 )
 from apps.execution_gateway.slice_scheduler import SliceScheduler
 from apps.execution_gateway.webhook_security import (
     extract_signature_from_header,
     verify_webhook_signature,
 )
+from config.settings import get_settings
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
     CircuitBreaker,
@@ -526,19 +530,131 @@ app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Contr
 # In production, ensure only trusted internal services can reach this gateway.
 
 
+class _SecretValue(Protocol):
+    """Protocol for types that can provide a secret value (e.g., SecretStr)."""
+
+    def get_secret_value(self) -> str: ...
+
+
+class _InternalTokenSettings(Protocol):
+    """Protocol for settings used in internal token validation.
+
+    This allows both real Settings and test mocks to satisfy the type.
+    """
+
+    internal_token_required: bool
+    internal_token_secret: _SecretValue
+    internal_token_timestamp_tolerance_seconds: int
+
+
+def _verify_internal_token(
+    token: str | None,
+    timestamp_str: str | None,
+    user_id: str,
+    role: str,
+    strategies: str,
+    settings: _InternalTokenSettings,
+) -> tuple[bool, str]:
+    """Verify X-Internal-Token using HMAC-SHA256.
+
+    Token format: HMAC-SHA256(secret, f"{user_id}:{role}:{strategies}:{timestamp}")
+    where timestamp is epoch seconds and strategies is the comma-separated list.
+
+    Args:
+        token: Value from X-Internal-Token header
+        timestamp_str: Value from X-Request-Timestamp header (epoch seconds)
+        user_id: Value from X-User-Id header
+        role: Value from X-User-Role header
+        strategies: Value from X-User-Strategies header (comma-separated)
+        settings: Application settings with internal_token_* config
+
+    Returns:
+        Tuple of (is_valid, error_reason). error_reason is empty if valid.
+
+    Security Notes:
+        - Uses constant-time comparison (hmac.compare_digest) to prevent timing attacks
+        - Validates timestamp within ±tolerance_seconds to prevent replay attacks
+        - Fails closed: missing token/timestamp when required returns False
+        - Binds strategies to signature to prevent privilege escalation
+    """
+    if not settings.internal_token_required:
+        return True, ""
+
+    secret_value = settings.internal_token_secret.get_secret_value()
+    if not secret_value:
+        logger.error("INTERNAL_TOKEN_REQUIRED=true but INTERNAL_TOKEN_SECRET is empty")
+        return False, "token_secret_not_configured"
+
+    if not token:
+        return False, "missing_token"
+
+    if not timestamp_str:
+        return False, "missing_timestamp"
+
+    # Parse and validate timestamp
+    try:
+        request_timestamp = int(timestamp_str)
+    except ValueError:
+        return False, "invalid_timestamp_format"
+
+    now = int(time.time())
+    skew = abs(now - request_timestamp)
+    if skew > settings.internal_token_timestamp_tolerance_seconds:
+        logger.warning(
+            "Internal token timestamp outside tolerance",
+            extra={
+                "skew_seconds": skew,
+                "tolerance_seconds": settings.internal_token_timestamp_tolerance_seconds,
+                "user_id_prefix": user_id[:4] if user_id else "none",
+            },
+        )
+        return False, "timestamp_expired"
+
+    # Compute expected signature: HMAC-SHA256(secret, "user_id:role:strategies:timestamp")
+    # Canonicalize by stripping whitespace to prevent header manipulation
+    # Strategies are included in signature to prevent privilege escalation attacks
+    # Note: Replay protection is timestamp-based only. For stronger protection,
+    # consider adding nonce validation with Redis in high-security environments.
+    payload = f"{user_id.strip()}:{role.strip()}:{strategies.strip()}:{timestamp_str.strip()}"
+    expected_signature = hmac.new(
+        secret_value.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    # Constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(expected_signature, token.lower()):
+        # Log mismatch without revealing signature prefixes to avoid leaking secret-derived data
+        logger.warning(
+            "Internal token signature mismatch",
+            extra={
+                "user_id_prefix": user_id[:4] if user_id else "none",
+                "token_length": len(token) if token else 0,
+            },
+        )
+        return False, "invalid_signature"
+
+    return True, ""
+
+
 @app.middleware("http")
 async def populate_user_from_headers(request: Request, call_next: Any) -> Any:
     """Populate request.state.user from trusted internal headers.
 
     The performance dashboard Streamlit client sends X-User-Role, X-User-Id, and
-    X-User-Strategies headers. This middleware trusts those headers assuming
-    the execution gateway is only accessible from trusted internal services
-    (e.g., behind a VPC or service mesh with mTLS).
+    X-User-Strategies headers. This middleware validates these headers using
+    HMAC-signed X-Internal-Token when INTERNAL_TOKEN_REQUIRED=true.
 
-    For production hardening, consider:
-    - Checking X-Internal-Token for HMAC-signed requests
-    - Validating source IP against allowed internal ranges
-    - Using mTLS client certificates
+    Headers:
+        X-User-Role: User role (admin, trader, viewer)
+        X-User-Id: User identifier
+        X-User-Strategies: Comma-separated list of authorized strategies
+        X-Internal-Token: HMAC-SHA256 signature (when validation enabled)
+        X-Request-Timestamp: Epoch seconds for replay protection
+
+    Backward Compatibility:
+        - INTERNAL_TOKEN_REQUIRED=false (default): Headers trusted without validation
+        - INTERNAL_TOKEN_REQUIRED=true: Token validation required for user context
 
     This middleware populates request.state.user which _build_user_context
     then uses for RBAC enforcement.
@@ -548,10 +664,39 @@ async def populate_user_from_headers(request: Request, call_next: Any) -> Any:
     strategies_header = request.headers.get("X-User-Strategies", "")
 
     if role and user_id:
+        # Validate internal token if required
+        settings = get_settings()
+        if settings.internal_token_required:
+            token = request.headers.get("X-Internal-Token")
+            timestamp = request.headers.get("X-Request-Timestamp")
+
+            is_valid, error_reason = _verify_internal_token(
+                token=token,
+                timestamp_str=timestamp,
+                user_id=user_id,
+                role=role,
+                strategies=strategies_header,
+                settings=cast(_InternalTokenSettings, settings),
+            )
+
+            if not is_valid:
+                logger.warning(
+                    "Internal token validation failed",
+                    extra={
+                        "error_reason": error_reason,
+                        "path": request.url.path,
+                        "user_id_prefix": user_id[:4] if user_id else "none",
+                    },
+                )
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing internal authentication token"},
+                )
+
         strategies = [s.strip() for s in strategies_header.split(",") if s.strip()]
         request.state.user = {
-            "role": role,
-            "user_id": user_id,
+            "role": role.strip(),
+            "user_id": user_id.strip(),
             "strategies": strategies,
         }
 
@@ -1789,6 +1934,171 @@ async def update_fat_finger_thresholds(
     )
 
     return _fat_finger_thresholds_snapshot()
+
+
+# =============================================================================
+# Strategy Status Endpoints
+# =============================================================================
+
+
+@app.get(
+    "/api/v1/strategies",
+    response_model=StrategiesListResponse,
+    tags=["Strategies"],
+)
+async def list_strategies(
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> StrategiesListResponse:
+    """
+    List all strategies with their current status.
+
+    Returns consolidated view of each strategy including:
+    - Basic info (id, name, status)
+    - Position and open order counts
+    - Today's realized P&L
+    - Last signal time
+
+    Only returns strategies the user is authorized to view.
+
+    Example response:
+        {
+            "strategies": [
+                {
+                    "strategy_id": "alpha_baseline",
+                    "name": "Alpha Baseline",
+                    "status": "active",
+                    ...
+                }
+            ],
+            "total_count": 1,
+            "timestamp": "2024-10-17T16:35:00Z"
+        }
+    """
+    now = datetime.now(UTC)
+
+    # Get authorized strategies for this user
+    authorized_strategies = get_authorized_strategies(user.get("user"))
+    if not authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No strategy access",
+        )
+
+    # Get all unique strategy IDs from database
+    all_strategy_ids = db_client.get_all_strategy_ids()
+
+    # Filter to only authorized strategies
+    strategy_ids = [s for s in all_strategy_ids if s in authorized_strategies]
+
+    strategies = []
+    for strategy_id in strategy_ids:
+        try:
+            db_status = db_client.get_strategy_status(strategy_id)
+            if db_status is None:
+                continue
+
+            # Determine strategy status based on activity
+            # Active if has positions or recent orders (within 24h)
+            strategy_status: Literal["active", "paused", "error", "inactive"] = "inactive"
+            if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
+                strategy_status = "active"
+            elif db_status["last_signal_at"]:
+                age = (now - db_status["last_signal_at"]).total_seconds()
+                if age < 86400:  # 24 hours
+                    strategy_status = "active"
+
+            strategies.append(
+                StrategyStatusResponse(
+                    strategy_id=strategy_id,
+                    name=strategy_id.replace("_", " ").title(),  # Simple name formatting
+                    status=strategy_status,
+                    model_version=None,  # Could be fetched from model registry
+                    model_status=None,
+                    last_signal_at=db_status["last_signal_at"],
+                    last_error=None,
+                    positions_count=db_status["positions_count"],
+                    open_orders_count=db_status["open_orders_count"],
+                    today_pnl=db_status["today_pnl"],
+                    timestamp=now,
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Error getting status for strategy {strategy_id}: {e}")
+            continue
+
+    return StrategiesListResponse(
+        strategies=strategies,
+        total_count=len(strategies),
+        timestamp=now,
+    )
+
+
+@app.get(
+    "/api/v1/strategies/{strategy_id}",
+    response_model=StrategyStatusResponse,
+    tags=["Strategies"],
+)
+async def get_strategy_status(
+    strategy_id: str,
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> StrategyStatusResponse:
+    """
+    Get status for a specific strategy.
+
+    Args:
+        strategy_id: The strategy identifier
+
+    Returns:
+        StrategyStatusResponse with consolidated strategy state
+
+    Raises:
+        HTTPException 403 if user not authorized for this strategy
+        HTTPException 404 if strategy not found
+    """
+    now = datetime.now(UTC)
+
+    # Check if user is authorized for this strategy
+    authorized_strategies = get_authorized_strategies(user.get("user"))
+    if not authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No strategy access",
+        )
+    if strategy_id not in authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Not authorized to access strategy '{strategy_id}'",
+        )
+
+    db_status = db_client.get_strategy_status(strategy_id)
+    if db_status is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Strategy '{strategy_id}' not found",
+        )
+
+    # Determine strategy status based on activity
+    strategy_status: Literal["active", "paused", "error", "inactive"] = "inactive"
+    if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
+        strategy_status = "active"
+    elif db_status["last_signal_at"]:
+        age = (now - db_status["last_signal_at"]).total_seconds()
+        if age < 86400:  # 24 hours
+            strategy_status = "active"
+
+    return StrategyStatusResponse(
+        strategy_id=strategy_id,
+        name=strategy_id.replace("_", " ").title(),
+        status=strategy_status,
+        model_version=None,
+        model_status=None,
+        last_signal_at=db_status["last_signal_at"],
+        last_error=None,
+        positions_count=db_status["positions_count"],
+        open_orders_count=db_status["open_orders_count"],
+        today_pnl=db_status["today_pnl"],
+        timestamp=now,
+    )
 
 
 @app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])

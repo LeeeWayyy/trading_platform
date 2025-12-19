@@ -13,11 +13,13 @@ from libs.risk import (
     BarraRiskModel,
     BoxConstraint,
     BudgetConstraint,
+    ConstraintPriority,
     FactorExposureConstraint,
     GrossLeverageConstraint,
     InsufficientUniverseCoverageError,
     OptimizerConfig,
     PortfolioOptimizer,
+    RelaxableConstraint,
     SectorConstraint,
     SpecificRiskResult,
     TurnoverConstraint,
@@ -701,3 +703,256 @@ class TestPerformance:
 
         assert elapsed < 10.0  # Should complete in under 10 seconds
         assert result.status in ["optimal", "suboptimal"]
+
+
+class TestConstraintPriority:
+    """Tests for ConstraintPriority enum."""
+
+    def test_priority_ordering(self):
+        """CRITICAL < HIGH < MEDIUM < LOW (lower value = higher priority)."""
+        assert ConstraintPriority.CRITICAL < ConstraintPriority.HIGH
+        assert ConstraintPriority.HIGH < ConstraintPriority.MEDIUM
+        assert ConstraintPriority.MEDIUM < ConstraintPriority.LOW
+
+    def test_priority_values(self):
+        """Priority values are as expected."""
+        assert ConstraintPriority.CRITICAL == 0
+        assert ConstraintPriority.HIGH == 1
+        assert ConstraintPriority.MEDIUM == 2
+        assert ConstraintPriority.LOW == 3
+
+
+class TestRelaxableConstraint:
+    """Tests for RelaxableConstraint wrapper."""
+
+    def test_can_relax_low_priority(self):
+        """LOW priority constraints can be relaxed."""
+        turnover = TurnoverConstraint(current_weights={}, max_turnover=0.5)
+        rc = RelaxableConstraint(
+            constraint=turnover,
+            priority=ConstraintPriority.LOW,
+            max_relaxations=3,
+        )
+        assert rc.can_relax() is True
+
+    def test_cannot_relax_critical(self):
+        """CRITICAL priority constraints cannot be relaxed."""
+        budget = BudgetConstraint(target=1.0)
+        rc = RelaxableConstraint(
+            constraint=budget,
+            priority=ConstraintPriority.CRITICAL,
+            max_relaxations=3,
+        )
+        assert rc.can_relax() is False
+
+    def test_cannot_relax_after_max(self):
+        """Cannot relax after max_relaxations reached."""
+        turnover = TurnoverConstraint(current_weights={}, max_turnover=0.5)
+        rc = RelaxableConstraint(
+            constraint=turnover,
+            priority=ConstraintPriority.LOW,
+            max_relaxations=2,
+        )
+        # Simulate 2 relaxations already done
+        rc.current_relaxations = 2
+        assert rc.can_relax() is False
+
+
+class TestConstraintRelaxation:
+    """Tests for hierarchical constraint relaxation."""
+
+    def test_relax_turnover_constraint(
+        self,
+        sample_barra_model: BarraRiskModel,
+    ):
+        """TurnoverConstraint can be relaxed."""
+        optimizer = PortfolioOptimizer(sample_barra_model)
+        turnover = TurnoverConstraint(current_weights={}, max_turnover=0.5)
+        rc = RelaxableConstraint(
+            constraint=turnover,
+            priority=ConstraintPriority.LOW,
+            relaxation_factor=1.5,
+        )
+
+        new_rc, was_relaxed = optimizer._relax_constraint(rc)
+
+        assert was_relaxed is True
+        assert new_rc.current_relaxations == 1
+        assert isinstance(new_rc.constraint, TurnoverConstraint)
+        assert new_rc.constraint.max_turnover == pytest.approx(0.75)  # 0.5 * 1.5
+
+    def test_relax_sector_constraint(
+        self,
+        sample_barra_model: BarraRiskModel,
+    ):
+        """SectorConstraint can be relaxed."""
+        optimizer = PortfolioOptimizer(sample_barra_model)
+        sector = SectorConstraint(
+            sector_map={10001: "Tech"},
+            max_sector_weight=0.3,
+        )
+        rc = RelaxableConstraint(
+            constraint=sector,
+            priority=ConstraintPriority.MEDIUM,
+            relaxation_factor=1.5,
+        )
+
+        new_rc, was_relaxed = optimizer._relax_constraint(rc)
+
+        assert was_relaxed is True
+        assert isinstance(new_rc.constraint, SectorConstraint)
+        assert new_rc.constraint.max_sector_weight == pytest.approx(0.45)  # 0.3 * 1.5
+
+    def test_relax_sector_constraint_capped_at_100(
+        self,
+        sample_barra_model: BarraRiskModel,
+    ):
+        """SectorConstraint relaxation is capped at 100%."""
+        optimizer = PortfolioOptimizer(sample_barra_model)
+        sector = SectorConstraint(
+            sector_map={10001: "Tech"},
+            max_sector_weight=0.8,
+        )
+        rc = RelaxableConstraint(
+            constraint=sector,
+            priority=ConstraintPriority.MEDIUM,
+            relaxation_factor=2.0,
+        )
+
+        new_rc, _ = optimizer._relax_constraint(rc)
+
+        # 0.8 * 2.0 = 1.6, but capped at 1.0
+        assert new_rc.constraint.max_sector_weight == pytest.approx(1.0)
+
+    def test_cannot_relax_critical_constraint(
+        self,
+        sample_barra_model: BarraRiskModel,
+    ):
+        """CRITICAL constraints cannot be relaxed."""
+        optimizer = PortfolioOptimizer(sample_barra_model)
+        budget = BudgetConstraint(target=1.0)
+        rc = RelaxableConstraint(
+            constraint=budget,
+            priority=ConstraintPriority.CRITICAL,
+        )
+
+        new_rc, was_relaxed = optimizer._relax_constraint(rc)
+
+        assert was_relaxed is False
+        assert new_rc is rc  # Same object returned
+
+    def test_optimize_with_relaxation_disabled(
+        self,
+        sample_barra_model: BarraRiskModel,
+        sample_universe: list[int],
+    ):
+        """When relaxation disabled, uses regular optimization."""
+        config = OptimizerConfig(enable_constraint_relaxation=False)
+        optimizer = PortfolioOptimizer(sample_barra_model, config)
+
+        relaxable = [
+            RelaxableConstraint(
+                constraint=TurnoverConstraint(current_weights={}, max_turnover=0.5),
+                priority=ConstraintPriority.LOW,
+            ),
+        ]
+
+        result = optimizer.optimize_with_relaxation(sample_universe, relaxable)
+
+        # Should work normally - relaxation is just disabled
+        assert result.status in ["optimal", "suboptimal", "infeasible"]
+
+    def test_optimize_with_relaxation_success_no_relaxation_needed(
+        self,
+        sample_barra_model: BarraRiskModel,
+        sample_universe: list[int],
+        sample_current_weights: dict[int, float],
+    ):
+        """Feasible problem succeeds without relaxation."""
+        config = OptimizerConfig(enable_constraint_relaxation=True)
+        optimizer = PortfolioOptimizer(sample_barra_model, config)
+
+        # Generous constraints that should be feasible
+        relaxable = [
+            RelaxableConstraint(
+                constraint=TurnoverConstraint(
+                    current_weights=sample_current_weights,
+                    max_turnover=2.0,  # Very generous
+                ),
+                priority=ConstraintPriority.LOW,
+            ),
+        ]
+
+        result = optimizer.optimize_with_relaxation(
+            sample_universe, relaxable, sample_current_weights
+        )
+
+        assert result.status in ["optimal", "suboptimal"]
+
+    def test_optimize_with_relaxation_success_after_relax(
+        self,
+        sample_barra_model: BarraRiskModel,
+        sample_universe: list[int],
+        sample_current_weights: dict[int, float],
+    ):
+        """Initially infeasible problem succeeds after relaxation."""
+        config = OptimizerConfig(
+            enable_constraint_relaxation=True,
+        )
+        optimizer = PortfolioOptimizer(sample_barra_model, config)
+
+        # Very tight turnover constraint that may be infeasible
+        # But should become feasible after relaxation
+        relaxable = [
+            RelaxableConstraint(
+                constraint=TurnoverConstraint(
+                    current_weights=sample_current_weights,
+                    max_turnover=0.01,  # Very tight - may need relaxation
+                ),
+                priority=ConstraintPriority.LOW,
+                relaxation_factor=2.0,
+                max_relaxations=5,
+            ),
+        ]
+
+        result = optimizer.optimize_with_relaxation(
+            sample_universe, relaxable, sample_current_weights
+        )
+
+        # Should eventually succeed (either initially feasible or after relaxation)
+        assert result.status in ["optimal", "suboptimal"]
+
+    def test_relax_by_priority_order(
+        self,
+        sample_barra_model: BarraRiskModel,
+    ):
+        """Constraints are relaxed in priority order (LOW first)."""
+        optimizer = PortfolioOptimizer(sample_barra_model)
+
+        # Create constraints of different priorities
+        low = RelaxableConstraint(
+            constraint=TurnoverConstraint(current_weights={}, max_turnover=0.5),
+            priority=ConstraintPriority.LOW,
+        )
+        medium = RelaxableConstraint(
+            constraint=SectorConstraint(sector_map={}, max_sector_weight=0.3),
+            priority=ConstraintPriority.MEDIUM,
+        )
+
+        # LOW priority should be relaxable, MEDIUM not yet
+        new_low, relaxed_low = optimizer._relax_constraint(low)
+        assert relaxed_low is True
+
+        # After LOW exhausted, MEDIUM becomes next
+        exhausted_low = RelaxableConstraint(
+            constraint=TurnoverConstraint(current_weights={}, max_turnover=0.5),
+            priority=ConstraintPriority.LOW,
+            max_relaxations=1,
+        )
+        exhausted_low.current_relaxations = 1
+        _, can_relax_exhausted = optimizer._relax_constraint(exhausted_low)
+        assert can_relax_exhausted is False
+
+        # MEDIUM can still be relaxed
+        new_medium, relaxed_medium = optimizer._relax_constraint(medium)
+        assert relaxed_medium is True

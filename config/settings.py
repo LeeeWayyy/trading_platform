@@ -7,7 +7,7 @@ All settings can be overridden via environment variables or .env file.
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -79,6 +79,23 @@ class Settings(BaseSettings):
     log_level: str = Field(
         default="INFO",
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
+
+    # Internal Token Authentication
+    # For service-to-service HMAC authentication (X-Internal-Token header)
+    internal_token_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description="HMAC secret for X-Internal-Token validation (empty disables validation)",
+    )
+    internal_token_required: bool = Field(
+        default=False,
+        description="Require X-Internal-Token validation for internal headers",
+    )
+    internal_token_timestamp_tolerance_seconds: int = Field(
+        default=300,
+        ge=0,
+        le=3600,
+        description="Max timestamp skew allowed for internal token validation (±seconds)",
     )
 
 

@@ -174,6 +174,7 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-12-15, Plan] [TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md](./TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md) - T6.6 Web Console UI Manual Trade Controls implementation plan
 - [CURRENT, 2025-12-14, Plan] [TASKS/FORMATTING_ENHANCEMENT_PLAN.md](./TASKS/FORMATTING_ENHANCEMENT_PLAN.md) - Code formatting enhancement plan (ruff config, Makefile improvements)
 - [CURRENT, 2025-12-17, Task] [TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md](./TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md) - Reliability and safety bugfixes (reconciliation, hydration, shadow mode)
+- [CURRENT, 2025-12-18, Task] [TASKS/BUGFIX_CODE_REVIEW_CONCERNS.md](./TASKS/BUGFIX_CODE_REVIEW_CONCERNS.md) - Address code review concerns (stale slice expiry, auth, recovery manager)
 
 **Prompts:**
 - [CURRENT, 2025-11-21, Index] [Prompts/README.md](./AI/Prompts/README.md) - Reusable AI prompts index

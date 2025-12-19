@@ -965,6 +965,58 @@ class DailyPerformanceResponse(BaseModel):
     last_updated: datetime
 
 
+class StrategyStatusResponse(TimestampSerializerMixin, BaseModel):
+    """Strategy status information for monitoring.
+
+    Provides consolidated view of strategy state including:
+    - Basic strategy info (id, name, status)
+    - Model version and status
+    - Activity indicators (last signal, errors)
+    - Position and order counts
+    - Today's P&L
+    """
+
+    strategy_id: str
+    name: str
+    status: Literal["active", "paused", "error", "inactive"]
+    model_version: str | None = None
+    model_status: Literal["active", "inactive", "testing", "failed"] | None = None
+    last_signal_at: datetime | None = None
+    last_error: str | None = None
+    positions_count: int = 0
+    open_orders_count: int = 0
+    today_pnl: Decimal | None = None
+    timestamp: datetime
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "strategy_id": "alpha_baseline",
+                    "name": "Alpha Baseline Strategy",
+                    "status": "active",
+                    "model_version": "v1.2.0",
+                    "model_status": "active",
+                    "last_signal_at": "2024-10-17T16:30:00Z",
+                    "last_error": None,
+                    "positions_count": 15,
+                    "open_orders_count": 3,
+                    "today_pnl": "1234.56",
+                    "timestamp": "2024-10-17T16:35:00Z",
+                }
+            ]
+        }
+    }
+
+
+class StrategiesListResponse(TimestampSerializerMixin, BaseModel):
+    """Response for listing all strategies with their status."""
+
+    strategies: list[StrategyStatusResponse]
+    total_count: int
+    timestamp: datetime
+
+
 class ErrorResponse(TimestampSerializerMixin, BaseModel):
     """Standard error response."""
 
