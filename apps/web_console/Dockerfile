@@ -1,6 +1,12 @@
 # Web Console Dockerfile - Multi-stage Build
-# Build: docker build -t trading-platform-web-console -f apps/web_console/Dockerfile .
+#
+# LOCAL BUILD (requires requirements.txt generation first):
+#   make requirements && docker build -t trading-platform-web-console -f apps/web_console/Dockerfile .
+#
 # Run: docker run -p 8501:8501 --env-file .env trading-platform-web-console
+#
+# NOTE: requirements.txt is auto-generated in CI from pyproject.toml via poetry export.
+# For local builds, run `make requirements` first to generate it.
 #
 # Multi-stage build:
 # - Stage 1 (builder): Install build dependencies and Python packages

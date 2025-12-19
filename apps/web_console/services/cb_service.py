@@ -324,38 +324,54 @@ class CircuitBreakerService:
             # Use sync connection from pool
             with self.db_pool.connection() as conn:
                 with conn.cursor() as cur:
+                    # Fetch more events to allow pairing (2x limit for TRIP+RESET pairs)
                     cur.execute(
                         """
                         SELECT timestamp, action, details, user_id
                         FROM audit_log
                         WHERE action IN ('CIRCUIT_BREAKER_TRIP', 'CIRCUIT_BREAKER_RESET')
-                        ORDER BY timestamp DESC
+                        ORDER BY timestamp ASC
                         LIMIT %s
                         """,
-                        (limit,),
+                        (limit * 2,),
                     )
                     rows = cur.fetchall()
 
-            # Map to same shape as Redis history entries
+            # Pair TRIP and RESET events to match Redis history shape
+            # Redis stores single entries that get updated with reset info
             history: list[dict[str, Any]] = []
+            pending_trip: dict[str, Any] | None = None
+
             for row in rows:
                 timestamp, action, details, user_id = row
                 details_dict = (
                     details if isinstance(details, dict) else json.loads(details or "{}")
                 )
-                entry: dict[str, Any] = {
-                    "timestamp": timestamp.isoformat() if timestamp else None,
-                    "action": action,
-                    "reason": details_dict.get("reason"),
-                    "user": str(user_id) if user_id else None,
-                }
+                ts_str = timestamp.isoformat() if timestamp else None
+
                 if action == "CIRCUIT_BREAKER_TRIP":
-                    entry["tripped_at"] = entry["timestamp"]
-                elif action == "CIRCUIT_BREAKER_RESET":
-                    entry["reset_at"] = entry["timestamp"]
-                    entry["reset_by"] = entry["user"]
-                history.append(entry)
-            return history
+                    # Save any pending trip before starting new one
+                    if pending_trip is not None:
+                        history.append(pending_trip)
+                    # Start new trip entry
+                    pending_trip = {
+                        "tripped_at": ts_str,
+                        "reason": details_dict.get("reason"),
+                    }
+                elif action == "CIRCUIT_BREAKER_RESET" and pending_trip is not None:
+                    # Pair reset with pending trip
+                    pending_trip["reset_at"] = ts_str
+                    pending_trip["reset_by"] = str(user_id) if user_id else None
+                    pending_trip["reset_reason"] = details_dict.get("reason")
+                    history.append(pending_trip)
+                    pending_trip = None
+
+            # Add any unpaired trip (currently tripped, not yet reset)
+            if pending_trip is not None:
+                history.append(pending_trip)
+
+            # Return newest-first to match Redis history order, limited to requested count
+            return list(reversed(history))[:limit]
 
         except Exception as e:
             logger.exception(

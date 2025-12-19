@@ -333,11 +333,11 @@ class TestCircuitBreakerServiceAuditFallback:
     def test_audit_fallback_maps_trip_to_history_shape(
         self, cb_service_with_db: CircuitBreakerService, mock_db_pool: MagicMock
     ) -> None:
-        """Fallback should map CIRCUIT_BREAKER_TRIP audit rows to history shape."""
+        """Fallback should map unpaired TRIP to Redis history shape (no reset info)."""
         # Make Redis history fail
         cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
 
-        # Mock audit log rows
+        # Mock audit log rows - single TRIP without RESET (currently tripped)
         mock_timestamp = datetime(2025, 12, 18, 10, 0, 0, tzinfo=UTC)
         mock_row = (
             mock_timestamp,
@@ -355,29 +355,29 @@ class TestCircuitBreakerServiceAuditFallback:
 
         result = cb_service_with_db.get_history(limit=10)
 
+        # Unpaired trip should have tripped_at and reason, no reset info
         assert len(result) == 1
-        assert result[0]["action"] == "CIRCUIT_BREAKER_TRIP"
-        assert result[0]["reason"] == "DAILY_LOSS_EXCEEDED"
-        assert result[0]["user"] == "test_user"
         assert result[0]["tripped_at"] == "2025-12-18T10:00:00+00:00"
+        assert result[0]["reason"] == "DAILY_LOSS_EXCEEDED"
+        assert "reset_at" not in result[0]
+        assert "reset_by" not in result[0]
 
-    def test_audit_fallback_maps_reset_to_history_shape(
+    def test_audit_fallback_pairs_trip_and_reset(
         self, cb_service_with_db: CircuitBreakerService, mock_db_pool: MagicMock
     ) -> None:
-        """Fallback should map CIRCUIT_BREAKER_RESET audit rows to history shape."""
+        """Fallback should pair TRIP and RESET events to match Redis history shape."""
         # Make Redis history fail
         cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
 
-        # Mock audit log rows
-        mock_timestamp = datetime(2025, 12, 18, 11, 0, 0, tzinfo=UTC)
-        mock_row = (
-            mock_timestamp,
-            "CIRCUIT_BREAKER_RESET",
-            {"reason": "Conditions cleared"},
-            "operator",
-        )
+        # Mock audit log rows - TRIP followed by RESET (complete cycle)
+        trip_timestamp = datetime(2025, 12, 18, 10, 0, 0, tzinfo=UTC)
+        reset_timestamp = datetime(2025, 12, 18, 11, 0, 0, tzinfo=UTC)
+        mock_rows = [
+            (trip_timestamp, "CIRCUIT_BREAKER_TRIP", {"reason": "DAILY_LOSS_EXCEEDED"}, "trip_user"),
+            (reset_timestamp, "CIRCUIT_BREAKER_RESET", {"reason": "Conditions cleared"}, "operator"),
+        ]
         mock_cursor = MagicMock()
-        mock_cursor.fetchall.return_value = [mock_row]
+        mock_cursor.fetchall.return_value = mock_rows
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
@@ -386,11 +386,13 @@ class TestCircuitBreakerServiceAuditFallback:
 
         result = cb_service_with_db.get_history(limit=10)
 
+        # Paired TRIP+RESET should be merged into single entry like Redis
         assert len(result) == 1
-        assert result[0]["action"] == "CIRCUIT_BREAKER_RESET"
-        assert result[0]["reason"] == "Conditions cleared"
+        assert result[0]["tripped_at"] == "2025-12-18T10:00:00+00:00"
+        assert result[0]["reason"] == "DAILY_LOSS_EXCEEDED"
         assert result[0]["reset_at"] == "2025-12-18T11:00:00+00:00"
         assert result[0]["reset_by"] == "operator"
+        assert result[0]["reset_reason"] == "Conditions cleared"
 
     def test_audit_fallback_handles_db_error_gracefully(
         self, cb_service_with_db: CircuitBreakerService, mock_db_pool: MagicMock

@@ -172,6 +172,8 @@ def _render_controls_section(cb_service: CircuitBreakerService) -> None:
                             cb_service.trip(final_reason, user, acknowledged=True)
                             st.success("Circuit breaker TRIPPED")
                             st.rerun()
+                        except ValidationError as e:
+                            st.error(f"Validation error: {e}")
                         except RBACViolation as e:
                             st.error(f"Permission denied: {e}")
                         except Exception as e:

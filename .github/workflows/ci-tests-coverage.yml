@@ -267,7 +267,7 @@ jobs:
       - name: Run E2E integration tests
         run: |
           echo "::group::Running E2E integration tests"
-          pytest tests/e2e/ -v -m e2e --tb=short
+          python -m pytest tests/e2e/ -v -m e2e --tb=short
           echo "::endgroup::"
 
       - name: Capture service logs on failure
