@@ -226,26 +226,50 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
-    def set(self, key: str, value: str, ttl: int | None = None) -> None:
+    def set(
+        self,
+        key: str,
+        value: str,
+        ttl: int | None = None,
+        *,
+        nx: bool = False,
+        ex: int | None = None,
+    ) -> bool | None:
         """
-        Set value in Redis with optional TTL and retry logic.
+        Set value in Redis with optional TTL, NX, and EX options.
 
         Args:
             key: Redis key to set
             value: Value to store (string)
-            ttl: Time-to-live in seconds (optional)
+            ttl: Time-to-live in seconds (legacy, use ex instead)
+            nx: Only set if key does not exist (SET NX)
+            ex: Expiration time in seconds (SET EX)
+
+        Returns:
+            True if the key was set, None if nx=True and key already exists.
+            For backwards compatibility, returns None when nx=False.
 
         Raises:
             RedisError: If operation fails after retries
 
         Example:
             >>> client.set("features:AAPL:2025-01-17", '{"f1": 0.5}', ttl=3600)
+            >>> client.set("lock", "1", nx=True, ex=60)  # Atomic set-if-not-exists
         """
         try:
-            if ttl:
-                self._client.setex(key, ttl, value)
+            # Use ex parameter if provided, otherwise fall back to ttl
+            expiry = ex if ex is not None else ttl
+
+            if nx:
+                # SET NX EX - atomic set-if-not-exists with expiry
+                result = self._client.set(key, value, nx=True, ex=expiry)
+                return cast(bool | None, result)
+            elif expiry:
+                self._client.setex(key, expiry, value)
+                return None
             else:
                 self._client.set(key, value)
+                return None
         except RedisError as e:
             logger.error(f"Redis SET failed for key '{key}': {e}")
             raise
@@ -663,6 +687,129 @@ class RedisClient:
             return result
         except RedisError as e:
             logger.error(f"Redis EVAL failed: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def incr(self, key: str) -> int:
+        """
+        Increment the integer value of a key by one.
+
+        If the key does not exist, it is set to 0 before performing the operation.
+        This operation is atomic.
+
+        Args:
+            key: Redis key to increment
+
+        Returns:
+            The value of key after the increment
+
+        Raises:
+            RedisError: If operation fails after retries
+
+        Example:
+            >>> count = client.incr("my_counter")
+            >>> print(f"New count: {count}")
+        """
+        try:
+            result = self._client.incr(key)
+            return cast(int, result)
+        except RedisError as e:
+            logger.error(f"Redis INCR failed for key '{key}': {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def expire(self, key: str, seconds: int) -> bool:
+        """
+        Set a timeout on key. After the timeout has expired, the key will be deleted.
+
+        Args:
+            key: Redis key to set expiration on
+            seconds: Expiration time in seconds
+
+        Returns:
+            True if the timeout was set, False if key does not exist
+
+        Raises:
+            RedisError: If operation fails after retries
+
+        Example:
+            >>> client.set("temp_key", "value")
+            >>> client.expire("temp_key", 60)  # Expires in 60 seconds
+        """
+        try:
+            result = self._client.expire(key, seconds)
+            return cast(bool, result)
+        except RedisError as e:
+            logger.error(f"Redis EXPIRE failed for key '{key}': {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def zrevrange(
+        self, key: str, start: int, stop: int, withscores: bool = False
+    ) -> list[Any]:
+        """
+        Return a range of members in a sorted set, by index, with scores ordered
+        from high to low (reverse order).
+
+        Args:
+            key: Redis sorted set key
+            start: Start index (0-based)
+            stop: Stop index (inclusive, -1 for last element)
+            withscores: If True, return (member, score) tuples
+
+        Returns:
+            List of members, or list of (member, score) tuples if withscores=True
+
+        Example:
+            >>> client.zrevrange("my_zset", 0, 2)  # Top 3 scores
+            ['member3', 'member2', 'member1']
+            >>> client.zrevrange("my_zset", 0, 0, withscores=True)  # Highest score
+            [('member3', 100.0)]
+        """
+        try:
+            result = self._client.zrevrange(key, start, stop, withscores=withscores)
+            return cast(list[Any], result)
+        except RedisError as e:
+            logger.error(f"Redis ZREVRANGE failed for key '{key}': {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def zrem(self, key: str, *members: str | bytes) -> int:
+        """
+        Remove one or more members from a sorted set.
+
+        Args:
+            key: Redis sorted set key
+            *members: Members to remove
+
+        Returns:
+            Number of members removed from the sorted set
+
+        Example:
+            >>> client.zrem("my_zset", "member1", "member2")
+            2
+        """
+        try:
+            result = self._client.zrem(key, *members)
+            return cast(int, result)
+        except RedisError as e:
+            logger.error(f"Redis ZREM failed for key '{key}': {e}")
             raise
 
     def close(self) -> None:

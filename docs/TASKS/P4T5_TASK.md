@@ -214,10 +214,12 @@ Build operational monitoring and control dashboards for the trading platform. Th
 
 ### Auth Dependency Strategy
 
-Since T6.1 (Auth/RBAC) is not yet complete, we use the same dev auth stub pattern as T5.3:
+**T6.1 (Auth/RBAC) was delivered in PR#76 (merged 2025-12-12).** The production OAuth2 auth is available via `@requires_auth` from `apps.web_console.auth.streamlit_helpers`.
 
-- **If T6.1 complete:** Use production OAuth2 auth via `@requires_auth`
-- **If T6.1 pending:** Use dev-mode auth stub with `OPERATIONS_DEV_AUTH=true` env var
+We use a dev auth stub pattern for **local development convenience** (not because T6.1 is pending):
+
+- **Production mode:** Uses real OAuth2 auth via `@requires_auth`
+- **Dev mode:** Optional stub with `OPERATIONS_DEV_AUTH=true` for local testing without OAuth2 setup
 - **Dev-mode stub:** Returns fixed user `{"username": "dev_user", "role": "admin"}`
 - **CI enforcement:** Tests fail if `OPERATIONS_DEV_AUTH=true` in prod/staging configs
 - **Runtime enforcement:** App refuses to start with stub in non-dev environment
@@ -550,7 +552,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 ## Dependencies
 
 **Blockers (must verify before starting):**
-- T6.1 (Auth/RBAC): Using dev auth stub as workaround with runtime guards
+- ~~T6.1 (Auth/RBAC)~~: **DELIVERED** in PR#76 (2025-12-12) - dev auth stub available for local convenience
 - Health endpoints: All services must expose stable `/health` schema
 - Secrets: SMTP, SendGrid, Slack webhook, Twilio credentials provisioned
 - Database: `pgcrypto` extension enabled
@@ -569,7 +571,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| T6.1 Auth not ready | Med | High | Dev auth stub with runtime guard blocking prod/staging |
+| ~~T6.1 Auth not ready~~ | ~~Med~~ | ~~High~~ | **RESOLVED**: T6.1 delivered in PR#76; dev stub for local convenience |
 | Circuit breaker race conditions | High | Low | Use Redis atomic operations (WATCH/MULTI/EXEC) |
 | Alert delivery failures | Med | Med | Retry with backoff, poison queue for manual review |
 | Admin actions without audit | High | Low | Mandatory audit logging, verified in tests |
@@ -702,7 +704,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 - [P4T4_5.3_TASK.md](./P4T4_5.3_TASK.md) - Auth stub pattern reference
 
 **Tasks:**
-- Depends on: T6.1 (Auth/RBAC) - using stub workaround with runtime guards
+- ~~Depends on: T6.1 (Auth/RBAC)~~: **DELIVERED** in PR#76 (2025-12-12) - dev stub for local convenience
 - Related: T5.3 (Backtest Web UI) - shares auth stub pattern
 
 ---
@@ -716,13 +718,15 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 
 | # | Component | Status | Effort | Dependencies |
 |---|-----------|--------|--------|--------------|
-| C0 | Prep & Validation | 📋 Pending | 1d | - |
-| C1 | T7.1 Circuit Breaker Dashboard | 📋 Pending | 3-4d | C0 |
+| C0 | Prep & Validation | ✅ Complete | 1d | - |
+| C1 | T7.1 Circuit Breaker Dashboard | ✅ Complete | 3-4d | C0 |
 | C2 | T7.2 System Health Monitor | 📋 Pending | 3-4d | C0 |
 | C3 | T7.5 Alert Delivery Service | 📋 Pending | 4-5d | C0 |
 | C4 | T7.3 Alert Configuration UI | 📋 Pending | 3-4d | C3 |
 | C5 | T7.4 Admin Dashboard | 📋 Pending | 4-6d | C0 |
 | C6 | Integration & Documentation | 📋 Pending | 2d | C1-C5 |
+
+**Note:** C0 and C1 delivered in first PR. C2-C6 will be delivered in follow-up PRs.
 
 **Total Estimated Effort:** 17-25 days (with buffer for secrets provisioning and integration)
 
@@ -738,7 +742,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_request ON audit_log(request_id);
 4. **Alert Idempotency:** Dedup key = `{alert_id}:{channel}:{recipient}:{hour_bucket}` (UTC ISO truncated to hour)
 5. **API Key Security:** 32-byte entropy, one-time display, SHA-256 salted hash, prefix uniqueness check, never log full key
 6. **PII Handling:** Mask email (`***@domain.com`), phone (`***1234`) in UI and logs via `log_sanitizer.py`
-7. **Step-up Confirmation:** Confirmation dialog with reason text (min 20 chars) + checkbox acknowledgment; **TODO in code: link to T6.1 MFA upgrade path** - include comment `# TODO(T6.1): Replace with TOTP/WebAuthn when MFA ships`
+7. **Step-up Confirmation:** Confirmation dialog with reason text (min 20 chars) + checkbox acknowledgment; T6.1 delivered - MFA can be added when needed
 8. **Async Worker:** Alert delivery retries MUST run on async worker to meet P95 <60s SLA; reuse `backtest_worker` with `alerts` queue
 9. **Migration Idempotency:** Migrations 0010 and 0011 must check for existing tables/extensions before CREATE
 10. **Rate Limit Keys:** Use `ratelimit:{channel}:{minute}`, `ratelimit:recipient:{hash}:{hour}`, `ratelimit:global:{minute}` with INCR+EXPIRE

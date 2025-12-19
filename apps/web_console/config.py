@@ -199,3 +199,18 @@ FEATURE_BACKTEST_MANAGER = os.getenv("FEATURE_BACKTEST_MANAGER", "false").lower(
     "yes",
     "on",
 }
+
+# ============================================================================
+# Circuit Breaker Dashboard Configuration (T7.1)
+# ============================================================================
+
+# Feature flag for circuit breaker dashboard (T7.1)
+FEATURE_CIRCUIT_BREAKER = os.getenv("FEATURE_CIRCUIT_BREAKER", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+# Minimum reason length for circuit breaker reset
+MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH = 20

@@ -1,6 +1,8 @@
 """Auth decorator with dev-mode fallback for Track 7 Operations.
 
-This module provides a temporary auth stub for development while T6.1 (OAuth2) is pending.
+T6.1 (Auth/RBAC) is DELIVERED in PR#76 (merged 2025-12-12). This stub provides
+local development convenience - in production it delegates to the real @requires_auth.
+
 The stub is controlled by OPERATIONS_DEV_AUTH environment variable.
 
 SECURITY:
@@ -8,11 +10,10 @@ SECURITY:
 - Runtime guard blocks app startup if violated (fail-closed allowlist)
 - CI governance tests (test_operations_auth_governance.py) enforce this
 
-Rollback Path (when T6.1 ships):
+Optional Removal Path (if dev stub no longer needed):
 1. Remove OPERATIONS_DEV_AUTH from all env files
 2. Replace @operations_requires_auth with @requires_auth in pages
 3. Delete this file
-4. Run test_no_auth_stub_references_after_t61 to verify cleanup
 """
 
 from __future__ import annotations
@@ -63,12 +64,14 @@ _check_dev_auth_safety()
 def operations_requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
     """Auth decorator with dev-mode fallback for Track 7 operations.
 
+    In production (OPERATIONS_DEV_AUTH not set), delegates to T6.1's @requires_auth.
+    In dev mode, provides stub that mimics T6.1's session shape for local testing.
+
     CRITICAL: Dev stub must set the same session keys as real OAuth2 auth:
     - authenticated, username, user_id, auth_method, session_id
     - role, strategies (for RBAC parity)
 
     Uses admin role for full operations access (CB trip/reset, user management, etc.)
-    # TODO(T6.1): Replace with TOTP/WebAuthn when MFA ships
 
     Args:
         func: The page render function to protect
