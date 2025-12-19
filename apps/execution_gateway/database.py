@@ -2217,6 +2217,9 @@ class DatabaseClient:
                     # Single consolidated query for all strategy metrics
                     # Note: positions table doesn't have strategy_id, so we derive
                     # position count from distinct symbols in filled orders
+                    # Note: today_pnl requires proper position tracking with entry prices,
+                    # which isn't available without strategy_id in positions table.
+                    # Returning 0 until proper PnL tracking is implemented.
                     cur.execute(
                         """
                         SELECT
@@ -2228,12 +2231,7 @@ class DatabaseClient:
                                 WHEN status NOT IN ('filled', 'canceled', 'rejected', 'expired', 'replaced')
                                 THEN 1
                             END) as open_orders_count,
-                            MAX(created_at) as last_signal,
-                            COALESCE(SUM(
-                                CASE WHEN filled_at::date = CURRENT_DATE
-                                THEN (filled_avg_price - limit_price) * filled_qty
-                                END
-                            ), 0) as today_pnl
+                            MAX(created_at) as last_signal
                         FROM orders
                         WHERE strategy_id = %s
                         """,
@@ -2243,16 +2241,15 @@ class DatabaseClient:
                     positions_count = result["positions_count"] if result else 0
                     open_orders_count = result["open_orders_count"] if result else 0
                     last_signal_at = result["last_signal"] if result else None
-                    today_pnl = result["today_pnl"] if result else Decimal("0")
 
                     return {
                         "positions_count": positions_count,
                         "open_orders_count": open_orders_count,
                         "last_signal_at": last_signal_at,
-                        "today_pnl": today_pnl,
+                        "today_pnl": Decimal("0"),  # Requires proper position tracking
                     }
 
-        except Exception as exc:
+        except (OperationalError, DatabaseError) as exc:
             logger.error(
                 "Database error fetching strategy status",
                 extra={"strategy_id": strategy_id, "error": str(exc)},
@@ -2282,7 +2279,7 @@ class DatabaseClient:
                     )
                     return [row[0] for row in cur.fetchall()]
 
-        except Exception as exc:
+        except (OperationalError, DatabaseError) as exc:
             logger.error(
                 "Database error fetching strategy IDs",
                 extra={"error": str(exc)},
@@ -2313,8 +2310,11 @@ class DatabaseClient:
 
         try:
             with self._pool.connection() as conn:
-                with conn.cursor() as cur:
+                with conn.cursor(row_factory=dict_row) as cur:
                     # Single query with GROUP BY for all strategies
+                    # Note: today_pnl requires proper position tracking with entry prices,
+                    # which isn't available without strategy_id in positions table.
+                    # Returning 0 until proper PnL tracking is implemented.
                     placeholders = ",".join(["%s"] * len(strategy_ids))
                     cur.execute(
                         f"""
@@ -2328,12 +2328,7 @@ class DatabaseClient:
                                 WHEN status NOT IN ('filled', 'canceled', 'rejected', 'expired', 'replaced')
                                 THEN 1
                             END) as open_orders_count,
-                            MAX(created_at) as last_signal,
-                            COALESCE(SUM(
-                                CASE WHEN filled_at::date = CURRENT_DATE
-                                THEN (filled_avg_price - limit_price) * filled_qty
-                                END
-                            ), 0) as today_pnl
+                            MAX(created_at) as last_signal
                         FROM orders
                         WHERE strategy_id IN ({placeholders})
                         GROUP BY strategy_id
@@ -2347,7 +2342,7 @@ class DatabaseClient:
                             "positions_count": row["positions_count"] or 0,
                             "open_orders_count": row["open_orders_count"] or 0,
                             "last_signal_at": row["last_signal"],
-                            "today_pnl": row["today_pnl"] or Decimal("0"),
+                            "today_pnl": Decimal("0"),  # Requires proper position tracking
                         }
 
                     # Ensure all requested strategies have an entry (even if no orders)
@@ -2362,7 +2357,7 @@ class DatabaseClient:
 
                     return results
 
-        except Exception as exc:
+        except (OperationalError, DatabaseError) as exc:
             logger.error(
                 "Database error fetching bulk strategy status",
                 extra={"strategy_ids": strategy_ids, "error": str(exc)},
