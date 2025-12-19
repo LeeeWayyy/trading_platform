@@ -26,7 +26,7 @@ from typing import Any, cast
 import pandas as pd
 import psycopg
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh  # type: ignore[import-not-found]
+from streamlit_autorefresh import st_autorefresh  # type: ignore[import-untyped]
 
 from apps.web_console.auth.operations_auth import operations_requires_auth
 from apps.web_console.config import (

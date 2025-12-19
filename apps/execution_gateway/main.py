@@ -292,6 +292,9 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
 )
 REDUCE_ONLY_LOCK_TIMEOUT_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_TIMEOUT_SECONDS", "30"))
 REDUCE_ONLY_LOCK_BLOCKING_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_BLOCKING_SECONDS", "10"))
+STRATEGY_ACTIVITY_THRESHOLD_SECONDS = int(
+    os.getenv("STRATEGY_ACTIVITY_THRESHOLD_SECONDS", "86400")
+)  # Default 24 hours
 
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
@@ -1776,7 +1779,7 @@ def _determine_strategy_status(
         return "active"
     if db_status["last_signal_at"]:
         age = (now - db_status["last_signal_at"]).total_seconds()
-        if age < 86400:  # 24 hours
+        if age < STRATEGY_ACTIVITY_THRESHOLD_SECONDS:
             return "active"
     return "inactive"
 

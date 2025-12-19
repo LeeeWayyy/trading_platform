@@ -2202,30 +2202,12 @@ class DatabaseClient:
         try:
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
-                    # Check if this strategy exists in orders table
-                    # Note: positions table doesn't have strategy_id column
-                    cur.execute(
-                        """
-                        SELECT EXISTS (
-                            SELECT 1 FROM orders WHERE strategy_id = %s
-                            LIMIT 1
-                        ) as exists
-                        """,
-                        (strategy_id,),
-                    )
-                    exists_result = cur.fetchone()
-                    if not exists_result or not exists_result["exists"]:
-                        return None
-
-                    # Single consolidated query for all strategy metrics
+                    # Single consolidated query with GROUP BY - more efficient than
+                    # SELECT EXISTS + aggregation (avoids redundant database round-trip).
+                    # If strategy exists, returns one row; otherwise returns no rows.
                     # Note: positions table doesn't have strategy_id, so we derive
                     # metrics from orders table only.
-                    # - positions_count: distinct symbols with open (non-terminal) orders
-                    # - open_orders_count: total non-terminal orders
                     # Uses is_terminal column for consistency with rest of codebase
-                    # Note: today_pnl requires proper position tracking with entry prices,
-                    # which isn't available without strategy_id in positions table.
-                    # Returning 0 until proper PnL tracking is implemented.
                     cur.execute(
                         """
                         SELECT
@@ -2234,18 +2216,19 @@ class DatabaseClient:
                             MAX(created_at) as last_signal
                         FROM orders
                         WHERE strategy_id = %s
+                        GROUP BY strategy_id
                         """,
                         (strategy_id,),
                     )
                     result = cur.fetchone()
-                    positions_count = result["positions_count"] if result else 0
-                    open_orders_count = result["open_orders_count"] if result else 0
-                    last_signal_at = result["last_signal"] if result else None
+
+                    if not result:
+                        return None
 
                     return {
-                        "positions_count": positions_count,
-                        "open_orders_count": open_orders_count,
-                        "last_signal_at": last_signal_at,
+                        "positions_count": result["positions_count"],
+                        "open_orders_count": result["open_orders_count"],
+                        "last_signal_at": result["last_signal"],
                         "today_pnl": Decimal("0"),  # Requires proper position tracking
                     }
 
