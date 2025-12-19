@@ -451,8 +451,8 @@ class CBRateLimiter:
     def check_global(self, limit: int = 1, window: int = 60) -> bool:
         """Check if global reset is allowed (atomic).
 
-        Uses atomic INCR with conditional EXPIRE to prevent race conditions.
-        Two concurrent resets will not both pass.
+        For limit=1: Use SET NX EX (single atomic command, no lockout risk).
+        For limit>1: Use Lua script to combine INCR + EXPIRE atomically.
 
         Args:
             limit: Max resets allowed in window
@@ -461,17 +461,13 @@ class CBRateLimiter:
         Returns:
             True if reset allowed, False if rate limited
         """
-        # Atomic: INCR returns new value; set EXPIRE only if this is first increment
-        new_count = self.redis.incr(self.KEY)
+        if limit == 1:
+            # Single-token path: SET NX EX is fully atomic (no crash window)
+            return self.redis.set_if_not_exists(self.KEY, "1", ex=window)
 
-        if new_count == 1:
-            # First increment in this window - set expiry
-            self.redis.expire(self.KEY, window)
-
-        if new_count > limit:
-            return False
-
-        return True
+        # Multi-token path: atomic INCR + EXPIRE via Lua (prevents orphaned keys)
+        new_count = self.redis.eval(_INCR_WITH_EXPIRE_LUA, 1, self.KEY, str(window))
+        return int(new_count) <= limit
 ```
 
 ### 5. Streamlit Page (`pages/circuit_breaker.py`)

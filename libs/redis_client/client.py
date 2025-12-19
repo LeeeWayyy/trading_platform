@@ -231,45 +231,31 @@ class RedisClient:
         key: str,
         value: str,
         ttl: int | None = None,
-        *,
-        nx: bool = False,
         ex: int | None = None,
-    ) -> bool | None:
+    ) -> None:
         """
-        Set value in Redis with optional TTL, NX, and EX options.
+        Set value in Redis with optional TTL/expiration.
 
         Args:
             key: Redis key to set
             value: Value to store (string)
             ttl: Time-to-live in seconds (legacy, use ex instead)
-            nx: Only set if key does not exist (SET NX)
             ex: Expiration time in seconds (SET EX)
-
-        Returns:
-            If `nx=True`, returns `True` if the key was set, `False` otherwise.
-            If `nx=False`, returns `None` for backward compatibility.
 
         Raises:
             RedisError: If operation fails after retries
 
         Example:
             >>> client.set("features:AAPL:2025-01-17", '{"f1": 0.5}', ttl=3600)
-            >>> client.set("lock", "1", nx=True, ex=60)  # Atomic set-if-not-exists
         """
         try:
             # Use ex parameter if provided, otherwise fall back to ttl
             expiry = ex if ex is not None else ttl
 
-            if nx:
-                # SET NX EX - atomic set-if-not-exists with expiry
-                result = self._client.set(key, value, nx=True, ex=expiry)
-                return cast(bool | None, result)
-            elif expiry:
+            if expiry:
                 self._client.setex(key, expiry, value)
-                return None
             else:
                 self._client.set(key, value)
-                return None
         except RedisError as e:
             logger.error(f"Redis SET failed for key '{key}': {e}")
             raise
@@ -279,48 +265,35 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
-    def setnx(self, key: str, value: str, ex: int | None = None) -> bool:
+    def set_if_not_exists(self, key: str, value: str, ex: int | None = None) -> bool:
         """
-        Atomic set-if-not-exists operation.
-
-        Sets the key only if it does not already exist. This is an atomic operation
-        ideal for implementing locks, rate limiters, and other coordination primitives.
+        Atomic set-if-not-exists (SET NX EX) helper.
 
         Args:
             key: Redis key to set
-            value: Value to store (string)
-            ex: Optional expiration time in seconds
+            value: Value to store
+            ex: Expiration time in seconds
 
         Returns:
-            True if the key was set (did not exist), False if key already exists
-
-        Raises:
-            RedisError: If operation fails after retries
-
-        Example:
-            >>> # Acquire a lock
-            >>> if client.setnx("lock:resource", "owner_id", ex=30):
-            ...     # Lock acquired, do work
-            ...     client.delete("lock:resource")
-            ... else:
-            ...     # Lock held by someone else
-            ...     pass
-
-            >>> # Rate limiting
-            >>> if client.setnx("rate:user:123", "1", ex=60):
-            ...     # First request in window, allowed
-            ...     pass
-            ... else:
-            ...     # Already made a request in this window
-            ...     raise RateLimitExceeded()
+            True if the key was set, False if it already existed.
         """
         try:
             result = self._client.set(key, value, nx=True, ex=ex)
-            # redis-py returns True if set, None/False if key exists
             return bool(result)
         except RedisError as e:
             logger.error(f"Redis SETNX failed for key '{key}': {e}")
             raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
+    def setnx(self, key: str, value: str, ex: int | None = None) -> bool:
+        """
+        Backward-compatible alias for set_if_not_exists.
+        """
+        return self.set_if_not_exists(key, value, ex=ex)
 
     @retry(
         stop=stop_after_attempt(3),

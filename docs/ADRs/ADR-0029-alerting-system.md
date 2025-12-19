@@ -70,6 +70,8 @@ Rate limits are enforced using Redis token bucket pattern:
 3. **Global burst:** `ratelimit:global:{minute}` - Max 500/min total
 
 Recipient hashing uses HMAC-SHA256 with `ALERT_RECIPIENT_HASH_SECRET` env var.
+The resulting hex digest is truncated to the first 16 characters to keep Redis
+keys compact while still avoiding collisions for our expected recipient volume.
 
 ### Poison Queue
 

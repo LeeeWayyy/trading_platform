@@ -1,12 +1,12 @@
 # Web Console Dockerfile - Multi-stage Build
 #
-# LOCAL BUILD (requires requirements.txt generation first):
-#   make requirements && docker build -t trading-platform-web-console -f apps/web_console/Dockerfile .
+# Local build:
+#   docker build -t trading-platform-web-console -f apps/web_console/Dockerfile .
+#
+# The image now generates requirements.txt internally from pyproject.toml/poetry.lock,
+# so no pre-generated requirements file is needed for local or CI builds.
 #
 # Run: docker run -p 8501:8501 --env-file .env trading-platform-web-console
-#
-# NOTE: requirements.txt is auto-generated in CI from pyproject.toml via poetry export.
-# For local builds, run `make requirements` first to generate it.
 #
 # Multi-stage build:
 # - Stage 1 (builder): Install build dependencies and Python packages
@@ -24,9 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements (generated from pyproject.toml in CI) and install to a target directory
-COPY requirements.txt .
-RUN pip install --no-cache-dir --target=/build/packages -r requirements.txt
+# Copy dependency manifests and generate requirements.txt inside the image.
+# This avoids relying on a pre-generated requirements.txt (which is .gitignored).
+COPY pyproject.toml poetry.lock ./
+RUN pip install --no-cache-dir poetry \
+    && poetry export -f requirements.txt --without-hashes --output /tmp/requirements.txt \
+    && pip install --no-cache-dir --target=/build/packages -r /tmp/requirements.txt
 
 # ============================================================================
 # Stage 2: Final - Minimal runtime image

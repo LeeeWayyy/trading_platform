@@ -83,7 +83,7 @@ class CBRateLimiter:
         if limit == 1:
             # Use dedicated setnx method - truly atomic, no crash risk
             # Returns True if key was set (allowed), False if exists (blocked)
-            return self.redis.setnx(self.key, "1", ex=window)
+            return self.redis.set_if_not_exists(self.key, "1", ex=window)
 
         # For limit > 1, use Lua script for atomic INCR + EXPIRE
         # This eliminates the race condition where a crash between INCR and EXPIRE

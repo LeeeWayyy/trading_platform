@@ -36,9 +36,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import psycopg
+import redis
 
 from apps.web_console.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
 from libs.risk_management.breaker import CircuitBreaker
+from libs.risk_management.exceptions import CircuitBreakerError
 from libs.web_console_auth.permissions import Permission, has_permission
 
 from .cb_metrics import CB_RESET_TOTAL, CB_STATUS_CHECKS, CB_TRIP_TOTAL
@@ -245,7 +247,7 @@ class CircuitBreakerService:
         user_id = user.get("user_id", "unknown")
         try:
             self.breaker.reset(reset_by=user_id)
-        except Exception:
+        except (CircuitBreakerError, RuntimeError, redis.exceptions.RedisError):
             # Clear rate limit on failure so operator can retry immediately
             self.rate_limiter.clear()
             raise

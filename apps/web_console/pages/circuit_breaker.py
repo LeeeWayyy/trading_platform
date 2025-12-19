@@ -25,7 +25,6 @@ from typing import Any, cast
 
 import pandas as pd
 import psycopg
-import redis
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh  # type: ignore[import-untyped]
 
@@ -74,7 +73,6 @@ def _get_db_pool() -> Any:
     Catches specific exceptions:
         - ImportError: sync_db_pool module not available
         - psycopg.Error: Database connection issues
-        - redis.RedisError: Redis connection issues (pool may use Redis)
     """
     try:
         from apps.web_console.utils.sync_db_pool import get_sync_db_pool
@@ -86,9 +84,9 @@ def _get_db_pool() -> Any:
             extra={"error": str(e), "impact": "audit logging disabled"},
         )
         return None
-    except (OSError, ConnectionError, psycopg.Error, redis.RedisError) as e:
+    except (OSError, ConnectionError, psycopg.Error) as e:
         # OSError covers socket/network issues, ConnectionError for connection failures
-        # psycopg.Error for PostgreSQL issues, redis.RedisError for Redis issues
+        # psycopg.Error for PostgreSQL issues
         logger.warning(
             "db_pool_connection_failed",
             extra={"error": str(e), "impact": "audit logging disabled"},
