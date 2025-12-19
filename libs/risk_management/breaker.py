@@ -39,6 +39,14 @@ from enum import Enum
 from typing import Any, cast
 
 import redis.exceptions
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from libs.redis_client import RedisClient
 from libs.risk_management.exceptions import CircuitBreakerError
@@ -291,8 +299,22 @@ class CircuitBreaker:
             - Increments trip_count_today atomically
             - Appends to trip history log
             - Retries automatically on concurrent modification (WatchError)
+            - Retries on transient connection errors (ConnectionError, TimeoutError)
         """
-        # Use public RedisClient pipeline() method (Gemini HIGH fix)
+        self._trip_transaction(reason, details)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((RedisConnectionError, RedisTimeoutError)),
+    )
+    def _trip_transaction(
+        self,
+        reason: str,
+        details: dict[str, Any] | None,
+    ) -> None:
+        """Internal trip transaction with connection retry."""
+        # Use public RedisClient pipeline() method
         with self.redis.pipeline() as pipe:
             while True:
                 try:
@@ -392,8 +414,18 @@ class CircuitBreaker:
             - Automatically transitions to OPEN after 5 minutes
             - Updates trip history with reset timestamp
             - Retries automatically on concurrent modification (WatchError)
+            - Retries on transient connection errors (ConnectionError, TimeoutError)
         """
-        # Use public RedisClient pipeline() method (Gemini HIGH fix)
+        self._reset_transaction(reset_by)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((RedisConnectionError, RedisTimeoutError)),
+    )
+    def _reset_transaction(self, reset_by: str) -> None:
+        """Internal reset transaction with connection retry."""
+        # Use public RedisClient pipeline() method
         with self.redis.pipeline() as pipe:
             while True:
                 try:
@@ -458,6 +490,11 @@ class CircuitBreaker:
                     )
                     continue
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((RedisConnectionError, RedisTimeoutError)),
+    )
     def _transition_to_open(self) -> None:
         """
         Internal method to transition from QUIET_PERIOD to OPEN atomically.
@@ -467,8 +504,11 @@ class CircuitBreaker:
 
         Raises:
             RuntimeError: If circuit breaker state is missing from Redis (fail-closed).
+
+        Notes:
+            - Retries on transient connection errors (ConnectionError, TimeoutError)
         """
-        # Use public RedisClient pipeline() method (Gemini HIGH fix)
+        # Use public RedisClient pipeline() method
         with self.redis.pipeline() as pipe:
             while True:
                 try:
@@ -626,3 +666,103 @@ class CircuitBreaker:
             )
 
         return json.loads(state_json)  # type: ignore[no-any-return]
+
+    def get_history(self, limit: int = 50) -> list[dict[str, Any]]:
+        """
+        Get trip/reset history from Redis sorted set.
+
+        Args:
+            limit: Maximum number of entries to return (newest first)
+
+        Returns:
+            List of history entries with trip/reset details
+
+        Example:
+            >>> history = breaker.get_history(limit=10)
+            >>> history[0]
+            {'tripped_at': '2025-12-18T15:30:00+00:00', 'reason': 'MANUAL', ...}
+
+        Notes:
+            - Returns entries in newest-first order (ZREVRANGE)
+            - Redis returns bytes which are decoded before JSON parsing
+        """
+        # Use ZREVRANGE for newest-first ordering
+        entries_raw = self.redis.zrevrange(self.history_key, 0, limit - 1)
+        # Redis returns bytes - decode before JSON parsing
+        return [
+            json.loads(entry.decode("utf-8") if isinstance(entry, bytes) else entry)
+            for entry in entries_raw
+        ]
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((RedisConnectionError, RedisTimeoutError)),
+    )
+    def update_history_with_reset(
+        self,
+        reset_at: str,
+        reset_by: str,
+        reset_reason: str | None = None,
+    ) -> None:
+        """
+        Update the most recent trip entry with reset information atomically.
+
+        Called after a successful reset to record the reset in history.
+        Uses WATCH to ensure entry hasn't been modified between read and write.
+
+        Args:
+            reset_at: ISO 8601 timestamp of reset
+            reset_by: User ID or identifier of who reset the breaker
+            reset_reason: Optional reason for the reset (why trading resumed)
+
+        Notes:
+            - Only updates if latest entry doesn't already have reset_at
+            - Uses WATCH on history_key to ensure atomicity
+            - Retries on WatchError (concurrent modification)
+        """
+        with self.redis.pipeline() as pipe:
+            while True:
+                try:
+                    # Watch the history key for changes
+                    pipe.watch(self.history_key)
+
+                    # Get the most recent entry with score (use client directly, not pipeline)
+                    entries = self.redis.zrevrange(self.history_key, 0, 0, withscores=True)
+                    if not entries:
+                        pipe.unwatch()
+                        return
+
+                    entry_raw, score = entries[0]
+                    # Redis returns bytes - decode before JSON parsing
+                    entry_str = (
+                        entry_raw.decode("utf-8") if isinstance(entry_raw, bytes) else entry_raw
+                    )
+                    entry = json.loads(entry_str)
+                    if entry.get("reset_at") is not None:
+                        # Already has reset info, nothing to do
+                        pipe.unwatch()
+                        return
+
+                    # Update the entry with reset info
+                    entry["reset_at"] = reset_at
+                    entry["reset_by"] = reset_by
+                    if reset_reason:
+                        entry["reset_reason"] = reset_reason
+
+                    # Start atomic transaction
+                    pipe.multi()
+                    pipe.zrem(self.history_key, entry_raw)
+                    pipe.zadd(self.history_key, {json.dumps(entry): score})
+                    pipe.execute()
+
+                    logger.info(
+                        f"Updated history entry with reset: reset_at={reset_at}, "
+                        f"reset_by={reset_by}, reset_reason={reset_reason}"
+                    )
+                    break  # Success
+
+                except redis.exceptions.WatchError:
+                    # History was modified by another client, retry
+                    logger.warning("WatchError on history update, retrying")
+                    continue

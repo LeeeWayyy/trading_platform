@@ -191,3 +191,26 @@ MIN_FLATTEN_ALL_REASON_LENGTH = 20
 # Must match backend verify_2fa_token max age (60s in apps/execution_gateway/api/dependencies.py)
 # Using slightly lower value (55s) to account for network/clock skew
 MFA_STEP_UP_MAX_AGE_SECONDS = 55
+
+# Feature flag for backtest manager (T5.3)
+FEATURE_BACKTEST_MANAGER = os.getenv("FEATURE_BACKTEST_MANAGER", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+# ============================================================================
+# Circuit Breaker Dashboard Configuration (T7.1)
+# ============================================================================
+
+# Feature flag for circuit breaker dashboard (T7.1)
+FEATURE_CIRCUIT_BREAKER = os.getenv("FEATURE_CIRCUIT_BREAKER", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+# Minimum reason length for circuit breaker reset
+MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH = 20

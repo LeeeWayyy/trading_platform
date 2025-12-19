@@ -242,10 +242,12 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0023](./ADRs/ADR-0023-model-deployment.md) | Model Registry & Deployment Versioning | ✅ Accepted |
 | [ADR-024](./ADRs/ADR-024-analytics-security.md) | Web console analytics security & RBAC design | 🚧 Proposed |
 | [ADR-0025](./ADRs/ADR-0025-backtest-job-queue.md) | Backtest job queue infrastructure (RQ, Redis, psycopg) | ✅ Accepted |
+| [ADR-0025-UI](./ADRs/ADR-0025-backtest-ui-worker-contract.md) | Backtest UI-Worker contract (status vocabulary, progress, results) | ✅ Accepted |
 | [0020](./ADRs/0020-reconciliation-service-architecture.md) | Reconciliation service with startup gating and orphan handling | ✅ Accepted |
 | [0026](./ADRs/0026-shadow-mode-model-validation.md) | Shadow mode model validation for safe hot-swap | ✅ Accepted |
 | [0027](./ADRs/0027-liquidity-aware-slicing.md) | Liquidity-aware TWAP slicing with ADV constraints | ✅ Accepted |
 | [0028](./ADRs/0028-market-data-fallback-buffer.md) | Market data fallback buffer for Redis outages | ✅ Accepted |
+| [ADR-0029](./ADRs/ADR-0029-alerting-system.md) | Alerting system architecture (multi-channel delivery, rate limiting) | 🚧 Proposed |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -274,6 +276,7 @@ Educational explanations of trading and ML concepts:
 | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) | Notional, realized, unrealized P&L | Beginner |
 | [alpha158-features.md](./CONCEPTS/alpha158-features.md) | Alpha158 feature set | Intermediate |
 | [backtest-result-storage.md](./CONCEPTS/backtest-result-storage.md) | Backtest result storage (Postgres + Parquet) | Intermediate |
+| [backtest-web-ui.md](./CONCEPTS/backtest-web-ui.md) | Backtest Web UI (Streamlit interface for job management) | Intermediate |
 | [walk-forward-optimization.md](./CONCEPTS/walk-forward-optimization.md) | Walk-forward optimization methodology | Intermediate |
 | [monte-carlo-backtesting.md](./CONCEPTS/monte-carlo-backtesting.md) | Monte Carlo simulation for backtest robustness | Intermediate |
 | [qlib-data-providers.md](./CONCEPTS/qlib-data-providers.md) | Qlib integration patterns | Intermediate |
@@ -415,6 +418,9 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-12, Task] [P4T4_5.4_TASK.md](./TASKS/P4T4_5.4_TASK.md) - P4T4-T5.4: Scheduled Backtest Automation
 - [CURRENT, 2025-12-12, Task] [P4T4_5.5_TASK.md](./TASKS/P4T4_5.5_TASK.md) - P4T4-T5.5: Integration Tests & Monitoring
 - [CURRENT, 2025-12-12, Task] [P4T4_5.6_TASK.md](./TASKS/P4T4_5.6_TASK.md) - P4T4-T5.6: Documentation & Runbooks
+- [CURRENT, 2025-12-18, Task] [P4T5_TASK.md](./TASKS/P4T5_TASK.md) - P4T5: Track 7 Web Console Operations (Circuit Breaker, Health Monitor, Alerts, Admin)
+- [CURRENT, 2025-12-18, Plan] [P4T5_C0_PLAN.md](./TASKS/P4T5_C0_PLAN.md) - P4T5 C0: Prep & Validation component plan (auth stub, governance tests, ADR-0029)
+- [CURRENT, 2025-12-18, Plan] [P4T5_C1_PLAN.md](./TASKS/P4T5_C1_PLAN.md) - P4T5 C1: Circuit Breaker Dashboard implementation plan (service, metrics, RBAC, UI)
 - [CURRENT, 2025-12-03, Component] [PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 - [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan

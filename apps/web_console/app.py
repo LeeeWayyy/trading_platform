@@ -817,8 +817,14 @@ def main() -> None:
         pages = ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"]
         if config.FEATURE_MANUAL_CONTROLS and has_permission(user_info, Permission.VIEW_TRADES):
             pages.insert(2, "Manual Trade Controls")
+        if config.FEATURE_CIRCUIT_BREAKER and has_permission(
+            user_info, Permission.VIEW_CIRCUIT_BREAKER
+        ):
+            pages.insert(3, "Circuit Breaker")
         if config.FEATURE_STRATEGY_COMPARISON:
             pages.append("Strategy Comparison")
+        if config.FEATURE_BACKTEST_MANAGER and has_permission(user_info, Permission.VIEW_PNL):
+            pages.append("Backtest Manager")
         if has_permission(user_info, Permission.MANAGE_USERS):
             pages.append("User Management")
 
@@ -859,6 +865,13 @@ def main() -> None:
         )
     elif page == "Kill Switch":
         render_kill_switch()
+    elif page == "Circuit Breaker":
+        from apps.web_console.pages.circuit_breaker import render_circuit_breaker
+
+        render_circuit_breaker(
+            user=user_info,
+            db_pool=get_db_pool(),
+        )
     elif page == "Audit Log":
         render_audit_log()
     elif page == "Strategy Comparison":
@@ -873,6 +886,10 @@ def main() -> None:
             db_pool=get_db_pool(),
             audit_logger=AuditLogger(get_db_pool()),
         )
+    elif page == "Backtest Manager":
+        from apps.web_console.pages.backtest import render_backtest_page
+
+        render_backtest_page()
 
 
 if __name__ == "__main__":

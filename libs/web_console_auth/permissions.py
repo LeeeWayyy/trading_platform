@@ -41,12 +41,18 @@ class Permission(str, Enum):
     VIEW_AUDIT = "view_audit"  # [v1.5] Audit log access
     EXPORT_DATA = "export_data"
 
+    # Circuit Breaker permissions (T7.1)
+    VIEW_CIRCUIT_BREAKER = "view_circuit_breaker"
+    TRIP_CIRCUIT = "trip_circuit"
+    RESET_CIRCUIT = "reset_circuit"
+
 
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.VIEWER: {
         Permission.VIEW_POSITIONS,
         Permission.VIEW_PNL,
         Permission.VIEW_TRADES,
+        Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
     },
     Role.OPERATOR: {
         Permission.VIEW_POSITIONS,
@@ -58,6 +64,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.FLATTEN_ALL,
         Permission.EXPORT_DATA,
         Permission.MANAGE_STRATEGIES,  # [v1.5] Operators can manage strategies
+        Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
+        Permission.TRIP_CIRCUIT,  # T7.1: Can manually trip CB
+        Permission.RESET_CIRCUIT,  # T7.1: Can reset CB (with rate limit)
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
