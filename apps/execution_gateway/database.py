@@ -1556,12 +1556,12 @@ class DatabaseClient:
         Returns:
             Updated OrderDetail if found, otherwise None
         """
-        has_cas_fields = (
+        # Check if all CAS fields are provided (inline for mypy type narrowing)
+        if (
             broker_updated_at is not None
             and status_rank is not None
             and source_priority is not None
-        )
-        if has_cas_fields:
+        ):
             return self.update_order_status_cas(
                 client_order_id=client_order_id,
                 status=status,
