@@ -767,7 +767,9 @@ class PortfolioOptimizer:
     # Private Helper Methods
     # ========================================================================
 
-    def _build_covariance(self, universe: list[int]) -> tuple[
+    def _build_covariance(
+        self, universe: list[int]
+    ) -> tuple[
         NDArray[np.floating[Any]],
         list[int],
         NDArray[np.floating[Any]],
@@ -1221,9 +1223,7 @@ class PortfolioOptimizer:
     # 3. BudgetConstraint intentionally excluded - sum(weights)=1 is critical
     # See: Code review discussion with Gemini/Codex agreeing to defer these
 
-    def _relax_constraint(
-        self, relaxable: RelaxableConstraint
-    ) -> tuple[RelaxableConstraint, bool]:
+    def _relax_constraint(self, relaxable: RelaxableConstraint) -> tuple[RelaxableConstraint, bool]:
         """
         Relax a constraint by its relaxation factor.
 
@@ -1297,11 +1297,18 @@ class PortfolioOptimizer:
                     max_turnover=new_max,
                 )
                 logger.info(
-                    f"Relaxed TurnoverConstraint: max_turnover {constraint.max_turnover:.2f} -> {new_max:.2f}"
+                    f"Relaxed TurnoverConstraint: max_turnover "
+                    f"{constraint.max_turnover:.2f} -> {new_max:.2f}"
                 )
 
         elif isinstance(constraint, SectorConstraint):
             # Respect both max_relaxation_factor and 100% hard cap
+            # NOTE: Only max_sector_weight is relaxed, not min_sector_weight.
+            # Relaxation aims to ease constraints when optimization fails.
+            # Increasing max allows more allocation to a sector (helpful when
+            # constraints are too tight). Decreasing min would require LESS
+            # allocation, which doesn't help find feasible solutions - the
+            # optimizer can already allocate less if needed.
             new_max, value_changed = _calc_relaxed_value(
                 original.max_sector_weight, constraint.max_sector_weight, hard_cap=1.0
             )
@@ -1320,9 +1327,7 @@ class PortfolioOptimizer:
                 )
 
         elif isinstance(constraint, FactorExposureConstraint):
-            new_tol, value_changed = _calc_relaxed_value(
-                original.tolerance, constraint.tolerance
-            )
+            new_tol, value_changed = _calc_relaxed_value(original.tolerance, constraint.tolerance)
             if value_changed:
                 new_constraint = FactorExposureConstraint(
                     factor_name=constraint.factor_name,
@@ -1341,16 +1346,22 @@ class PortfolioOptimizer:
             if value_changed:
                 new_constraint = GrossLeverageConstraint(max_leverage=new_max)
                 logger.info(
-                    f"Relaxed GrossLeverageConstraint: max_leverage {constraint.max_leverage:.2f} -> {new_max:.2f}"
+                    f"Relaxed GrossLeverageConstraint: max_leverage "
+                    f"{constraint.max_leverage:.2f} -> {new_max:.2f}"
                 )
 
         else:
             # Constraint type not supported for relaxation
-            logger.warning(f"Constraint type {type(constraint).__name__} does not support relaxation")
+            logger.warning(
+                f"Constraint type {type(constraint).__name__} does not support relaxation"
+            )
             return relaxable, False
 
         if not value_changed:
-            logger.info(f"Constraint {type(constraint).__name__} already at relaxation cap, cannot relax further")
+            logger.info(
+                f"Constraint {type(constraint).__name__} already at relaxation "
+                "cap, cannot relax further"
+            )
             return relaxable, False
 
         # Create new RelaxableConstraint with incremented counter

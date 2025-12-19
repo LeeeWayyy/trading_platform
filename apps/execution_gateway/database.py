@@ -77,6 +77,7 @@ def status_rank_for(status: str) -> int:
     """Return status rank for local status updates (unknown -> 0)."""
     return _STATUS_RANKS.get(status, 0)
 
+
 # H2 Fix: Configurable pool settings via environment variables
 # Defaults: min=2, max=10, timeout=10s (per Codex review feedback)
 DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
@@ -1058,7 +1059,11 @@ class DatabaseClient:
                 with conn.cursor(row_factory=dict_row) as cur:
                     if created_before is None:
                         cur.execute(
-                            "SELECT * FROM orders WHERE is_terminal = FALSE ORDER BY created_at ASC",
+                            """
+                            SELECT * FROM orders
+                            WHERE is_terminal = FALSE
+                            ORDER BY created_at ASC
+                            """,
                         )
                     else:
                         cur.execute(
@@ -1106,10 +1111,13 @@ class DatabaseClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO reconciliation_high_water_mark (name, last_check_time, updated_at)
+                        INSERT INTO reconciliation_high_water_mark
+                            (name, last_check_time, updated_at)
                         VALUES (%s, %s, NOW())
                         ON CONFLICT (name)
-                        DO UPDATE SET last_check_time = EXCLUDED.last_check_time, updated_at = NOW()
+                        DO UPDATE SET
+                            last_check_time = EXCLUDED.last_check_time,
+                            updated_at = NOW()
                         """,
                         (name, last_check_time),
                     )
@@ -1548,7 +1556,12 @@ class DatabaseClient:
         Returns:
             Updated OrderDetail if found, otherwise None
         """
-        if broker_updated_at is not None and status_rank is not None and source_priority is not None:
+        has_cas_fields = (
+            broker_updated_at is not None
+            and status_rank is not None
+            and source_priority is not None
+        )
+        if has_cas_fields:
             return self.update_order_status_cas(
                 client_order_id=client_order_id,
                 status=status,
@@ -1783,7 +1796,9 @@ class DatabaseClient:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     """
-                    SELECT MIN(DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC')) AS first_date
+                    SELECT MIN(
+                        DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC')
+                    ) AS first_date
                     FROM orders o,
                          jsonb_array_elements(o.metadata->'fills') AS fill
                     WHERE o.status IN ('filled', 'partially_filled')
@@ -2182,9 +2197,7 @@ class DatabaseClient:
             )
             raise
 
-    def get_strategy_status(
-        self, strategy_id: str
-    ) -> dict[str, Any] | None:
+    def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:
         """
         Get consolidated status for a single strategy.
 
@@ -2211,8 +2224,10 @@ class DatabaseClient:
                     cur.execute(
                         """
                         SELECT
-                            COUNT(DISTINCT symbol) FILTER (WHERE is_terminal = FALSE) as positions_count,
-                            COUNT(*) FILTER (WHERE is_terminal = FALSE) as open_orders_count,
+                            COUNT(DISTINCT symbol)
+                                FILTER (WHERE is_terminal = FALSE) as positions_count,
+                            COUNT(*)
+                                FILTER (WHERE is_terminal = FALSE) as open_orders_count,
                             MAX(created_at) as last_signal
                         FROM orders
                         WHERE strategy_id = %s
@@ -2239,12 +2254,17 @@ class DatabaseClient:
             )
             raise
 
-    def get_all_strategy_ids(self) -> list[str]:
+    def get_all_strategy_ids(self, filter_ids: list[str] | None = None) -> list[str]:
         """
-        Get list of all unique strategy IDs from orders.
+        Get list of unique strategy IDs from orders.
 
         Note: positions table doesn't have strategy_id column,
         so we only query orders.
+
+        Args:
+            filter_ids: Optional list of strategy IDs to filter by.
+                If provided, only returns strategies in this list (database-level
+                filtering with ANY(...) for better performance than Python filtering).
 
         Returns:
             List of unique strategy IDs
@@ -2252,14 +2272,27 @@ class DatabaseClient:
         try:
             with self._pool.connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT DISTINCT strategy_id
-                        FROM orders
-                        WHERE strategy_id IS NOT NULL
-                        ORDER BY strategy_id
-                        """
-                    )
+                    if filter_ids:
+                        # Filter at database level for better performance
+                        cur.execute(
+                            """
+                            SELECT DISTINCT strategy_id
+                            FROM orders
+                            WHERE strategy_id IS NOT NULL
+                              AND strategy_id = ANY(%s)
+                            ORDER BY strategy_id
+                            """,
+                            (filter_ids,),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT DISTINCT strategy_id
+                            FROM orders
+                            WHERE strategy_id IS NOT NULL
+                            ORDER BY strategy_id
+                            """
+                        )
                     return [row[0] for row in cur.fetchall()]
 
         except (OperationalError, DatabaseError) as exc:
@@ -2269,9 +2302,7 @@ class DatabaseClient:
             )
             raise
 
-    def get_bulk_strategy_status(
-        self, strategy_ids: list[str]
-    ) -> dict[str, dict[str, Any]]:
+    def get_bulk_strategy_status(self, strategy_ids: list[str]) -> dict[str, dict[str, Any]]:
         """
         Get status for multiple strategies in a single query.
 
@@ -2306,8 +2337,10 @@ class DatabaseClient:
                         f"""
                         SELECT
                             strategy_id,
-                            COUNT(DISTINCT symbol) FILTER (WHERE is_terminal = FALSE) as positions_count,
-                            COUNT(*) FILTER (WHERE is_terminal = FALSE) as open_orders_count,
+                            COUNT(DISTINCT symbol)
+                                FILTER (WHERE is_terminal = FALSE) as positions_count,
+                            COUNT(*)
+                                FILTER (WHERE is_terminal = FALSE) as open_orders_count,
                             MAX(created_at) as last_signal
                         FROM orders
                         WHERE strategy_id IN ({placeholders})

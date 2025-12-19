@@ -142,6 +142,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+
 # Env parsing helpers
 def _get_float_env(name: str, default: float) -> float:
     raw = os.getenv(name)
@@ -163,6 +164,7 @@ def _get_decimal_env(name: str, default: Decimal) -> Decimal:
     except (ValueError, InvalidOperation):
         logger.warning("Invalid decimal for %s=%s; using default=%s", name, raw, default)
         return default
+
 
 # Legacy TWAP slicer interval (seconds). Legacy plans scheduled slices once per minute
 # and did not persist the interval, so backward-compatibility fallbacks must only apply
@@ -399,7 +401,8 @@ logger.info("TWAP slicer initialized successfully")
 
 # Slice Scheduler (for time-based TWAP slice execution)
 if recovery_manager.kill_switch and recovery_manager.circuit_breaker:
-    # Note: alpaca_client can be None in DRY_RUN mode - scheduler logs dry-run slices without broker submission
+    # Note: alpaca_client can be None in DRY_RUN mode - scheduler logs
+    # dry-run slices without broker submission
     try:
         recovery_manager.slice_scheduler = SliceScheduler(
             kill_switch=recovery_manager.kill_switch,
@@ -411,9 +414,7 @@ if recovery_manager.kill_switch and recovery_manager.circuit_breaker:
     except Exception as e:
         logger.error(f"Failed to initialize slice scheduler: {e}")
 else:
-    logger.warning(
-        "Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)"
-    )
+    logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
 
 # Reconciliation service (startup gating + periodic sync)
 reconciliation_service: ReconciliationService | None = None
@@ -525,7 +526,8 @@ def _verify_internal_token(
         return False, "timestamp_expired"
 
     # Compute expected signature using JSON payload to prevent delimiter injection
-    # Example attack without JSON: user_id="u1:admin" + role="viewer" = user_id="u1" + role="admin:viewer"
+    # Example attack without JSON: user_id="u1:admin" + role="viewer"
+    # could become user_id="u1" + role="admin:viewer"
     # JSON with sorted keys provides canonical representation immune to such attacks
     # Note: Replay protection is timestamp-based only. For stronger protection,
     # consider adding nonce validation with Redis in high-security environments.
@@ -827,9 +829,7 @@ async def _resolve_fat_finger_context(
         elif order.stop_price is not None:
             price = order.stop_price
         else:
-            realtime_prices = _batch_fetch_realtime_prices_from_redis(
-                [order.symbol], redis_client
-            )
+            realtime_prices = _batch_fetch_realtime_prices_from_redis([order.symbol], redis_client)
             price, price_timestamp = realtime_prices.get(order.symbol, (None, None))
             if price is not None:
                 if price_timestamp is None:
@@ -1072,13 +1072,16 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
         side_multiplier = Decimal("1") if order.side == "buy" else Decimal("-1")
         projected_position = effective_position + (Decimal(order.qty) * side_multiplier)
 
-        # An order is position-increasing if it moves the position's absolute value further from zero
+        # An order is position-increasing if it moves the position's
+        # absolute value further from zero
         is_increasing = abs(projected_position) > abs(effective_position)
         # An order flips the position if the sign changes
         is_flipping = effective_position * projected_position < 0
 
         if is_increasing or is_flipping:
-            error_message = "Only position-reducing orders are allowed during reconciliation gating."
+            error_message = (
+                "Only position-reducing orders are allowed during " "reconciliation gating."
+            )
             if is_flipping:
                 error_message = "Order would flip position during reconciliation gating."
 
@@ -1827,11 +1830,9 @@ async def list_strategies(
             detail="No strategy access",
         )
 
-    # Get all unique strategy IDs from database
-    all_strategy_ids = db_client.get_all_strategy_ids()
-
-    # Filter to only authorized strategies
-    strategy_ids = [s for s in all_strategy_ids if s in authorized_strategies]
+    # Get strategy IDs filtered at database level for better performance
+    # Uses ANY(...) to avoid transferring all strategy IDs then filtering in Python
+    strategy_ids = db_client.get_all_strategy_ids(filter_ids=authorized_strategies)
 
     # Fetch all strategy statuses in a single bulk query (avoids N+1 problem)
     bulk_status = db_client.get_bulk_strategy_status(strategy_ids)
@@ -2293,16 +2294,22 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "Circuit breaker unavailable",
-                "message": "All trading blocked - circuit breaker state unknown (initialization failed)",
+                "message": (
+                    "All trading blocked - circuit breaker state unknown " "(initialization failed)"
+                ),
                 "fail_closed": True,
             },
         )
 
     # Gemini PR fix: Check position reservation unavailable (fail closed for safety)
     # This prevents trading when position reservation init failed or Redis unavailable
-    if recovery_manager.is_position_reservation_unavailable() or position_reservation is None:
+    pos_res_unavailable = (
+        recovery_manager.is_position_reservation_unavailable() or position_reservation is None
+    )
+    if pos_res_unavailable:
         logger.error(
-            f"🔴 Order blocked by unavailable position reservation (FAIL CLOSED): {client_order_id}",
+            "🔴 Order blocked by unavailable position reservation "
+            f"(FAIL CLOSED): {client_order_id}",
             extra={
                 "client_order_id": client_order_id,
                 "position_reservation_unavailable": True,
@@ -2313,7 +2320,10 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "Position reservation unavailable",
-                "message": "All trading blocked - position reservation state unknown (initialization failed)",
+                "message": (
+                    "All trading blocked - position reservation state unknown "
+                    "(initialization failed)"
+                ),
                 "fail_closed": True,
             },
         )
@@ -2498,7 +2508,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
             reservation_token = reservation_result.token
             logger.debug(
-                f"Position reserved: {order.symbol} {order.side} {order.qty}, token={reservation_token}",
+                f"Position reserved: {order.symbol} {order.side} {order.qty}, "
+                f"token={reservation_token}",
                 extra={
                     "client_order_id": client_order_id,
                     "reservation_token": reservation_token,
@@ -3155,8 +3166,8 @@ def _create_twap_in_db(
         # between our idempotency check and transaction commit. Fetch and return the
         # existing plan to provide deterministic, idempotent response without 500 error.
         logger.info(
-            f"Concurrent TWAP submission detected (UniqueViolation): parent={slicing_plan.parent_order_id}. "
-            f"Returning existing plan.",
+            "Concurrent TWAP submission detected (UniqueViolation): "
+            f"parent={slicing_plan.parent_order_id}. Returning existing plan.",
             extra={
                 "parent_order_id": slicing_plan.parent_order_id,
                 "symbol": request.symbol,
@@ -3170,7 +3181,8 @@ def _create_twap_in_db(
         if not existing_parent:
             # Should never happen: UniqueViolation means the parent exists
             logger.error(
-                f"UniqueViolation raised but parent order not found: {slicing_plan.parent_order_id}",
+                "UniqueViolation raised but parent order not found: "
+                f"{slicing_plan.parent_order_id}",
                 extra={"parent_order_id": slicing_plan.parent_order_id},
             )
             raise HTTPException(
@@ -3241,7 +3253,8 @@ def _schedule_slices_with_compensation(
     except Exception as e:
         # Scheduling failed after DB commit - compensate by canceling created orders
         logger.error(
-            f"Scheduling failed for parent={slicing_plan.parent_order_id}, compensating by canceling pending orders",
+            "Scheduling failed for parent=%s, compensating by canceling " "pending orders",
+            slicing_plan.parent_order_id,
             extra={
                 "parent_order_id": slicing_plan.parent_order_id,
                 "error": str(e),
@@ -3268,7 +3281,8 @@ def _schedule_slices_with_compensation(
                     error_message=f"Scheduling failed: {str(e)}",
                 )
                 logger.info(
-                    f"Compensated scheduling failure: canceled parent and {canceled_count} pending slices",
+                    "Compensated scheduling failure: canceled parent and "
+                    f"{canceled_count} pending slices",
                     extra={
                         "parent_order_id": slicing_plan.parent_order_id,
                         "canceled_slices": canceled_count,
@@ -3276,11 +3290,14 @@ def _schedule_slices_with_compensation(
                     },
                 )
             else:
-                # Some slices already submitted/executing - don't cancel parent to avoid inconsistency
+                # Some slices already submitted/executing - don't cancel
+                # parent to avoid inconsistency
+                progressed_statuses = [s.status for s in progressed_slices]
                 logger.warning(
-                    f"Scheduling partially failed but {len(progressed_slices)} slices already progressed "
-                    f"(statuses: {[s.status for s in progressed_slices]}). "
-                    f"Canceled {canceled_count} pending slices but leaving parent active to track live orders.",
+                    f"Scheduling partially failed but {len(progressed_slices)} "
+                    f"slices already progressed (statuses: {progressed_statuses}). "
+                    f"Canceled {canceled_count} pending slices but leaving "
+                    "parent active to track live orders.",
                     extra={
                         "parent_order_id": slicing_plan.parent_order_id,
                         "canceled_slices": canceled_count,
@@ -3348,7 +3365,8 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
     """
     # Step 1: Log request (before prerequisite checks for observability)
     logger.info(
-        f"TWAP order request: {request.symbol} {request.side} {request.qty} over {request.duration_minutes} min",
+        f"TWAP order request: {request.symbol} {request.side} {request.qty} "
+        f"over {request.duration_minutes} min",
         extra={
             "symbol": request.symbol,
             "side": request.side,
@@ -3367,7 +3385,10 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         if reconciliation_service and reconciliation_service.override_active():
             logger.warning(
                 "Reconciliation override active; allowing TWAP order",
-                extra={"symbol": request.symbol, "override": reconciliation_service.override_context()},
+                extra={
+                    "symbol": request.symbol,
+                    "override": reconciliation_service.override_context(),
+                },
             )
         else:
             raise HTTPException(
@@ -3397,7 +3418,8 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
                 adv_20d = await asyncio.to_thread(liquidity_service.get_adv, request.symbol)
                 if adv_20d is None:
                     logger.warning(
-                        "ADV lookup unavailable with no cache; rejecting TWAP request to preserve idempotency",
+                        "ADV lookup unavailable with no cache; rejecting TWAP "
+                        "request to preserve idempotency",
                         extra={"symbol": request.symbol},
                     )
                     raise HTTPException(
@@ -3594,7 +3616,8 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
         )
 
         logger.info(
-            f"Canceled slices for parent {parent_id}: scheduler={scheduler_canceled_count}, db={db_canceled_count}",
+            f"Canceled slices for parent {parent_id}: "
+            f"scheduler={scheduler_canceled_count}, db={db_canceled_count}",
             extra={
                 "parent_order_id": parent_id,
                 "scheduler_canceled": scheduler_canceled_count,
@@ -3606,7 +3629,10 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
             "parent_order_id": parent_id,
             "scheduler_canceled": scheduler_canceled_count,
             "db_canceled": db_canceled_count,
-            "message": f"Canceled {db_canceled_count} pending slices in DB, removed {scheduler_canceled_count} jobs from scheduler",
+            "message": (
+                f"Canceled {db_canceled_count} pending slices in DB, "
+                f"removed {scheduler_canceled_count} jobs from scheduler"
+            ),
         }
     except Exception as e:
         logger.error(f"Failed to cancel slices for parent {parent_id}: {e}")
@@ -3810,7 +3836,7 @@ async def get_daily_performance(
 @app.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
 @require_permission(Permission.VIEW_PNL)
 async def get_realtime_pnl(
-    user: dict[str, Any] = Depends(_build_user_context)
+    user: dict[str, Any] = Depends(_build_user_context),
 ) -> RealtimePnLResponse:
     """
     Get real-time P&L with latest market prices.
@@ -4193,7 +4219,9 @@ async def startup_event() -> None:
     if DRY_RUN:
         logger.info("DRY_RUN enabled - skipping reconciliation startup gating")
     elif not alpaca_client:
-        logger.error("Alpaca client unavailable - reconciliation not started (gating remains active)")
+        logger.error(
+            "Alpaca client unavailable - reconciliation not started (gating remains active)"
+        )
     else:
         reconciliation_service = ReconciliationService(
             db_client=db_client,
