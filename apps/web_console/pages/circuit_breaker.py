@@ -262,7 +262,7 @@ def _render_history_section(cb_service: CircuitBreakerService) -> None:
     df = pd.DataFrame(history)
 
     # Reorder columns for better display (Pythonic list comprehension)
-    preferred_order = ["tripped_at", "reason", "reset_at", "reset_by", "details"]
+    preferred_order = ["tripped_at", "reason", "reset_at", "reset_by", "reset_reason", "details"]
     existing_cols = [col for col in preferred_order if col in df.columns]
     other_cols = [col for col in df.columns if col not in existing_cols]
     display_columns = existing_cols + other_cols
