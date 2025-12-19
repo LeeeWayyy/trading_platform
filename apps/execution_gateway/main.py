@@ -360,9 +360,16 @@ recovery_manager = RecoveryManager(
 )
 
 # Initialize safety components (fail-closed on any error)
-recovery_manager.initialize_kill_switch(lambda: KillSwitch(redis_client=redis_client))
-recovery_manager.initialize_circuit_breaker(lambda: CircuitBreaker(redis_client=redis_client))
-recovery_manager.initialize_position_reservation(lambda: PositionReservation(redis=redis_client))
+# Note: Factories only called when redis_client is verified available by RecoveryManager
+recovery_manager.initialize_kill_switch(
+    lambda: KillSwitch(redis_client=redis_client)  # type: ignore[arg-type]
+)
+recovery_manager.initialize_circuit_breaker(
+    lambda: CircuitBreaker(redis_client=redis_client)  # type: ignore[arg-type]
+)
+recovery_manager.initialize_position_reservation(
+    lambda: PositionReservation(redis=redis_client)  # type: ignore[arg-type]
+)
 
 # Risk Configuration (position limits, etc.)
 risk_config = RiskConfig()
@@ -1600,13 +1607,14 @@ async def health_check() -> HealthResponse:
         redis_connected = redis_client.health_check()
 
         if redis_connected:
+            # Factories only called when components verified available by RecoveryManager
             recovery_manager.attempt_recovery(
                 kill_switch_factory=lambda: KillSwitch(redis_client=redis_client),
                 circuit_breaker_factory=lambda: CircuitBreaker(redis_client=redis_client),
                 position_reservation_factory=lambda: PositionReservation(redis=redis_client),
                 slice_scheduler_factory=lambda: SliceScheduler(
-                    kill_switch=recovery_manager.kill_switch,
-                    breaker=recovery_manager.circuit_breaker,
+                    kill_switch=recovery_manager.kill_switch,  # type: ignore[arg-type]
+                    breaker=recovery_manager.circuit_breaker,  # type: ignore[arg-type]
                     db_client=db_client,
                     executor=alpaca_client,  # Can be None in DRY_RUN mode
                 ),
