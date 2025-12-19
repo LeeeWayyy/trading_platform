@@ -1,4 +1,4 @@
-.PHONY: help up down logs fmt fmt-check lint validate-docs test test-cov test-watch clean install install-hooks ci-local pre-push
+.PHONY: help up down logs fmt fmt-check lint validate-docs test test-cov test-watch clean install requirements install-hooks ci-local pre-push
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -8,6 +8,11 @@ help: ## Show this help message
 
 install: ## Install dependencies with Poetry
 	poetry install
+
+requirements: ## Generate requirements.txt from pyproject.toml (for Docker builds)
+	@pip show poetry-plugin-export >/dev/null 2>&1 || pip install poetry-plugin-export
+	poetry export -f requirements.txt --output requirements.txt --without-hashes
+	@echo "Generated requirements.txt from pyproject.toml"
 
 up: ## Start infrastructure (Postgres, Redis, Prometheus, Grafana)
 	docker compose up -d

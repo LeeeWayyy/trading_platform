@@ -13,7 +13,7 @@ Tests cover:
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 from redis.exceptions import WatchError
@@ -692,3 +692,225 @@ class TestCircuitBreakerEdgeCases:
         call_args = mock_pipeline.set.call_args
         updated_state = json.loads(call_args[0][1])
         assert updated_state["trip_reason"] == "CUSTOM_VIOLATION_TYPE"
+
+
+class TestCircuitBreakerHistoryRetrieval:
+    """Tests for get_history() method (T7.1 addition)."""
+
+    @pytest.fixture()
+    def mock_redis_client(self):
+        """Create mock Redis client."""
+        mock_redis = Mock(spec=RedisClient)
+        mock_redis._client = Mock()
+        return mock_redis
+
+    def test_get_history_returns_entries(self, mock_redis_client):
+        """Test get_history returns parsed history entries."""
+        # Mock initial state for __init__
+        initial_state = {"state": CircuitBreakerState.OPEN.value}
+        mock_redis_client.get.return_value = json.dumps(initial_state)
+
+        # Mock history entries (Redis returns bytes)
+        entry1 = {
+            "tripped_at": "2025-12-18T10:00:00Z",
+            "reason": "MANUAL",
+            "details": {"tripped_by": "operator1"},
+        }
+        entry2 = {
+            "tripped_at": "2025-12-18T09:00:00Z",
+            "reason": "DATA_STALE",
+            "details": {},
+        }
+        mock_redis_client.zrevrange.return_value = [
+            json.dumps(entry1).encode("utf-8"),
+            json.dumps(entry2).encode("utf-8"),
+        ]
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        history = breaker.get_history(limit=50)
+
+        assert len(history) == 2
+        assert history[0]["reason"] == "MANUAL"
+        assert history[1]["reason"] == "DATA_STALE"
+        mock_redis_client.zrevrange.assert_called_once_with(
+            "circuit_breaker:trip_history", 0, 49
+        )
+
+    def test_get_history_handles_string_entries(self, mock_redis_client):
+        """Test get_history handles string entries (decode_responses=True)."""
+        initial_state = {"state": CircuitBreakerState.OPEN.value}
+        mock_redis_client.get.return_value = json.dumps(initial_state)
+
+        # Mock history entries as strings (when decode_responses=True)
+        entry1 = {"tripped_at": "2025-12-18T10:00:00Z", "reason": "MANUAL"}
+        mock_redis_client.zrevrange.return_value = [json.dumps(entry1)]
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        history = breaker.get_history(limit=10)
+
+        assert len(history) == 1
+        assert history[0]["reason"] == "MANUAL"
+
+    def test_get_history_returns_empty_list_when_no_entries(self, mock_redis_client):
+        """Test get_history returns empty list when no history."""
+        initial_state = {"state": CircuitBreakerState.OPEN.value}
+        mock_redis_client.get.return_value = json.dumps(initial_state)
+        mock_redis_client.zrevrange.return_value = []
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        history = breaker.get_history(limit=50)
+
+        assert history == []
+
+
+class TestCircuitBreakerUpdateHistoryWithReset:
+    """Tests for update_history_with_reset() method (T7.1 addition)."""
+
+    @pytest.fixture()
+    def mock_redis_client(self):
+        """Create mock Redis client with pipeline support for WATCH transactions."""
+        mock_redis = Mock(spec=RedisClient)
+        mock_redis._client = Mock()
+
+        # Setup pipeline with WATCH support
+        mock_pipeline = MagicMock()
+        mock_pipeline.__enter__ = MagicMock(return_value=mock_pipeline)
+        mock_pipeline.__exit__ = MagicMock(return_value=False)
+        mock_pipeline.watch = MagicMock()
+        mock_pipeline.unwatch = MagicMock()
+        mock_pipeline.multi = MagicMock()
+        mock_pipeline.execute = MagicMock()
+        mock_pipeline.zrem = MagicMock()
+        mock_pipeline.zadd = MagicMock()
+        mock_redis.pipeline.return_value = mock_pipeline
+        mock_redis._pipeline = mock_pipeline  # Store for access in tests
+
+        return mock_redis
+
+    def test_update_history_with_reset_updates_latest_entry(self, mock_redis_client):
+        """Test update_history_with_reset updates the most recent trip entry."""
+        initial_state = {"state": CircuitBreakerState.QUIET_PERIOD.value}
+        mock_redis_client.get.return_value = json.dumps(initial_state)
+
+        # Mock latest entry (bytes) - now mocked on redis client directly (not pipeline)
+        entry = {
+            "tripped_at": "2025-12-18T10:00:00Z",
+            "reason": "MANUAL",
+            "reset_at": None,
+            "reset_by": None,
+        }
+        entry_bytes = json.dumps(entry).encode("utf-8")
+        mock_pipeline = mock_redis_client._pipeline
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = [(entry_bytes, 1734520800.0)]
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        breaker.update_history_with_reset(
+            reset_at="2025-12-18T10:05:00Z",
+            reset_by="admin",
+            reset_reason="Conditions cleared",
+        )
+
+        # Verify pipeline was used with WATCH for atomic update
+        mock_redis_client.pipeline.assert_called_once()
+        mock_pipeline.watch.assert_called_once_with("circuit_breaker:trip_history")
+
+        # Verify multi() was called for transaction
+        mock_pipeline.multi.assert_called_once()
+
+        # Verify old entry was removed via pipeline
+        mock_pipeline.zrem.assert_called_once_with(
+            "circuit_breaker:trip_history", entry_bytes
+        )
+
+        # Verify updated entry was added via pipeline
+        mock_pipeline.zadd.assert_called_once()
+        call_args = mock_pipeline.zadd.call_args
+        assert call_args[0][0] == "circuit_breaker:trip_history"
+
+        # Parse the updated entry
+        updated_entry_json = list(call_args[0][1].keys())[0]
+        updated_entry = json.loads(updated_entry_json)
+        assert updated_entry["reset_at"] == "2025-12-18T10:05:00Z"
+        assert updated_entry["reset_by"] == "admin"
+        assert updated_entry["reset_reason"] == "Conditions cleared"
+
+        # Verify pipeline was executed
+        mock_pipeline.execute.assert_called_once()
+
+    def test_update_history_with_reset_skips_if_already_reset(self, mock_redis_client):
+        """Test update_history_with_reset skips if entry already has reset_at."""
+        initial_state = {"state": CircuitBreakerState.QUIET_PERIOD.value}
+        mock_redis_client.get.return_value = json.dumps(initial_state)
+
+        # Mock entry that already has reset info
+        entry = {
+            "tripped_at": "2025-12-18T10:00:00Z",
+            "reason": "MANUAL",
+            "reset_at": "2025-12-18T10:05:00Z",  # Already set
+            "reset_by": "previous_admin",
+        }
+        entry_bytes = json.dumps(entry).encode("utf-8")
+        mock_pipeline = mock_redis_client._pipeline
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = [(entry_bytes, 1734520800.0)]
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        breaker.update_history_with_reset(
+            reset_at="2025-12-18T10:10:00Z", reset_by="new_admin"
+        )
+
+        # Verify WATCH was called but unwatch was called (no update)
+        mock_pipeline.watch.assert_called_once()
+        mock_pipeline.unwatch.assert_called_once()
+        # multi() and execute() should NOT be called (no update needed)
+        mock_pipeline.multi.assert_not_called()
+
+    def test_update_history_with_reset_handles_empty_history(self, mock_redis_client):
+        """Test update_history_with_reset handles empty history gracefully."""
+        initial_state = {"state": CircuitBreakerState.QUIET_PERIOD.value}
+        mock_redis_client.get.return_value = json.dumps(initial_state)
+        mock_pipeline = mock_redis_client._pipeline
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = []
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        # Should not raise error
+        breaker.update_history_with_reset(
+            reset_at="2025-12-18T10:05:00Z", reset_by="admin"
+        )
+
+        # Verify WATCH was called but unwatch was called (no update)
+        mock_pipeline.watch.assert_called_once()
+        mock_pipeline.unwatch.assert_called_once()
+        # multi() and execute() should NOT be called (empty history)
+        mock_pipeline.multi.assert_not_called()
+
+    def test_update_history_with_reset_handles_string_entries(self, mock_redis_client):
+        """Test update_history_with_reset handles string entries."""
+        initial_state = {"state": CircuitBreakerState.QUIET_PERIOD.value}
+        mock_redis_client.get.return_value = json.dumps(initial_state)
+
+        # Mock entry as string (when decode_responses=True)
+        entry = {
+            "tripped_at": "2025-12-18T10:00:00Z",
+            "reason": "MANUAL",
+            "reset_at": None,
+        }
+        entry_str = json.dumps(entry)
+        mock_pipeline = mock_redis_client._pipeline
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = [(entry_str, 1734520800.0)]
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        breaker.update_history_with_reset(
+            reset_at="2025-12-18T10:05:00Z", reset_by="admin"
+        )
+
+        # Verify update occurred via pipeline with WATCH
+        mock_redis_client.pipeline.assert_called_once()
+        mock_pipeline.watch.assert_called_once()
+        mock_pipeline.multi.assert_called_once()
+        mock_pipeline.zrem.assert_called_once()
+        mock_pipeline.zadd.assert_called_once()
+        mock_pipeline.execute.assert_called_once()

@@ -220,6 +220,7 @@ class BacktestJobQueue:
             raise ValueError("timeout must be between 300 and 14,400 seconds")
 
         lock_key = f"backtest:lock:{job_id}"
+        # Use SET NX EX for atomic lock acquisition (raw redis client)
         if not self.redis.set(lock_key, "1", nx=True, ex=10):
             # Another enqueue in-flight; poll for the job to appear (up to 500ms)
             for _ in range(5):
