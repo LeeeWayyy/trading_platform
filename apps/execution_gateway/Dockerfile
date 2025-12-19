@@ -63,6 +63,9 @@ COPY --chown=trader:trader libs/ ./libs/
 COPY --chown=trader:trader apps/__init__.py ./apps/
 COPY --chown=trader:trader apps/execution_gateway/ ./apps/execution_gateway/
 
+# Copy config (required by main.py for settings)
+COPY --chown=trader:trader config/ ./config/
+
 # Switch to non-root user
 USER trader
 
