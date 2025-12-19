@@ -2198,17 +2198,16 @@ class DatabaseClient:
         try:
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
-                    # First check if this strategy exists in either orders or positions
+                    # Check if this strategy exists in orders table
+                    # Note: positions table doesn't have strategy_id column
                     cur.execute(
                         """
                         SELECT EXISTS (
                             SELECT 1 FROM orders WHERE strategy_id = %s
-                            UNION ALL
-                            SELECT 1 FROM positions WHERE strategy_id = %s
                             LIMIT 1
                         ) as exists
                         """,
-                        (strategy_id, strategy_id),
+                        (strategy_id,),
                     )
                     exists_result = cur.fetchone()
                     if not exists_result or not exists_result["exists"]:

@@ -557,8 +557,10 @@ def _verify_internal_token(
 ) -> tuple[bool, str]:
     """Verify X-Internal-Token using HMAC-SHA256.
 
-    Token format: HMAC-SHA256(secret, f"{user_id}:{role}:{strategies}:{timestamp}")
-    where timestamp is epoch seconds and strategies is the comma-separated list.
+    Token format: HMAC-SHA256(secret, canonical_json_payload)
+    where the payload is a JSON object with sorted keys:
+    {"role": ..., "strats": ..., "ts": ..., "uid": ...}
+    This prevents delimiter injection attacks that could occur with simple concatenation.
 
     Args:
         token: Value from X-Internal-Token header
@@ -1947,6 +1949,32 @@ async def update_fat_finger_thresholds(
 # =============================================================================
 
 
+def _determine_strategy_status(
+    db_status: dict[str, Any], now: datetime
+) -> Literal["active", "paused", "error", "inactive"]:
+    """Determine strategy status based on activity.
+
+    A strategy is considered active if it has:
+    - Open positions (positions_count > 0)
+    - Open orders (open_orders_count > 0)
+    - Recent signal activity (within 24 hours)
+
+    Args:
+        db_status: Dict with positions_count, open_orders_count, last_signal_at
+        now: Current timestamp for age calculation
+
+    Returns:
+        Strategy status: "active", "paused", "error", or "inactive"
+    """
+    if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
+        return "active"
+    if db_status["last_signal_at"]:
+        age = (now - db_status["last_signal_at"]).total_seconds()
+        if age < 86400:  # 24 hours
+            return "active"
+    return "inactive"
+
+
 @app.get(
     "/api/v1/strategies",
     response_model=StrategiesListResponse,
@@ -2005,15 +2033,7 @@ async def list_strategies(
         if db_status is None:
             continue
 
-        # Determine strategy status based on activity
-        # Active if has positions or recent orders (within 24h)
-        strategy_status: Literal["active", "paused", "error", "inactive"] = "inactive"
-        if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
-            strategy_status = "active"
-        elif db_status["last_signal_at"]:
-            age = (now - db_status["last_signal_at"]).total_seconds()
-            if age < 86400:  # 24 hours
-                strategy_status = "active"
+        strategy_status = _determine_strategy_status(db_status, now)
 
         strategies.append(
             StrategyStatusResponse(
@@ -2082,14 +2102,7 @@ async def get_strategy_status(
             detail=f"Strategy '{strategy_id}' not found",
         )
 
-    # Determine strategy status based on activity
-    strategy_status: Literal["active", "paused", "error", "inactive"] = "inactive"
-    if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
-        strategy_status = "active"
-    elif db_status["last_signal_at"]:
-        age = (now - db_status["last_signal_at"]).total_seconds()
-        if age < 86400:  # 24 hours
-            strategy_status = "active"
+    strategy_status = _determine_strategy_status(db_status, now)
 
     return StrategyStatusResponse(
         strategy_id=strategy_id,

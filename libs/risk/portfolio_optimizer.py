@@ -1261,21 +1261,37 @@ class PortfolioOptimizer:
         # Epsilon floor for zero-bound constraints
         EPSILON = 0.01  # 1% floor for constraints starting at 0
 
-        if isinstance(constraint, TurnoverConstraint):
-            original_val = original.max_turnover
-            # Handle zero-bound: allow growth from 0 to epsilon
+        def _calc_relaxed_value(
+            original_val: float,
+            current_val: float,
+            hard_cap: float | None = None,
+        ) -> tuple[float, bool]:
+            """Calculate relaxed value with epsilon floor and max_relaxation_factor cap.
+
+            Returns (new_value, changed) tuple.
+            """
+            # Calculate max allowed based on original value
             if original_val < 1e-9:
                 max_allowed = EPSILON * max_factor
             else:
                 max_allowed = original_val * max_factor
-            # For zero current value, start with epsilon
-            if constraint.max_turnover < 1e-9:
-                new_max = min(EPSILON, max_allowed)
+            # Apply hard cap if specified (e.g., 100% for sector weights)
+            if hard_cap is not None:
+                max_allowed = min(max_allowed, hard_cap)
+            # Calculate new value with epsilon floor for zero-bound
+            if current_val < 1e-9:
+                new_val = min(EPSILON, max_allowed)
             else:
-                new_max = min(constraint.max_turnover * factor, max_allowed)
-            if abs(new_max - constraint.max_turnover) < 1e-9:
-                value_changed = False
-            else:
+                new_val = min(current_val * factor, max_allowed)
+            # Check if value actually changed
+            changed = abs(new_val - current_val) >= 1e-9
+            return new_val, changed
+
+        if isinstance(constraint, TurnoverConstraint):
+            new_max, value_changed = _calc_relaxed_value(
+                original.max_turnover, constraint.max_turnover
+            )
+            if value_changed:
                 new_constraint = TurnoverConstraint(
                     current_weights=constraint.current_weights,
                     max_turnover=new_max,
@@ -1286,20 +1302,10 @@ class PortfolioOptimizer:
 
         elif isinstance(constraint, SectorConstraint):
             # Respect both max_relaxation_factor and 100% hard cap
-            original_val = original.max_sector_weight
-            # Handle zero-bound: allow growth from 0 to epsilon
-            if original_val < 1e-9:
-                max_allowed = min(EPSILON * max_factor, 1.0)
-            else:
-                max_allowed = min(original_val * max_factor, 1.0)
-            # For zero current value, start with epsilon
-            if constraint.max_sector_weight < 1e-9:
-                new_max = min(EPSILON, max_allowed)
-            else:
-                new_max = min(constraint.max_sector_weight * factor, max_allowed)
-            if abs(new_max - constraint.max_sector_weight) < 1e-9:
-                value_changed = False
-            else:
+            new_max, value_changed = _calc_relaxed_value(
+                original.max_sector_weight, constraint.max_sector_weight, hard_cap=1.0
+            )
+            if value_changed:
                 new_constraint = SectorConstraint(
                     sector_map=constraint.sector_map,
                     max_sector_weight=new_max,
@@ -1314,20 +1320,10 @@ class PortfolioOptimizer:
                 )
 
         elif isinstance(constraint, FactorExposureConstraint):
-            original_val = original.tolerance
-            # Handle zero tolerance: allow growth from 0 to epsilon (consistent with other constraints)
-            if original_val < 1e-9:
-                max_allowed = EPSILON * max_factor  # Cap at EPSILON * max_factor (e.g., 0.02)
-            else:
-                max_allowed = original_val * max_factor
-            # For zero current value, start with epsilon
-            if constraint.tolerance < 1e-9:
-                new_tol = min(EPSILON, max_allowed)
-            else:
-                new_tol = min(constraint.tolerance * factor, max_allowed)
-            if abs(new_tol - constraint.tolerance) < 1e-9:
-                value_changed = False
-            else:
+            new_tol, value_changed = _calc_relaxed_value(
+                original.tolerance, constraint.tolerance
+            )
+            if value_changed:
                 new_constraint = FactorExposureConstraint(
                     factor_name=constraint.factor_name,
                     target_exposure=constraint.target_exposure,
@@ -1339,24 +1335,13 @@ class PortfolioOptimizer:
                 )
 
         elif isinstance(constraint, GrossLeverageConstraint):
-            original_val = original.max_leverage
-            # Handle zero-bound: allow growth from 0 to epsilon
-            if original_val < 1e-9:
-                max_allowed = EPSILON * max_factor
-            else:
-                max_allowed = original_val * max_factor
-            # For zero current value, start with epsilon
-            if constraint.max_leverage < 1e-9:
-                new_max = min(EPSILON, max_allowed)
-            else:
-                new_max = min(constraint.max_leverage * factor, max_allowed)
-            if abs(new_max - constraint.max_leverage) < 1e-9:
-                value_changed = False
-            else:
+            new_max, value_changed = _calc_relaxed_value(
+                original.max_leverage, constraint.max_leverage
+            )
+            if value_changed:
                 new_constraint = GrossLeverageConstraint(max_leverage=new_max)
                 logger.info(
-                    f"Relaxed GrossLeverageConstraint: max_leverage {constraint.max_leverage:.2f} -> {new_max:.2f} "
-                    f"(cap: {max_allowed:.2f})"
+                    f"Relaxed GrossLeverageConstraint: max_leverage {constraint.max_leverage:.2f} -> {new_max:.2f}"
                 )
 
         else:
