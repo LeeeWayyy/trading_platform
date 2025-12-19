@@ -2222,28 +2222,15 @@ class DatabaseClient:
                     # metrics from orders table only.
                     # - positions_count: distinct symbols with open (non-terminal) orders
                     # - open_orders_count: total non-terminal orders
+                    # Uses is_terminal column for consistency with rest of codebase
                     # Note: today_pnl requires proper position tracking with entry prices,
                     # which isn't available without strategy_id in positions table.
                     # Returning 0 until proper PnL tracking is implemented.
                     cur.execute(
                         """
                         SELECT
-                            COUNT(DISTINCT CASE
-                                WHEN status NOT IN (
-                                    'filled', 'canceled', 'expired', 'failed',
-                                    'rejected', 'replaced', 'done_for_day',
-                                    'blocked_kill_switch', 'blocked_circuit_breaker'
-                                )
-                                THEN symbol
-                            END) as positions_count,
-                            COUNT(CASE
-                                WHEN status NOT IN (
-                                    'filled', 'canceled', 'expired', 'failed',
-                                    'rejected', 'replaced', 'done_for_day',
-                                    'blocked_kill_switch', 'blocked_circuit_breaker'
-                                )
-                                THEN 1
-                            END) as open_orders_count,
+                            COUNT(DISTINCT symbol) FILTER (WHERE is_terminal = FALSE) as positions_count,
+                            COUNT(*) FILTER (WHERE is_terminal = FALSE) as open_orders_count,
                             MAX(created_at) as last_signal
                         FROM orders
                         WHERE strategy_id = %s
@@ -2330,27 +2317,14 @@ class DatabaseClient:
                     # Note: today_pnl requires proper position tracking with entry prices,
                     # which isn't available without strategy_id in positions table.
                     # Returning 0 until proper PnL tracking is implemented.
+                    # Uses is_terminal column for consistency with rest of codebase
                     placeholders = ",".join(["%s"] * len(strategy_ids))
                     cur.execute(
                         f"""
                         SELECT
                             strategy_id,
-                            COUNT(DISTINCT CASE
-                                WHEN status NOT IN (
-                                    'filled', 'canceled', 'expired', 'failed',
-                                    'rejected', 'replaced', 'done_for_day',
-                                    'blocked_kill_switch', 'blocked_circuit_breaker'
-                                )
-                                THEN symbol
-                            END) as positions_count,
-                            COUNT(CASE
-                                WHEN status NOT IN (
-                                    'filled', 'canceled', 'expired', 'failed',
-                                    'rejected', 'replaced', 'done_for_day',
-                                    'blocked_kill_switch', 'blocked_circuit_breaker'
-                                )
-                                THEN 1
-                            END) as open_orders_count,
+                            COUNT(DISTINCT symbol) FILTER (WHERE is_terminal = FALSE) as positions_count,
+                            COUNT(*) FILTER (WHERE is_terminal = FALSE) as open_orders_count,
                             MAX(created_at) as last_signal
                         FROM orders
                         WHERE strategy_id IN ({placeholders})

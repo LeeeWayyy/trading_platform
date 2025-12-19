@@ -82,14 +82,16 @@ def app_client(monkeypatch):
 
     monkeypatch.setattr(httpx.Client, "__init__", _patched_client_init)
 
-    # Patch kill_switch + circuit breaker availability flags to healthy
-    main.set_kill_switch_unavailable(False)
-    main.set_circuit_breaker_unavailable(False)
-    main.set_position_reservation_unavailable(False)
+    # Patch availability flags to healthy via recovery_manager
+    main.recovery_manager.set_kill_switch_unavailable(False)
+    main.recovery_manager.set_circuit_breaker_unavailable(False)
+    main.recovery_manager.set_position_reservation_unavailable(False)
 
-    # Stub kill_switch to never engage
-    main.kill_switch = SimpleNamespace(is_engaged=lambda: False)
-    main.slice_scheduler = DummyScheduler()
+    # Stub components into recovery_manager state
+    main.recovery_manager._state.kill_switch = SimpleNamespace(is_engaged=lambda: False)
+    main.recovery_manager._state.circuit_breaker = SimpleNamespace(is_tripped=lambda: False)
+    main.recovery_manager._state.position_reservation = None
+    main.recovery_manager._state.slice_scheduler = DummyScheduler()
     main.twap_slicer.plan = lambda **kwargs: make_plan()
     # Stub liquidity service to return ADV data (avoids API call)
     main.liquidity_service = SimpleNamespace(get_adv=lambda symbol: 1_000_000)

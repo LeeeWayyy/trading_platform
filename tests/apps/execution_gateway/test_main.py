@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Import app at module level (will use real clients initially)
+from apps.execution_gateway import main
 from apps.execution_gateway.main import app
 from apps.execution_gateway.schemas import OrderDetail, Position
 
@@ -105,9 +106,7 @@ class TestHealthEndpoint:
 
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
-            patch("apps.execution_gateway.main._circuit_breaker_unavailable", False),
-            patch("apps.execution_gateway.main._position_reservation_unavailable", False),
+            patch.object(main.recovery_manager, "needs_recovery", return_value=False),
         ):
             response = test_client.get("/health")
 
@@ -123,9 +122,7 @@ class TestHealthEndpoint:
 
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
-            patch("apps.execution_gateway.main._circuit_breaker_unavailable", False),
-            patch("apps.execution_gateway.main._position_reservation_unavailable", False),
+            patch.object(main.recovery_manager, "needs_recovery", return_value=False),
         ):
             response = test_client.get("/health")
 
@@ -174,14 +171,17 @@ class TestSubmitOrderEndpoint:
         )
         mock_db.create_order.return_value = created_order
 
+        # Set component instances on recovery_manager's internal state
+        main.recovery_manager._state.kill_switch = mock_kill_switch
+        main.recovery_manager._state.circuit_breaker = mock_circuit_breaker
+        main.recovery_manager._state.position_reservation = mock_position_reservation
+
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
-            patch("apps.execution_gateway.main.circuit_breaker", mock_circuit_breaker),
-            patch("apps.execution_gateway.main.position_reservation", mock_position_reservation),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
-            patch("apps.execution_gateway.main._circuit_breaker_unavailable", False),
-            patch("apps.execution_gateway.main._position_reservation_unavailable", False),
+            patch.object(main.recovery_manager, "needs_recovery", return_value=False),
+            patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=False),
+            patch.object(main.recovery_manager, "is_circuit_breaker_unavailable", return_value=False),
+            patch.object(main.recovery_manager, "is_position_reservation_unavailable", return_value=False),
         ):
             response = test_client.post(
                 "/api/v1/orders",
@@ -229,14 +229,23 @@ class TestSubmitOrderEndpoint:
         )
         mock_db.get_order_by_client_id.return_value = existing_order
 
+        # Set component instances on recovery_manager's internal state
+        main.recovery_manager._state.kill_switch = mock_kill_switch
+        main.recovery_manager._state.circuit_breaker = mock_circuit_breaker
+        main.recovery_manager._state.position_reservation = mock_position_reservation
+
         with (
             patch("apps.execution_gateway.main.db_client", mock_db),
-            patch("apps.execution_gateway.main.kill_switch", mock_kill_switch),
-            patch("apps.execution_gateway.main.circuit_breaker", mock_circuit_breaker),
-            patch("apps.execution_gateway.main.position_reservation", mock_position_reservation),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
-            patch("apps.execution_gateway.main._circuit_breaker_unavailable", False),
-            patch("apps.execution_gateway.main._position_reservation_unavailable", False),
+            patch.object(main.recovery_manager, "needs_recovery", return_value=False),
+            patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=False),
+            patch.object(
+                main.recovery_manager, "is_circuit_breaker_unavailable", return_value=False
+            ),
+            patch.object(
+                main.recovery_manager,
+                "is_position_reservation_unavailable",
+                return_value=False,
+            ),
         ):
             response = test_client.post(
                 "/api/v1/orders",

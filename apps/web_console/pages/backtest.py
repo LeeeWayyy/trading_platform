@@ -21,7 +21,7 @@ from typing import Any
 import streamlit as st
 from psycopg.rows import dict_row
 from rq.job import Job
-from streamlit_autorefresh import st_autorefresh  # type: ignore[import-untyped]
+from streamlit_autorefresh import st_autorefresh  # type: ignore[import-not-found]
 
 from apps.web_console.auth.backtest_auth import backtest_requires_auth
 from apps.web_console.auth.permissions import Permission, has_permission
