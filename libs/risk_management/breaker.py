@@ -694,6 +694,11 @@ class CircuitBreaker:
             for entry in entries_raw
         ]
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((RedisConnectionError, RedisTimeoutError)),
+    )
     def update_history_with_reset(
         self,
         reset_at: str,

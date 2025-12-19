@@ -194,6 +194,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Python for requirements generation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate requirements.txt from pyproject.toml
+        run: |
+          pip install poetry poetry-plugin-export
+          poetry export -f requirements.txt --output requirements.txt --without-hashes
+          echo "Generated requirements.txt from pyproject.toml"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
