@@ -246,8 +246,8 @@ class RedisClient:
             ex: Expiration time in seconds (SET EX)
 
         Returns:
-            True if the key was set, None if nx=True and key already exists.
-            For backwards compatibility, returns None when nx=False.
+            If `nx=True`, returns `True` if the key was set, `False` otherwise.
+            If `nx=False`, returns `None` for backward compatibility.
 
         Raises:
             RedisError: If operation fails after retries
