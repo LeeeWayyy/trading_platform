@@ -24,6 +24,8 @@ import os
 from typing import Any, cast
 
 import pandas as pd
+import psycopg
+import redis
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh  # type: ignore[import-untyped]
 
@@ -68,14 +70,27 @@ def _get_db_pool() -> Any:
 
     Returns None if not configured (audit logging will fall back to console).
     Logs a warning if pool creation fails so operators are aware audit is disabled.
+
+    Catches specific exceptions:
+        - ImportError: sync_db_pool module not available
+        - psycopg.Error: Database connection issues
+        - redis.RedisError: Redis connection issues (pool may use Redis)
     """
     try:
         from apps.web_console.utils.sync_db_pool import get_sync_db_pool
 
         return get_sync_db_pool()
-    except Exception as e:
+    except ImportError as e:
         logger.warning(
-            "db_pool_creation_failed",
+            "db_pool_module_not_found",
+            extra={"error": str(e), "impact": "audit logging disabled"},
+        )
+        return None
+    except (OSError, ConnectionError, psycopg.Error, redis.RedisError) as e:
+        # OSError covers socket/network issues, ConnectionError for connection failures
+        # psycopg.Error for PostgreSQL issues, redis.RedisError for Redis issues
+        logger.warning(
+            "db_pool_connection_failed",
             extra={"error": str(e), "impact": "audit logging disabled"},
         )
         return None

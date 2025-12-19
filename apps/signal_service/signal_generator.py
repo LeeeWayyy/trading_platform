@@ -42,7 +42,7 @@ See Also:
 import logging
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import numpy as np
 import pandas as pd
@@ -404,8 +404,8 @@ class SignalGenerator:
                                 symbol, level="instrument", drop_level=False
                             )
                             if not symbol_features.empty:
-                                # Convert to dict for caching
-                                features_dict = symbol_features.iloc[0].to_dict()
+                                # Convert to dict for caching (cast for type safety)
+                                features_dict = cast(dict[str, Any], symbol_features.iloc[0].to_dict())
                                 self.feature_cache.set(symbol, date_str, features_dict)
                                 logger.debug(f"Cached features for {symbol} on {date_str}")
                         except (KeyError, IndexError):
@@ -440,7 +440,7 @@ class SignalGenerator:
                                     symbol, level="instrument", drop_level=False
                                 )
                                 if not symbol_features.empty:
-                                    features_dict = symbol_features.iloc[0].to_dict()
+                                    features_dict = cast(dict[str, Any], symbol_features.iloc[0].to_dict())
                                     self.feature_cache.set(symbol, date_str, features_dict)
                                     logger.debug(f"Cached mock features for {symbol} on {date_str}")
                             except Exception as cache_error:
@@ -838,7 +838,7 @@ class SignalGenerator:
                         symbol, level="instrument", drop_level=False
                     )
                     if not symbol_features.empty:
-                        features_dict = symbol_features.iloc[0].to_dict()
+                        features_dict = cast(dict[str, Any], symbol_features.iloc[0].to_dict())
                         self.feature_cache.set(symbol, date_str, features_dict)
                         symbols_cached.append(symbol)
                         logger.debug(f"Cached features for {symbol}")
@@ -869,7 +869,7 @@ class SignalGenerator:
                             symbol, level="instrument", drop_level=False
                         )
                         if not symbol_features.empty:
-                            features_dict = symbol_features.iloc[0].to_dict()
+                            features_dict = cast(dict[str, Any], symbol_features.iloc[0].to_dict())
                             self.feature_cache.set(symbol, date_str, features_dict)
                             symbols_cached.append(symbol)
                     except Exception as cache_err:

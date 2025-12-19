@@ -35,6 +35,8 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+import psycopg
+
 from apps.web_console.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
 from libs.risk_management.breaker import CircuitBreaker
 from libs.web_console_auth.permissions import Permission, has_permission
@@ -371,16 +373,24 @@ class CircuitBreakerService:
                     # Save any pending trip before starting new one
                     if pending_trip is not None:
                         history.append(pending_trip)
-                    # Start new trip entry with details for consistency with Redis shape
+                    # Reconstruct details from audit log, preserving all original fields
+                    # Remove 'reason' as it's stored separately at top level
+                    trip_details = details_dict.copy()
+                    trip_reason = trip_details.pop("reason", None)
+                    # Ensure tripped_by is set from user_id if not in details
+                    if user_id and "tripped_by" not in trip_details:
+                        trip_details["tripped_by"] = str(user_id)
                     pending_trip = {
                         "tripped_at": ts_str,
-                        "reason": details_dict.get("reason"),
-                        "details": {"tripped_by": str(user_id)} if user_id else {},
+                        "reason": trip_reason,
+                        "details": trip_details,
                     }
                 elif action == "CIRCUIT_BREAKER_RESET" and pending_trip is not None:
                     # Pair reset with pending trip
+                    # Prefer reset_by from details (preserves original actor), fall back to user_id
+                    reset_by = details_dict.get("reset_by") or (str(user_id) if user_id else None)
                     pending_trip["reset_at"] = ts_str
-                    pending_trip["reset_by"] = str(user_id) if user_id else None
+                    pending_trip["reset_by"] = reset_by
                     pending_trip["reset_reason"] = details_dict.get("reason")
                     history.append(pending_trip)
                     pending_trip = None
@@ -392,10 +402,18 @@ class CircuitBreakerService:
             # Return newest-first to match Redis history order, limited to requested count
             return list(reversed(history))[:limit]
 
-        except Exception as e:
+        except psycopg.Error as e:
+            # Database errors (connection, query, etc.)
             logger.exception(
                 "audit_history_fetch_failed",
-                extra={"error": str(e)},
+                extra={"error": str(e), "error_type": "database"},
+            )
+            return []
+        except json.JSONDecodeError as e:
+            # Malformed JSON in details column
+            logger.exception(
+                "audit_history_fetch_failed",
+                extra={"error": str(e), "error_type": "json_parse"},
             )
             return []
 
@@ -465,8 +483,8 @@ class CircuitBreakerService:
                         ),
                     )
                 conn.commit()
-        except Exception as e:
-            # Don't fail the operation if audit logging fails
+        except psycopg.Error as e:
+            # Don't fail the operation if audit logging fails (database errors)
             logger.exception(
                 "audit_log_write_failed",
                 extra={

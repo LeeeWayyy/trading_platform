@@ -279,6 +279,54 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
+    def setnx(self, key: str, value: str, ex: int | None = None) -> bool:
+        """
+        Atomic set-if-not-exists operation.
+
+        Sets the key only if it does not already exist. This is an atomic operation
+        ideal for implementing locks, rate limiters, and other coordination primitives.
+
+        Args:
+            key: Redis key to set
+            value: Value to store (string)
+            ex: Optional expiration time in seconds
+
+        Returns:
+            True if the key was set (did not exist), False if key already exists
+
+        Raises:
+            RedisError: If operation fails after retries
+
+        Example:
+            >>> # Acquire a lock
+            >>> if client.setnx("lock:resource", "owner_id", ex=30):
+            ...     # Lock acquired, do work
+            ...     client.delete("lock:resource")
+            ... else:
+            ...     # Lock held by someone else
+            ...     pass
+
+            >>> # Rate limiting
+            >>> if client.setnx("rate:user:123", "1", ex=60):
+            ...     # First request in window, allowed
+            ...     pass
+            ... else:
+            ...     # Already made a request in this window
+            ...     raise RateLimitExceeded()
+        """
+        try:
+            result = self._client.set(key, value, nx=True, ex=ex)
+            # redis-py returns True if set, None/False if key exists
+            return bool(result)
+        except RedisError as e:
+            logger.error(f"Redis SETNX failed for key '{key}': {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    )
     def delete(self, *keys: str) -> int:
         """
         Delete one or more keys from Redis with retry logic.
@@ -348,7 +396,7 @@ class RedisClient:
             ...     if message['type'] == 'message':
             ...         print(message['data'])
         """
-        return self._client.pubsub()  # type: ignore[no-untyped-call]
+        return self._client.pubsub()
 
     def pipeline(self, transaction: bool = True) -> Any:
         """

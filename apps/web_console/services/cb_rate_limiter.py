@@ -1,8 +1,9 @@
 """Atomic rate limiter for circuit breaker reset operations.
 
 This module provides global rate limiting for circuit breaker resets to prevent
-accidental spam or abuse. Uses Redis SET NX EX for true atomicity (prevents
-infinite lockout on crash between INCR and EXPIRE).
+accidental spam or abuse. Uses atomic Redis operations to prevent race conditions:
+- For limit=1: SET NX EX (truly atomic)
+- For limit>1: Lua script (INCR + EXPIRE in single atomic operation)
 
 The rate limit is GLOBAL (not per-user) because circuit breaker resets affect
 the entire trading system and should be deliberate, rare operations.
@@ -18,6 +19,21 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from libs.redis_client import RedisClient
+
+
+# Lua script for atomic INCR + EXPIRE (prevents race condition/orphaned keys)
+# Returns: new count after increment
+# Also handles edge case where key exists without TTL (e.g., leftover from crash)
+_INCR_WITH_EXPIRE_LUA = """
+local key = KEYS[1]
+local window = tonumber(ARGV[1])
+local count = redis.call('INCR', key)
+if count == 1 or redis.call('TTL', key) == -1 then
+    -- Set TTL on first increment OR if key has no expiry (orphaned key)
+    redis.call('EXPIRE', key, window)
+end
+return count
+"""
 
 
 class CBRateLimiter:
@@ -55,7 +71,7 @@ class CBRateLimiter:
         """Check if global reset is allowed (atomic).
 
         For limit=1: Uses SET NX EX for true atomicity (no infinite lockout risk).
-        For limit>1: Uses INCR + EXPIRE (documented behavior).
+        For limit>1: Uses Lua script for atomic INCR + EXPIRE (no race condition).
 
         Args:
             limit: Maximum resets allowed in window (default: 1)
@@ -65,17 +81,15 @@ class CBRateLimiter:
             True if reset allowed, False if rate limited
         """
         if limit == 1:
-            # SET NX EX is truly atomic - no crash risk between commands
+            # Use dedicated setnx method - truly atomic, no crash risk
             # Returns True if key was set (allowed), False if exists (blocked)
-            return bool(self.redis.set(self.key, "1", nx=True, ex=window))
+            return self.redis.setnx(self.key, "1", ex=window)
 
-        # For limit > 1, use INCR + conditional EXPIRE
-        # Note: Crash between INCR and EXPIRE can cause orphaned key,
-        # but for CB reset with limit=1 this path isn't used.
-        new_count = self.redis.incr(self.key)
-        if new_count == 1:
-            self.redis.expire(self.key, window)
-        return new_count <= limit
+        # For limit > 1, use Lua script for atomic INCR + EXPIRE
+        # This eliminates the race condition where a crash between INCR and EXPIRE
+        # could leave an orphaned key that never expires (permanent lockout)
+        new_count = self.redis.eval(_INCR_WITH_EXPIRE_LUA, 1, self.key, str(window))
+        return int(new_count) <= limit
 
     def clear(self) -> None:
         """Clear the rate limit key (rollback on operation failure).

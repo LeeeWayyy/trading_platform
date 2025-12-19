@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import psycopg
 import pytest
 
 from apps.web_console.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
@@ -406,8 +407,8 @@ class TestCircuitBreakerServiceAuditFallback:
         # Make Redis history fail
         cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
 
-        # Make DB also fail
-        mock_db_pool.connection.side_effect = Exception("DB connection failed")
+        # Make DB also fail with psycopg.Error (specific exception type)
+        mock_db_pool.connection.side_effect = psycopg.Error("DB connection failed")
 
         result = cb_service_with_db.get_history(limit=10)
 
