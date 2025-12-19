@@ -259,10 +259,12 @@ jobs:
 
       - name: Install test dependencies
         run: |
+          # Always use the same interpreter that runs pytest to avoid mismatched envs
           python -m pip install --upgrade pip
-          pip install poetry
-          poetry config virtualenvs.create false
-          poetry install --with dev
+          # Use python -m pip to ensure installs land in the runner Python (not a Poetry venv)
+          python -m pip install -r requirements.txt
+          # Install additional test dependencies
+          python -m pip install pytest pytest-cov pytest-asyncio httpx
 
       - name: Run E2E integration tests
         run: |
