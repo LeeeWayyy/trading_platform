@@ -40,7 +40,6 @@ import hmac
 import json
 import logging
 import os
-import threading
 import time
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -82,6 +81,7 @@ from apps.execution_gateway.reconciliation import (
     SOURCE_PRIORITY_WEBHOOK,
     ReconciliationService,
 )
+from apps.execution_gateway.recovery_manager import RecoveryManager
 from apps.execution_gateway.schemas import (
     ConfigResponse,
     DailyPerformanceResponse,
@@ -320,79 +320,6 @@ except (RedisError, RedisConnectionError) as e:
         f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices."
     )
 
-# Kill-switch (operator-controlled emergency halt)
-kill_switch: KillSwitch | None = None
-
-# H3 Fix: Thread-safe kill-switch unavailable flag
-# Use threading.Lock to protect read/write operations on global state
-_kill_switch_lock = threading.Lock()
-_kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
-
-_circuit_breaker_lock = threading.Lock()
-_circuit_breaker_unavailable = False  # Track if circuit breaker initialization failed (fail closed)
-
-# Gemini PR fix: Thread-safe position reservation unavailable flag (fail-closed pattern)
-_position_reservation_lock = threading.Lock()
-_position_reservation_unavailable = False  # Track if position reservation init failed (fail closed)
-
-# Recovery lock to prevent concurrent health checks from racing to reinitialize infrastructure
-_infrastructure_recovery_lock = threading.Lock()
-
-
-def is_kill_switch_unavailable() -> bool:
-    """Thread-safe check if kill-switch is unavailable."""
-    with _kill_switch_lock:
-        return _kill_switch_unavailable
-
-
-def set_kill_switch_unavailable(value: bool) -> None:
-    """Thread-safe set kill-switch unavailable state."""
-    global _kill_switch_unavailable
-    with _kill_switch_lock:
-        _kill_switch_unavailable = value
-
-
-def is_circuit_breaker_unavailable() -> bool:
-    """Thread-safe check if circuit breaker is unavailable."""
-    with _circuit_breaker_lock:
-        return _circuit_breaker_unavailable
-
-
-def set_circuit_breaker_unavailable(value: bool) -> None:
-    """Thread-safe set circuit breaker unavailable state."""
-    global _circuit_breaker_unavailable
-    with _circuit_breaker_lock:
-        _circuit_breaker_unavailable = value
-
-
-def is_position_reservation_unavailable() -> bool:
-    """Thread-safe check if position reservation is unavailable."""
-    with _position_reservation_lock:
-        return _position_reservation_unavailable
-
-
-def set_position_reservation_unavailable(value: bool) -> None:
-    """Thread-safe set position reservation unavailable state."""
-    global _position_reservation_unavailable
-    with _position_reservation_lock:
-        _position_reservation_unavailable = value
-
-
-if redis_client:
-    try:
-        kill_switch = KillSwitch(redis_client=redis_client)
-        logger.info("Kill-switch initialized successfully")
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all trading blocked until Redis available."
-        )
-        set_kill_switch_unavailable(True)
-else:
-    logger.error(
-        "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all trading blocked until Redis available."
-    )
-    set_kill_switch_unavailable(True)
-
 # Alpaca client (only if not in dry run mode and credentials provided)
 alpaca_client: AlpacaExecutor | None = None
 if not DRY_RUN:
@@ -425,25 +352,17 @@ if LIQUIDITY_CHECK_ENABLED:
     except Exception as e:
         logger.error(f"Failed to initialize Liquidity service: {e}")
 
-# Circuit Breaker (for post-trade risk monitoring)
-# Codex CRITICAL fix: Track initialization failures and fail closed
-circuit_breaker: CircuitBreaker | None = None
-if redis_client:
-    try:
-        circuit_breaker = CircuitBreaker(redis_client=redis_client)
-        logger.info("Circuit breaker initialized successfully")
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize circuit breaker: {e}. "
-            "FAILING CLOSED - all trading blocked until circuit breaker available."
-        )
-        set_circuit_breaker_unavailable(True)
-else:
-    logger.error(
-        "Circuit breaker not initialized (Redis unavailable). "
-        "FAILING CLOSED - all trading blocked until Redis available."
-    )
-    set_circuit_breaker_unavailable(True)
+# Recovery manager orchestrates safety components and slice scheduler (fail-closed)
+recovery_manager = RecoveryManager(
+    redis_client=redis_client,
+    db_client=db_client,
+    executor=alpaca_client,
+)
+
+# Initialize safety components (fail-closed on any error)
+recovery_manager.initialize_kill_switch(lambda: KillSwitch(redis_client=redis_client))
+recovery_manager.initialize_circuit_breaker(lambda: CircuitBreaker(redis_client=redis_client))
+recovery_manager.initialize_position_reservation(lambda: PositionReservation(redis=redis_client))
 
 # Risk Configuration (position limits, etc.)
 risk_config = RiskConfig()
@@ -463,37 +382,18 @@ fat_finger_validator = FatFingerValidator(
 # Position Reservation (for atomic position limit checking - prevents race conditions)
 # Codex HIGH fix: Wire PositionReservation into production to prevent concurrent orders
 # from both passing position limit check before either executes
-# Gemini PR fix: Add fail-closed pattern to block trading when position reservation unavailable
-position_reservation: PositionReservation | None = None
-if redis_client:
-    try:
-        position_reservation = PositionReservation(redis=redis_client)
-        logger.info("Position reservation initialized successfully")
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize position reservation: {e}. "
-            "FAILING CLOSED - all trading blocked until position reservation available."
-        )
-        set_position_reservation_unavailable(True)
-else:
-    logger.error(
-        "Position reservation not initialized (Redis unavailable). "
-        "FAILING CLOSED - all trading blocked until Redis available."
-    )
-    set_position_reservation_unavailable(True)
 
 # TWAP Order Slicer (stateless, no dependencies)
 twap_slicer = TWAPSlicer()
 logger.info("TWAP slicer initialized successfully")
 
 # Slice Scheduler (for time-based TWAP slice execution)
-slice_scheduler: SliceScheduler | None = None
-if kill_switch and circuit_breaker:
+if recovery_manager.kill_switch and recovery_manager.circuit_breaker:
     # Note: alpaca_client can be None in DRY_RUN mode - scheduler logs dry-run slices without broker submission
     try:
-        slice_scheduler = SliceScheduler(
-            kill_switch=kill_switch,
-            breaker=circuit_breaker,
+        recovery_manager.slice_scheduler = SliceScheduler(
+            kill_switch=recovery_manager.kill_switch,
+            breaker=recovery_manager.circuit_breaker,
             db_client=db_client,
             executor=alpaca_client,  # Can be None in DRY_RUN mode
         )
@@ -501,7 +401,9 @@ if kill_switch and circuit_breaker:
     except Exception as e:
         logger.error(f"Failed to initialize slice scheduler: {e}")
 else:
-    logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
+    logger.warning(
+        "Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)"
+    )
 
 # Reconciliation service (startup gating + periodic sync)
 reconciliation_service: ReconciliationService | None = None
@@ -974,6 +876,7 @@ def _is_reconciliation_ready() -> bool:
 
 async def _recover_zombie_slices_after_reconciliation() -> None:
     """Recover pending TWAP slices after reconciliation gate opens."""
+    slice_scheduler = recovery_manager.slice_scheduler
     if not slice_scheduler:
         logger.warning("Slice scheduler unavailable; skipping zombie slice recovery")
         return
@@ -1688,127 +1591,26 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-10-17T16:30:00Z"
         }
     """
-    global kill_switch, circuit_breaker, slice_scheduler, position_reservation  # H3: Removed unavailable flags (now thread-safe functions)
-
     # Check database connection
     db_connected = db_client.check_connection()
 
-    # Check Redis connection and attempt infrastructure recovery
+    # Check Redis connection and attempt infrastructure recovery via RecoveryManager
     redis_connected = False
     if redis_client:
         redis_connected = redis_client.health_check()
 
-        # Attempt to recover kill-switch, circuit breaker, position reservation, and slice scheduler if Redis is back
-        # Check if ANY safety mechanism is unavailable
-        # Use lock to prevent concurrent health checks from racing to reinitialize
-        if redis_connected and (
-            is_kill_switch_unavailable()
-            or is_circuit_breaker_unavailable()
-            or is_position_reservation_unavailable()
-        ):
-            with _infrastructure_recovery_lock:
-                # Re-check conditions under lock (double-checked locking pattern)
-                if not (
-                    is_kill_switch_unavailable()
-                    or is_circuit_breaker_unavailable()
-                    or is_position_reservation_unavailable()
-                ):
-                    # Another thread already recovered, skip
-                    pass
-                else:
-                    try:
-                        # 1. Recover Kill Switch
-                        if is_kill_switch_unavailable():
-                            if kill_switch is None:
-                                kill_switch = KillSwitch(redis_client=redis_client)
-                                logger.info(
-                                    "Kill-switch re-initialized after Redis recovery",
-                                    extra={"kill_switch_recovered": True},
-                                )
-
-                            # Verify it works
-                            kill_switch.is_engaged()
-                            set_kill_switch_unavailable(False)
-                            logger.info("Kill-switch recovered and validated")
-
-                        # 2. Recover Circuit Breaker
-                        if is_circuit_breaker_unavailable():
-                            if circuit_breaker is None:
-                                circuit_breaker = CircuitBreaker(redis_client=redis_client)
-                                logger.info(
-                                    "Circuit breaker re-initialized after Redis recovery",
-                                    extra={"breaker_recovered": True},
-                                )
-
-                            # Verify it works (check trip status - throws if state missing)
-                            try:
-                                circuit_breaker.is_tripped()
-                                set_circuit_breaker_unavailable(False)
-                                logger.info("Circuit breaker recovered and validated")
-                            except RuntimeError:
-                                # Still missing state, keep unavailable
-                                logger.warning("Circuit breaker re-initialized but state still missing")
-
-                        # 3. Recover Position Reservation (Gemini PR fix)
-                        if is_position_reservation_unavailable():
-                            if position_reservation is None:
-                                position_reservation = PositionReservation(redis=redis_client)
-                                logger.info(
-                                    "Position reservation re-initialized after Redis recovery",
-                                    extra={"position_reservation_recovered": True},
-                                )
-
-                            # Position reservation is stateless - just clear the flag
-                            set_position_reservation_unavailable(False)
-                            logger.info("Position reservation recovered and validated")
-
-                        # 4. Recover Slice Scheduler (needs both KS and CB)
-                        if (
-                            slice_scheduler is None
-                            and not is_kill_switch_unavailable()
-                            and not is_circuit_breaker_unavailable()
-                            and kill_switch is not None
-                            and circuit_breaker is not None
-                        ):
-                            slice_scheduler = SliceScheduler(
-                                kill_switch=kill_switch,
-                                breaker=circuit_breaker,
-                                db_client=db_client,
-                                executor=alpaca_client,  # Can be None in DRY_RUN mode
-                            )
-                            # Start the scheduler
-                            if not slice_scheduler.scheduler.running:
-                                slice_scheduler.start()
-                                logger.info(
-                                    "Slice scheduler re-initialized and started after Redis recovery",
-                                    extra={"scheduler_recovered": True, "scheduler_started": True},
-                                )
-                            else:
-                                logger.info(
-                                    "Slice scheduler re-initialized but already running",
-                                    extra={"scheduler_recovered": True, "scheduler_already_running": True},
-                                )
-
-                        logger.info(
-                            "Infrastructure recovery attempt completed",
-                            extra={
-                                "kill_switch_available": not is_kill_switch_unavailable(),
-                                "breaker_available": not is_circuit_breaker_unavailable(),
-                                "position_reservation_available": not is_position_reservation_unavailable(),
-                            },
-                        )
-
-                    except Exception as e:
-                        # Still unavailable, keep flags set (fail closed)
-                        logger.error(
-                            f"Infrastructure recovery failed: {e}",
-                            extra={
-                                "error": str(e),
-                                "kill_switch_unavailable": is_kill_switch_unavailable(),
-                                "breaker_unavailable": is_circuit_breaker_unavailable(),
-                                "position_reservation_unavailable": is_position_reservation_unavailable(),
-                            },
-                        )
+        if redis_connected:
+            recovery_manager.attempt_recovery(
+                kill_switch_factory=lambda: KillSwitch(redis_client=redis_client),
+                circuit_breaker_factory=lambda: CircuitBreaker(redis_client=redis_client),
+                position_reservation_factory=lambda: PositionReservation(redis=redis_client),
+                slice_scheduler_factory=lambda: SliceScheduler(
+                    kill_switch=recovery_manager.kill_switch,
+                    breaker=recovery_manager.circuit_breaker,
+                    db_client=db_client,
+                    executor=alpaca_client,  # Can be None in DRY_RUN mode
+                ),
+            )
 
     # Check Alpaca connection (if not DRY_RUN)
     alpaca_connected = True
@@ -1832,11 +1634,7 @@ async def health_check() -> HealthResponse:
 
     # Determine overall status
     overall_status: Literal["healthy", "degraded", "unhealthy"]
-    if (
-        is_kill_switch_unavailable()
-        or is_circuit_breaker_unavailable()
-        or is_position_reservation_unavailable()
-    ):
+    if recovery_manager.needs_recovery():
         # Safety mechanisms unavailable means we're in fail-closed mode - report degraded
         overall_status = "degraded"
     elif db_connected and (DRY_RUN or alpaca_connected):
@@ -2150,7 +1948,8 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         >>> response.json()
         {"state": "ENGAGED", "engaged_by": "ops_team", ...}
     """
-    if not kill_switch:
+    kill_switch = recovery_manager.kill_switch
+    if not kill_switch or recovery_manager.is_kill_switch_unavailable():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Kill-switch unavailable (Redis not initialized)",
@@ -2168,7 +1967,7 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         ) from e
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch engage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -2212,7 +2011,8 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         >>> response.json()
         {"state": "ACTIVE", "disengaged_by": "ops_team", ...}
     """
-    if not kill_switch:
+    kill_switch = recovery_manager.kill_switch
+    if not kill_switch or recovery_manager.is_kill_switch_unavailable():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Kill-switch unavailable (Redis not initialized)",
@@ -2228,7 +2028,7 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         ) from e
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch disengage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -2263,7 +2063,8 @@ async def get_kill_switch_status() -> dict[str, Any]:
         >>> print(status["state"])
         'ACTIVE'
     """
-    if not kill_switch:
+    kill_switch = recovery_manager.kill_switch
+    if not kill_switch or recovery_manager.is_kill_switch_unavailable():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Kill-switch unavailable (Redis not initialized)",
@@ -2273,7 +2074,7 @@ async def get_kill_switch_status() -> dict[str, Any]:
         return kill_switch.get_status()
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch status unavailable: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -2426,7 +2227,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         ...     }
         ... )
     """
-    # H3: Removed global kill_switch_unavailable - now using thread-safe functions
+    # Safety gating uses RecoveryManager (thread-safe, fail-closed)
     # Start timing for metrics
     start_time = time.time()
 
@@ -2444,8 +2245,12 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         },
     )
 
+    kill_switch = recovery_manager.kill_switch
+    circuit_breaker = recovery_manager.circuit_breaker
+    position_reservation = recovery_manager.position_reservation
+
     # Check kill-switch unavailable (fail closed for safety)
-    if is_kill_switch_unavailable():
+    if recovery_manager.is_kill_switch_unavailable() or kill_switch is None:
         logger.error(
             f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
             extra={
@@ -2464,7 +2269,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
     # Codex CRITICAL fix: Check circuit breaker unavailable (fail closed for safety)
     # This prevents trading when circuit breaker init failed or Redis unavailable
-    if is_circuit_breaker_unavailable():
+    if recovery_manager.is_circuit_breaker_unavailable() or circuit_breaker is None:
         logger.error(
             f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
             extra={
@@ -2484,7 +2289,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
     # Gemini PR fix: Check position reservation unavailable (fail closed for safety)
     # This prevents trading when position reservation init failed or Redis unavailable
-    if is_position_reservation_unavailable():
+    if recovery_manager.is_position_reservation_unavailable() or position_reservation is None:
         logger.error(
             f"🔴 Order blocked by unavailable position reservation (FAIL CLOSED): {client_order_id}",
             extra={
@@ -2529,7 +2334,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             )
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
             extra={
@@ -2580,7 +2385,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             # RuntimeError is raised when circuit breaker state is missing from Redis
             # (e.g., after Redis flush/restart without explicit reinitialization)
             # Codex HIGH fix: Set unavailable flag to enable health check recovery
-            set_circuit_breaker_unavailable(True)
+            recovery_manager.set_circuit_breaker_unavailable(True)
             logger.error(
                 f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
                 extra={
@@ -2602,7 +2407,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         except RedisError as e:
             # Circuit breaker state unavailable (fail-closed for safety)
             # Codex HIGH fix: Set unavailable flag to enable health check recovery
-            set_circuit_breaker_unavailable(True)
+            recovery_manager.set_circuit_breaker_unavailable(True)
             logger.error(
                 f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
                 extra={
@@ -2695,7 +2500,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             # Codex HIGH fix: Fail-closed on reservation system error
             # If Redis is unavailable, concurrent orders could race past position limits
             # Codex MEDIUM fix: Latch unavailable flag so health check reflects degraded state
-            set_position_reservation_unavailable(True)
+            recovery_manager.set_position_reservation_unavailable(True)
             logger.error(
                 f"🔴 Order blocked by reservation system failure (FAIL CLOSED): {client_order_id}",
                 extra={
@@ -3041,6 +2846,9 @@ def _check_twap_prerequisites() -> None:
         HTTPException 503: If scheduler unavailable or kill-switch state unknown
         HTTPException 503: If kill-switch is engaged
     """
+    slice_scheduler = recovery_manager.slice_scheduler
+    kill_switch = recovery_manager.kill_switch
+
     # Check if slice scheduler is available
     if not slice_scheduler:
         logger.error("Slice scheduler unavailable - cannot accept TWAP orders")
@@ -3050,7 +2858,7 @@ def _check_twap_prerequisites() -> None:
         )
 
     # Check kill-switch availability (fail closed)
-    if is_kill_switch_unavailable():
+    if recovery_manager.is_kill_switch_unavailable() or kill_switch is None:
         logger.error("Kill-switch unavailable - cannot accept TWAP orders (fail closed)")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -3058,7 +2866,7 @@ def _check_twap_prerequisites() -> None:
         )
 
     # Check kill-switch status
-    if kill_switch and kill_switch.is_engaged():
+    if kill_switch.is_engaged():
         status_info = kill_switch.get_status()
         logger.error("TWAP order blocked by kill-switch")
         raise HTTPException(
@@ -3402,7 +3210,7 @@ def _schedule_slices_with_compensation(
     Raises:
         Exception: Re-raises scheduling errors after compensation attempt
     """
-    # Type narrowing: slice_scheduler is checked in _check_twap_prerequisites()
+    slice_scheduler = recovery_manager.slice_scheduler
     assert slice_scheduler is not None, "Slice scheduler must be initialized"
 
     # Schedule slices for execution
@@ -3751,6 +3559,8 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
             "message": "Canceled 3 pending slices"
         }
     """
+    slice_scheduler = recovery_manager.slice_scheduler
+
     # Check scheduler availability
     if not slice_scheduler:
         raise HTTPException(
@@ -4354,6 +4164,7 @@ async def startup_event() -> None:
             logger.info("Alpaca connection OK")
 
     # Start slice scheduler (for TWAP order execution)
+    slice_scheduler = recovery_manager.slice_scheduler
     if slice_scheduler:
         # Guard against restarting a shutdown scheduler (APScheduler limitation)
         # After shutdown(), APScheduler cannot be restarted; this prevents errors
@@ -4393,6 +4204,7 @@ async def shutdown_event() -> None:
     logger.info("Execution Gateway shutting down")
 
     # Shutdown slice scheduler (wait for running jobs to complete)
+    slice_scheduler = recovery_manager.slice_scheduler
     if slice_scheduler:
         logger.info("Shutting down slice scheduler...")
         slice_scheduler.shutdown(wait=True)

@@ -2188,12 +2188,16 @@ class DatabaseClient:
         """
         Get consolidated status for a single strategy.
 
-        Aggregates data from positions and orders tables to provide
-        a comprehensive view of strategy state.
+        Aggregates data from orders table to provide a view of strategy state.
+        Note: positions table lacks strategy_id, so metrics are derived from orders.
 
         Returns:
-            Dict with positions_count, open_orders_count, today_pnl, last_signal_at
-            or None if strategy not found (no records in orders or positions)
+            Dict with:
+            - positions_count: distinct symbols with open (non-terminal) orders
+            - open_orders_count: total non-terminal orders
+            - last_signal_at: most recent order creation time
+            - today_pnl: Always Decimal("0") until proper position tracking
+            Returns None if strategy not found (no records in orders)
         """
         try:
             with self._pool.connection() as conn:
@@ -2215,7 +2219,9 @@ class DatabaseClient:
 
                     # Single consolidated query for all strategy metrics
                     # Note: positions table doesn't have strategy_id, so we derive
-                    # position count from distinct symbols in filled orders
+                    # metrics from orders table only.
+                    # - positions_count: distinct symbols with open (non-terminal) orders
+                    # - open_orders_count: total non-terminal orders
                     # Note: today_pnl requires proper position tracking with entry prices,
                     # which isn't available without strategy_id in positions table.
                     # Returning 0 until proper PnL tracking is implemented.
@@ -2223,11 +2229,19 @@ class DatabaseClient:
                         """
                         SELECT
                             COUNT(DISTINCT CASE
-                                WHEN status IN ('filled', 'partially_filled')
+                                WHEN status NOT IN (
+                                    'filled', 'canceled', 'expired', 'failed',
+                                    'rejected', 'replaced', 'done_for_day',
+                                    'blocked_kill_switch', 'blocked_circuit_breaker'
+                                )
                                 THEN symbol
                             END) as positions_count,
                             COUNT(CASE
-                                WHEN status NOT IN ('filled', 'canceled', 'rejected', 'expired', 'replaced')
+                                WHEN status NOT IN (
+                                    'filled', 'canceled', 'expired', 'failed',
+                                    'rejected', 'replaced', 'done_for_day',
+                                    'blocked_kill_switch', 'blocked_circuit_breaker'
+                                )
                                 THEN 1
                             END) as open_orders_count,
                             MAX(created_at) as last_signal
@@ -2299,10 +2313,10 @@ class DatabaseClient:
 
         Returns:
             Dict mapping strategy_id to status dict with:
-            - positions_count: Number of distinct symbols with filled orders
+            - positions_count: Number of distinct symbols with open (non-terminal) orders
             - open_orders_count: Number of orders not in terminal state
             - last_signal_at: Most recent order creation time
-            - today_pnl: Realized P&L from today's fills
+            - today_pnl: Always Decimal("0") until proper position tracking is implemented
         """
         if not strategy_ids:
             return {}
@@ -2311,6 +2325,8 @@ class DatabaseClient:
             with self._pool.connection() as conn:
                 with conn.cursor(row_factory=dict_row) as cur:
                     # Single query with GROUP BY for all strategies
+                    # - positions_count: distinct symbols with open (non-terminal) orders
+                    # - open_orders_count: total non-terminal orders
                     # Note: today_pnl requires proper position tracking with entry prices,
                     # which isn't available without strategy_id in positions table.
                     # Returning 0 until proper PnL tracking is implemented.
@@ -2320,11 +2336,19 @@ class DatabaseClient:
                         SELECT
                             strategy_id,
                             COUNT(DISTINCT CASE
-                                WHEN status IN ('filled', 'partially_filled')
+                                WHEN status NOT IN (
+                                    'filled', 'canceled', 'expired', 'failed',
+                                    'rejected', 'replaced', 'done_for_day',
+                                    'blocked_kill_switch', 'blocked_circuit_breaker'
+                                )
                                 THEN symbol
                             END) as positions_count,
                             COUNT(CASE
-                                WHEN status NOT IN ('filled', 'canceled', 'rejected', 'expired', 'replaced')
+                                WHEN status NOT IN (
+                                    'filled', 'canceled', 'expired', 'failed',
+                                    'rejected', 'replaced', 'done_for_day',
+                                    'blocked_kill_switch', 'blocked_circuit_breaker'
+                                )
                                 THEN 1
                             END) as open_orders_count,
                             MAX(created_at) as last_signal
