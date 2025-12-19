@@ -2214,55 +2214,36 @@ class DatabaseClient:
                     if not exists_result or not exists_result["exists"]:
                         return None
 
-                    # Get position count for this strategy
+                    # Single consolidated query for all strategy metrics
+                    # Note: positions table doesn't have strategy_id, so we derive
+                    # position count from distinct symbols in filled orders
                     cur.execute(
                         """
-                        SELECT COUNT(*) as count
-                        FROM positions
-                        WHERE strategy_id = %s AND qty != 0
-                        """,
-                        (strategy_id,),
-                    )
-                    positions_result = cur.fetchone()
-                    positions_count = positions_result["count"] if positions_result else 0
-
-                    # Get open orders count for this strategy
-                    cur.execute(
-                        """
-                        SELECT COUNT(*) as count
-                        FROM orders
-                        WHERE strategy_id = %s
-                          AND status NOT IN ('filled', 'canceled', 'rejected', 'expired', 'replaced')
-                        """,
-                        (strategy_id,),
-                    )
-                    orders_result = cur.fetchone()
-                    open_orders_count = orders_result["count"] if orders_result else 0
-
-                    # Get last signal time (most recent order created_at)
-                    cur.execute(
-                        """
-                        SELECT MAX(created_at) as last_signal
+                        SELECT
+                            COUNT(DISTINCT CASE
+                                WHEN status IN ('filled', 'partially_filled')
+                                THEN symbol
+                            END) as positions_count,
+                            COUNT(CASE
+                                WHEN status NOT IN ('filled', 'canceled', 'rejected', 'expired', 'replaced')
+                                THEN 1
+                            END) as open_orders_count,
+                            MAX(created_at) as last_signal,
+                            COALESCE(SUM(
+                                CASE WHEN filled_at::date = CURRENT_DATE
+                                THEN (filled_avg_price - limit_price) * filled_qty
+                                END
+                            ), 0) as today_pnl
                         FROM orders
                         WHERE strategy_id = %s
                         """,
                         (strategy_id,),
                     )
-                    signal_result = cur.fetchone()
-                    last_signal_at = signal_result["last_signal"] if signal_result else None
-
-                    # Get today's realized P&L (sum of realized_pnl for today only)
-                    cur.execute(
-                        """
-                        SELECT COALESCE(SUM(realized_pnl), 0) as today_pnl
-                        FROM positions
-                        WHERE strategy_id = %s
-                          AND updated_at::date = CURRENT_DATE
-                        """,
-                        (strategy_id,),
-                    )
-                    pnl_result = cur.fetchone()
-                    today_pnl = pnl_result["today_pnl"] if pnl_result else Decimal("0")
+                    result = cur.fetchone()
+                    positions_count = result["positions_count"] if result else 0
+                    open_orders_count = result["open_orders_count"] if result else 0
+                    last_signal_at = result["last_signal"] if result else None
+                    today_pnl = result["today_pnl"] if result else Decimal("0")
 
                     return {
                         "positions_count": positions_count,
@@ -2280,7 +2261,10 @@ class DatabaseClient:
 
     def get_all_strategy_ids(self) -> list[str]:
         """
-        Get list of all unique strategy IDs from orders and positions.
+        Get list of all unique strategy IDs from orders.
+
+        Note: positions table doesn't have strategy_id column,
+        so we only query orders.
 
         Returns:
             List of unique strategy IDs
@@ -2290,11 +2274,8 @@ class DatabaseClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT DISTINCT strategy_id FROM (
-                            SELECT DISTINCT strategy_id FROM orders
-                            UNION
-                            SELECT DISTINCT strategy_id FROM positions
-                        ) combined
+                        SELECT DISTINCT strategy_id
+                        FROM orders
                         WHERE strategy_id IS NOT NULL
                         ORDER BY strategy_id
                         """
@@ -2305,6 +2286,86 @@ class DatabaseClient:
             logger.error(
                 "Database error fetching strategy IDs",
                 extra={"error": str(exc)},
+            )
+            raise
+
+    def get_bulk_strategy_status(
+        self, strategy_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Get status for multiple strategies in a single query.
+
+        This avoids the N+1 query problem when listing strategies.
+        Uses GROUP BY to aggregate metrics for all requested strategies at once.
+
+        Args:
+            strategy_ids: List of strategy IDs to fetch status for
+
+        Returns:
+            Dict mapping strategy_id to status dict with:
+            - positions_count: Number of distinct symbols with filled orders
+            - open_orders_count: Number of orders not in terminal state
+            - last_signal_at: Most recent order creation time
+            - today_pnl: Realized P&L from today's fills
+        """
+        if not strategy_ids:
+            return {}
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    # Single query with GROUP BY for all strategies
+                    placeholders = ",".join(["%s"] * len(strategy_ids))
+                    cur.execute(
+                        f"""
+                        SELECT
+                            strategy_id,
+                            COUNT(DISTINCT CASE
+                                WHEN status IN ('filled', 'partially_filled')
+                                THEN symbol
+                            END) as positions_count,
+                            COUNT(CASE
+                                WHEN status NOT IN ('filled', 'canceled', 'rejected', 'expired', 'replaced')
+                                THEN 1
+                            END) as open_orders_count,
+                            MAX(created_at) as last_signal,
+                            COALESCE(SUM(
+                                CASE WHEN filled_at::date = CURRENT_DATE
+                                THEN (filled_avg_price - limit_price) * filled_qty
+                                END
+                            ), 0) as today_pnl
+                        FROM orders
+                        WHERE strategy_id IN ({placeholders})
+                        GROUP BY strategy_id
+                        """,
+                        tuple(strategy_ids),
+                    )
+
+                    results = {}
+                    for row in cur.fetchall():
+                        results[row["strategy_id"]] = {
+                            "positions_count": row["positions_count"] or 0,
+                            "open_orders_count": row["open_orders_count"] or 0,
+                            "last_signal_at": row["last_signal"],
+                            "today_pnl": row["today_pnl"] or Decimal("0"),
+                        }
+
+                    # Ensure all requested strategies have an entry (even if no orders)
+                    for sid in strategy_ids:
+                        if sid not in results:
+                            results[sid] = {
+                                "positions_count": 0,
+                                "open_orders_count": 0,
+                                "last_signal_at": None,
+                                "today_pnl": Decimal("0"),
+                            }
+
+                    return results
+
+        except Exception as exc:
+            logger.error(
+                "Database error fetching bulk strategy status",
+                extra={"strategy_ids": strategy_ids, "error": str(exc)},
             )
             raise
 

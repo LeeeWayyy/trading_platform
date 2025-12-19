@@ -188,9 +188,18 @@ def _generate_internal_token(
 ) -> str:
     """Generate a valid internal token for testing.
 
-    Token format: HMAC-SHA256(secret, "user_id:role:strategies:timestamp")
+    Token format: HMAC-SHA256(secret, JSON payload with sorted keys)
+    Uses JSON to prevent delimiter injection attacks.
     """
-    payload = f"{user_id}:{role}:{strategies}:{timestamp}"
+    import json
+
+    payload_data = {
+        "uid": user_id.strip(),
+        "role": role.strip(),
+        "strats": strategies.strip(),
+        "ts": str(timestamp).strip(),
+    }
+    payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
     return hmac.new(
         secret.encode("utf-8"),
         payload.encode("utf-8"),

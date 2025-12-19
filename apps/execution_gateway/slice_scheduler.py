@@ -197,9 +197,12 @@ class SliceScheduler:
         if scheduled_time is None:
             return False  # Missing = validation error, not stale
         if scheduled_time.tzinfo is None:
-            # NOTE: Assumes naive timestamps are already in UTC.
-            # This is consistent with the codebase convention where all timestamps
-            # are stored in UTC. If DB stores local times, this would be incorrect.
+            # Naive datetimes are assumed to be UTC per codebase convention.
+            # Log warning as this could indicate a timezone handling issue.
+            logger.warning(
+                "Scheduled time is timezone-naive, assuming UTC",
+                extra={"client_order_id": slice_order.client_order_id},
+            )
             scheduled_time = scheduled_time.replace(tzinfo=UTC)
         age_seconds = (now - scheduled_time).total_seconds()
         if age_seconds < 0:

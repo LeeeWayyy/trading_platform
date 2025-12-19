@@ -610,12 +610,18 @@ def _verify_internal_token(
         )
         return False, "timestamp_expired"
 
-    # Compute expected signature: HMAC-SHA256(secret, "user_id:role:strategies:timestamp")
-    # Canonicalize by stripping whitespace to prevent header manipulation
-    # Strategies are included in signature to prevent privilege escalation attacks
+    # Compute expected signature using JSON payload to prevent delimiter injection
+    # Example attack without JSON: user_id="u1:admin" + role="viewer" = user_id="u1" + role="admin:viewer"
+    # JSON with sorted keys provides canonical representation immune to such attacks
     # Note: Replay protection is timestamp-based only. For stronger protection,
     # consider adding nonce validation with Redis in high-security environments.
-    payload = f"{user_id.strip()}:{role.strip()}:{strategies.strip()}:{timestamp_str.strip()}"
+    payload_data = {
+        "uid": user_id.strip(),
+        "role": role.strip(),
+        "strats": strategies.strip(),
+        "ts": timestamp_str.strip(),
+    }
+    payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
     expected_signature = hmac.new(
         secret_value.encode("utf-8"),
         payload.encode("utf-8"),
@@ -1990,41 +1996,40 @@ async def list_strategies(
     # Filter to only authorized strategies
     strategy_ids = [s for s in all_strategy_ids if s in authorized_strategies]
 
+    # Fetch all strategy statuses in a single bulk query (avoids N+1 problem)
+    bulk_status = db_client.get_bulk_strategy_status(strategy_ids)
+
     strategies = []
     for strategy_id in strategy_ids:
-        try:
-            db_status = db_client.get_strategy_status(strategy_id)
-            if db_status is None:
-                continue
-
-            # Determine strategy status based on activity
-            # Active if has positions or recent orders (within 24h)
-            strategy_status: Literal["active", "paused", "error", "inactive"] = "inactive"
-            if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
-                strategy_status = "active"
-            elif db_status["last_signal_at"]:
-                age = (now - db_status["last_signal_at"]).total_seconds()
-                if age < 86400:  # 24 hours
-                    strategy_status = "active"
-
-            strategies.append(
-                StrategyStatusResponse(
-                    strategy_id=strategy_id,
-                    name=strategy_id.replace("_", " ").title(),  # Simple name formatting
-                    status=strategy_status,
-                    model_version=None,  # Could be fetched from model registry
-                    model_status=None,
-                    last_signal_at=db_status["last_signal_at"],
-                    last_error=None,
-                    positions_count=db_status["positions_count"],
-                    open_orders_count=db_status["open_orders_count"],
-                    today_pnl=db_status["today_pnl"],
-                    timestamp=now,
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Error getting status for strategy {strategy_id}: {e}")
+        db_status = bulk_status.get(strategy_id)
+        if db_status is None:
             continue
+
+        # Determine strategy status based on activity
+        # Active if has positions or recent orders (within 24h)
+        strategy_status: Literal["active", "paused", "error", "inactive"] = "inactive"
+        if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
+            strategy_status = "active"
+        elif db_status["last_signal_at"]:
+            age = (now - db_status["last_signal_at"]).total_seconds()
+            if age < 86400:  # 24 hours
+                strategy_status = "active"
+
+        strategies.append(
+            StrategyStatusResponse(
+                strategy_id=strategy_id,
+                name=strategy_id.replace("_", " ").title(),  # Simple name formatting
+                status=strategy_status,
+                model_version=None,  # Could be fetched from model registry
+                model_status=None,
+                last_signal_at=db_status["last_signal_at"],
+                last_error=None,
+                positions_count=db_status["positions_count"],
+                open_orders_count=db_status["open_orders_count"],
+                today_pnl=db_status["today_pnl"],
+                timestamp=now,
+            )
+        )
 
     return StrategiesListResponse(
         strategies=strategies,

@@ -113,6 +113,7 @@ def mock_db() -> MagicMock:
     db = MagicMock(spec=DatabaseClient)
     db.get_all_strategy_ids.return_value = []
     db.get_strategy_status.return_value = None
+    db.get_bulk_strategy_status.return_value = {}
     return db
 
 
@@ -185,11 +186,13 @@ class TestListStrategies:
         """Returns single strategy with correct status fields."""
         now = datetime.now(UTC)
         mock_db.get_all_strategy_ids.return_value = ["alpha_baseline"]
-        mock_db.get_strategy_status.return_value = {
-            "positions_count": 3,
-            "open_orders_count": 1,
-            "today_pnl": Decimal("150.50"),
-            "last_signal_at": now - timedelta(hours=2),
+        mock_db.get_bulk_strategy_status.return_value = {
+            "alpha_baseline": {
+                "positions_count": 3,
+                "open_orders_count": 1,
+                "today_pnl": Decimal("150.50"),
+                "last_signal_at": now - timedelta(hours=2),
+            }
         }
 
         with patch.object(main, "db_client", mock_db):
@@ -216,23 +219,20 @@ class TestListStrategies:
         """Returns multiple strategies correctly."""
         now = datetime.now(UTC)
         mock_db.get_all_strategy_ids.return_value = ["alpha_baseline", "momentum_v2"]
-
-        def get_status(strategy_id: str) -> dict[str, Any]:
-            if strategy_id == "alpha_baseline":
-                return {
-                    "positions_count": 2,
-                    "open_orders_count": 0,
-                    "today_pnl": Decimal("100.00"),
-                    "last_signal_at": now - timedelta(hours=1),
-                }
-            return {
+        mock_db.get_bulk_strategy_status.return_value = {
+            "alpha_baseline": {
+                "positions_count": 2,
+                "open_orders_count": 0,
+                "today_pnl": Decimal("100.00"),
+                "last_signal_at": now - timedelta(hours=1),
+            },
+            "momentum_v2": {
                 "positions_count": 0,
                 "open_orders_count": 0,
                 "today_pnl": None,
                 "last_signal_at": now - timedelta(days=2),
-            }
-
-        mock_db.get_strategy_status.side_effect = get_status
+            },
+        }
 
         with patch.object(main, "db_client", mock_db):
             response = test_client.get("/api/v1/strategies")
@@ -258,11 +258,13 @@ class TestListStrategies:
         """Strategy is active if it has a recent signal (within 24h)."""
         now = datetime.now(UTC)
         mock_db.get_all_strategy_ids.return_value = ["recent_strategy"]
-        mock_db.get_strategy_status.return_value = {
-            "positions_count": 0,
-            "open_orders_count": 0,
-            "today_pnl": None,
-            "last_signal_at": now - timedelta(hours=12),  # Within 24h
+        mock_db.get_bulk_strategy_status.return_value = {
+            "recent_strategy": {
+                "positions_count": 0,
+                "open_orders_count": 0,
+                "today_pnl": None,
+                "last_signal_at": now - timedelta(hours=12),  # Within 24h
+            }
         }
 
         with patch.object(main, "db_client", mock_db):
@@ -280,11 +282,13 @@ class TestListStrategies:
         """Strategy is inactive if signal is older than 24h."""
         now = datetime.now(UTC)
         mock_db.get_all_strategy_ids.return_value = ["old_strategy"]
-        mock_db.get_strategy_status.return_value = {
-            "positions_count": 0,
-            "open_orders_count": 0,
-            "today_pnl": None,
-            "last_signal_at": now - timedelta(hours=25),  # Beyond 24h
+        mock_db.get_bulk_strategy_status.return_value = {
+            "old_strategy": {
+                "positions_count": 0,
+                "open_orders_count": 0,
+                "today_pnl": None,
+                "last_signal_at": now - timedelta(hours=25),  # Beyond 24h
+            }
         }
 
         with patch.object(main, "db_client", mock_db):
@@ -294,25 +298,23 @@ class TestListStrategies:
         data = response.json()
         assert data["strategies"][0]["status"] == "inactive"
 
-    def test_list_strategies_handles_db_error(
+    def test_list_strategies_handles_missing_strategy(
         self,
         test_client: TestClient,
         mock_db: MagicMock,
     ) -> None:
-        """Gracefully handles database errors for individual strategies."""
+        """Handles case where bulk status returns None for a strategy."""
         mock_db.get_all_strategy_ids.return_value = ["good_strategy", "bad_strategy"]
-
-        def get_status(strategy_id: str) -> dict[str, Any] | None:
-            if strategy_id == "bad_strategy":
-                raise ValueError("Database error")
-            return {
+        # Bulk query returns data for good_strategy but None for bad_strategy
+        mock_db.get_bulk_strategy_status.return_value = {
+            "good_strategy": {
                 "positions_count": 1,
                 "open_orders_count": 0,
                 "today_pnl": None,
                 "last_signal_at": datetime.now(UTC),
-            }
-
-        mock_db.get_strategy_status.side_effect = get_status
+            },
+            "bad_strategy": None,  # Simulates missing/invalid data
+        }
 
         with patch.object(main, "db_client", mock_db):
             response = test_client.get("/api/v1/strategies")
