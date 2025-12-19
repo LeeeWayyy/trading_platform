@@ -792,7 +792,7 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         initial_state = {"state": CircuitBreakerState.QUIET_PERIOD.value}
         mock_redis_client.get.return_value = json.dumps(initial_state)
 
-        # Mock latest entry (bytes)
+        # Mock latest entry (bytes) - now mocked on redis client directly (not pipeline)
         entry = {
             "tripped_at": "2025-12-18T10:00:00Z",
             "reason": "MANUAL",
@@ -801,7 +801,8 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         }
         entry_bytes = json.dumps(entry).encode("utf-8")
         mock_pipeline = mock_redis_client._pipeline
-        mock_pipeline.zrevrange.return_value = [(entry_bytes, 1734520800.0)]
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = [(entry_bytes, 1734520800.0)]
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         breaker.update_history_with_reset(
@@ -851,7 +852,8 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         }
         entry_bytes = json.dumps(entry).encode("utf-8")
         mock_pipeline = mock_redis_client._pipeline
-        mock_pipeline.zrevrange.return_value = [(entry_bytes, 1734520800.0)]
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = [(entry_bytes, 1734520800.0)]
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         breaker.update_history_with_reset(
@@ -869,7 +871,8 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         initial_state = {"state": CircuitBreakerState.QUIET_PERIOD.value}
         mock_redis_client.get.return_value = json.dumps(initial_state)
         mock_pipeline = mock_redis_client._pipeline
-        mock_pipeline.zrevrange.return_value = []
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = []
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         # Should not raise error
@@ -896,7 +899,8 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         }
         entry_str = json.dumps(entry)
         mock_pipeline = mock_redis_client._pipeline
-        mock_pipeline.zrevrange.return_value = [(entry_str, 1734520800.0)]
+        # zrevrange is called on self.redis directly, not the pipeline
+        mock_redis_client.zrevrange.return_value = [(entry_str, 1734520800.0)]
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         breaker.update_history_with_reset(

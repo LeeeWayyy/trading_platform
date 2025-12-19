@@ -150,15 +150,17 @@ class CircuitBreakerService:
 
         # Perform trip
         user_id = user.get("user_id", "unknown")
-        self.breaker.trip(reason, details={"tripped_by": user_id})
+        trip_details = {"tripped_by": user_id}
+        self.breaker.trip(reason, details=trip_details)
 
-        # Audit log
+        # Audit log with full context
         self._log_audit(
             action="CIRCUIT_BREAKER_TRIP",
             user=user,
             resource_type="circuit_breaker",
             resource_id="global",
             reason=reason,
+            details=trip_details,
             outcome="success",
         )
 
@@ -260,12 +262,14 @@ class CircuitBreakerService:
             )
 
         try:
+            reset_details = {"reset_by": user_id}
             self._log_audit(
                 action="CIRCUIT_BREAKER_RESET",
                 user=user,
                 resource_type="circuit_breaker",
                 resource_id="global",
                 reason=reason,
+                details=reset_details,
                 outcome="success",
             )
         except Exception as e:
@@ -308,13 +312,23 @@ class CircuitBreakerService:
         """Fallback: get history from PostgreSQL audit_log.
 
         Reads CIRCUIT_BREAKER_TRIP and CIRCUIT_BREAKER_RESET events and
-        maps them to the same shape as Redis history entries.
+        pairs them to match the Redis history shape (single entry per trip cycle).
+
+        Pairing Strategy:
+            1. Query most recent events (DESC) to get relevant history
+            2. Reverse to process oldest-to-newest for chronological pairing
+            3. Track pending_trip: when we see a TRIP, store it
+            4. When we see a RESET, pair it with pending_trip and complete the entry
+            5. Multiple TRIPs before a RESET: each TRIP saves previous pending_trip
+            6. Unpaired TRIP at end: currently active trip (not yet reset)
+            7. Return newest-first to match Redis ZREVRANGE order
 
         Args:
             limit: Maximum number of entries to return
 
         Returns:
-            List of history entries mapped to Redis history shape
+            List of history entries with shape:
+            {tripped_at, reason, details, reset_at?, reset_by?, reset_reason?}
         """
         if not self.db_pool:
             logger.warning("audit_fallback_no_db_pool")
@@ -392,6 +406,7 @@ class CircuitBreakerService:
         resource_type: str,
         resource_id: str,
         reason: str,
+        details: dict[str, Any] | None = None,
         outcome: str = "success",
     ) -> None:
         """Write to PostgreSQL audit_log table.
@@ -402,15 +417,21 @@ class CircuitBreakerService:
             resource_type: Type of resource (e.g., circuit_breaker)
             resource_id: ID of resource (e.g., global)
             reason: Reason for the action
+            details: Additional context (e.g., tripped_by, reset_by)
             outcome: Outcome of the action (success/failure)
         """
+        # Merge reason with additional details
+        audit_details: dict[str, Any] = {"reason": str(reason)}
+        if details:
+            audit_details.update(details)
+
         if not self.db_pool:
             logger.info(
                 "audit_log_fallback",
                 extra={
                     "action": action,
                     "user_id": user.get("user_id"),
-                    "reason": reason,
+                    "details": audit_details,
                 },
             )
             return
@@ -438,7 +459,7 @@ class CircuitBreakerService:
                             resource_id,
                             user_id,
                             user_name,
-                            json.dumps({"reason": str(reason)}),  # Cast to str for safe serialization
+                            json.dumps(audit_details),
                             ip_address,
                             outcome,
                         ),
