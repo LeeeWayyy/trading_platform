@@ -727,8 +727,8 @@ class CircuitBreaker:
                     # Watch the history key for changes
                     pipe.watch(self.history_key)
 
-                    # Get the most recent entry with score
-                    entries = pipe.zrevrange(self.history_key, 0, 0, withscores=True)
+                    # Get the most recent entry with score (use client directly, not pipeline)
+                    entries = self.redis.zrevrange(self.history_key, 0, 0, withscores=True)
                     if not entries:
                         pipe.unwatch()
                         return

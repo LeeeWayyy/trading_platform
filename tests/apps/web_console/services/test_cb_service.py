@@ -338,6 +338,7 @@ class TestCircuitBreakerServiceAuditFallback:
         cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
 
         # Mock audit log rows - single TRIP without RESET (currently tripped)
+        # Query returns DESC order (newest first), but single row doesn't matter
         mock_timestamp = datetime(2025, 12, 18, 10, 0, 0, tzinfo=UTC)
         mock_row = (
             mock_timestamp,
@@ -355,10 +356,11 @@ class TestCircuitBreakerServiceAuditFallback:
 
         result = cb_service_with_db.get_history(limit=10)
 
-        # Unpaired trip should have tripped_at and reason, no reset info
+        # Unpaired trip should have tripped_at, reason, and details
         assert len(result) == 1
         assert result[0]["tripped_at"] == "2025-12-18T10:00:00+00:00"
         assert result[0]["reason"] == "DAILY_LOSS_EXCEEDED"
+        assert result[0]["details"] == {"tripped_by": "test_user"}
         assert "reset_at" not in result[0]
         assert "reset_by" not in result[0]
 
@@ -369,12 +371,14 @@ class TestCircuitBreakerServiceAuditFallback:
         # Make Redis history fail
         cb_service_with_db.breaker.get_history.side_effect = Exception("Redis error")
 
-        # Mock audit log rows - TRIP followed by RESET (complete cycle)
+        # Mock audit log rows - query returns DESC order (newest first)
+        # So RESET comes before TRIP in the raw result
         trip_timestamp = datetime(2025, 12, 18, 10, 0, 0, tzinfo=UTC)
         reset_timestamp = datetime(2025, 12, 18, 11, 0, 0, tzinfo=UTC)
         mock_rows = [
-            (trip_timestamp, "CIRCUIT_BREAKER_TRIP", {"reason": "DAILY_LOSS_EXCEEDED"}, "trip_user"),
+            # DESC order: newest (reset) first, then older (trip)
             (reset_timestamp, "CIRCUIT_BREAKER_RESET", {"reason": "Conditions cleared"}, "operator"),
+            (trip_timestamp, "CIRCUIT_BREAKER_TRIP", {"reason": "DAILY_LOSS_EXCEEDED"}, "trip_user"),
         ]
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = mock_rows
@@ -390,6 +394,7 @@ class TestCircuitBreakerServiceAuditFallback:
         assert len(result) == 1
         assert result[0]["tripped_at"] == "2025-12-18T10:00:00+00:00"
         assert result[0]["reason"] == "DAILY_LOSS_EXCEEDED"
+        assert result[0]["details"] == {"tripped_by": "trip_user"}
         assert result[0]["reset_at"] == "2025-12-18T11:00:00+00:00"
         assert result[0]["reset_by"] == "operator"
         assert result[0]["reset_reason"] == "Conditions cleared"

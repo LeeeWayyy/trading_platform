@@ -85,6 +85,7 @@ def _get_cb_service(db_pool: Any = None) -> CircuitBreakerService:
     """Get or create CircuitBreakerService instance.
 
     Uses cached service from session state for efficiency.
+    If db_pool was None on first call but is now available, updates the service.
 
     Args:
         db_pool: Database connection pool for audit logging.
@@ -95,6 +96,12 @@ def _get_cb_service(db_pool: Any = None) -> CircuitBreakerService:
         # Use injected db_pool if provided, otherwise fall back to creating one
         pool = db_pool if db_pool is not None else _get_db_pool()
         st.session_state["cb_service"] = CircuitBreakerService(redis, pool)
+    else:
+        # If cached service has no db_pool but one is now available, update it
+        # This handles recovery from transient DB failures
+        service = st.session_state["cb_service"]
+        if service.db_pool is None and db_pool is not None:
+            service.db_pool = db_pool
     return cast(CircuitBreakerService, st.session_state["cb_service"])
 
 

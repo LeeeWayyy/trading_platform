@@ -324,18 +324,22 @@ class CircuitBreakerService:
             # Use sync connection from pool
             with self.db_pool.connection() as conn:
                 with conn.cursor() as cur:
-                    # Fetch more events to allow pairing (2x limit for TRIP+RESET pairs)
+                    # Fetch most recent events (2x limit for TRIP+RESET pairs)
+                    # Use DESC to get newest first, then reverse for chronological pairing
                     cur.execute(
                         """
                         SELECT timestamp, action, details, user_id
                         FROM audit_log
                         WHERE action IN ('CIRCUIT_BREAKER_TRIP', 'CIRCUIT_BREAKER_RESET')
-                        ORDER BY timestamp ASC
+                        ORDER BY timestamp DESC
                         LIMIT %s
                         """,
                         (limit * 2,),
                     )
-                    rows = cur.fetchall()
+                    rows = list(cur.fetchall())
+
+            # Reverse to process from oldest to newest for correct pairing
+            rows.reverse()
 
             # Pair TRIP and RESET events to match Redis history shape
             # Redis stores single entries that get updated with reset info
@@ -353,10 +357,11 @@ class CircuitBreakerService:
                     # Save any pending trip before starting new one
                     if pending_trip is not None:
                         history.append(pending_trip)
-                    # Start new trip entry
+                    # Start new trip entry with details for consistency with Redis shape
                     pending_trip = {
                         "tripped_at": ts_str,
                         "reason": details_dict.get("reason"),
+                        "details": {"tripped_by": str(user_id)} if user_id else {},
                     }
                 elif action == "CIRCUIT_BREAKER_RESET" and pending_trip is not None:
                     # Pair reset with pending trip
