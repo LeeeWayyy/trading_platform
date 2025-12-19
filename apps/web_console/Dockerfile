@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install to a target directory
-COPY apps/web_console/requirements.txt .
+# Copy requirements (generated from pyproject.toml in CI) and install to a target directory
+COPY requirements.txt .
 RUN pip install --no-cache-dir --target=/build/packages -r requirements.txt
 
 # ============================================================================
