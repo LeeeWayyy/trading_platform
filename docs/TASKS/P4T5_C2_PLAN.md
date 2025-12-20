@@ -809,11 +809,16 @@ class HealthMonitorService:
                 "aclfile",      # ACL file path
                 "logfile",      # Log file path
                 "pidfile",      # PID file path
-                "slave0", "slave1", "slave2",  # Replica info with IPs
+                # Replication/topology fields
+                "role", "connected_slaves", "master_replid", "master_replid2",
+                "master_repl_offset", "second_repl_offset", "repl_backlog_active", "repl_backlog_size",
             }
+            # Filter by prefixes to catch dynamic fields like slave<N>, master_*, cluster_*
+            SENSITIVE_PREFIXES = ("slave", "master_", "cluster_")
             return {
                 k: v for k, v in info.items()
-                if k.lower() not in SENSITIVE_FIELDS and not k.startswith("master") and not k.startswith("cluster")
+                if k.lower() not in SENSITIVE_FIELDS
+                and not any(k.lower().startswith(p) for p in SENSITIVE_PREFIXES)
             }
 
         def _check_postgres() -> tuple[bool, float | None, str | None]:

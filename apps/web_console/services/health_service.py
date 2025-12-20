@@ -46,7 +46,7 @@ class HealthMonitorService:
         self,
         health_client: HealthClient,
         prometheus_client: PrometheusClient,
-        redis_client: RedisClient,
+        redis_client: RedisClient | None,
         db_pool: Any = None,
         connectivity_cache_ttl_seconds: int = 30,
     ) -> None:
@@ -83,9 +83,6 @@ class HealthMonitorService:
                 "logfile",
                 "pidfile",
                 # Replication/topology (avoid leaking infra details)
-                "slave0",
-                "slave1",
-                "slave2",
                 "role",
                 "connected_slaves",
                 "master_replid",
@@ -95,16 +92,18 @@ class HealthMonitorService:
                 "repl_backlog_active",
                 "repl_backlog_size",
             }
-            # Also filter master_* and cluster_* prefixes
+            # Filter by prefixes to catch dynamic fields like slave<N>, master_*, cluster_*
+            sensitive_prefixes = ("slave", "master_", "cluster_")
             return {
                 k: v
                 for k, v in info.items()
                 if k.lower() not in sensitive_fields
-                and not k.startswith("master")
-                and not k.startswith("cluster")
+                and not any(k.lower().startswith(p) for p in sensitive_prefixes)
             }
 
         def _check_redis() -> tuple[bool, dict[str, Any] | None, str | None]:
+            if self.redis is None:
+                return False, None, "Redis client unavailable"
             try:
                 connected = self.redis.health_check()
                 info = self.redis.get_info() if connected else None

@@ -36,17 +36,26 @@ from libs.web_console_auth.permissions import Permission, has_permission
 logger = logging.getLogger(__name__)
 
 
-def _get_redis_client() -> RedisClient:
-    """Get or create Redis client (cached in Streamlit session)."""
+def _get_redis_client() -> RedisClient | None:
+    """Get or create Redis client (cached in Streamlit session).
 
+    Returns None if Redis is unreachable, allowing graceful degradation
+    instead of crashing the health page during Redis outages.
+    """
     if "health_redis_client" not in st.session_state:
         host = os.getenv("REDIS_HOST", "localhost")
         port = int(os.getenv("REDIS_PORT", "6379"))
         db = int(os.getenv("REDIS_DB", "0"))
         password = os.getenv("REDIS_PASSWORD")
-        st.session_state["health_redis_client"] = RedisClient(
-            host=host, port=port, db=db, password=password
-        )
+        try:
+            st.session_state["health_redis_client"] = RedisClient(
+                host=host, port=port, db=db, password=password
+            )
+        except Exception as exc:
+            # RedisClient.__init__ pings Redis and may raise on connection failure
+            # Return None to allow graceful degradation
+            logger.warning("Failed to create Redis client for health check: %s", exc)
+            return None
     return cast(RedisClient, st.session_state["health_redis_client"])
 
 
@@ -71,29 +80,35 @@ def _get_health_service(db_pool: Any = None) -> HealthMonitorService:
                  existing pools.
 
     Note:
-        If the cached service has db_pool=None but a pool is now available,
-        the service is recreated to pick up the new pool. This handles the
-        case where Postgres was unavailable during initial page load.
+        If the cached service has db_pool=None or redis=None but they become
+        available, the service is recreated. This handles the case where
+        infrastructure was unavailable during initial page load.
     """
-    # Calculate effective_db_pool once (DRY)
+    # Calculate effective values once (DRY)
     effective_db_pool = db_pool if db_pool is not None else _get_db_pool()
+    effective_redis = _get_redis_client()
 
-    # Check if we need to recreate service due to db_pool becoming available
+    # Check if we need to recreate service due to infrastructure becoming available
     if "health_service" in st.session_state:
         cached_service = cast(HealthMonitorService, st.session_state["health_service"])
+        needs_recreate = False
         # Recreate if cached has no pool but one is now available
         if cached_service.db_pool is None and effective_db_pool is not None:
+            needs_recreate = True
+        # Recreate if cached has no redis but one is now available
+        if cached_service.redis is None and effective_redis is not None:
+            needs_recreate = True
+        if needs_recreate:
             del st.session_state["health_service"]
 
     if "health_service" not in st.session_state:
         health_client = HealthClient(SERVICE_URLS)
         prometheus_client = PrometheusClient(PROMETHEUS_URL)
-        redis_client = _get_redis_client()
 
         st.session_state["health_service"] = HealthMonitorService(
             health_client=health_client,
             prometheus_client=prometheus_client,
-            redis_client=redis_client,
+            redis_client=effective_redis,
             db_pool=effective_db_pool,
         )
 
