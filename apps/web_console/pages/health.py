@@ -18,7 +18,12 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh  # type: ignore[import-untyped]
 
 from apps.web_console.auth.operations_auth import operations_requires_auth
-from apps.web_console.config import AUTO_REFRESH_INTERVAL, FEATURE_HEALTH_MONITOR, SERVICE_URLS
+from apps.web_console.config import (
+    AUTO_REFRESH_INTERVAL,
+    FEATURE_HEALTH_MONITOR,
+    PROMETHEUS_URL,
+    SERVICE_URLS,
+)
 from apps.web_console.services.health_service import (
     ConnectivityStatus,
     HealthMonitorService,
@@ -64,12 +69,23 @@ def _get_health_service(db_pool: Any = None) -> HealthMonitorService:
         db_pool: Optional database pool to use. If provided, will be used
                  instead of creating a new one. Allows callers to reuse
                  existing pools.
+
+    Note:
+        If the cached service has db_pool=None but a pool is now available,
+        the service is recreated to pick up the new pool. This handles the
+        case where Postgres was unavailable during initial page load.
     """
+    # Check if we need to recreate service due to db_pool becoming available
+    if "health_service" in st.session_state:
+        cached_service = cast(HealthMonitorService, st.session_state["health_service"])
+        effective_db_pool = db_pool if db_pool is not None else _get_db_pool()
+        # Recreate if cached has no pool but one is now available
+        if cached_service.db_pool is None and effective_db_pool is not None:
+            del st.session_state["health_service"]
+
     if "health_service" not in st.session_state:
         health_client = HealthClient(SERVICE_URLS)
-        prometheus_client = PrometheusClient(
-            os.getenv("PROMETHEUS_URL", "http://localhost:9090")
-        )
+        prometheus_client = PrometheusClient(PROMETHEUS_URL)
         redis_client = _get_redis_client()
         # Use provided db_pool if available, otherwise create new one
         effective_db_pool = db_pool if db_pool is not None else _get_db_pool()
@@ -284,15 +300,17 @@ async def _fetch_all_health_data(health_service: HealthMonitorService) -> Health
     )
 
     # Handle exceptions from gather(return_exceptions=True)
+    # Note: We check for Exception (not BaseException) to avoid masking
+    # critical signals like SystemExit or KeyboardInterrupt
     statuses_result: dict[str, ServiceHealthResponse]
-    if isinstance(statuses, BaseException):
+    if isinstance(statuses, Exception):
         logger.warning("Failed to fetch service statuses: %s", statuses)
         statuses_result = {}
     else:
-        statuses_result = statuses
+        statuses_result = cast(dict[str, ServiceHealthResponse], statuses)
 
     connectivity_result: ConnectivityStatus
-    if isinstance(connectivity, BaseException):
+    if isinstance(connectivity, Exception):
         logger.warning("Failed to fetch connectivity: %s", connectivity)
         connectivity_result = ConnectivityStatus(
             redis_connected=False,
@@ -302,18 +320,15 @@ async def _fetch_all_health_data(health_service: HealthMonitorService) -> Health
             checked_at=datetime.now(UTC),
         )
     else:
-        connectivity_result = connectivity
+        connectivity_result = cast(ConnectivityStatus, connectivity)
 
     latencies_stale = False
     latencies_age: float | None = None
-    latencies: dict[str, LatencyMetrics]
-    if isinstance(latency_result, BaseException):
+    latencies: dict[str, LatencyMetrics] = {}
+    if isinstance(latency_result, Exception):
         logger.warning("Failed to fetch latencies: %s", latency_result)
-        latencies = {}
     elif isinstance(latency_result, tuple):
         latencies, latencies_stale, latencies_age = latency_result
-    else:
-        latencies = cast(dict[str, LatencyMetrics], latency_result)
 
     return HealthData(
         statuses=statuses_result,

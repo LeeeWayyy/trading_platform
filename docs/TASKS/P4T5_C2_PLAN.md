@@ -813,7 +813,7 @@ class HealthMonitorService:
             }
             return {
                 k: v for k, v in info.items()
-                if k.lower() not in SENSITIVE_FIELDS and not k.startswith("master")
+                if k.lower() not in SENSITIVE_FIELDS and not k.startswith("master") and not k.startswith("cluster")
             }
 
         def _check_postgres() -> tuple[bool, float | None, str | None]:

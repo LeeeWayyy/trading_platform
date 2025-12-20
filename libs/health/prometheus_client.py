@@ -131,8 +131,13 @@ class PrometheusClient:
                         return None
                     return float(value_str) * 1000  # seconds to ms
             return None
-        except (TimeoutError, httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError, IndexError, TypeError) as exc:
+        except (TimeoutError, httpx.RequestError, httpx.HTTPStatusError) as exc:
+            # Network/HTTP errors - Prometheus may be unavailable
             logger.warning("Prometheus query failed for %s: %s", metric_name, exc)
+            return None
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            # Parsing errors - unexpected response format
+            logger.warning("Failed to parse Prometheus response for %s: %s", metric_name, exc)
             return None
 
     async def get_service_latencies(self) -> tuple[dict[str, LatencyMetrics], bool, float | None]:
@@ -189,7 +194,9 @@ class PrometheusClient:
                     p99_ms=p99,
                     fetched_at=now,
                 )
-            except (TimeoutError, httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError, TypeError) as exc:
+            except (TimeoutError, httpx.RequestError, httpx.HTTPStatusError) as exc:
+                # Network/HTTP errors - service may be unavailable
+                logger.warning("Failed to fetch latencies for %s: %s", service, exc)
                 return service, LatencyMetrics(
                     service=service,
                     operation=config["operation"],

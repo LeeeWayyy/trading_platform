@@ -50,7 +50,7 @@ SERVICE_URLS: dict[str, str] = {
     "model_registry": os.getenv("MODEL_REGISTRY_URL", "http://localhost:8004"),
     "reconciler": os.getenv("RECONCILER_URL", "http://localhost:8005"),
     "risk_manager": os.getenv("RISK_MANAGER_URL", "http://localhost:8006"),
-    # Note: web_console excluded - Streamlit apps don't expose /health endpoints
+    "web_console": os.getenv("WEB_CONSOLE_URL", "http://localhost:8501"),
 }
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
