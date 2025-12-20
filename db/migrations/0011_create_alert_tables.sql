@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS alert_deliveries (
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT alert_deliveries_channel_check CHECK (channel IN ('email', 'slack', 'sms')),
-    CONSTRAINT alert_deliveries_status_check CHECK (status IN ('pending', 'delivered', 'failed', 'poison')),
+    CONSTRAINT alert_deliveries_status_check CHECK (status IN ('pending', 'in_progress', 'delivered', 'failed', 'poison')),
     CONSTRAINT alert_deliveries_attempts_check CHECK (attempts >= 0 AND attempts <= 3)
 );
 
