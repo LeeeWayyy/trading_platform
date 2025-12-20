@@ -321,37 +321,60 @@ def test_recipient_hash_secret_not_in_env_production():
 - `libs/alerts/channels/sms.py`
 
 **Files to modify (ADD DEPENDENCIES FOR PHASE 1):**
-- `pyproject.toml` - Add SendGrid, Twilio, slack-sdk dependencies
+- `pyproject.toml` - Add aiosmtplib, httpx (SendGrid/Slack), twilio dependencies
 
-**Dependencies to add:**
+**Dependencies to add (ASYNC-FRIENDLY per Codex review):**
 ```toml
-# pyproject.toml additions
-sendgrid = "^6.10.0"
-twilio = "^8.10.0"
-slack-sdk = "^3.23.0"
+# pyproject.toml additions - async-compatible libraries
+aiosmtplib = "^3.0.0"    # Async SMTP client (NOT smtplib)
+httpx = "^0.27.0"        # Async HTTP for SendGrid/Slack (NOT requests)
+twilio = "^8.10.0"       # Twilio SDK (use run_in_executor for sync calls)
 ```
+
+**DeliveryResult Model (defined in libs/alerts/models.py):**
+```python
+class DeliveryResult(BaseModel):
+    """Result of a channel delivery attempt."""
+    success: bool
+    message_id: str | None = None  # Provider message ID
+    error: str | None = None       # Error message if failed
+    retryable: bool = True         # Whether failure should retry
+    metadata: dict[str, str] = Field(default_factory=dict)
+```
+
+**Rate Limiting Strategy (DELIVERY SERVICE enforces, not handlers):**
+Rate limiting is enforced by the DeliveryService (C3.4), NOT inside channel handlers.
+Handlers are pure I/O - they only send and return DeliveryResult.
+This separation keeps handlers testable and avoids Redis coupling in channel code.
+
+**PII Logging Policy (MANDATORY):**
+All channel handlers MUST:
+1. Import `from libs.alerts.pii import mask_recipient`
+2. Use `mask_recipient(recipient, channel_type)` in ALL log statements
+3. NEVER log raw recipient, webhook URL, or phone number
+4. Log structure: `logger.info("send_attempt", extra={"recipient": mask_recipient(...)})`
 
 **Secrets Handling (via existing secrets manager):**
 ```python
 # Channel handlers MUST source credentials from secrets manager
-from libs.secrets.manager import SecretsManager
+from libs.secrets import create_secret_manager
 
-secrets = SecretsManager()
+secrets = create_secret_manager()
 
 # Email credentials
-SMTP_HOST = secrets.get("SMTP_HOST")
-SMTP_PORT = secrets.get("SMTP_PORT")
-SMTP_USER = secrets.get("SMTP_USER")
-SMTP_PASSWORD = secrets.get("SMTP_PASSWORD")
-SENDGRID_API_KEY = secrets.get("SENDGRID_API_KEY")
+SMTP_HOST = secrets.get_secret("SMTP_HOST")
+SMTP_PORT = secrets.get_secret("SMTP_PORT")
+SMTP_USER = secrets.get_secret("SMTP_USER")
+SMTP_PASSWORD = secrets.get_secret("SMTP_PASSWORD")
+SENDGRID_API_KEY = secrets.get_secret("SENDGRID_API_KEY")
 
 # Slack
-SLACK_WEBHOOK_URL = secrets.get("SLACK_WEBHOOK_URL")
+SLACK_WEBHOOK_URL = secrets.get_secret("SLACK_WEBHOOK_URL")
 
 # Twilio
-TWILIO_ACCOUNT_SID = secrets.get("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = secrets.get("TWILIO_AUTH_TOKEN")
-TWILIO_FROM_NUMBER = secrets.get("TWILIO_FROM_NUMBER")
+TWILIO_ACCOUNT_SID = secrets.get_secret("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = secrets.get_secret("TWILIO_AUTH_TOKEN")
+TWILIO_FROM_NUMBER = secrets.get_secret("TWILIO_FROM_NUMBER")
 
 # NEVER log secrets - only log that secret was loaded/missing
 ```
@@ -359,8 +382,17 @@ TWILIO_FROM_NUMBER = secrets.get("TWILIO_FROM_NUMBER")
 **Base Channel Pattern:**
 ```python
 # libs/alerts/channels/base.py
+from abc import ABC, abstractmethod
+from typing import Any
+from libs.alerts.models import DeliveryResult
+
 class BaseChannel(ABC):
-    """Abstract base for delivery channels."""
+    """Abstract base for delivery channels.
+
+    Handlers are pure I/O - rate limiting enforced by DeliveryService.
+    """
+
+    channel_type: str  # "email", "slack", "sms"
 
     @abstractmethod
     async def send(
@@ -370,54 +402,273 @@ class BaseChannel(ABC):
         body: str,
         metadata: dict[str, Any],
     ) -> DeliveryResult:
-        """Send notification. Returns DeliveryResult with success/error."""
-        pass
+        """Send notification. Returns DeliveryResult with success/error.
 
-    @abstractmethod
-    def get_rate_limit_key(self) -> str:
-        """Return Redis key prefix for rate limiting."""
-        pass
-
-    @abstractmethod
-    def get_rate_limit(self) -> int:
-        """Return max requests per minute."""
+        Must log with masked recipient using libs.alerts.pii.mask_recipient.
+        """
         pass
 ```
 
 **Email Handler (SMTP + SendGrid fallback):**
 ```python
 # libs/alerts/channels/email.py
-class EmailChannel(BaseChannel):
-    RATE_LIMIT = 100  # per minute
+import asyncio
+import logging
+import aiosmtplib
+import httpx
+from libs.alerts.models import DeliveryResult
+from libs.alerts.pii import mask_recipient
+from libs.alerts.channels.base import BaseChannel
 
-    async def send(self, recipient, subject, body, metadata):
-        # Try SMTP first, fallback to SendGrid
-        # Log with masked recipient: ***@domain.com
-        pass
+logger = logging.getLogger(__name__)
+
+class EmailChannel(BaseChannel):
+    """Email channel with SMTP primary, SendGrid fallback."""
+    channel_type = "email"
+    TIMEOUT = 10  # seconds for both SMTP and HTTP
+
+    async def _send_smtp(self, recipient: str, subject: str, body: str) -> DeliveryResult:
+        """Send via SMTP with aiosmtplib (async, 10s timeout)."""
+        try:
+            async with aiosmtplib.SMTP(
+                hostname=self.smtp_host,
+                port=self.smtp_port,
+                timeout=self.TIMEOUT
+            ) as smtp:
+                await smtp.login(self.smtp_user, self.smtp_password)
+                message = self._build_message(recipient, subject, body)
+                await smtp.send_message(message)
+                return DeliveryResult(success=True, message_id=message["Message-ID"])
+        except aiosmtplib.SMTPAuthenticationError as e:
+            return DeliveryResult(success=False, error=str(e), retryable=False)
+        except (aiosmtplib.SMTPConnectError, asyncio.TimeoutError) as e:
+            return DeliveryResult(success=False, error=str(e), retryable=True)
+        except aiosmtplib.SMTPResponseException as e:
+            # 4xx = temp failure (retryable), 5xx = permanent (not retryable)
+            retryable = 400 <= e.code < 500
+            return DeliveryResult(success=False, error=str(e), retryable=retryable)
+
+    async def _send_sendgrid(self, recipient: str, subject: str, body: str) -> DeliveryResult:
+        """Send via SendGrid API (async httpx, 10s timeout).
+
+        Endpoint: POST https://api.sendgrid.com/v3/mail/send
+        Headers: Authorization: Bearer {SENDGRID_API_KEY}, Content-Type: application/json
+        Payload: {"personalizations": [{"to": [{"email": recipient}]}],
+                  "from": {"email": from_email}, "subject": subject,
+                  "content": [{"type": "text/plain", "value": body}]}
+        Response: 202 Accepted (success), x-message-id header for tracking
+        """
+        async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+            response = await client.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                headers={
+                    "Authorization": f"Bearer {self.sendgrid_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "personalizations": [{"to": [{"email": recipient}]}],
+                    "from": {"email": self.from_email},
+                    "subject": subject,
+                    "content": [{"type": "text/plain", "value": body}]
+                }
+            )
+
+        if response.status_code == 202:
+            msg_id = response.headers.get("x-message-id")
+            return DeliveryResult(success=True, message_id=msg_id)
+
+        # Error mapping: 401/403 = auth (not retryable), 429/5xx = retryable
+        retryable = response.status_code == 429 or response.status_code >= 500
+        return DeliveryResult(
+            success=False,
+            error=f"SendGrid HTTP {response.status_code}",
+            retryable=retryable,
+            metadata={"retry_after": response.headers.get("retry-after", "")}
+        )
 ```
 
 **Slack Handler:**
 ```python
 # libs/alerts/channels/slack.py
-class SlackChannel(BaseChannel):
-    RATE_LIMIT = 50  # per minute
+import logging
+import httpx
+from libs.alerts.models import DeliveryResult
+from libs.alerts.pii import mask_recipient
+from libs.alerts.channels.base import BaseChannel
 
-    async def send(self, recipient, subject, body, metadata):
-        # POST to webhook URL
-        # recipient = webhook URL (masked in logs)
-        pass
+logger = logging.getLogger(__name__)
+
+class SlackChannel(BaseChannel):
+    """Slack channel via webhook.
+
+    Async I/O: Uses httpx for non-blocking HTTP POST.
+
+    Error Mapping (status-based):
+    - 200: success
+    - 429: rate limited (retryable=True, capture Retry-After header)
+    - 5xx: server error (retryable=True)
+    - 4xx (except 429): client error (retryable=False, config issue)
+    """
+    channel_type = "slack"
+    TIMEOUT = 10  # seconds
+
+    async def send(self, recipient, subject, body, metadata) -> DeliveryResult:
+        masked = mask_recipient(recipient, self.channel_type)
+        logger.info("slack_send_attempt", extra={"recipient": masked})
+
+        try:
+            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+                response = await client.post(
+                    recipient,  # webhook URL
+                    json={"text": f"*{subject}*\n{body}"}
+                )
+        except httpx.TimeoutException as e:
+            logger.error("slack_timeout", extra={"recipient": masked})
+            return DeliveryResult(success=False, error="timeout", retryable=True)
+        except httpx.RequestError as e:
+            logger.error("slack_connection_error", extra={"recipient": masked, "error": str(e)})
+            return DeliveryResult(success=False, error=str(e), retryable=True)
+
+        if response.status_code == 200:
+            logger.info("slack_sent", extra={"recipient": masked})
+            return DeliveryResult(success=True, message_id=None)
+
+        # Build metadata with retry_after if present
+        result_metadata: dict[str, str] = {}
+        if response.status_code == 429:
+            retry_after = response.headers.get("retry-after", "")
+            result_metadata["retry_after"] = retry_after
+            logger.warning("slack_rate_limited", extra={
+                "recipient": masked, "retry_after": retry_after
+            })
+
+        # Error body from Slack (may contain structured error)
+        error_body = response.text[:200]  # Truncate for safety
+
+        # Status-based retryable mapping
+        retryable = response.status_code == 429 or response.status_code >= 500
+
+        logger.error("slack_send_failed", extra={
+            "recipient": masked,
+            "status": response.status_code,
+            "retryable": retryable
+        })
+        return DeliveryResult(
+            success=False,
+            error=f"HTTP {response.status_code}: {error_body}",
+            retryable=retryable,
+            metadata=result_metadata
+        )
 ```
 
 **SMS Handler (Twilio):**
 ```python
 # libs/alerts/channels/sms.py
-class SMSChannel(BaseChannel):
-    RATE_LIMIT = 10  # per minute
+import asyncio
+import logging
+from functools import partial
+from twilio.rest import Client
+from twilio.base.exceptions import TwilioRestException
+from libs.alerts.models import DeliveryResult
+from libs.alerts.pii import mask_recipient
+from libs.alerts.channels.base import BaseChannel
 
-    async def send(self, recipient, subject, body, metadata):
-        # Use Twilio client
-        # Log with masked phone: ***1234
-        pass
+logger = logging.getLogger(__name__)
+
+class SMSChannel(BaseChannel):
+    """SMS channel via Twilio.
+
+    Async I/O: Twilio SDK is sync, wrap in run_in_executor.
+
+    Error Mapping (status-based via TwilioRestException):
+    - 429: rate limited (retryable=True)
+    - 5xx: server error (retryable=True)
+    - 401/403: auth error (retryable=False, config issue)
+    - 400: validation error (retryable=False, bad input)
+    - Other 4xx: client error (retryable=False)
+    """
+    channel_type = "sms"
+
+    def __init__(self, account_sid: str, auth_token: str, from_number: str):
+        self.client = Client(account_sid, auth_token)
+        self.from_number = from_number
+
+    async def send(self, recipient, subject, body, metadata) -> DeliveryResult:
+        masked = mask_recipient(recipient, self.channel_type)
+        logger.info("sms_send_attempt", extra={"recipient": masked})
+
+        loop = asyncio.get_event_loop()
+        try:
+            message = await loop.run_in_executor(
+                None,
+                partial(
+                    self.client.messages.create,
+                    to=recipient,
+                    from_=self.from_number,
+                    body=f"{subject}: {body}"
+                )
+            )
+            logger.info("sms_sent", extra={
+                "recipient": masked,
+                "sid": message.sid
+            })
+            return DeliveryResult(success=True, message_id=message.sid)
+
+        except TwilioRestException as e:
+            # Status-based retryable mapping
+            retryable = e.status == 429 or e.status >= 500
+            logger.error("sms_send_failed", extra={
+                "recipient": masked,
+                "status": e.status,
+                "code": e.code,
+                "retryable": retryable
+            })
+            return DeliveryResult(
+                success=False,
+                error=f"Twilio {e.status}: {e.msg}",
+                retryable=retryable,
+                metadata={"twilio_code": str(e.code)}
+            )
+
+        except Exception as e:
+            # Connection/timeout errors are retryable
+            logger.error("sms_connection_error", extra={
+                "recipient": masked, "error": str(e)
+            })
+            return DeliveryResult(
+                success=False,
+                error=str(e),
+                retryable=True
+            )
+```
+
+**C3.3 Channel Handler Tests (PII Guard):**
+```python
+# tests/libs/alerts/test_channel_pii.py
+"""Verify no raw PII leaks from channel handlers."""
+import io
+import logging
+
+def test_email_channel_never_logs_raw_recipient():
+    """Verify email handler uses mask_recipient in all log statements."""
+    # Capture logs, send via mocked email channel, assert no raw email
+    pass
+
+def test_slack_channel_never_logs_raw_webhook():
+    """Verify slack handler uses mask_recipient for webhook URLs."""
+    pass
+
+def test_sms_channel_never_logs_raw_phone():
+    """Verify sms handler uses mask_recipient for phone numbers."""
+    pass
+
+def test_all_channels_log_only_masked_recipients():
+    """Integration: send through all channels, verify logs contain only masked values."""
+    recipients = ["user@domain.com", "https://hooks.slack.com/xxx", "+1234567890"]
+    # Mock each channel, capture logs, assert masked patterns only
+    for recipient in recipients:
+        assert recipient not in captured_logs
+        assert "***" in captured_logs  # Masked prefix present
 ```
 
 #### C3.4: Delivery Service & Retry Logic (1 day)
@@ -1669,6 +1920,24 @@ For implementation, delegate to Codex in small chunks:
 ---
 
 ## Revision History
+
+### Revision 8 (2025-12-20)
+
+**Review feedback addressed from Codex (C3.3 plan review, 2nd round):**
+1. ✅ **Email timeout mapping**: Added concrete _send_smtp and _send_sendgrid implementations with 10s timeout and typed exception handling
+2. ✅ **SendGrid spec**: Documented endpoint, headers, JSON payload, and x-message-id extraction
+3. ✅ **Slack Retry-After**: Added capture of retry-after header to metadata and status-based error mapping
+4. ✅ **SMS retryable status-based**: Changed to use TwilioRestException.status for retryable mapping (429/5xx = retryable)
+5. ✅ **PII tests**: Added C3.3 Channel Handler Tests section with PII guard tests for all channels
+
+### Revision 7 (2025-12-20)
+
+**Review feedback addressed from Codex (C3.3 plan review):**
+1. ✅ **DeliveryResult undefined**: Added DeliveryResult model to libs/alerts/models.py with success, message_id, error, retryable, metadata fields
+2. ✅ **Rate limit integration gaps**: Clarified that DeliveryService (C3.4) enforces rate limits, handlers are pure I/O
+3. ✅ **PII masking uncertain**: Added mandatory PII Logging Policy requiring mask_recipient in ALL log statements
+4. ✅ **SMTP→SendGrid fallback unspecified**: Documented fallback policy including 10s timeout, error mapping to retryable
+5. ✅ **Sync vs async I/O choice**: Specified async-friendly clients: aiosmtplib, httpx, Twilio via run_in_executor
 
 ### Revision 6 (2025-12-20)
 

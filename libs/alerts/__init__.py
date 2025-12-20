@@ -8,6 +8,7 @@ from libs.alerts.models import (
     AlertRule,
     ChannelConfig,
     ChannelType,
+    DeliveryResult,
     DeliveryStatus,
 )
 from libs.alerts.pii import mask_email, mask_phone, mask_recipient, mask_webhook
@@ -18,6 +19,7 @@ __all__ = [
     "AlertRule",
     "ChannelConfig",
     "ChannelType",
+    "DeliveryResult",
     "DeliveryStatus",
     "mask_email",
     "mask_phone",

@@ -81,6 +81,19 @@ class AlertDelivery(BaseModel):
     created_at: datetime
 
 
+class DeliveryResult(BaseModel):
+    """Result of a channel delivery attempt.
+
+    Used by channel handlers to report success/failure back to delivery service.
+    """
+
+    success: bool
+    message_id: str | None = None  # Provider message ID (e.g., SendGrid ID, Twilio SID)
+    error: str | None = None  # Error message if failed
+    retryable: bool = True  # Whether failure is transient and should retry
+    metadata: dict[str, str] = Field(default_factory=dict)  # Provider-specific metadata
+
+
 __all__ = [
     "ChannelType",
     "DeliveryStatus",
@@ -88,4 +101,5 @@ __all__ = [
     "AlertRule",
     "AlertEvent",
     "AlertDelivery",
+    "DeliveryResult",
 ]
