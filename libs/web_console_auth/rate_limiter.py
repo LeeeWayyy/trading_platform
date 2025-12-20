@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as redis
 from prometheus_client import Counter
@@ -19,6 +19,18 @@ rate_limit_checks_total = Counter(
 rate_limit_redis_errors_total = Counter(
     "rate_limit_redis_errors_total", "Redis errors during rate limit checks", ["action"]
 )
+
+ALERT_RATE_LIMITS: dict[str, Any] = {
+    "channel": {"email": 100, "slack": 50, "sms": 10},  # per minute
+    "recipient": {"email": 5, "slack": 10, "sms": 3},  # per hour
+    "global": 500,  # per minute
+}
+
+ALERT_RATE_LIMIT_TTL: dict[str, int] = {
+    "channel": 60,  # 60 seconds for per-minute limits
+    "recipient": 3600,  # 1 hour for per-hour limits
+    "global": 60,  # 60 seconds for global burst
+}
 
 
 class RateLimiter:
@@ -105,6 +117,92 @@ class RateLimiter:
             window_seconds=self.default_window_seconds,
         )
         return allowed
+
+    async def check_alert_rate_limit(
+        self, key: str, limit: int, ttl: int, *, fallback_mode: str | None = None
+    ) -> bool:
+        """Check and increment alert rate limit using Fixed Window pattern.
+
+        Uses Lua script for atomicity across distributed workers.
+        Different from existing sliding window (ZSET) pattern - this uses INCR+EXPIRE.
+
+        Args:
+            key: Redis key for rate limit counter
+            limit: Max allowed requests in window
+            ttl: Window size in seconds
+            fallback_mode: Behavior on Redis error ('allow' or 'deny', default from instance)
+
+        Returns:
+            True if request allowed, False if rate limited
+        """
+
+        lua_script = """
+        local current = redis.call('INCR', KEYS[1])
+        if current == 1 then
+            redis.call('EXPIRE', KEYS[1], ARGV[1])
+        end
+        return current
+        """
+
+        try:
+            result: Any = await cast(
+                Awaitable[int], self.redis.eval(lua_script, 1, key, str(ttl))
+            )
+            allowed = int(result) <= limit
+            rate_limit_checks_total.labels(
+                action="alert_rate_limit", result="allowed" if allowed else "blocked"
+            ).inc()
+            return allowed
+        except Exception as exc:  # pragma: no cover - defensive path
+            rate_limit_redis_errors_total.labels(action="alert_rate_limit").inc()
+            logger.warning(
+                "alert_rate_limit_fallback", extra={"key": key, "error": str(exc)}
+            )
+            mode = fallback_mode or self.fallback_mode or "deny"
+            allowed = mode == "allow"
+            rate_limit_checks_total.labels(
+                action="alert_rate_limit", result="allowed" if allowed else "blocked"
+            ).inc()
+            return allowed
+
+    async def check_channel_rate_limit(self, channel: str) -> bool:
+        """Check per-channel rate limit (email 100/min, slack 50/min, sms 10/min).
+
+        Raises:
+            ValueError: If channel is not a known type (email, slack, sms)
+        """
+        if channel not in ALERT_RATE_LIMITS["channel"]:
+            raise ValueError(f"Unknown channel type: {channel}")
+
+        minute = int(time.time() // 60)
+        key = f"alert_ratelimit:channel:{channel}:{minute}"
+        limit = int(ALERT_RATE_LIMITS["channel"][channel])
+        return await self.check_alert_rate_limit(key, limit, ALERT_RATE_LIMIT_TTL["channel"])
+
+    async def check_recipient_rate_limit(self, recipient_hash: str, channel: str) -> bool:
+        """Check per-recipient rate limit (email 5/hr, slack 10/hr, sms 3/hr).
+
+        Raises:
+            ValueError: If channel is not a known type (email, slack, sms)
+        """
+        if channel not in ALERT_RATE_LIMITS["recipient"]:
+            raise ValueError(f"Unknown channel type for recipient limit: {channel}")
+
+        hour = int(time.time() // 3600)
+        key = f"alert_ratelimit:recipient:{channel}:{recipient_hash}:{hour}"
+        limit = int(ALERT_RATE_LIMITS["recipient"][channel])
+        return await self.check_alert_rate_limit(key, limit, ALERT_RATE_LIMIT_TTL["recipient"])
+
+    async def check_global_rate_limit(self) -> bool:
+        """Check global burst rate limit (500/min total)."""
+
+        minute = int(time.time() // 60)
+        key = f"alert_ratelimit:global:{minute}"
+        return await self.check_alert_rate_limit(
+            key,
+            int(ALERT_RATE_LIMITS["global"]),
+            ALERT_RATE_LIMIT_TTL["global"],
+        )
 
     async def health_check(self) -> bool:
         try:
