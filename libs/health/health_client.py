@@ -189,16 +189,15 @@ class HealthClient:
             cache_age = now - cached_at
             if cache_age < self.cache_ttl:
                 # Return cached with staleness indicator and age
-                return ServiceHealthResponse(
-                    status="stale",  # Mark as stale
-                    service=cached.service,
-                    timestamp=cached.timestamp,
-                    response_time_ms=elapsed_ms,
-                    details={**cached.details, "cached_at": cached_at.isoformat()},
-                    error=f"Using cached data ({cache_age.total_seconds():.0f}s old): {error}",
-                    is_stale=True,
-                    stale_age_seconds=cache_age.total_seconds(),
-                    last_operation_timestamp=cached.last_operation_timestamp,
+                return cached.model_copy(
+                    update={
+                        "status": "stale",
+                        "response_time_ms": elapsed_ms,
+                        "details": {**cached.details, "cached_at": cached_at.isoformat()},
+                        "error": f"Using cached data ({cache_age.total_seconds():.0f}s old): {error}",
+                        "is_stale": True,
+                        "stale_age_seconds": cache_age.total_seconds(),
+                    }
                 )
 
         return ServiceHealthResponse(

@@ -75,10 +75,12 @@ def _get_health_service(db_pool: Any = None) -> HealthMonitorService:
         the service is recreated to pick up the new pool. This handles the
         case where Postgres was unavailable during initial page load.
     """
+    # Calculate effective_db_pool once (DRY)
+    effective_db_pool = db_pool if db_pool is not None else _get_db_pool()
+
     # Check if we need to recreate service due to db_pool becoming available
     if "health_service" in st.session_state:
         cached_service = cast(HealthMonitorService, st.session_state["health_service"])
-        effective_db_pool = db_pool if db_pool is not None else _get_db_pool()
         # Recreate if cached has no pool but one is now available
         if cached_service.db_pool is None and effective_db_pool is not None:
             del st.session_state["health_service"]
@@ -87,8 +89,6 @@ def _get_health_service(db_pool: Any = None) -> HealthMonitorService:
         health_client = HealthClient(SERVICE_URLS)
         prometheus_client = PrometheusClient(PROMETHEUS_URL)
         redis_client = _get_redis_client()
-        # Use provided db_pool if available, otherwise create new one
-        effective_db_pool = db_pool if db_pool is not None else _get_db_pool()
 
         st.session_state["health_service"] = HealthMonitorService(
             health_client=health_client,
@@ -241,8 +241,8 @@ def _render_latency_charts(latencies: dict[str, LatencyMetrics]) -> None:
                     "Service": service,
                     "Operation": metrics.operation,
                     "P50 (ms)": metrics.p50_ms,
-                    "P95 (ms)": metrics.p95_ms or 0,
-                    "P99 (ms)": metrics.p99_ms or 0,
+                    "P95 (ms)": metrics.p95_ms,  # None becomes NaN, not 0
+                    "P99 (ms)": metrics.p99_ms,
                 }
             )
         elif metrics.error:
@@ -315,8 +315,10 @@ async def _fetch_all_health_data(health_service: HealthMonitorService) -> Health
         connectivity_result = ConnectivityStatus(
             redis_connected=False,
             redis_info=None,
+            redis_error=str(connectivity),
             postgres_connected=False,
             postgres_latency_ms=None,
+            postgres_error=str(connectivity),
             checked_at=datetime.now(UTC),
         )
     else:

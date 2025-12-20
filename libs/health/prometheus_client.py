@@ -153,6 +153,35 @@ class PrometheusClient:
 
         try:
             results = await self._fetch_latencies_from_prometheus()
+
+            # Check if all results are errors (all services have None latencies)
+            # This indicates Prometheus is completely unavailable
+            all_failed = all(
+                m.p50_ms is None and m.p95_ms is None and m.p99_ms is None
+                for m in results.values()
+            ) if results else True
+
+            if all_failed and cache_key in self._cache:
+                # Use stale cache instead of empty results
+                cached_result, cached_at = self._cache[cache_key]
+                stale_age = (now - cached_at).total_seconds()
+                logger.warning(
+                    "All Prometheus queries failed, using stale cache (%.0fs old)",
+                    stale_age,
+                )
+                stale_results = {
+                    key: value.model_copy(
+                        update={
+                            "is_stale": True,
+                            "stale_age_seconds": stale_age,
+                            "fetched_at": cached_at,
+                        }
+                    )
+                    for key, value in cached_result.items()
+                }
+                return stale_results, True, stale_age
+
+            # Fresh results (at least some succeeded)
             self._cache[cache_key] = (results, now)
             return results, False, None
         except (TimeoutError, httpx.RequestError, httpx.HTTPStatusError) as exc:
@@ -161,11 +190,12 @@ class PrometheusClient:
                 cached_result, cached_at = self._cache[cache_key]
                 stale_age = (now - cached_at).total_seconds()
                 stale_results = {
-                    key: LatencyMetrics(
-                        **value.model_dump(),
-                        is_stale=True,
-                        stale_age_seconds=stale_age,
-                        fetched_at=cached_at,
+                    key: value.model_copy(
+                        update={
+                            "is_stale": True,
+                            "stale_age_seconds": stale_age,
+                            "fetched_at": cached_at,
+                        }
                     )
                     for key, value in cached_result.items()
                 }

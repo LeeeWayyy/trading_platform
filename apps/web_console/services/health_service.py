@@ -159,38 +159,32 @@ class HealthMonitorService:
             self._connectivity_cache = (result, now)
             return result
 
-        except (TimeoutError, FuturesTimeoutError) as exc:
-            logger.warning("Connectivity check timed out, using cache: %s", exc)
-        except redis.RedisError as exc:
-            logger.warning("Redis check failed, using cache: %s", exc)
-        except (ConnectionError, OSError) as exc:
+        except (
+            TimeoutError,
+            FuturesTimeoutError,
+            redis.RedisError,
+            ConnectionError,
+            OSError,
+        ) as exc:
             logger.warning("Connectivity check failed, using cache: %s", exc)
 
-        if self._connectivity_cache:
-            cached, cached_at = self._connectivity_cache
-            stale_age = (now - cached_at).total_seconds()
-            if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
-                return ConnectivityStatus(
-                    redis_connected=cached.redis_connected,
-                    redis_info=cached.redis_info,
-                    redis_error=cached.redis_error,
-                    postgres_connected=cached.postgres_connected,
-                    postgres_latency_ms=cached.postgres_latency_ms,
-                    postgres_error=cached.postgres_error,
-                    checked_at=cached.checked_at,
-                    is_stale=True,
-                    stale_age_seconds=stale_age,
-                )
+            if self._connectivity_cache:
+                cached, cached_at = self._connectivity_cache
+                stale_age = (now - cached_at).total_seconds()
+                if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
+                    return cached.model_copy(
+                        update={"is_stale": True, "stale_age_seconds": stale_age}
+                    )
 
-        return ConnectivityStatus(
-            redis_connected=False,
-            redis_info=None,
-            redis_error="Check failed",
-            postgres_connected=False,
-            postgres_latency_ms=None,
-            postgres_error="Check failed",
-            checked_at=now,
-        )
+            return ConnectivityStatus(
+                redis_connected=False,
+                redis_info=None,
+                redis_error=str(exc),
+                postgres_connected=False,
+                postgres_latency_ms=None,
+                postgres_error=str(exc),
+                checked_at=now,
+            )
 
     async def get_latency_metrics(self) -> tuple[dict[str, LatencyMetrics], bool, float | None]:
         """Get latency metrics from Prometheus with staleness tracking."""

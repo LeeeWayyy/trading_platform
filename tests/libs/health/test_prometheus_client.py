@@ -145,6 +145,12 @@ def test_cache_hit_avoids_query(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cache_stale_used_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that stale cache is used when ALL Prometheus queries fail.
+
+    P1 Fix: When all services return None latencies (indicating complete
+    Prometheus failure), use the stale cache instead of empty results.
+    This provides graceful degradation.
+    """
     client = PrometheusClient("http://prom", cache_ttl_seconds=1)
     cached = {
         "signal_service": LatencyMetrics(
@@ -160,13 +166,8 @@ def test_cache_stale_used_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
     client._cache["all_latencies"] = (cached, datetime.now(UTC) - timedelta(seconds=2))
 
     # Queue 15 timeout exceptions (5 services * 3 percentiles)
-    # The exception is caught at get_latency_percentile level, so it returns None
-    # But we need to trigger the stale cache path in get_service_latencies
-    # That only happens when _fetch_latencies_from_prometheus raises an exception
-    # Since get_latency_percentile catches exceptions internally, we need a different approach
-    # The stale cache is used when the cache is expired AND fetch fails with an exception
-    # In the current impl, exceptions in get_latency_percentile are caught and return None
-    # So we test that old cached data is returned when new fetch produces empty results
+    # The exceptions are caught at get_latency_percentile level, returning None
+    # All services will have None latencies, triggering the stale cache fallback
     queue: deque[Any] = deque(
         [httpx.TimeoutException("timeout") for _ in range(15)]
     )
@@ -178,12 +179,18 @@ def test_cache_stale_used_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result, is_stale, age = asyncio.run(client.get_service_latencies())
 
-    # Fresh fetch succeeded (exceptions were caught at percentile level) but returned None values
-    # The result contains 5 services with None latencies (not the stale cache)
-    assert len(result) == 5
-    # All services have None latencies due to errors
-    for metrics in result.values():
-        assert metrics.p50_ms is None
+    # P1 Fix: When ALL services return None latencies (Prometheus unavailable),
+    # use stale cache instead of returning empty/None data
+    assert is_stale is True
+    assert len(result) == 1  # Only signal_service was in stale cache
+    assert "signal_service" in result
+    # Cached data preserved with staleness markers
+    assert result["signal_service"].p50_ms == 1.0
+    assert result["signal_service"].p95_ms == 2.0
+    assert result["signal_service"].p99_ms == 3.0
+    assert result["signal_service"].is_stale is True
+    assert age is not None
+    assert age >= 2.0
 
 
 def test_parallel_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
