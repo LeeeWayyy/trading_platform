@@ -137,14 +137,46 @@ class HealthMonitorService:
             redis_future = loop.run_in_executor(None, _check_redis)
             postgres_future = loop.run_in_executor(None, _check_postgres)
 
-            redis_connected, redis_info, redis_error = await asyncio.wait_for(
-                redis_future, timeout=5.0
+            # Use gather with return_exceptions to handle failures independently
+            # This ensures one service's failure doesn't mask the other's status
+            results = await asyncio.gather(
+                asyncio.wait_for(redis_future, timeout=5.0),
+                asyncio.wait_for(postgres_future, timeout=5.0),
+                return_exceptions=True,
             )
-            (
-                postgres_connected,
-                postgres_latency_ms,
-                postgres_error,
-            ) = await asyncio.wait_for(postgres_future, timeout=5.0)
+            redis_res, pg_res = results
+
+            # Check if both checks failed - use stale cache if available
+            both_failed = isinstance(redis_res, Exception) and isinstance(pg_res, Exception)
+            if both_failed:
+                logger.warning(
+                    "Both connectivity checks failed. Redis: %s, PG: %s",
+                    redis_res,
+                    pg_res,
+                )
+                if self._connectivity_cache:
+                    cached, cached_at = self._connectivity_cache
+                    stale_age = (now - cached_at).total_seconds()
+                    if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
+                        return cached.model_copy(
+                            update={"is_stale": True, "stale_age_seconds": stale_age}
+                        )
+
+            # Extract Redis result (may be exception or tuple)
+            if isinstance(redis_res, Exception):
+                redis_connected, redis_info, redis_error = False, None, str(redis_res)
+            else:
+                redis_connected, redis_info, redis_error = redis_res
+
+            # Extract Postgres result (may be exception or tuple)
+            if isinstance(pg_res, Exception):
+                postgres_connected, postgres_latency_ms, postgres_error = (
+                    False,
+                    None,
+                    str(pg_res),
+                )
+            else:
+                postgres_connected, postgres_latency_ms, postgres_error = pg_res
 
             result = ConnectivityStatus(
                 redis_connected=redis_connected,
@@ -158,14 +190,9 @@ class HealthMonitorService:
             self._connectivity_cache = (result, now)
             return result
 
-        except (
-            TimeoutError,
-            FuturesTimeoutError,
-            redis.RedisError,
-            ConnectionError,
-            OSError,
-        ) as exc:
-            logger.warning("Connectivity check failed, using cache: %s", exc)
+        except Exception as exc:
+            # Safeguard for unexpected errors (should rarely be reached with gather)
+            logger.warning("Connectivity check failed unexpectedly: %s", exc)
 
             if self._connectivity_cache:
                 cached, cached_at = self._connectivity_cache

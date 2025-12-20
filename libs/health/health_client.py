@@ -189,11 +189,11 @@ class HealthClient:
             cache_age = now - cached_at
             if cache_age < self.cache_ttl:
                 # Return cached with staleness indicator and age
+                # Note: Don't modify details dict - staleness is conveyed via is_stale/stale_age_seconds
                 return cached.model_copy(
                     update={
                         "status": "stale",
                         "response_time_ms": elapsed_ms,
-                        "details": {**cached.details, "cached_at": cached_at.isoformat()},
                         "error": f"Using cached data ({cache_age.total_seconds():.0f}s old): {error}",
                         "is_stale": True,
                         "stale_age_seconds": cache_age.total_seconds(),

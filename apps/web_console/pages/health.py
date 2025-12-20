@@ -178,6 +178,19 @@ def _render_connectivity(connectivity: ConnectivityStatus) -> None:
     """Render infrastructure connectivity indicators."""
 
     st.subheader("Infrastructure")
+
+    # Show staleness warning if using cached data
+    if connectivity.is_stale:
+        age_str = (
+            f"{connectivity.stale_age_seconds:.0f}s"
+            if connectivity.stale_age_seconds is not None
+            else "unknown"
+        )
+        st.warning(
+            f":hourglass: **STALE DATA** ({age_str} old) - connectivity checks failing",
+            icon="⚠️",
+        )
+
     col1, col2 = st.columns(2)
 
     with col1:
