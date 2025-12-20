@@ -827,6 +827,8 @@ def main() -> None:
             pages.append("Backtest Manager")
         if has_permission(user_info, Permission.MANAGE_USERS):
             pages.append("User Management")
+        if config.FEATURE_ALERTS and has_permission(user_info, Permission.VIEW_ALERTS):
+            pages.append("Alerts")
 
         page = st.radio(
             "Select Page",
@@ -890,6 +892,10 @@ def main() -> None:
         from apps.web_console.pages.backtest import render_backtest_page
 
         render_backtest_page()
+    elif page == "Alerts":
+        from apps.web_console.pages.alerts import render_alerts_page
+
+        render_alerts_page(user=user_info, db_pool=get_db_pool())
 
 
 if __name__ == "__main__":

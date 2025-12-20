@@ -37,9 +37,28 @@ def mask_recipient(value: str, channel_type: str) -> str:
     return mask_email(value)  # Default to email masking
 
 
+def mask_for_logs(value: str, mask_type: str | None = None) -> str:
+    """Mask value for logs/metrics using last 4 characters only.
+
+    Args:
+        value: Raw PII value (email/phone/webhook).
+        mask_type: Optional hint for channel type; currently unused because
+                   all masking uses the same last-4 pattern per acceptance
+                   criteria, but kept for forward compatibility.
+
+    Returns:
+        Masked string with "***" prefix and last 4 characters when available.
+    """
+
+    if len(value) >= 4:
+        return f"***{value[-4:]}"
+    return "***"
+
+
 __all__ = [
     "mask_email",
     "mask_phone",
     "mask_webhook",
     "mask_recipient",
+    "mask_for_logs",
 ]

@@ -46,6 +46,14 @@ class Permission(str, Enum):
     TRIP_CIRCUIT = "trip_circuit"
     RESET_CIRCUIT = "reset_circuit"
 
+    # Alert configuration (T7.3)
+    VIEW_ALERTS = "view_alerts"
+    CREATE_ALERT_RULE = "create_alert_rule"
+    UPDATE_ALERT_RULE = "update_alert_rule"
+    DELETE_ALERT_RULE = "delete_alert_rule"
+    TEST_NOTIFICATION = "test_notification"
+    ACKNOWLEDGE_ALERT = "acknowledge_alert"
+
 
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.VIEWER: {
@@ -53,6 +61,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_PNL,
         Permission.VIEW_TRADES,
         Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
+        Permission.VIEW_ALERTS,
     },
     Role.OPERATOR: {
         Permission.VIEW_POSITIONS,
@@ -67,6 +76,11 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
         Permission.TRIP_CIRCUIT,  # T7.1: Can manually trip CB
         Permission.RESET_CIRCUIT,  # T7.1: Can reset CB (with rate limit)
+        Permission.VIEW_ALERTS,
+        Permission.CREATE_ALERT_RULE,
+        Permission.UPDATE_ALERT_RULE,
+        Permission.TEST_NOTIFICATION,
+        Permission.ACKNOWLEDGE_ALERT,
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
