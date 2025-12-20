@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any, TypeVar
 
 import streamlit as st
+from psycopg import Error as DatabaseError
 from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
 from redis.exceptions import RedisError
 
@@ -136,7 +137,6 @@ async def save_config(
     *,
     config_key: str,
     config_value: BaseModel,
-    config_type: str,
     user: AuthenticatedUser,
     db_pool: Any,
     audit_logger: AuditLogger,
@@ -165,9 +165,9 @@ async def save_config(
                     updated_by = EXCLUDED.updated_by,
                     updated_at = NOW()
                 """,
-                (config_key, payload, config_type, user.user_id),
+                (config_key, payload, config_key, user.user_id),
             )
-    except Exception as exc:  # pragma: no cover - defensive logging
+    except DatabaseError as exc:  # pragma: no cover - defensive logging
         logger.exception("config_save_failed", extra={"config_key": config_key, "error": str(exc)})
         return False
 
@@ -178,9 +178,9 @@ async def save_config(
             resource_type="system_config",
             resource_id=config_key,
             outcome="success",
-            details={"config_type": config_type},
+            details={"config_key": config_key},
         )
-    except Exception as exc:  # pragma: no cover - audit is best-effort
+    except DatabaseError as exc:  # pragma: no cover - audit is best-effort
         logger.warning("config_audit_failed", extra={"config_key": config_key, "error": str(exc)})
 
     return True
@@ -280,7 +280,6 @@ def _render_trading_hours_form(
         save_config(
             config_key=CONFIG_KEY_TRADING_HOURS,
             config_value=updated,
-            config_type=CONFIG_KEY_TRADING_HOURS,
             user=user,
             db_pool=db_pool,
             audit_logger=audit_logger,
@@ -352,7 +351,6 @@ def _render_position_limits_form(
         save_config(
             config_key=CONFIG_KEY_POSITION_LIMITS,
             config_value=updated,
-            config_type=CONFIG_KEY_POSITION_LIMITS,
             user=user,
             db_pool=db_pool,
             audit_logger=audit_logger,
@@ -415,7 +413,6 @@ def _render_system_defaults_form(
         save_config(
             config_key=CONFIG_KEY_SYSTEM_DEFAULTS,
             config_value=updated,
-            config_type=CONFIG_KEY_SYSTEM_DEFAULTS,
             user=user,
             db_pool=db_pool,
             audit_logger=audit_logger,

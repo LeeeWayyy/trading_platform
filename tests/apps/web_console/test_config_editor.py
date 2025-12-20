@@ -193,7 +193,6 @@ async def test_save_config_persists_and_audits(
     saved = await config_editor.save_config(
         config_key=config_editor.CONFIG_KEY_SYSTEM_DEFAULTS,
         config_value=SystemDefaultsConfig(),
-        config_type="system_defaults",
         user=admin_user,
         db_pool=fake_pool,
         audit_logger=fake_audit,
@@ -218,7 +217,6 @@ async def test_cache_invalidation_on_save(
     await config_editor.save_config(
         config_key=config_editor.CONFIG_KEY_POSITION_LIMITS,
         config_value=PositionLimitsConfig(),
-        config_type="position_limits",
         user=admin_user,
         db_pool=fake_pool,
         audit_logger=fake_audit,

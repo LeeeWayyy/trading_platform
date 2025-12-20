@@ -7,6 +7,7 @@ from datetime import UTC, datetime, time
 from typing import Any
 
 import streamlit as st
+from redis.exceptions import RedisError
 
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.components.csrf_protection import generate_csrf_token, verify_csrf_token
@@ -431,7 +432,6 @@ def _create_key_sync(
         return {
             "full_key": full_key,
             "prefix": prefix,
-            "salt": salt,
         }
 
     return run_async(_create())
@@ -500,7 +500,7 @@ def _revoke_key_sync(
         if redis_client:
             try:
                 await redis_client.setex(f"api_key_revoked:{prefix}", REVOKED_KEY_CACHE_TTL, "1")
-            except Exception as exc:  # pragma: no cover - defensive logging
+            except RedisError as exc:  # pragma: no cover - defensive logging
                 logger.warning(
                     "redis_blacklist_failed", extra={"prefix": prefix, "error": str(exc)}
                 )

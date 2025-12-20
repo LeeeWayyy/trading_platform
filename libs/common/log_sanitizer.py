@@ -15,7 +15,7 @@ EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 PHONE_PATTERN = re.compile(r"\+?[\d\s\-\(\)]{10,}")
 # Matches prefixed keys (tp_live_XXXXXXXX) used for identification only.
 # Prefixes are 16 chars total: literal "tp_live_" + 8 base32-ish chars.
-API_KEY_PREFIX_PATTERN = re.compile(r"\btp_live_[A-Za-z0-9]{8}\b")
+API_KEY_PREFIX_PATTERN = re.compile(r"\btp_live_[A-Za-z0-9_-]{8}\b")
 # Matches raw base64url keys (43 chars, url-safe base64 without padding)
 # These are the actual secrets returned by generate_api_key()
 RAW_API_KEY_PATTERN = re.compile(r"\b[A-Za-z0-9_-]{43}\b")

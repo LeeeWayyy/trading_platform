@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 REVOKED_KEY_CACHE_TTL = 300  # 5 minutes
-KEY_PREFIX_PATTERN = re.compile(r"^tp_live_[a-zA-Z0-9]{8}$")
+KEY_PREFIX_PATTERN = re.compile(r"^tp_live_[a-zA-Z0-9_-]{8}$")
 
 _BASE64_KEY_LENGTH = 43
 _DEBOUNCE_SECONDS = 60
