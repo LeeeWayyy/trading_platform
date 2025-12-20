@@ -37,6 +37,26 @@ ENDPOINTS = {
 }
 
 # ============================================================================
+# Health Monitor Configuration (T7.2)
+# ============================================================================
+
+FEATURE_HEALTH_MONITOR = os.getenv("FEATURE_HEALTH_MONITOR", "true").lower() == "true"
+
+SERVICE_URLS: dict[str, str] = {
+    "orchestrator": os.getenv("ORCHESTRATOR_URL", "http://localhost:8003"),
+    "signal_service": os.getenv("SIGNAL_SERVICE_URL", "http://localhost:8001"),
+    "execution_gateway": os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002"),
+    "market_data_service": os.getenv("MARKET_DATA_SERVICE_URL", "http://localhost:8004"),
+    "model_registry": os.getenv("MODEL_REGISTRY_URL", "http://localhost:8005"),
+    "reconciler": os.getenv("RECONCILER_URL", "http://localhost:8006"),
+    "risk_manager": os.getenv("RISK_MANAGER_URL", "http://localhost:8007"),
+    # Note: web_console excluded - Streamlit doesn't expose /health endpoint
+    # TODO: Enable after deploying metrics_server.py sidecar
+}
+
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
+
+# ============================================================================
 # Authentication Configuration
 # ============================================================================
 

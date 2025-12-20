@@ -1,0 +1,9 @@
+{
+  "status": "healthy",
+  "service": "risk_manager",
+  "timestamp": "2025-12-19T00:00:00Z",
+  "database_connected": true,
+  "redis_connected": true,
+  "circuit_breaker_state": "OPEN",
+  "last_risk_check_at": "2025-12-19T00:00:00Z"
+}

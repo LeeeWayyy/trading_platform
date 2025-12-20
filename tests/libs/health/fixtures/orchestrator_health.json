@@ -1,0 +1,9 @@
+{
+  "status": "healthy",
+  "service": "orchestrator",
+  "timestamp": "2025-12-19T00:00:00Z",
+  "database_connected": true,
+  "signal_service_healthy": true,
+  "execution_gateway_healthy": true,
+  "last_orchestration_at": "2025-12-19T00:00:00Z"
+}

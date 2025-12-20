@@ -1,0 +1,9 @@
+{
+  "status": "healthy",
+  "service": "execution_gateway",
+  "timestamp": "2025-12-19T00:00:00Z",
+  "database_connected": true,
+  "alpaca_connected": true,
+  "redis_connected": true,
+  "last_order_at": "2025-12-19T00:00:00Z"
+}
