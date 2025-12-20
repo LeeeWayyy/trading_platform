@@ -115,19 +115,6 @@ def _get_health_service(db_pool: Any = None) -> HealthMonitorService:
     return cast(HealthMonitorService, st.session_state["health_service"])
 
 
-def _status_color(status: str) -> str:
-    """Map status to color name for badges."""
-
-    return {
-        "healthy": "green",
-        "degraded": "orange",
-        "unhealthy": "red",
-        "stale": "yellow",
-        "unreachable": "gray",
-        "unknown": "gray",
-    }.get(status.lower(), "gray")
-
-
 def _format_relative_time(timestamp: datetime | None) -> str:
     """Format timestamp as human-readable relative time."""
 
@@ -141,18 +128,6 @@ def _format_relative_time(timestamp: datetime | None) -> str:
     if seconds < 3600:
         return f"{seconds / 60:.0f}m ago"
     return f"{seconds / 3600:.1f}h ago"
-
-
-def _staleness_color(age_seconds: float | None) -> str:
-    """Get color based on data staleness age."""
-
-    if age_seconds is None:
-        return "gray"
-    if age_seconds < 30:
-        return "green"
-    if age_seconds < 120:
-        return "orange"
-    return "red"
 
 
 def _render_service_grid(statuses: dict[str, ServiceHealthResponse]) -> None:
@@ -407,8 +382,12 @@ def render_health_monitor(user: dict[str, Any], db_pool: Any) -> None:
 
 def main() -> None:
     """Entry point for direct page access."""
-
-    user = dict(st.session_state)
+    # Only extract necessary user fields for permission checking (security)
+    user = {
+        "role": st.session_state.get("role"),
+        "strategies": st.session_state.get("strategies", []),
+        "user_id": st.session_state.get("user_id"),
+    }
     render_health_monitor(user=user, db_pool=None)
 
 
