@@ -111,8 +111,24 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	echo "If this passes, CI should pass too."; \
 	echo ""; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "Step 1/6: Validating documentation index"; \
+	echo "Step 0/6: Validating local environment matches pyproject.toml"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@poetry run python scripts/validate_env.py || { \
+		echo ""; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "❌ Environment validation failed!"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "Your local environment is missing packages from pyproject.toml."; \
+		echo "This can cause different behavior between local and CI."; \
+		echo ""; \
+		echo "To fix: poetry install"; \
+		exit 1; \
+	}
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 1/6: Validating documentation index"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@./scripts/validate_doc_index.sh || { \
 		echo ""; \
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \

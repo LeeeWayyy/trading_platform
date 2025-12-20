@@ -1232,3 +1232,508 @@ class TestCancelRemainingSlices:
         assert db_count == 0
         scheduler.scheduler.remove_job.assert_not_called()
         db.cancel_pending_slices.assert_called_once()
+
+
+class TestStaleSliceExpiry:
+    """Tests for stale slice expiry feature (STALE_SLICE_EXPIRY_SECONDS)."""
+
+    def _build_slice_order(self, **overrides: Any) -> SimpleNamespace:
+        base_time = datetime(2025, 1, 1, tzinfo=UTC)
+        base: dict[str, Any] = {
+            "client_order_id": "child0",
+            "parent_order_id": "parent123",
+            "slice_num": 0,
+            "qty": 10,
+            "scheduled_time": base_time,
+            "strategy_id": "twap_slice_parent123_0",
+            "status": "pending_new",
+            "symbol": "AAPL",
+            "side": "buy",
+            "order_type": "market",
+            "limit_price": None,
+            "stop_price": None,
+            "time_in_force": "day",
+        }
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def _build_parent_order(self, status: str) -> SimpleNamespace:
+        return SimpleNamespace(status=status)
+
+    def test_slice_older_than_threshold_marked_expired(self):
+        """Slices older than STALE_SLICE_EXPIRY_SECONDS are expired."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Scheduled 2 hours ago (7200 seconds), threshold is 1 hour (3600 seconds)
+        old_scheduled_time = now - timedelta(hours=2)
+        slice_order = self._build_slice_order(scheduled_time=old_scheduled_time)
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour threshold
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Verify slice was marked expired
+        assert result["expired"] == 1
+        assert result["scheduled"] == 0
+
+        # Verify DB call has all required fields
+        db.update_order_status_cas.assert_called_once()
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "expired"
+        assert call_kwargs["broker_updated_at"] == now
+        assert "status_rank" in call_kwargs
+        assert "source_priority" in call_kwargs
+        assert "3600s threshold" in call_kwargs["error_message"]
+
+        # Verify scheduler job was NOT added
+        scheduler.scheduler.add_job.assert_not_called()
+
+    def test_fresh_slice_recovered_normally(self):
+        """Slices within threshold are recovered normally."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Scheduled 30 minutes ago (1800 seconds), threshold is 24 hours (86400 seconds)
+        fresh_scheduled_time = now - timedelta(minutes=30)
+        slice_order = self._build_slice_order(scheduled_time=fresh_scheduled_time)
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=86400,  # 24 hours threshold
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=True, next_open=None),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Verify slice was scheduled (not expired)
+        assert result["expired"] == 0
+        assert result["scheduled"] == 1
+
+        # Verify scheduler job was added
+        scheduler.scheduler.add_job.assert_called_once()
+
+    def test_expiry_disabled_when_zero(self):
+        """STALE_SLICE_EXPIRY_SECONDS=0 disables expiry."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Scheduled 7 days ago - would be stale if expiry was enabled
+        very_old_scheduled_time = now - timedelta(days=7)
+        slice_order = self._build_slice_order(scheduled_time=very_old_scheduled_time)
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=0,  # Expiry disabled
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=True, next_open=None),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        # Test helper method directly
+        # Note: slice_order is SimpleNamespace, duck-typed for OrderDetail
+        assert scheduler._is_slice_stale(slice_order, now) is False  # type: ignore[arg-type]
+
+        # Also verify through recovery
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Slice should be scheduled, not expired (expiry is disabled)
+        assert result["expired"] == 0
+        assert result["scheduled"] == 1
+
+    def test_negative_age_does_not_expire(self):
+        """Future scheduled times (clock skew) don't trigger expiry."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Scheduled 1 hour in the future (clock skew scenario)
+        future_scheduled_time = now + timedelta(hours=1)
+        slice_order = self._build_slice_order(scheduled_time=future_scheduled_time)
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour threshold
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        # Test helper method directly
+        # Note: slice_order is SimpleNamespace, duck-typed for OrderDetail
+        assert scheduler._is_slice_stale(slice_order, now) is False  # type: ignore[arg-type]
+
+        # Also verify through recovery
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Slice should be scheduled at its future time, not expired
+        assert result["expired"] == 0
+        assert result["scheduled"] == 1
+
+    def test_parent_terminal_cancels_before_expiry_check(self):
+        """Parent terminal status cascades cancel, not individual expiry."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Slice is old enough to be stale
+        old_scheduled_time = now - timedelta(hours=2)
+        slice_order = self._build_slice_order(scheduled_time=old_scheduled_time)
+        # But parent is canceled (terminal state)
+        parent_order = self._build_parent_order("canceled")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+        db.cancel_pending_slices.return_value = 1
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour threshold
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Parent terminal takes precedence - slice should be canceled, not expired
+        assert result["canceled"] == 1
+        assert result["expired"] == 0
+
+        # Verify cancel_pending_slices was called (not update_order_status_cas for expired)
+        db.cancel_pending_slices.assert_called_once_with("parent123")
+
+    def test_is_slice_stale_missing_scheduled_time_returns_false(self):
+        """Missing scheduled_time returns False (validation error, not stale)."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,
+        )
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        slice_order = self._build_slice_order(scheduled_time=None)
+
+        # Missing scheduled_time should return False (not stale)
+        # Note: slice_order is SimpleNamespace, duck-typed for OrderDetail
+        assert scheduler._is_slice_stale(slice_order, now) is False  # type: ignore[arg-type]
+
+    def test_is_slice_stale_naive_datetime_handled(self):
+        """Naive datetime (no tzinfo) is handled by adding UTC."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour
+        )
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Naive datetime (no tzinfo) - 2 hours before now
+        naive_scheduled_time = datetime(2025, 1, 1, 10, 0, 0)  # No tzinfo
+        slice_order = self._build_slice_order(scheduled_time=naive_scheduled_time)
+
+        # Should be stale (2 hours old > 1 hour threshold)
+        # Note: slice_order is SimpleNamespace, duck-typed for OrderDetail
+        assert scheduler._is_slice_stale(slice_order, now) is True  # type: ignore[arg-type]
+
+    def test_stale_slice_expiry_default_from_env(self):
+        """Default value comes from STALE_SLICE_EXPIRY_SECONDS constant."""
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        # Don't pass stale_slice_expiry_seconds - should use default from env
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+        )
+
+        # Default is 86400 (24 hours) from STALE_SLICE_EXPIRY_SECONDS constant
+        assert scheduler.stale_slice_expiry_seconds == 86400
+
+    def test_non_allowed_parent_skips_before_expiry_check(self):
+        """Slices with non-allowed parent states are skipped, not expired.
+
+        This test guards the recovery ordering: non-allowed parent check must
+        come BEFORE staleness check to preserve existing behavior.
+        """
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Slice is old enough to be stale
+        old_scheduled_time = now - timedelta(hours=2)
+        slice_order = self._build_slice_order(scheduled_time=old_scheduled_time)
+        # Parent is in non-allowed state (not terminal, but not recoverable)
+        parent_order = self._build_parent_order("pending_new")
+        db.get_pending_child_slices.return_value = [slice_order]
+        db.get_order_by_client_id.return_value = parent_order
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour threshold
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Slice should be skipped (not expired) because parent is not in allowed state
+        assert result["expired"] == 0
+        assert result["scheduled"] == 0
+        assert result["canceled"] == 0
+
+        # Verify NO DB update was made (slice was skipped)
+        db.update_order_status_cas.assert_not_called()
+        db.cancel_pending_slices.assert_not_called()
+        scheduler.scheduler.add_job.assert_not_called()
+
+    def test_parent_expired_when_all_children_expired(self):
+        """Parent is marked expired when all its children are expired.
+
+        When all children of a parent end up in terminal states after expiry,
+        the parent should also be marked as expired to prevent it from being
+        left in an active state with no executable children.
+        """
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # Create two stale slices for the same parent
+        old_scheduled_time = now - timedelta(hours=2)
+        slice_order_1 = self._build_slice_order(
+            client_order_id="child0",
+            scheduled_time=old_scheduled_time,
+            slice_num=0,
+        )
+        slice_order_2 = self._build_slice_order(
+            client_order_id="child1",
+            scheduled_time=old_scheduled_time,
+            slice_num=1,
+        )
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [slice_order_1, slice_order_2]
+        db.get_order_by_client_id.return_value = parent_order
+        # After expiring both children, no non-terminal children remain
+        db.count_non_terminal_children.return_value = 0
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour threshold
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Both children should be expired
+        assert result["expired"] == 2
+        # Parent should also be expired
+        assert result.get("parents_expired") == 1
+
+        # Verify update_order_status_cas was called 3 times:
+        # 2 for children + 1 for parent
+        assert db.update_order_status_cas.call_count == 3
+
+        # Verify the parent was marked as expired
+        parent_call = db.update_order_status_cas.call_args_list[2]
+        assert parent_call[1]["client_order_id"] == "parent123"
+        assert parent_call[1]["status"] == "expired"
+        assert "all child slices are in terminal state" in parent_call[1]["error_message"]
+
+    def test_parent_not_expired_when_some_children_scheduled(self):
+        """Parent is NOT expired when some children are still schedulable.
+
+        If at least one child can be scheduled, the parent should remain active.
+        """
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # One stale slice, one fresh slice
+        old_scheduled_time = now - timedelta(hours=2)
+        fresh_scheduled_time = now - timedelta(minutes=30)
+        stale_slice = self._build_slice_order(
+            client_order_id="child0",
+            scheduled_time=old_scheduled_time,
+            slice_num=0,
+        )
+        fresh_slice = self._build_slice_order(
+            client_order_id="child1",
+            scheduled_time=fresh_scheduled_time,
+            slice_num=1,
+        )
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [stale_slice, fresh_slice]
+        db.get_order_by_client_id.return_value = parent_order
+        # After expiring one child, one non-terminal child remains (scheduled)
+        db.count_non_terminal_children.return_value = 1
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour threshold
+            market_clock_provider=lambda: MarketClockSnapshot(is_open=True, next_open=None),
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # One child expired, one scheduled
+        assert result["expired"] == 1
+        assert result["scheduled"] == 1
+        # Parent should NOT be expired (still has pending children)
+        assert result.get("parents_expired") is None or result.get("parents_expired") == 0
+
+        # Verify update_order_status_cas was called only for the expired child
+        # (not for the parent)
+        assert db.update_order_status_cas.call_count == 1
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "expired"
+
+    def test_parent_not_expired_when_accepted_child_exists(self):
+        """Regression test: Parent NOT expired when one child is accepted at broker.
+
+        This is the critical fix for the count_non_terminal_children method.
+        Even if one child is stale (and gets expired), if another child is in
+        'accepted' state (live at broker), the parent must NOT be expired.
+        This prevents marking a parent as expired while live broker orders
+        may still execute.
+
+        Previous bug: count_pending_children only counted 'pending_new' status,
+        missing 'submitted', 'accepted', 'submitted_unconfirmed' children.
+        """
+        kill_switch = MagicMock(spec=KillSwitch)
+        breaker = MagicMock(spec=CircuitBreaker)
+        breaker.is_tripped.return_value = False
+        db = MagicMock(spec=DatabaseClient)
+        executor = MagicMock(spec=AlpacaExecutor)
+
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        # One stale slice (will be expired)
+        old_scheduled_time = now - timedelta(hours=2)
+        stale_slice = self._build_slice_order(
+            client_order_id="child0",
+            scheduled_time=old_scheduled_time,
+            slice_num=0,
+        )
+        # Note: The second child is 'accepted' at broker, so it won't appear
+        # in get_pending_child_slices (which returns pending_new only).
+        # However, count_non_terminal_children counts ALL non-terminal children.
+        parent_order = self._build_parent_order("submitted")
+        db.get_pending_child_slices.return_value = [stale_slice]
+        db.get_order_by_client_id.return_value = parent_order
+        # Critical: One child is 'accepted' at broker (non-terminal)
+        # This simulates an accepted child that won't be in pending list
+        db.count_non_terminal_children.return_value = 1
+
+        scheduler = SliceScheduler(
+            kill_switch=kill_switch,
+            breaker=breaker,
+            db_client=db,
+            executor=executor,
+            stale_slice_expiry_seconds=3600,  # 1 hour threshold
+        )
+        scheduler.scheduler.add_job = MagicMock()
+        scheduler.scheduler.get_job = MagicMock(return_value=None)
+
+        result = scheduler.recover_zombie_slices(now=now)
+
+        # Stale child should be expired
+        assert result["expired"] == 1
+        # Parent must NOT be expired (has live child at broker)
+        assert result.get("parents_expired") is None or result.get("parents_expired") == 0
+
+        # Verify count_non_terminal_children was called for the parent
+        db.count_non_terminal_children.assert_called_with("parent123")
+
+        # Verify only the stale child was marked as expired
+        assert db.update_order_status_cas.call_count == 1
+        call_kwargs = db.update_order_status_cas.call_args[1]
+        assert call_kwargs["client_order_id"] == "child0"
+        assert call_kwargs["status"] == "expired"

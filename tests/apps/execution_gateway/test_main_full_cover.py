@@ -382,9 +382,12 @@ def app_client(monkeypatch):
     ]
     monkeypatch.setattr(main, "db_client", fake_db)
     monkeypatch.setattr(main, "redis_client", _RedisClient())
-    monkeypatch.setattr(main, "kill_switch", DummyKillSwitch())
-    monkeypatch.setattr(main, "circuit_breaker", DummyBreaker(tripped=False))
-    monkeypatch.setattr(main, "position_reservation", DummyReservation())
+    main.recovery_manager._state.kill_switch = DummyKillSwitch()
+    main.recovery_manager._state.circuit_breaker = DummyBreaker(tripped=False)
+    main.recovery_manager._state.position_reservation = DummyReservation()
+    main.recovery_manager.set_kill_switch_unavailable(False)
+    main.recovery_manager.set_circuit_breaker_unavailable(False)
+    main.recovery_manager.set_position_reservation_unavailable(False)
     monkeypatch.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
 
     # Clear any stale dependency overrides from previous tests
@@ -414,7 +417,8 @@ def test_submit_order_dry_run_path(app_client):
 
 
 def test_submit_order_blocked_by_circuit_breaker(monkeypatch, app_client):
-    monkeypatch.setattr(main, "circuit_breaker", DummyBreaker(tripped=True))
+    main.recovery_manager._state.circuit_breaker = DummyBreaker(tripped=True)
+    main.recovery_manager.set_circuit_breaker_unavailable(False)
     order = {"symbol": "AAPL", "side": "buy", "qty": 1, "order_type": "market"}
     resp = app_client.post("/api/v1/orders", json=order)
     assert resp.status_code == 503

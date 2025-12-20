@@ -36,14 +36,14 @@ See ADR-0014 for architecture decisions.
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import os
-import threading
 import time
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -81,6 +81,7 @@ from apps.execution_gateway.reconciliation import (
     SOURCE_PRIORITY_WEBHOOK,
     ReconciliationService,
 )
+from apps.execution_gateway.recovery_manager import RecoveryManager
 from apps.execution_gateway.schemas import (
     ConfigResponse,
     DailyPerformanceResponse,
@@ -104,12 +105,15 @@ from apps.execution_gateway.schemas import (
     SliceDetail,
     SlicingPlan,
     SlicingRequest,
+    StrategiesListResponse,
+    StrategyStatusResponse,
 )
 from apps.execution_gateway.slice_scheduler import SliceScheduler
 from apps.execution_gateway.webhook_security import (
     extract_signature_from_header,
     verify_webhook_signature,
 )
+from config.settings import get_settings
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
     CircuitBreaker,
@@ -138,6 +142,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+
 # Env parsing helpers
 def _get_float_env(name: str, default: float) -> float:
     raw = os.getenv(name)
@@ -159,6 +164,7 @@ def _get_decimal_env(name: str, default: Decimal) -> Decimal:
     except (ValueError, InvalidOperation):
         logger.warning("Invalid decimal for %s=%s; using default=%s", name, raw, default)
         return default
+
 
 # Legacy TWAP slicer interval (seconds). Legacy plans scheduled slices once per minute
 # and did not persist the interval, so backward-compatibility fallbacks must only apply
@@ -288,6 +294,9 @@ FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "fals
 )
 REDUCE_ONLY_LOCK_TIMEOUT_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_TIMEOUT_SECONDS", "30"))
 REDUCE_ONLY_LOCK_BLOCKING_SECONDS = int(os.getenv("REDUCE_ONLY_LOCK_BLOCKING_SECONDS", "10"))
+STRATEGY_ACTIVITY_THRESHOLD_SECONDS = int(
+    os.getenv("STRATEGY_ACTIVITY_THRESHOLD_SECONDS", "86400")
+)  # Default 24 hours
 
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
@@ -315,79 +324,6 @@ except (RedisError, RedisConnectionError) as e:
     logger.warning(
         f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices."
     )
-
-# Kill-switch (operator-controlled emergency halt)
-kill_switch: KillSwitch | None = None
-
-# H3 Fix: Thread-safe kill-switch unavailable flag
-# Use threading.Lock to protect read/write operations on global state
-_kill_switch_lock = threading.Lock()
-_kill_switch_unavailable = False  # Track if kill-switch initialization failed (fail closed)
-
-_circuit_breaker_lock = threading.Lock()
-_circuit_breaker_unavailable = False  # Track if circuit breaker initialization failed (fail closed)
-
-# Gemini PR fix: Thread-safe position reservation unavailable flag (fail-closed pattern)
-_position_reservation_lock = threading.Lock()
-_position_reservation_unavailable = False  # Track if position reservation init failed (fail closed)
-
-# Recovery lock to prevent concurrent health checks from racing to reinitialize infrastructure
-_infrastructure_recovery_lock = threading.Lock()
-
-
-def is_kill_switch_unavailable() -> bool:
-    """Thread-safe check if kill-switch is unavailable."""
-    with _kill_switch_lock:
-        return _kill_switch_unavailable
-
-
-def set_kill_switch_unavailable(value: bool) -> None:
-    """Thread-safe set kill-switch unavailable state."""
-    global _kill_switch_unavailable
-    with _kill_switch_lock:
-        _kill_switch_unavailable = value
-
-
-def is_circuit_breaker_unavailable() -> bool:
-    """Thread-safe check if circuit breaker is unavailable."""
-    with _circuit_breaker_lock:
-        return _circuit_breaker_unavailable
-
-
-def set_circuit_breaker_unavailable(value: bool) -> None:
-    """Thread-safe set circuit breaker unavailable state."""
-    global _circuit_breaker_unavailable
-    with _circuit_breaker_lock:
-        _circuit_breaker_unavailable = value
-
-
-def is_position_reservation_unavailable() -> bool:
-    """Thread-safe check if position reservation is unavailable."""
-    with _position_reservation_lock:
-        return _position_reservation_unavailable
-
-
-def set_position_reservation_unavailable(value: bool) -> None:
-    """Thread-safe set position reservation unavailable state."""
-    global _position_reservation_unavailable
-    with _position_reservation_lock:
-        _position_reservation_unavailable = value
-
-
-if redis_client:
-    try:
-        kill_switch = KillSwitch(redis_client=redis_client)
-        logger.info("Kill-switch initialized successfully")
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize kill-switch: {e}. FAILING CLOSED - all trading blocked until Redis available."
-        )
-        set_kill_switch_unavailable(True)
-else:
-    logger.error(
-        "Kill-switch not initialized (Redis unavailable). FAILING CLOSED - all trading blocked until Redis available."
-    )
-    set_kill_switch_unavailable(True)
 
 # Alpaca client (only if not in dry run mode and credentials provided)
 alpaca_client: AlpacaExecutor | None = None
@@ -421,25 +357,24 @@ if LIQUIDITY_CHECK_ENABLED:
     except Exception as e:
         logger.error(f"Failed to initialize Liquidity service: {e}")
 
-# Circuit Breaker (for post-trade risk monitoring)
-# Codex CRITICAL fix: Track initialization failures and fail closed
-circuit_breaker: CircuitBreaker | None = None
-if redis_client:
-    try:
-        circuit_breaker = CircuitBreaker(redis_client=redis_client)
-        logger.info("Circuit breaker initialized successfully")
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize circuit breaker: {e}. "
-            "FAILING CLOSED - all trading blocked until circuit breaker available."
-        )
-        set_circuit_breaker_unavailable(True)
-else:
-    logger.error(
-        "Circuit breaker not initialized (Redis unavailable). "
-        "FAILING CLOSED - all trading blocked until Redis available."
-    )
-    set_circuit_breaker_unavailable(True)
+# Recovery manager orchestrates safety components and slice scheduler (fail-closed)
+recovery_manager = RecoveryManager(
+    redis_client=redis_client,
+    db_client=db_client,
+    executor=alpaca_client,
+)
+
+# Initialize safety components (fail-closed on any error)
+# Note: Factories only called when redis_client is verified available by RecoveryManager
+recovery_manager.initialize_kill_switch(
+    lambda: KillSwitch(redis_client=redis_client)  # type: ignore[arg-type]
+)
+recovery_manager.initialize_circuit_breaker(
+    lambda: CircuitBreaker(redis_client=redis_client)  # type: ignore[arg-type]
+)
+recovery_manager.initialize_position_reservation(
+    lambda: PositionReservation(redis=redis_client)  # type: ignore[arg-type]
+)
 
 # Risk Configuration (position limits, etc.)
 risk_config = RiskConfig()
@@ -459,37 +394,19 @@ fat_finger_validator = FatFingerValidator(
 # Position Reservation (for atomic position limit checking - prevents race conditions)
 # Codex HIGH fix: Wire PositionReservation into production to prevent concurrent orders
 # from both passing position limit check before either executes
-# Gemini PR fix: Add fail-closed pattern to block trading when position reservation unavailable
-position_reservation: PositionReservation | None = None
-if redis_client:
-    try:
-        position_reservation = PositionReservation(redis=redis_client)
-        logger.info("Position reservation initialized successfully")
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize position reservation: {e}. "
-            "FAILING CLOSED - all trading blocked until position reservation available."
-        )
-        set_position_reservation_unavailable(True)
-else:
-    logger.error(
-        "Position reservation not initialized (Redis unavailable). "
-        "FAILING CLOSED - all trading blocked until Redis available."
-    )
-    set_position_reservation_unavailable(True)
 
 # TWAP Order Slicer (stateless, no dependencies)
 twap_slicer = TWAPSlicer()
 logger.info("TWAP slicer initialized successfully")
 
 # Slice Scheduler (for time-based TWAP slice execution)
-slice_scheduler: SliceScheduler | None = None
-if kill_switch and circuit_breaker:
-    # Note: alpaca_client can be None in DRY_RUN mode - scheduler logs dry-run slices without broker submission
+if recovery_manager.kill_switch and recovery_manager.circuit_breaker:
+    # Note: alpaca_client can be None in DRY_RUN mode - scheduler logs
+    # dry-run slices without broker submission
     try:
-        slice_scheduler = SliceScheduler(
-            kill_switch=kill_switch,
-            breaker=circuit_breaker,
+        recovery_manager.slice_scheduler = SliceScheduler(
+            kill_switch=recovery_manager.kill_switch,
+            breaker=recovery_manager.circuit_breaker,
             db_client=db_client,
             executor=alpaca_client,  # Can be None in DRY_RUN mode
         )
@@ -526,19 +443,140 @@ app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Contr
 # In production, ensure only trusted internal services can reach this gateway.
 
 
+class _SecretValue(Protocol):
+    """Protocol for types that can provide a secret value (e.g., SecretStr)."""
+
+    def get_secret_value(self) -> str: ...
+
+
+class _InternalTokenSettings(Protocol):
+    """Protocol for settings used in internal token validation.
+
+    This allows both real Settings and test mocks to satisfy the type.
+    """
+
+    internal_token_required: bool
+    internal_token_secret: _SecretValue
+    internal_token_timestamp_tolerance_seconds: int
+
+
+def _verify_internal_token(
+    token: str | None,
+    timestamp_str: str | None,
+    user_id: str,
+    role: str,
+    strategies: str,
+    settings: _InternalTokenSettings,
+) -> tuple[bool, str]:
+    """Verify X-Internal-Token using HMAC-SHA256.
+
+    Token format: HMAC-SHA256(secret, canonical_json_payload)
+    where the payload is a JSON object with sorted keys:
+    {"role": ..., "strats": ..., "ts": ..., "uid": ...}
+    This prevents delimiter injection attacks that could occur with simple concatenation.
+
+    Args:
+        token: Value from X-Internal-Token header
+        timestamp_str: Value from X-Request-Timestamp header (epoch seconds)
+        user_id: Value from X-User-Id header
+        role: Value from X-User-Role header
+        strategies: Value from X-User-Strategies header (comma-separated)
+        settings: Application settings with internal_token_* config
+
+    Returns:
+        Tuple of (is_valid, error_reason). error_reason is empty if valid.
+
+    Security Notes:
+        - Uses constant-time comparison (hmac.compare_digest) to prevent timing attacks
+        - Validates timestamp within ±tolerance_seconds to prevent replay attacks
+        - Fails closed: missing token/timestamp when required returns False
+        - Binds strategies to signature to prevent privilege escalation
+    """
+    if not settings.internal_token_required:
+        return True, ""
+
+    secret_value = settings.internal_token_secret.get_secret_value()
+    if not secret_value:
+        logger.error("INTERNAL_TOKEN_REQUIRED=true but INTERNAL_TOKEN_SECRET is empty")
+        return False, "token_secret_not_configured"
+
+    if not token:
+        return False, "missing_token"
+
+    if not timestamp_str:
+        return False, "missing_timestamp"
+
+    # Parse and validate timestamp
+    try:
+        request_timestamp = int(timestamp_str)
+    except ValueError:
+        return False, "invalid_timestamp_format"
+
+    now = int(time.time())
+    skew = abs(now - request_timestamp)
+    if skew > settings.internal_token_timestamp_tolerance_seconds:
+        logger.warning(
+            "Internal token timestamp outside tolerance",
+            extra={
+                "skew_seconds": skew,
+                "tolerance_seconds": settings.internal_token_timestamp_tolerance_seconds,
+                "user_id_prefix": user_id[:4] if user_id else "none",
+            },
+        )
+        return False, "timestamp_expired"
+
+    # Compute expected signature using JSON payload to prevent delimiter injection
+    # Example attack without JSON: user_id="u1:admin" + role="viewer"
+    # could become user_id="u1" + role="admin:viewer"
+    # JSON with sorted keys provides canonical representation immune to such attacks
+    # Note: Replay protection is timestamp-based only. For stronger protection,
+    # consider adding nonce validation with Redis in high-security environments.
+    payload_data = {
+        "uid": user_id.strip(),
+        "role": role.strip(),
+        "strats": strategies.strip(),
+        "ts": timestamp_str.strip(),
+    }
+    payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
+    expected_signature = hmac.new(
+        secret_value.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    # Constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(expected_signature, token.lower()):
+        # Log mismatch without revealing signature prefixes to avoid leaking secret-derived data
+        logger.warning(
+            "Internal token signature mismatch",
+            extra={
+                "user_id_prefix": user_id[:4] if user_id else "none",
+                "token_length": len(token) if token else 0,
+            },
+        )
+        return False, "invalid_signature"
+
+    return True, ""
+
+
 @app.middleware("http")
 async def populate_user_from_headers(request: Request, call_next: Any) -> Any:
     """Populate request.state.user from trusted internal headers.
 
     The performance dashboard Streamlit client sends X-User-Role, X-User-Id, and
-    X-User-Strategies headers. This middleware trusts those headers assuming
-    the execution gateway is only accessible from trusted internal services
-    (e.g., behind a VPC or service mesh with mTLS).
+    X-User-Strategies headers. This middleware validates these headers using
+    HMAC-signed X-Internal-Token when INTERNAL_TOKEN_REQUIRED=true.
 
-    For production hardening, consider:
-    - Checking X-Internal-Token for HMAC-signed requests
-    - Validating source IP against allowed internal ranges
-    - Using mTLS client certificates
+    Headers:
+        X-User-Role: User role (admin, trader, viewer)
+        X-User-Id: User identifier
+        X-User-Strategies: Comma-separated list of authorized strategies
+        X-Internal-Token: HMAC-SHA256 signature (when validation enabled)
+        X-Request-Timestamp: Epoch seconds for replay protection
+
+    Backward Compatibility:
+        - INTERNAL_TOKEN_REQUIRED=false (default): Headers trusted without validation
+        - INTERNAL_TOKEN_REQUIRED=true: Token validation required for user context
 
     This middleware populates request.state.user which _build_user_context
     then uses for RBAC enforcement.
@@ -548,10 +586,39 @@ async def populate_user_from_headers(request: Request, call_next: Any) -> Any:
     strategies_header = request.headers.get("X-User-Strategies", "")
 
     if role and user_id:
+        # Validate internal token if required
+        settings = get_settings()
+        if settings.internal_token_required:
+            token = request.headers.get("X-Internal-Token")
+            timestamp = request.headers.get("X-Request-Timestamp")
+
+            is_valid, error_reason = _verify_internal_token(
+                token=token,
+                timestamp_str=timestamp,
+                user_id=user_id,
+                role=role,
+                strategies=strategies_header,
+                settings=cast(_InternalTokenSettings, settings),
+            )
+
+            if not is_valid:
+                logger.warning(
+                    "Internal token validation failed",
+                    extra={
+                        "error_reason": error_reason,
+                        "path": request.url.path,
+                        "user_id_prefix": user_id[:4] if user_id else "none",
+                    },
+                )
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing internal authentication token"},
+                )
+
         strategies = [s.strip() for s in strategies_header.split(",") if s.strip()]
         request.state.user = {
-            "role": role,
-            "user_id": user_id,
+            "role": role.strip(),
+            "user_id": user_id.strip(),
             "strategies": strategies,
         }
 
@@ -762,9 +829,7 @@ async def _resolve_fat_finger_context(
         elif order.stop_price is not None:
             price = order.stop_price
         else:
-            realtime_prices = _batch_fetch_realtime_prices_from_redis(
-                [order.symbol], redis_client
-            )
+            realtime_prices = _batch_fetch_realtime_prices_from_redis([order.symbol], redis_client)
             price, price_timestamp = realtime_prices.get(order.symbol, (None, None))
             if price is not None:
                 if price_timestamp is None:
@@ -821,6 +886,7 @@ def _is_reconciliation_ready() -> bool:
 
 async def _recover_zombie_slices_after_reconciliation() -> None:
     """Recover pending TWAP slices after reconciliation gate opens."""
+    slice_scheduler = recovery_manager.slice_scheduler
     if not slice_scheduler:
         logger.warning("Slice scheduler unavailable; skipping zombie slice recovery")
         return
@@ -1006,13 +1072,16 @@ async def _enforce_reduce_only_order(order: OrderRequest) -> None:
         side_multiplier = Decimal("1") if order.side == "buy" else Decimal("-1")
         projected_position = effective_position + (Decimal(order.qty) * side_multiplier)
 
-        # An order is position-increasing if it moves the position's absolute value further from zero
+        # An order is position-increasing if it moves the position's
+        # absolute value further from zero
         is_increasing = abs(projected_position) > abs(effective_position)
         # An order flips the position if the sign changes
         is_flipping = effective_position * projected_position < 0
 
         if is_increasing or is_flipping:
-            error_message = "Only position-reducing orders are allowed during reconciliation gating."
+            error_message = (
+                "Only position-reducing orders are allowed during " "reconciliation gating."
+            )
             if is_flipping:
                 error_message = "Order would flip position during reconciliation gating."
 
@@ -1535,127 +1604,27 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-10-17T16:30:00Z"
         }
     """
-    global kill_switch, circuit_breaker, slice_scheduler, position_reservation  # H3: Removed unavailable flags (now thread-safe functions)
-
     # Check database connection
     db_connected = db_client.check_connection()
 
-    # Check Redis connection and attempt infrastructure recovery
+    # Check Redis connection and attempt infrastructure recovery via RecoveryManager
     redis_connected = False
     if redis_client:
         redis_connected = redis_client.health_check()
 
-        # Attempt to recover kill-switch, circuit breaker, position reservation, and slice scheduler if Redis is back
-        # Check if ANY safety mechanism is unavailable
-        # Use lock to prevent concurrent health checks from racing to reinitialize
-        if redis_connected and (
-            is_kill_switch_unavailable()
-            or is_circuit_breaker_unavailable()
-            or is_position_reservation_unavailable()
-        ):
-            with _infrastructure_recovery_lock:
-                # Re-check conditions under lock (double-checked locking pattern)
-                if not (
-                    is_kill_switch_unavailable()
-                    or is_circuit_breaker_unavailable()
-                    or is_position_reservation_unavailable()
-                ):
-                    # Another thread already recovered, skip
-                    pass
-                else:
-                    try:
-                        # 1. Recover Kill Switch
-                        if is_kill_switch_unavailable():
-                            if kill_switch is None:
-                                kill_switch = KillSwitch(redis_client=redis_client)
-                                logger.info(
-                                    "Kill-switch re-initialized after Redis recovery",
-                                    extra={"kill_switch_recovered": True},
-                                )
-
-                            # Verify it works
-                            kill_switch.is_engaged()
-                            set_kill_switch_unavailable(False)
-                            logger.info("Kill-switch recovered and validated")
-
-                        # 2. Recover Circuit Breaker
-                        if is_circuit_breaker_unavailable():
-                            if circuit_breaker is None:
-                                circuit_breaker = CircuitBreaker(redis_client=redis_client)
-                                logger.info(
-                                    "Circuit breaker re-initialized after Redis recovery",
-                                    extra={"breaker_recovered": True},
-                                )
-
-                            # Verify it works (check trip status - throws if state missing)
-                            try:
-                                circuit_breaker.is_tripped()
-                                set_circuit_breaker_unavailable(False)
-                                logger.info("Circuit breaker recovered and validated")
-                            except RuntimeError:
-                                # Still missing state, keep unavailable
-                                logger.warning("Circuit breaker re-initialized but state still missing")
-
-                        # 3. Recover Position Reservation (Gemini PR fix)
-                        if is_position_reservation_unavailable():
-                            if position_reservation is None:
-                                position_reservation = PositionReservation(redis=redis_client)
-                                logger.info(
-                                    "Position reservation re-initialized after Redis recovery",
-                                    extra={"position_reservation_recovered": True},
-                                )
-
-                            # Position reservation is stateless - just clear the flag
-                            set_position_reservation_unavailable(False)
-                            logger.info("Position reservation recovered and validated")
-
-                        # 4. Recover Slice Scheduler (needs both KS and CB)
-                        if (
-                            slice_scheduler is None
-                            and not is_kill_switch_unavailable()
-                            and not is_circuit_breaker_unavailable()
-                            and kill_switch is not None
-                            and circuit_breaker is not None
-                        ):
-                            slice_scheduler = SliceScheduler(
-                                kill_switch=kill_switch,
-                                breaker=circuit_breaker,
-                                db_client=db_client,
-                                executor=alpaca_client,  # Can be None in DRY_RUN mode
-                            )
-                            # Start the scheduler
-                            if not slice_scheduler.scheduler.running:
-                                slice_scheduler.start()
-                                logger.info(
-                                    "Slice scheduler re-initialized and started after Redis recovery",
-                                    extra={"scheduler_recovered": True, "scheduler_started": True},
-                                )
-                            else:
-                                logger.info(
-                                    "Slice scheduler re-initialized but already running",
-                                    extra={"scheduler_recovered": True, "scheduler_already_running": True},
-                                )
-
-                        logger.info(
-                            "Infrastructure recovery attempt completed",
-                            extra={
-                                "kill_switch_available": not is_kill_switch_unavailable(),
-                                "breaker_available": not is_circuit_breaker_unavailable(),
-                                "position_reservation_available": not is_position_reservation_unavailable(),
-                            },
-                        )
-
-                    except Exception as e:
-                        # Still unavailable, keep flags set (fail closed)
-                        logger.error(
-                            f"Infrastructure recovery failed: {e}",
-                            extra={
-                                "error": str(e),
-                                "kill_switch_unavailable": is_kill_switch_unavailable(),
-                                "breaker_unavailable": is_circuit_breaker_unavailable(),
-                                "position_reservation_unavailable": is_position_reservation_unavailable(),
-                            },
-                        )
+        if redis_connected:
+            # Factories only called when components verified available by RecoveryManager
+            recovery_manager.attempt_recovery(
+                kill_switch_factory=lambda: KillSwitch(redis_client=redis_client),
+                circuit_breaker_factory=lambda: CircuitBreaker(redis_client=redis_client),
+                position_reservation_factory=lambda: PositionReservation(redis=redis_client),
+                slice_scheduler_factory=lambda: SliceScheduler(
+                    kill_switch=recovery_manager.kill_switch,  # type: ignore[arg-type]
+                    breaker=recovery_manager.circuit_breaker,  # type: ignore[arg-type]
+                    db_client=db_client,
+                    executor=alpaca_client,  # Can be None in DRY_RUN mode
+                ),
+            )
 
     # Check Alpaca connection (if not DRY_RUN)
     alpaca_connected = True
@@ -1679,11 +1648,7 @@ async def health_check() -> HealthResponse:
 
     # Determine overall status
     overall_status: Literal["healthy", "degraded", "unhealthy"]
-    if (
-        is_kill_switch_unavailable()
-        or is_circuit_breaker_unavailable()
-        or is_position_reservation_unavailable()
-    ):
+    if recovery_manager.needs_recovery():
         # Safety mechanisms unavailable means we're in fail-closed mode - report degraded
         overall_status = "degraded"
     elif db_connected and (DRY_RUN or alpaca_connected):
@@ -1791,6 +1756,179 @@ async def update_fat_finger_thresholds(
     return _fat_finger_thresholds_snapshot()
 
 
+# =============================================================================
+# Strategy Status Endpoints
+# =============================================================================
+
+
+def _determine_strategy_status(
+    db_status: dict[str, Any], now: datetime
+) -> Literal["active", "paused", "error", "inactive"]:
+    """Determine strategy status based on activity.
+
+    A strategy is considered active if it has:
+    - Open positions (positions_count > 0)
+    - Open orders (open_orders_count > 0)
+    - Recent signal activity (within 24 hours)
+
+    Args:
+        db_status: Dict with positions_count, open_orders_count, last_signal_at
+        now: Current timestamp for age calculation
+
+    Returns:
+        Strategy status: "active", "paused", "error", or "inactive"
+    """
+    if db_status["positions_count"] > 0 or db_status["open_orders_count"] > 0:
+        return "active"
+    if db_status["last_signal_at"]:
+        age = (now - db_status["last_signal_at"]).total_seconds()
+        if age < STRATEGY_ACTIVITY_THRESHOLD_SECONDS:
+            return "active"
+    return "inactive"
+
+
+@app.get(
+    "/api/v1/strategies",
+    response_model=StrategiesListResponse,
+    tags=["Strategies"],
+)
+async def list_strategies(
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> StrategiesListResponse:
+    """
+    List all strategies with their current status.
+
+    Returns consolidated view of each strategy including:
+    - Basic info (id, name, status)
+    - Position and open order counts
+    - Today's realized P&L
+    - Last signal time
+
+    Only returns strategies the user is authorized to view.
+
+    Example response:
+        {
+            "strategies": [
+                {
+                    "strategy_id": "alpha_baseline",
+                    "name": "Alpha Baseline",
+                    "status": "active",
+                    ...
+                }
+            ],
+            "total_count": 1,
+            "timestamp": "2024-10-17T16:35:00Z"
+        }
+    """
+    now = datetime.now(UTC)
+
+    # Get authorized strategies for this user
+    authorized_strategies = get_authorized_strategies(user.get("user"))
+    if not authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No strategy access",
+        )
+
+    # Get strategy IDs filtered at database level for better performance
+    # Uses ANY(...) to avoid transferring all strategy IDs then filtering in Python
+    strategy_ids = db_client.get_all_strategy_ids(filter_ids=authorized_strategies)
+
+    # Fetch all strategy statuses in a single bulk query (avoids N+1 problem)
+    bulk_status = db_client.get_bulk_strategy_status(strategy_ids)
+
+    strategies = []
+    for strategy_id in strategy_ids:
+        db_status = bulk_status.get(strategy_id)
+        if db_status is None:
+            continue
+
+        strategy_status = _determine_strategy_status(db_status, now)
+
+        strategies.append(
+            StrategyStatusResponse(
+                strategy_id=strategy_id,
+                name=strategy_id.replace("_", " ").title(),  # Simple name formatting
+                status=strategy_status,
+                model_version=None,  # Could be fetched from model registry
+                model_status=None,
+                last_signal_at=db_status["last_signal_at"],
+                last_error=None,
+                positions_count=db_status["positions_count"],
+                open_orders_count=db_status["open_orders_count"],
+                today_pnl=db_status["today_pnl"],
+                timestamp=now,
+            )
+        )
+
+    return StrategiesListResponse(
+        strategies=strategies,
+        total_count=len(strategies),
+        timestamp=now,
+    )
+
+
+@app.get(
+    "/api/v1/strategies/{strategy_id}",
+    response_model=StrategyStatusResponse,
+    tags=["Strategies"],
+)
+async def get_strategy_status(
+    strategy_id: str,
+    user: dict[str, Any] = Depends(_build_user_context),
+) -> StrategyStatusResponse:
+    """
+    Get status for a specific strategy.
+
+    Args:
+        strategy_id: The strategy identifier
+
+    Returns:
+        StrategyStatusResponse with consolidated strategy state
+
+    Raises:
+        HTTPException 403 if user not authorized for this strategy
+        HTTPException 404 if strategy not found
+    """
+    now = datetime.now(UTC)
+
+    # Check if user is authorized for this strategy
+    authorized_strategies = get_authorized_strategies(user.get("user"))
+    if not authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No strategy access",
+        )
+    if strategy_id not in authorized_strategies:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Not authorized to access strategy '{strategy_id}'",
+        )
+
+    db_status = db_client.get_strategy_status(strategy_id)
+    if db_status is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Strategy '{strategy_id}' not found",
+        )
+
+    strategy_status = _determine_strategy_status(db_status, now)
+
+    return StrategyStatusResponse(
+        strategy_id=strategy_id,
+        name=strategy_id.replace("_", " ").title(),
+        status=strategy_status,
+        model_version=None,
+        model_status=None,
+        last_signal_at=db_status["last_signal_at"],
+        last_error=None,
+        positions_count=db_status["positions_count"],
+        open_orders_count=db_status["open_orders_count"],
+        today_pnl=db_status["today_pnl"],
+        timestamp=now,
+    )
+
+
 @app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
 async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]:
     """
@@ -1822,7 +1960,8 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         >>> response.json()
         {"state": "ENGAGED", "engaged_by": "ops_team", ...}
     """
-    if not kill_switch:
+    kill_switch = recovery_manager.kill_switch
+    if not kill_switch or recovery_manager.is_kill_switch_unavailable():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Kill-switch unavailable (Redis not initialized)",
@@ -1840,7 +1979,7 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
         ) from e
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch engage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -1884,7 +2023,8 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         >>> response.json()
         {"state": "ACTIVE", "disengaged_by": "ops_team", ...}
     """
-    if not kill_switch:
+    kill_switch = recovery_manager.kill_switch
+    if not kill_switch or recovery_manager.is_kill_switch_unavailable():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Kill-switch unavailable (Redis not initialized)",
@@ -1900,7 +2040,7 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
         ) from e
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch disengage failed: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -1935,7 +2075,8 @@ async def get_kill_switch_status() -> dict[str, Any]:
         >>> print(status["state"])
         'ACTIVE'
     """
-    if not kill_switch:
+    kill_switch = recovery_manager.kill_switch
+    if not kill_switch or recovery_manager.is_kill_switch_unavailable():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Kill-switch unavailable (Redis not initialized)",
@@ -1945,7 +2086,7 @@ async def get_kill_switch_status() -> dict[str, Any]:
         return kill_switch.get_status()
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             "Kill-switch status unavailable: state missing (fail-closed)",
             extra={"fail_closed": True, "error": str(e)},
@@ -2098,7 +2239,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         ...     }
         ... )
     """
-    # H3: Removed global kill_switch_unavailable - now using thread-safe functions
+    # Safety gating uses RecoveryManager (thread-safe, fail-closed)
     # Start timing for metrics
     start_time = time.time()
 
@@ -2116,8 +2257,12 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         },
     )
 
+    kill_switch = recovery_manager.kill_switch
+    circuit_breaker = recovery_manager.circuit_breaker
+    position_reservation = recovery_manager.position_reservation
+
     # Check kill-switch unavailable (fail closed for safety)
-    if is_kill_switch_unavailable():
+    if recovery_manager.is_kill_switch_unavailable() or kill_switch is None:
         logger.error(
             f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
             extra={
@@ -2136,7 +2281,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
     # Codex CRITICAL fix: Check circuit breaker unavailable (fail closed for safety)
     # This prevents trading when circuit breaker init failed or Redis unavailable
-    if is_circuit_breaker_unavailable():
+    if recovery_manager.is_circuit_breaker_unavailable() or circuit_breaker is None:
         logger.error(
             f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
             extra={
@@ -2149,16 +2294,22 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "Circuit breaker unavailable",
-                "message": "All trading blocked - circuit breaker state unknown (initialization failed)",
+                "message": (
+                    "All trading blocked - circuit breaker state unknown " "(initialization failed)"
+                ),
                 "fail_closed": True,
             },
         )
 
     # Gemini PR fix: Check position reservation unavailable (fail closed for safety)
     # This prevents trading when position reservation init failed or Redis unavailable
-    if is_position_reservation_unavailable():
+    pos_res_unavailable = (
+        recovery_manager.is_position_reservation_unavailable() or position_reservation is None
+    )
+    if pos_res_unavailable:
         logger.error(
-            f"🔴 Order blocked by unavailable position reservation (FAIL CLOSED): {client_order_id}",
+            "🔴 Order blocked by unavailable position reservation "
+            f"(FAIL CLOSED): {client_order_id}",
             extra={
                 "client_order_id": client_order_id,
                 "position_reservation_unavailable": True,
@@ -2169,7 +2320,10 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "Position reservation unavailable",
-                "message": "All trading blocked - position reservation state unknown (initialization failed)",
+                "message": (
+                    "All trading blocked - position reservation state unknown "
+                    "(initialization failed)"
+                ),
                 "fail_closed": True,
             },
         )
@@ -2201,7 +2355,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             )
     except RuntimeError as e:
         # Kill-switch state missing (fail-closed)
-        set_kill_switch_unavailable(True)  # H3: Thread-safe update
+        recovery_manager.set_kill_switch_unavailable(True)
         logger.error(
             f"🔴 Order blocked by unavailable kill-switch (FAIL CLOSED): {client_order_id}",
             extra={
@@ -2252,7 +2406,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             # RuntimeError is raised when circuit breaker state is missing from Redis
             # (e.g., after Redis flush/restart without explicit reinitialization)
             # Codex HIGH fix: Set unavailable flag to enable health check recovery
-            set_circuit_breaker_unavailable(True)
+            recovery_manager.set_circuit_breaker_unavailable(True)
             logger.error(
                 f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
                 extra={
@@ -2274,7 +2428,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
         except RedisError as e:
             # Circuit breaker state unavailable (fail-closed for safety)
             # Codex HIGH fix: Set unavailable flag to enable health check recovery
-            set_circuit_breaker_unavailable(True)
+            recovery_manager.set_circuit_breaker_unavailable(True)
             logger.error(
                 f"🔴 Order blocked by unavailable circuit breaker (FAIL CLOSED): {client_order_id}",
                 extra={
@@ -2354,7 +2508,8 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
             reservation_token = reservation_result.token
             logger.debug(
-                f"Position reserved: {order.symbol} {order.side} {order.qty}, token={reservation_token}",
+                f"Position reserved: {order.symbol} {order.side} {order.qty}, "
+                f"token={reservation_token}",
                 extra={
                     "client_order_id": client_order_id,
                     "reservation_token": reservation_token,
@@ -2367,7 +2522,7 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
             # Codex HIGH fix: Fail-closed on reservation system error
             # If Redis is unavailable, concurrent orders could race past position limits
             # Codex MEDIUM fix: Latch unavailable flag so health check reflects degraded state
-            set_position_reservation_unavailable(True)
+            recovery_manager.set_position_reservation_unavailable(True)
             logger.error(
                 f"🔴 Order blocked by reservation system failure (FAIL CLOSED): {client_order_id}",
                 extra={
@@ -2713,6 +2868,9 @@ def _check_twap_prerequisites() -> None:
         HTTPException 503: If scheduler unavailable or kill-switch state unknown
         HTTPException 503: If kill-switch is engaged
     """
+    slice_scheduler = recovery_manager.slice_scheduler
+    kill_switch = recovery_manager.kill_switch
+
     # Check if slice scheduler is available
     if not slice_scheduler:
         logger.error("Slice scheduler unavailable - cannot accept TWAP orders")
@@ -2722,7 +2880,7 @@ def _check_twap_prerequisites() -> None:
         )
 
     # Check kill-switch availability (fail closed)
-    if is_kill_switch_unavailable():
+    if recovery_manager.is_kill_switch_unavailable() or kill_switch is None:
         logger.error("Kill-switch unavailable - cannot accept TWAP orders (fail closed)")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -2730,7 +2888,7 @@ def _check_twap_prerequisites() -> None:
         )
 
     # Check kill-switch status
-    if kill_switch and kill_switch.is_engaged():
+    if kill_switch.is_engaged():
         status_info = kill_switch.get_status()
         logger.error("TWAP order blocked by kill-switch")
         raise HTTPException(
@@ -3008,8 +3166,8 @@ def _create_twap_in_db(
         # between our idempotency check and transaction commit. Fetch and return the
         # existing plan to provide deterministic, idempotent response without 500 error.
         logger.info(
-            f"Concurrent TWAP submission detected (UniqueViolation): parent={slicing_plan.parent_order_id}. "
-            f"Returning existing plan.",
+            "Concurrent TWAP submission detected (UniqueViolation): "
+            f"parent={slicing_plan.parent_order_id}. Returning existing plan.",
             extra={
                 "parent_order_id": slicing_plan.parent_order_id,
                 "symbol": request.symbol,
@@ -3023,7 +3181,8 @@ def _create_twap_in_db(
         if not existing_parent:
             # Should never happen: UniqueViolation means the parent exists
             logger.error(
-                f"UniqueViolation raised but parent order not found: {slicing_plan.parent_order_id}",
+                "UniqueViolation raised but parent order not found: "
+                f"{slicing_plan.parent_order_id}",
                 extra={"parent_order_id": slicing_plan.parent_order_id},
             )
             raise HTTPException(
@@ -3074,7 +3233,7 @@ def _schedule_slices_with_compensation(
     Raises:
         Exception: Re-raises scheduling errors after compensation attempt
     """
-    # Type narrowing: slice_scheduler is checked in _check_twap_prerequisites()
+    slice_scheduler = recovery_manager.slice_scheduler
     assert slice_scheduler is not None, "Slice scheduler must be initialized"
 
     # Schedule slices for execution
@@ -3094,7 +3253,8 @@ def _schedule_slices_with_compensation(
     except Exception as e:
         # Scheduling failed after DB commit - compensate by canceling created orders
         logger.error(
-            f"Scheduling failed for parent={slicing_plan.parent_order_id}, compensating by canceling pending orders",
+            "Scheduling failed for parent=%s, compensating by canceling " "pending orders",
+            slicing_plan.parent_order_id,
             extra={
                 "parent_order_id": slicing_plan.parent_order_id,
                 "error": str(e),
@@ -3121,7 +3281,8 @@ def _schedule_slices_with_compensation(
                     error_message=f"Scheduling failed: {str(e)}",
                 )
                 logger.info(
-                    f"Compensated scheduling failure: canceled parent and {canceled_count} pending slices",
+                    "Compensated scheduling failure: canceled parent and "
+                    f"{canceled_count} pending slices",
                     extra={
                         "parent_order_id": slicing_plan.parent_order_id,
                         "canceled_slices": canceled_count,
@@ -3129,11 +3290,14 @@ def _schedule_slices_with_compensation(
                     },
                 )
             else:
-                # Some slices already submitted/executing - don't cancel parent to avoid inconsistency
+                # Some slices already submitted/executing - don't cancel
+                # parent to avoid inconsistency
+                progressed_statuses = [s.status for s in progressed_slices]
                 logger.warning(
-                    f"Scheduling partially failed but {len(progressed_slices)} slices already progressed "
-                    f"(statuses: {[s.status for s in progressed_slices]}). "
-                    f"Canceled {canceled_count} pending slices but leaving parent active to track live orders.",
+                    f"Scheduling partially failed but {len(progressed_slices)} "
+                    f"slices already progressed (statuses: {progressed_statuses}). "
+                    f"Canceled {canceled_count} pending slices but leaving "
+                    "parent active to track live orders.",
                     extra={
                         "parent_order_id": slicing_plan.parent_order_id,
                         "canceled_slices": canceled_count,
@@ -3201,7 +3365,8 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
     """
     # Step 1: Log request (before prerequisite checks for observability)
     logger.info(
-        f"TWAP order request: {request.symbol} {request.side} {request.qty} over {request.duration_minutes} min",
+        f"TWAP order request: {request.symbol} {request.side} {request.qty} "
+        f"over {request.duration_minutes} min",
         extra={
             "symbol": request.symbol,
             "side": request.side,
@@ -3220,7 +3385,10 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
         if reconciliation_service and reconciliation_service.override_active():
             logger.warning(
                 "Reconciliation override active; allowing TWAP order",
-                extra={"symbol": request.symbol, "override": reconciliation_service.override_context()},
+                extra={
+                    "symbol": request.symbol,
+                    "override": reconciliation_service.override_context(),
+                },
             )
         else:
             raise HTTPException(
@@ -3250,7 +3418,8 @@ async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
                 adv_20d = await asyncio.to_thread(liquidity_service.get_adv, request.symbol)
                 if adv_20d is None:
                     logger.warning(
-                        "ADV lookup unavailable with no cache; rejecting TWAP request to preserve idempotency",
+                        "ADV lookup unavailable with no cache; rejecting TWAP "
+                        "request to preserve idempotency",
                         extra={"symbol": request.symbol},
                     )
                     raise HTTPException(
@@ -3423,6 +3592,8 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
             "message": "Canceled 3 pending slices"
         }
     """
+    slice_scheduler = recovery_manager.slice_scheduler
+
     # Check scheduler availability
     if not slice_scheduler:
         raise HTTPException(
@@ -3445,7 +3616,8 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
         )
 
         logger.info(
-            f"Canceled slices for parent {parent_id}: scheduler={scheduler_canceled_count}, db={db_canceled_count}",
+            f"Canceled slices for parent {parent_id}: "
+            f"scheduler={scheduler_canceled_count}, db={db_canceled_count}",
             extra={
                 "parent_order_id": parent_id,
                 "scheduler_canceled": scheduler_canceled_count,
@@ -3457,7 +3629,10 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
             "parent_order_id": parent_id,
             "scheduler_canceled": scheduler_canceled_count,
             "db_canceled": db_canceled_count,
-            "message": f"Canceled {db_canceled_count} pending slices in DB, removed {scheduler_canceled_count} jobs from scheduler",
+            "message": (
+                f"Canceled {db_canceled_count} pending slices in DB, "
+                f"removed {scheduler_canceled_count} jobs from scheduler"
+            ),
         }
     except Exception as e:
         logger.error(f"Failed to cancel slices for parent {parent_id}: {e}")
@@ -3661,7 +3836,7 @@ async def get_daily_performance(
 @app.get("/api/v1/positions/pnl/realtime", response_model=RealtimePnLResponse, tags=["Positions"])
 @require_permission(Permission.VIEW_PNL)
 async def get_realtime_pnl(
-    user: dict[str, Any] = Depends(_build_user_context)
+    user: dict[str, Any] = Depends(_build_user_context),
 ) -> RealtimePnLResponse:
     """
     Get real-time P&L with latest market prices.
@@ -4026,6 +4201,7 @@ async def startup_event() -> None:
             logger.info("Alpaca connection OK")
 
     # Start slice scheduler (for TWAP order execution)
+    slice_scheduler = recovery_manager.slice_scheduler
     if slice_scheduler:
         # Guard against restarting a shutdown scheduler (APScheduler limitation)
         # After shutdown(), APScheduler cannot be restarted; this prevents errors
@@ -4043,7 +4219,9 @@ async def startup_event() -> None:
     if DRY_RUN:
         logger.info("DRY_RUN enabled - skipping reconciliation startup gating")
     elif not alpaca_client:
-        logger.error("Alpaca client unavailable - reconciliation not started (gating remains active)")
+        logger.error(
+            "Alpaca client unavailable - reconciliation not started (gating remains active)"
+        )
     else:
         reconciliation_service = ReconciliationService(
             db_client=db_client,
@@ -4065,6 +4243,7 @@ async def shutdown_event() -> None:
     logger.info("Execution Gateway shutting down")
 
     # Shutdown slice scheduler (wait for running jobs to complete)
+    slice_scheduler = recovery_manager.slice_scheduler
     if slice_scheduler:
         logger.info("Shutting down slice scheduler...")
         slice_scheduler.shutdown(wait=True)

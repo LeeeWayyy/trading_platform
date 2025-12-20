@@ -69,13 +69,14 @@ from apps.execution_gateway.alpaca_client import (
 )
 from apps.execution_gateway.database import DatabaseClient, status_rank_for
 from apps.execution_gateway.reconciliation import SOURCE_PRIORITY_MANUAL
-from apps.execution_gateway.schemas import OrderRequest, SliceDetail
+from apps.execution_gateway.schemas import OrderDetail, OrderRequest, SliceDetail
 from libs.risk_management.breaker import CircuitBreaker
 from libs.risk_management.kill_switch import KillSwitch
 
 logger = logging.getLogger(__name__)
 
 MISFIRE_GRACE_SECONDS = int(os.getenv("MISFIRE_GRACE_SECONDS", "60"))
+STALE_SLICE_EXPIRY_SECONDS = int(os.getenv("STALE_SLICE_EXPIRY_SECONDS", "86400"))  # 24h default
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,7 @@ class SliceScheduler:
         db_client: DatabaseClient,
         executor: AlpacaExecutor | None,
         market_clock_provider: Callable[[], MarketClockSnapshot] | None = None,
+        stale_slice_expiry_seconds: int | None = None,
     ):
         """
         Initialize slice scheduler.
@@ -163,6 +165,49 @@ class SliceScheduler:
         self.scheduler = BackgroundScheduler(timezone="UTC")
         self.market_clock_provider = market_clock_provider
         self.misfire_grace_seconds = MISFIRE_GRACE_SECONDS
+        self.stale_slice_expiry_seconds = (
+            stale_slice_expiry_seconds
+            if stale_slice_expiry_seconds is not None
+            else STALE_SLICE_EXPIRY_SECONDS
+        )
+
+    def _is_slice_stale(self, slice_order: OrderDetail, now: datetime) -> bool:
+        """Check if slice is too old to recover.
+
+        Uses scheduled_time (not created_at) as the reference point since
+        we care about when the slice *should have executed*, not when it
+        was created.
+
+        Args:
+            slice_order: The slice order to check
+            now: Current time (UTC)
+
+        Returns:
+            True if slice is stale and should be expired, False otherwise
+
+        Notes:
+            Returns False for:
+            - Disabled expiry (stale_slice_expiry_seconds <= 0)
+            - Missing scheduled_time (handled separately as validation error)
+            - Future scheduled times (age < 0, prevents clock skew issues)
+        """
+        if self.stale_slice_expiry_seconds <= 0:
+            return False  # Expiry disabled
+        scheduled_time = slice_order.scheduled_time
+        if scheduled_time is None:
+            return False  # Missing = validation error, not stale
+        if scheduled_time.tzinfo is None:
+            # Naive datetimes are assumed to be UTC per codebase convention.
+            # Log warning as this could indicate a timezone handling issue.
+            logger.warning(
+                "Scheduled time is timezone-naive, assuming UTC",
+                extra={"client_order_id": slice_order.client_order_id},
+            )
+            scheduled_time = scheduled_time.replace(tzinfo=UTC)
+        age_seconds = (now - scheduled_time).total_seconds()
+        if age_seconds < 0:
+            return False  # Future scheduled time, not stale (clock skew guard)
+        return age_seconds > self.stale_slice_expiry_seconds
 
     def start(self) -> None:
         """
@@ -283,18 +328,29 @@ class SliceScheduler:
         This method should be called AFTER reconciliation gate opens to prevent
         duplicate submissions. It reschedules eligible slices with APScheduler
         while preserving the original client_order_id.
+
+        Recovery actions by slice state:
+        - Parent terminal (canceled/expired/failed): cascade cancel to all children
+        - Parent non-recoverable (pending_new, etc.): skip (no action)
+        - Slice stale (age > STALE_SLICE_EXPIRY_SECONDS): mark as expired
+        - Circuit breaker tripped: mark as blocked_circuit_breaker
+        - Otherwise: reschedule for execution
+
+        Returns:
+            Dict with counts: pending, scheduled, blocked, failed, canceled, expired, parents_expired
         """
         recovery_now = now or datetime.now(UTC)
         pending_slices = self.db.get_pending_child_slices()
         if not pending_slices:
             logger.info("No pending TWAP slices found for recovery")
-            return {"pending": 0, "scheduled": 0, "blocked": 0, "failed": 0, "canceled": 0}
+            return {"pending": 0, "scheduled": 0, "blocked": 0, "failed": 0, "canceled": 0, "expired": 0, "parents_expired": 0}
 
         allowed_parent_statuses = {"accepted", "submitted", "submitted_unconfirmed"}
         terminal_parent_statuses = {"canceled", "expired", "failed"}
 
         canceled_parents: set[str] = set()
-        counts = {"pending": len(pending_slices), "scheduled": 0, "blocked": 0, "failed": 0, "canceled": 0}
+        expired_parents: set[str] = set()  # Track parents that had children expired
+        counts: dict[str, int] = {"pending": len(pending_slices), "scheduled": 0, "blocked": 0, "failed": 0, "canceled": 0, "expired": 0, "parents_expired": 0}
 
         for slice_order in pending_slices:
             parent_order_id = getattr(slice_order, "parent_order_id", None)
@@ -348,6 +404,38 @@ class SliceScheduler:
                         "client_order_id": slice_order.client_order_id,
                     },
                 )
+                continue
+
+            # Staleness check: expire slices older than threshold
+            # NOTE: This check happens AFTER parent eligibility to ensure we only
+            # expire slices for parents in recoverable states. Slices with parents
+            # in non-allowed states are skipped above, preserving existing behavior.
+            if self._is_slice_stale(slice_order, recovery_now):
+                age_seconds = None
+                if slice_order.scheduled_time is not None:
+                    sched = slice_order.scheduled_time
+                    if sched.tzinfo is None:
+                        sched = sched.replace(tzinfo=UTC)
+                    age_seconds = (recovery_now - sched).total_seconds()
+                logger.warning(
+                    "Slice too old for recovery; marking expired",
+                    extra={
+                        "client_order_id": slice_order.client_order_id,
+                        "scheduled_time": str(slice_order.scheduled_time),
+                        "age_seconds": age_seconds,
+                        "expiry_threshold": self.stale_slice_expiry_seconds,
+                    },
+                )
+                self.db.update_order_status_cas(
+                    client_order_id=slice_order.client_order_id,
+                    status="expired",
+                    broker_updated_at=recovery_now,
+                    status_rank=status_rank_for("expired"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
+                    error_message=f"Slice expired: age exceeded {self.stale_slice_expiry_seconds}s threshold",
+                )
+                counts["expired"] += 1
+                expired_parents.add(parent_order_id)
                 continue
 
             if self.breaker.is_tripped():
@@ -508,6 +596,44 @@ class SliceScheduler:
                 },
             )
             counts["scheduled"] += 1
+
+        # After processing all slices, check if any parents with expired children
+        # have no remaining executable children - if so, mark parent as expired.
+        #
+        # DESIGN NOTE (Codex Review Concern):
+        # This only processes parents whose children were marked 'expired' during
+        # THIS recovery run. If children reach other terminal states (blocked,
+        # canceled, failed) via different paths, those parents are NOT auto-expired
+        # here. This is intentional:
+        # - blocked_circuit_breaker: children should retry when breaker resets
+        # - canceled/failed: parent should be handled by the same operation
+        # - Terminal parent cascade already handles parents in terminal states
+        # The stale slice expiry feature specifically targets slices too old to
+        # execute safely, not a catch-all orphan parent cleanup.
+        for parent_id in expired_parents:
+            # Skip if already processed via terminal parent cascade
+            if parent_id in canceled_parents:
+                continue
+            # Check if parent has any remaining non-terminal (live) children
+            non_terminal_count = self.db.count_non_terminal_children(parent_id)
+            if non_terminal_count == 0:
+                # All children are in terminal state - expire the parent
+                logger.warning(
+                    "Parent has no remaining executable children; marking expired",
+                    extra={
+                        "parent_order_id": parent_id,
+                        "reason": "all_children_expired_or_terminal",
+                    },
+                )
+                self.db.update_order_status_cas(
+                    client_order_id=parent_id,
+                    status="expired",
+                    broker_updated_at=recovery_now,
+                    status_rank=status_rank_for("expired"),
+                    source_priority=SOURCE_PRIORITY_MANUAL,
+                    error_message="Parent expired: all child slices are in terminal state",
+                )
+                counts["parents_expired"] += 1
 
         logger.info(
             "Zombie slice recovery complete",

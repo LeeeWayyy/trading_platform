@@ -27,9 +27,7 @@ def _restore_main_globals():
     # Save original values
     original_db_client = getattr(main, "db_client", None)
     original_redis_client = getattr(main, "redis_client", None)
-    original_kill_switch = getattr(main, "kill_switch", None)
-    original_circuit_breaker = getattr(main, "circuit_breaker", None)
-    original_position_reservation = getattr(main, "position_reservation", None)
+    original_recovery_manager = getattr(main, "recovery_manager", None)
     original_reconciliation_service = getattr(main, "reconciliation_service", None)
     original_reconciliation_task = getattr(main, "reconciliation_task", None)
     original_feature_flag = getattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
@@ -40,9 +38,7 @@ def _restore_main_globals():
     # The first assignment needs type: ignore because db_client is typed but we saved it as Any
     main.db_client = original_db_client  # type: ignore[assignment]
     main.redis_client = original_redis_client
-    main.kill_switch = original_kill_switch
-    main.circuit_breaker = original_circuit_breaker
-    main.position_reservation = original_position_reservation
+    main.recovery_manager = original_recovery_manager  # type: ignore[assignment]
     main.reconciliation_service = original_reconciliation_service
     main.reconciliation_task = original_reconciliation_task
     main.FEATURE_PERFORMANCE_DASHBOARD = original_feature_flag

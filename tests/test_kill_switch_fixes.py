@@ -22,6 +22,8 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from apps.execution_gateway import main
+
 # Import after services are mocked
 # from apps.execution_gateway.main import app as execution_app
 # from apps.orchestrator.main import app as orchestrator_app
@@ -43,10 +45,11 @@ class TestFailClosedBehaviorExecutionGateway:
     def _mock_redis_unavailable(self):
         """Mock Redis connection failure during initialization."""
         # Mock module-level variables to simulate Redis unavailable state
+        main.recovery_manager._state.kill_switch = None
+        main.recovery_manager.set_kill_switch_unavailable(True)
         with (
             patch("apps.execution_gateway.main.redis_client", None),
-            patch("apps.execution_gateway.main.kill_switch", None),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", True),
+            patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=True),
         ):
             yield
 
@@ -124,10 +127,11 @@ class TestFailClosedBehaviorExecutionGateway:
         mock_redis = Mock()
         mock_redis.health_check.return_value = True
 
+        main.recovery_manager._state.kill_switch = None
+        main.recovery_manager.set_kill_switch_unavailable(True)
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
-            patch("apps.execution_gateway.main.kill_switch", None),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", True),
+            patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=True),
         ):
             yield mock_redis
 
@@ -269,10 +273,11 @@ class TestKillSwitchJSONBodyHandling:
             "timestamp": datetime.now().isoformat(),
         }
 
+        main.recovery_manager._state.kill_switch = mock_ks
+        main.recovery_manager.set_kill_switch_unavailable(False)
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
-            patch("apps.execution_gateway.main.kill_switch", mock_ks),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
+            patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=False),
         ):
             yield mock_redis, mock_ks
 
@@ -514,10 +519,11 @@ class TestKillSwitchEndToEnd:
             "timestamp": datetime.now().isoformat(),
         }
 
+        main.recovery_manager._state.kill_switch = mock_ks
+        main.recovery_manager.set_kill_switch_unavailable(False)
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
-            patch("apps.execution_gateway.main.kill_switch", mock_ks),
-            patch("apps.execution_gateway.main._kill_switch_unavailable", False),
+            patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=False),
             patch("apps.execution_gateway.database.DatabaseClient"),
         ):
             yield mock_redis, mock_ks

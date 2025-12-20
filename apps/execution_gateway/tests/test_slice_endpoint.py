@@ -19,15 +19,21 @@ def test_app_with_mocks():
     with (
         patch("apps.execution_gateway.main.db_client"),
         patch("apps.execution_gateway.main.redis_client"),
-        patch("apps.execution_gateway.main.kill_switch"),
-        patch("apps.execution_gateway.main.circuit_breaker"),
         patch("apps.execution_gateway.main.twap_slicer"),
-        patch("apps.execution_gateway.main.slice_scheduler"),
     ):
 
-        from apps.execution_gateway.main import app
+        from apps.execution_gateway import main
 
-        return app
+        # Set recovery_manager state to healthy placeholders
+        main.recovery_manager._state.kill_switch = None
+        main.recovery_manager._state.circuit_breaker = None
+        main.recovery_manager._state.position_reservation = None
+        main.recovery_manager._state.slice_scheduler = None
+        main.recovery_manager.set_kill_switch_unavailable(False)
+        main.recovery_manager.set_circuit_breaker_unavailable(False)
+        main.recovery_manager.set_position_reservation_unavailable(False)
+
+        return main.app
 
 
 def test_slice_endpoint_exists(test_app_with_mocks: FastAPI):

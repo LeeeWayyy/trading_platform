@@ -17,8 +17,9 @@ All computations integrate with BarraRiskModel from T2.3.
 import logging
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
+from enum import IntEnum
 from typing import Any, Protocol
 
 import cvxpy as cp
@@ -41,6 +42,20 @@ class InsufficientUniverseCoverageError(Exception):
     """Raised when universe coverage in risk model is below threshold."""
 
     pass
+
+
+class ConstraintPriority(IntEnum):
+    """
+    Priority level for constraint relaxation.
+
+    Lower values = higher priority = less likely to relax.
+    CRITICAL constraints are never relaxed.
+    """
+
+    CRITICAL = 0  # Never relax: budget, box bounds
+    HIGH = 1  # Rarely relax: gross leverage
+    MEDIUM = 2  # May relax: sector, factor exposure
+    LOW = 3  # Relax first: turnover
 
 
 @dataclass
@@ -73,6 +88,9 @@ class OptimizerConfig:
 
     # Coverage requirement
     min_coverage: float = 0.8  # Minimum universe coverage in risk model
+
+    # Constraint relaxation settings (opt-in feature)
+    enable_constraint_relaxation: bool = False  # Enable hierarchical relaxation
 
 
 @dataclass
@@ -146,6 +164,54 @@ class Constraint(Protocol):
     def apply(self, w: cp.Variable, context: dict[str, Any]) -> list[cp.Constraint]: ...
 
     def validate(self, context: dict[str, Any]) -> list[str]: ...
+
+
+@dataclass
+class RelaxableConstraint:
+    """
+    Wrapper for constraints that can be progressively relaxed.
+
+    Used by optimize_with_relaxation() to handle infeasible problems by
+    relaxing lower-priority constraints first.
+
+    Attributes:
+        constraint: The underlying constraint object (may be relaxed version)
+        priority: Priority level (lower = higher priority = less likely to relax)
+        relaxation_factor: Multiplier to apply each relaxation iteration (must be > 1.0)
+        max_relaxations: Maximum number of times this constraint can be relaxed
+        max_relaxation_factor: Upper bound on cumulative relaxation (e.g., 2.0 = 2x original)
+        initial_constraint: The original unrelaxed constraint (for cap calculation)
+        current_relaxations: Number of times already relaxed (internal state)
+    """
+
+    constraint: Any  # Constraint instance (BudgetConstraint, SectorConstraint, etc.)
+    priority: ConstraintPriority
+    relaxation_factor: float = 1.5
+    max_relaxations: int = 3
+    max_relaxation_factor: float = 2.0  # Cap cumulative relaxation at 2x original
+    initial_constraint: Any = None  # Original constraint for cap calculation
+    current_relaxations: int = field(default=0, init=False)
+
+    def __post_init__(self) -> None:
+        """Validate relaxation parameters and set initial_constraint."""
+        if self.relaxation_factor <= 1.0:
+            raise ValueError(
+                f"relaxation_factor must be > 1.0 (got {self.relaxation_factor}). "
+                "Values <= 1.0 would tighten constraints instead of relaxing them."
+            )
+        if self.max_relaxation_factor <= 1.0:
+            raise ValueError(
+                f"max_relaxation_factor must be > 1.0 (got {self.max_relaxation_factor})"
+            )
+        # Store initial constraint for cap calculation if not provided
+        if self.initial_constraint is None:
+            object.__setattr__(self, "initial_constraint", self.constraint)
+
+    def can_relax(self) -> bool:
+        """Check if this constraint can be further relaxed."""
+        if self.priority == ConstraintPriority.CRITICAL:
+            return False
+        return self.current_relaxations < self.max_relaxations
 
 
 @dataclass
@@ -701,7 +767,9 @@ class PortfolioOptimizer:
     # Private Helper Methods
     # ========================================================================
 
-    def _build_covariance(self, universe: list[int]) -> tuple[
+    def _build_covariance(
+        self, universe: list[int]
+    ) -> tuple[
         NDArray[np.floating[Any]],
         list[int],
         NDArray[np.floating[Any]],
@@ -821,8 +889,13 @@ class PortfolioOptimizer:
         all_constraints.append(w >= self.config.min_position_weight)
         all_constraints.append(w <= self.config.max_position_weight)
 
-        # Default: gross leverage constraint (sum(|w|) <= gross_leverage_max)
-        all_constraints.append(cp.norm(w, 1) <= self.config.gross_leverage_max)  # type: ignore[attr-defined]
+        # Check if user provided a GrossLeverageConstraint - if so, skip default
+        has_user_leverage_constraint = any(
+            isinstance(c, GrossLeverageConstraint) for c in user_constraints
+        )
+        if not has_user_leverage_constraint:
+            # Default: gross leverage constraint (sum(|w|) <= gross_leverage_max)
+            all_constraints.append(cp.norm(w, 1) <= self.config.gross_leverage_max)  # type: ignore[attr-defined]
 
         # Apply and validate user constraints
         for c in user_constraints:
@@ -865,8 +938,13 @@ class PortfolioOptimizer:
         all_constraints.append(w >= self.config.min_position_weight)
         all_constraints.append(w <= self.config.max_position_weight)
 
-        # Default: gross leverage constraint
-        all_constraints.append(cp.norm(w, 1) <= self.config.gross_leverage_max)  # type: ignore[attr-defined]
+        # Check if user provided a GrossLeverageConstraint - if so, skip default
+        has_user_leverage_constraint = any(
+            isinstance(c, GrossLeverageConstraint) for c in constraints
+        )
+        if not has_user_leverage_constraint:
+            # Default: gross leverage constraint
+            all_constraints.append(cp.norm(w, 1) <= self.config.gross_leverage_max)  # type: ignore[attr-defined]
 
         # User constraints
         for c in constraints:
@@ -1133,4 +1211,296 @@ class PortfolioOptimizer:
             solver_status=f"INFEASIBLE: {reason}",
             model_version=self.risk_model.model_version,
             dataset_version_ids=self.risk_model.dataset_version_ids.copy(),
+        )
+
+    # ========================================================================
+    # Constraint Relaxation Methods
+    # ========================================================================
+    # TODO: Future architectural improvements (deferred from bugfix scope):
+    # 1. Refactor isinstance chain to polymorphic dispatch - add relax() method
+    #    to Constraint protocol so each constraint class encapsulates relaxation logic
+    # 2. Add BoxConstraint relaxation support (expanding min/max weight bounds)
+    # 3. BudgetConstraint intentionally excluded - sum(weights)=1 is critical
+    # See: Code review discussion with Gemini/Codex agreeing to defer these
+
+    def _relax_constraint(self, relaxable: RelaxableConstraint) -> tuple[RelaxableConstraint, bool]:
+        """
+        Relax a constraint by its relaxation factor.
+
+        Creates a new constraint with expanded bounds and increments the
+        relaxation counter. Returns a tuple of (relaxed_constraint, was_relaxed).
+
+        Enforces max_relaxation_factor cap to prevent unbounded relaxation.
+        Uses initial_constraint stored on RelaxableConstraint for cap calculation.
+
+        Supports relaxing:
+        - TurnoverConstraint: max_turnover *= factor
+        - SectorConstraint: max_sector_weight *= factor (capped at 100% and max_relaxation_factor)
+        - FactorExposureConstraint: tolerance *= factor (handles zero tolerance)
+        - GrossLeverageConstraint: max_leverage *= factor (capped by max_relaxation_factor)
+
+        Args:
+            relaxable: The RelaxableConstraint wrapper to relax
+
+        Returns:
+            Tuple of (new_relaxable, was_relaxed) - was_relaxed is False if
+            constraint cannot be relaxed (CRITICAL, max_relaxations reached, or at cap)
+        """
+        if not relaxable.can_relax():
+            return relaxable, False
+
+        constraint = relaxable.constraint
+        original = relaxable.initial_constraint  # Use stored initial constraint
+        factor = relaxable.relaxation_factor
+        max_factor = relaxable.max_relaxation_factor
+
+        # Create relaxed version based on constraint type
+        new_constraint: Any
+        value_changed = True  # Track if relaxation actually changed the value
+
+        # Epsilon floor for zero-bound constraints
+        EPSILON = 0.01  # 1% floor for constraints starting at 0
+
+        def _calc_relaxed_value(
+            original_val: float,
+            current_val: float,
+            hard_cap: float | None = None,
+        ) -> tuple[float, bool]:
+            """Calculate relaxed value with epsilon floor and max_relaxation_factor cap.
+
+            Returns (new_value, changed) tuple.
+            """
+            # Calculate max allowed based on original value
+            if original_val < 1e-9:
+                max_allowed = EPSILON * max_factor
+            else:
+                max_allowed = original_val * max_factor
+            # Apply hard cap if specified (e.g., 100% for sector weights)
+            if hard_cap is not None:
+                max_allowed = min(max_allowed, hard_cap)
+            # Calculate new value with epsilon floor for zero-bound
+            if current_val < 1e-9:
+                new_val = min(EPSILON, max_allowed)
+            else:
+                new_val = min(current_val * factor, max_allowed)
+            # Check if value actually changed
+            changed = abs(new_val - current_val) >= 1e-9
+            return new_val, changed
+
+        if isinstance(constraint, TurnoverConstraint):
+            new_max, value_changed = _calc_relaxed_value(
+                original.max_turnover, constraint.max_turnover
+            )
+            if value_changed:
+                new_constraint = TurnoverConstraint(
+                    current_weights=constraint.current_weights,
+                    max_turnover=new_max,
+                )
+                logger.info(
+                    f"Relaxed TurnoverConstraint: max_turnover "
+                    f"{constraint.max_turnover:.2f} -> {new_max:.2f}"
+                )
+
+        elif isinstance(constraint, SectorConstraint):
+            # Respect both max_relaxation_factor and 100% hard cap
+            # NOTE: Only max_sector_weight is relaxed, not min_sector_weight.
+            # Relaxation aims to ease constraints when optimization fails.
+            # Increasing max allows more allocation to a sector (helpful when
+            # constraints are too tight). Decreasing min would require LESS
+            # allocation, which doesn't help find feasible solutions - the
+            # optimizer can already allocate less if needed.
+            new_max, value_changed = _calc_relaxed_value(
+                original.max_sector_weight, constraint.max_sector_weight, hard_cap=1.0
+            )
+            if value_changed:
+                new_constraint = SectorConstraint(
+                    sector_map=constraint.sector_map,
+                    max_sector_weight=new_max,
+                    min_sector_weight=constraint.min_sector_weight,
+                )
+                # Include sector names for distinguishing multiple SectorConstraints
+                sectors = sorted(set(constraint.sector_map.values()))
+                sector_info = f"[{', '.join(sectors[:3])}{'...' if len(sectors) > 3 else ''}]"
+                logger.info(
+                    f"Relaxed SectorConstraint{sector_info}: "
+                    f"max_sector_weight {constraint.max_sector_weight:.2f} -> {new_max:.2f}"
+                )
+
+        elif isinstance(constraint, FactorExposureConstraint):
+            new_tol, value_changed = _calc_relaxed_value(original.tolerance, constraint.tolerance)
+            if value_changed:
+                new_constraint = FactorExposureConstraint(
+                    factor_name=constraint.factor_name,
+                    target_exposure=constraint.target_exposure,
+                    tolerance=new_tol,
+                )
+                logger.info(
+                    f"Relaxed FactorExposureConstraint({constraint.factor_name}): "
+                    f"tolerance {constraint.tolerance:.2f} -> {new_tol:.2f}"
+                )
+
+        elif isinstance(constraint, GrossLeverageConstraint):
+            new_max, value_changed = _calc_relaxed_value(
+                original.max_leverage, constraint.max_leverage
+            )
+            if value_changed:
+                new_constraint = GrossLeverageConstraint(max_leverage=new_max)
+                logger.info(
+                    f"Relaxed GrossLeverageConstraint: max_leverage "
+                    f"{constraint.max_leverage:.2f} -> {new_max:.2f}"
+                )
+
+        else:
+            # Constraint type not supported for relaxation
+            logger.warning(
+                f"Constraint type {type(constraint).__name__} does not support relaxation"
+            )
+            return relaxable, False
+
+        if not value_changed:
+            logger.info(
+                f"Constraint {type(constraint).__name__} already at relaxation "
+                "cap, cannot relax further"
+            )
+            return relaxable, False
+
+        # Create new RelaxableConstraint with incremented counter
+        # Preserve initial_constraint for future cap calculations
+        new_relaxable = RelaxableConstraint(
+            constraint=new_constraint,
+            priority=relaxable.priority,
+            relaxation_factor=relaxable.relaxation_factor,
+            max_relaxations=relaxable.max_relaxations,
+            max_relaxation_factor=relaxable.max_relaxation_factor,
+            initial_constraint=relaxable.initial_constraint,  # Preserve original
+        )
+        new_relaxable.current_relaxations = relaxable.current_relaxations + 1
+
+        return new_relaxable, True
+
+    def optimize_with_relaxation(
+        self,
+        universe: list[int],
+        relaxable_constraints: list[RelaxableConstraint],
+        current_weights: dict[int, float] | None = None,
+    ) -> OptimizationResult:
+        """
+        Optimize minimum variance with hierarchical constraint relaxation.
+
+        If optimization is infeasible, progressively relax constraints by priority:
+        1. LOW priority constraints (e.g., TurnoverConstraint) are relaxed first
+        2. MEDIUM priority constraints (e.g., SectorConstraint, FactorExposureConstraint)
+        3. HIGH priority constraints (e.g., GrossLeverageConstraint) only if needed
+        4. CRITICAL constraints are never relaxed
+
+        Each constraint is relaxed up to its max_relaxations times before moving to
+        the next priority level.
+
+        Note:
+            This method only supports minimum variance optimization. For other
+            objectives (max_sharpe, mean_variance_cost, risk_parity), use the
+            corresponding optimize_* methods directly.
+
+        Args:
+            universe: List of permnos to optimize over
+            relaxable_constraints: List of RelaxableConstraint wrappers
+            current_weights: Current portfolio weights
+
+        Returns:
+            OptimizationResult - either optimal with relaxed constraints, or
+            infeasible if all relaxation attempts fail
+        """
+        if not self.config.enable_constraint_relaxation:
+            # Relaxation disabled, use regular optimization
+            plain_constraints = [rc.constraint for rc in relaxable_constraints]
+            return self.optimize_min_variance(
+                universe=universe,
+                current_weights=current_weights,
+                constraints=plain_constraints,
+            )
+
+        start_time = time.perf_counter()
+
+        # Build covariance and validate coverage
+        sigma, permnos, factor_loadings = self._build_covariance(universe)
+        n = len(permnos)
+        context = self._build_context(permnos, factor_loadings)
+        w_current = self._align_current_weights(permnos, current_weights)
+
+        # Initialize working constraints (will be re-sorted each iteration)
+        # Each RelaxableConstraint stores its own initial_constraint for cap calculation
+        working_constraints = list(relaxable_constraints)
+
+        # Track total relaxation attempts
+        # Only count constraints that can actually be relaxed (not CRITICAL)
+        total_relaxations = 0
+        max_total = sum(
+            rc.max_relaxations - rc.current_relaxations
+            for rc in relaxable_constraints
+            if rc.can_relax()
+        )
+
+        for iteration in range(max_total + 1):
+            # Re-sort constraints each iteration for round-robin behavior:
+            # Sort by priority (LOW first), then by current_relaxations (least relaxed first)
+            working_constraints = sorted(
+                working_constraints,
+                key=lambda rc: (rc.priority, -rc.current_relaxations),
+                reverse=True,  # LOW first, least relaxed first within priority
+            )
+
+            # Extract plain constraints from wrappers
+            plain_constraints = [rc.constraint for rc in working_constraints]
+
+            # Try optimization
+            w, problem = self._build_min_variance_problem(
+                sigma, n, w_current, plain_constraints, context
+            )
+            solver_status = self._solve_with_fallback(problem)
+
+            if problem.status in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
+                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                result = self._build_result(
+                    w=w,
+                    permnos=permnos,
+                    sigma=sigma,
+                    w_current=w_current,
+                    objective="min_variance",
+                    problem=problem,
+                    solver_status=solver_status,
+                    solver_time_ms=elapsed_ms,
+                    expected_returns=None,
+                )
+                if total_relaxations > 0:
+                    logger.info(
+                        f"Optimization succeeded after {total_relaxations} constraint relaxations"
+                    )
+                return result
+
+            # Infeasible - try to relax a constraint
+            if iteration >= max_total:
+                break
+
+            # Find next constraint to relax (by priority, LOW first, least relaxed first)
+            # Each constraint stores its own initial_constraint, so no lookup needed
+            relaxed = False
+            for i, rc in enumerate(working_constraints):
+                new_rc, was_relaxed = self._relax_constraint(rc)
+                if was_relaxed:
+                    working_constraints[i] = new_rc
+                    total_relaxations += 1
+                    relaxed = True
+                    break
+
+            if not relaxed:
+                # No constraints can be relaxed further
+                logger.warning("All relaxable constraints exhausted, optimization still infeasible")
+                break
+
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        return self._infeasible_result(
+            f"Infeasible after {total_relaxations} relaxation attempts",
+            objective="min_variance",
+            permnos=permnos,
+            solver_time_ms=elapsed_ms,
         )

@@ -77,6 +77,7 @@ def status_rank_for(status: str) -> int:
     """Return status rank for local status updates (unknown -> 0)."""
     return _STATUS_RANKS.get(status, 0)
 
+
 # H2 Fix: Configurable pool settings via environment variables
 # Defaults: min=2, max=10, timeout=10s (per Codex review feedback)
 DB_POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
@@ -932,6 +933,57 @@ class DatabaseClient:
             logger.error(f"Database error canceling pending slices: {e}")
             raise
 
+    def count_non_terminal_children(self, parent_order_id: str) -> int:
+        """
+        Count non-terminal child slices for a parent order.
+
+        Returns the number of child slices that are NOT in a terminal state
+        (pending_new, submitted, accepted, etc.). This includes any child that
+        could still result in a broker fill. Used to determine if a parent has
+        any remaining live children during recovery - prevents marking a parent
+        as expired while broker orders may still execute.
+
+        Terminal statuses excluded: filled, canceled, expired, failed, rejected,
+        replaced, done_for_day, blocked_kill_switch, blocked_circuit_breaker.
+
+        Schema Note (Gemini Review Concern):
+            The `parent_order_id` and `is_terminal` columns used here are defined in:
+            - db/migrations/0001_extend_orders_for_slicing.sql (parent_order_id, scheduled_time)
+            - db/migrations/0009_add_conflict_resolution_columns.sql (is_terminal boolean)
+
+        Args:
+            parent_order_id: Parent order's client_order_id
+
+        Returns:
+            Number of non-terminal child slices (0 if all are terminal)
+
+        Raises:
+            DatabaseError: If database operation fails
+
+        Example:
+            >>> db = DatabaseClient("postgresql://localhost/trading_platform")
+            >>> count = db.count_non_terminal_children("parent123")
+            >>> if count == 0:
+            ...     # All children are in terminal state, safe to expire parent
+            ...     pass
+        """
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT COUNT(*) FROM orders
+                        WHERE parent_order_id = %s AND is_terminal = FALSE
+                        """,
+                        (parent_order_id,),
+                    )
+                    row = cur.fetchone()
+                    return row[0] if row else 0
+
+        except (OperationalError, DatabaseError) as e:
+            logger.error(f"Database error counting non-terminal children: {e}")
+            raise
+
     def get_order_by_client_id(self, client_order_id: str) -> OrderDetail | None:
         """
         Get order by client_order_id.
@@ -1007,7 +1059,11 @@ class DatabaseClient:
                 with conn.cursor(row_factory=dict_row) as cur:
                     if created_before is None:
                         cur.execute(
-                            "SELECT * FROM orders WHERE is_terminal = FALSE ORDER BY created_at ASC",
+                            """
+                            SELECT * FROM orders
+                            WHERE is_terminal = FALSE
+                            ORDER BY created_at ASC
+                            """,
                         )
                     else:
                         cur.execute(
@@ -1055,10 +1111,13 @@ class DatabaseClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO reconciliation_high_water_mark (name, last_check_time, updated_at)
+                        INSERT INTO reconciliation_high_water_mark
+                            (name, last_check_time, updated_at)
                         VALUES (%s, %s, NOW())
                         ON CONFLICT (name)
-                        DO UPDATE SET last_check_time = EXCLUDED.last_check_time, updated_at = NOW()
+                        DO UPDATE SET
+                            last_check_time = EXCLUDED.last_check_time,
+                            updated_at = NOW()
                         """,
                         (name, last_check_time),
                     )
@@ -1497,7 +1556,12 @@ class DatabaseClient:
         Returns:
             Updated OrderDetail if found, otherwise None
         """
-        if broker_updated_at is not None and status_rank is not None and source_priority is not None:
+        # Check if all CAS fields are provided (inline for mypy type narrowing)
+        if (
+            broker_updated_at is not None
+            and status_rank is not None
+            and source_priority is not None
+        ):
             return self.update_order_status_cas(
                 client_order_id=client_order_id,
                 status=status,
@@ -1732,7 +1796,9 @@ class DatabaseClient:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     """
-                    SELECT MIN(DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC')) AS first_date
+                    SELECT MIN(
+                        DATE((fill->>'timestamp')::timestamptz AT TIME ZONE 'UTC')
+                    ) AS first_date
                     FROM orders o,
                          jsonb_array_elements(o.metadata->'fills') AS fill
                     WHERE o.status IN ('filled', 'partially_filled')
@@ -2128,6 +2194,186 @@ class DatabaseClient:
             logger.error(
                 "Database error fetching strategy map",
                 extra={"symbols": symbols, "error": str(exc)},
+            )
+            raise
+
+    def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:
+        """
+        Get consolidated status for a single strategy.
+
+        Aggregates data from orders table to provide a view of strategy state.
+        Note: positions table lacks strategy_id, so metrics are derived from orders.
+
+        Returns:
+            Dict with:
+            - positions_count: distinct symbols with open (non-terminal) orders
+            - open_orders_count: total non-terminal orders
+            - last_signal_at: most recent order creation time
+            - today_pnl: Always Decimal("0") until proper position tracking
+            Returns None if strategy not found (no records in orders)
+        """
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    # Single consolidated query with GROUP BY - more efficient than
+                    # SELECT EXISTS + aggregation (avoids redundant database round-trip).
+                    # If strategy exists, returns one row; otherwise returns no rows.
+                    # Note: positions table doesn't have strategy_id, so we derive
+                    # metrics from orders table only.
+                    # Uses is_terminal column for consistency with rest of codebase
+                    cur.execute(
+                        """
+                        SELECT
+                            COUNT(DISTINCT symbol)
+                                FILTER (WHERE is_terminal = FALSE) as positions_count,
+                            COUNT(*)
+                                FILTER (WHERE is_terminal = FALSE) as open_orders_count,
+                            MAX(created_at) as last_signal
+                        FROM orders
+                        WHERE strategy_id = %s
+                        GROUP BY strategy_id
+                        """,
+                        (strategy_id,),
+                    )
+                    result = cur.fetchone()
+
+                    if not result:
+                        return None
+
+                    return {
+                        "positions_count": result["positions_count"],
+                        "open_orders_count": result["open_orders_count"],
+                        "last_signal_at": result["last_signal"],
+                        "today_pnl": Decimal("0"),  # Requires proper position tracking
+                    }
+
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching strategy status",
+                extra={"strategy_id": strategy_id, "error": str(exc)},
+            )
+            raise
+
+    def get_all_strategy_ids(self, filter_ids: list[str] | None = None) -> list[str]:
+        """
+        Get list of unique strategy IDs from orders.
+
+        Note: positions table doesn't have strategy_id column,
+        so we only query orders.
+
+        Args:
+            filter_ids: Optional list of strategy IDs to filter by.
+                If provided, only returns strategies in this list (database-level
+                filtering with ANY(...) for better performance than Python filtering).
+
+        Returns:
+            List of unique strategy IDs
+        """
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    if filter_ids:
+                        # Filter at database level for better performance
+                        cur.execute(
+                            """
+                            SELECT DISTINCT strategy_id
+                            FROM orders
+                            WHERE strategy_id IS NOT NULL
+                              AND strategy_id = ANY(%s)
+                            ORDER BY strategy_id
+                            """,
+                            (filter_ids,),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT DISTINCT strategy_id
+                            FROM orders
+                            WHERE strategy_id IS NOT NULL
+                            ORDER BY strategy_id
+                            """
+                        )
+                    return [row[0] for row in cur.fetchall()]
+
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching strategy IDs",
+                extra={"error": str(exc)},
+            )
+            raise
+
+    def get_bulk_strategy_status(self, strategy_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """
+        Get status for multiple strategies in a single query.
+
+        This avoids the N+1 query problem when listing strategies.
+        Uses GROUP BY to aggregate metrics for all requested strategies at once.
+
+        Args:
+            strategy_ids: List of strategy IDs to fetch status for
+
+        Returns:
+            Dict mapping strategy_id to status dict with:
+            - positions_count: Number of distinct symbols with open (non-terminal) orders
+            - open_orders_count: Number of orders not in terminal state
+            - last_signal_at: Most recent order creation time
+            - today_pnl: Always Decimal("0") until proper position tracking is implemented
+        """
+        if not strategy_ids:
+            return {}
+
+        try:
+            with self._pool.connection() as conn:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    # Single query with GROUP BY for all strategies
+                    # - positions_count: distinct symbols with open (non-terminal) orders
+                    # - open_orders_count: total non-terminal orders
+                    # Note: today_pnl requires proper position tracking with entry prices,
+                    # which isn't available without strategy_id in positions table.
+                    # Returning 0 until proper PnL tracking is implemented.
+                    # Uses is_terminal column for consistency with rest of codebase
+                    placeholders = ",".join(["%s"] * len(strategy_ids))
+                    cur.execute(
+                        f"""
+                        SELECT
+                            strategy_id,
+                            COUNT(DISTINCT symbol)
+                                FILTER (WHERE is_terminal = FALSE) as positions_count,
+                            COUNT(*)
+                                FILTER (WHERE is_terminal = FALSE) as open_orders_count,
+                            MAX(created_at) as last_signal
+                        FROM orders
+                        WHERE strategy_id IN ({placeholders})
+                        GROUP BY strategy_id
+                        """,
+                        tuple(strategy_ids),
+                    )
+
+                    results = {}
+                    for row in cur.fetchall():
+                        results[row["strategy_id"]] = {
+                            "positions_count": row["positions_count"] or 0,
+                            "open_orders_count": row["open_orders_count"] or 0,
+                            "last_signal_at": row["last_signal"],
+                            "today_pnl": Decimal("0"),  # Requires proper position tracking
+                        }
+
+                    # Ensure all requested strategies have an entry (even if no orders)
+                    for sid in strategy_ids:
+                        if sid not in results:
+                            results[sid] = {
+                                "positions_count": 0,
+                                "open_orders_count": 0,
+                                "last_signal_at": None,
+                                "today_pnl": Decimal("0"),
+                            }
+
+                    return results
+
+        except (OperationalError, DatabaseError) as exc:
+            logger.error(
+                "Database error fetching bulk strategy status",
+                extra={"strategy_ids": strategy_ids, "error": str(exc)},
             )
             raise
 
