@@ -8,7 +8,7 @@ import streamlit as st
 
 from apps.web_console.services.alert_service import AlertConfigService
 from apps.web_console.utils.async_helpers import run_async
-from libs.alerts.models import ChannelConfig
+from libs.alerts.models import ChannelConfig, ChannelType
 from libs.alerts.pii import mask_recipient
 from libs.web_console_auth.permissions import Permission, has_permission
 
@@ -25,6 +25,8 @@ def render_notification_channels(
 ) -> list[ChannelConfig]:
     """Render notification channel configuration with masking, test buttons, and add flow."""
 
+    # Work on a copy to avoid mutating input
+    working_channels = list(channels)
     updated_channels: list[ChannelConfig] = []
     can_test = has_permission(user, Permission.TEST_NOTIFICATION)
 
@@ -32,7 +34,7 @@ def render_notification_channels(
     st.markdown("**Add Channel**")
     channel_type = st.selectbox(
         "Channel Type",
-        options=[c.value for c in ChannelConfig.model_fields["type"].annotation],
+        options=[c.value for c in ChannelType],
         key=f"{state_key}_type" if state_key else None,
     )
     new_recipient = st.text_input(
@@ -42,14 +44,14 @@ def render_notification_channels(
     )
     if st.button("Add Channel", key=f"{state_key}_add" if state_key else None):
         if new_recipient:
-            channels.append(
-                ChannelConfig(type=channel_type, recipient=new_recipient, enabled=True)
+            working_channels.append(
+                ChannelConfig(type=ChannelType(channel_type), recipient=new_recipient, enabled=True)
             )
             st.success("Channel added. Adjust below if needed.")
         else:
             st.error("Recipient is required to add a channel.")
 
-    for i, channel in enumerate(channels):
+    for i, channel in enumerate(working_channels):
         with st.expander(f"{channel.type.value.title()} Channel", expanded=False):
             masked = _mask_recipient(channel.recipient, channel)
             st.text(f"Recipient: {masked}")

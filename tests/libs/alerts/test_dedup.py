@@ -21,13 +21,13 @@ class TestComputeDedupKey:
 
         assert key1 == key2
 
-    def test_different_alert_id(self):
-        """Test different alert IDs produce different keys."""
+    def test_different_rule_id(self):
+        """Test different rule IDs produce different keys."""
         ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
         secret = "test-secret-key-12345678"
 
-        key1 = compute_dedup_key("alert-1", "email", "user@example.com", ts, secret)
-        key2 = compute_dedup_key("alert-2", "email", "user@example.com", ts, secret)
+        key1 = compute_dedup_key("rule-1", "email", "user@example.com", ts, secret)
+        key2 = compute_dedup_key("rule-2", "email", "user@example.com", ts, secret)
 
         assert key1 != key2
 
@@ -67,13 +67,13 @@ class TestComputeDedupKey:
         ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
         secret = "test-secret-key-12345678"
 
-        key = compute_dedup_key("alert-1", "email", "user@example.com", ts, secret)
+        key = compute_dedup_key("rule-1", "email", "user@example.com", ts, secret)
 
-        # Format: {alert_id}:{channel}:{recipient_hash}:{hour_bucket}
+        # Format: {rule_id}:{channel}:{recipient_hash}:{hour_bucket}
         # The hour_bucket is an ISO format datetime
         parts = key.split(":")
         assert len(parts) >= 4  # May have more due to ISO format colons
-        assert parts[0] == "alert-1"
+        assert parts[0] == "rule-1"
         assert parts[1] == "email"
 
 

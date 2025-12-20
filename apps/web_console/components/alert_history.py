@@ -9,7 +9,9 @@ import pandas as pd
 import streamlit as st
 
 from libs.alerts.models import AlertEvent
-from libs.alerts.pii import mask_for_logs
+
+# Minimum characters required for acknowledgment notes
+MIN_ACK_NOTE_LENGTH = 15
 
 
 def render_alert_history(
@@ -29,7 +31,7 @@ def render_alert_history(
                 "Time": event.triggered_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "Rule": event.rule_id,
                 "Value": str(event.trigger_value) if event.trigger_value is not None else "N/A",
-                "Channels": ", ".join(mask_for_logs(channel) for channel in event.routed_channels),
+                "Channels": ", ".join(event.routed_channels),
                 "Acknowledged": "Yes" if event.acknowledged_at else "No",
                 "Acknowledged By": event.acknowledged_by or "-",
             }
@@ -50,8 +52,8 @@ def render_alert_history(
                         key=f"ack_note_{event.id}",
                     )
                     if st.button("Acknowledge", key=f"ack_{event.id}"):
-                        if len(note.strip()) < 5:
-                            st.warning("Please enter at least 5 characters.")
+                        if len(note.strip()) < MIN_ACK_NOTE_LENGTH:
+                            st.warning(f"Please enter at least {MIN_ACK_NOTE_LENGTH} characters.")
                         elif on_acknowledge:
                             on_acknowledge(str(event.id), note)
                             st.success("Acknowledged!")

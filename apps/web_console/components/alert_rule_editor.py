@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from decimal import Decimal
 from typing import Any
 
 import streamlit as st
@@ -55,11 +54,12 @@ def render_alert_rule_editor(
 
     if submitted:
         try:
+            rule_data: AlertRuleCreate | AlertRuleUpdate
             if rule:
                 rule_data = AlertRuleUpdate(
                     name=name,
                     condition_type=condition_type,
-                    threshold_value=Decimal(str(threshold_value)),
+                    threshold_value=threshold_value,
                     comparison=comparison,
                     channels=channels,
                     enabled=enabled,
@@ -68,7 +68,7 @@ def render_alert_rule_editor(
                 rule_data = AlertRuleCreate(
                     name=name,
                     condition_type=condition_type,
-                    threshold_value=Decimal(str(threshold_value)),
+                    threshold_value=threshold_value,
                     comparison=comparison,
                     channels=channels,
                     enabled=enabled,

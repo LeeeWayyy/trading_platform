@@ -109,11 +109,11 @@ async def _build_executor(
 
     async def schedule_retry(delay: int, next_attempt: int) -> None:
         await asyncio.to_thread(
-        queue.enqueue_in,
-        timedelta(seconds=delay),
-        execute_delivery_job,
-        delivery_id,
-        channel,
+            queue.enqueue_in,
+            timedelta(seconds=delay),
+            execute_delivery_job,
+            delivery_id,
+            channel,
             recipient,
             subject,
             body,

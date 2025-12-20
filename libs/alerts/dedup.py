@@ -43,7 +43,7 @@ def compute_recipient_hash(recipient: str, channel_type: str, hash_secret: str) 
 
 
 def compute_dedup_key(
-    alert_id: str,
+    rule_id: str,
     channel: str,
     recipient: str,
     triggered_at: datetime,
@@ -51,13 +51,16 @@ def compute_dedup_key(
 ) -> str:
     """Compute idempotent dedup key with hashed recipient.
 
+    Uses rule_id (not alert event id) so repeated triggers of the same rule
+    to the same recipient within the same hour coalesce via ON CONFLICT DO NOTHING.
+
     Security: Uses recipient_hash instead of raw recipient to prevent PII
     exposure in database. Per task doc PII requirement: 'never store raw PII'.
 
     Hour bucket derived from original trigger timestamp (not current time).
-    Format: {alert_id}:{channel}:{recipient_hash}:{hour_bucket}
+    Format: {rule_id}:{channel}:{recipient_hash}:{hour_bucket}
     """
 
     hour_bucket = triggered_at.replace(minute=0, second=0, microsecond=0).isoformat()
     recipient_hash = compute_recipient_hash(recipient, channel, hash_secret)
-    return f"{alert_id}:{channel}:{recipient_hash}:{hour_bucket}"
+    return f"{rule_id}:{channel}:{recipient_hash}:{hour_bucket}"

@@ -120,26 +120,9 @@ def _render_alert_rules_section(user: dict[str, Any], service: AlertConfigServic
 
 def _render_alert_history_section(user: dict[str, Any], service: AlertConfigService) -> None:
     st.subheader("Alert History")
-    # Placeholder: fetch recent events if available
     events: list[AlertEvent] = []
     try:
-        async def _fetch_events() -> list[AlertEvent]:
-            async with acquire_connection(service.db_pool) as conn:
-                cursor = await conn.execute(
-                    """
-                    SELECT id, rule_id, triggered_at, trigger_value, acknowledged_at,
-                           acknowledged_by, acknowledged_note, routed_channels, created_at
-                    FROM alert_events
-                    ORDER BY triggered_at DESC
-                    LIMIT 20
-                    """
-                )
-                rows = await cursor.fetchall()
-            return [AlertEvent(**row) for row in rows]
-
-        from apps.web_console.utils.db import acquire_connection
-
-        events = run_async(_fetch_events())
+        events = run_async(service.get_alert_events())
     except Exception as exc:  # pragma: no cover - fallback
         logger.warning("alert_history_fetch_failed", exc_info=exc)
         st.info("Alert history unavailable.")

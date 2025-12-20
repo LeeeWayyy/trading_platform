@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.utils.db import acquire_connection
-from libs.alerts.models import AlertRule, ChannelConfig
+from libs.alerts.models import AlertEvent, AlertRule, ChannelConfig
 from libs.alerts.pii import mask_for_logs
 from libs.alerts.poison_queue import _sanitize_error_for_log
 from libs.web_console_auth.permissions import Permission, has_permission
@@ -307,12 +307,27 @@ class AlertConfigService:
     async def add_channel(self, rule_id: str, channel: ChannelConfig, user: dict[str, Any]) -> None:
         """Add notification channel to rule.
 
+        Only one channel per type is allowed per rule. Adding a duplicate type raises ValueError.
         Emits: CHANNEL_ADDED audit event
         """
         if not has_permission(user, Permission.UPDATE_ALERT_RULE):
             raise PermissionError("Permission UPDATE_ALERT_RULE required")
 
         async with acquire_connection(self.db_pool) as conn:
+            # Check if channel type already exists (enforce uniqueness)
+            result = await conn.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM alert_rules, jsonb_array_elements(channels) AS elem
+                    WHERE id = %s AND elem ->> 'type' = %s
+                )
+                """,
+                (rule_id, channel.type.value),
+            )
+            if result:
+                raise ValueError(f"Channel type '{channel.type.value}' already exists for this rule")
+
             await conn.execute(
                 """
                 UPDATE alert_rules
@@ -335,6 +350,7 @@ class AlertConfigService:
     async def update_channel(self, rule_id: str, channel: ChannelConfig, user: dict[str, Any]) -> None:
         """Update notification channel configuration.
 
+        Assumes channel types are unique per rule (enforced by add_channel).
         Emits: CHANNEL_UPDATED audit event
         """
         if not has_permission(user, Permission.UPDATE_ALERT_RULE):
@@ -398,6 +414,29 @@ class AlertConfigService:
             resource_id=f"{rule_id}:{channel_type}",
             outcome="success",
         )
+
+    async def get_alert_events(self, limit: int = 20) -> list[AlertEvent]:
+        """Get recent alert events ordered by triggered_at.
+
+        Args:
+            limit: Maximum number of events to return
+
+        Returns:
+            List of AlertEvent objects
+        """
+        async with acquire_connection(self.db_pool) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id, rule_id, triggered_at, trigger_value, acknowledged_at,
+                       acknowledged_by, acknowledged_note, routed_channels, created_at
+                FROM alert_events
+                ORDER BY triggered_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+        return [AlertEvent(**row) for row in rows]
 
 
 __all__ = [

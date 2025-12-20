@@ -176,7 +176,7 @@ class AlertManager:
         deliveries: list[tuple[str, ChannelConfig]] = []
         for channel in rule_channels:
             dedup_key = compute_dedup_key(
-                str(alert_event.id),
+                str(alert_event.rule_id),
                 channel.type.value,
                 channel.recipient,
                 triggered_at,
