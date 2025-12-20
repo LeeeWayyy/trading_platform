@@ -29,7 +29,7 @@ def render_alert_history(
         [
             {
                 "Time": event.triggered_at.strftime("%Y-%m-%d %H:%M:%S"),
-                "Rule": event.rule_id,
+                "Rule": event.rule_name or str(event.rule_id),
                 "Value": str(event.trigger_value) if event.trigger_value is not None else "N/A",
                 "Channels": ", ".join(event.routed_channels),
                 "Acknowledged": "Yes" if event.acknowledged_at else "No",
@@ -46,7 +46,8 @@ def render_alert_history(
         if unacked:
             st.subheader("Pending Acknowledgments")
             for event in unacked[:5]:
-                with st.expander(f"Alert: {event.rule_id} at {event.triggered_at}"):
+                rule_label = event.rule_name or str(event.rule_id)
+                with st.expander(f"Alert: {rule_label} at {event.triggered_at}"):
                     note = st.text_area(
                         "Acknowledgment Note",
                         key=f"ack_note_{event.id}",

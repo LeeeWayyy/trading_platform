@@ -153,7 +153,7 @@ class AlertConfigService:
 
         update_dict = update.model_dump(exclude_unset=True)
         masked_changes = update_dict.copy()
-        if update.channels:
+        if update.channels is not None:
             masked_changes["channels"] = [
                 {
                     "type": channel.type.value,
@@ -396,11 +396,11 @@ class AlertConfigService:
             await conn.execute(
                 """
                 UPDATE alert_rules
-                SET channels = (
+                SET channels = COALESCE((
                     SELECT jsonb_agg(elem)
                     FROM jsonb_array_elements(channels) elem
                     WHERE elem ->> 'type' <> %s
-                ),
+                ), '[]'::jsonb),
                     updated_at = NOW()
                 WHERE id = %s
                 """,
@@ -427,10 +427,19 @@ class AlertConfigService:
         async with acquire_connection(self.db_pool) as conn:
             cursor = await conn.execute(
                 """
-                SELECT id, rule_id, triggered_at, trigger_value, acknowledged_at,
-                       acknowledged_by, acknowledged_note, routed_channels, created_at
-                FROM alert_events
-                ORDER BY triggered_at DESC
+                SELECT ae.id,
+                       ae.rule_id,
+                       ar.name AS rule_name,
+                       ae.triggered_at,
+                       ae.trigger_value,
+                       ae.acknowledged_at,
+                       ae.acknowledged_by,
+                       ae.acknowledged_note,
+                       ae.routed_channels,
+                       ae.created_at
+                FROM alert_events AS ae
+                LEFT JOIN alert_rules AS ar ON ar.id = ae.rule_id
+                ORDER BY ae.triggered_at DESC
                 LIMIT %s
                 """,
                 (limit,),

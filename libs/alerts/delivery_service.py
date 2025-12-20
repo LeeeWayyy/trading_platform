@@ -488,7 +488,9 @@ class DeliveryExecutor:
             persistence_succeeded = True
             return last_result
         finally:
-            if claimed and queue_slot_reserved and (handoff_to_scheduler or persistence_succeeded):
+            # Do not decrement queue depth when handing off to retry scheduler;
+            # the delivery is still pending and will not re-increment on re-enqueue.
+            if claimed and queue_slot_reserved and persistence_succeeded and not handoff_to_scheduler:
                 await self.queue_depth_manager.decrement()
 
     def _delay_for_attempt(self, attempt_index: int) -> int:

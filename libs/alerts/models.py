@@ -56,6 +56,7 @@ class AlertEvent(BaseModel):
 
     id: UUID
     rule_id: UUID
+    rule_name: str | None = None
     triggered_at: datetime
     trigger_value: Decimal | None = None
     acknowledged_at: datetime | None = None
