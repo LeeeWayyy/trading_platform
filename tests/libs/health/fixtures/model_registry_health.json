@@ -1,0 +1,6 @@
+{
+  "status": "healthy",
+  "service": "model_registry",
+  "timestamp": "2025-12-19T00:00:00Z",
+  "version": "1.2.3"
+}

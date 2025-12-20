@@ -1,0 +1,8 @@
+{
+  "status": "healthy",
+  "service": "reconciler",
+  "timestamp": "2025-12-19T00:00:00Z",
+  "database_connected": true,
+  "broker_sync_status": "ok",
+  "last_reconciliation_at": "2025-12-19T00:00:00Z"
+}

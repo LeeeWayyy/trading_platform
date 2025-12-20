@@ -1,0 +1,210 @@
+"""Health monitor service for web console.
+
+Aggregates service health, infrastructure connectivity, and latency metrics
+for the System Health Monitor page. Queue depth is deferred to C2.1.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import redis
+from pydantic import BaseModel, ConfigDict
+
+from libs.health.health_client import HealthClient, ServiceHealthResponse
+from libs.health.prometheus_client import LatencyMetrics, PrometheusClient
+from libs.redis_client import RedisClient
+
+logger = logging.getLogger(__name__)
+
+
+class ConnectivityStatus(BaseModel):
+    """Connectivity status for infrastructure components."""
+
+    model_config = ConfigDict(extra="allow")  # Forward compatibility
+
+    redis_connected: bool
+    redis_info: dict[str, Any] | None
+    redis_error: str | None = None
+    postgres_connected: bool
+    postgres_latency_ms: float | None
+    postgres_error: str | None = None
+    checked_at: datetime
+    # Staleness tracking
+    is_stale: bool = False
+    stale_age_seconds: float | None = None
+
+
+class HealthMonitorService:
+    """Service for aggregating health data from all sources."""
+
+    def __init__(
+        self,
+        health_client: HealthClient,
+        prometheus_client: PrometheusClient,
+        redis_client: RedisClient,
+        db_pool: Any = None,
+        connectivity_cache_ttl_seconds: int = 30,
+    ) -> None:
+        self.health = health_client
+        self.prometheus = prometheus_client
+        self.redis = redis_client
+        self.db_pool = db_pool
+        self._connectivity_cache: tuple[ConnectivityStatus, datetime] | None = None
+        self._connectivity_cache_ttl = timedelta(seconds=connectivity_cache_ttl_seconds)
+
+    async def get_all_services_status(self) -> dict[str, ServiceHealthResponse]:
+        """Get health status for all services."""
+
+        return await self.health.check_all()
+
+    async def get_connectivity(self) -> ConnectivityStatus:
+        """Check Redis and Postgres connectivity with caching and staleness."""
+
+        now = datetime.now(UTC)
+
+        def _redact_redis_info(info: dict[str, Any]) -> dict[str, Any]:
+            """Redact sensitive fields from Redis INFO output.
+
+            Removes auth credentials, config paths, and topology/replication
+            details to avoid leaking infrastructure details to console viewers.
+            """
+            sensitive_fields = {
+                # Auth/config
+                "requirepass",
+                "masterauth",
+                "client_info",
+                "config_file",
+                "aclfile",
+                "logfile",
+                "pidfile",
+                # Replication/topology (avoid leaking infra details)
+                "slave0",
+                "slave1",
+                "slave2",
+                "role",
+                "connected_slaves",
+                "master_replid",
+                "master_replid2",
+                "master_repl_offset",
+                "second_repl_offset",
+                "repl_backlog_active",
+                "repl_backlog_size",
+            }
+            # Also filter master_* and cluster_* prefixes
+            return {
+                k: v
+                for k, v in info.items()
+                if k.lower() not in sensitive_fields
+                and not k.startswith("master")
+                and not k.startswith("cluster")
+            }
+
+        def _check_redis() -> tuple[bool, dict[str, Any] | None, str | None]:
+            try:
+                connected = self.redis.health_check()
+                info = self.redis.get_info() if connected else None
+                if info:
+                    info = _redact_redis_info(info)
+                return connected, info, None
+            except (redis.RedisError, ConnectionError, TimeoutError) as exc:
+                return False, None, str(exc)
+
+        def _check_postgres() -> tuple[bool, float | None, str | None]:
+            if not self.db_pool:
+                return False, None, "No database pool configured"
+            start = datetime.now(UTC)
+            try:
+                with self.db_pool.connection(timeout=2.0) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                        cur.fetchone()
+                latency_ms = (datetime.now(UTC) - start).total_seconds() * 1000
+                return True, latency_ms, None
+            except Exception as exc:
+                # Broad exception handling to catch all DB errors (psycopg, pg8000, etc.)
+                # and let the stale-cache path execute instead of blanking the panel
+                logger.warning("Postgres health check failed: %s", exc)
+                return False, None, str(exc)
+
+        try:
+            # Use get_running_loop() (not deprecated get_event_loop())
+            # Use default executor (None) to avoid ThreadPool churn
+            loop = asyncio.get_running_loop()
+            redis_future = loop.run_in_executor(None, _check_redis)
+            postgres_future = loop.run_in_executor(None, _check_postgres)
+
+            redis_connected, redis_info, redis_error = await asyncio.wait_for(
+                redis_future, timeout=5.0
+            )
+            (
+                postgres_connected,
+                postgres_latency_ms,
+                postgres_error,
+            ) = await asyncio.wait_for(postgres_future, timeout=5.0)
+
+            result = ConnectivityStatus(
+                redis_connected=redis_connected,
+                redis_info=redis_info,
+                redis_error=redis_error,
+                postgres_connected=postgres_connected,
+                postgres_latency_ms=postgres_latency_ms,
+                postgres_error=postgres_error,
+                checked_at=now,
+            )
+            self._connectivity_cache = (result, now)
+            return result
+
+        except (TimeoutError, FuturesTimeoutError) as exc:
+            logger.warning("Connectivity check timed out, using cache: %s", exc)
+        except redis.RedisError as exc:
+            logger.warning("Redis check failed, using cache: %s", exc)
+        except (ConnectionError, OSError) as exc:
+            logger.warning("Connectivity check failed, using cache: %s", exc)
+
+        if self._connectivity_cache:
+            cached, cached_at = self._connectivity_cache
+            stale_age = (now - cached_at).total_seconds()
+            if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
+                return ConnectivityStatus(
+                    redis_connected=cached.redis_connected,
+                    redis_info=cached.redis_info,
+                    redis_error=cached.redis_error,
+                    postgres_connected=cached.postgres_connected,
+                    postgres_latency_ms=cached.postgres_latency_ms,
+                    postgres_error=cached.postgres_error,
+                    checked_at=cached.checked_at,
+                    is_stale=True,
+                    stale_age_seconds=stale_age,
+                )
+
+        return ConnectivityStatus(
+            redis_connected=False,
+            redis_info=None,
+            redis_error="Check failed",
+            postgres_connected=False,
+            postgres_latency_ms=None,
+            postgres_error="Check failed",
+            checked_at=now,
+        )
+
+    async def get_latency_metrics(self) -> tuple[dict[str, LatencyMetrics], bool, float | None]:
+        """Get latency metrics from Prometheus with staleness tracking."""
+
+        return await self.prometheus.get_service_latencies()
+
+    async def close(self) -> None:
+        """Close all HTTP clients to release resources.
+
+        Should be called after each fetch cycle to prevent event loop
+        lifecycle issues with Streamlit's asyncio.run() pattern.
+        """
+        await self.health.close()
+        await self.prometheus.close()
+
+
+__all__ = ["ConnectivityStatus", "HealthMonitorService"]

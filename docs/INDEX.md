@@ -421,6 +421,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-18, Task] [P4T5_TASK.md](./TASKS/P4T5_TASK.md) - P4T5: Track 7 Web Console Operations (Circuit Breaker, Health Monitor, Alerts, Admin)
 - [CURRENT, 2025-12-18, Plan] [P4T5_C0_PLAN.md](./TASKS/P4T5_C0_PLAN.md) - P4T5 C0: Prep & Validation component plan (auth stub, governance tests, ADR-0029)
 - [CURRENT, 2025-12-18, Plan] [P4T5_C1_PLAN.md](./TASKS/P4T5_C1_PLAN.md) - P4T5 C1: Circuit Breaker Dashboard implementation plan (service, metrics, RBAC, UI)
+- [CURRENT, 2025-12-19, Plan] [P4T5_C2_PLAN.md](./TASKS/P4T5_C2_PLAN.md) - P4T5 C2: System Health Monitor implementation plan (service grid, latency, connectivity)
 - [CURRENT, 2025-12-03, Component] [PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 - [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
