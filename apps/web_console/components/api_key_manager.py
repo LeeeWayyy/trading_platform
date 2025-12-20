@@ -24,6 +24,12 @@ _REVOKE_STATE_KEY = "api_key_revoke_target"
 _ROTATE_STATE_KEY = "api_key_rotate_target"
 _PENDING_REVOKE_KEY = "api_key_pending_revocations"
 
+# Validation constants
+_MIN_REVOCATION_REASON_LENGTH = 20
+
+# Timeout constants
+_DB_OPERATION_TIMEOUT_SECONDS = 10.0
+
 
 def render_api_key_manager(
     user: AuthenticatedUser,
@@ -207,7 +213,7 @@ def _render_revoke_dialog(
 
     with st.form("revoke_form"):
         reason = st.text_area(
-            "Reason for revocation (min 20 chars)",
+            f"Reason for revocation (min {_MIN_REVOCATION_REASON_LENGTH} chars)",
             height=80,
         )
         submitted_csrf = st.text_input(
@@ -225,8 +231,8 @@ def _render_revoke_dialog(
             st.error("Invalid session. Refresh and try again.")
             return
 
-        if len(reason.strip()) < 20:
-            st.error("Reason must be at least 20 characters.")
+        if len(reason.strip()) < _MIN_REVOCATION_REASON_LENGTH:
+            st.error(f"Reason must be at least {_MIN_REVOCATION_REASON_LENGTH} characters.")
             return
 
         success = _revoke_key_sync(
@@ -289,7 +295,7 @@ def _render_rotate_dialog(
             st.error("Invalid session. Refresh and try again.")
             return
 
-        rotated_name = f"{target['name']}_rotated_{datetime.now(UTC).strftime('%Y%m%d')}"
+        rotated_name = f"{target['name']}_rotated_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         expires_at = _coerce_datetime(target.get("expires_at"))
         new_key = _create_key_sync(
             db_pool=db_pool,
@@ -476,7 +482,7 @@ def _list_keys_sync(db_pool: Any, user_id: str) -> list[dict[str, Any]]:
                 )
         return normalized
 
-    return run_async(_list(), timeout=10.0) or []
+    return run_async(_list(), timeout=_DB_OPERATION_TIMEOUT_SECONDS) or []
 
 
 def _revoke_key_sync(
@@ -506,7 +512,7 @@ def _revoke_key_sync(
                 )
         return True
 
-    result = run_async(_revoke(), timeout=10.0)
+    result = run_async(_revoke(), timeout=_DB_OPERATION_TIMEOUT_SECONDS)
     return bool(result)
 
 

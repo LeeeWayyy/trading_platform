@@ -20,6 +20,12 @@ from libs.web_console_auth.permissions import Permission, has_permission
 PAGE_SIZE = 50
 MAX_EXPORT_RECORDS = 10000  # Limit CSV export to prevent memory issues
 _PAGE_STATE_KEY = "audit_log_page"
+_EXPORT_CACHE_KEY = "audit_log_export_cache"
+_EXPORT_FILTERS_KEY = "audit_log_export_filters"
+
+# Timeout constants
+_FETCH_TIMEOUT_SECONDS = 10.0
+_EXPORT_TIMEOUT_SECONDS = 30.0
 
 _AUDIT_QUERY = """
 SELECT
@@ -70,6 +76,13 @@ class AuditFilters:
     start_at: datetime | None
     end_at: datetime | None
 
+    def cache_key(self) -> str:
+        """Generate a cache key from filter values."""
+        return (
+            f"{self.user_id}|{self.action}|{self.event_type}|"
+            f"{self.outcome}|{self.start_at}|{self.end_at}"
+        )
+
 
 def render_audit_log_viewer(user: AuthenticatedUser, db_pool: Any) -> None:
     """Render the audit log viewer with filters, pagination, and export."""
@@ -90,7 +103,7 @@ def render_audit_log_viewer(user: AuthenticatedUser, db_pool: Any) -> None:
 
     logs, total = run_async(
         _fetch_audit_logs(db_pool=db_pool, filters=filters, limit=PAGE_SIZE, offset=offset),
-        timeout=10.0,
+        timeout=_FETCH_TIMEOUT_SECONDS,
     )
 
     st.caption(f"Showing {len(logs)} of {total} records (page {page + 1})")
@@ -102,13 +115,26 @@ def render_audit_log_viewer(user: AuthenticatedUser, db_pool: Any) -> None:
         st.session_state[_PAGE_STATE_KEY] = new_page
 
     if total > 0:
-        # Fetch all matching records for export (up to MAX_EXPORT_RECORDS)
-        all_logs, _ = run_async(
-            _fetch_audit_logs(db_pool=db_pool, filters=filters, limit=MAX_EXPORT_RECORDS, offset=0),
-            timeout=30.0,
-        )
-        csv_data = _build_csv(all_logs)
-        export_count = len(all_logs)
+        # Lazy export: only fetch when filters change (cache by filter key)
+        current_filter_key = filters.cache_key()
+        cached_filter_key = st.session_state.get(_EXPORT_FILTERS_KEY)
+
+        if cached_filter_key != current_filter_key:
+            # Filters changed - fetch fresh export data
+            all_logs, _ = run_async(
+                _fetch_audit_logs(
+                    db_pool=db_pool, filters=filters, limit=MAX_EXPORT_RECORDS, offset=0
+                ),
+                timeout=_EXPORT_TIMEOUT_SECONDS,
+            )
+            csv_data = _build_csv(all_logs)
+            st.session_state[_EXPORT_CACHE_KEY] = (csv_data, len(all_logs))
+            st.session_state[_EXPORT_FILTERS_KEY] = current_filter_key
+        else:
+            # Use cached export data
+            csv_data, _ = st.session_state.get(_EXPORT_CACHE_KEY, (b"", 0))
+
+        _, export_count = st.session_state.get(_EXPORT_CACHE_KEY, (b"", 0))
         label = f"Download CSV ({export_count} records)"
         if export_count >= MAX_EXPORT_RECORDS:
             label = f"Download CSV ({export_count}+ records, limited)"

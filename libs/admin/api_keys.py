@@ -50,13 +50,9 @@ def generate_api_key() -> tuple[str, str, str]:
         prefix: tp_live_{first8chars of base64url}
         salt: 16 random bytes, hex encoded (32 chars)
     """
-
-    while True:
-        full_key = _generate_base64_key()
-        prefix = f"tp_live_{full_key[:8]}"
-        if KEY_PREFIX_PATTERN.match(prefix):
-            break
-
+    # base64url only produces [A-Za-z0-9_-], which KEY_PREFIX_PATTERN accepts
+    full_key = _generate_base64_key()
+    prefix = f"tp_live_{full_key[:8]}"
     salt = secrets.token_bytes(16).hex()
     return full_key, prefix, salt
 

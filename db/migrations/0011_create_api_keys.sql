@@ -17,10 +17,10 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_last_active ON user_roles(last_active_
 CREATE TABLE IF NOT EXISTS api_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    key_hash VARCHAR(255) NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    key_hash VARCHAR(64) NOT NULL,
     key_salt VARCHAR(64) NOT NULL,
-    key_prefix VARCHAR(20) NOT NULL,
+    key_prefix VARCHAR(16) NOT NULL,
     scopes JSONB NOT NULL DEFAULT '[]',
     expires_at TIMESTAMPTZ,
     last_used_at TIMESTAMPTZ,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     CONSTRAINT fk_api_keys_user FOREIGN KEY (user_id)
         REFERENCES user_roles(user_id) ON DELETE CASCADE,
     CONSTRAINT uq_api_keys_prefix UNIQUE (key_prefix),
-    CONSTRAINT chk_key_prefix_format CHECK (key_prefix ~ '^tp_live_[a-zA-Z0-9]{8}$')
+    CONSTRAINT chk_key_prefix_format CHECK (key_prefix ~ '^tp_live_[a-zA-Z0-9_-]{8}$')
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);

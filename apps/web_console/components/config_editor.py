@@ -142,18 +142,12 @@ async def save_config(
     audit_logger: AuditLogger,
     redis_client: Any,
 ) -> bool:
-    """Save config with cache invalidation, DB upsert, and audit logging."""
+    """Save config with DB upsert, cache invalidation, and audit logging."""
 
     cache_key = f"system_config:{config_key}"
-
-    if redis_client:
-        try:
-            await redis_client.delete(cache_key)
-        except RedisError:
-            logger.warning("config_cache_delete_failed", extra={"config_key": config_key})
-
     payload = config_value.model_dump(mode="json")
 
+    # Write to DB first, then invalidate cache on success
     try:
         async with acquire_connection(db_pool) as conn:
             await conn.execute(
@@ -170,6 +164,13 @@ async def save_config(
     except DatabaseError as exc:  # pragma: no cover - defensive logging
         logger.exception("config_save_failed", extra={"config_key": config_key, "error": str(exc)})
         return False
+
+    # Invalidate cache after successful DB write
+    if redis_client:
+        try:
+            await redis_client.delete(cache_key)
+        except RedisError:
+            logger.warning("config_cache_delete_failed", extra={"config_key": config_key})
 
     try:
         await audit_logger.log_action(
