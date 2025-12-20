@@ -40,6 +40,8 @@ class Permission(str, Enum):
     VIEW_ALL_STRATEGIES = "view_all_strategies"
     VIEW_AUDIT = "view_audit"  # [v1.5] Audit log access
     EXPORT_DATA = "export_data"
+    MANAGE_API_KEYS = "manage_api_keys"  # [v2.0] API key lifecycle operations
+    MANAGE_SYSTEM_CONFIG = "manage_system_config"  # [v2.0] System config editing
 
     # Circuit Breaker permissions (T7.1)
     VIEW_CIRCUIT_BREAKER = "view_circuit_breaker"

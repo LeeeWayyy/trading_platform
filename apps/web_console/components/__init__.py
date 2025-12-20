@@ -1,6 +1,15 @@
 """UI components for web console."""
 
+from .audit_log_viewer import render_audit_log_viewer
 from .bulk_operations import render_bulk_role_change, render_bulk_strategy_operations
+from .config_editor import (
+    PositionLimitsConfig,
+    SystemDefaultsConfig,
+    TradingHoursConfig,
+    get_config,
+    render_config_editor,
+    save_config,
+)
 from .csrf_protection import (
     CSRF_TOKEN_KEY,
     generate_csrf_token,
@@ -51,4 +60,11 @@ __all__ = [
     "render_factor_waterfall",
     "SCENARIO_DISPLAY_ORDER",
     "SCENARIO_INFO",
+    "render_config_editor",
+    "TradingHoursConfig",
+    "PositionLimitsConfig",
+    "SystemDefaultsConfig",
+    "get_config",
+    "save_config",
+    "render_audit_log_viewer",
 ]
