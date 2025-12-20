@@ -122,10 +122,10 @@ Before implementation, verify each service's /health endpoint returns the expect
 |---------|----------------|---------------------|-------------------|
 | signal_service | `last_signal_generated_at` | `curl localhost:8001/health \| jq .last_signal_generated_at` | Use `timestamp` fallback |
 | execution_gateway | `last_order_at` | `curl localhost:8002/health \| jq .last_order_at` | Use `timestamp` fallback |
-| orchestrator | `last_orchestration_at` | `curl localhost:8000/health \| jq .last_orchestration_at` | Use `timestamp` fallback |
-| market_data_service | `last_message_at` | `curl localhost:8003/health \| jq .last_message_at` | Use `timestamp` fallback |
-| reconciler | `last_reconciliation_at` | `curl localhost:8005/health \| jq .last_reconciliation_at` | Use `timestamp` fallback |
-| risk_manager | `last_risk_check_at` | `curl localhost:8006/health \| jq .last_risk_check_at` | Use `timestamp` fallback |
+| orchestrator | `last_orchestration_at` | `curl localhost:8003/health \| jq .last_orchestration_at` | Use `timestamp` fallback |
+| market_data_service | `last_message_at` | `curl localhost:8004/health \| jq .last_message_at` | Use `timestamp` fallback |
+| reconciler | `last_reconciliation_at` | `curl localhost:8006/health \| jq .last_reconciliation_at` | Use `timestamp` fallback |
+| risk_manager | `last_risk_check_at` | `curl localhost:8007/health \| jq .last_risk_check_at` | Use `timestamp` fallback |
 
 **Fallback Strategy:** If primary field is missing, the implementation gracefully falls back to `timestamp` field which ALL services provide. No service changes required for C2 to ship.
 
@@ -1324,15 +1324,16 @@ FEATURE_HEALTH_MONITOR = os.getenv("FEATURE_HEALTH_MONITOR", "true").lower() == 
 
 # Service URLs for health checks - ALL 8 SERVICES REQUIRED FOR AC
 # These must match the services listed in Acceptance Criteria
+# Ports match actual service defaults from their main.py/config.py files
 SERVICE_URLS: dict[str, str] = {
-    "orchestrator": os.getenv("ORCHESTRATOR_URL", "http://localhost:8000"),
+    "orchestrator": os.getenv("ORCHESTRATOR_URL", "http://localhost:8003"),
     "signal_service": os.getenv("SIGNAL_SERVICE_URL", "http://localhost:8001"),
     "execution_gateway": os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002"),
-    "market_data_service": os.getenv("MARKET_DATA_SERVICE_URL", "http://localhost:8003"),
-    "model_registry": os.getenv("MODEL_REGISTRY_URL", "http://localhost:8004"),
-    "reconciler": os.getenv("RECONCILER_URL", "http://localhost:8005"),
-    "risk_manager": os.getenv("RISK_MANAGER_URL", "http://localhost:8006"),
-    "web_console": os.getenv("WEB_CONSOLE_URL", "http://localhost:8501"),  # Self-check
+    "market_data_service": os.getenv("MARKET_DATA_SERVICE_URL", "http://localhost:8004"),
+    "model_registry": os.getenv("MODEL_REGISTRY_URL", "http://localhost:8005"),
+    "reconciler": os.getenv("RECONCILER_URL", "http://localhost:8006"),
+    "risk_manager": os.getenv("RISK_MANAGER_URL", "http://localhost:8007"),
+    # Note: web_console excluded - Streamlit doesn't expose /health endpoint
 }
 
 # Validate all required services are configured at startup
@@ -1579,14 +1580,15 @@ httpx = ">=0.25.0"  # Already present for other services
 import os
 
 # Service URLs per environment (validated at startup)
+# Ports match actual service defaults from their main.py/config.py files
 SERVICE_URLS: dict[str, str] = {
-    "orchestrator": os.environ.get("ORCHESTRATOR_URL", "http://localhost:8000"),
+    "orchestrator": os.environ.get("ORCHESTRATOR_URL", "http://localhost:8003"),
     "signal_service": os.environ.get("SIGNAL_SERVICE_URL", "http://localhost:8001"),
     "execution_gateway": os.environ.get("EXECUTION_GATEWAY_URL", "http://localhost:8002"),
-    "market_data_service": os.environ.get("MARKET_DATA_SERVICE_URL", "http://localhost:8003"),
-    "model_registry": os.environ.get("MODEL_REGISTRY_URL", "http://localhost:8004"),
-    "reconciler": os.environ.get("RECONCILER_URL", "http://localhost:8005"),
-    "risk_manager": os.environ.get("RISK_MANAGER_URL", "http://localhost:8006"),
+    "market_data_service": os.environ.get("MARKET_DATA_SERVICE_URL", "http://localhost:8004"),
+    "model_registry": os.environ.get("MODEL_REGISTRY_URL", "http://localhost:8005"),
+    "reconciler": os.environ.get("RECONCILER_URL", "http://localhost:8006"),
+    "risk_manager": os.environ.get("RISK_MANAGER_URL", "http://localhost:8007"),
 }
 
 def validate_service_urls() -> None:
