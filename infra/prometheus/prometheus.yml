@@ -21,6 +21,8 @@ global:
 # Load alert rules
 rule_files:
   - 'alerts.yml'
+  - 'alerts/alert_delivery.yml'
+  - 'alerts/oauth2.yml'
 
 # Alertmanager configuration (optional, for production)
 # alerting:

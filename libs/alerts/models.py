@@ -22,6 +22,7 @@ class DeliveryStatus(str, Enum):
     """Status lifecycle for alert deliveries."""
 
     PENDING = "pending"
+    IN_PROGRESS = "in_progress"  # Claimed by worker, prevents duplicate processing
     DELIVERED = "delivered"
     FAILED = "failed"
     POISON = "poison"

@@ -676,96 +676,190 @@ def test_all_channels_log_only_masked_recipients():
 - `libs/alerts/delivery_service.py`
 - `libs/alerts/poison_queue.py`
 
-**Delivery Service Pattern:**
+**Architecture (Revised per plan review):**
+The delivery system is split into two layers:
+1. **Submission Layer** (AlertManager in C3.5): Checks queue depth, returns HTTP 503, enqueues to RQ
+2. **Execution Layer** (DeliveryExecutor): Runs in RQ worker, handles delivery, retries
+
+**Storage Backends:**
+- **Queue Depth**: Redis INCR/DECR on key `alert:queue:depth` (atomic counters)
+- **Dedup Store**: Postgres `alert_deliveries.dedup_key` with UNIQUE constraint
+- **Poison Queue**: Postgres `alert_deliveries` with `status='poison'` and `poison_*` columns
+
+**Error Taxonomy (Transient vs Permanent):**
+```python
+# Transient errors (retry): Network timeouts, 429, 5xx, connection errors
+# Permanent errors (no retry, poison queue): 4xx (except 429), auth errors, invalid recipient
+
+def is_transient_error(result: DeliveryResult) -> bool:
+    """Determine if error is transient (should retry)."""
+    if result.success:
+        return False
+    return result.retryable  # Channel handlers set this correctly
+```
+
+**Delivery Executor Pattern:**
 ```python
 # libs/alerts/delivery_service.py
-class AlertDeliveryService:
-    """Multi-channel delivery with idempotency and retry."""
+class DeliveryExecutor:
+    """Execution layer: runs in RQ worker, handles delivery with retry."""
 
-    RETRY_DELAYS = [1, 2, 4]  # seconds, exponential backoff
+    # Retry timing: attempt 0 immediate, then delays for attempts 1, 2
+    RETRY_DELAYS = [1, 2, 4]  # seconds between retries
     MAX_ATTEMPTS = 3
-    MAX_QUEUE_DEPTH = 10000
-    QUEUE_RESUME_THRESHOLD = 8000
-    RETRY_AFTER_SECONDS = 60  # Per task spec
+    LONG_RETRY_THRESHOLD = 5  # Re-enqueue if Retry-After > 5s
 
-    async def deliver(
+    async def execute(
         self,
-        alert_id: str,
+        delivery_id: str,
         channel: ChannelType,
         recipient: str,
         subject: str,
         body: str,
-        triggered_at: datetime,
+        attempt: int = 0,
     ) -> DeliveryResult:
-        """Deliver with idempotency, rate limiting, and retry."""
-        # 1. Check queue depth
-        #    - If > MAX_QUEUE_DEPTH: reject with HTTP 503 + Retry-After: 60 header
-        #    - Increment alert_queue_full_total metric
-        # 2. Compute dedup key
-        # 3. Check if already delivered (idempotency)
-        # 4. Check rate limits (per-channel, per-recipient, global)
-        # 5. Attempt delivery with retry (max 3 attempts)
-        # 6. Update delivery status
-        # 7. Move to poison queue after MAX_ATTEMPTS failures
-        #    - Increment alert_poison_queue_size metric
-        pass
+        """Execute delivery with immediate attempt + retry backoff.
 
-    async def get_queue_depth(self) -> int:
-        """Get current pending delivery count."""
-        pass
-
-    async def is_accepting_deliveries(self) -> bool:
-        """Return True if queue depth < MAX_QUEUE_DEPTH.
-
-        Resume accepting when backlog < QUEUE_RESUME_THRESHOLD (8000).
+        Attempt 0: Immediate
+        Attempt 1: After RETRY_DELAYS[0] = 1s
+        Attempt 2: After RETRY_DELAYS[1] = 2s
+        After MAX_ATTEMPTS: Move to poison queue
         """
+        # 1. Check if already delivered (idempotency via Postgres)
+        # 2. Check rate limits (per-channel, per-recipient, global)
+        # 3. Call channel handler
+        # 4. On transient failure:
+        #    - If Retry-After > LONG_RETRY_THRESHOLD: re-enqueue with RQ delay
+        #    - Else: in-memory sleep + retry (short delays only)
+        # 5. On permanent failure or max attempts: move to poison queue
+        # 6. Decrement queue depth counter on completion
         pass
 
-    async def process_retry_queue(self) -> int:
-        """Process pending retries. Returns count processed."""
-        pass
+    def _should_reenqueue(self, result: DeliveryResult) -> tuple[bool, int]:
+        """Check if should re-enqueue with RQ delay instead of in-memory retry.
+
+        Returns (should_reenqueue, delay_seconds).
+        """
+        retry_after = result.metadata.get("retry_after")
+        if retry_after and int(retry_after) > self.LONG_RETRY_THRESHOLD:
+            return True, int(retry_after)
+        return False, 0
+
+class QueueDepthManager:
+    """Manage queue depth with Redis atomic counters."""
+
+    MAX_QUEUE_DEPTH = 10000
+    QUEUE_RESUME_THRESHOLD = 8000
+    REDIS_KEY = "alert:queue:depth"
+
+    def __init__(self, redis: Redis):
+        self.redis = redis
+        self._accepting = True  # Hysteresis state
+
+    async def increment(self) -> int:
+        """Increment queue depth atomically. Returns new depth."""
+        return await self.redis.incr(self.REDIS_KEY)
+
+    async def decrement(self) -> int:
+        """Decrement queue depth atomically. Returns new depth."""
+        return await self.redis.decr(self.REDIS_KEY)
+
+    async def get_depth(self) -> int:
+        """Get current queue depth."""
+        val = await self.redis.get(self.REDIS_KEY)
+        return int(val) if val else 0
+
+    async def is_accepting(self) -> bool:
+        """Check if accepting new deliveries (with hysteresis)."""
+        depth = await self.get_depth()
+        if self._accepting and depth >= self.MAX_QUEUE_DEPTH:
+            self._accepting = False
+        elif not self._accepting and depth < self.QUEUE_RESUME_THRESHOLD:
+            self._accepting = True
+        return self._accepting
 
 class QueueFullError(Exception):
-    """Raised when delivery queue is full."""
+    """Raised by submission layer when queue is full."""
 
     def __init__(self, retry_after: int = 60):
         self.retry_after = retry_after
         super().__init__(f"Queue full. Retry after {retry_after}s")
 ```
 
-**HTTP 503 Response (for FastAPI endpoint):**
+**HTTP 503 Response (in AlertManager/API layer, NOT worker):**
 ```python
+# In apps/alert_worker/api.py or libs/alerts/alert_manager.py
 from fastapi.responses import JSONResponse
 
-async def enqueue_delivery(request: DeliveryRequest):
-    try:
-        result = await service.deliver(...)
-        return result
-    except QueueFullError as e:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Queue full", "retry_after": e.retry_after},
-            headers={"Retry-After": str(e.retry_after)},
-        )
+async def submit_alert(request: AlertRequest):
+    """Submission layer: check queue depth BEFORE enqueuing."""
+    # 1. Check queue depth
+    if not await queue_manager.is_accepting():
+        raise QueueFullError(retry_after=60)
+
+    # 2. Increment queue depth atomically
+    await queue_manager.increment()
+
+    # 3. Enqueue to RQ (async background processing)
+    job = queue.enqueue(execute_delivery_job, ...)
+
+    return {"job_id": job.id, "status": "queued"}
 ```
 
-**Poison Queue:**
+**Retry Queue Processing (called by APScheduler in C3.5):**
+```python
+class RetryProcessor:
+    """Process pending retries with distributed lock."""
+
+    LOCK_KEY = "alert:retry:lock"
+    LOCK_TTL = 300  # 5 minutes
+
+    async def process_pending(self, limit: int = 100) -> int:
+        """Process pending retries. Called by APScheduler every minute.
+
+        Uses Redis distributed lock to prevent parallel workers
+        from double-processing the same retry batch.
+        """
+        # Acquire distributed lock (SETNX pattern)
+        acquired = await self.redis.set(
+            self.LOCK_KEY, "1", nx=True, ex=self.LOCK_TTL
+        )
+        if not acquired:
+            return 0  # Another worker is processing
+
+        try:
+            # Fetch failed deliveries ready for retry
+            pending = await self._get_pending_retries(limit)
+            processed = 0
+            for delivery in pending:
+                # Re-enqueue to RQ
+                queue.enqueue(execute_delivery_job, delivery.id, delivery.attempt + 1)
+                processed += 1
+            return processed
+        finally:
+            await self.redis.delete(self.LOCK_KEY)
+```
+
+**Poison Queue (Postgres-backed):**
 ```python
 # libs/alerts/poison_queue.py
 class PoisonQueue:
-    """Handle failed deliveries for manual review."""
+    """Handle failed deliveries stored in Postgres alert_deliveries table."""
 
-    async def add(self, delivery: AlertDelivery, error: str) -> None:
-        """Add failed delivery to poison queue."""
+    async def add(self, delivery_id: str, error: str) -> None:
+        """Mark delivery as poisoned in Postgres."""
+        # UPDATE alert_deliveries SET status='poison', poison_reason=error
         # Increment alert_poison_queue_size metric
         pass
 
     async def get_pending(self, limit: int = 100) -> list[AlertDelivery]:
-        """Get pending poison queue items."""
+        """Get unresolved poison queue items from Postgres."""
+        # SELECT * FROM alert_deliveries WHERE status='poison' AND poison_resolved_at IS NULL
         pass
 
     async def resolve(self, delivery_id: str, resolution: str) -> None:
         """Mark poison queue item as resolved."""
+        # UPDATE alert_deliveries SET poison_resolved_at=now(), poison_resolution=resolution
         pass
 ```
 

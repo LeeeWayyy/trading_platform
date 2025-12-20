@@ -9,7 +9,7 @@ import httpx
 
 from libs.alerts.channels.base import BaseChannel
 from libs.alerts.models import DeliveryResult
-from libs.alerts.pii import mask_recipient
+from libs.alerts.pii import mask_recipient, mask_webhook
 from libs.secrets import SecretManager, create_secret_manager
 
 logger = logging.getLogger(__name__)
@@ -55,11 +55,17 @@ class SlackChannel(BaseChannel):
             logger.error("slack_timeout", extra={"recipient": masked})
             return DeliveryResult(success=False, error="timeout", retryable=True)
         except httpx.RequestError as exc:
+            raw_error = str(exc)
+            safe_error = (
+                raw_error.replace(webhook_url, mask_webhook(webhook_url))
+                if webhook_url
+                else raw_error
+            )
             logger.error(
                 "slack_connection_error",
-                extra={"recipient": masked, "error": str(exc)},
+                extra={"recipient": masked, "error": safe_error},
             )
-            return DeliveryResult(success=False, error=str(exc), retryable=True)
+            return DeliveryResult(success=False, error=safe_error, retryable=True)
 
         metadata_out: dict[str, str] = {}
         retry_after = response.headers.get("retry-after")
