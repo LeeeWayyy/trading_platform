@@ -70,6 +70,34 @@ class PrometheusClient:
         # Shared client for connection reuse (created lazily)
         self._client: httpx.AsyncClient | None = None
 
+    def _get_stale_latencies_or_none(
+        self,
+        cache_key: str,
+        now: datetime,
+    ) -> tuple[dict[str, LatencyMetrics], bool, float] | None:
+        """Return stale cached latencies if available, else None.
+
+        Used for graceful degradation when Prometheus queries fail.
+
+        Returns:
+            Tuple of (stale_results, is_stale=True, stale_age) or None if no cache.
+        """
+        if cache_key not in self._cache:
+            return None
+        cached_result, cached_at = self._cache[cache_key]
+        stale_age = (now - cached_at).total_seconds()
+        stale_results = {
+            key: value.model_copy(
+                update={
+                    "is_stale": True,
+                    "stale_age_seconds": stale_age,
+                    "fetched_at": cached_at,
+                }
+            )
+            for key, value in cached_result.items()
+        }
+        return stale_results, True, stale_age
+
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create shared HTTP client for connection reuse."""
         if self._client is None or self._client.is_closed:
@@ -161,45 +189,24 @@ class PrometheusClient:
                 for m in results.values()
             ) if results else True
 
-            if all_failed and cache_key in self._cache:
+            if all_failed:
                 # Use stale cache instead of empty results
-                cached_result, cached_at = self._cache[cache_key]
-                stale_age = (now - cached_at).total_seconds()
-                logger.warning(
-                    "All Prometheus queries failed, using stale cache (%.0fs old)",
-                    stale_age,
-                )
-                stale_results = {
-                    key: value.model_copy(
-                        update={
-                            "is_stale": True,
-                            "stale_age_seconds": stale_age,
-                            "fetched_at": cached_at,
-                        }
+                stale_result = self._get_stale_latencies_or_none(cache_key, now)
+                if stale_result:
+                    logger.warning(
+                        "All Prometheus queries failed, using stale cache (%.0fs old)",
+                        stale_result[2],  # stale_age
                     )
-                    for key, value in cached_result.items()
-                }
-                return stale_results, True, stale_age
+                    return stale_result
 
             # Fresh results (at least some succeeded)
             self._cache[cache_key] = (results, now)
             return results, False, None
         except (TimeoutError, httpx.RequestError, httpx.HTTPStatusError) as exc:
             logger.warning("Prometheus unavailable, using stale cache: %s", exc)
-            if cache_key in self._cache:
-                cached_result, cached_at = self._cache[cache_key]
-                stale_age = (now - cached_at).total_seconds()
-                stale_results = {
-                    key: value.model_copy(
-                        update={
-                            "is_stale": True,
-                            "stale_age_seconds": stale_age,
-                            "fetched_at": cached_at,
-                        }
-                    )
-                    for key, value in cached_result.items()
-                }
-                return stale_results, True, stale_age
+            stale_result = self._get_stale_latencies_or_none(cache_key, now)
+            if stale_result:
+                return stale_result
             return {}, True, None
 
     async def _fetch_latencies_from_prometheus(self) -> dict[str, LatencyMetrics]:

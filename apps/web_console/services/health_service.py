@@ -56,6 +56,21 @@ class HealthMonitorService:
         self._connectivity_cache: tuple[ConnectivityStatus, datetime] | None = None
         self._connectivity_cache_ttl = timedelta(seconds=connectivity_cache_ttl_seconds)
 
+    def _get_stale_connectivity_or_none(self, now: datetime) -> ConnectivityStatus | None:
+        """Return stale cached connectivity status if within 2x TTL, else None.
+
+        Used for graceful degradation when connectivity checks fail.
+        """
+        if not self._connectivity_cache:
+            return None
+        cached, cached_at = self._connectivity_cache
+        stale_age = (now - cached_at).total_seconds()
+        if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
+            return cached.model_copy(
+                update={"is_stale": True, "stale_age_seconds": stale_age}
+            )
+        return None
+
     async def get_all_services_status(self) -> dict[str, ServiceHealthResponse]:
         """Get health status for all services."""
 
@@ -65,6 +80,13 @@ class HealthMonitorService:
         """Check Redis and Postgres connectivity with caching and staleness."""
 
         now = datetime.now(UTC)
+
+        # Return fresh cached result if available (avoid redundant checks)
+        if self._connectivity_cache:
+            cached, cached_at = self._connectivity_cache
+            cache_age = now - cached_at
+            if cache_age < self._connectivity_cache_ttl:
+                return cached
 
         def _redact_redis_info(info: dict[str, Any]) -> dict[str, Any]:
             """Redact sensitive fields from Redis INFO output.
@@ -153,13 +175,9 @@ class HealthMonitorService:
                     redis_res,
                     pg_res,
                 )
-                if self._connectivity_cache:
-                    cached, cached_at = self._connectivity_cache
-                    stale_age = (now - cached_at).total_seconds()
-                    if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
-                        return cached.model_copy(
-                            update={"is_stale": True, "stale_age_seconds": stale_age}
-                        )
+                stale_result = self._get_stale_connectivity_or_none(now)
+                if stale_result:
+                    return stale_result
 
             # Extract Redis result (may be exception or tuple)
             if isinstance(redis_res, Exception):
@@ -193,13 +211,9 @@ class HealthMonitorService:
             # Safeguard for unexpected errors (should rarely be reached with gather)
             logger.warning("Connectivity check failed unexpectedly: %s", exc)
 
-            if self._connectivity_cache:
-                cached, cached_at = self._connectivity_cache
-                stale_age = (now - cached_at).total_seconds()
-                if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
-                    return cached.model_copy(
-                        update={"is_stale": True, "stale_age_seconds": stale_age}
-                    )
+            stale_result = self._get_stale_connectivity_or_none(now)
+            if stale_result:
+                return stale_result
 
             return ConnectivityStatus(
                 redis_connected=False,

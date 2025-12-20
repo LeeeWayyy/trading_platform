@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pandas as pd
+import redis.exceptions
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh  # type: ignore[import-untyped]
 
@@ -51,9 +52,9 @@ def _get_redis_client() -> RedisClient | None:
             st.session_state["health_redis_client"] = RedisClient(
                 host=host, port=port, db=db, password=password
             )
-        except Exception as exc:
+        except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as exc:
             # RedisClient.__init__ pings Redis and may raise on connection failure
-            # Return None to allow graceful degradation
+            # Narrowed to Redis-specific and network exceptions to avoid masking bugs
             logger.warning("Failed to create Redis client for health check: %s", exc)
             return None
     return cast(RedisClient, st.session_state["health_redis_client"])
