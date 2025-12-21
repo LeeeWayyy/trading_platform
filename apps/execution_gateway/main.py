@@ -45,12 +45,13 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Protocol, cast
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from psycopg.errors import UniqueViolation
 from pydantic import ValidationError
 from redis.exceptions import RedisError
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from apps.execution_gateway import __version__
 from apps.execution_gateway.alpaca_client import (
@@ -114,6 +115,7 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
 )
 from config.settings import get_settings
+from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
     CircuitBreaker,
@@ -430,6 +432,43 @@ app = FastAPI(
     version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
+)
+
+# ============================================================================
+# Proxy Headers Middleware (for accurate client IP behind load balancers)
+# ============================================================================
+# SECURITY: Restrict trusted_hosts to known ingress/load balancer IPs
+# Never use ["*"] in production - allows IP spoofing via X-Forwarded-For
+TRUSTED_PROXY_HOSTS = os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1").split(",")
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  # type: ignore[arg-type]
+
+# ============================================================================
+# Rate Limiting Configuration
+# ============================================================================
+# Conservative limits: 80 direct + 30 slices x 3 = 170 broker orders/min (< 200 Alpaca ceiling)
+ORDER_SUBMIT_LIMIT = int(os.getenv("ORDER_SUBMIT_RATE_LIMIT", "40"))
+ORDER_SLICE_LIMIT = int(os.getenv("ORDER_SLICE_RATE_LIMIT", "10"))
+
+order_submit_rl = rate_limit(
+    RateLimitConfig(
+        action="order_submit",
+        max_requests=ORDER_SUBMIT_LIMIT,
+        window_seconds=60,
+        burst_buffer=10,
+        fallback_mode="deny",
+        global_limit=80,  # Direct orders only
+    )
+)
+
+order_slice_rl = rate_limit(
+    RateLimitConfig(
+        action="order_slice",
+        max_requests=ORDER_SLICE_LIMIT,
+        window_seconds=60,
+        burst_buffer=3,
+        fallback_mode="deny",
+        global_limit=30,  # 30 x 3 fan-out = 90 broker orders
+    )
 )
 
 app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Controls"])
@@ -2181,7 +2220,11 @@ async def force_complete_reconciliation(
 
 
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
-async def submit_order(order: OrderRequest) -> OrderResponse:
+async def submit_order(
+    order: OrderRequest,
+    response: Response,
+    _rate_limit_remaining: int = Depends(order_submit_rl),
+) -> OrderResponse:
     """
     Submit order with idempotent retry semantics.
 
@@ -3317,7 +3360,11 @@ def _schedule_slices_with_compensation(
 
 
 @app.post("/api/v1/orders/slice", response_model=SlicingPlan, tags=["Orders"])
-async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
+async def submit_sliced_order(
+    request: SlicingRequest,
+    http_response: Response,
+    _rate_limit_remaining: int = Depends(order_slice_rl),
+) -> SlicingPlan:
     """
     Submit TWAP order with automatic slicing and scheduled execution.
 

@@ -423,10 +423,14 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-18, Plan] [P4T5_C1_PLAN.md](./TASKS/P4T5_C1_PLAN.md) - P4T5 C1: Circuit Breaker Dashboard implementation plan (service, metrics, RBAC, UI)
 - [CURRENT, 2025-12-19, Plan] [P4T5_C2_PLAN.md](./TASKS/P4T5_C2_PLAN.md) - P4T5 C2: System Health Monitor implementation plan (service grid, latency, connectivity)
 - [CURRENT, 2025-12-20, Plan] [P4T5_C3C4_PLAN.md](./TASKS/P4T5_C3C4_PLAN.md) - P4T5 C3/C4: Alert Delivery Service and Configuration UI implementation plan
+- [CURRENT, 2025-12-21, Plan] [P4T5_C5_PLAN.md](./TASKS/P4T5_C5_PLAN.md) - P4T5 C5: Rate Limiting on Order Submission implementation plan
 - [CURRENT, 2025-12-03, Component] [PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 - [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1.8_PLAN.md](./TASKS/P4T1.8_PLAN.md) - P4T1.8: Unified Data Fetcher Protocol Implementation Plan
+
+**Backlog Tasks (B0):**
+- [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./TASKS/B0T1_TASK.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis
 
 **Checking Current/Next Task:**
 ```bash
