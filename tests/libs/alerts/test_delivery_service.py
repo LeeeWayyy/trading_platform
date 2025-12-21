@@ -201,7 +201,7 @@ class TestDeliveryExecutor:
 
     def test_retry_delays(self):
         """Test RETRY_DELAYS constant."""
-        assert DeliveryExecutor.RETRY_DELAYS == [1, 2, 4]
+        assert DeliveryExecutor.RETRY_DELAYS == [5, 30]
 
     def test_max_attempts(self):
         """Test MAX_ATTEMPTS constant."""
