@@ -12,6 +12,7 @@ from libs.alerts.models import AlertEvent
 
 # Minimum characters required for acknowledgment notes
 MIN_ACK_NOTE_LENGTH = 15
+MAX_PENDING_ACKS_TO_SHOW = 5
 
 
 def render_alert_history(
@@ -45,7 +46,7 @@ def render_alert_history(
         unacked = [e for e in events if not e.acknowledged_at]
         if unacked:
             st.subheader("Pending Acknowledgments")
-            for event in unacked[:5]:
+            for event in unacked[:MAX_PENDING_ACKS_TO_SHOW]:
                 rule_label = event.rule_name or str(event.rule_id)
                 with st.expander(f"Alert: {rule_label} at {event.triggered_at}"):
                     note = st.text_area(

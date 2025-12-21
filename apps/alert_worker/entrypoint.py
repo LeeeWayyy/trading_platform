@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import cast
 
+import psycopg
 import redis
 import redis.asyncio as redis_async
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
@@ -186,7 +187,7 @@ def main() -> None:
         with db_pool.connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT 1")
         db_pool.close()
-    except Exception as exc:  # pragma: no cover - startup guard
+    except psycopg.Error as exc:  # pragma: no cover - startup guard
         logger.error("db_connection_failed", extra={"error": str(exc)})
         sys.exit(1)
 

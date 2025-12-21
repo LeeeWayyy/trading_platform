@@ -209,7 +209,6 @@ class DeliveryExecutor:
         # Queue slot is reserved by submission layer; we should release it unless we hand off to scheduler
         queue_slot_reserved = True
         claimed = False
-        persistence_succeeded = False
         rate_limit_waits = 0
         start_time = time.monotonic()
 
@@ -265,7 +264,6 @@ class DeliveryExecutor:
                     retry_delay = self._rate_limit_delay(rate_limit_result)
                     # Don't consume retry attempts for rate limits - re-enqueue with delay
                     if self.retry_scheduler is not None:
-                        persistence_succeeded = False
                         await self._record_attempt_failure(
                             delivery_id=delivery_id,
                             attempts=current_attempt,
@@ -299,7 +297,6 @@ class DeliveryExecutor:
                                     error=last_result.error,
                                     delivered=False,
                                 )
-                                persistence_succeeded = True
                                 await self.poison_queue.add(
                                     delivery_id=delivery_id,
                                     error=last_result.error or "delivery failed",
@@ -312,10 +309,8 @@ class DeliveryExecutor:
                                 error=last_result.error,
                                 delivered=False,
                             )
-                            persistence_succeeded = True
                             current_attempt = attempt_number
                             continue
-                        persistence_succeeded = True
                         alert_retry_total.labels(channel=channel.value).inc()
                         handoff_to_scheduler = True
                         return rate_limit_result
@@ -336,27 +331,23 @@ class DeliveryExecutor:
                                 "waits": str(rate_limit_waits),
                             },
                         )
-                        persistence_succeeded = False
                         await self._record_attempt_failure(
                             delivery_id=delivery_id,
                             attempts=attempt_number,
                             error=last_result.error,
                             status=DeliveryStatus.FAILED,
                         )
-                        persistence_succeeded = True
                         await self.poison_queue.add(
                             delivery_id=delivery_id,
                             error=last_result.error or "delivery failed",
                         )
                         return last_result
-                    persistence_succeeded = False
                     await self._record_attempt_failure(
                         delivery_id=delivery_id,
                         attempts=current_attempt,
                         error=rate_limit_result.error,
                         status=DeliveryStatus.IN_PROGRESS,
                     )
-                    persistence_succeeded = True
                     await asyncio.sleep(min(retry_delay, self.MAX_IN_MEMORY_SLEEP_SECONDS))
                     continue
 
@@ -369,7 +360,6 @@ class DeliveryExecutor:
                         retryable=False,
                     )
                     attempt_number = current_attempt + 1
-                    persistence_succeeded = False
                     await self._record_attempt(
                         delivery_id=delivery_id,
                         attempts=attempt_number,
@@ -377,7 +367,6 @@ class DeliveryExecutor:
                         error=last_result.error,
                         delivered=False,
                     )
-                    persistence_succeeded = True
                     alert_delivery_attempts_total.labels(
                         channel=channel.value, status="failure"
                     ).inc()
@@ -421,7 +410,6 @@ class DeliveryExecutor:
                 )
 
                 if last_result.success:
-                    persistence_succeeded = False
                     await self._record_attempt(
                         delivery_id=delivery_id,
                         attempts=attempt_number,
@@ -429,13 +417,11 @@ class DeliveryExecutor:
                         error=None,
                         delivered=True,
                     )
-                    persistence_succeeded = True
                     elapsed = time.monotonic() - start_time
                     alert_delivery_latency_seconds.labels(channel=channel.value).observe(elapsed)
                     return last_result
 
                 if is_terminal_failure:
-                    persistence_succeeded = False
                     await self._record_attempt(
                         delivery_id=delivery_id,
                         attempts=attempt_number,
@@ -443,7 +429,6 @@ class DeliveryExecutor:
                         error=last_result.error,
                         delivered=False,
                     )
-                    persistence_succeeded = True
                     await self.poison_queue.add(
                         delivery_id=delivery_id,
                         error=last_result.error or "delivery failed",
@@ -456,7 +441,6 @@ class DeliveryExecutor:
                     else DeliveryStatus.IN_PROGRESS
                 )
 
-                persistence_succeeded = False
                 await self._record_attempt(
                     delivery_id=delivery_id,
                     attempts=attempt_number,
@@ -464,7 +448,6 @@ class DeliveryExecutor:
                     error=last_result.error,
                     delivered=False,
                 )
-                persistence_succeeded = True
 
                 if should_reenqueue:
                     if self.retry_scheduler is not None:
@@ -487,29 +470,21 @@ class DeliveryExecutor:
                     error="attempt_limit_reached",
                     retryable=False,
                 )
-                persistence_succeeded = False
                 await self._record_attempt_failure(
                     delivery_id=delivery_id,
                     attempts=max(current_attempt, self.MAX_ATTEMPTS),
                     error="Attempt limit reached",
                     status=DeliveryStatus.FAILED,
                 )
-                persistence_succeeded = True
             await self.poison_queue.add(
                 delivery_id=delivery_id, error=last_result.error or "delivery failed"
             )
             # Poison queue is a terminal, persisted state; mark persistence as successful
-            persistence_succeeded = True
             return last_result
         finally:
             # Do not decrement queue depth when handing off to retry scheduler;
             # the delivery is still pending and will not re-increment on re-enqueue.
-            if (
-                claimed
-                and queue_slot_reserved
-                and persistence_succeeded
-                and not handoff_to_scheduler
-            ):
+            if claimed and queue_slot_reserved and not handoff_to_scheduler:
                 await self.queue_depth_manager.decrement()
 
     def _delay_for_attempt(self, attempt_index: int) -> int:
