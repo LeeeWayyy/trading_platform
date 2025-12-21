@@ -16,6 +16,7 @@ from libs.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSCha
 from libs.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
 from libs.alerts.pii import mask_for_logs
 from libs.alerts.poison_queue import _sanitize_error_for_log
+from libs.common.exceptions import ConfigurationError
 from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
@@ -80,10 +81,13 @@ class AlertConfigService:
             # SMS requires Twilio credentials - skip if not configured
             try:
                 self._channel_handlers[ChannelType.SMS] = SMSChannel()
-            except Exception:  # noqa: BLE001
+            except ConfigurationError as exc:
                 logger.warning(
                     "sms_channel_disabled",
-                    extra={"hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"},
+                    extra={
+                        "reason": str(exc),
+                        "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
+                    },
                 )
         return self._channel_handlers
 
@@ -413,7 +417,7 @@ class AlertConfigService:
 
         async with acquire_connection(self.db_pool) as conn:
             # Check if channel type already exists (enforce uniqueness)
-            result = await conn.fetchval(
+            cursor = await conn.execute(
                 """
                 SELECT EXISTS (
                     SELECT 1
@@ -423,7 +427,8 @@ class AlertConfigService:
                 """,
                 (rule_id, channel.type.value),
             )
-            if result:
+            row = await cursor.fetchone()
+            if row and row[0]:
                 raise ValueError(
                     f"Channel type '{channel.type.value}' already exists for this rule"
                 )

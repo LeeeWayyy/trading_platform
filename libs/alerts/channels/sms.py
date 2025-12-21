@@ -13,6 +13,7 @@ from twilio.rest import Client
 from libs.alerts.channels.base import BaseChannel
 from libs.alerts.models import DeliveryResult
 from libs.alerts.pii import mask_recipient
+from libs.common.exceptions import ConfigurationError
 from libs.secrets import SecretManager, create_secret_manager
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,18 @@ class SMSChannel(BaseChannel):
         self.account_sid = account_sid or self.secrets.get_secret("TWILIO_ACCOUNT_SID")
         self.auth_token = auth_token or self.secrets.get_secret("TWILIO_AUTH_TOKEN")
         self.from_number = from_number or self.secrets.get_secret("TWILIO_FROM_NUMBER")
+
+        # Validate required credentials are present
+        missing = []
+        if not self.account_sid:
+            missing.append("TWILIO_ACCOUNT_SID")
+        if not self.auth_token:
+            missing.append("TWILIO_AUTH_TOKEN")
+        if not self.from_number:
+            missing.append("TWILIO_FROM_NUMBER")
+        if missing:
+            raise ConfigurationError(f"SMS channel requires: {', '.join(missing)}")
+
         # Pass timeout to Twilio client to bound HTTP requests at the network level
         # This prevents runaway threads when using run_in_executor
         self.client = Client(self.account_sid, self.auth_token, timeout=self.TIMEOUT)

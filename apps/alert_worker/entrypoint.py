@@ -21,6 +21,7 @@ from libs.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSCha
 from libs.alerts.delivery_service import DeliveryExecutor, QueueDepthManager
 from libs.alerts.models import ChannelType, DeliveryResult
 from libs.alerts.poison_queue import PoisonQueue
+from libs.common.exceptions import ConfigurationError
 from libs.web_console_auth.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ def _get_channels() -> dict[ChannelType, BaseChannel]:
         # SMS requires Twilio credentials - skip if not configured
         try:
             _CHANNELS[ChannelType.SMS] = SMSChannel()
-        except Exception as exc:  # noqa: BLE001
+        except ConfigurationError as exc:
             logger.warning(
                 "sms_channel_disabled",
                 extra={
