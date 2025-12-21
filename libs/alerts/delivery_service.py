@@ -14,7 +14,6 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from libs.alerts.channels import BaseChannel
-from libs.alerts.dedup import get_recipient_hash_secret
 from libs.alerts.metrics import (
     alert_delivery_attempts_total,
     alert_delivery_latency_seconds,
@@ -158,7 +157,6 @@ class DeliveryExecutor:
         poison_queue: PoisonQueue,
         rate_limiter: AlertRateLimiter | None = None,
         retry_scheduler: RetryScheduler | None = None,
-        recipient_hash_secret: str | None = None,
     ) -> None:
         self.channels = channels
         self.db_pool = db_pool
@@ -170,13 +168,6 @@ class DeliveryExecutor:
 
         # Limit how long a worker will sleep on rate-limit backoff when no scheduler is available
         self.MAX_RATE_LIMIT_WAITS = 3
-
-        self._recipient_hash_secret: str | None
-        try:
-            self._recipient_hash_secret = recipient_hash_secret or get_recipient_hash_secret()
-        except ValueError:
-            logger.warning("alert_recipient_hash_secret_missing")
-            self._recipient_hash_secret = None
 
     RATE_LIMIT_RETRY_DELAY = 60  # Seconds to wait on rate limit before re-enqueue
 

@@ -215,9 +215,10 @@ class AlertConfigService:
                 }
                 for channel in update.channels
             ]
+        # Use update.channels (ChannelConfig objects) not update_dict["channels"] (dicts)
         channels_json = (
-            json.dumps([c.model_dump() for c in update_dict["channels"]])
-            if "channels" in update_dict
+            json.dumps([c.model_dump() for c in update.channels])
+            if update.channels is not None
             else None
         )
 

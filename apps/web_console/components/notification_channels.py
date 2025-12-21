@@ -44,9 +44,21 @@ def render_notification_channels(
                 type=ChannelType(channel_type), recipient=new_recipient, enabled=True
             )
             if state_key:
-                # Persist to session_state so it survives Streamlit reruns
+                # Capture any in-progress edits to existing channels before rerun
                 existing = st.session_state.get(state_key, [])
-                st.session_state[state_key] = existing + [new_channel]
+                preserved: list[ChannelConfig] = []
+                for i, ch in enumerate(existing):
+                    edited_recipient = st.session_state.get(f"channel_{i}_recipient", "")
+                    edited_enabled = st.session_state.get(f"channel_{i}_enabled", ch.enabled)
+                    preserved.append(
+                        ChannelConfig(
+                            type=ch.type,
+                            recipient=edited_recipient or ch.recipient,
+                            enabled=edited_enabled,
+                        )
+                    )
+                # Add new channel and persist
+                st.session_state[state_key] = preserved + [new_channel]
                 st.rerun()
             else:
                 working_channels.append(new_channel)

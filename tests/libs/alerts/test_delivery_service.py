@@ -221,7 +221,6 @@ class TestDeliveryExecutor:
             db_pool=mock_db_pool,
             redis_client=mock_redis,
             poison_queue=mock_poison_queue,
-            recipient_hash_secret="test-secret",
         )
         executor.queue_depth_manager = MagicMock()
         executor.queue_depth_manager.decrement = AsyncMock()
@@ -250,7 +249,6 @@ class TestDeliveryExecutor:
             db_pool=mock_db_pool,
             redis_client=mock_redis,
             poison_queue=mock_poison_queue,
-            recipient_hash_secret="test-secret",
         )
         executor.queue_depth_manager = MagicMock()
         executor.queue_depth_manager.decrement = AsyncMock()
