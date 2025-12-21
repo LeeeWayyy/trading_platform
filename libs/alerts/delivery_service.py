@@ -148,7 +148,7 @@ RetryScheduler = Callable[[int, int], Awaitable[None]]
 class DeliveryExecutor:
     """Execution layer: runs in RQ worker, handles delivery with retry."""
 
-    RETRY_DELAYS = [5, 30]  # seconds between retries
+    RETRY_DELAYS = [1, 2, 4]  # seconds between retries
     MAX_ATTEMPTS = 3
     LONG_RETRY_THRESHOLD = 5  # Re-enqueue if Retry-After > 5s
     STUCK_TASK_THRESHOLD_MINUTES = 15

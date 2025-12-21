@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict
 
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.utils.db import acquire_connection
-from libs.alerts.models import AlertEvent, AlertRule, ChannelConfig
+from libs.alerts.channels import BaseChannel, EmailChannel, SlackChannel, SMSChannel
+from libs.alerts.models import AlertEvent, AlertRule, ChannelConfig, ChannelType
 from libs.alerts.pii import mask_for_logs
 from libs.alerts.poison_queue import _sanitize_error_for_log
 from libs.web_console_auth.permissions import Permission, has_permission
@@ -58,6 +59,16 @@ class AlertConfigService:
     def __init__(self, db_pool: Any, audit_logger: AuditLogger) -> None:
         self.db_pool = db_pool
         self.audit_logger = audit_logger
+        self._channel_handlers: dict[ChannelType, BaseChannel] | None = None
+
+    def _get_channel_handlers(self) -> dict[ChannelType, BaseChannel]:
+        if self._channel_handlers is None:
+            self._channel_handlers = {
+                ChannelType.EMAIL: EmailChannel(),
+                ChannelType.SLACK: SlackChannel(),
+                ChannelType.SMS: SMSChannel(),
+            }
+        return self._channel_handlers
 
     async def get_rules(self) -> list[AlertRule]:
         """Fetch all alert rules."""
@@ -293,16 +304,55 @@ class AlertConfigService:
         if not has_permission(user, Permission.TEST_NOTIFICATION):
             raise PermissionError("Permission TEST_NOTIFICATION required")
 
-        # Placeholder implementation; actual send handled by delivery service.
+        handlers = self._get_channel_handlers()
+        handler = handlers.get(channel.type)
+        if handler is None:  # pragma: no cover - defensive guard
+            raise ValueError(f"Unsupported channel type: {channel.type}")
+
+        subject = "Trading Platform Test Notification"
+        body = (
+            "This is a test notification from the trading platform web console. "
+            "If you received this message, your channel configuration is working."
+        )
+
+        try:
+            result = await handler.send(
+                recipient=channel.recipient,
+                subject=subject,
+                body=body,
+                metadata={"test_notification": "true"},
+            )
+        except Exception as exc:  # pragma: no cover - safety net for unexpected failures
+            error_msg = _sanitize_error_for_log(str(exc))
+            await self.audit_logger.log_action(
+                user_id=user.get("user_id"),
+                action="TEST_NOTIFICATION_SENT",
+                resource_type="notification_channel",
+                resource_id=channel.type.value,
+                outcome="failed",
+                details={
+                    "recipient_masked": mask_for_logs(channel.recipient, channel.type.value),
+                    "error": error_msg,
+                },
+            )
+            return TestResult(success=False, error=error_msg)
+
+        outcome = "success" if result.success else "failed"
+        masked_recipient = mask_for_logs(channel.recipient, channel.type.value)
+        sanitized_error = _sanitize_error_for_log(result.error) if result.error else None
         await self.audit_logger.log_action(
             user_id=user.get("user_id"),
             action="TEST_NOTIFICATION_SENT",
             resource_type="notification_channel",
             resource_id=channel.type.value,
-            outcome="success",
-            details={"recipient_masked": mask_for_logs(channel.recipient, channel.type.value)},
+            outcome=outcome,
+            details={
+                "recipient_masked": masked_recipient,
+                "error": sanitized_error,
+                "channel_type": channel.type.value,
+            },
         )
-        return TestResult(success=True)
+        return TestResult(success=result.success, error=sanitized_error)
 
     async def add_channel(self, rule_id: str, channel: ChannelConfig, user: dict[str, Any]) -> None:
         """Add notification channel to rule.

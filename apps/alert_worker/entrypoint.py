@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import cast
 
@@ -23,12 +24,20 @@ from libs.web_console_auth.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
-_ASYNC_DB_POOL: AsyncConnectionPool | None = None
-_ASYNC_REDIS: redis_async.Redis | None = None
-_POISON_QUEUE: PoisonQueue | None = None
+# Sync singletons are safe to share across jobs because RQ invokes the job
+# function in the worker process without reusing asyncio event loops.
 _CHANNELS: dict[ChannelType, BaseChannel] | None = None
 _RQ_QUEUE: Queue | None = None
-_RATE_LIMITER: RateLimiter | None = None
+
+
+@dataclass
+class AsyncResources:
+    """Per-job async resources bound to the job's event loop."""
+
+    db_pool: AsyncConnectionPool
+    redis_client: redis_async.Redis
+    poison_queue: PoisonQueue
+    rate_limiter: RateLimiter
 
 
 def _require_env(name: str) -> str:
@@ -48,38 +57,29 @@ def _get_rq_queue() -> Queue:
     return _RQ_QUEUE
 
 
-async def _get_async_redis() -> redis_async.Redis:
-    global _ASYNC_REDIS
-    if _ASYNC_REDIS is None:
-        redis_url = _require_env("REDIS_URL")
-        _ASYNC_REDIS = cast(redis_async.Redis, redis_async.from_url(redis_url))  # type: ignore[no-untyped-call]
-    return _ASYNC_REDIS
+async def _create_async_resources() -> AsyncResources:
+    """Instantiate async resources inside the job's event loop."""
+    redis_url = _require_env("REDIS_URL")
+    db_url = _require_env("DATABASE_URL")
+    redis_client = cast(redis_async.Redis, redis_async.from_url(redis_url))
+    db_pool = AsyncConnectionPool(conninfo=db_url, min_size=1, max_size=5)
+    await db_pool.open()
+    poison_queue = PoisonQueue(db_pool)
+    rate_limiter = RateLimiter(redis_client=redis_client, fallback_mode="deny")
+    return AsyncResources(
+        db_pool=db_pool,
+        redis_client=redis_client,
+        poison_queue=poison_queue,
+        rate_limiter=rate_limiter,
+    )
 
 
-async def _get_db_pool() -> AsyncConnectionPool:
-    global _ASYNC_DB_POOL
-    if _ASYNC_DB_POOL is None:
-        db_url = _require_env("DATABASE_URL")
-        _ASYNC_DB_POOL = AsyncConnectionPool(conninfo=db_url, min_size=1, max_size=5)
-        await _ASYNC_DB_POOL.open()
-    return _ASYNC_DB_POOL
-
-
-async def _get_poison_queue() -> PoisonQueue:
-    global _POISON_QUEUE
-    if _POISON_QUEUE is None:
-        pool = await _get_db_pool()
-        _POISON_QUEUE = PoisonQueue(pool)
-    return _POISON_QUEUE
-
-
-async def _get_rate_limiter() -> RateLimiter:
-    """Build a shared alert rate limiter backed by Redis."""
-    global _RATE_LIMITER
-    if _RATE_LIMITER is None:
-        redis_client = await _get_async_redis()
-        _RATE_LIMITER = RateLimiter(redis_client=redis_client, fallback_mode="deny")
-    return _RATE_LIMITER
+async def _close_async_resources(resources: AsyncResources) -> None:
+    """Tear down per-job async resources safely."""
+    try:
+        await resources.db_pool.close()
+    finally:
+        await resources.redis_client.close()
 
 
 def _get_channels() -> dict[ChannelType, BaseChannel]:
@@ -94,6 +94,7 @@ def _get_channels() -> dict[ChannelType, BaseChannel]:
 
 
 async def _build_executor(
+    resources: AsyncResources,
     delivery_id: str,
     channel: str,
     recipient: str,
@@ -101,10 +102,6 @@ async def _build_executor(
     body: str,
 ) -> DeliveryExecutor:
     queue = _get_rq_queue()
-    redis_client = await _get_async_redis()
-    db_pool = await _get_db_pool()
-    poison_queue = await _get_poison_queue()
-    rate_limiter = await _get_rate_limiter()
     channels = _get_channels()
 
     async def schedule_retry(delay: int, next_attempt: int) -> None:
@@ -122,10 +119,10 @@ async def _build_executor(
 
     return DeliveryExecutor(
         channels=channels,
-        db_pool=db_pool,
-        redis_client=redis_client,
-        poison_queue=poison_queue,
-        rate_limiter=rate_limiter,
+        db_pool=resources.db_pool,
+        redis_client=resources.redis_client,
+        poison_queue=resources.poison_queue,
+        rate_limiter=resources.rate_limiter,
         retry_scheduler=schedule_retry,
     )
 
@@ -139,16 +136,20 @@ async def _execute_delivery_job(
     attempt: int = 0,
 ) -> dict[str, str | bool | None]:
     channel_enum = ChannelType(channel)
-    executor = await _build_executor(delivery_id, channel, recipient, subject, body)
-    result: DeliveryResult = await executor.execute(
-        delivery_id=delivery_id,
-        channel=channel_enum,
-        recipient=recipient,
-        subject=subject,
-        body=body,
-        attempt=attempt,
-    )
-    return result.dict()
+    resources = await _create_async_resources()
+    try:
+        executor = await _build_executor(resources, delivery_id, channel, recipient, subject, body)
+        result: DeliveryResult = await executor.execute(
+            delivery_id=delivery_id,
+            channel=channel_enum,
+            recipient=recipient,
+            subject=subject,
+            body=body,
+            attempt=attempt,
+        )
+        return result.dict()
+    finally:
+        await _close_async_resources(resources)
 
 
 def execute_delivery_job(
@@ -195,24 +196,18 @@ def main() -> None:
         logger.error("redis_connection_failed", extra={"error": str(exc)})
         sys.exit(1)
 
-    # Initialize poison queue gauge from DB at startup
-    async def _sync_poison_queue_gauge() -> None:
-        poison_queue = await _get_poison_queue()
-        count = await poison_queue.sync_gauge_from_db()
-        logger.info("poison_queue_gauge_synced", extra={"count": count})
-
-    async def _sync_queue_depth() -> None:
-        redis_client = await _get_async_redis()
-        db_pool = await _get_db_pool()
-        qdm = QueueDepthManager(redis_client)
-        depth = await qdm.sync_depth_from_db(db_pool)
-        logger.info("queue_depth_synced", extra={"depth": depth})
-
     async def _sync_startup_metrics() -> None:
-        await asyncio.gather(
-            _sync_poison_queue_gauge(),
-            _sync_queue_depth(),
-        )
+        resources = await _create_async_resources()
+        try:
+            poison_count = await resources.poison_queue.sync_gauge_from_db()
+            qdm = QueueDepthManager(resources.redis_client)
+            depth = await qdm.sync_depth_from_db(resources.db_pool)
+            logger.info(
+                "startup_metrics_synced",
+                extra={"poison_queue_count": poison_count, "queue_depth": depth},
+            )
+        finally:
+            await _close_async_resources(resources)
 
     asyncio.run(_sync_startup_metrics())
 
