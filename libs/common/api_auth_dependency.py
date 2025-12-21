@@ -343,6 +343,12 @@ async def verify_internal_token(
     if not all([token, timestamp, nonce, service_id]):
         return None
 
+    # Type narrowing: after the check above, these are guaranteed to be str
+    assert token is not None
+    assert timestamp is not None
+    assert nonce is not None
+    assert service_id is not None
+
     # SECURITY: Validate service_id against whitelist
     # Prevents rogue or unknown services from authenticating
     if not _is_service_id_allowed(service_id):
@@ -355,7 +361,7 @@ async def verify_internal_token(
 
     # Verify timestamp within tolerance
     try:
-        ts = int(timestamp)  # type: ignore[arg-type]
+        ts = int(timestamp)
         now = int(time.time())
         if abs(now - ts) > INTERNAL_TOKEN_TIMESTAMP_TOLERANCE:
             logger.warning(
@@ -380,7 +386,7 @@ async def verify_internal_token(
     actual_query = request.url.query or ""
 
     if not _verify_hmac_signature(
-        token, service_id, method, path, actual_query, timestamp, nonce, user_id, strategy_id, body_hash or ""  # type: ignore[arg-type]
+        token, service_id, method, path, actual_query, timestamp, nonce, user_id, strategy_id, body_hash or ""
     ):
         logger.warning(
             "s2s_signature_invalid",
@@ -427,7 +433,7 @@ async def verify_internal_token(
 
     # Check nonce uniqueness (replay protection)
     nonce_result = await _check_nonce_unique(
-        redis_client, nonce, service_id, INTERNAL_TOKEN_TIMESTAMP_TOLERANCE, mode  # type: ignore[arg-type]
+        redis_client, nonce, service_id, INTERNAL_TOKEN_TIMESTAMP_TOLERANCE, mode
     )
     if nonce_result != "ok":
         # Use the specific result (nonce_too_long or replay_detected) for proper metrics
@@ -436,10 +442,10 @@ async def verify_internal_token(
 
     # Build claims
     claims = InternalTokenClaims(
-        service_id=service_id,  # type: ignore[arg-type]
+        service_id=service_id,
         user_id=user_id,
         strategy_id=strategy_id,
-        nonce=nonce,  # type: ignore[arg-type]
+        nonce=nonce,
         timestamp=ts,
     )
 
