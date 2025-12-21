@@ -2,9 +2,16 @@
 HTTP clients for communicating with Signal Service and Execution Gateway.
 
 Provides typed interfaces with automatic retries and error handling.
+Includes S2S (service-to-service) authentication via HMAC-signed internal tokens.
 """
 
+import hashlib
+import hmac
+import json
 import logging
+import os
+import time
+import uuid
 from datetime import date
 from typing import Any
 
@@ -20,6 +27,107 @@ from tenacity import (
 from apps.orchestrator.schemas import OrderRequest, OrderSubmission, SignalServiceResponse
 
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# S2S Authentication Helpers
+# ==============================================================================
+
+
+def _get_service_secret() -> str:
+    """Get the secret for this service (orchestrator).
+
+    SECURITY: Supports per-service secrets for defense in depth.
+    If INTERNAL_TOKEN_SECRET_ORCHESTRATOR is set, use it.
+    Otherwise, fall back to global INTERNAL_TOKEN_SECRET.
+    """
+    # Try per-service secret first
+    per_service_secret = os.getenv("INTERNAL_TOKEN_SECRET_ORCHESTRATOR", "")
+    if per_service_secret:
+        return per_service_secret
+
+    # Fall back to global secret
+    return os.getenv("INTERNAL_TOKEN_SECRET", "")
+
+
+def _get_internal_auth_headers(
+    method: str,
+    path: str,
+    query: str | None = None,
+    body: bytes | str | None = None,
+    user_id: str | None = None,
+    strategy_id: str | None = None,
+) -> dict[str, str]:
+    """Generate HMAC-signed internal auth headers with replay protection and body integrity.
+
+    This function creates S2S authentication headers for internal service calls.
+    The signature includes service_id, method, path, query, timestamp, nonce, user_id,
+    strategy_id, and body_hash to prevent tampering, replay attacks, and payload modification.
+
+    SECURITY:
+    - Query string included in signature to prevent parameter tampering
+    - Body hash prevents payload tampering (e.g., changing order quantities)
+    - Per-service secrets limit blast radius if one service is compromised
+    - Supports INTERNAL_TOKEN_SECRET_ORCHESTRATOR for isolated secret
+
+    Args:
+        method: HTTP method (e.g., "POST", "GET")
+        path: Request path (e.g., "/api/v1/signals/generate")
+        query: Query string without leading '?' (e.g., "limit=10&offset=0")
+        body: Request body content (bytes or str) for integrity verification
+        user_id: Optional acting user ID for audit trail
+        strategy_id: Optional strategy context
+
+    Returns:
+        Dictionary of headers to include in the request
+
+    Raises:
+        RuntimeError: If INTERNAL_TOKEN_SECRET is not configured (fail-closed)
+    """
+    secret = _get_service_secret()
+    if not secret:
+        # SECURITY: Fail-closed - refuse to make unauthenticated requests
+        logger.error("INTERNAL_TOKEN_SECRET not set - refusing to make unauthenticated S2S call")
+        raise RuntimeError(
+            "INTERNAL_TOKEN_SECRET is required for S2S authentication. "
+            "Set INTERNAL_TOKEN_SECRET or INTERNAL_TOKEN_SECRET_ORCHESTRATOR environment variable."
+        )
+
+    service_id = "orchestrator"
+    timestamp = str(int(time.time()))
+    nonce = str(uuid.uuid4())
+
+    # Compute body hash for payload integrity
+    # SECURITY: Always compute hash, even for empty body (required for POST/PUT/PATCH/DELETE)
+    if body is None:
+        body_hash = hashlib.sha256(b"").hexdigest()
+    elif isinstance(body, str):
+        body_hash = hashlib.sha256(body.encode()).hexdigest()
+    else:
+        body_hash = hashlib.sha256(body).hexdigest()
+
+    # Normalize query string (empty string if None)
+    query_str = query or ""
+
+    # Sign: service_id|method|path|query|timestamp|nonce|user_id|strategy_id|body_hash
+    # SECURITY: Include query string to prevent parameter tampering
+    payload = f"{service_id}|{method}|{path}|{query_str}|{timestamp}|{nonce}|{user_id or ''}|{strategy_id or ''}|{body_hash}"
+    signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+    headers: dict[str, str] = {
+        "X-Internal-Token": signature,
+        "X-Internal-Timestamp": timestamp,
+        "X-Internal-Nonce": nonce,
+        "X-Service-ID": service_id,
+        "X-Body-Hash": body_hash,
+        # Note: X-Query header removed - server uses request.url.query directly for tamper-proof verification
+    }
+    if user_id:
+        headers["X-User-ID"] = user_id
+    if strategy_id:
+        headers["X-Strategy-ID"] = strategy_id
+
+    return headers
 
 
 # ==============================================================================
@@ -89,6 +197,8 @@ class SignalServiceClient:
         as_of_date: date | None = None,
         top_n: int | None = None,
         bottom_n: int | None = None,
+        user_id: str | None = None,
+        strategy_id: str | None = None,
     ) -> SignalServiceResponse:
         """
         Fetch trading signals from Signal Service.
@@ -98,6 +208,8 @@ class SignalServiceClient:
             as_of_date: Date for signal generation (defaults to today)
             top_n: Number of long positions (overrides service default)
             bottom_n: Number of short positions (overrides service default)
+            user_id: Optional acting user ID for audit trail (C6 S2S auth)
+            strategy_id: Optional strategy context (C6 S2S auth)
 
         Returns:
             SignalServiceResponse with signals and metadata
@@ -138,8 +250,20 @@ class SignalServiceClient:
             },
         )
 
-        # Make request
-        response = await self.client.post(f"{self.base_url}/api/v1/signals/generate", json=payload)
+        # Get S2S auth headers with body hash (C6 - CRITICAL security fix)
+        # IMPORTANT: Serialize once and use same bytes for hashing AND sending
+        # to ensure body hash matches what server receives
+        path = "/api/v1/signals/generate"
+        body_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+        auth_headers = _get_internal_auth_headers(
+            "POST", path, body=body_bytes, user_id=user_id, strategy_id=strategy_id
+        )
+        auth_headers["Content-Type"] = "application/json"
+
+        # Make request with exact bytes we hashed
+        response = await self.client.post(
+            f"{self.base_url}{path}", content=body_bytes, headers=auth_headers
+        )
 
         # Check response
         if response.status_code != 200:
@@ -224,12 +348,19 @@ class ExecutionGatewayClient:
         retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
-    async def submit_order(self, order: OrderRequest) -> OrderSubmission:
+    async def submit_order(
+        self,
+        order: OrderRequest,
+        user_id: str | None = None,
+        strategy_id: str | None = None,
+    ) -> OrderSubmission:
         """
         Submit order to Execution Gateway.
 
         Args:
             order: Order request with symbol, side, qty, etc.
+            user_id: Optional acting user ID for audit trail (C6 S2S auth)
+            strategy_id: Optional strategy context (C6 S2S auth)
 
         Returns:
             OrderSubmission with client_order_id and status
@@ -258,9 +389,22 @@ class ExecutionGatewayClient:
             },
         )
 
-        # Make request
+        # Get S2S auth headers with body hash (C6 - CRITICAL security fix)
+        # IMPORTANT: Serialize once and use same bytes for hashing AND sending
+        # to ensure body hash matches what server receives
+        path = "/api/v1/orders"
+        order_payload = order.model_dump(mode="json", exclude_none=True)
+        body_bytes = json.dumps(order_payload, separators=(",", ":"), sort_keys=True).encode()
+        auth_headers = _get_internal_auth_headers(
+            "POST", path, body=body_bytes, user_id=user_id, strategy_id=strategy_id
+        )
+        auth_headers["Content-Type"] = "application/json"
+
+        # Make request with exact bytes we hashed
         response = await self.client.post(
-            f"{self.base_url}/api/v1/orders", json=order.model_dump(mode="json", exclude_none=True)
+            f"{self.base_url}{path}",
+            content=body_bytes,
+            headers=auth_headers,
         )
 
         # Check response
@@ -299,7 +443,10 @@ class ExecutionGatewayClient:
         Raises:
             httpx.HTTPError: If request fails
         """
-        response = await self.client.get(f"{self.base_url}/api/v1/orders/{client_order_id}")
+        path = f"/api/v1/orders/{client_order_id}"
+        auth_headers = _get_internal_auth_headers("GET", path)
+
+        response = await self.client.get(f"{self.base_url}{path}", headers=auth_headers)
 
         if response.status_code != 200:
             response.raise_for_status()
@@ -316,7 +463,10 @@ class ExecutionGatewayClient:
         Raises:
             httpx.HTTPError: If request fails
         """
-        response = await self.client.get(f"{self.base_url}/api/v1/positions")
+        path = "/api/v1/positions"
+        auth_headers = _get_internal_auth_headers("GET", path)
+
+        response = await self.client.get(f"{self.base_url}{path}", headers=auth_headers)
 
         if response.status_code != 200:
             response.raise_for_status()
