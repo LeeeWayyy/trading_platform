@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)
 
 # Patterns to sanitize PII from error messages before logging
 _EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-_PHONE_PATTERN = re.compile(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}|\+?[0-9]{10,15}")
+# Phone patterns: US format with separators, or international format (requires + prefix)
+_PHONE_PATTERN = re.compile(
+    r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}"  # US format
+    r"|\+\d{1,3}[\s.-]?\d{6,14}"  # International format (requires +)
+)
 _URL_PATTERN = re.compile(r"https?://[^\s]+")
 
 

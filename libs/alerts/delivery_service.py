@@ -257,16 +257,34 @@ class DeliveryExecutor:
                     )
                     alert_throttle_total.labels(channel=channel.value, limit_type=limit_type).inc()
                     retry_delay = self._rate_limit_delay(rate_limit_result)
-                    # Don't consume retry attempts for rate limits - re-enqueue with delay
+                    # Increment attempt to ensure rate limits eventually exhaust retries
                     if self.retry_scheduler is not None:
+                        rate_limit_attempt = current_attempt + 1
+                        # Check if rate limit retries exhausted
+                        if rate_limit_attempt >= self.MAX_ATTEMPTS:
+                            await self._record_attempt_failure(
+                                delivery_id=delivery_id,
+                                attempts=rate_limit_attempt,
+                                error="rate_limit_retries_exhausted",
+                                status=DeliveryStatus.FAILED,
+                            )
+                            await self.poison_queue.add(
+                                delivery_id=delivery_id,
+                                error="rate_limit_retries_exhausted",
+                            )
+                            return DeliveryResult(
+                                success=False,
+                                error="rate_limit_retries_exhausted",
+                                retryable=False,
+                            )
                         await self._record_attempt_failure(
                             delivery_id=delivery_id,
-                            attempts=current_attempt,
+                            attempts=rate_limit_attempt,
                             error=rate_limit_result.error,
                             status=DeliveryStatus.PENDING,
                         )
                         try:
-                            await self.retry_scheduler(retry_delay, current_attempt)
+                            await self.retry_scheduler(retry_delay, rate_limit_attempt)
                         except Exception:
                             logger.exception(
                                 "retry_scheduler_enqueue_failed",

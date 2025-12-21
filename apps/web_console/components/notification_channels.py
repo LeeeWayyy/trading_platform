@@ -40,10 +40,17 @@ def render_notification_channels(
     )
     if st.button("Add Channel", key=f"{state_key}_add" if state_key else None):
         if new_recipient:
-            working_channels.append(
-                ChannelConfig(type=ChannelType(channel_type), recipient=new_recipient, enabled=True)
+            new_channel = ChannelConfig(
+                type=ChannelType(channel_type), recipient=new_recipient, enabled=True
             )
-            st.success("Channel added. Adjust below if needed.")
+            if state_key:
+                # Persist to session_state so it survives Streamlit reruns
+                existing = st.session_state.get(state_key, [])
+                st.session_state[state_key] = existing + [new_channel]
+                st.rerun()
+            else:
+                working_channels.append(new_channel)
+                st.success("Channel added. Adjust below if needed.")
         else:
             st.error("Recipient is required to add a channel.")
 

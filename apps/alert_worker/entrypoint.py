@@ -76,11 +76,24 @@ async def _create_async_resources() -> AsyncResources:
 
 
 async def _close_async_resources(resources: AsyncResources) -> None:
-    """Tear down per-job async resources safely."""
+    """Tear down per-job async resources safely.
+
+    Ensures both resources are closed even if one raises an exception.
+    Uses ExceptionGroup to preserve all exceptions if multiple occur.
+    """
+    exceptions: list[Exception] = []
     try:
         await resources.db_pool.close()
-    finally:
+    except Exception as exc:
+        exceptions.append(exc)
+    try:
         await resources.redis_client.close()
+    except Exception as exc:
+        exceptions.append(exc)
+    if exceptions:
+        if len(exceptions) == 1:
+            raise exceptions[0]
+        raise ExceptionGroup("resource cleanup failed", exceptions)
 
 
 def _get_channels() -> dict[ChannelType, BaseChannel]:
