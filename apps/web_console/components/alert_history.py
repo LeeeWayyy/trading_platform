@@ -8,10 +8,10 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from apps.web_console.services.alert_service import MIN_ACK_NOTE_LENGTH
 from libs.alerts.models import AlertEvent
 
-# Minimum characters required for acknowledgment notes
-MIN_ACK_NOTE_LENGTH = 15
+# Maximum pending acknowledgments to show in UI
 MAX_PENDING_ACKS_TO_SHOW = 5
 
 

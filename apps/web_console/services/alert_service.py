@@ -20,6 +20,12 @@ from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
 
+# Default limit for alert event queries
+DEFAULT_ALERT_EVENT_LIMIT = 20
+
+# Minimum characters required for acknowledgment notes (shared with UI)
+MIN_ACK_NOTE_LENGTH = 15
+
 
 class TestResult(BaseModel):
     """Result of test notification."""
@@ -292,6 +298,11 @@ class AlertConfigService:
         if not has_permission(user, Permission.ACKNOWLEDGE_ALERT):
             raise PermissionError("Permission ACKNOWLEDGE_ALERT required")
 
+        if len(note.strip()) < MIN_ACK_NOTE_LENGTH:
+            raise ValueError(
+                f"Acknowledgment note must be at least {MIN_ACK_NOTE_LENGTH} characters"
+            )
+
         async with acquire_connection(self.db_pool) as conn:
             await conn.execute(
                 """
@@ -429,6 +440,10 @@ class AlertConfigService:
             raise PermissionError("Permission UPDATE_ALERT_RULE required")
 
         async with acquire_connection(self.db_pool) as conn:
+            # This query finds the array index of the channel with the matching type,
+            # then uses jsonb_set to replace that element with the updated config.
+            # Channel types are unique per rule (enforced by add_channel), so
+            # generate_series finds at most one matching index.
             await conn.execute(
                 """
                 UPDATE alert_rules
@@ -487,7 +502,7 @@ class AlertConfigService:
             outcome="success",
         )
 
-    async def get_alert_events(self, limit: int = 20) -> list[AlertEvent]:
+    async def get_alert_events(self, limit: int = DEFAULT_ALERT_EVENT_LIMIT) -> list[AlertEvent]:
         """Get recent alert events ordered by triggered_at.
 
         Args:

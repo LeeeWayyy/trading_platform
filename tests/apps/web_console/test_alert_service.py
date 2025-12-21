@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
@@ -11,27 +13,28 @@ from apps.web_console.services.alert_service import (
     AlertRuleCreate,
     AlertRuleUpdate,
 )
+from libs.alerts.channels.base import DeliveryResult
 from libs.alerts.models import ChannelConfig, ChannelType
 
 
 class DummyCursor:
-    def __init__(self, rows=None) -> None:
+    def __init__(self, rows: list | None = None) -> None:
         self.rows = rows or []
         self.params = None
 
-    async def fetchall(self):
+    async def fetchall(self) -> list:
         return self.rows
 
-    async def fetchone(self):
+    async def fetchone(self) -> tuple | None:
         return self.rows[0] if self.rows else None
 
 
 class DummyConn:
     def __init__(self, cursor: DummyCursor) -> None:
         self.cursor = cursor
-        self.executed = []
+        self.executed: list[tuple] = []
 
-    async def execute(self, query, params=None):
+    async def execute(self, query: str, params: tuple | None = None) -> DummyCursor:
         self.executed.append((query.strip(), params))
         return self.cursor
 
@@ -43,7 +46,22 @@ async def _conn_ctx(conn: DummyConn):
 
 @pytest.mark.asyncio()
 async def test_create_rule_emits_audit(monkeypatch):
-    cursor = DummyCursor()
+    rule_id = uuid4()
+    now = datetime.now(UTC)
+    # Mock row returned by SELECT after INSERT
+    mock_row = (
+        rule_id,  # id
+        "dd alert",  # name
+        "drawdown",  # condition_type
+        Decimal("-0.05"),  # threshold_value
+        "lt",  # comparison
+        [{"type": "email", "recipient": "user@example.com", "enabled": True}],  # channels
+        True,  # enabled
+        "u1",  # created_by
+        now,  # created_at
+        now,  # updated_at
+    )
+    cursor = DummyCursor(rows=[mock_row])
     conn = DummyConn(cursor)
 
     monkeypatch.setattr(
@@ -76,6 +94,15 @@ async def test_test_notification_masks_recipient(monkeypatch):
     service = AlertConfigService(db_pool=None, audit_logger=audit_logger)
     channel = ChannelConfig(type=ChannelType.SMS, recipient="+15551234567")
     user = {"user_id": "u1", "role": "admin"}
+
+    # Mock channel handler to avoid needing real secrets
+    mock_handler = MagicMock()
+    mock_handler.send = AsyncMock(return_value=DeliveryResult(success=True, message_id="test-123"))
+    monkeypatch.setattr(
+        service,
+        "_get_channel_handlers",
+        lambda: {ChannelType.SMS: mock_handler},
+    )
 
     await service.test_notification(channel, user)
 

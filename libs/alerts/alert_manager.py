@@ -21,6 +21,7 @@ from libs.alerts.dedup import compute_dedup_key, get_recipient_hash_secret
 from libs.alerts.delivery_service import QueueDepthManager, QueueFullError
 from libs.alerts.metrics import alert_dropped_total, alert_queue_full_total
 from libs.alerts.models import AlertEvent, ChannelConfig, DeliveryStatus
+from libs.alerts.pii import mask_recipient
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,9 @@ class AlertManager:
                 triggered_at,
                 self._recipient_hash_secret,
             )
+            # Store masked recipient to avoid persisting raw PII in the database.
+            # The raw recipient is passed through RQ job params for actual delivery.
+            masked = mask_recipient(channel.recipient, channel.type.value)
             await cur.execute(
                 """
                 INSERT INTO alert_deliveries (
@@ -192,7 +196,7 @@ class AlertManager:
                 (
                     str(alert_event.id),
                     channel.type.value,
-                    channel.recipient,
+                    masked,
                     dedup_key,
                 ),
             )
