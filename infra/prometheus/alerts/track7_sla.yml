@@ -1,0 +1,108 @@
+# Track 7 SLA Alert Rules
+#
+# These rules monitor SLA targets for Track 7 (Web Console Operations):
+# - CB staleness
+# - Alert delivery latency
+# - Audit log write latency
+# - Poison queue size
+#
+# Alert routing:
+# - severity: critical -> PagerDuty (platform-team)
+# - severity: warning -> Slack (#alerts-ops)
+
+groups:
+  - name: track7_sla
+    interval: 15s
+    rules:
+      # CB Metric Missing Alert (Critical)
+      # Triggers when cb_staleness_seconds is not being reported (metrics server down)
+      - alert: CBMetricMissing
+        expr: absent(cb_staleness_seconds)
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+          sla: track7
+        annotations:
+          summary: "Circuit breaker metric is MISSING"
+          description: "cb_staleness_seconds metric is not being reported. Metrics server may be down or Prometheus scrape failing."
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/circuit-breaker-ops.md"
+
+      # CB Verification Failed Alert (Critical)
+      # Triggers when CB staleness reaches sentinel value (999999 = ~11.5 days)
+      - alert: CBVerificationFailed
+        expr: cb_staleness_seconds >= 999999
+        for: 30s
+        labels:
+          severity: critical
+          team: platform
+          sla: track7
+        annotations:
+          summary: "Circuit breaker verification FAILED"
+          description: "CB verification has failed - staleness at sentinel value 999999. All workers unable to verify CB state."
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/circuit-breaker-ops.md"
+
+      # Alert Delivery Latency (SLA: P95 < 60s)
+      - alert: AlertDeliveryLatencyHigh
+        expr: histogram_quantile(0.95, rate(alert_delivery_latency_seconds_bucket[5m])) > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          sla: track7
+        annotations:
+          summary: "Alert delivery latency exceeds SLA"
+          description: "P95 alert delivery latency is {{ $value | humanizeDuration }} (SLA: <60s)"
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/ops.md#alert-troubleshooting"
+
+      # Audit Log Write Latency (SLA: P95 < 1s)
+      - alert: AuditWriteLatencyHigh
+        expr: histogram_quantile(0.95, rate(audit_write_latency_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          sla: track7
+        annotations:
+          summary: "Audit log write latency exceeds SLA"
+          description: "P95 audit write latency is {{ $value | humanizeDuration }} (SLA: <1s)"
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/ops.md"
+
+      # Poison Queue Size (SLA: 0, Alert > 10)
+      - alert: AlertPoisonQueueHigh
+        expr: alert_poison_queue_size > 10
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          sla: track7
+        annotations:
+          summary: "Alert poison queue size exceeds threshold"
+          description: "{{ $value }} alerts in poison queue (threshold: 10). Manual intervention required."
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/ops.md#alert-troubleshooting"
+
+      # Admin Action Rate (Informational)
+      - alert: HighAdminActionRate
+        expr: sum(rate(admin_action_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          sla: track7
+        annotations:
+          summary: "High rate of admin actions detected"
+          description: "{{ $value | printf \"%.2f\" }} admin actions per second. Review audit log for unusual activity."
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/ops.md#admin-dashboard-operations"
+
+      # CB Operations Rate (Informational)
+      - alert: FrequentCBTrips
+        expr: increase(cb_trip_total[1h]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          sla: track7
+        annotations:
+          summary: "Frequent circuit breaker trips"
+          description: "{{ $value | printf \"%.0f\" }} CB trips in last hour. Investigate root cause."
+          runbook: "https://docs.trading-platform.local/RUNBOOKS/circuit-breaker-ops.md"

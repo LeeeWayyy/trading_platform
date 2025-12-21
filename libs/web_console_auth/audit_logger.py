@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -29,6 +30,19 @@ _audit_write_failures_total = Counter(
 _audit_cleanup_duration_seconds = Histogram(
     "audit_log_cleanup_duration_seconds",
     "Duration of audit log cleanup runs",
+)
+
+# Track 7 SLA metrics - exported for use by web_console
+admin_action_total = Counter(
+    "admin_action_total",
+    "Counter of admin actions",
+    ["action"],
+)
+
+audit_write_latency_seconds = Histogram(
+    "audit_write_latency_seconds",
+    "Audit log write latency",
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0],
 )
 
 
@@ -65,10 +79,16 @@ class AuditLogger:
         amr_method: str | None = None,
     ) -> None:
         details = details or {}
+
+        # Track admin actions for SLA metrics (both 'action' and 'admin' event types)
+        if event_type in ("action", "admin"):
+            admin_action_total.labels(action=action).inc()
+
         if not self.db_pool:
             logger.info("audit_log_fallback", extra={"event_type": event_type, "action": action})
             return
 
+        start = time.monotonic()
         try:
             async with acquire_connection(self.db_pool) as conn:
                 async with _maybe_transaction(conn):
@@ -111,6 +131,8 @@ class AuditLogger:
                     "outcome": outcome,
                 },
             )
+        finally:
+            audit_write_latency_seconds.observe(time.monotonic() - start)
 
     async def log_access(
         self,
@@ -243,4 +265,11 @@ class AuditLogger:
             return 0
 
 
-__all__ = ["AuditLogger"]
+__all__ = [
+    "AuditLogger",
+    "admin_action_total",
+    "audit_write_latency_seconds",
+    "_audit_cleanup_duration_seconds",
+    "_audit_events_total",
+    "_audit_write_failures_total",
+]

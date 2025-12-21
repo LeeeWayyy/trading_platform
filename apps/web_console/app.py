@@ -25,11 +25,14 @@ Environment Variables:
 import asyncio
 import hashlib
 import logging
+import os
 import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import redis.asyncio as redis_async
+import redis.exceptions
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
@@ -103,6 +106,31 @@ def _get_api_session() -> requests.Session:
         st.session_state["api_session"] = session
 
     return cast(requests.Session, st.session_state["api_session"])
+
+
+def _get_redis_client_for_admin() -> redis_async.Redis | None:
+    """Get ASYNC Redis client for admin page (cached in session state).
+
+    Admin tabs (api_key_manager, config_editor) call `await redis_client.get/setex/delete`
+    inside async functions wrapped by run_async(). This requires an async Redis client.
+
+    Returns:
+        Async Redis client or None if connection fails
+    """
+    if "admin_redis_client" not in st.session_state:
+        host = os.getenv("REDIS_HOST", "localhost")
+        port = int(os.getenv("REDIS_PORT", "6379"))
+        db = int(os.getenv("REDIS_DB", "0"))
+        password = os.getenv("REDIS_PASSWORD") or None  # None if not set
+        try:
+            # Use async Redis client - admin tabs use await redis_client.get/setex/delete
+            st.session_state["admin_redis_client"] = redis_async.Redis(
+                host=host, port=port, db=db, password=password, decode_responses=True
+            )
+        except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as exc:
+            logger.warning("Failed to create async Redis client for admin: %s", exc)
+            st.session_state["admin_redis_client"] = None
+    return st.session_state.get("admin_redis_client")
 
 
 def fetch_api(
@@ -814,7 +842,8 @@ def main() -> None:
         st.divider()
 
         # Navigation
-        pages = ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"]
+        # FIX: Removed Audit Log from default - requires VIEW_AUDIT permission (C6.1 RBAC fix)
+        pages = ["Dashboard", "Manual Order Entry", "Kill Switch"]
         if config.FEATURE_MANUAL_CONTROLS and has_permission(user_info, Permission.VIEW_TRADES):
             pages.insert(2, "Manual Trade Controls")
         if config.FEATURE_CIRCUIT_BREAKER and has_permission(
@@ -829,6 +858,27 @@ def main() -> None:
             pages.append("User Management")
         if config.FEATURE_ALERTS and has_permission(user_info, Permission.VIEW_ALERTS):
             pages.append("Alerts")
+
+        # C6.1: System Health requires feature flag AND VIEW_CIRCUIT_BREAKER permission
+        if config.FEATURE_HEALTH_MONITOR and has_permission(
+            user_info, Permission.VIEW_CIRCUIT_BREAKER
+        ):
+            pages.append("System Health")
+
+        # C6.1: Audit Log requires VIEW_AUDIT permission (FIX for RBAC violation)
+        if has_permission(user_info, Permission.VIEW_AUDIT):
+            pages.append("Audit Log")
+
+        # C6.1: Admin Dashboard uses permission-based access (like User Management)
+        if any(
+            has_permission(user_info, p)
+            for p in [
+                Permission.MANAGE_API_KEYS,
+                Permission.MANAGE_SYSTEM_CONFIG,
+                Permission.VIEW_AUDIT,
+            ]
+        ):
+            pages.append("Admin Dashboard")
 
         page = st.radio(
             "Select Page",
@@ -875,7 +925,38 @@ def main() -> None:
             db_pool=get_db_pool(),
         )
     elif page == "Audit Log":
+        # C6.1: RBAC guard (defense in depth - permission already checked in nav)
+        if not has_permission(user_info, Permission.VIEW_AUDIT):
+            st.error("Access denied: VIEW_AUDIT permission required")
+            st.stop()
         render_audit_log()
+    elif page == "System Health":
+        from apps.web_console.pages.health import render_health_monitor
+
+        render_health_monitor(user=user_info, db_pool=get_db_pool())
+    elif page == "Admin Dashboard":
+        # C6.1: RBAC guard (defense in depth - permission already checked in nav)
+        admin_permissions = [
+            Permission.MANAGE_API_KEYS,
+            Permission.MANAGE_SYSTEM_CONFIG,
+            Permission.VIEW_AUDIT,
+        ]
+        if not any(has_permission(user_info, p) for p in admin_permissions):
+            st.error(
+                "Access denied: requires MANAGE_API_KEYS, MANAGE_SYSTEM_CONFIG, or VIEW_AUDIT permission"
+            )
+            st.stop()
+
+        from apps.web_console.pages.admin import render_admin_page
+        from libs.web_console_auth.gateway_auth import AuthenticatedUser
+
+        redis_client = _get_redis_client_for_admin()
+        render_admin_page(
+            user=cast(AuthenticatedUser, user_info),
+            db_pool=get_db_pool(),
+            redis_client=redis_client,
+            audit_logger=AuditLogger(get_db_pool()),
+        )
     elif page == "Strategy Comparison":
         from apps.web_console.pages.compare import main as compare_main
 
