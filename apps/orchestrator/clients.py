@@ -109,9 +109,22 @@ def _get_internal_auth_headers(
     # Normalize query string (empty string if None)
     query_str = query or ""
 
-    # Sign: service_id|method|path|query|timestamp|nonce|user_id|strategy_id|body_hash
-    # SECURITY: Include query string to prevent parameter tampering
-    payload = f"{service_id}|{method}|{path}|{query_str}|{timestamp}|{nonce}|{user_id or ''}|{strategy_id or ''}|{body_hash}"
+    # Build payload as JSON for unambiguous serialization
+    # SECURITY: JSON prevents delimiter collision attacks where attacker-controlled values
+    # containing delimiters could forge signatures (e.g., query="a|b" colliding with user_id="b")
+    payload_dict = {
+        "service_id": service_id,
+        "method": method,
+        "path": path,
+        "query": query_str,
+        "timestamp": timestamp,
+        "nonce": nonce,
+        "user_id": user_id or "",
+        "strategy_id": strategy_id or "",
+        "body_hash": body_hash,
+    }
+    # Use sorted keys and compact separators for deterministic serialization
+    payload = json.dumps(payload_dict, separators=(",", ":"), sort_keys=True)
     signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
     headers: dict[str, str] = {

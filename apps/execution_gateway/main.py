@@ -2258,8 +2258,10 @@ async def force_complete_reconciliation(
 async def submit_order(
     order: OrderRequest,
     response: Response,
-    _rate_limit_remaining: int = Depends(order_submit_rl),
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
     _auth_context: AuthContext = Depends(order_submit_auth),
+    _rate_limit_remaining: int = Depends(order_submit_rl),
 ) -> OrderResponse:
     """
     Submit order with idempotent retry semantics.
@@ -3401,8 +3403,10 @@ def _schedule_slices_with_compensation(
 async def submit_sliced_order(
     request: SlicingRequest,
     http_response: Response,
-    _rate_limit_remaining: int = Depends(order_slice_rl),
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
     _auth_context: AuthContext = Depends(order_slice_auth),
+    _rate_limit_remaining: int = Depends(order_slice_rl),
 ) -> SlicingPlan:
     """
     Submit TWAP order with automatic slicing and scheduled execution.

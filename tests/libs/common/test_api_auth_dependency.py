@@ -178,8 +178,24 @@ class TestVerifyInternalToken:
         query: str = "",
         secret: str = "a" * 64,
     ) -> str:
-        """Generate HMAC-signed internal token with body hash and query."""
-        payload = f"{service_id}|{method}|{path}|{query}|{timestamp}|{nonce}|{user_id or ''}|{strategy_id or ''}|{body_hash}"
+        """Generate HMAC-signed internal token with body hash and query.
+
+        Uses JSON serialization to match the production implementation,
+        which prevents delimiter collision attacks.
+        """
+        import json
+        payload_dict = {
+            "service_id": service_id,
+            "method": method,
+            "path": path,
+            "query": query,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "user_id": user_id or "",
+            "strategy_id": strategy_id or "",
+            "body_hash": body_hash,
+        }
+        payload = json.dumps(payload_dict, separators=(",", ":"), sort_keys=True)
         return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
     @pytest.mark.asyncio()
@@ -903,9 +919,20 @@ class TestUnknownServiceIdRejection:
         service_id = "malicious_service"  # Not in whitelist
         secret = "a" * 64
 
-        # Generate a valid token for the unknown service
-        # Format: service_id|method|path|query|timestamp|nonce|user_id|strategy_id|body_hash
-        payload = f"{service_id}|POST|/api/v1/orders||{timestamp}|{nonce}|||"
+        # Generate a valid token for the unknown service using JSON format
+        import json
+        payload_dict = {
+            "service_id": service_id,
+            "method": "POST",
+            "path": "/api/v1/orders",
+            "query": "",
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "user_id": "",
+            "strategy_id": "",
+            "body_hash": "",
+        }
+        payload = json.dumps(payload_dict, separators=(",", ":"), sort_keys=True)
         token = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
         with patch.dict(os.environ, {"INTERNAL_TOKEN_SECRET": secret}, clear=False):

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import time
@@ -292,8 +293,22 @@ def _verify_hmac_signature(
     if not secret:
         return False
 
-    # Reconstruct payload: service_id|method|path|query|timestamp|nonce|user_id|strategy_id|body_hash
-    payload = f"{service_id}|{method}|{path}|{query}|{timestamp}|{nonce}|{user_id or ''}|{strategy_id or ''}|{body_hash}"
+    # Build payload as JSON for unambiguous serialization
+    # SECURITY: JSON prevents delimiter collision attacks where attacker-controlled values
+    # containing delimiters could forge signatures (e.g., query="a|b" colliding with user_id="b")
+    payload_dict = {
+        "service_id": service_id,
+        "method": method,
+        "path": path,
+        "query": query,
+        "timestamp": timestamp,
+        "nonce": nonce,
+        "user_id": user_id or "",
+        "strategy_id": strategy_id or "",
+        "body_hash": body_hash,
+    }
+    # Use sorted keys and compact separators for deterministic serialization
+    payload = json.dumps(payload_dict, separators=(",", ":"), sort_keys=True)
     expected_sig = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
 
     return hmac.compare_digest(token, expected_sig)
@@ -540,15 +555,11 @@ def api_auth(
 
                     # Check role requirement
                     if config.require_role and user.role:
-                        role_hierarchy = [Role.VIEWER, Role.OPERATOR, Role.ADMIN]
-                        user_level = (
-                            role_hierarchy.index(user.role) if user.role in role_hierarchy else -1
-                        )
-                        required_level = (
-                            role_hierarchy.index(config.require_role)
-                            if config.require_role in role_hierarchy
-                            else -1
-                        )
+                        # Define role levels for clear hierarchy comparison
+                        # Higher level = more permissions (ADMIN > OPERATOR > VIEWER)
+                        ROLE_LEVELS = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2}
+                        user_level = ROLE_LEVELS.get(user.role, -1)
+                        required_level = ROLE_LEVELS.get(config.require_role, -1)
                         if user_level < required_level:
                             api_auth_checks_total.labels(
                                 action=config.action,

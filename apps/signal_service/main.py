@@ -1328,8 +1328,10 @@ async def readiness_check() -> HealthResponse:
 async def generate_signals(
     request: SignalRequest,
     http_response: Response,
-    _rate_limit_remaining: int = Depends(signal_generate_rl),
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
     _auth_context: AuthContext = Depends(signal_generate_auth),
+    _rate_limit_remaining: int = Depends(signal_generate_rl),
 ) -> SignalResponse:
     """
     Generate trading signals for given symbols.
