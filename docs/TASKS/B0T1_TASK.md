@@ -5,7 +5,7 @@ phase: B0
 task: T1
 priority: P0
 owner: "@development-team"
-state: TASK
+state: IN_PROGRESS
 created: 2025-12-20
 dependencies: []
 estimated_effort: "~30 days"
@@ -17,7 +17,7 @@ features: ["C1-startup-reconciliation", "C2-blocking-io", "C3-kill-switch", "C4-
 # B0T1: Codebase Issues Remediation
 
 **Phase:** B0 (Bug Fix Track)
-**Status:** TASK (Not Started)
+**Status:** IN_PROGRESS (C5, C6 Complete)
 **Priority:** P0 (Critical)
 **Owner:** @development-team
 **Created:** 2025-12-20
@@ -87,8 +87,8 @@ Address all validated codebase issues to improve trading system stability, safet
 - [ ] **AC2:** All blocking I/O calls wrapped with `asyncio.to_thread()` or replaced with async clients
 - [ ] **AC3:** Kill switch accessible via CLI with mTLS/JWT auth, audit logging, and documented DR drill
 - [ ] **AC4:** Security headers (CSP, X-Frame-Options, HSTS) added to all FastAPI apps
-- [ ] **AC5:** Rate limiting applied to order submission endpoints with per-user buckets
-- [ ] **AC6:** S2S authentication required on trading APIs (order submission, signal generation)
+- [x] **AC5:** Rate limiting applied to order submission endpoints with per-user buckets
+- [x] **AC6:** S2S authentication required on trading APIs (order submission, signal generation)
 - [ ] **AC7:** Secrets abstraction layer with validation and rotation hooks deployed
 
 ### Phase 2: Reliability & Observability
@@ -1277,6 +1277,39 @@ Missing price causes validation failure, not pass-through.
 
 ---
 
-**Last Updated:** 2025-12-20
+**Last Updated:** 2025-12-21
 **Reviewed By:** Codex, Gemini (Independent Reviews), Second Expert Review
 **Total Issues:** 26 identified, 22 valid, 3 invalid, 1 already covered
+
+---
+
+## Progress Log
+
+### 2025-12-21: C5 Rate Limiting + C6 API Authentication Complete
+
+**Completed Components:**
+- **C5: Rate Limiting** - Added rate limiting to order submission and signal generation endpoints with per-user/per-service buckets
+- **C6: API Authentication** - Implemented comprehensive S2S authentication with:
+  - HMAC-SHA256 signed internal tokens
+  - Body hash verification for payload integrity (POST/PUT/PATCH/DELETE)
+  - Query string signing using `request.url.query` (tamper-proof)
+  - Per-service secrets support (`INTERNAL_TOKEN_SECRET_{SERVICE_ID}`)
+  - Nonce-based replay protection via Redis with service-scoped keys
+  - Secret rotation support (read at call time, not cached)
+  - Fail-closed authentication (RuntimeError when secret missing)
+
+**Key Files:**
+- `libs/common/api_auth_dependency.py` - Server-side S2S auth (NEW)
+- `libs/common/rate_limit_dependency.py` - Rate limiting integration
+- `apps/orchestrator/clients.py` - Client-side auth headers
+- `apps/execution_gateway/main.py` - Integrated auth dependencies
+- `apps/signal_service/main.py` - Integrated auth dependencies
+- `tests/libs/common/test_api_auth_dependency.py` - 44 tests (NEW)
+
+**Security Fixes (from Codex review iterations):**
+1. Server uses `request.url.query` instead of X-Query header (tamper-proof)
+2. Body hash required for state-changing requests (POST/PUT/PATCH/DELETE)
+3. Client computes hash of empty bytes when body is None
+4. Nonce cache scoped by service_id
+5. Nonce length bounded (MAX_NONCE_LENGTH = 128)
+6. Secret rotation support (read at call time)
