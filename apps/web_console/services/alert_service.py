@@ -67,12 +67,24 @@ class AlertConfigService:
         self._channel_handlers: dict[ChannelType, BaseChannel] | None = None
 
     def _get_channel_handlers(self) -> dict[ChannelType, BaseChannel]:
+        """Build channel handlers, lazily skipping unconfigured channels.
+
+        SMS channel requires Twilio credentials. If not configured, SMS is
+        skipped and a warning is logged. Email and Slack are always enabled.
+        """
         if self._channel_handlers is None:
             self._channel_handlers = {
                 ChannelType.EMAIL: EmailChannel(),
                 ChannelType.SLACK: SlackChannel(),
-                ChannelType.SMS: SMSChannel(),
             }
+            # SMS requires Twilio credentials - skip if not configured
+            try:
+                self._channel_handlers[ChannelType.SMS] = SMSChannel()
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "sms_channel_disabled",
+                    extra={"hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"},
+                )
         return self._channel_handlers
 
     async def get_rules(self) -> list[AlertRule]:

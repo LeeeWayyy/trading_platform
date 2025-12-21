@@ -97,13 +97,28 @@ async def _close_async_resources(resources: AsyncResources) -> None:
 
 
 def _get_channels() -> dict[ChannelType, BaseChannel]:
+    """Build channel handlers, lazily skipping unconfigured channels.
+
+    SMS channel requires Twilio credentials. If not configured, SMS is
+    skipped and a warning is logged. Email and Slack are always enabled.
+    """
     global _CHANNELS
     if _CHANNELS is None:
         _CHANNELS = {
             ChannelType.EMAIL: EmailChannel(),
             ChannelType.SLACK: SlackChannel(),
-            ChannelType.SMS: SMSChannel(),
         }
+        # SMS requires Twilio credentials - skip if not configured
+        try:
+            _CHANNELS[ChannelType.SMS] = SMSChannel()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "sms_channel_disabled",
+                extra={
+                    "reason": str(exc),
+                    "hint": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER",
+                },
+            )
     return _CHANNELS
 
 
