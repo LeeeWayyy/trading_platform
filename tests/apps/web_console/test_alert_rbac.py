@@ -57,14 +57,12 @@ def test_test_button_respects_rbac(role: str, expected_disabled: bool) -> None:
     user = {"role": role}
     channel = ChannelConfig(type=ChannelType.EMAIL, recipient="user@example.com", enabled=True)
 
-    with patch("apps.web_console.components.notification_channels.st.button") as mock_button, patch(
-        "apps.web_console.components.notification_channels.st.expander"
-    ) as mock_expander, patch(
-        "apps.web_console.components.notification_channels.st.text"
-    ), patch(
-        "apps.web_console.components.notification_channels.st.text_input", return_value=""
-    ), patch(
-        "apps.web_console.components.notification_channels.st.checkbox", return_value=True
+    with (
+        patch("apps.web_console.components.notification_channels.st.button") as mock_button,
+        patch("apps.web_console.components.notification_channels.st.expander") as mock_expander,
+        patch("apps.web_console.components.notification_channels.st.text"),
+        patch("apps.web_console.components.notification_channels.st.text_input", return_value=""),
+        patch("apps.web_console.components.notification_channels.st.checkbox", return_value=True),
     ):
         mock_expander.return_value.__enter__.return_value = None  # type: ignore[attr-defined]
         render_notification_channels([channel], user, MagicMock())

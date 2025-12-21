@@ -112,7 +112,7 @@ class PrometheusClient:
         results: dict[str, bool] = {}
         for service, config in self.LATENCY_METRICS.items():
             metric = config["metric"]
-            query = f'{metric}_bucket{{le=\"1\"}}'
+            query = f'{metric}_bucket{{le="1"}}'
             try:
                 client = await self._get_client()
                 response = await client.get(
@@ -184,10 +184,14 @@ class PrometheusClient:
 
             # Check if all results are errors (all services have None latencies)
             # This indicates Prometheus is completely unavailable
-            all_failed = all(
-                m.p50_ms is None and m.p95_ms is None and m.p99_ms is None
-                for m in results.values()
-            ) if results else True
+            all_failed = (
+                all(
+                    m.p50_ms is None and m.p95_ms is None and m.p99_ms is None
+                    for m in results.values()
+                )
+                if results
+                else True
+            )
 
             if all_failed:
                 # Use stale cache instead of empty results

@@ -81,9 +81,7 @@ class TestBacktestAuthEnforcement:
         assert mock_session_state.get("username") == "dev_user"
         assert mock_session_state.get("role") == "operator"
 
-    def test_dev_stub_sets_all_required_session_keys(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_dev_stub_sets_all_required_session_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify dev stub sets all keys needed for RBAC parity."""
         monkeypatch.setenv("BACKTEST_DEV_AUTH", "true")
 

@@ -49,11 +49,7 @@ def _compute_storage_size_mb(directory: Path) -> tuple[float, int]:
 
     Uses banker's rounding (round half to even) to 2 decimal places.
     """
-    total_bytes = sum(
-        f.stat().st_size
-        for f in directory.glob("*.json")
-        if f.is_file()
-    )
+    total_bytes = sum(f.stat().st_size for f in directory.glob("*.json") if f.is_file())
     return round(total_bytes / 1_000_000, 2), total_bytes
 
 
@@ -153,14 +149,18 @@ def generate_placeholder_golden_results(dry_run: bool = False) -> dict[str, Any]
 
         # Track for manifest (both metrics and config files)
         if not dry_run:
-            generated_files.append({
-                "name": f"{filename}.json",
-                "checksum": f"sha256:{hash_file_sha256(metrics_path)}",
-            })
-            generated_files.append({
-                "name": f"{filename}_config.json",
-                "checksum": f"sha256:{hash_file_sha256(config_path)}",
-            })
+            generated_files.append(
+                {
+                    "name": f"{filename}.json",
+                    "checksum": f"sha256:{hash_file_sha256(metrics_path)}",
+                }
+            )
+            generated_files.append(
+                {
+                    "name": f"{filename}_config.json",
+                    "checksum": f"sha256:{hash_file_sha256(config_path)}",
+                }
+            )
 
     return {"files": generated_files, "configs": configs}
 

@@ -72,7 +72,12 @@ def request_obj() -> httpx.Request:
     return httpx.Request("GET", "http://svc/health")
 
 
-def _make_client_with_queue(queue: deque[Any], monkeypatch: pytest.MonkeyPatch, delay: float = 0.0, call_log: list[str] | None = None) -> None:
+def _make_client_with_queue(
+    queue: deque[Any],
+    monkeypatch: pytest.MonkeyPatch,
+    delay: float = 0.0,
+    call_log: list[str] | None = None,
+) -> None:
     """Patch httpx.AsyncClient to use the provided queue."""
 
     def factory(*_: Any, **__: Any) -> MockAsyncClient:
@@ -81,11 +86,15 @@ def _make_client_with_queue(queue: deque[Any], monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.setattr(httpx, "AsyncClient", factory)
 
 
-def test_cache_hit_returns_stale_on_error(monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str], request_obj: httpx.Request) -> None:
+def test_cache_hit_returns_stale_on_error(
+    monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str], request_obj: httpx.Request
+) -> None:
     client = HealthClient(service_urls, cache_ttl_seconds=30)
     queue: deque[Any] = deque(
         [
-            MockResponse(200, {"status": "healthy", "service": "svc", "timestamp": "2025-12-20T00:00:00Z"}),
+            MockResponse(
+                200, {"status": "healthy", "service": "svc", "timestamp": "2025-12-20T00:00:00Z"}
+            ),
             httpx.RequestError("boom", request=request_obj),
         ]
     )
@@ -101,10 +110,16 @@ def test_cache_hit_returns_stale_on_error(monkeypatch: pytest.MonkeyPatch, servi
     assert second.last_operation_timestamp is not None
 
 
-def test_cache_miss_fetches_fresh(monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]) -> None:
+def test_cache_miss_fetches_fresh(
+    monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]
+) -> None:
     client = HealthClient(service_urls, cache_ttl_seconds=30)
     queue: deque[Any] = deque(
-        [MockResponse(200, {"status": "healthy", "service": "svc", "timestamp": "2025-12-20T00:00:00Z"})]
+        [
+            MockResponse(
+                200, {"status": "healthy", "service": "svc", "timestamp": "2025-12-20T00:00:00Z"}
+            )
+        ]
     )
     _make_client_with_queue(queue, monkeypatch)
 
@@ -114,7 +129,9 @@ def test_cache_miss_fetches_fresh(monkeypatch: pytest.MonkeyPatch, service_urls:
     assert "svc" in client._cache  # cache populated
 
 
-def test_staleness_age_calculated_from_cache(monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]) -> None:
+def test_staleness_age_calculated_from_cache(
+    monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]
+) -> None:
     client = HealthClient(service_urls, cache_ttl_seconds=30)
     cached = ServiceHealthResponse(
         status="healthy",
@@ -136,7 +153,9 @@ def test_staleness_age_calculated_from_cache(monkeypatch: pytest.MonkeyPatch, se
     assert result.stale_age_seconds >= 5
 
 
-def test_error_without_cache_marks_unreachable(monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str], request_obj: httpx.Request) -> None:
+def test_error_without_cache_marks_unreachable(
+    monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str], request_obj: httpx.Request
+) -> None:
     client = HealthClient(service_urls, cache_ttl_seconds=30)
     queue: deque[Any] = deque([httpx.RequestError("boom", request=request_obj)])
     _make_client_with_queue(queue, monkeypatch)
@@ -148,7 +167,9 @@ def test_error_without_cache_marks_unreachable(monkeypatch: pytest.MonkeyPatch, 
     assert result.is_stale is False
 
 
-def test_extract_last_operation_timestamp_primary_field(monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]) -> None:
+def test_extract_last_operation_timestamp_primary_field(
+    monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]
+) -> None:
     client = HealthClient(service_urls)
     data = {"last_order_at": "2025-12-20T10:00:00Z"}
     ts = client._extract_last_operation_timestamp(data)
@@ -156,7 +177,9 @@ def test_extract_last_operation_timestamp_primary_field(monkeypatch: pytest.Monk
     assert ts.tzinfo == UTC
 
 
-def test_extract_last_operation_timestamp_fallback_timestamp(monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]) -> None:
+def test_extract_last_operation_timestamp_fallback_timestamp(
+    monkeypatch: pytest.MonkeyPatch, service_urls: dict[str, str]
+) -> None:
     client = HealthClient(service_urls)
     data = {"timestamp": "2025-12-20T09:00:00Z"}
     ts = client._extract_last_operation_timestamp(data)
@@ -164,7 +187,9 @@ def test_extract_last_operation_timestamp_fallback_timestamp(monkeypatch: pytest
     assert ts.tzinfo == UTC
 
 
-def test_extract_last_operation_timestamp_invalid_returns_none(service_urls: dict[str, str]) -> None:
+def test_extract_last_operation_timestamp_invalid_returns_none(
+    service_urls: dict[str, str]
+) -> None:
     client = HealthClient(service_urls)
     data = {"last_order_at": "not-a-date"}
     assert client._extract_last_operation_timestamp(data) is None
@@ -175,8 +200,12 @@ def test_check_all_runs_in_parallel(monkeypatch: pytest.MonkeyPatch) -> None:
     client = HealthClient(urls, cache_ttl_seconds=30)
     queue: deque[Any] = deque(
         [
-            MockResponse(200, {"status": "healthy", "service": "svc", "timestamp": "2025-12-20T00:00:00Z"}),
-            MockResponse(200, {"status": "healthy", "service": "svc2", "timestamp": "2025-12-20T00:00:00Z"}),
+            MockResponse(
+                200, {"status": "healthy", "service": "svc", "timestamp": "2025-12-20T00:00:00Z"}
+            ),
+            MockResponse(
+                200, {"status": "healthy", "service": "svc2", "timestamp": "2025-12-20T00:00:00Z"}
+            ),
         ]
     )
     call_log: list[str] = []
@@ -189,4 +218,3 @@ def test_check_all_runs_in_parallel(monkeypatch: pytest.MonkeyPatch) -> None:
     assert set(result.keys()) == {"svc", "svc2"}
     assert elapsed < 0.02  # should be closer to single request duration due to parallelism
     assert len(call_log) == 2
-

@@ -180,8 +180,12 @@ class TestSubmitOrderEndpoint:
             patch("apps.execution_gateway.main.db_client", mock_db),
             patch.object(main.recovery_manager, "needs_recovery", return_value=False),
             patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=False),
-            patch.object(main.recovery_manager, "is_circuit_breaker_unavailable", return_value=False),
-            patch.object(main.recovery_manager, "is_position_reservation_unavailable", return_value=False),
+            patch.object(
+                main.recovery_manager, "is_circuit_breaker_unavailable", return_value=False
+            ),
+            patch.object(
+                main.recovery_manager, "is_position_reservation_unavailable", return_value=False
+            ),
         ):
             response = test_client.post(
                 "/api/v1/orders",

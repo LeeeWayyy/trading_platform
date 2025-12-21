@@ -132,7 +132,9 @@ def _render_alert_history_section(user: dict[str, Any], service: AlertConfigServ
     def _on_ack(alert_id: str, note: str) -> None:
         run_async(service.acknowledge_alert(alert_id, note, user))
 
-    render_alert_history(events, can_acknowledge=can_ack, on_acknowledge=_on_ack if can_ack else None)
+    render_alert_history(
+        events, can_acknowledge=can_ack, on_acknowledge=_on_ack if can_ack else None
+    )
 
 
 def _render_channels_section(user: dict[str, Any], service: AlertConfigService) -> None:

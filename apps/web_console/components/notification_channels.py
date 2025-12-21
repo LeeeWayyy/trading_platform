@@ -13,10 +13,6 @@ from libs.alerts.pii import mask_recipient
 from libs.web_console_auth.permissions import Permission, has_permission
 
 
-def _mask_recipient(recipient: str, channel: ChannelConfig) -> str:
-    return mask_recipient(recipient, channel.type.value)
-
-
 def render_notification_channels(
     channels: list[ChannelConfig],
     user: dict[str, Any],
@@ -53,7 +49,7 @@ def render_notification_channels(
 
     for i, channel in enumerate(working_channels):
         with st.expander(f"{channel.type.value.title()} Channel", expanded=False):
-            masked = _mask_recipient(channel.recipient, channel)
+            masked = mask_recipient(channel.recipient, channel.type.value)
             st.text(f"Recipient: {masked}")
 
             new_recipient = st.text_input(
@@ -80,8 +76,8 @@ def render_notification_channels(
                         result = run_async(alert_service.test_notification(test_channel, user))
                         if result.success:
                             st.success(
-                                f"Test notification sent to "
-                                f"{_mask_recipient(test_channel.recipient, test_channel)}"
+                                "Test notification sent to "
+                                f"{mask_recipient(test_channel.recipient, test_channel.type.value)}"
                             )
                         else:
                             st.error(f"Test failed: {result.error or 'unknown error'}")

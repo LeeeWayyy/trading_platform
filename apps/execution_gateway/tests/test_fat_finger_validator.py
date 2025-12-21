@@ -105,9 +105,7 @@ def test_override_patch_merges_values() -> None:
         symbol_overrides={"AAPL": FatFingerThresholds(max_qty=1000)},
     )
 
-    validator.update_symbol_overrides(
-        {"AAPL": FatFingerThresholds(max_notional=Decimal("200000"))}
-    )
+    validator.update_symbol_overrides({"AAPL": FatFingerThresholds(max_notional=Decimal("200000"))})
     effective = validator.get_effective_thresholds("AAPL")
     assert effective.max_qty == 1000
     assert effective.max_notional == Decimal("200000")

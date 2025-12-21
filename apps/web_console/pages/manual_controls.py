@@ -316,7 +316,9 @@ def render_positions(user: Mapping[str, Any]) -> None:
         return
 
     positions_by_symbol = {
-        pos.get("symbol"): pos for pos in positions if isinstance(pos, Mapping) and pos.get("symbol")
+        pos.get("symbol"): pos
+        for pos in positions
+        if isinstance(pos, Mapping) and pos.get("symbol")
     }
 
     for pos in positions:

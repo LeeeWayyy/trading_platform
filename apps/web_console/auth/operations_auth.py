@@ -29,13 +29,15 @@ import streamlit as st
 from apps.web_console.auth.streamlit_helpers import requires_auth
 
 # Allowlist: ONLY these environments can use dev auth (fail-closed security)
-_ALLOWED_DEV_AUTH_ENVIRONMENTS = frozenset({
-    "development",
-    "dev",
-    "local",
-    "test",
-    "ci",
-})
+_ALLOWED_DEV_AUTH_ENVIRONMENTS = frozenset(
+    {
+        "development",
+        "dev",
+        "local",
+        "test",
+        "ci",
+    }
+)
 
 # Module-level constant: computed once at import time (DRY)
 _DEV_AUTH_ENABLED = os.getenv("OPERATIONS_DEV_AUTH", "false").lower() in ("true", "1", "yes", "on")

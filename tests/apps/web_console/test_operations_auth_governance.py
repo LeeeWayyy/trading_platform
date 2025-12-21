@@ -39,9 +39,9 @@ class TestOperationsAuthGovernance:
         if prod_env.exists():
             content = prod_env.read_text()
             match = _DEV_AUTH_TRUTHY_PATTERN.search(content)
-            assert match is None, (
-                f"OPERATIONS_DEV_AUTH with truthy value found in .env.prod: '{match.group()}'"
-            )
+            assert (
+                match is None
+            ), f"OPERATIONS_DEV_AUTH with truthy value found in .env.prod: '{match.group()}'"
 
     def test_no_dev_auth_in_staging_env(self, project_root: Path) -> None:
         """CI fails if OPERATIONS_DEV_AUTH is truthy in .env.staging."""
@@ -49,9 +49,9 @@ class TestOperationsAuthGovernance:
         if staging_env.exists():
             content = staging_env.read_text()
             match = _DEV_AUTH_TRUTHY_PATTERN.search(content)
-            assert match is None, (
-                f"OPERATIONS_DEV_AUTH with truthy value found in .env.staging: '{match.group()}'"
-            )
+            assert (
+                match is None
+            ), f"OPERATIONS_DEV_AUTH with truthy value found in .env.staging: '{match.group()}'"
 
     def test_no_dev_auth_in_docker_compose_prod(self, project_root: Path) -> None:
         """CI fails if OPERATIONS_DEV_AUTH is truthy in docker-compose.prod.yml."""
@@ -82,10 +82,7 @@ class TestOperationsAuthGovernance:
             # Scan both .yml and .yaml extensions
             for ext in ("*.yml", "*.yaml"):
                 for config_file in infra_dir.rglob(ext):
-                    if (
-                        "prod" in config_file.name.lower()
-                        or "staging" in config_file.name.lower()
-                    ):
+                    if "prod" in config_file.name.lower() or "staging" in config_file.name.lower():
                         content = config_file.read_text()
                         match = _DEV_AUTH_TRUTHY_PATTERN.search(content)
                         assert match is None, (
@@ -93,9 +90,7 @@ class TestOperationsAuthGovernance:
                             f"{config_file}: '{match.group()}'"
                         )
 
-    @pytest.mark.parametrize(
-        "allowed_env", ["development", "dev", "local", "test", "ci"]
-    )
+    @pytest.mark.parametrize("allowed_env", ["development", "dev", "local", "test", "ci"])
     def test_runtime_guard_allows_dev_environments(
         self, monkeypatch: pytest.MonkeyPatch, allowed_env: str
     ) -> None:
@@ -134,9 +129,7 @@ class TestOperationsAuthGovernance:
 
         assert exc_info.value.code == 1
 
-    def test_runtime_guard_blocks_unset_environment(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_runtime_guard_blocks_unset_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Runtime guard should block when ENVIRONMENT is unset (fail-closed)."""
         monkeypatch.setenv("OPERATIONS_DEV_AUTH", "true")
         monkeypatch.delenv("ENVIRONMENT", raising=False)
@@ -146,9 +139,7 @@ class TestOperationsAuthGovernance:
 
         assert exc_info.value.code == 1
 
-    def test_runtime_guard_blocks_empty_environment(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_runtime_guard_blocks_empty_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Runtime guard should block when ENVIRONMENT is empty string."""
         monkeypatch.setenv("OPERATIONS_DEV_AUTH", "true")
         monkeypatch.setenv("ENVIRONMENT", "")
@@ -162,9 +153,7 @@ class TestOperationsAuthGovernance:
 class TestOperationsAuthSessionContract:
     """Unit tests for auth stub session state contract."""
 
-    def test_dev_stub_sets_full_session_state(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_dev_stub_sets_full_session_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Dev stub must set all required session keys for RBAC parity."""
         monkeypatch.setenv("OPERATIONS_DEV_AUTH", "true")
         monkeypatch.setenv("ENVIRONMENT", "development")
@@ -227,13 +216,11 @@ class TestOperationsAuthSessionContract:
             return "rendered"
 
         # Verify the real requires_auth was invoked (not the stub)
-        assert "dummy_page" in sentinel_called, (
-            "Real requires_auth was not called - stub may be leaking to prod mode"
-        )
+        assert (
+            "dummy_page" in sentinel_called
+        ), "Real requires_auth was not called - stub may be leaking to prod mode"
 
-    def test_prod_mode_does_not_inject_stub_session(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_prod_mode_does_not_inject_stub_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When dev auth disabled, stub session keys should NOT be injected."""
         monkeypatch.setenv("OPERATIONS_DEV_AUTH", "false")
         monkeypatch.setenv("ENVIRONMENT", "development")
@@ -262,9 +249,9 @@ class TestOperationsAuthSessionContract:
         dummy_page()
 
         # Verify stub session keys were NOT injected
-        assert "auth_method" not in mock_session or mock_session.get("auth_method") != "dev_stub", (
-            "Dev stub session keys were injected when OPERATIONS_DEV_AUTH=false"
-        )
+        assert (
+            "auth_method" not in mock_session or mock_session.get("auth_method") != "dev_stub"
+        ), "Dev stub session keys were injected when OPERATIONS_DEV_AUTH=false"
 
 
 class TestAuthStubRemovalGate:
@@ -286,6 +273,6 @@ class TestAuthStubRemovalGate:
             capture_output=True,
             text=True,
         )
-        assert result.returncode != 0, (
-            f"Found references to operations_requires_auth after T6.1:\n{result.stdout}"
-        )
+        assert (
+            result.returncode != 0
+        ), f"Found references to operations_requires_auth after T6.1:\n{result.stdout}"

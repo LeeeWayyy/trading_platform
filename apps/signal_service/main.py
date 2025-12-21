@@ -249,7 +249,9 @@ async def feature_hydration_task(symbols: list[str], history_days: int) -> None:
         )
         # Keep hydration_complete = False to maintain degraded health status
     except Exception as e:
-        logger.error(f"Feature cache hydration failed: {e}; health will remain degraded", exc_info=True)
+        logger.error(
+            f"Feature cache hydration failed: {e}; health will remain degraded", exc_info=True
+        )
         # Keep hydration_complete = False to maintain degraded health status
 
 
@@ -337,9 +339,7 @@ async def redis_fallback_replay_task() -> None:
         if not is_healthy or fallback_buffer.size == 0:
             continue
 
-        replayed = await asyncio.to_thread(
-            fallback_buffer.replay, _publish_buffered_message
-        )
+        replayed = await asyncio.to_thread(fallback_buffer.replay, _publish_buffered_message)
         if replayed:
             signals_replayed_total.inc(replayed)
             redis_fallback_buffer_size.set(fallback_buffer.size)

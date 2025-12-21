@@ -158,9 +158,7 @@ def _render_status_section(cb_service: CircuitBreakerService) -> None:
 def _render_controls_section(cb_service: CircuitBreakerService) -> None:
     """Render trip/reset controls with RBAC gating."""
     # Create user dict with only string keys (session_state can have int keys)
-    user: dict[str, Any] = {
-        k: v for k, v in st.session_state.items() if isinstance(k, str)
-    }
+    user: dict[str, Any] = {k: v for k, v in st.session_state.items() if isinstance(k, str)}
 
     col1, col2 = st.columns(2)
 

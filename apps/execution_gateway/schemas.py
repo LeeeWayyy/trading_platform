@@ -558,9 +558,7 @@ class FatFingerThresholds(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "examples": [
-                {"max_notional": "100000", "max_qty": 10000, "max_adv_pct": "0.05"}
-            ]
+            "examples": [{"max_notional": "100000", "max_qty": 10000, "max_adv_pct": "0.05"}]
         }
     }
 

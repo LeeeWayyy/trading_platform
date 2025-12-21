@@ -30,12 +30,8 @@ def _build_backtest_result(returns: list[float], ic_values: list[float]) -> Back
             "rank_ic": ic_values,
         }
     )
-    daily_signals = pl.DataFrame(
-        {"permno": [1] * n, "date": dates, "signal": [0.1] * n}
-    )
-    daily_weights = pl.DataFrame(
-        {"permno": [1] * n, "date": dates, "weight": [1.0] * n}
-    )
+    daily_signals = pl.DataFrame({"permno": [1] * n, "date": dates, "signal": [0.1] * n})
+    daily_weights = pl.DataFrame({"permno": [1] * n, "date": dates, "weight": [1.0] * n})
 
     return BacktestResult(
         alpha_name="test",

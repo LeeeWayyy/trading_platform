@@ -155,9 +155,7 @@ def _import_modules(monkeypatch, stub_streamlit):
     )
     monkeypatch.setitem(sys.modules, "libs.web_console_auth.config", auth_config_stub)
     monkeypatch.setitem(sys.modules, "redis", SimpleNamespace(Redis=lambda **kwargs: None))
-    monkeypatch.setitem(
-        sys.modules, "redis.asyncio", SimpleNamespace(Redis=lambda **kwargs: None)
-    )
+    monkeypatch.setitem(sys.modules, "redis.asyncio", SimpleNamespace(Redis=lambda **kwargs: None))
 
     import apps.web_console.pages.manual_controls as manual_controls  # type: ignore
     import apps.web_console.utils.api_client as api_client  # type: ignore

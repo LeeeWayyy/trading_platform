@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
@@ -112,6 +111,8 @@ class AlertConfigService:
             raise PermissionError("Permission CREATE_ALERT_RULE required")
 
         rule_id = uuid4()
+        user_id = user.get("user_id", "unknown")
+
         async with acquire_connection(self.db_pool) as conn:
             await conn.execute(
                 """
@@ -128,9 +129,26 @@ class AlertConfigService:
                     rule.comparison,
                     json.dumps([c.model_dump() for c in rule.channels]),
                     rule.enabled,
-                    user.get("user_id", "unknown"),
+                    user_id,
                 ),
             )
+            cursor = await conn.execute(
+                """
+                SELECT id, name, condition_type, threshold_value, comparison,
+                       channels, enabled, created_by, created_at, updated_at
+                FROM alert_rules
+                WHERE id = %s
+                """,
+                (str(rule_id),),
+            )
+            row = await cursor.fetchone()
+
+        if not row:
+            raise RuntimeError(f"Alert rule {rule_id} not found after create")
+
+        channels_raw = row[5] or []
+        channels = [ChannelConfig(**c) for c in channels_raw]
+
         await self.audit_logger.log_action(
             user_id=user.get("user_id"),
             action="ALERT_RULE_CREATED",
@@ -140,16 +158,16 @@ class AlertConfigService:
             details={"rule_name": rule.name, "condition_type": rule.condition_type},
         )
         return AlertRule(
-            id=UUID(str(rule_id)),
-            name=rule.name,
-            condition_type=rule.condition_type,
-            threshold_value=rule.threshold_value,
-            comparison=rule.comparison,
-            channels=rule.channels,
-            enabled=rule.enabled,
-            created_by=user.get("user_id", "unknown"),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
+            id=row[0],
+            name=row[1],
+            condition_type=row[2],
+            threshold_value=row[3],
+            comparison=row[4],
+            channels=channels,
+            enabled=row[6],
+            created_by=row[7],
+            created_at=row[8],
+            updated_at=row[9],
         )
 
     async def update_rule(
@@ -376,7 +394,9 @@ class AlertConfigService:
                 (rule_id, channel.type.value),
             )
             if result:
-                raise ValueError(f"Channel type '{channel.type.value}' already exists for this rule")
+                raise ValueError(
+                    f"Channel type '{channel.type.value}' already exists for this rule"
+                )
 
             await conn.execute(
                 """
@@ -397,7 +417,9 @@ class AlertConfigService:
             details={"channel_type": channel.type.value},
         )
 
-    async def update_channel(self, rule_id: str, channel: ChannelConfig, user: dict[str, Any]) -> None:
+    async def update_channel(
+        self, rule_id: str, channel: ChannelConfig, user: dict[str, Any]
+    ) -> None:
         """Update notification channel configuration.
 
         Assumes channel types are unique per rule (enforced by add_channel).

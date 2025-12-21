@@ -86,6 +86,7 @@ class MarketClockSnapshot:
     is_open: bool
     next_open: datetime | None
 
+
 class SliceScheduler:
     """
     APScheduler-based slice execution scheduler with safety guards.
@@ -343,14 +344,30 @@ class SliceScheduler:
         pending_slices = self.db.get_pending_child_slices()
         if not pending_slices:
             logger.info("No pending TWAP slices found for recovery")
-            return {"pending": 0, "scheduled": 0, "blocked": 0, "failed": 0, "canceled": 0, "expired": 0, "parents_expired": 0}
+            return {
+                "pending": 0,
+                "scheduled": 0,
+                "blocked": 0,
+                "failed": 0,
+                "canceled": 0,
+                "expired": 0,
+                "parents_expired": 0,
+            }
 
         allowed_parent_statuses = {"accepted", "submitted", "submitted_unconfirmed"}
         terminal_parent_statuses = {"canceled", "expired", "failed"}
 
         canceled_parents: set[str] = set()
         expired_parents: set[str] = set()  # Track parents that had children expired
-        counts: dict[str, int] = {"pending": len(pending_slices), "scheduled": 0, "blocked": 0, "failed": 0, "canceled": 0, "expired": 0, "parents_expired": 0}
+        counts: dict[str, int] = {
+            "pending": len(pending_slices),
+            "scheduled": 0,
+            "blocked": 0,
+            "failed": 0,
+            "canceled": 0,
+            "expired": 0,
+            "parents_expired": 0,
+        }
 
         for slice_order in pending_slices:
             parent_order_id = getattr(slice_order, "parent_order_id", None)
@@ -374,7 +391,10 @@ class SliceScheduler:
             if not parent:
                 logger.warning(
                     "Parent order missing for pending slice; marking failed",
-                    extra={"parent_order_id": parent_order_id, "client_order_id": slice_order.client_order_id},
+                    extra={
+                        "parent_order_id": parent_order_id,
+                        "client_order_id": slice_order.client_order_id,
+                    },
                 )
                 self.db.update_order_status_cas(
                     client_order_id=slice_order.client_order_id,

@@ -50,9 +50,7 @@ class EmailChannel(BaseChannel):
 
         # Prefer explicit from_email, fall back to secret, then SMTP user.
         self.from_email = (
-            from_email
-            or self.secrets.get_secret("ALERTS_FROM_EMAIL")
-            or self.smtp_user
+            from_email or self.secrets.get_secret("ALERTS_FROM_EMAIL") or self.smtp_user
         )
 
     def _sanitize_error(self, message: str, recipient: str) -> str:

@@ -115,4 +115,3 @@ class TestComputeRecipientHash:
         # SHA256 hex digest truncated or full
         assert len(hash_value) >= 16
         assert len(hash_value) <= 64
-

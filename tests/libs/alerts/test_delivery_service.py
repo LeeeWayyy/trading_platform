@@ -196,14 +196,12 @@ class TestDeliveryExecutor:
     def mock_channel(self):
         """Create mock channel handler."""
         channel = AsyncMock()
-        channel.send = AsyncMock(
-            return_value=DeliveryResult(success=True, message_id="msg-123")
-        )
+        channel.send = AsyncMock(return_value=DeliveryResult(success=True, message_id="msg-123"))
         return channel
 
     def test_retry_delays(self):
         """Test RETRY_DELAYS constant."""
-        assert DeliveryExecutor.RETRY_DELAYS == [5, 30]
+        assert DeliveryExecutor.RETRY_DELAYS == [1, 2, 4]
 
     def test_max_attempts(self):
         """Test MAX_ATTEMPTS constant."""
@@ -227,9 +225,9 @@ class TestDeliveryExecutor:
         )
         executor.queue_depth_manager = MagicMock()
         executor.queue_depth_manager.decrement = AsyncMock()
-        executor._claim_delivery = AsyncMock(return_value=None)
-        executor._record_attempt = AsyncMock()
-        executor._record_attempt_failure = AsyncMock()
+        executor._claim_delivery = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        executor._record_attempt = AsyncMock()  # type: ignore[method-assign]
+        executor._record_attempt_failure = AsyncMock()  # type: ignore[method-assign]
 
         result = await executor.execute(
             delivery_id="unclaimed-id",
@@ -256,8 +254,8 @@ class TestDeliveryExecutor:
         )
         executor.queue_depth_manager = MagicMock()
         executor.queue_depth_manager.decrement = AsyncMock()
-        executor._record_attempt = AsyncMock()
-        executor._record_attempt_failure = AsyncMock()
+        executor._record_attempt = AsyncMock()  # type: ignore[method-assign]
+        executor._record_attempt_failure = AsyncMock()  # type: ignore[method-assign]
 
         delivery_id = uuid4()
         claimed_delivery = AlertDelivery(
@@ -270,7 +268,7 @@ class TestDeliveryExecutor:
             attempts=0,
             created_at=datetime.now(UTC),
         )
-        executor._claim_delivery = AsyncMock(return_value=claimed_delivery)
+        executor._claim_delivery = AsyncMock(return_value=claimed_delivery)  # type: ignore[method-assign]
 
         result = await executor.execute(
             delivery_id=str(delivery_id),

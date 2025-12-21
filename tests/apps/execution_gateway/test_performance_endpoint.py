@@ -20,8 +20,11 @@ from fastapi.testclient import TestClient
 
 # Stub redis + jwt before importing main to prevent cryptography/PyO3 issues in test env
 redis_stub = type(sys)("redis")
+redis_stub.__path__ = []  # Mark as package so submodules can be imported
 redis_stub.exceptions = type(sys)("redis.exceptions")
 redis_stub.connection = type(sys)("redis.connection")
+redis_stub.asyncio = type(sys)("redis.asyncio")
+redis_stub.lock = type(sys)("redis.lock")
 
 
 class _RedisError(Exception):
@@ -47,6 +50,7 @@ class _ConnectionPool:
 
 
 redis_stub.connection.ConnectionPool = _ConnectionPool
+redis_stub.lock.Lock = object
 
 
 class _RedisClient:
@@ -58,9 +62,12 @@ class _RedisClient:
 
 
 redis_stub.Redis = _RedisClient
+redis_stub.asyncio.Redis = _RedisClient
 sys.modules.setdefault("redis", redis_stub)
 sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
 sys.modules.setdefault("redis.connection", redis_stub.connection)
+sys.modules.setdefault("redis.asyncio", redis_stub.asyncio)
+sys.modules.setdefault("redis.lock", redis_stub.lock)
 
 jwt_stub = type(sys)("jwt")
 jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
@@ -68,6 +75,8 @@ jwt_stub.algorithms = SimpleNamespace(
     get_default_algorithms=lambda: {},
     has_crypto=lambda: False,
     requires_cryptography=False,
+    ECAlgorithm=object,
+    RSAAlgorithm=object,
 )
 jwt_stub.utils = SimpleNamespace()
 sys.modules.setdefault("jwt", jwt_stub)

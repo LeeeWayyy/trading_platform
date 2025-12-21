@@ -133,11 +133,11 @@ class ReconciliationService:
                 await self.run_reconciliation_once("periodic")
                 if not self._startup_complete:
                     self._startup_complete = True
-                    logger.info(
-                        "Startup reconciliation gate opened after successful periodic run"
-                    )
+                    logger.info("Startup reconciliation gate opened after successful periodic run")
             except Exception as exc:
-                logger.error("Periodic reconciliation failed", exc_info=True, extra={"error": str(exc)})
+                logger.error(
+                    "Periodic reconciliation failed", exc_info=True, extra={"error": str(exc)}
+                )
             await asyncio.sleep(self.poll_interval_seconds)
 
     def stop(self) -> None:
@@ -171,9 +171,7 @@ class ReconciliationService:
         # Pull recent orders using created_at window (best-effort)
         recent_orders: list[dict[str, Any]] = []
         if after_time:
-            recent_orders = self.alpaca_client.get_orders(
-                status="all", limit=500, after=after_time
-            )
+            recent_orders = self.alpaca_client.get_orders(status="all", limit=500, after=after_time)
 
         # Merge order lists by client_order_id (prefer newest updated_at)
         orders_by_client: dict[str, dict[str, Any]] = {}
@@ -266,9 +264,7 @@ class ReconciliationService:
 
         reconciliation_mismatches_total.inc()
 
-    def _reconcile_missing_orders(
-        self, db_orders: list[Any], after_time: datetime | None
-    ) -> None:
+    def _reconcile_missing_orders(self, db_orders: list[Any], after_time: datetime | None) -> None:
         lookups = 0
         now = datetime.now(UTC)
         for db_order in db_orders:

@@ -61,7 +61,7 @@ async def _create_async_resources() -> AsyncResources:
     """Instantiate async resources inside the job's event loop."""
     redis_url = _require_env("REDIS_URL")
     db_url = _require_env("DATABASE_URL")
-    redis_client = cast(redis_async.Redis, redis_async.from_url(redis_url))
+    redis_client = cast(redis_async.Redis, redis_async.from_url(redis_url))  # type: ignore[no-untyped-call]
     db_pool = AsyncConnectionPool(conninfo=db_url, min_size=1, max_size=5)
     await db_pool.open()
     poison_queue = PoisonQueue(db_pool)

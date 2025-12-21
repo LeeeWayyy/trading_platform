@@ -130,9 +130,7 @@ class TestSlackChannel:
     @pytest.fixture()
     def slack_channel(self):
         """Create Slack channel with test webhook."""
-        return SlackChannel(
-            webhook_url="https://hooks.slack.com/services/XXX/YYY/ZZZ"
-        )
+        return SlackChannel(webhook_url="https://hooks.slack.com/services/XXX/YYY/ZZZ")
 
     @pytest.mark.asyncio()
     async def test_channel_type(self, slack_channel):
@@ -244,6 +242,7 @@ class TestSMSChannel:
 
             def slow_send(*args, **kwargs):
                 import time
+
                 time.sleep(20)  # Longer than timeout
 
             mock_client.messages.create = slow_send

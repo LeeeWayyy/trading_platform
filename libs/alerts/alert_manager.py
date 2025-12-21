@@ -159,9 +159,7 @@ class AlertManager:
 
         channels_raw = row["channels"] or []
         channels = [
-            ChannelConfig(**channel)
-            for channel in channels_raw
-            if channel.get("enabled", True)
+            ChannelConfig(**channel) for channel in channels_raw if channel.get("enabled", True)
         ]
         return _RuleChannels(name=row["name"], channels=channels)
 
@@ -232,7 +230,9 @@ class AlertManager:
             f"({value_str}). Alert ID reserved for tracking."
         )
 
-        async def enqueue_one(delivery_id: str, channel: ChannelConfig) -> tuple[str, Exception | None]:
+        async def enqueue_one(
+            delivery_id: str, channel: ChannelConfig
+        ) -> tuple[str, Exception | None]:
             """Enqueue a single delivery, returning (delivery_id, error or None)."""
             try:
                 await asyncio.to_thread(
@@ -260,7 +260,11 @@ class AlertManager:
                 if error is not None:
                     await self.queue_depth_manager.decrement()
                     channel = deliveries[idx][1]
-                    alert_dropped_total.labels(channel=channel.type.value, reason="enqueue_failed").inc()
-                    logger.error("enqueue_failed", extra={"delivery_id": delivery_id}, exc_info=error)
+                    alert_dropped_total.labels(
+                        channel=channel.type.value, reason="enqueue_failed"
+                    ).inc()
+                    logger.error(
+                        "enqueue_failed", extra={"delivery_id": delivery_id}, exc_info=error
+                    )
                     # Mark delivery as failed so it's observable and can be retried
                     await self._mark_delivery_failed(delivery_id, f"Enqueue failed: {error}")

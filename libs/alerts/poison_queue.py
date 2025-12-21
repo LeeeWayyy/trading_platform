@@ -61,10 +61,13 @@ class PoisonQueue:
             await conn.commit()
         # Log sanitized error to prevent PII leakage; full error is in DB
         sanitized_error = _sanitize_error_for_log(error)
-        logger.error("delivery_moved_to_poison", extra={
-            "delivery_id": delivery_id,
-            "error": sanitized_error,
-        })
+        logger.error(
+            "delivery_moved_to_poison",
+            extra={
+                "delivery_id": delivery_id,
+                "error": sanitized_error,
+            },
+        )
         alert_poison_queue_size.inc()
         # Refresh gauge from authoritative DB to avoid drift on duplicate inserts
         await self.sync_gauge_from_db()

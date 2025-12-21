@@ -46,7 +46,9 @@ def render_alert_rule_editor(
     existing_channels = st.session_state.get(channel_state_key, [])
     channels: list[ChannelConfig]
     if user is not None and alert_service is not None:
-        channels = render_notification_channels(existing_channels, user, alert_service, state_key=channel_state_key)
+        channels = render_notification_channels(
+            existing_channels, user, alert_service, state_key=channel_state_key
+        )
     else:
         channels = existing_channels
 

@@ -145,9 +145,7 @@ class RateLimiter:
         """
 
         try:
-            result: Any = await cast(
-                Awaitable[int], self.redis.eval(lua_script, 1, key, str(ttl))
-            )
+            result: Any = await cast(Awaitable[int], self.redis.eval(lua_script, 1, key, str(ttl)))
             allowed = int(result) <= limit
             rate_limit_checks_total.labels(
                 action="alert_rate_limit", result="allowed" if allowed else "blocked"
@@ -155,9 +153,7 @@ class RateLimiter:
             return allowed
         except Exception as exc:  # pragma: no cover - defensive path
             rate_limit_redis_errors_total.labels(action="alert_rate_limit").inc()
-            logger.warning(
-                "alert_rate_limit_fallback", extra={"key": key, "error": str(exc)}
-            )
+            logger.warning("alert_rate_limit_fallback", extra={"key": key, "error": str(exc)})
             mode = fallback_mode or self.fallback_mode or "deny"
             allowed = mode == "allow"
             rate_limit_checks_total.labels(

@@ -64,9 +64,7 @@ class TestJobSubmission:
         mock_queue = MagicMock()
         mock_queue.enqueue.return_value = mock_job
 
-        with patch(
-            "apps.web_console.pages.backtest.get_job_queue"
-        ) as mock_get_queue:
+        with patch("apps.web_console.pages.backtest.get_job_queue") as mock_get_queue:
             mock_get_queue.return_value.__enter__.return_value = mock_queue
             mock_get_queue.return_value.__exit__.return_value = None
 

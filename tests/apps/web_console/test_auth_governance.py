@@ -125,9 +125,7 @@ def test_no_dev_auth_in_staging() -> None:
     # If no config files found, skip (graceful handling)
     if not staging_env:
         if not Path(".env.staging").exists() and not Path("docker-compose.staging.yml").exists():
-            pytest.skip(
-                "No staging config files found (.env.staging, docker-compose.staging.yml)"
-            )
+            pytest.skip("No staging config files found (.env.staging, docker-compose.staging.yml)")
 
     _check_no_dev_auth(staging_env, "staging")
 
@@ -192,6 +190,6 @@ def test_dev_auth_stub_sets_required_session_keys() -> None:
     ]
 
     for key in required_keys:
-        assert f'session_state["{key}"]' in content or f"session_state['{key}']" in content, (
-            f"Dev auth stub missing required session key: {key}"
-        )
+        assert (
+            f'session_state["{key}"]' in content or f"session_state['{key}']" in content
+        ), f"Dev auth stub missing required session key: {key}"

@@ -151,7 +151,9 @@ class MonteCarloSimulator:
         )
 
         p_value_sharpe = (
-            math.nan if math.isnan(observed_sharpe) else float(np.mean(sharpe_dist >= observed_sharpe))
+            math.nan
+            if math.isnan(observed_sharpe)
+            else float(np.mean(sharpe_dist >= observed_sharpe))
         )
 
         return MonteCarloResult(
@@ -239,7 +241,8 @@ class MonteCarloSimulator:
             raise ValueError("confidence_levels must be between 0 and 1")
         quantile_values = np.percentile(valid, percentiles)
         quantiles = {
-            float(level): float(value) for level, value in zip(self.config.confidence_levels, quantile_values, strict=True)
+            float(level): float(value)
+            for level, value in zip(self.config.confidence_levels, quantile_values, strict=True)
         }
         return ConfidenceInterval(
             metric_name=metric_name,
@@ -251,7 +254,9 @@ class MonteCarloSimulator:
     def _bootstrap_resample(self, arr: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
         """Vectorized bootstrap sampling."""
         n_obs = arr.shape[0]
-        indices = self.rng.integers(0, n_obs, size=(self.config.n_simulations, n_obs), dtype=np.int64)
+        indices = self.rng.integers(
+            0, n_obs, size=(self.config.n_simulations, n_obs), dtype=np.int64
+        )
         return cast(NDArray[np.float64], arr[indices].astype(np.float64, copy=False))
 
     def _shuffle_resample(self, arr: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
@@ -263,7 +268,9 @@ class MonteCarloSimulator:
         arr_2d = np.broadcast_to(arr, (self.config.n_simulations, n_obs))
         return cast(NDArray[np.float64], self.rng.permuted(arr_2d, axis=1))
 
-    def _compute_sharpe_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+    def _compute_sharpe_vectorized(
+        self, returns: NDArray[np.floating[Any]]
+    ) -> NDArray[np.floating[Any]]:
         """Vectorized Sharpe computation for simulated paths."""
         means = returns.mean(axis=1)
         stds = returns.std(axis=1, ddof=1)
@@ -271,7 +278,9 @@ class MonteCarloSimulator:
             sharpe = np.sqrt(252.0) * means / stds
         return cast(NDArray[np.float64], sharpe)
 
-    def _compute_max_drawdown_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+    def _compute_max_drawdown_vectorized(
+        self, returns: NDArray[np.floating[Any]]
+    ) -> NDArray[np.floating[Any]]:
         """Vectorized max drawdown using geometric compounding."""
         if returns.size == 0:
             return np.full(self.config.n_simulations, math.nan)
@@ -282,7 +291,9 @@ class MonteCarloSimulator:
         drawdowns = (cum - peaks) / peaks
         return cast(NDArray[np.float64], drawdowns.min(axis=1))
 
-    def _compute_hit_rate_vectorized(self, returns: NDArray[np.floating[Any]]) -> NDArray[np.floating[Any]]:
+    def _compute_hit_rate_vectorized(
+        self, returns: NDArray[np.floating[Any]]
+    ) -> NDArray[np.floating[Any]]:
         if returns.size == 0:
             return np.full(self.config.n_simulations, math.nan)
         return cast(NDArray[np.float64], np.mean(returns >= 0, axis=1))

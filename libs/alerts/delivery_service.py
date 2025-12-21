@@ -198,8 +198,8 @@ class DeliveryExecutor:
         Execute delivery with immediate attempt + retry backoff.
 
         Attempt 0: Immediate
-        Attempt 1: After RETRY_DELAYS[0] = 5s
-        Attempt 2: After RETRY_DELAYS[1] = 30s
+        Attempt 1: After RETRY_DELAYS[0] = 1s
+        Attempt 2: After RETRY_DELAYS[1] = 2s
         After MAX_ATTEMPTS: Move to poison queue
 
         Uses optimistic locking to prevent duplicate deliveries across workers.
@@ -256,7 +256,11 @@ class DeliveryExecutor:
                     )
                 if rate_limit_result is not None:
                     last_result = rate_limit_result
-                    limit_type = rate_limit_result.metadata.get("limit", "unknown") if rate_limit_result.metadata else "unknown"
+                    limit_type = (
+                        rate_limit_result.metadata.get("limit", "unknown")
+                        if rate_limit_result.metadata
+                        else "unknown"
+                    )
                     alert_throttle_total.labels(channel=channel.value, limit_type=limit_type).inc()
                     retry_delay = self._rate_limit_delay(rate_limit_result)
                     # Don't consume retry attempts for rate limits - re-enqueue with delay
@@ -324,7 +328,11 @@ class DeliveryExecutor:
                             error="rate_limit_wait_exhausted",
                             retryable=False,
                             metadata={
-                                "limit": str(rate_limit_result.metadata.get("limit")) if rate_limit_result.metadata else "",
+                                "limit": (
+                                    str(rate_limit_result.metadata.get("limit"))
+                                    if rate_limit_result.metadata
+                                    else ""
+                                ),
                                 "waits": str(rate_limit_waits),
                             },
                         )
@@ -370,14 +378,18 @@ class DeliveryExecutor:
                         delivered=False,
                     )
                     persistence_succeeded = True
-                    alert_delivery_attempts_total.labels(channel=channel.value, status="failure").inc()
+                    alert_delivery_attempts_total.labels(
+                        channel=channel.value, status="failure"
+                    ).inc()
                     await self.poison_queue.add(
                         delivery_id=delivery_id,
                         error=last_result.error or "delivery failed",
                     )
                     return last_result
                 try:
-                    last_result = await channel_handler.send(recipient, subject, body, metadata=None)
+                    last_result = await channel_handler.send(
+                        recipient, subject, body, metadata=None
+                    )
                 except Exception as exc:  # noqa: BLE001
                     logger.exception(
                         "channel_send_unhandled_exception",
@@ -404,7 +416,9 @@ class DeliveryExecutor:
                 if not last_result.success and not is_terminal_failure:
                     should_reenqueue, delay = self._should_reenqueue(last_result)
 
-                will_reenqueue_with_scheduler = should_reenqueue and self.retry_scheduler is not None
+                will_reenqueue_with_scheduler = (
+                    should_reenqueue and self.retry_scheduler is not None
+                )
 
                 if last_result.success:
                     persistence_succeeded = False
@@ -490,7 +504,12 @@ class DeliveryExecutor:
         finally:
             # Do not decrement queue depth when handing off to retry scheduler;
             # the delivery is still pending and will not re-increment on re-enqueue.
-            if claimed and queue_slot_reserved and persistence_succeeded and not handoff_to_scheduler:
+            if (
+                claimed
+                and queue_slot_reserved
+                and persistence_succeeded
+                and not handoff_to_scheduler
+            ):
                 await self.queue_depth_manager.decrement()
 
     def _delay_for_attempt(self, attempt_index: int) -> int:
@@ -576,16 +595,24 @@ class DeliveryExecutor:
                     )
                     check_row = await cur.fetchone()
                     if check_row and check_row["status"] == DeliveryStatus.DELIVERED.value:
-                        logger.info("delivery_already_completed", extra={"delivery_id": delivery_id})
+                        logger.info(
+                            "delivery_already_completed", extra={"delivery_id": delivery_id}
+                        )
                     elif check_row and check_row["status"] == DeliveryStatus.IN_PROGRESS.value:
-                        logger.info("delivery_claimed_by_another", extra={
-                            "delivery_id": delivery_id,
-                        })
+                        logger.info(
+                            "delivery_claimed_by_another",
+                            extra={
+                                "delivery_id": delivery_id,
+                            },
+                        )
                     elif check_row:
-                        logger.info("delivery_in_terminal_state", extra={
-                            "delivery_id": delivery_id,
-                            "status": check_row["status"],
-                        })
+                        logger.info(
+                            "delivery_in_terminal_state",
+                            extra={
+                                "delivery_id": delivery_id,
+                                "status": check_row["status"],
+                            },
+                        )
                     else:
                         logger.warning("delivery_not_found", extra={"delivery_id": delivery_id})
                 return None
@@ -700,9 +727,7 @@ class DeliveryExecutor:
             )
         return None
 
-    def _extract_recipient_hash(
-        self, delivery: AlertDelivery, channel: str
-    ) -> str | None:
+    def _extract_recipient_hash(self, delivery: AlertDelivery, channel: str) -> str | None:
         """Extract recipient hash for rate limiting.
 
         Priority: compute from delivery.recipient first (supports secret rotation),
