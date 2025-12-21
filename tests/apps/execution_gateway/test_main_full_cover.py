@@ -12,7 +12,10 @@ from fastapi.testclient import TestClient
 
 # Stub redis + jwt early to avoid binary deps during import
 redis_stub = ModuleType("redis")
+redis_stub.__path__ = []  # Treat as package for redis.asyncio submodule
 redis_stub.exceptions = ModuleType("redis.exceptions")
+redis_stub.asyncio = ModuleType("redis.asyncio")
+redis_stub.lock = ModuleType("redis.lock")
 
 
 class _RedisError(Exception):
@@ -20,6 +23,7 @@ class _RedisError(Exception):
 
 
 redis_stub.exceptions.RedisError = _RedisError
+redis_stub.lock.Lock = object
 
 
 class _RedisClient:
@@ -61,8 +65,11 @@ class _RedisClient:
 
 
 redis_stub.Redis = _RedisClient
+redis_stub.asyncio.Redis = _RedisClient
 sys.modules.setdefault("redis", redis_stub)
 sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
+sys.modules.setdefault("redis.asyncio", redis_stub.asyncio)
+sys.modules.setdefault("redis.lock", redis_stub.lock)
 
 jwt_stub = ModuleType("jwt")
 jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
@@ -70,6 +77,8 @@ jwt_stub.algorithms = SimpleNamespace(
     get_default_algorithms=lambda: {},
     has_crypto=lambda: False,
     requires_cryptography=False,
+    ECAlgorithm=object,
+    RSAAlgorithm=object,
 )
 jwt_stub.utils = SimpleNamespace()
 sys.modules.setdefault("jwt", jwt_stub)

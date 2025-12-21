@@ -60,7 +60,9 @@ async def test_health_reports_degraded_when_hydration_incomplete(
     import apps.signal_service.main as main
 
     metadata = MagicMock(strategy_name="alpha_baseline", version="v1.0.0", activated_at=None)
-    monkeypatch.setattr(main, "model_registry", MagicMock(is_loaded=True, current_metadata=metadata))
+    monkeypatch.setattr(
+        main, "model_registry", MagicMock(is_loaded=True, current_metadata=metadata)
+    )
     monkeypatch.setattr(main, "signal_generator", MagicMock())
     redis_client = MagicMock()
     redis_client.health_check.return_value = True
@@ -80,7 +82,9 @@ async def test_ready_returns_503_when_degraded(monkeypatch: pytest.MonkeyPatch) 
     import apps.signal_service.main as main
 
     metadata = MagicMock(strategy_name="alpha_baseline", version="v1.0.0", activated_at=None)
-    monkeypatch.setattr(main, "model_registry", MagicMock(is_loaded=True, current_metadata=metadata))
+    monkeypatch.setattr(
+        main, "model_registry", MagicMock(is_loaded=True, current_metadata=metadata)
+    )
     monkeypatch.setattr(main, "signal_generator", MagicMock())
     redis_client = MagicMock()
     redis_client.health_check.return_value = True
@@ -102,7 +106,9 @@ async def test_ready_returns_200_when_healthy(monkeypatch: pytest.MonkeyPatch) -
     import apps.signal_service.main as main
 
     metadata = MagicMock(strategy_name="alpha_baseline", version="v1.0.0", activated_at=None)
-    monkeypatch.setattr(main, "model_registry", MagicMock(is_loaded=True, current_metadata=metadata))
+    monkeypatch.setattr(
+        main, "model_registry", MagicMock(is_loaded=True, current_metadata=metadata)
+    )
     monkeypatch.setattr(main, "signal_generator", MagicMock())
     redis_client = MagicMock()
     redis_client.health_check.return_value = True

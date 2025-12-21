@@ -168,9 +168,7 @@ def test_cache_stale_used_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
     # Queue 15 timeout exceptions (5 services * 3 percentiles)
     # The exceptions are caught at get_latency_percentile level, returning None
     # All services will have None latencies, triggering the stale cache fallback
-    queue: deque[Any] = deque(
-        [httpx.TimeoutException("timeout") for _ in range(15)]
-    )
+    queue: deque[Any] = deque([httpx.TimeoutException("timeout") for _ in range(15)])
 
     def factory(*_: Any, **__: Any) -> MockAsyncClient:
         return MockAsyncClient(queue)
@@ -196,10 +194,7 @@ def test_cache_stale_used_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_parallel_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
     queue: deque[Any] = deque(
         [
-            MockResponse(
-                200,
-                {"status": "success", "data": {"result": [{"value": [0, "0.010"]}]}}
-            )
+            MockResponse(200, {"status": "success", "data": {"result": [{"value": [0, "0.010"]}]}})
             for _ in range(15)
         ]
     )
@@ -219,4 +214,3 @@ def test_parallel_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
     # Parallelism should keep elapsed close to single call delay, not 15x
     assert elapsed < 0.05
     assert len(call_log) == 15
-

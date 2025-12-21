@@ -56,9 +56,7 @@ def create_sync_redis(config: RedisConfig, *, decode_responses: bool = True) -> 
     )
 
 
-def create_async_redis(
-    config: RedisConfig, *, decode_responses: bool = True
-) -> redis_async.Redis:
+def create_async_redis(config: RedisConfig, *, decode_responses: bool = True) -> redis_async.Redis:
     """Create an async Redis client from parsed config."""
 
     return redis_async.Redis(

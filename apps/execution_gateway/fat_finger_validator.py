@@ -118,9 +118,7 @@ class FatFingerValidator:
         with self._lock:
             self._default_thresholds = new_defaults.model_copy(deep=True)
 
-    def update_symbol_overrides(
-        self, overrides: dict[str, FatFingerThresholds | None]
-    ) -> None:
+    def update_symbol_overrides(self, overrides: dict[str, FatFingerThresholds | None]) -> None:
         """Patch per-symbol overrides.
 
         A None value removes the override for the symbol.
@@ -245,29 +243,23 @@ def _merge_thresholds(
     """Merge defaults with overrides (override wins when set)."""
 
     return FatFingerThresholds(
-        max_notional=override.max_notional
-        if override.max_notional is not None
-        else defaults.max_notional,
+        max_notional=(
+            override.max_notional if override.max_notional is not None else defaults.max_notional
+        ),
         max_qty=override.max_qty if override.max_qty is not None else defaults.max_qty,
-        max_adv_pct=override.max_adv_pct
-        if override.max_adv_pct is not None
-        else defaults.max_adv_pct,
+        max_adv_pct=(
+            override.max_adv_pct if override.max_adv_pct is not None else defaults.max_adv_pct
+        ),
     )
 
 
-def _patch_thresholds(
-    base: FatFingerThresholds, patch: FatFingerThresholds
-) -> FatFingerThresholds:
+def _patch_thresholds(base: FatFingerThresholds, patch: FatFingerThresholds) -> FatFingerThresholds:
     """Patch base thresholds with non-None values from patch."""
 
     return FatFingerThresholds(
-        max_notional=patch.max_notional
-        if patch.max_notional is not None
-        else base.max_notional,
+        max_notional=patch.max_notional if patch.max_notional is not None else base.max_notional,
         max_qty=patch.max_qty if patch.max_qty is not None else base.max_qty,
-        max_adv_pct=patch.max_adv_pct
-        if patch.max_adv_pct is not None
-        else base.max_adv_pct,
+        max_adv_pct=patch.max_adv_pct if patch.max_adv_pct is not None else base.max_adv_pct,
     )
 
 

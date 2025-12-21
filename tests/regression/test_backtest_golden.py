@@ -89,9 +89,7 @@ def assert_metrics_match(
                 )
         elif actual_val != expected_val:
             # Handle None vs non-None, string mismatches, etc.
-            pytest.fail(
-                f"Metric {metric} mismatch: expected {expected_val!r}, got {actual_val!r}"
-            )
+            pytest.fail(f"Metric {metric} mismatch: expected {expected_val!r}, got {actual_val!r}")
 
 
 class TestGoldenManifest:
@@ -150,21 +148,15 @@ class TestGoldenManifest:
 
         # Get actual JSON files on disk (excluding manifest itself and README)
         disk_files = {
-            f.name
-            for f in golden_results_dir.glob("*.json")
-            if f.name != "manifest.json"
+            f.name for f in golden_results_dir.glob("*.json") if f.name != "manifest.json"
         }
 
         # Verify manifest matches disk
         missing_from_manifest = disk_files - manifest_files
         extra_in_manifest = manifest_files - disk_files
 
-        assert not missing_from_manifest, (
-            f"Files on disk not in manifest: {missing_from_manifest}"
-        )
-        assert not extra_in_manifest, (
-            f"Files in manifest not on disk: {extra_in_manifest}"
-        )
+        assert not missing_from_manifest, f"Files on disk not in manifest: {missing_from_manifest}"
+        assert not extra_in_manifest, f"Files in manifest not on disk: {extra_in_manifest}"
 
     def test_manifest_staleness_check(self, golden_results_dir: Path) -> None:
         """Fail if manifest is older than 90 days (stale golden results)."""
@@ -221,9 +213,7 @@ class TestGoldenResults:
         for golden_file in ["momentum_2020_2022.json", "value_2020_2022.json"]:
             result = load_golden_result(golden_file)
             for metric in required_metrics:
-                assert metric in result, (
-                    f"Golden {golden_file} missing metric: {metric}"
-                )
+                assert metric in result, f"Golden {golden_file} missing metric: {metric}"
 
     def test_config_snapshot_consistency(self, golden_results_dir: Path) -> None:
         """Verify all config snapshot_ids match manifest dataset_snapshot_id."""

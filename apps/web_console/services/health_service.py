@@ -66,9 +66,7 @@ class HealthMonitorService:
         cached, cached_at = self._connectivity_cache
         stale_age = (now - cached_at).total_seconds()
         if stale_age < self._connectivity_cache_ttl.total_seconds() * 2:
-            return cached.model_copy(
-                update={"is_stale": True, "stale_age_seconds": stale_age}
-            )
+            return cached.model_copy(update={"is_stale": True, "stale_age_seconds": stale_age})
         return None
 
     async def get_all_services_status(self) -> dict[str, ServiceHealthResponse]:

@@ -56,9 +56,7 @@ class TestHealthBaseContract:
         service_statuses = ["healthy", "degraded", "unhealthy"]
         client_statuses = ["stale", "unreachable", "unknown"]
         for status in service_statuses + client_statuses:
-            response = TolerantHealthResponse.model_validate(
-                {"status": status, "service": "test"}
-            )
+            response = TolerantHealthResponse.model_validate({"status": status, "service": "test"})
             assert response.status == status
 
 
@@ -139,9 +137,6 @@ def test_all_8_fixtures_exist() -> None:
         "web_console",
     ]
     missing = [
-        service
-        for service in services
-        if not (FIXTURES_DIR / f"{service}_health.json").exists()
+        service for service in services if not (FIXTURES_DIR / f"{service}_health.json").exists()
     ]
     assert not missing, f"Missing fixture files for: {missing}"
-

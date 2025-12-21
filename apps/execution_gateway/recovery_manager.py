@@ -300,9 +300,7 @@ class RecoveryManager:
             if can_recover_safety:
                 # 1. Recover Kill Switch (flag=True OR instance missing)
                 if self.is_kill_switch_unavailable() or self._state.kill_switch is None:
-                    result["kill_switch_recovered"] = self._recover_kill_switch(
-                        kill_switch_factory
-                    )
+                    result["kill_switch_recovered"] = self._recover_kill_switch(kill_switch_factory)
 
                 # 2. Recover Circuit Breaker (flag=True OR instance missing)
                 if self.is_circuit_breaker_unavailable() or self._state.circuit_breaker is None:
@@ -315,8 +313,8 @@ class RecoveryManager:
                     self.is_position_reservation_unavailable()
                     or self._state.position_reservation is None
                 ):
-                    result["position_reservation_recovered"] = (
-                        self._recover_position_reservation(position_reservation_factory)
+                    result["position_reservation_recovered"] = self._recover_position_reservation(
+                        position_reservation_factory
                     )
 
             # 4. Recover Slice Scheduler (doesn't require Redis - only healthy safety components)
@@ -434,9 +432,7 @@ class RecoveryManager:
                 # Validate Redis is reachable before marking available
                 # (PositionReservation is Redis-backed)
                 if self._redis_client is None or not self._redis_client.health_check():
-                    logger.warning(
-                        "Position reservation instance exists but Redis unavailable"
-                    )
+                    logger.warning("Position reservation instance exists but Redis unavailable")
                     self.set_position_reservation_unavailable(True)
                     return False
 

@@ -1744,12 +1744,14 @@ async def update_fat_finger_thresholds(
         "Fat-finger thresholds updated",
         extra={
             "user_id": user.get("user_id"),
-            "default_thresholds": payload.default_thresholds.model_dump(mode="json")
-            if payload.default_thresholds
-            else None,
-            "symbol_overrides": list(payload.symbol_overrides.keys())
-            if payload.symbol_overrides
-            else [],
+            "default_thresholds": (
+                payload.default_thresholds.model_dump(mode="json")
+                if payload.default_thresholds
+                else None
+            ),
+            "symbol_overrides": (
+                list(payload.symbol_overrides.keys()) if payload.symbol_overrides else []
+            ),
         },
     )
 

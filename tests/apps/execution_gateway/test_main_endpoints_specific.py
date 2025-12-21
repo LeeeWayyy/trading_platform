@@ -15,8 +15,11 @@ import sys
 from types import ModuleType
 
 redis_stub = ModuleType("redis")
+redis_stub.__path__ = []  # Mark as package so redis.asyncio can be imported
 redis_stub.exceptions = ModuleType("redis.exceptions")
 redis_stub.connection = ModuleType("redis.connection")
+redis_stub.asyncio = ModuleType("redis.asyncio")
+redis_stub.lock = ModuleType("redis.lock")
 
 
 class _RedisError(Exception):
@@ -35,6 +38,7 @@ redis_stub.exceptions.RedisError = _RedisError
 redis_stub.exceptions.ConnectionError = _RedisError  # Alias for tests
 redis_stub.exceptions.TimeoutError = _RedisError  # Alias for tests
 redis_stub.connection.ConnectionPool = _ConnectionPool
+redis_stub.lock.Lock = object
 
 
 class _RedisClient:
@@ -45,10 +49,13 @@ class _RedisClient:
         return True
 
 
+redis_stub.asyncio.Redis = _RedisClient
 redis_stub.Redis = _RedisClient
 sys.modules.setdefault("redis", redis_stub)
 sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
 sys.modules.setdefault("redis.connection", redis_stub.connection)
+sys.modules.setdefault("redis.asyncio", redis_stub.asyncio)
+sys.modules.setdefault("redis.lock", redis_stub.lock)
 
 jwt_stub = ModuleType("jwt")
 jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
@@ -56,6 +63,8 @@ jwt_stub.algorithms = SimpleNamespace(
     get_default_algorithms=lambda: {},
     has_crypto=lambda: False,
     requires_cryptography=False,
+    ECAlgorithm=object,
+    RSAAlgorithm=object,
 )
 jwt_stub.utils = SimpleNamespace()
 sys.modules.setdefault("jwt", jwt_stub)

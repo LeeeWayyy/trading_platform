@@ -1,0 +1,222 @@
+# Prometheus Alert Rules for Alert Delivery Service
+#
+# Component C3.6 of P4T5 (Alert Delivery Service)
+#
+# This file defines Prometheus alert rules for monitoring:
+# - Poison queue size (triggers page when >10)
+# - Delivery latency SLA (P95 > 60s)
+# - Queue backpressure (503 rejections)
+# - Delivery failure rates
+#
+# References:
+# - docs/TASKS/P4T5_C3C4_PLAN.md
+#
+# Alert Severity Levels:
+# - page: Immediate action required (PagerDuty)
+# - warning: Action required within hours (Slack notification)
+# - info: Informational only (logged)
+
+groups:
+  - name: alert_delivery
+    interval: 30s
+    rules:
+      # ============================================================================
+      # Poison Queue Monitoring
+      # ============================================================================
+
+      - alert: AlertPoisonQueueHigh
+        expr: alert_poison_queue_size > 10
+        for: 1m
+        labels:
+          severity: page
+          team: platform
+          component: alerting
+        annotations:
+          summary: "Alert poison queue size exceeds threshold"
+          description: |
+            The alert delivery poison queue has {{ $value }} items.
+            This indicates failed deliveries requiring manual review.
+
+            **Threshold:** 10 items
+            **Current:** {{ $value }} items
+
+            **Impact:** Users may not receive critical notifications.
+
+            **Next Steps:**
+            1. Review poison queue in database: SELECT * FROM alert_deliveries WHERE status='poison'
+            2. Check error_message for failure reasons
+            3. Fix underlying issues (provider down, invalid recipients, etc.)
+            4. Use resolve() to mark items as handled
+
+            **Runbook:** docs/RUNBOOKS/alert-delivery-failures.md
+
+      # ============================================================================
+      # Delivery Latency SLA
+      # ============================================================================
+
+      - alert: AlertDeliveryLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(alert_delivery_latency_seconds_bucket[5m]))
+            by (le)
+          ) > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          component: alerting
+        annotations:
+          summary: "Alert delivery P95 latency exceeds 60s SLA"
+          description: |
+            P95 alert delivery latency is {{ $value | printf "%.1f" }}s.
+
+            **SLA:** 60 seconds
+            **Current P95:** {{ $value | printf "%.1f" }}s
+
+            **Possible Causes:**
+            - Slow external providers (SMTP, SendGrid, Twilio, Slack)
+            - Rate limiting causing retry delays
+            - Queue backlog due to high volume
+            - Network connectivity issues
+
+            **Next Steps:**
+            1. Check delivery channel metrics for specific provider issues
+            2. Review rate limit throttle counts
+            3. Check queue depth for backlog
+            4. Verify external provider status pages
+
+      # ============================================================================
+      # Queue Backpressure
+      # ============================================================================
+
+      - alert: AlertQueueRejectingDeliveries
+        expr: rate(alert_queue_full_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          component: alerting
+        annotations:
+          summary: "Alert queue is rejecting deliveries (503s)"
+          description: |
+            The alert delivery queue is full and rejecting new submissions.
+            Rate: {{ $value | printf "%.2f" }} rejections/second
+
+            **Queue Depth Limit:** 10,000
+            **Resume Threshold:** 8,000
+
+            **Impact:** New alerts cannot be queued for delivery.
+
+            **Next Steps:**
+            1. Check queue depth gauge: alert_queue_depth
+            2. Identify if workers are keeping up with backlog
+            3. Scale workers if needed
+            4. Check for stuck deliveries (IN_PROGRESS status > 15min)
+
+      - alert: AlertQueueDepthHigh
+        expr: alert_queue_depth > 8000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          component: alerting
+        annotations:
+          summary: "Alert queue depth approaching limit"
+          description: |
+            Alert queue depth is {{ $value }}, approaching the 10,000 limit.
+
+            **Current Depth:** {{ $value }}
+            **Warning Threshold:** 8,000
+            **Reject Threshold:** 10,000
+
+            **Next Steps:**
+            1. Check worker processing rate
+            2. Verify no stuck deliveries
+            3. Consider scaling workers temporarily
+
+      # ============================================================================
+      # Rate Limiting & Throttling
+      # ============================================================================
+
+      - alert: AlertThrottlingHigh
+        expr: |
+          sum(rate(alert_throttle_total[5m])) by (channel, limit_type) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          component: alerting
+        annotations:
+          summary: "High alert throttling rate on {{ $labels.channel }} ({{ $labels.limit_type }})"
+          description: |
+            Alert deliveries are being throttled at {{ $value | printf "%.2f" }}/second.
+
+            **Channel:** {{ $labels.channel }}
+            **Limit Type:** {{ $labels.limit_type }}
+            **Rate:** {{ $value | printf "%.2f" }}/sec
+
+            **Limit Types:**
+            - channel: Per-channel rate limit (email 100/min, slack 50/min, sms 10/min)
+            - recipient: Per-recipient rate limit (5/hr email, 3/hr phone)
+            - global: Global burst limit (500/min)
+
+            **Next Steps:**
+            1. Check if alert volume is genuinely high or if there's a problem
+            2. Review recipient deduplication
+            3. Consider adjusting rate limits if legitimate
+
+      # ============================================================================
+      # Delivery Failure Rate
+      # ============================================================================
+
+      - alert: AlertDeliveryFailureRateHigh
+        expr: |
+          (
+            sum(rate(alert_delivery_attempts_total{status="failure"}[5m]))
+            /
+            sum(rate(alert_delivery_attempts_total[5m]))
+          ) * 100 > 20
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          component: alerting
+        annotations:
+          summary: "High alert delivery failure rate (>20%)"
+          description: |
+            More than 20% of alert delivery attempts are failing.
+
+            **Failure Rate:** {{ $value | printf "%.1f" }}%
+
+            **Possible Causes:**
+            - External provider issues (SMTP, SendGrid, Twilio, Slack)
+            - Invalid recipient data
+            - Authentication failures
+            - Network connectivity
+
+            **Next Steps:**
+            1. Check provider status pages
+            2. Review poison queue for specific errors
+            3. Verify credentials are valid
+            4. Check network connectivity to providers
+
+# ==============================================================================
+# Metric Definitions (for reference)
+# ==============================================================================
+#
+# These metrics are exposed by the alert delivery service:
+#
+# # Counters
+# alert_delivery_attempts_total{channel, status}  # status = success|failure
+# alert_throttle_total{channel, limit_type}       # limit_type = channel|recipient|global
+# alert_dropped_total{channel, reason}            # reason = queue_full|enqueue_failed
+# alert_queue_full_total{}                        # Total 503 rejections
+# alert_retry_total{channel}                      # Retries scheduled
+#
+# # Gauges
+# alert_poison_queue_size{}                       # Current poison queue size
+# alert_queue_depth{}                             # Current pending deliveries
+#
+# # Histograms
+# alert_delivery_latency_seconds{channel}         # Delivery latency
+#   buckets: [0.1, 0.5, 1, 5, 10, 30, 60]

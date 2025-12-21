@@ -45,9 +45,7 @@ def render_metrics_summary(result: BacktestResult) -> None:
         )
 
     with col3:
-        hit_rate_pct = (
-            f"{result.hit_rate * 100:.1f}%" if result.hit_rate is not None else "N/A"
-        )
+        hit_rate_pct = f"{result.hit_rate * 100:.1f}%" if result.hit_rate is not None else "N/A"
         st.metric(
             "Hit Rate",
             hit_rate_pct,
@@ -55,9 +53,7 @@ def render_metrics_summary(result: BacktestResult) -> None:
         )
 
     with col4:
-        coverage_pct = (
-            f"{result.coverage * 100:.1f}%" if result.coverage is not None else "N/A"
-        )
+        coverage_pct = f"{result.coverage * 100:.1f}%" if result.coverage is not None else "N/A"
         st.metric(
             "Coverage",
             coverage_pct,
@@ -210,9 +206,7 @@ def render_comparison_table(results: list[BacktestResult]) -> None:
     # Build comparison data
     comparison_data = []
     for result in results:
-        turnover = (
-            result.turnover_result.average_turnover if result.turnover_result else None
-        )
+        turnover = result.turnover_result.average_turnover if result.turnover_result else None
         comparison_data.append(
             {
                 "Alpha": result.alpha_name,

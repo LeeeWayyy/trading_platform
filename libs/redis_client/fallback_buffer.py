@@ -130,9 +130,7 @@ class FallbackBuffer:
             try:
                 publish(entry.channel, entry.payload)
             except Exception as exc:
-                logger.warning(
-                    "Fallback replay halted after %s messages: %s", replayed, exc
-                )
+                logger.warning("Fallback replay halted after %s messages: %s", replayed, exc)
                 break
 
             replayed += 1
@@ -162,9 +160,7 @@ class FallbackBuffer:
             raw = self._persist_path.read_text(encoding="utf-8")
             data = json.loads(raw)
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning(
-                "Failed to load fallback buffer from '%s': %s", self._persist_path, exc
-            )
+            logger.warning("Failed to load fallback buffer from '%s': %s", self._persist_path, exc)
             return
 
         if not isinstance(data, list):

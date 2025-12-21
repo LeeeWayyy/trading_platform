@@ -144,9 +144,7 @@ class CircuitBreakerService:
                     "permission": "TRIP_CIRCUIT",
                 },
             )
-            raise RBACViolation(
-                f"User {user.get('user_id')} lacks TRIP_CIRCUIT permission"
-            )
+            raise RBACViolation(f"User {user.get('user_id')} lacks TRIP_CIRCUIT permission")
 
         # Server-side acknowledgement validation (fail-closed)
         if not acknowledged:
@@ -211,9 +209,7 @@ class CircuitBreakerService:
                     "permission": "RESET_CIRCUIT",
                 },
             )
-            raise RBACViolation(
-                f"User {user.get('user_id')} lacks RESET_CIRCUIT permission"
-            )
+            raise RBACViolation(f"User {user.get('user_id')} lacks RESET_CIRCUIT permission")
 
         # Server-side validation (uses same constant as UI for consistency)
         if len(reason) < MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH:
@@ -256,9 +252,7 @@ class CircuitBreakerService:
         # Wrap in try/except so bookkeeping failures don't mask successful reset
         reset_at = datetime.now(UTC).isoformat()
         try:
-            self.breaker.update_history_with_reset(
-                reset_at, reset_by=user_id, reset_reason=reason
-            )
+            self.breaker.update_history_with_reset(reset_at, reset_by=user_id, reset_reason=reason)
         except Exception as e:
             logger.warning(
                 "reset_history_update_failed",
@@ -366,9 +360,7 @@ class CircuitBreakerService:
 
             for row in rows:
                 timestamp, action, details, user_id = row
-                details_dict = (
-                    details if isinstance(details, dict) else json.loads(details or "{}")
-                )
+                details_dict = details if isinstance(details, dict) else json.loads(details or "{}")
                 ts_str = timestamp.isoformat() if timestamp else None
 
                 if action == "CIRCUIT_BREAKER_TRIP":

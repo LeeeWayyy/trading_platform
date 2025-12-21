@@ -71,6 +71,20 @@ services:
       <<: *backtest-worker-env-base
       RQ_QUEUES: backtest_low
 
+  alert_worker:
+    build:
+      context: .
+      dockerfile: apps/alert_worker/Dockerfile
+    environment:
+      - REDIS_URL=${REDIS_URL}
+      - DATABASE_URL=${DATABASE_URL}
+      - RQ_QUEUES=alerts
+      - ALERT_RECIPIENT_HASH_SECRET=${ALERT_RECIPIENT_HASH_SECRET}
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:latest
     container_name: trading_platform_prometheus

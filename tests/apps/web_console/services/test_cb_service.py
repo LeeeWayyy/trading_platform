@@ -28,18 +28,14 @@ class TestCircuitBreakerServiceGetStatus:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch(
-            "apps.web_console.services.cb_service.CircuitBreaker"
-        ) as mock_breaker_class:
+        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=None)
             service.breaker = mock_breaker
             return service
 
-    def test_get_status_returns_breaker_status(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_get_status_returns_breaker_status(self, cb_service: CircuitBreakerService) -> None:
         """get_status should return status from breaker."""
         expected_status = {"state": "OPEN", "trip_count_today": 0}
         cb_service.breaker.get_status.return_value = expected_status
@@ -49,9 +45,7 @@ class TestCircuitBreakerServiceGetStatus:
         assert result == expected_status
         cb_service.breaker.get_status.assert_called_once()
 
-    def test_get_status_increments_metric(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_get_status_increments_metric(self, cb_service: CircuitBreakerService) -> None:
         """get_status should increment Prometheus counter."""
         cb_service.breaker.get_status.return_value = {"state": "OPEN"}
 
@@ -71,18 +65,14 @@ class TestCircuitBreakerServiceTrip:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch(
-            "apps.web_console.services.cb_service.CircuitBreaker"
-        ) as mock_breaker_class:
+        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=None)
             service.breaker = mock_breaker
             return service
 
-    def test_trip_succeeds_with_permission(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_trip_succeeds_with_permission(self, cb_service: CircuitBreakerService) -> None:
         """trip should succeed for user with TRIP_CIRCUIT permission."""
         user = {"user_id": "test_user", "role": "operator"}
 
@@ -91,9 +81,7 @@ class TestCircuitBreakerServiceTrip:
         assert result is True
         cb_service.breaker.trip.assert_called_once()
 
-    def test_trip_fails_without_permission(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_trip_fails_without_permission(self, cb_service: CircuitBreakerService) -> None:
         """trip should raise RBACViolation for user without permission."""
         user = {"user_id": "test_user", "role": "viewer"}
 
@@ -102,9 +90,7 @@ class TestCircuitBreakerServiceTrip:
 
         cb_service.breaker.trip.assert_not_called()
 
-    def test_trip_increments_metric(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_trip_increments_metric(self, cb_service: CircuitBreakerService) -> None:
         """trip should increment Prometheus counter."""
         user = {"user_id": "test_user", "role": "admin"}
 
@@ -112,9 +98,7 @@ class TestCircuitBreakerServiceTrip:
             cb_service.trip("MANUAL", user, acknowledged=True)
             mock_counter.inc.assert_called_once()
 
-    def test_trip_fails_without_acknowledgment(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_trip_fails_without_acknowledgment(self, cb_service: CircuitBreakerService) -> None:
         """trip should raise ValidationError without acknowledgment."""
         user = {"user_id": "test_user", "role": "operator"}
 
@@ -135,9 +119,7 @@ class TestCircuitBreakerServiceReset:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch(
-            "apps.web_console.services.cb_service.CircuitBreaker"
-        ) as mock_breaker_class:
+        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             # Mock get_status to return TRIPPED (required for reset validation)
@@ -148,9 +130,7 @@ class TestCircuitBreakerServiceReset:
             service.rate_limiter.check_global.return_value = True
             return service
 
-    def test_reset_succeeds_with_valid_inputs(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_succeeds_with_valid_inputs(self, cb_service: CircuitBreakerService) -> None:
         """reset should succeed with valid reason, acknowledgment, and permission."""
         user = {"user_id": "test_user", "role": "operator"}
         reason = "Conditions cleared, verified system health"
@@ -161,9 +141,7 @@ class TestCircuitBreakerServiceReset:
         cb_service.breaker.reset.assert_called_once()
         cb_service.breaker.update_history_with_reset.assert_called_once()
 
-    def test_reset_fails_without_permission(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_fails_without_permission(self, cb_service: CircuitBreakerService) -> None:
         """reset should raise RBACViolation for user without permission."""
         user = {"user_id": "test_user", "role": "viewer"}
         reason = "Conditions cleared, verified system health"
@@ -173,9 +151,7 @@ class TestCircuitBreakerServiceReset:
 
         cb_service.breaker.reset.assert_not_called()
 
-    def test_reset_fails_with_short_reason(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_fails_with_short_reason(self, cb_service: CircuitBreakerService) -> None:
         """reset should raise ValidationError if reason too short."""
         user = {"user_id": "test_user", "role": "operator"}
         reason = "short"  # Less than MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
@@ -188,9 +164,7 @@ class TestCircuitBreakerServiceReset:
 
         cb_service.breaker.reset.assert_not_called()
 
-    def test_reset_fails_without_acknowledgment(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_fails_without_acknowledgment(self, cb_service: CircuitBreakerService) -> None:
         """reset should raise ValidationError without acknowledgment."""
         user = {"user_id": "test_user", "role": "operator"}
         reason = "Conditions cleared, verified system health"
@@ -200,9 +174,7 @@ class TestCircuitBreakerServiceReset:
 
         cb_service.breaker.reset.assert_not_called()
 
-    def test_reset_fails_when_rate_limited(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_fails_when_rate_limited(self, cb_service: CircuitBreakerService) -> None:
         """reset should raise RateLimitExceeded when rate limit hit."""
         user = {"user_id": "test_user", "role": "operator"}
         reason = "Conditions cleared, verified system health"
@@ -213,9 +185,7 @@ class TestCircuitBreakerServiceReset:
 
         cb_service.breaker.reset.assert_not_called()
 
-    def test_reset_fails_when_not_tripped(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_fails_when_not_tripped(self, cb_service: CircuitBreakerService) -> None:
         """reset should fail without consuming rate limit if not TRIPPED."""
         user = {"user_id": "test_user", "role": "operator"}
         reason = "Conditions cleared, verified system health"
@@ -246,9 +216,7 @@ class TestCircuitBreakerServiceReset:
         # Rate limit should be cleared to allow retry
         cb_service.rate_limiter.clear.assert_called_once()
 
-    def test_reset_increments_metric(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_increments_metric(self, cb_service: CircuitBreakerService) -> None:
         """reset should increment Prometheus counter."""
         user = {"user_id": "test_user", "role": "admin"}
         reason = "Conditions cleared, verified system health"
@@ -269,22 +237,16 @@ class TestCircuitBreakerServiceGetHistory:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch(
-            "apps.web_console.services.cb_service.CircuitBreaker"
-        ) as mock_breaker_class:
+        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=None)
             service.breaker = mock_breaker
             return service
 
-    def test_get_history_returns_breaker_history(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_get_history_returns_breaker_history(self, cb_service: CircuitBreakerService) -> None:
         """get_history should return history from breaker."""
-        expected_history = [
-            {"tripped_at": "2025-12-18T10:00:00", "reason": "MANUAL"}
-        ]
+        expected_history = [{"tripped_at": "2025-12-18T10:00:00", "reason": "MANUAL"}]
         cb_service.breaker.get_history.return_value = expected_history
 
         result = cb_service.get_history(limit=50)
@@ -292,9 +254,7 @@ class TestCircuitBreakerServiceGetHistory:
         assert result == expected_history
         cb_service.breaker.get_history.assert_called_once_with(limit=50)
 
-    def test_get_history_falls_back_on_redis_error(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_get_history_falls_back_on_redis_error(self, cb_service: CircuitBreakerService) -> None:
         """get_history should fall back to audit log on Redis error."""
         cb_service.breaker.get_history.side_effect = Exception("Redis error")
 
@@ -322,9 +282,7 @@ class TestCircuitBreakerServiceAuditFallback:
         self, mock_redis: MagicMock, mock_db_pool: MagicMock
     ) -> CircuitBreakerService:
         """Create service with mocked dependencies including db_pool."""
-        with patch(
-            "apps.web_console.services.cb_service.CircuitBreaker"
-        ) as mock_breaker_class:
+        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             service = CircuitBreakerService(mock_redis, db_pool=mock_db_pool)
@@ -378,8 +336,18 @@ class TestCircuitBreakerServiceAuditFallback:
         reset_timestamp = datetime(2025, 12, 18, 11, 0, 0, tzinfo=UTC)
         mock_rows = [
             # DESC order: newest (reset) first, then older (trip)
-            (reset_timestamp, "CIRCUIT_BREAKER_RESET", {"reason": "Conditions cleared"}, "operator"),
-            (trip_timestamp, "CIRCUIT_BREAKER_TRIP", {"reason": "DAILY_LOSS_EXCEEDED"}, "trip_user"),
+            (
+                reset_timestamp,
+                "CIRCUIT_BREAKER_RESET",
+                {"reason": "Conditions cleared"},
+                "operator",
+            ),
+            (
+                trip_timestamp,
+                "CIRCUIT_BREAKER_TRIP",
+                {"reason": "DAILY_LOSS_EXCEEDED"},
+                "trip_user",
+            ),
         ]
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = mock_rows
@@ -426,9 +394,7 @@ class TestCircuitBreakerServiceRBAC:
     @pytest.fixture()
     def cb_service(self, mock_redis: MagicMock) -> CircuitBreakerService:
         """Create service with mocked dependencies."""
-        with patch(
-            "apps.web_console.services.cb_service.CircuitBreaker"
-        ) as mock_breaker_class:
+        with patch("apps.web_console.services.cb_service.CircuitBreaker") as mock_breaker_class:
             mock_breaker = MagicMock()
             mock_breaker_class.return_value = mock_breaker
             # Mock get_status to return TRIPPED (required for reset validation)
@@ -450,9 +416,7 @@ class TestCircuitBreakerServiceRBAC:
 
         assert result is True
 
-    def test_trip_denied_for_viewer(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_trip_denied_for_viewer(self, cb_service: CircuitBreakerService) -> None:
         """trip should be denied for viewer role."""
         user = {"user_id": "test_user", "role": "viewer"}
 
@@ -471,9 +435,7 @@ class TestCircuitBreakerServiceRBAC:
 
         assert result is True
 
-    def test_reset_denied_for_viewer(
-        self, cb_service: CircuitBreakerService
-    ) -> None:
+    def test_reset_denied_for_viewer(self, cb_service: CircuitBreakerService) -> None:
         """reset should be denied for viewer role."""
         user = {"user_id": "test_user", "role": "viewer"}
         reason = "Conditions cleared, verified system health"

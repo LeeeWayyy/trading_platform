@@ -52,9 +52,8 @@ def render_ic_timeseries(
 
         # Compute rolling mean for IC
         min_samples = min(MIN_ROLLING_SAMPLES, rolling_window)
-        rolling_ic = (
-            sorted_df["ic"]
-            .rolling_mean(window_size=rolling_window, min_samples=min_samples)
+        rolling_ic = sorted_df["ic"].rolling_mean(
+            window_size=rolling_window, min_samples=min_samples
         )
 
         # Add rolling column
@@ -64,9 +63,8 @@ def render_ic_timeseries(
         has_rank_ic = "rank_ic" in sorted_df.columns
 
         if has_rank_ic:
-            rolling_rank_ic = (
-                sorted_df["rank_ic"]
-                .rolling_mean(window_size=rolling_window, min_samples=min_samples)
+            rolling_rank_ic = sorted_df["rank_ic"].rolling_mean(
+                window_size=rolling_window, min_samples=min_samples
             )
             chart_df = chart_df.with_columns(rolling_rank_ic.alias("rolling_rank_ic"))
 

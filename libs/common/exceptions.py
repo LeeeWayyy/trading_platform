@@ -70,3 +70,19 @@ class OutlierError(DataQualityError):
     """
 
     pass
+
+
+class ConfigurationError(TradingPlatformError):
+    """
+    Raised when required configuration or secrets are missing.
+
+    This is used for services that require external configuration
+    (API keys, credentials, etc.) that may not be available in all
+    deployment environments.
+
+    Example:
+        >>> if not twilio_account_sid:
+        ...     raise ConfigurationError("TWILIO_ACCOUNT_SID not configured")
+    """
+
+    pass

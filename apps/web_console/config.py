@@ -232,5 +232,13 @@ FEATURE_CIRCUIT_BREAKER = os.getenv("FEATURE_CIRCUIT_BREAKER", "false").lower() 
     "on",
 }
 
+# Feature flag for alert configuration UI (T7.3)
+FEATURE_ALERTS = os.getenv("FEATURE_ALERTS", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 # Minimum reason length for circuit breaker reset
 MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH = 20

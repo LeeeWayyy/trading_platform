@@ -732,9 +732,7 @@ class TestCircuitBreakerHistoryRetrieval:
         assert len(history) == 2
         assert history[0]["reason"] == "MANUAL"
         assert history[1]["reason"] == "DATA_STALE"
-        mock_redis_client.zrevrange.assert_called_once_with(
-            "circuit_breaker:trip_history", 0, 49
-        )
+        mock_redis_client.zrevrange.assert_called_once_with("circuit_breaker:trip_history", 0, 49)
 
     def test_get_history_handles_string_entries(self, mock_redis_client):
         """Test get_history handles string entries (decode_responses=True)."""
@@ -819,9 +817,7 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         mock_pipeline.multi.assert_called_once()
 
         # Verify old entry was removed via pipeline
-        mock_pipeline.zrem.assert_called_once_with(
-            "circuit_breaker:trip_history", entry_bytes
-        )
+        mock_pipeline.zrem.assert_called_once_with("circuit_breaker:trip_history", entry_bytes)
 
         # Verify updated entry was added via pipeline
         mock_pipeline.zadd.assert_called_once()
@@ -856,9 +852,7 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         mock_redis_client.zrevrange.return_value = [(entry_bytes, 1734520800.0)]
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
-        breaker.update_history_with_reset(
-            reset_at="2025-12-18T10:10:00Z", reset_by="new_admin"
-        )
+        breaker.update_history_with_reset(reset_at="2025-12-18T10:10:00Z", reset_by="new_admin")
 
         # Verify WATCH was called but unwatch was called (no update)
         mock_pipeline.watch.assert_called_once()
@@ -876,9 +870,7 @@ class TestCircuitBreakerUpdateHistoryWithReset:
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         # Should not raise error
-        breaker.update_history_with_reset(
-            reset_at="2025-12-18T10:05:00Z", reset_by="admin"
-        )
+        breaker.update_history_with_reset(reset_at="2025-12-18T10:05:00Z", reset_by="admin")
 
         # Verify WATCH was called but unwatch was called (no update)
         mock_pipeline.watch.assert_called_once()
@@ -903,9 +895,7 @@ class TestCircuitBreakerUpdateHistoryWithReset:
         mock_redis_client.zrevrange.return_value = [(entry_str, 1734520800.0)]
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
-        breaker.update_history_with_reset(
-            reset_at="2025-12-18T10:05:00Z", reset_by="admin"
-        )
+        breaker.update_history_with_reset(reset_at="2025-12-18T10:05:00Z", reset_by="admin")
 
         # Verify update occurred via pipeline with WATCH
         mock_redis_client.pipeline.assert_called_once()

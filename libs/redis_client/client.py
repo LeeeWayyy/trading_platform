@@ -777,9 +777,7 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=5),
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
-    def zrevrange(
-        self, key: str, start: int, stop: int, withscores: bool = False
-    ) -> list[Any]:
+    def zrevrange(self, key: str, start: int, stop: int, withscores: bool = False) -> list[Any]:
         """
         Return a range of members in a sorted set, by index, with scores ordered
         from high to low (reverse order).
