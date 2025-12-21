@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS alert_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     alert_id UUID NOT NULL REFERENCES alert_events(id) ON DELETE CASCADE,
     channel VARCHAR(20) NOT NULL,
+    -- NOTE: recipient stores a MASKED value (e.g., "***@example.com") for PII protection.
+    -- The raw recipient is passed through RQ job parameters for actual delivery.
+    -- Use dedup_key to extract the original recipient hash for rate limiting.
     recipient TEXT NOT NULL,
     dedup_key VARCHAR(255) NOT NULL UNIQUE,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',

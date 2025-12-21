@@ -10,7 +10,11 @@ from pydantic import ValidationError
 
 from apps.web_console.components.notification_channels import render_notification_channels
 from apps.web_console.components.threshold_config import render_threshold_config
-from apps.web_console.services.alert_service import AlertRuleCreate, AlertRuleUpdate
+from apps.web_console.services.alert_service import (
+    AlertConfigService,
+    AlertRuleCreate,
+    AlertRuleUpdate,
+)
 from libs.alerts.models import AlertRule, ChannelConfig
 
 CONDITION_TYPES = ["drawdown", "position_limit", "latency"]
@@ -19,7 +23,7 @@ CONDITION_TYPES = ["drawdown", "position_limit", "latency"]
 def render_alert_rule_editor(
     rule: AlertRule | None = None,
     user: dict[str, Any] | None = None,
-    alert_service: Any | None = None,
+    alert_service: AlertConfigService | None = None,
     on_save: Callable[[AlertRuleCreate | AlertRuleUpdate], None] | None = None,
 ) -> tuple[bool, AlertRuleCreate | AlertRuleUpdate | None]:
     """Render alert rule editor form."""

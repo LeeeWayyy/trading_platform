@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from libs.alerts.channels import BaseChannel
-from libs.alerts.dedup import compute_recipient_hash, get_recipient_hash_secret
+from libs.alerts.dedup import get_recipient_hash_secret
 from libs.alerts.metrics import (
     alert_delivery_attempts_total,
     alert_delivery_latency_seconds,
@@ -703,27 +703,29 @@ class DeliveryExecutor:
         return None
 
     def _extract_recipient_hash(self, delivery: AlertDelivery, channel: str) -> str | None:
-        """Extract recipient hash for rate limiting.
+        """Extract recipient hash for rate limiting from dedup_key.
 
-        Priority: compute from delivery.recipient first (supports secret rotation),
-        then fall back to dedup_key hash if recipient unavailable.
+        The database stores a masked recipient (not raw PII), so we cannot
+        compute a hash from delivery.recipient. The dedup_key is the only
+        reliable source for the original recipient hash.
+
+        Args:
+            delivery: The delivery record
+            channel: Channel type (unused, kept for interface compatibility)
+
+        Returns:
+            The recipient hash extracted from dedup_key, or None if unavailable
         """
-        # Prefer computing hash from stored recipient with current secret
-        # This ensures consistent rate limiting across secret rotations
-        if self._recipient_hash_secret and delivery.recipient:
-            try:
-                return compute_recipient_hash(
-                    delivery.recipient, channel, self._recipient_hash_secret
-                )
-            except Exception:
-                logger.warning("recipient_hash_compute_failed", exc_info=False)
-
-        # Fall back to hash from dedup_key if recipient unavailable
+        # dedup_key format: {rule_id}:{channel}:{recipient_hash}:{hour_bucket}
         if delivery.dedup_key:
             parts = delivery.dedup_key.split(":")
             if len(parts) >= 3:
                 return parts[2]
 
+        logger.warning(
+            "recipient_hash_extraction_failed",
+            extra={"delivery_id": str(delivery.id), "dedup_key": delivery.dedup_key},
+        )
         return None
 
 
