@@ -72,23 +72,18 @@ class QueueDepthManager:
         """Decrement queue depth atomically. Returns new depth, clamped at 0."""
         # Use Lua script to atomically decrement but clamp at 0
         # This prevents underflow if increment/decrement get out of sync
+        # Atomic decrement with underflow protection.
+        # Uses single DECR then corrects if negative, avoiding GET+DECR race.
         lua_script = """
-        local current = redis.call('GET', KEYS[1])
-        if current == false or tonumber(current) <= 0 then
+        local val = redis.call('DECR', KEYS[1])
+        if val < 0 then
             redis.call('SET', KEYS[1], 0)
             return 0
-        else
-            return redis.call('DECR', KEYS[1])
         end
+        return val
         """
         result: int | None = await self.redis.eval(lua_script, 1, self.REDIS_KEY)  # type: ignore[misc]
         depth = int(result) if result is not None else 0
-        if depth < 0:
-            # Safety: reset to 0 if somehow negative
-            await self.redis.set(self.REDIS_KEY, 0)
-            logger.warning("queue_depth_underflow_corrected", extra={"was": depth})
-            alert_queue_depth.set(0)
-            return 0
         alert_queue_depth.set(depth)
         return depth
 

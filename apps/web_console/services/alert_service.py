@@ -111,6 +111,12 @@ class AlertConfigService:
     async def create_rule(self, rule: AlertRuleCreate, user: dict[str, Any]) -> AlertRule:
         """Create new alert rule with audit logging.
 
+        Security Note: The channels JSONB column stores raw recipient addresses
+        (email, phone, webhook URL) because the system needs these to deliver
+        notifications. Access to this data is protected by RBAC (CREATE_ALERT_RULE
+        permission required). For enhanced security, consider implementing
+        application-level encryption at rest for the channels field.
+
         Emits: ALERT_RULE_CREATED audit event.
         """
         if not has_permission(user, Permission.CREATE_ALERT_RULE):
