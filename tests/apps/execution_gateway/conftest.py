@@ -24,6 +24,27 @@ def restore_main_globals():
         yield
         return
 
+    # Override auth dependencies for tests (C6)
+    # Import lazily to avoid import order issues with test files that stub modules
+    try:
+        from libs.common.api_auth_dependency import AuthContext
+
+        def _mock_auth_context() -> AuthContext:
+            """Return a mock AuthContext that bypasses authentication for tests."""
+            return AuthContext(
+                user=None,
+                internal_claims=None,
+                auth_type="test",
+                is_authenticated=True,
+            )
+
+        main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
+        main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
+        main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
+    except (ImportError, AttributeError):
+        # Auth dependencies not available (module stubs in test files)
+        pass
+
     # Save original values
     original_db_client = getattr(main, "db_client", None)
     original_redis_client = getattr(main, "redis_client", None)

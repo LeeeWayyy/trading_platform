@@ -115,6 +115,11 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
 )
 from config.settings import get_settings
+from libs.common.api_auth_dependency import (
+    APIAuthConfig,
+    AuthContext,
+    api_auth,
+)
 from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
@@ -468,6 +473,36 @@ order_slice_rl = rate_limit(
         burst_buffer=3,
         fallback_mode="deny",
         global_limit=30,  # 30 x 3 fan-out = 90 broker orders
+    )
+)
+
+# ============================================================================
+# API Authentication Configuration (C6)
+# ============================================================================
+# Auth dependencies for trading endpoints. Defaults to enforce mode (fail-closed).
+# Set API_AUTH_MODE=log_only for staged rollout.
+
+order_submit_auth = api_auth(
+    APIAuthConfig(
+        action="order_submit",
+        require_role=None,  # Role checked via permission
+        require_permission=Permission.SUBMIT_ORDER,
+    )
+)
+
+order_slice_auth = api_auth(
+    APIAuthConfig(
+        action="order_slice",
+        require_role=None,
+        require_permission=Permission.SUBMIT_ORDER,
+    )
+)
+
+order_cancel_auth = api_auth(
+    APIAuthConfig(
+        action="order_cancel",
+        require_role=None,
+        require_permission=Permission.CANCEL_ORDER,
     )
 )
 
@@ -2224,6 +2259,7 @@ async def submit_order(
     order: OrderRequest,
     response: Response,
     _rate_limit_remaining: int = Depends(order_submit_rl),
+    _auth_context: AuthContext = Depends(order_submit_auth),
 ) -> OrderResponse:
     """
     Submit order with idempotent retry semantics.
@@ -2852,8 +2888,10 @@ async def submit_order(
 
 
 @app.post("/api/v1/orders/{client_order_id}/cancel", tags=["Orders"])
-@require_permission(Permission.CANCEL_ORDER)
-async def cancel_order(client_order_id: str) -> dict[str, Any]:
+async def cancel_order(
+    client_order_id: str,
+    _auth_context: AuthContext = Depends(order_cancel_auth),
+) -> dict[str, Any]:
     """Cancel a single order by client_order_id."""
     order = db_client.get_order_by_client_id(client_order_id)
     if not order:
@@ -3364,6 +3402,7 @@ async def submit_sliced_order(
     request: SlicingRequest,
     http_response: Response,
     _rate_limit_remaining: int = Depends(order_slice_rl),
+    _auth_context: AuthContext = Depends(order_slice_auth),
 ) -> SlicingPlan:
     """
     Submit TWAP order with automatic slicing and scheduled execution.

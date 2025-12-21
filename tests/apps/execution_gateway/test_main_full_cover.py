@@ -23,6 +23,7 @@ class _RedisError(Exception):
 
 
 redis_stub.exceptions.RedisError = _RedisError
+redis_stub.exceptions.ConnectionError = _RedisError
 redis_stub.lock.Lock = object
 
 
@@ -66,10 +67,11 @@ class _RedisClient:
 
 redis_stub.Redis = _RedisClient
 redis_stub.asyncio.Redis = _RedisClient
-sys.modules.setdefault("redis", redis_stub)
-sys.modules.setdefault("redis.exceptions", redis_stub.exceptions)
-sys.modules.setdefault("redis.asyncio", redis_stub.asyncio)
-sys.modules.setdefault("redis.lock", redis_stub.lock)
+# Force override redis module (required when other modules already imported it)
+sys.modules["redis"] = redis_stub
+sys.modules["redis.exceptions"] = redis_stub.exceptions
+sys.modules["redis.asyncio"] = redis_stub.asyncio
+sys.modules["redis.lock"] = redis_stub.lock
 
 jwt_stub = ModuleType("jwt")
 jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)

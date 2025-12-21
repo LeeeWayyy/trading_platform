@@ -122,8 +122,10 @@ def get_principal_key(request: Request) -> tuple[str, str]:
 
     Priority order (highest to lowest):
     1. Authenticated user ID from request.state.user (verified by auth middleware)
-    2. Strategy ID from request.state.strategy (verified by S2S auth)
-    3. IP address as last resort (unauthenticated endpoints only)
+    2. S2S internal service with user context (C6: rate limit by acting user)
+    3. Strategy ID from request.state.strategy (verified by S2S auth)
+    4. Service ID from verified internal token (C6: service-level rate limiting)
+    5. IP address as last resort (unauthenticated endpoints only)
     """
     # Authenticated user from verified session/JWT (auth middleware sets this)
     if hasattr(request.state, "user") and request.state.user:
@@ -133,6 +135,23 @@ def get_principal_key(request: Request) -> tuple[str, str]:
             user_id = user.get("sub") if isinstance(user, dict) else getattr(user, "sub", None)
         if user_id:
             return f"user:{user_id}", "user"
+
+    # C6: Internal service with verified token - check for user context first
+    if getattr(request.state, "internal_service_verified", False):
+        # If S2S call has user context, use it for rate limiting (audit trail)
+        if hasattr(request.state, "user") and request.state.user:
+            user = request.state.user
+            user_id = user.get("user_id") if isinstance(user, dict) else getattr(user, "user_id", None)
+            if user_id:
+                return f"user:{user_id}", "user"
+
+        # S2S call without user context - use strategy if available
+        if hasattr(request.state, "strategy_id") and request.state.strategy_id:
+            return f"strategy:{request.state.strategy_id}", "strategy"
+
+        # Fallback to service-level rate limiting
+        service_id = getattr(request.state, "service_id", "unknown")
+        return f"service:{service_id}", "service"
 
     # Strategy ID from verified S2S auth (set by internal auth middleware)
     if hasattr(request.state, "strategy_id") and request.state.strategy_id:
@@ -152,6 +171,7 @@ def should_bypass_rate_limit(request: Request) -> bool:
     SECURITY: Only verified identity methods allowed.
     - mTLS client cert (request.state.mtls_verified)
     - JWT with 'internal-service' audience (request.state.user.aud)
+    - Verified internal token (request.state.internal_service_verified) - C6
 
     Static bypass tokens are NOT allowed due to abuse risk.
     """
@@ -168,6 +188,11 @@ def should_bypass_rate_limit(request: Request) -> bool:
         if aud == "internal-service":
             rate_limit_bypass_total.labels(method="jwt_audience").inc()
             return True
+
+    # C6: Check for verified internal token (set by api_auth dependency)
+    if getattr(request.state, "internal_service_verified", False):
+        rate_limit_bypass_total.labels(method="internal_token").inc()
+        return True
 
     return False
 

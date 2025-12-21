@@ -49,6 +49,11 @@ from prometheus_client import Counter, Gauge, Histogram, Info, make_asgi_app
 from pydantic import BaseModel, Field, validator
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from libs.common.api_auth_dependency import (
+    APIAuthConfig,
+    AuthContext,
+    api_auth,
+)
 from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.redis_client import (
     EventPublisher,
@@ -58,6 +63,7 @@ from libs.redis_client import (
     RedisConnectionError,
     SignalEvent,
 )
+from libs.web_console_auth.permissions import Permission
 
 from .config import Settings
 from .model_registry import ModelMetadata, ModelRegistry
@@ -721,6 +727,20 @@ signal_generate_rl = rate_limit(
     )
 )
 
+# ==============================================================================
+# API Authentication Configuration (C6)
+# ==============================================================================
+# Auth dependency for signal generation endpoint. Defaults to enforce mode (fail-closed).
+# Set API_AUTH_MODE=log_only for staged rollout.
+
+signal_generate_auth = api_auth(
+    APIAuthConfig(
+        action="signal_generate",
+        require_role=None,  # Role checked via permission
+        require_permission=Permission.GENERATE_SIGNALS,
+    )
+)
+
 
 # ==============================================================================
 # Prometheus Metrics
@@ -1309,6 +1329,7 @@ async def generate_signals(
     request: SignalRequest,
     http_response: Response,
     _rate_limit_remaining: int = Depends(signal_generate_rl),
+    _auth_context: AuthContext = Depends(signal_generate_auth),
 ) -> SignalResponse:
     """
     Generate trading signals for given symbols.
