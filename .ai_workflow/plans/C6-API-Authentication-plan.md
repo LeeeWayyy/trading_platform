@@ -123,10 +123,15 @@ def verify_internal_token(
     """Verify HMAC-signed internal token for S2S calls with replay protection."""
 ```
 
-**Signature Format (with nonce, service binding, and user context):**
-```
-# Include user_id and strategy_id in signature for defense-in-depth (prevents header tampering)
-payload = f"{service_id}|{method}|{path}|{timestamp}|{nonce}|{user_id or ''}|{strategy_id or ''}"
+**Signature Format (JSON serialization to prevent delimiter collision):**
+```python
+# JSON serialization prevents delimiter collision attacks (e.g., query="a|b" exploits)
+payload_dict = {
+    "service_id": service_id, "method": method, "path": path, "query": query,
+    "timestamp": timestamp, "nonce": nonce, "user_id": user_id or "",
+    "strategy_id": strategy_id or "", "body_hash": sha256(body).hexdigest()
+}
+payload = json.dumps(payload_dict, separators=(",", ":"), sort_keys=True)
 X-Internal-Token: HMAC-SHA256(INTERNAL_TOKEN_SECRET, payload)
 X-Internal-Timestamp: Unix timestamp (must be within ±5 minutes)
 X-Internal-Nonce: UUID (stored in Redis to prevent replay)
@@ -316,9 +321,14 @@ class SignalServiceClient:
         timestamp = str(int(time.time()))
         nonce = str(uuid.uuid4())
 
-        # Sign: service_id|method|path|timestamp|nonce|user_id|strategy_id
-        # Include user_id/strategy_id to prevent header tampering
-        payload = f"{service_id}|{method}|{path}|{timestamp}|{nonce}|{user_id or ''}|{strategy_id or ''}"
+        # JSON serialization prevents delimiter collision attacks
+        # Include user_id/strategy_id and body_hash to prevent tampering
+        payload_dict = {
+            "service_id": service_id, "method": method, "path": path, "query": query or "",
+            "timestamp": timestamp, "nonce": nonce, "user_id": user_id or "",
+            "strategy_id": strategy_id or "", "body_hash": hashlib.sha256(body or b"").hexdigest()
+        }
+        payload = json.dumps(payload_dict, separators=(",", ":"), sort_keys=True)
         signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
 
         headers = {

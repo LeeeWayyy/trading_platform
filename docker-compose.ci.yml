@@ -78,7 +78,7 @@ services:
       # C5/C6 Authentication (log_only for CI testing)
       API_AUTH_MODE: "log_only"
       INTERNAL_TOKEN_REQUIRED: "true"
-      INTERNAL_TOKEN_SECRET: "ci_test_secret_must_be_at_least_32_bytes_long"
+      INTERNAL_TOKEN_SECRET: "ci_test_secret_for_hmac_sha256_must_be_at_least_64_characters_long_for_security"
       RATE_LIMIT_MODE: "log_only"
 
       # Testing mode
@@ -131,7 +131,7 @@ services:
       # C5/C6 Authentication (log_only for CI testing)
       API_AUTH_MODE: "log_only"
       INTERNAL_TOKEN_REQUIRED: "true"
-      INTERNAL_TOKEN_SECRET: "ci_test_secret_must_be_at_least_32_bytes_long"
+      INTERNAL_TOKEN_SECRET: "ci_test_secret_for_hmac_sha256_must_be_at_least_64_characters_long_for_security"
       RATE_LIMIT_MODE: "log_only"
 
       # Testing mode
@@ -177,7 +177,7 @@ services:
       # C5/C6 Authentication (log_only for CI testing)
       API_AUTH_MODE: "log_only"
       INTERNAL_TOKEN_REQUIRED: "true"
-      INTERNAL_TOKEN_SECRET: "ci_test_secret_must_be_at_least_32_bytes_long"
+      INTERNAL_TOKEN_SECRET: "ci_test_secret_for_hmac_sha256_must_be_at_least_64_characters_long_for_security"
       RATE_LIMIT_MODE: "log_only"
 
       # Testing mode

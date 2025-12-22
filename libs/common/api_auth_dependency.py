@@ -166,10 +166,11 @@ def validate_internal_token_config() -> None:
                 "INTERNAL_TOKEN_SECRET is required when INTERNAL_TOKEN_REQUIRED=true. "
                 'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
             )
-        if len(secret) < 32:
+        if len(secret) < 64:
             raise RuntimeError(
-                f"INTERNAL_TOKEN_SECRET must be at least 32 characters (got {len(secret)}). "
-                'Generate with: python3 -c "import secrets; print(secrets.token_hex(16))"'
+                f"INTERNAL_TOKEN_SECRET must be at least 64 characters for HMAC-SHA256 security "
+                f"(got {len(secret)}). "
+                'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
             )
 
         # SECURITY: Detect service ID collisions after normalization
@@ -190,11 +191,11 @@ def validate_internal_token_config() -> None:
 
             # SECURITY: Validate per-service secrets meet minimum length
             per_service_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "")
-            if per_service_secret and len(per_service_secret) < 32:
+            if per_service_secret and len(per_service_secret) < 64:
                 raise RuntimeError(
-                    f"INTERNAL_TOKEN_SECRET_{service_key} must be at least 32 characters "
-                    f"(got {len(per_service_secret)}). "
-                    'Generate with: python3 -c "import secrets; print(secrets.token_hex(16))"'
+                    f"INTERNAL_TOKEN_SECRET_{service_key} must be at least 64 characters "
+                    f"for HMAC-SHA256 security (got {len(per_service_secret)}). "
+                    'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
                 )
 
     if not token_required and env == "production":

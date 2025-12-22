@@ -212,6 +212,17 @@ _rate_limiter_singleton: RateLimiter | None = None
 
 
 def _build_redis_client() -> redis.Redis:
+    """Build async Redis client for rate limiting.
+
+    Supports REDIS_URL (preferred) or REDIS_HOST/REDIS_PORT fallback.
+    Always uses db=2 for rate limiting to isolate from main data.
+    """
+    redis_url = os.getenv("REDIS_URL", "")
+    if redis_url:
+        # Parse REDIS_URL and override db to 2 for rate limiting isolation
+        # Format: redis://host:port/db or redis://host:port
+        return redis.Redis.from_url(redis_url, db=2, decode_responses=True)  # type: ignore[no-any-return]
+
     return redis.Redis(
         host=os.getenv("REDIS_HOST", "redis"),
         port=int(os.getenv("REDIS_PORT", "6379")),

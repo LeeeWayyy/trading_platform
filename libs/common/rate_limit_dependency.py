@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-import redis.asyncio as redis
+import redis.asyncio as redis_async
 from fastapi import HTTPException, Request, Response
 from prometheus_client import Counter
 
@@ -24,6 +24,9 @@ from libs.web_console_auth.rate_limiter import (
     get_rate_limiter,
     rate_limit_redis_errors_total,
 )
+
+# Type alias for clarity - this IS the async Redis client
+AsyncRedis = redis_async.Redis
 
 logger = logging.getLogger(__name__)
 
@@ -113,11 +116,9 @@ def _get_rate_limit_mode() -> str:
     return mode
 
 
-def _get_redis_client() -> redis.Redis:
+def _get_redis_client() -> AsyncRedis:
     """Get async Redis client with SAME configuration as existing rate limiter.
 
-    Note: redis.Redis here refers to redis.asyncio.Redis due to the import alias
-    at the top of this file (import redis.asyncio as redis).
     Uses DB 2, decode_responses=True, same connection settings.
     """
     limiter = get_rate_limiter()
@@ -236,14 +237,13 @@ INTERNAL_SERVICE_FACTOR = float(os.getenv("RATE_LIMIT_INTERNAL_FACTOR", "10.0"))
 
 
 async def check_rate_limit_with_global(
-    redis_client: redis.Redis,
+    redis_client: AsyncRedis,
     user_id: str,
     action: str,
     config: RateLimitConfig,
 ) -> tuple[bool, int, str]:
     """Check rate limit with global cap using Redis server time.
 
-    Note: redis_client is redis.asyncio.Redis (see import alias at top of file).
     Uses the SAME Redis client settings as existing rate limiter (DB 2, decode_responses=True).
 
     Returns:
@@ -255,7 +255,6 @@ async def check_rate_limit_with_global(
 
     effective_limit = config.max_requests + config.burst_buffer
 
-    # redis.Redis here is redis.asyncio.Redis (see import), so eval() returns Awaitable
     result: Any = await redis_client.eval(  # type: ignore[misc]
         _RATE_LIMIT_WITH_GLOBAL_SCRIPT,
         2,
