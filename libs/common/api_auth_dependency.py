@@ -166,7 +166,8 @@ def validate_internal_token_config() -> None:
         # SECURITY: Validate per-service secrets meet minimum length
         # If a per-service secret is configured, it must be strong enough
         for service_id in ALLOWED_SERVICE_IDS:
-            service_key = service_id.upper().replace("-", "_")
+            # Use same sanitization as _get_service_secret for consistency
+            service_key = re.sub(r"[^A-Z0-9_]", "_", service_id.upper())
             per_service_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "")
             if per_service_secret and len(per_service_secret) < 32:
                 raise RuntimeError(
