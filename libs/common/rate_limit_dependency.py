@@ -279,7 +279,7 @@ async def check_rate_limit_with_circuit_breaker(
             timeout=REDIS_LATENCY_THRESHOLD_MS / 1000,
         )
         return result
-    except asyncio.TimeoutError:
+    except TimeoutError:
         rate_limit_redis_timeout_total.labels(action=action).inc()
         logger.warning("rate_limit_redis_timeout", extra={"action": action})
         if config.fallback_mode == "deny":
