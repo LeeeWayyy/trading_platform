@@ -86,11 +86,21 @@ def _get_internal_auth_headers(
     """
     secret = _get_service_secret()
     if not secret:
+        # Check if S2S auth is optional (for rollout when target has INTERNAL_TOKEN_REQUIRED=false)
+        s2s_optional = os.getenv("S2S_AUTH_OPTIONAL", "false").lower() == "true"
+        if s2s_optional:
+            # Return empty headers - allow unauthenticated S2S calls during optional rollout
+            logger.warning(
+                "s2s_auth_skipped",
+                extra={"reason": "no_secret", "path": path, "method": method},
+            )
+            return {}
         # SECURITY: Fail-closed - refuse to make unauthenticated requests
         logger.error("INTERNAL_TOKEN_SECRET not set - refusing to make unauthenticated S2S call")
         raise RuntimeError(
             "INTERNAL_TOKEN_SECRET is required for S2S authentication. "
-            "Set INTERNAL_TOKEN_SECRET or INTERNAL_TOKEN_SECRET_ORCHESTRATOR environment variable."
+            "Set INTERNAL_TOKEN_SECRET or INTERNAL_TOKEN_SECRET_ORCHESTRATOR environment variable. "
+            "Set S2S_AUTH_OPTIONAL=true to allow unauthenticated calls during rollout."
         )
 
     service_id = "orchestrator"

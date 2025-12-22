@@ -554,7 +554,12 @@ def api_auth(
         # IMPORTANT: S2S auth is checked BEFORE JWT to avoid requiring JWT infrastructure
         # SECURITY: Always verify internal tokens if present, even when INTERNAL_TOKEN_REQUIRED=false
         # This allows optional rollout while still authenticating internal callers that send tokens
-        if x_internal_token:
+        # NOTE: Only attempt S2S auth if ALL required headers are present (backwards compatibility)
+        # Legacy clients with only X-Internal-Token fall through to JWT/unauthenticated
+        has_complete_s2s_headers = (
+            x_internal_token and x_internal_timestamp and x_internal_nonce and x_service_id
+        )
+        if has_complete_s2s_headers:
             token_required = _is_internal_token_required()
             redis_client = _get_redis_client()
             internal_claims = await verify_internal_token(
@@ -621,10 +626,25 @@ def api_auth(
                     if config.require_role:
                         # Define role levels for clear hierarchy comparison
                         # Higher level = more permissions (ADMIN > OPERATOR > VIEWER)
-                        # Users with no role (None) get level -1
-                        ROLE_LEVELS: dict[Role, int] = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2}
+                        # SECURITY: Use all Role enum values to ensure new roles don't bypass checks
+                        ROLE_LEVELS: dict[Role, int] = {
+                            Role.VIEWER: 0,
+                            Role.OPERATOR: 1,
+                            Role.ADMIN: 2,
+                        }
                         user_level = ROLE_LEVELS.get(user.role, -1) if user.role else -1
                         required_level = ROLE_LEVELS.get(config.require_role, -1)
+                        # SECURITY: Fail-closed - if required role is unknown, deny access
+                        # This prevents new roles from accidentally granting access
+                        if required_level == -1:
+                            logger.error(
+                                "unknown_required_role",
+                                extra={"role": config.require_role, "action": config.action},
+                            )
+                            raise HTTPException(
+                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail={"error": "configuration_error", "message": "Invalid role configuration"},
+                            )
                         if user_level < required_level:
                             api_auth_checks_total.labels(
                                 action=config.action,
