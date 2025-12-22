@@ -11,6 +11,7 @@ from redis.exceptions import RedisError
 
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.components.csrf_protection import generate_csrf_token, verify_csrf_token
+from apps.web_console.utils.redis_utils import async_redis_client
 from libs.admin.api_keys import REVOKED_KEY_CACHE_TTL, ApiKeyScopes, generate_api_key, hash_api_key
 from libs.common.async_utils import run_async
 from libs.web_console_auth.db import acquire_connection
@@ -489,8 +490,15 @@ def _revoke_key_sync(
     db_pool: Any,
     user_id: str,
     prefix: str,
-    redis_client: Any,
+    redis_client: Any,  # Ignored - kept for API compatibility, see async_redis_client docs
 ) -> bool:
+    """Revoke an API key and add to Redis blacklist.
+
+    Note: The redis_client parameter is ignored. We create a fresh async Redis
+    client inside this coroutine because async clients bind to the event loop
+    at first use, and run_async() creates a new loop per call.
+    """
+
     async def _revoke() -> bool:
         async with acquire_connection(db_pool) as conn:
             cursor = await conn.execute(
@@ -503,13 +511,15 @@ def _revoke_key_sync(
             logger.warning("api_key_revoke_noop", extra={"prefix": prefix, "user_id": user_id})
             return False
 
-        if redis_client:
-            try:
-                await redis_client.setex(f"api_key_revoked:{prefix}", REVOKED_KEY_CACHE_TTL, "1")
-            except RedisError as exc:  # pragma: no cover - defensive logging
-                logger.warning(
-                    "redis_blacklist_failed", extra={"prefix": prefix, "error": str(exc)}
-                )
+        # Create fresh Redis client inside async context (see async_redis_client docs)
+        async with async_redis_client() as rclient:
+            if rclient:
+                try:
+                    await rclient.setex(f"api_key_revoked:{prefix}", REVOKED_KEY_CACHE_TTL, "1")
+                except RedisError as exc:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        "redis_blacklist_failed", extra={"prefix": prefix, "error": str(exc)}
+                    )
         return True
 
     result = run_async(_revoke(), timeout=_DB_OPERATION_TIMEOUT_SECONDS)
