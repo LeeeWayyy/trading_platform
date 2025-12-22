@@ -103,8 +103,9 @@ def _get_rate_limit_mode() -> str:
 
 
 def _get_redis_client() -> redis.Redis:
-    """Get Redis client with SAME configuration as existing rate limiter.
+    """Get async Redis client with SAME configuration as existing rate limiter.
 
+    Note: redis.Redis here refers to redis.asyncio.Redis due to the import alias.
     Uses DB 2, decode_responses=True, same connection settings.
     """
     limiter = get_rate_limiter()
@@ -205,6 +206,7 @@ async def check_rate_limit_with_global(
 ) -> tuple[bool, int, str]:
     """Check rate limit with global cap using Redis server time.
 
+    Note: redis_client is redis.asyncio.Redis (see import alias at top of file).
     Uses the SAME Redis client settings as existing rate limiter (DB 2, decode_responses=True).
 
     Returns:
@@ -216,7 +218,8 @@ async def check_rate_limit_with_global(
 
     effective_limit = config.max_requests + config.burst_buffer
 
-    eval_result = redis_client.eval(
+    # redis.Redis here is redis.asyncio.Redis (see import), so eval() returns Awaitable
+    result: Any = await redis_client.eval(  # type: ignore[misc]
         _RATE_LIMIT_WITH_GLOBAL_SCRIPT,
         2,
         key,
@@ -226,11 +229,6 @@ async def check_rate_limit_with_global(
         str(config.global_limit or 0),
         member,
     )
-    # Handle both sync and async redis clients
-    if hasattr(eval_result, "__await__"):
-        result: Any = await eval_result
-    else:
-        result = eval_result
 
     count, global_flag, _redis_time = result
     if count == -1:

@@ -16,15 +16,16 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
 
 import redis.asyncio as redis
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Header, HTTPException, Request, status
 from prometheus_client import Counter
 
-from libs.web_console_auth.gateway_auth import AuthenticatedUser, GatewayAuthenticator
+from libs.web_console_auth.gateway_auth import AuthenticatedUser
 from libs.web_console_auth.permissions import Permission, Role, has_permission
 
 logger = logging.getLogger(__name__)
@@ -94,8 +95,9 @@ def _get_service_secret(service_id: str) -> str:
         INTERNAL_TOKEN_SECRET_ORCHESTRATOR=abc123...
         INTERNAL_TOKEN_SECRET_SIGNAL_SERVICE=def456...
     """
-    # Try per-service secret first (service_id uppercase with underscores)
-    service_key = service_id.upper().replace("-", "_")
+    # Try per-service secret first (service_id uppercase with non-alphanumeric chars replaced)
+    # Use regex for robustness - handles dots, hyphens, and any other special characters
+    service_key = re.sub(r"[^A-Z0-9_]", "_", service_id.upper())
     per_service_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "")
     if per_service_secret:
         return per_service_secret
@@ -508,13 +510,13 @@ def api_auth(
         x_body_hash: str | None = Header(None, alias="X-Body-Hash"),
         # Note: X-Query header removed - query string is now taken from request.url.query
         # to prevent tampering attacks where attacker could modify URL params but leave header unchanged
-        authenticator: GatewayAuthenticator = Depends(
-            authenticator_getter or get_gateway_authenticator
-        ),
+        # NOTE: authenticator is now resolved lazily inside the JWT branch (P1 fix)
+        # This prevents S2S calls from requiring JWT infrastructure (Postgres, Redis for sessions)
     ) -> AuthContext:
         mode = _get_auth_mode()
 
         # 1. Try S2S authentication first (internal services)
+        # IMPORTANT: S2S auth is checked BEFORE JWT to avoid requiring JWT infrastructure
         if x_internal_token and _is_internal_token_required():
             redis_client = _get_redis_client()
             internal_claims = await verify_internal_token(
@@ -540,10 +542,14 @@ def api_auth(
                 )
 
         # 2. Try JWT authentication (external clients)
+        # IMPORTANT: Authenticator is resolved lazily here to avoid requiring JWT infrastructure
+        # (Postgres, Redis for sessions) when the request is an S2S call with internal token
         if authorization and authorization.startswith("Bearer "):
             token = authorization[7:]
             if x_user_id and x_request_id and x_session_version:
                 try:
+                    # Lazy resolution of authenticator - only when JWT auth is actually needed
+                    authenticator = (authenticator_getter or get_gateway_authenticator)()
                     session_version = int(x_session_version)
                     user = await authenticator.authenticate(
                         token=token,
