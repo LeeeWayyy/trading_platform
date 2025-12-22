@@ -315,7 +315,8 @@ def rate_limit(config: RateLimitConfig) -> Callable[..., Awaitable[int]]:
         # Apply limit factors based on principal type
         effective_config = config
         if is_internal:
-            # Internal services get higher limits (configurable via RATE_LIMIT_INTERNAL_FACTOR)
+            # Internal services get higher per-user limits (configurable via RATE_LIMIT_INTERNAL_FACTOR)
+            # NOTE: global_limit is NOT scaled - it protects downstream systems (broker API)
             rate_limit_bypass_total.labels(method=internal_method).inc()
             effective_config = RateLimitConfig(
                 action=config.action,
@@ -323,7 +324,7 @@ def rate_limit(config: RateLimitConfig) -> Callable[..., Awaitable[int]]:
                 window_seconds=config.window_seconds,
                 burst_buffer=int(config.burst_buffer * INTERNAL_SERVICE_FACTOR),
                 fallback_mode=config.fallback_mode,
-                global_limit=int(config.global_limit * INTERNAL_SERVICE_FACTOR) if config.global_limit else None,
+                global_limit=config.global_limit,  # Keep original - protects downstream systems
                 anonymous_factor=config.anonymous_factor,
             )
             effective_limit = effective_config.max_requests + effective_config.burst_buffer

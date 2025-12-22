@@ -100,7 +100,7 @@ class TestValidateInternalTokenConfig:
             {"INTERNAL_TOKEN_REQUIRED": "true", "INTERNAL_TOKEN_SECRET": "tooshort"},
             clear=False,
         ):
-            with pytest.raises(RuntimeError, match="must be at least 32 bytes"):
+            with pytest.raises(RuntimeError, match="must be at least 32 characters"):
                 validate_internal_token_config()
 
     def test_disabled_token_does_not_require_secret(self) -> None:

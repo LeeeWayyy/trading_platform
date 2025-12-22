@@ -168,8 +168,8 @@ def validate_internal_token_config() -> None:
             )
         if len(secret) < 32:
             raise RuntimeError(
-                f"INTERNAL_TOKEN_SECRET must be at least 32 bytes (got {len(secret)}). "
-                'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+                f"INTERNAL_TOKEN_SECRET must be at least 32 characters (got {len(secret)}). "
+                'Generate with: python3 -c "import secrets; print(secrets.token_hex(16))"'
             )
 
         # SECURITY: Detect service ID collisions after normalization
@@ -192,9 +192,9 @@ def validate_internal_token_config() -> None:
             per_service_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "")
             if per_service_secret and len(per_service_secret) < 32:
                 raise RuntimeError(
-                    f"INTERNAL_TOKEN_SECRET_{service_key} must be at least 32 bytes "
+                    f"INTERNAL_TOKEN_SECRET_{service_key} must be at least 32 characters "
                     f"(got {len(per_service_secret)}). "
-                    'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+                    'Generate with: python3 -c "import secrets; print(secrets.token_hex(16))"'
                 )
 
     if not token_required and env == "production":
@@ -434,26 +434,39 @@ async def verify_internal_token(
         return None
 
     if body_hash:
-        try:
-            body_bytes = await request.body()
-            # Note: Always compute hash, even for empty body (b"" is valid and has a hash)
-            actual_body_hash = hashlib.sha256(body_bytes).hexdigest()
-            if actual_body_hash != body_hash:
+        # SECURITY: Only read body for methods that support request bodies
+        # GET/HEAD/OPTIONS don't have bodies - reading would hang indefinitely
+        body_methods = {"POST", "PUT", "PATCH", "DELETE"}
+        if method in body_methods:
+            try:
+                body_bytes = await request.body()
+                actual_body_hash = hashlib.sha256(body_bytes).hexdigest()
+                if actual_body_hash != body_hash:
+                    logger.warning(
+                        "s2s_body_hash_mismatch",
+                        extra={
+                            "service_id": service_id,
+                            "expected_hash": body_hash[:16] + "...",
+                            "actual_hash": actual_body_hash[:16] + "...",
+                        },
+                    )
+                    s2s_auth_checks_total.labels(service_id=service_id, result="body_tampered").inc()
+                    return None
+            except Exception as exc:
+                logger.error("s2s_body_read_error", extra={"error": str(exc)})
+                if mode == "enforce":
+                    return None
+                # log_only: Continue without body verification
+        else:
+            # For GET/HEAD/OPTIONS, body_hash should be hash of empty string
+            empty_body_hash = hashlib.sha256(b"").hexdigest()
+            if body_hash != empty_body_hash:
                 logger.warning(
-                    "s2s_body_hash_mismatch",
-                    extra={
-                        "service_id": service_id,
-                        "expected_hash": body_hash[:16] + "...",
-                        "actual_hash": actual_body_hash[:16] + "...",
-                    },
+                    "s2s_body_hash_invalid_for_method",
+                    extra={"service_id": service_id, "method": method},
                 )
-                s2s_auth_checks_total.labels(service_id=service_id, result="body_tampered").inc()
+                s2s_auth_checks_total.labels(service_id=service_id, result="body_hash_invalid").inc()
                 return None
-        except Exception as exc:
-            logger.error("s2s_body_read_error", extra={"error": str(exc)})
-            if mode == "enforce":
-                return None
-            # log_only: Continue without body verification
 
     # Check nonce uniqueness (replay protection)
     nonce_result = await _check_nonce_unique(
@@ -608,8 +621,8 @@ def api_auth(
                     if config.require_role:
                         # Define role levels for clear hierarchy comparison
                         # Higher level = more permissions (ADMIN > OPERATOR > VIEWER)
-                        # Users with no role get level -1 (denied by default)
-                        ROLE_LEVELS = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2}
+                        # Users with no role (None) get level -1
+                        ROLE_LEVELS: dict[Role, int] = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2}
                         user_level = ROLE_LEVELS.get(user.role, -1) if user.role else -1
                         required_level = ROLE_LEVELS.get(config.require_role, -1)
                         if user_level < required_level:
