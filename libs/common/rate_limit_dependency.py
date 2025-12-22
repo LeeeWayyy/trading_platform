@@ -102,7 +102,7 @@ def _get_rate_limit_mode() -> str:
     return os.getenv("RATE_LIMIT_MODE", "log_only")  # Default to log_only until C6 deployed
 
 
-def _get_redis_client() -> redis.Redis[bytes]:
+def _get_redis_client() -> redis.Redis:
     """Get async Redis client with SAME configuration as existing rate limiter.
 
     Note: redis.Redis here refers to redis.asyncio.Redis due to the import alias
@@ -225,7 +225,7 @@ INTERNAL_SERVICE_FACTOR = float(os.getenv("RATE_LIMIT_INTERNAL_FACTOR", "10.0"))
 
 
 async def check_rate_limit_with_global(
-    redis_client: redis.Redis[bytes],
+    redis_client: redis.Redis,
     user_id: str,
     action: str,
     config: RateLimitConfig,
