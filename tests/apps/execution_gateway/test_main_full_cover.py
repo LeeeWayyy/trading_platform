@@ -10,68 +10,10 @@ from types import ModuleType, SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-# Stub redis + jwt early to avoid binary deps during import
-redis_stub = ModuleType("redis")
-redis_stub.__path__ = []  # Treat as package for redis.asyncio submodule
-redis_stub.exceptions = ModuleType("redis.exceptions")
-redis_stub.asyncio = ModuleType("redis.asyncio")
-redis_stub.lock = ModuleType("redis.lock")
-
-
-class _RedisError(Exception):
-    pass
-
-
-redis_stub.exceptions.RedisError = _RedisError
-redis_stub.exceptions.ConnectionError = _RedisError
-redis_stub.lock.Lock = object
-
-
-class _RedisClient:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def ping(self):
-        return True
-
-    def mget(self, keys):
-        return [None for _ in keys]
-
-    def get(self, key):
-        return None
-
-    def smembers(self, key):
-        return []
-
-    def delete(self, *keys):
-        return True
-
-    def set(self, key, val, ttl=None):
-        return True
-
-    def pipeline(self):
-        return self
-
-    def sadd(self, key, *members):
-        return 0
-
-    def expire(self, *_args, **_kwargs):
-        return True
-
-    def execute(self):
-        return True
-
-    def health_check(self):
-        return True
-
-
-redis_stub.Redis = _RedisClient
-redis_stub.asyncio.Redis = _RedisClient
-# Force override redis module (required when other modules already imported it)
-sys.modules["redis"] = redis_stub
-sys.modules["redis.exceptions"] = redis_stub.exceptions
-sys.modules["redis.asyncio"] = redis_stub.asyncio
-sys.modules["redis.lock"] = redis_stub.lock
+# NOTE: We do NOT stub the redis module here anymore.
+# The root conftest.py imports the real redis module first, and stubbing
+# sys.modules["redis"] breaks test collection for other test files.
+# If tests need a mock redis, they should use monkeypatch or fixtures.
 
 jwt_stub = ModuleType("jwt")
 jwt_stub.api_jwk = SimpleNamespace(PyJWK=None, PyJWKSet=None)
@@ -97,6 +39,7 @@ alpaca_stub = types.ModuleType("apps.execution_gateway.alpaca_client")
 class _DummyAlpacaErr(Exception): ...
 
 
+alpaca_stub.AlpacaClientError = _DummyAlpacaErr
 alpaca_stub.AlpacaConnectionError = _DummyAlpacaErr
 alpaca_stub.AlpacaExecutor = type(
     "AlpacaExecutor",
@@ -171,6 +114,16 @@ class _DummyRedisKeys:
     CIRCUIT_STATE = "cb:state"
     KILL_STATE = "ks:state"
     PRICE_PREFIX = "price:"
+
+    @staticmethod
+    def price(symbol: str) -> str:
+        """Generate Redis key for price data."""
+        return f"price:{symbol}"
+
+    @staticmethod
+    def feature(symbol: str, date: str) -> str:
+        """Generate Redis key for feature data."""
+        return f"feature:{symbol}:{date}"
 
 
 class _DummyConnectionPool:
@@ -392,7 +345,7 @@ def app_client(monkeypatch):
         }
     ]
     monkeypatch.setattr(main, "db_client", fake_db)
-    monkeypatch.setattr(main, "redis_client", _RedisClient())
+    monkeypatch.setattr(main, "redis_client", _DummyRedisClient())
     main.recovery_manager._state.kill_switch = DummyKillSwitch()
     main.recovery_manager._state.circuit_breaker = DummyBreaker(tripped=False)
     main.recovery_manager._state.position_reservation = DummyReservation()
@@ -403,6 +356,22 @@ def app_client(monkeypatch):
 
     # Clear any stale dependency overrides from previous tests
     main.app.dependency_overrides.clear()
+
+    # Re-apply auth overrides after clearing (C6 integration)
+    from libs.common.api_auth_dependency import AuthContext
+
+    def _mock_auth_context() -> AuthContext:
+        """Return a mock AuthContext that bypasses authentication for tests."""
+        return AuthContext(
+            user=None,
+            internal_claims=None,
+            auth_type="test",
+            is_authenticated=True,
+        )
+
+    main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
+    main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
+    main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
 
     client = TestClient(main.app)
     yield client
@@ -454,10 +423,7 @@ def test_realtime_pnl_endpoint(app_client):
 
 def test_performance_endpoint_cache_fallback(monkeypatch, app_client):
     # Force redis_client.get to return None to exercise DB path
-    class RC(_RedisClient):
-        def __init__(self):
-            super().__init__()
-
+    class RC(_DummyRedisClient):
         def get(self, *_):
             return None
 

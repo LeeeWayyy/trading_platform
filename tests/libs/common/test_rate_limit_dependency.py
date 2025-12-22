@@ -160,10 +160,22 @@ class TestInternalServiceBypass:
         )
         assert should_bypass_rate_limit(request) is True
 
-    def test_jwt_internal_audience_bypasses(self) -> None:
-        """Test JWT with internal audience bypasses rate limit."""
+    def test_jwt_internal_audience_gets_higher_limits_not_bypass(self) -> None:
+        """Test JWT with internal audience gets higher limits but doesn't fully bypass.
+
+        Internal services now get 10x higher limits via INTERNAL_SERVICE_FACTOR
+        instead of completely bypassing rate limits. This prevents runaway
+        internal loops while still allowing normal S2S traffic.
+        """
         request = self._make_request(user={"aud": "internal-service"})
-        assert should_bypass_rate_limit(request) is True
+        # should_bypass_rate_limit returns False (no full bypass)
+        assert should_bypass_rate_limit(request) is False
+        # But is_internal_service returns True (gets higher limits)
+        from libs.common.rate_limit_dependency import is_internal_service
+
+        is_internal, method = is_internal_service(request)
+        assert is_internal is True
+        assert method == "jwt_audience"
 
     def test_regular_user_does_not_bypass(self) -> None:
         """Test regular user JWT does not bypass."""
@@ -181,6 +193,18 @@ class TestInternalServiceBypass:
         }
         request = Request(scope)
         assert should_bypass_rate_limit(request) is False
+
+    def test_internal_token_gets_higher_limits(self) -> None:
+        """Test internal token (C6) gets higher limits but doesn't bypass."""
+        request = self._make_request(internal_service_verified=True)
+        # Full bypass only for mTLS
+        assert should_bypass_rate_limit(request) is False
+        # But gets higher limits via is_internal_service
+        from libs.common.rate_limit_dependency import is_internal_service
+
+        is_internal, method = is_internal_service(request)
+        assert is_internal is True
+        assert method == "internal_token"
 
 
 class TestRateLimitMode:

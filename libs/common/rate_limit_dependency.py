@@ -166,7 +166,7 @@ def get_principal_key(request: Request) -> tuple[str, str]:
     return "ip:unknown", "ip"
 
 
-def should_bypass_rate_limit(request: Request) -> bool:
+def is_internal_service(request: Request) -> tuple[bool, str]:
     """Check if request is from trusted internal service.
 
     SECURITY: Only verified identity methods allowed.
@@ -175,27 +175,52 @@ def should_bypass_rate_limit(request: Request) -> bool:
     - Verified internal token (request.state.internal_service_verified) - C6
 
     Static bypass tokens are NOT allowed due to abuse risk.
+
+    Returns:
+        Tuple of (is_internal, method) where method is the verification method used.
     """
     # Check for mTLS verified internal service
     if getattr(request.state, "mtls_verified", False):
         if getattr(request.state, "mtls_service_name", None):
-            rate_limit_bypass_total.labels(method="mtls").inc()
-            return True
+            return True, "mtls"
 
     # Check for internal service JWT audience (verified by auth middleware)
     if hasattr(request.state, "user") and request.state.user:
         user = request.state.user
         aud = user.get("aud") if isinstance(user, dict) else getattr(user, "aud", None)
         if aud == "internal-service":
-            rate_limit_bypass_total.labels(method="jwt_audience").inc()
-            return True
+            return True, "jwt_audience"
 
     # C6: Check for verified internal token (set by api_auth dependency)
     if getattr(request.state, "internal_service_verified", False):
-        rate_limit_bypass_total.labels(method="internal_token").inc()
-        return True
+        return True, "internal_token"
+
+    return False, ""
+
+
+def should_bypass_rate_limit(request: Request) -> bool:
+    """Check if request should completely bypass rate limiting.
+
+    DEPRECATED: Internal services no longer fully bypass rate limits.
+    They get higher limits via INTERNAL_SERVICE_FACTOR instead.
+
+    Currently only mTLS-verified services bypass for backwards compatibility,
+    but they should eventually use the internal service factor as well.
+
+    This function is kept for compatibility but will be removed in a future release.
+    """
+    # Only mTLS still bypasses completely (legacy - to be migrated)
+    if getattr(request.state, "mtls_verified", False):
+        if getattr(request.state, "mtls_service_name", None):
+            rate_limit_bypass_total.labels(method="mtls").inc()
+            return True
 
     return False
+
+
+# Factor applied to limits for internal services (e.g., 10x higher limits)
+# This prevents runaway internal loops while still allowing normal S2S traffic
+INTERNAL_SERVICE_FACTOR = float(os.getenv("RATE_LIMIT_INTERNAL_FACTOR", "10.0"))
 
 
 async def check_rate_limit_with_global(
@@ -273,7 +298,7 @@ def rate_limit(config: RateLimitConfig) -> Callable[..., Awaitable[int]]:
     async def dependency(request: Request, response: Response) -> int:
         effective_limit = config.max_requests + config.burst_buffer
 
-        # Check for internal service bypass (mTLS/JWT only, no static tokens)
+        # Check for full bypass (mTLS only - legacy, to be migrated)
         if should_bypass_rate_limit(request):
             # Still emit headers even for bypass
             response.headers["X-RateLimit-Limit"] = str(effective_limit)
@@ -283,9 +308,26 @@ def rate_limit(config: RateLimitConfig) -> Callable[..., Awaitable[int]]:
 
         key, principal_type = get_principal_key(request)
 
-        # Apply anonymous factor if IP-based
+        # Check if internal service (gets higher limits, not bypass)
+        is_internal, internal_method = is_internal_service(request)
+
+        # Apply limit factors based on principal type
         effective_config = config
-        if principal_type == "ip":
+        if is_internal:
+            # Internal services get higher limits (configurable via RATE_LIMIT_INTERNAL_FACTOR)
+            rate_limit_bypass_total.labels(method=internal_method).inc()
+            effective_config = RateLimitConfig(
+                action=config.action,
+                max_requests=int(config.max_requests * INTERNAL_SERVICE_FACTOR),
+                window_seconds=config.window_seconds,
+                burst_buffer=int(config.burst_buffer * INTERNAL_SERVICE_FACTOR),
+                fallback_mode=config.fallback_mode,
+                global_limit=int(config.global_limit * INTERNAL_SERVICE_FACTOR) if config.global_limit else None,
+                anonymous_factor=config.anonymous_factor,
+            )
+            effective_limit = effective_config.max_requests + effective_config.burst_buffer
+        elif principal_type == "ip":
+            # Anonymous/IP-based gets lower limits
             effective_config = RateLimitConfig(
                 action=config.action,
                 max_requests=int(config.max_requests * config.anonymous_factor),
@@ -354,4 +396,6 @@ __all__ = [
     "rate_limit_redis_timeout_total",
     "get_principal_key",
     "should_bypass_rate_limit",
+    "is_internal_service",
+    "INTERNAL_SERVICE_FACTOR",
 ]

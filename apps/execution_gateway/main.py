@@ -453,6 +453,7 @@ app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  #
 # Conservative limits: 80 direct + 30 slices x 3 = 170 broker orders/min (< 200 Alpaca ceiling)
 ORDER_SUBMIT_LIMIT = int(os.getenv("ORDER_SUBMIT_RATE_LIMIT", "40"))
 ORDER_SLICE_LIMIT = int(os.getenv("ORDER_SLICE_RATE_LIMIT", "10"))
+ORDER_CANCEL_LIMIT = int(os.getenv("ORDER_CANCEL_RATE_LIMIT", "100"))  # Higher limit for safety ops
 
 order_submit_rl = rate_limit(
     RateLimitConfig(
@@ -473,6 +474,17 @@ order_slice_rl = rate_limit(
         burst_buffer=3,
         fallback_mode="deny",
         global_limit=30,  # 30 x 3 fan-out = 90 broker orders
+    )
+)
+
+order_cancel_rl = rate_limit(
+    RateLimitConfig(
+        action="order_cancel",
+        max_requests=ORDER_CANCEL_LIMIT,
+        window_seconds=60,
+        burst_buffer=20,  # Allow burst for kill-switch scenarios
+        fallback_mode="allow",  # Allow cancels on Redis failure (safety-first)
+        global_limit=200,  # Higher global for emergency cancellations
     )
 )
 
@@ -2892,7 +2904,11 @@ async def submit_order(
 @app.post("/api/v1/orders/{client_order_id}/cancel", tags=["Orders"])
 async def cancel_order(
     client_order_id: str,
+    response: Response,
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
     _auth_context: AuthContext = Depends(order_cancel_auth),
+    _rate_limit_remaining: int = Depends(order_cancel_rl),
 ) -> dict[str, Any]:
     """Cancel a single order by client_order_id."""
     order = db_client.get_order_by_client_id(client_order_id)
@@ -3402,7 +3418,7 @@ def _schedule_slices_with_compensation(
 @app.post("/api/v1/orders/slice", response_model=SlicingPlan, tags=["Orders"])
 async def submit_sliced_order(
     request: SlicingRequest,
-    http_response: Response,
+    response: Response,
     # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
     # This allows rate limiter to bucket by user/service instead of anonymous IP
     _auth_context: AuthContext = Depends(order_slice_auth),

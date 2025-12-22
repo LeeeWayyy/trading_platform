@@ -41,6 +41,26 @@ class TestFailClosedBehaviorExecutionGateway:
     cannot be determined (Redis unavailable).
     """
 
+    @pytest.fixture(autouse=True)
+    def _setup_auth_overrides(self):
+        """Set up auth overrides for all tests in this class (C6 integration)."""
+        from libs.common.api_auth_dependency import AuthContext
+
+        def _mock_auth_context() -> AuthContext:
+            """Return a mock AuthContext that bypasses authentication for tests."""
+            return AuthContext(
+                user=None,
+                internal_claims=None,
+                auth_type="test",
+                is_authenticated=True,
+            )
+
+        main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
+        main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
+        main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
+        yield
+        main.app.dependency_overrides.clear()
+
     @pytest.fixture()
     def _mock_redis_unavailable(self):
         """Mock Redis connection failure during initialization."""
