@@ -268,11 +268,13 @@ async def check_rate_limit_with_global(
     )
 
     count, global_flag, _redis_time = result
+    # Convert to int - with decode_responses=True, Lua returns strings
+    count = int(count)
     if count == -1:
         return False, 0, "global_limit_exceeded"
 
-    allowed = int(count) <= effective_limit
-    remaining = max(0, effective_limit - int(count))
+    allowed = count <= effective_limit
+    remaining = max(0, effective_limit - count)
     reason = "" if allowed else "per_user_limit_exceeded"
     return allowed, remaining, reason
 
