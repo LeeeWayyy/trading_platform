@@ -76,8 +76,17 @@ def _get_auth_mode() -> str:
     """Get current auth mode. Read per-request for hot-switch support.
 
     SECURITY: Defaults to enforce (fail-closed).
+    Normalizes to lowercase and treats unknown values as enforce for fail-closed behavior.
     """
-    return os.getenv("API_AUTH_MODE", "enforce")
+    mode = os.getenv("API_AUTH_MODE", "enforce").lower().strip()
+    # SECURITY: Fail-closed - unknown values treated as enforce
+    if mode not in ("enforce", "log_only"):
+        logger.warning(
+            "api_auth_mode_invalid",
+            extra={"configured_mode": mode, "effective_mode": "enforce"},
+        )
+        return "enforce"
+    return mode
 
 
 def _get_service_secret(service_id: str) -> str:
@@ -163,11 +172,23 @@ def validate_internal_token_config() -> None:
                 'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
             )
 
-        # SECURITY: Validate per-service secrets meet minimum length
-        # If a per-service secret is configured, it must be strong enough
+        # SECURITY: Detect service ID collisions after normalization
+        # e.g., "my-service" and "my_service" both normalize to "MY_SERVICE"
+        # This could cause services to unintentionally share secrets
+        normalized_keys: dict[str, str] = {}
         for service_id in ALLOWED_SERVICE_IDS:
             # Use same sanitization as _get_service_secret for consistency
             service_key = re.sub(r"[^A-Z0-9_]", "_", service_id.upper())
+            if service_key in normalized_keys:
+                original_sid = normalized_keys[service_key]
+                raise RuntimeError(
+                    f"Service ID collision detected: '{original_sid}' and '{service_id}' "
+                    f"both normalize to '{service_key}'. This would cause them to share secrets. "
+                    "Please ensure service IDs are unique after normalization."
+                )
+            normalized_keys[service_key] = service_id
+
+            # SECURITY: Validate per-service secrets meet minimum length
             per_service_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "")
             if per_service_secret and len(per_service_secret) < 32:
                 raise RuntimeError(

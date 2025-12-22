@@ -75,6 +75,12 @@ services:
       MODEL_ARTIFACTS_DIR: /tmp/models
       MODEL_NAME: test_model
 
+      # C5/C6 Authentication (log_only for CI testing)
+      API_AUTH_MODE: "log_only"
+      INTERNAL_TOKEN_REQUIRED: "true"
+      INTERNAL_TOKEN_SECRET: "ci_test_secret_must_be_at_least_32_bytes_long"
+      RATE_LIMIT_MODE: "log_only"
+
       # Testing mode
       TESTING: "true"
     ports:
@@ -122,6 +128,12 @@ services:
       # Circuit breaker
       CIRCUIT_BREAKER_ENABLED: "true"
 
+      # C5/C6 Authentication (log_only for CI testing)
+      API_AUTH_MODE: "log_only"
+      INTERNAL_TOKEN_REQUIRED: "true"
+      INTERNAL_TOKEN_SECRET: "ci_test_secret_must_be_at_least_32_bytes_long"
+      RATE_LIMIT_MODE: "log_only"
+
       # Testing mode
       TESTING: "true"
     ports:
@@ -161,6 +173,12 @@ services:
 
       # Trading config
       DRY_RUN: "true"  # CRITICAL: Always dry-run in CI
+
+      # C5/C6 Authentication (log_only for CI testing)
+      API_AUTH_MODE: "log_only"
+      INTERNAL_TOKEN_REQUIRED: "true"
+      INTERNAL_TOKEN_SECRET: "ci_test_secret_must_be_at_least_32_bytes_long"
+      RATE_LIMIT_MODE: "log_only"
 
       # Testing mode
       TESTING: "true"
