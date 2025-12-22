@@ -528,7 +528,7 @@ def api_auth(
     3. Enforces role/permission requirements
     4. Sets request.state for C5 integration
     """
-    from apps.execution_gateway.api.dependencies import get_gateway_authenticator
+    from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 
     async def dependency(
         request: Request,
@@ -605,7 +605,7 @@ def api_auth(
             if x_user_id and x_request_id and x_session_version:
                 try:
                     # Lazy resolution of authenticator - only when JWT auth is actually needed
-                    authenticator = (authenticator_getter or get_gateway_authenticator)()
+                    authenticator = (authenticator_getter or build_gateway_authenticator)()
                     session_version = int(x_session_version)
                     user = await authenticator.authenticate(
                         token=token,

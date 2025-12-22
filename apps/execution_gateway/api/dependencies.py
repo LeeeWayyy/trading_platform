@@ -182,6 +182,24 @@ def get_audit_logger(db_pool: AsyncConnectionPool = Depends(get_db_pool)) -> Aud
     return _audit_logger
 
 
+def build_gateway_authenticator() -> GatewayAuthenticator:
+    """Build GatewayAuthenticator without FastAPI DI (for direct calls).
+
+    This function is safe to call directly outside of FastAPI's DI context.
+    Uses the cached singleton factories for db_pool and redis_client.
+    """
+    global _gateway_authenticator
+    if _gateway_authenticator is None:
+        config = AuthConfig.from_env()
+        jwt_manager = JWTManager(config=config, redis_client=get_sync_redis())
+        _gateway_authenticator = GatewayAuthenticator(
+            jwt_manager=jwt_manager,
+            db_pool=get_db_pool(),  # Call cached factory directly
+            redis_client=get_async_redis(),  # Call cached factory directly
+        )
+    return _gateway_authenticator
+
+
 def get_gateway_authenticator(
     db_pool: AsyncConnectionPool = Depends(get_db_pool),
     redis_client: redis_async.Redis = Depends(get_async_redis),
@@ -190,18 +208,11 @@ def get_gateway_authenticator(
 
     Note: Cannot use @lru_cache because FastAPI's Depends() injection is incompatible with it.
     The global pattern ensures singleton behavior while allowing dependency injection.
-    """
 
-    global _gateway_authenticator
-    if _gateway_authenticator is None:
-        config = AuthConfig.from_env()
-        jwt_manager = JWTManager(config=config, redis_client=get_sync_redis())
-        _gateway_authenticator = GatewayAuthenticator(
-            jwt_manager=jwt_manager,
-            db_pool=db_pool,
-            redis_client=redis_client,
-        )
-    return _gateway_authenticator
+    For direct calls outside FastAPI DI, use build_gateway_authenticator() instead.
+    """
+    # Delegate to the non-DI builder which handles the global singleton
+    return build_gateway_authenticator()
 
 
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
