@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import time
 from decimal import Decimal
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -211,19 +212,25 @@ async def test_cache_invalidation_on_save(
     fake_conn = _FakeConn()
     fake_pool = MagicMock(connection=None)
     fake_audit = _FakeAuditLogger()
-    redis_client = AsyncMock()
+    redis_mock = AsyncMock()
     monkeypatch.setattr(config_editor, "acquire_connection", lambda _: _FakeAsyncCM(fake_conn))
 
-    await config_editor.save_config(
-        config_key=config_editor.CONFIG_KEY_POSITION_LIMITS,
-        config_value=PositionLimitsConfig(),
-        user=admin_user,
-        db_pool=fake_pool,
-        audit_logger=fake_audit,
-        redis_client=redis_client,
-    )
+    # Patch _async_redis to return our mock client
+    @asynccontextmanager
+    async def mock_async_redis():
+        yield redis_mock
 
-    redis_client.delete.assert_awaited_with("system_config:position_limits")
+    with patch.object(config_editor, "_async_redis", mock_async_redis):
+        await config_editor.save_config(
+            config_key=config_editor.CONFIG_KEY_POSITION_LIMITS,
+            config_value=PositionLimitsConfig(),
+            user=admin_user,
+            db_pool=fake_pool,
+            audit_logger=fake_audit,
+            redis_client=None,  # Ignored, we use _async_redis now
+        )
+
+    redis_mock.delete.assert_awaited_with("system_config:position_limits")
 
 
 def test_rbac_enforcement(monkeypatch: pytest.MonkeyPatch) -> None:

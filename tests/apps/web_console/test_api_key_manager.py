@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -244,14 +245,20 @@ def test_revoke_flow(monkeypatch: pytest.MonkeyPatch, admin_user: AuthenticatedU
             )
         ]
     )
-    redis_client = AsyncMock()
+    redis_mock = AsyncMock()
     audit = _FakeAuditLogger()
 
-    api_key_manager.render_api_key_manager(admin_user, fake_db, audit, redis_client)
+    # Patch _async_redis to return our mock client
+    @asynccontextmanager
+    async def mock_async_redis():
+        yield redis_mock
+
+    with patch.object(api_key_manager, "_async_redis", mock_async_redis):
+        api_key_manager.render_api_key_manager(admin_user, fake_db, audit, None)
 
     update_queries = [q for q, _ in fake_db.executed if "UPDATE api_keys SET revoked_at" in q]
     assert update_queries, "Revocation should update DB"
-    redis_client.setex.assert_awaited_once()
+    redis_mock.setex.assert_awaited_once()
     assert any(entry["action"] == "api_key_revoked" for entry in audit.logged)
 
 
