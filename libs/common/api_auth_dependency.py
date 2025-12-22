@@ -699,9 +699,11 @@ def api_auth(
                         action=config.action, result="jwt_invalid", auth_type="jwt", mode=mode
                     ).inc()
                     if mode == "enforce":
+                        # Return generic message to avoid information leakage
+                        # Detailed error is already logged above
                         raise HTTPException(
                             status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail={"error": "invalid_token", "message": str(exc)},
+                            detail={"error": "invalid_token", "message": "Token validation failed"},
                         ) from exc
 
         # 3. No valid authentication found
