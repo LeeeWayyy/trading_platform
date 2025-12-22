@@ -7,10 +7,14 @@ system defaults with cache-aware persistence and audit logging.
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import time
 from decimal import Decimal
 from typing import Any, TypeVar
 
+import redis.asyncio as redis_async
 import streamlit as st
 from psycopg import Error as DatabaseError
 from pydantic import BaseModel, Field, ValidationError, ValidationInfo, field_validator
@@ -24,6 +28,48 @@ from libs.web_console_auth.gateway_auth import AuthenticatedUser
 from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _async_redis() -> AsyncIterator[redis_async.Redis | None]:
+    """Create a fresh async Redis client for this async context.
+
+    IMPORTANT: Async Redis clients bind to the event loop at first use.
+    run_async() creates a new event loop per call, so we MUST create the
+    client inside the async context (not pass it from sync code).
+
+    Yields:
+        Fresh async Redis client or None if connection fails
+    """
+    host = os.getenv("REDIS_HOST", "localhost")
+    port_str = os.getenv("REDIS_PORT", "6379")
+    db_str = os.getenv("REDIS_DB", "0")
+
+    try:
+        port = int(port_str)
+        db = int(db_str)
+    except (ValueError, TypeError):
+        logger.warning("Invalid REDIS_PORT or REDIS_DB env vars")
+        yield None
+        return
+
+    password = os.getenv("REDIS_PASSWORD") or None
+    client: redis_async.Redis | None = None
+    try:
+        client = redis_async.Redis(
+            host=host, port=port, db=db, password=password, decode_responses=True
+        )
+        yield client
+    except (RedisError, ConnectionError, TimeoutError, OSError) as exc:
+        logger.warning("Failed to create async Redis client: %s", exc)
+        yield None
+    finally:
+        if client:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                pass
+
 
 _T = TypeVar("_T")
 _ConfigT = TypeVar("_ConfigT", bound=BaseModel)
@@ -73,7 +119,7 @@ class SystemDefaultsConfig(BaseModel):
 async def get_config(
     config_key: str,
     db_pool: Any,
-    redis_client: Any,
+    redis_client: Any,  # Ignored - kept for API compatibility, see _async_redis() docstring
     config_class: type[_ConfigT],
 ) -> _ConfigT:
     """Load config with cache-first pattern.
@@ -81,56 +127,63 @@ async def get_config(
     Falls back to database on cache miss and returns model defaults when no
     record exists. Redis errors are treated as cache misses to keep the UI
     responsive.
-    """
 
+    Note: The redis_client parameter is ignored. We create a fresh async Redis
+    client inside this coroutine because async clients bind to the event loop
+    at first use, and run_async() creates a new loop per call.
+    """
     cache_key = f"system_config:{config_key}"
-    if redis_client:
-        try:
-            cached = await redis_client.get(cache_key)
-            if cached:
+
+    # Create fresh Redis client inside async context (see _async_redis docstring)
+    async with _async_redis() as rclient:
+        if rclient:
+            try:
+                cached = await rclient.get(cache_key)
+                if cached:
+                    try:
+                        return config_class.model_validate_json(cached)
+                    except (ValidationError, ValueError) as exc:
+                        logger.warning(
+                            "config_cache_corrupt",
+                            extra={"config_key": config_key, "error": str(exc)},
+                        )
+                        try:
+                            await rclient.delete(cache_key)
+                        except RedisError:
+                            logger.warning(
+                                "config_cache_delete_failed", extra={"config_key": config_key}
+                            )
+            except RedisError:
+                logger.warning("config_cache_get_failed", extra={"config_key": config_key})
+
+        async with acquire_connection(db_pool) as conn:
+            row = await _fetchone(
+                conn,
+                "SELECT config_value FROM system_config WHERE config_key = %s",
+                (config_key,),
+            )
+
+            if row:
+                raw_value = row.get("config_value") if isinstance(row, dict) else row[0]
                 try:
-                    return config_class.model_validate_json(cached)
-                except (ValidationError, ValueError) as exc:
+                    config = config_class.model_validate(raw_value)
+                except ValidationError as exc:  # pragma: no cover - defensive path
                     logger.warning(
-                        "config_cache_corrupt",
+                        "config_validation_failed",
                         extra={"config_key": config_key, "error": str(exc)},
                     )
+                    return config_class()
+
+                if rclient:
                     try:
-                        await redis_client.delete(cache_key)
-                    except RedisError:
-                        logger.warning(
-                            "config_cache_delete_failed", extra={"config_key": config_key}
+                        await rclient.setex(
+                            cache_key, CONFIG_CACHE_TTL_SECONDS, config.model_dump_json()
                         )
-        except RedisError:
-            logger.warning("config_cache_get_failed", extra={"config_key": config_key})
+                    except RedisError:
+                        logger.warning("config_cache_set_failed", extra={"config_key": config_key})
+                return config
 
-    async with acquire_connection(db_pool) as conn:
-        row = await _fetchone(
-            conn,
-            "SELECT config_value FROM system_config WHERE config_key = %s",
-            (config_key,),
-        )
-
-        if row:
-            raw_value = row.get("config_value") if isinstance(row, dict) else row[0]
-            try:
-                config = config_class.model_validate(raw_value)
-            except ValidationError as exc:  # pragma: no cover - defensive path
-                logger.warning(
-                    "config_validation_failed", extra={"config_key": config_key, "error": str(exc)}
-                )
-                return config_class()
-
-            if redis_client:
-                try:
-                    await redis_client.setex(
-                        cache_key, CONFIG_CACHE_TTL_SECONDS, config.model_dump_json()
-                    )
-                except RedisError:
-                    logger.warning("config_cache_set_failed", extra={"config_key": config_key})
-            return config
-
-    return config_class()
+        return config_class()
 
 
 async def save_config(
@@ -140,10 +193,14 @@ async def save_config(
     user: AuthenticatedUser,
     db_pool: Any,
     audit_logger: AuditLogger,
-    redis_client: Any,
+    redis_client: Any,  # Ignored - kept for API compatibility, see _async_redis() docstring
 ) -> bool:
-    """Save config with DB upsert, cache invalidation, and audit logging."""
+    """Save config with DB upsert, cache invalidation, and audit logging.
 
+    Note: The redis_client parameter is ignored. We create a fresh async Redis
+    client inside this coroutine because async clients bind to the event loop
+    at first use, and run_async() creates a new loop per call.
+    """
     cache_key = f"system_config:{config_key}"
     payload = config_value.model_dump(mode="json")
 
@@ -165,12 +222,13 @@ async def save_config(
         logger.exception("config_save_failed", extra={"config_key": config_key, "error": str(exc)})
         return False
 
-    # Invalidate cache after successful DB write
-    if redis_client:
-        try:
-            await redis_client.delete(cache_key)
-        except RedisError:
-            logger.warning("config_cache_delete_failed", extra={"config_key": config_key})
+    # Invalidate cache after successful DB write (create fresh client inside async context)
+    async with _async_redis() as rclient:
+        if rclient:
+            try:
+                await rclient.delete(cache_key)
+            except RedisError:
+                logger.warning("config_cache_delete_failed", extra={"config_key": config_key})
 
     try:
         await audit_logger.log_action(

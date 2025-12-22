@@ -109,28 +109,28 @@ def _get_api_session() -> requests.Session:
 
 
 def _get_redis_client_for_admin() -> redis_async.Redis | None:
-    """Get ASYNC Redis client for admin page (cached in session state).
+    """Get ASYNC Redis client for admin page (fresh per call).
 
     Admin tabs (api_key_manager, config_editor) call `await redis_client.get/setex/delete`
-    inside async functions wrapped by run_async(). This requires an async Redis client.
+    inside async functions wrapped by run_async(). Each run_async() creates a fresh event
+    loop, so we must NOT cache the async Redis client (it binds to the loop it was created on).
 
     Returns:
-        Async Redis client or None if connection fails
+        Fresh async Redis client or None if connection fails
     """
-    if "admin_redis_client" not in st.session_state:
-        host = os.getenv("REDIS_HOST", "localhost")
-        port = int(os.getenv("REDIS_PORT", "6379"))
-        db = int(os.getenv("REDIS_DB", "0"))
-        password = os.getenv("REDIS_PASSWORD") or None  # None if not set
-        try:
-            # Use async Redis client - admin tabs use await redis_client.get/setex/delete
-            st.session_state["admin_redis_client"] = redis_async.Redis(
-                host=host, port=port, db=db, password=password, decode_responses=True
-            )
-        except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as exc:
-            logger.warning("Failed to create async Redis client for admin: %s", exc)
-            st.session_state["admin_redis_client"] = None
-    return st.session_state.get("admin_redis_client")
+    host = os.getenv("REDIS_HOST", "localhost")
+    port = int(os.getenv("REDIS_PORT", "6379"))
+    db = int(os.getenv("REDIS_DB", "0"))
+    password = os.getenv("REDIS_PASSWORD") or None  # None if not set
+    try:
+        # Create fresh client per call - async Redis binds to event loop at creation time
+        # Caching would cause "Event loop is closed" errors across run_async() calls
+        return redis_async.Redis(
+            host=host, port=port, db=db, password=password, decode_responses=True
+        )
+    except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as exc:
+        logger.warning("Failed to create async Redis client for admin: %s", exc)
+        return None
 
 
 def fetch_api(

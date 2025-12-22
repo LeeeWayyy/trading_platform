@@ -58,15 +58,29 @@ def _get_redis_client() -> RedisClient | None:
                 if _metrics_redis_client.health_check():
                     return _metrics_redis_client
                 _metrics_redis_client = None  # Reset for retry
-            except Exception:
+            except (
+                redis.exceptions.RedisError,
+                RedisConnectionError,
+                ConnectionError,
+                TimeoutError,
+            ):
                 _metrics_redis_client = None  # Reset for retry
 
         # Try to create/reconnect
         try:
+            port_str = os.getenv("REDIS_PORT", "6379")
+            db_str = os.getenv("REDIS_DB", "0")
+            try:
+                port = int(port_str)
+                db = int(db_str)
+            except (ValueError, TypeError) as exc:
+                logger.warning("Invalid REDIS_PORT or REDIS_DB env vars: %s", exc)
+                return None
+
             _metrics_redis_client = RedisClient(
                 host=os.getenv("REDIS_HOST", "localhost"),
-                port=int(os.getenv("REDIS_PORT", "6379")),
-                db=int(os.getenv("REDIS_DB", "0")),
+                port=port,
+                db=db,
                 password=os.getenv("REDIS_PASSWORD"),
             )
             return _metrics_redis_client

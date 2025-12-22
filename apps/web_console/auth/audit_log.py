@@ -19,10 +19,10 @@ from apps.web_console.utils.db import acquire_connection
 
 # Import shared Prometheus metrics from libs to avoid duplicate registration
 from libs.web_console_auth.audit_logger import (
-    _audit_cleanup_duration_seconds,
-    _audit_events_total,
-    _audit_write_failures_total,
     admin_action_total,
+    audit_cleanup_duration_seconds,
+    audit_events_total,
+    audit_write_failures_total,
     audit_write_latency_seconds,
 )
 
@@ -112,9 +112,9 @@ class AuditLogger:
                             amr_method,
                         ),
                     )
-            _audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
+            audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
         except Exception as exc:  # pragma: no cover - defensive logging
-            _audit_write_failures_total.labels(reason=exc.__class__.__name__).inc()
+            audit_write_failures_total.labels(reason=exc.__class__.__name__).inc()
             logger.exception(
                 "audit_log_write_failed",
                 extra={
@@ -249,7 +249,7 @@ class AuditLogger:
                         (cutoff,),
                     )
             duration = (datetime.now(UTC) - start).total_seconds()
-            _audit_cleanup_duration_seconds.observe(duration)
+            audit_cleanup_duration_seconds.observe(duration)
 
             if hasattr(result, "rowcount"):
                 return int(result.rowcount or 0)

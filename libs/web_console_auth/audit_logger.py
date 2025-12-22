@@ -17,17 +17,17 @@ from libs.web_console_auth.db import acquire_connection
 
 logger = logging.getLogger(__name__)
 
-_audit_events_total = Counter(
+audit_events_total = Counter(
     "audit_log_events_total",
     "Total audit log events written",
     ["event_type", "outcome"],
 )
-_audit_write_failures_total = Counter(
+audit_write_failures_total = Counter(
     "audit_log_write_failures_total",
     "Audit log write failures by reason",
     ["reason"],
 )
-_audit_cleanup_duration_seconds = Histogram(
+audit_cleanup_duration_seconds = Histogram(
     "audit_log_cleanup_duration_seconds",
     "Duration of audit log cleanup runs",
 )
@@ -118,9 +118,9 @@ class AuditLogger:
                             amr_method,
                         ),
                     )
-            _audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
+            audit_events_total.labels(event_type=event_type, outcome=outcome).inc()
         except Exception as exc:  # pragma: no cover
-            _audit_write_failures_total.labels(reason=exc.__class__.__name__).inc()
+            audit_write_failures_total.labels(reason=exc.__class__.__name__).inc()
             logger.exception(
                 "audit_log_write_failed",
                 extra={
@@ -250,7 +250,7 @@ class AuditLogger:
                         (cutoff,),
                     )
             duration = (datetime.now(UTC) - start).total_seconds()
-            _audit_cleanup_duration_seconds.observe(duration)
+            audit_cleanup_duration_seconds.observe(duration)
 
             if hasattr(result, "rowcount"):
                 return int(result.rowcount or 0)
@@ -269,7 +269,7 @@ __all__ = [
     "AuditLogger",
     "admin_action_total",
     "audit_write_latency_seconds",
-    "_audit_cleanup_duration_seconds",
-    "_audit_events_total",
-    "_audit_write_failures_total",
+    "audit_cleanup_duration_seconds",
+    "audit_events_total",
+    "audit_write_failures_total",
 ]
