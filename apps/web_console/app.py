@@ -25,14 +25,11 @@ Environment Variables:
 import asyncio
 import hashlib
 import logging
-import os
 import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
-import redis.asyncio as redis_async
-import redis.exceptions
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
@@ -106,31 +103,6 @@ def _get_api_session() -> requests.Session:
         st.session_state["api_session"] = session
 
     return cast(requests.Session, st.session_state["api_session"])
-
-
-def _get_redis_client_for_admin() -> redis_async.Redis | None:
-    """Get ASYNC Redis client for admin page (fresh per call).
-
-    Admin tabs (api_key_manager, config_editor) call `await redis_client.get/setex/delete`
-    inside async functions wrapped by run_async(). Each run_async() creates a fresh event
-    loop, so we must NOT cache the async Redis client (it binds to the loop it was created on).
-
-    Returns:
-        Fresh async Redis client or None if connection fails
-    """
-    host = os.getenv("REDIS_HOST", "localhost")
-    port = int(os.getenv("REDIS_PORT", "6379"))
-    db = int(os.getenv("REDIS_DB", "0"))
-    password = os.getenv("REDIS_PASSWORD") or None  # None if not set
-    try:
-        # Create fresh client per call - async Redis binds to event loop at creation time
-        # Caching would cause "Event loop is closed" errors across run_async() calls
-        return redis_async.Redis(
-            host=host, port=port, db=db, password=password, decode_responses=True
-        )
-    except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as exc:
-        logger.warning("Failed to create async Redis client for admin: %s", exc)
-        return None
 
 
 def fetch_api(
@@ -870,14 +842,12 @@ def main() -> None:
             pages.append("Audit Log")
 
         # C6.1: Admin Dashboard uses permission-based access (like User Management)
-        if any(
-            has_permission(user_info, p)
-            for p in [
-                Permission.MANAGE_API_KEYS,
-                Permission.MANAGE_SYSTEM_CONFIG,
-                Permission.VIEW_AUDIT,
-            ]
-        ):
+        admin_permissions = [
+            Permission.MANAGE_API_KEYS,
+            Permission.MANAGE_SYSTEM_CONFIG,
+            Permission.VIEW_AUDIT,
+        ]
+        if any(has_permission(user_info, p) for p in admin_permissions):
             pages.append("Admin Dashboard")
 
         page = st.radio(
@@ -950,11 +920,11 @@ def main() -> None:
         from apps.web_console.pages.admin import render_admin_page
         from libs.web_console_auth.gateway_auth import AuthenticatedUser
 
-        redis_client = _get_redis_client_for_admin()
+        # redis_client is now created inside async functions (see _async_redis() in components)
         render_admin_page(
             user=cast(AuthenticatedUser, user_info),
             db_pool=get_db_pool(),
-            redis_client=redis_client,
+            redis_client=None,  # Created inside async context to avoid event loop binding issues
             audit_logger=AuditLogger(get_db_pool()),
         )
     elif page == "Strategy Comparison":

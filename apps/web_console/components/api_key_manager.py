@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, time
 from typing import Any
 
+import redis.asyncio as redis_async
 import streamlit as st
 from redis.exceptions import RedisError
 
@@ -18,6 +22,48 @@ from libs.web_console_auth.gateway_auth import AuthenticatedUser
 from libs.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _async_redis() -> AsyncIterator[redis_async.Redis | None]:
+    """Create a fresh async Redis client for this async context.
+
+    IMPORTANT: Async Redis clients bind to the event loop at first use.
+    run_async() creates a new event loop per call, so we MUST create the
+    client inside the async context (not pass it from sync code).
+
+    Yields:
+        Fresh async Redis client or None if connection fails
+    """
+    host = os.getenv("REDIS_HOST", "localhost")
+    port_str = os.getenv("REDIS_PORT", "6379")
+    db_str = os.getenv("REDIS_DB", "0")
+
+    try:
+        port = int(port_str)
+        db = int(db_str)
+    except (ValueError, TypeError):
+        logger.warning("Invalid REDIS_PORT or REDIS_DB env vars")
+        yield None
+        return
+
+    password = os.getenv("REDIS_PASSWORD") or None
+    client: redis_async.Redis | None = None
+    try:
+        client = redis_async.Redis(
+            host=host, port=port, db=db, password=password, decode_responses=True
+        )
+        yield client
+    except (RedisError, ConnectionError, TimeoutError, OSError) as exc:
+        logger.warning("Failed to create async Redis client: %s", exc)
+        yield None
+    finally:
+        if client:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                pass
+
 
 _MODAL_STATE_KEY = "api_key_one_time_modal"
 _REVOKE_STATE_KEY = "api_key_revoke_target"
@@ -489,8 +535,15 @@ def _revoke_key_sync(
     db_pool: Any,
     user_id: str,
     prefix: str,
-    redis_client: Any,
+    redis_client: Any,  # Ignored - kept for API compatibility, see _async_redis() docstring
 ) -> bool:
+    """Revoke an API key and add to Redis blacklist.
+
+    Note: The redis_client parameter is ignored. We create a fresh async Redis
+    client inside this coroutine because async clients bind to the event loop
+    at first use, and run_async() creates a new loop per call.
+    """
+
     async def _revoke() -> bool:
         async with acquire_connection(db_pool) as conn:
             cursor = await conn.execute(
@@ -503,13 +556,15 @@ def _revoke_key_sync(
             logger.warning("api_key_revoke_noop", extra={"prefix": prefix, "user_id": user_id})
             return False
 
-        if redis_client:
-            try:
-                await redis_client.setex(f"api_key_revoked:{prefix}", REVOKED_KEY_CACHE_TTL, "1")
-            except RedisError as exc:  # pragma: no cover - defensive logging
-                logger.warning(
-                    "redis_blacklist_failed", extra={"prefix": prefix, "error": str(exc)}
-                )
+        # Create fresh Redis client inside async context (see _async_redis docstring)
+        async with _async_redis() as rclient:
+            if rclient:
+                try:
+                    await rclient.setex(f"api_key_revoked:{prefix}", REVOKED_KEY_CACHE_TTL, "1")
+                except RedisError as exc:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        "redis_blacklist_failed", extra={"prefix": prefix, "error": str(exc)}
+                    )
         return True
 
     result = run_async(_revoke(), timeout=_DB_OPERATION_TIMEOUT_SECONDS)
