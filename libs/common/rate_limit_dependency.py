@@ -102,10 +102,11 @@ def _get_rate_limit_mode() -> str:
     return os.getenv("RATE_LIMIT_MODE", "log_only")  # Default to log_only until C6 deployed
 
 
-def _get_redis_client() -> redis.Redis:
+def _get_redis_client() -> redis.Redis[bytes]:
     """Get async Redis client with SAME configuration as existing rate limiter.
 
-    Note: redis.Redis here refers to redis.asyncio.Redis due to the import alias.
+    Note: redis.Redis here refers to redis.asyncio.Redis due to the import alias
+    at the top of this file (import redis.asyncio as redis).
     Uses DB 2, decode_responses=True, same connection settings.
     """
     limiter = get_rate_limiter()
@@ -224,7 +225,7 @@ INTERNAL_SERVICE_FACTOR = float(os.getenv("RATE_LIMIT_INTERNAL_FACTOR", "10.0"))
 
 
 async def check_rate_limit_with_global(
-    redis_client: redis.Redis,
+    redis_client: redis.Redis[bytes],
     user_id: str,
     action: str,
     config: RateLimitConfig,
@@ -278,7 +279,7 @@ async def check_rate_limit_with_circuit_breaker(
             timeout=REDIS_LATENCY_THRESHOLD_MS / 1000,
         )
         return result
-    except TimeoutError:
+    except asyncio.TimeoutError:
         rate_limit_redis_timeout_total.labels(action=action).inc()
         logger.warning("rate_limit_redis_timeout", extra={"action": action})
         if config.fallback_mode == "deny":

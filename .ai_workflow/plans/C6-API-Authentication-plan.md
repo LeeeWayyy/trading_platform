@@ -569,28 +569,34 @@ s2s_replay_detected_total = Counter(
 - Internal Token Pattern: Already defined in .env.example
 - Redis: Required for nonce replay protection
 
-## Known Limitations & Future Enhancements
+## Implementation Notes
 
-**Documented from code review feedback (2024-12-21):**
+**Updated from code review feedback (2024-12-21):**
 
-1. **Body Hash in Signature (Future Enhancement)**:
-   - Current implementation signs service_id|method|path|timestamp|nonce|user_id|strategy_id
-   - Does NOT include request body hash
-   - Risk: Network-level attacker could tamper with request body while keeping valid headers
-   - Mitigation: Internal network should use mTLS in production
-   - Future: Add SHA-256 body digest to signature payload for defense-in-depth
+1. **Body Hash in Signature (IMPLEMENTED)**:
+   - ✅ Implementation includes SHA-256 body hash in signature payload via `X-Body-Hash` header
+   - Uses JSON serialization with sorted keys for deterministic, collision-resistant signing:
+     ```python
+     payload_dict = {
+         "service_id": ..., "method": ..., "path": ..., "query": ...,
+         "timestamp": ..., "nonce": ..., "user_id": ..., "strategy_id": ...,
+         "body_hash": hashlib.sha256(body).hexdigest()
+     }
+     payload = json.dumps(payload_dict, separators=(",", ":"), sort_keys=True)
+     signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+     ```
+   - Prevents request body tampering even on untrusted networks
 
-2. **Per-Service Secrets (Future Enhancement)**:
-   - Current implementation uses single INTERNAL_TOKEN_SECRET for all services
-   - Risk: Compromise of one service exposes all S2S authentication
-   - Mitigation: Proper secret management and rotation procedures
-   - Future: Implement per-service secrets with whitelist of allowed service_ids
+2. **Per-Service Secrets (IMPLEMENTED)**:
+   - ✅ Supports per-service secrets via `INTERNAL_TOKEN_SECRET_{SERVICE_ID}` env vars
+   - Falls back to global `INTERNAL_TOKEN_SECRET` for backward compatibility
+   - Service ID whitelist enforced via `ALLOWED_SERVICE_IDS`
+   - Collision detection at startup prevents `my-service` / `my_service` ambiguity
 
-3. **Middleware Conflict Note (Gemini)**:
-   - `populate_user_from_headers` middleware uses JSON-based token format
-   - New `api_auth` uses pipe-delimited HMAC format
-   - Impact: None for current clients (Streamlit uses JWT, Orchestrator uses new S2S format)
-   - Future: Deprecate legacy JSON-based token middleware
+3. **JSON-Based Signature Format (IMPLEMENTED)**:
+   - ✅ Uses JSON serialization instead of pipe-delimited format
+   - Prevents delimiter collision attacks (e.g., query="a|b" exploits)
+   - Both client (`orchestrator/clients.py`) and server (`api_auth_dependency.py`) use same format
 
 ## Estimate
 

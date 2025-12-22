@@ -539,7 +539,10 @@ def api_auth(
 
         # 1. Try S2S authentication first (internal services)
         # IMPORTANT: S2S auth is checked BEFORE JWT to avoid requiring JWT infrastructure
-        if x_internal_token and _is_internal_token_required():
+        # SECURITY: Always verify internal tokens if present, even when INTERNAL_TOKEN_REQUIRED=false
+        # This allows optional rollout while still authenticating internal callers that send tokens
+        if x_internal_token:
+            token_required = _is_internal_token_required()
             redis_client = _get_redis_client()
             internal_claims = await verify_internal_token(
                 request=request,
@@ -561,6 +564,19 @@ def api_auth(
                     internal_claims=internal_claims,
                     auth_type="internal_token",
                     is_authenticated=True,
+                )
+            # Token present but invalid - if required and enforcing, reject immediately
+            if token_required and mode == "enforce":
+                logger.warning(
+                    "internal_token_invalid",
+                    extra={"action": config.action, "service_id": x_service_id},
+                )
+                api_auth_checks_total.labels(
+                    action=config.action, result="internal_token_invalid", auth_type="internal_token", mode=mode
+                ).inc()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={"error": "invalid_internal_token", "message": "Invalid internal token"},
                 )
 
         # 2. Try JWT authentication (external clients)
@@ -588,11 +604,13 @@ def api_auth(
                     }
 
                     # Check role requirement
-                    if config.require_role and user.role:
+                    # SECURITY: Must check even if user.role is None to prevent bypass
+                    if config.require_role:
                         # Define role levels for clear hierarchy comparison
                         # Higher level = more permissions (ADMIN > OPERATOR > VIEWER)
+                        # Users with no role get level -1 (denied by default)
                         ROLE_LEVELS = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2}
-                        user_level = ROLE_LEVELS.get(user.role, -1)
+                        user_level = ROLE_LEVELS.get(user.role, -1) if user.role else -1
                         required_level = ROLE_LEVELS.get(config.require_role, -1)
                         if user_level < required_level:
                             api_auth_checks_total.labels(
