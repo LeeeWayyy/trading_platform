@@ -98,8 +98,19 @@ return {count, 0, now}
 
 
 def _get_rate_limit_mode() -> str:
-    """Get current rate limit mode. Read per-request for hot-switch support."""
-    return os.getenv("RATE_LIMIT_MODE", "log_only")  # Default to log_only until C6 deployed
+    """Get current rate limit mode. Read per-request for hot-switch support.
+
+    SECURITY: Normalizes to lowercase and treats unknown values as log_only
+    (fail-open for rate limiting since C5 runs before C6 auth is fully deployed).
+    """
+    mode = os.getenv("RATE_LIMIT_MODE", "log_only").lower().strip()
+    if mode not in ("enforce", "log_only"):
+        logger.warning(
+            "rate_limit_mode_invalid",
+            extra={"configured_mode": mode, "effective_mode": "log_only"},
+        )
+        return "log_only"
+    return mode
 
 
 def _get_redis_client() -> redis.Redis:
