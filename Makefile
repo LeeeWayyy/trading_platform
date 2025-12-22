@@ -53,6 +53,9 @@ test: ## Run tests
 test-cov: ## Run tests with coverage report
 	PYTHONPATH=. poetry run pytest --cov=libs --cov=apps --cov=scripts/ai_workflow --cov-report=html --cov-report=term
 
+perf: ## Run performance tests (requires RUN_PERF_TESTS=1)
+	RUN_PERF_TESTS=1 PYTHONPATH=. poetry run pytest tests/apps/web_console/test_performance.py -v
+
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
 

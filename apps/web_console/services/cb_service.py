@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +42,7 @@ import redis
 from apps.web_console.config import MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH
 from libs.risk_management.breaker import CircuitBreaker
 from libs.risk_management.exceptions import CircuitBreakerError
+from libs.web_console_auth.audit_logger import admin_action_total, audit_write_latency_seconds
 from libs.web_console_auth.permissions import Permission, has_permission
 
 from .cb_metrics import CB_RESET_TOTAL, CB_STATUS_CHECKS, CB_TRIP_TOTAL
@@ -432,6 +434,9 @@ class CircuitBreakerService:
             details: Additional context (e.g., tripped_by, reset_by)
             outcome: Outcome of the action (success/failure)
         """
+        # Track admin actions for SLA metrics
+        admin_action_total.labels(action=action).inc()
+
         # Merge reason with additional details
         audit_details: dict[str, Any] = {"reason": str(reason)}
         if details:
@@ -452,6 +457,7 @@ class CircuitBreakerService:
         user_name = user.get("username") or user.get("name")
         ip_address = user.get("ip_address")
 
+        start = time.monotonic()
         try:
             # Use sync connection from pool
             with self.db_pool.connection() as conn:
@@ -487,6 +493,8 @@ class CircuitBreakerService:
                     "error": str(e),
                 },
             )
+        finally:
+            audit_write_latency_seconds.observe(time.monotonic() - start)
 
 
 __all__ = [

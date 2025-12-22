@@ -312,6 +312,11 @@ Educational explanations of trading and ML concepts:
 | [workflow-optimization-zen-mcp.md](./CONCEPTS/workflow-optimization-zen-mcp.md) | Zen-MCP workflow integration | Advanced |
 | [zen-mcp-clink-optimization-proposal.md](./CONCEPTS/zen-mcp-clink-optimization-proposal.md) | Clink optimization proposal | Advanced |
 | [zen-mcp-integration-proposal.md](./CONCEPTS/zen-mcp-integration-proposal.md) | Zen-MCP integration design | Advanced |
+| [circuit-breaker-ui.md](./CONCEPTS/circuit-breaker-ui.md) | Circuit breaker dashboard with step-up confirmation | Intermediate |
+| [system-health-monitoring.md](./CONCEPTS/system-health-monitoring.md) | System health monitor with graceful degradation | Intermediate |
+| [alerting.md](./CONCEPTS/alerting.md) | Alert configuration and notification channels | Intermediate |
+| [alert-delivery.md](./CONCEPTS/alert-delivery.md) | Alert delivery service with retry and poison queue | Intermediate |
+| [platform-administration.md](./CONCEPTS/platform-administration.md) | Admin dashboard with API keys and config management | Intermediate |
 
 **Priority:** 🟢 **LOW** - Read when you need to understand domain-specific concepts
 
@@ -423,6 +428,8 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-18, Plan] [P4T5_C1_PLAN.md](./TASKS/P4T5_C1_PLAN.md) - P4T5 C1: Circuit Breaker Dashboard implementation plan (service, metrics, RBAC, UI)
 - [CURRENT, 2025-12-19, Plan] [P4T5_C2_PLAN.md](./TASKS/P4T5_C2_PLAN.md) - P4T5 C2: System Health Monitor implementation plan (service grid, latency, connectivity)
 - [CURRENT, 2025-12-20, Plan] [P4T5_C3C4_PLAN.md](./TASKS/P4T5_C3C4_PLAN.md) - P4T5 C3/C4: Alert Delivery Service and Configuration UI implementation plan
+- [CURRENT, 2025-12-20, Plan] [P4T5_C5_PLAN.md](./TASKS/P4T5_C5_PLAN.md) - P4T5 C5: Admin Dashboard implementation plan (CB control, user management, system config)
+- [CURRENT, 2025-12-21, Plan] [P4T5_C6_PLAN.md](./TASKS/P4T5_C6_PLAN.md) - P4T5 C6: Integration & Documentation (metrics, navigation, runbooks, SLA infrastructure)
 - [CURRENT, 2025-12-03, Component] [PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
 - [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
@@ -484,6 +491,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-12-04, Runbook] [wrds-credentials.md](./RUNBOOKS/wrds-credentials.md) - WRDS credential management, rotation, and expiry monitoring
 - [CURRENT, 2025-12-04, Runbook] [data-storage.md](./RUNBOOKS/data-storage.md) - Disk monitoring, cleanup procedures, and storage expansion
 - [CURRENT, 2025-12-08, Runbook] [model-registry-dr.md](./RUNBOOKS/model-registry-dr.md) - Model registry disaster recovery and backup procedures
+- [CURRENT, 2025-12-21, Runbook] [circuit-breaker-ops.md](./RUNBOOKS/circuit-breaker-ops.md) - Circuit breaker operations, trip/reset procedures, and troubleshooting
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 

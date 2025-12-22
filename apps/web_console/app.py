@@ -44,6 +44,13 @@ from apps.web_console.utils.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
 
+# Admin Dashboard required permissions (defined once, used in nav and routing)
+_ADMIN_PERMISSIONS = [
+    Permission.MANAGE_API_KEYS,
+    Permission.MANAGE_SYSTEM_CONFIG,
+    Permission.VIEW_AUDIT,
+]
+
 # Note: Database pool moved to apps/web_console/utils/db_pool.py
 # Import get_db_pool from there (see imports above)
 
@@ -814,7 +821,8 @@ def main() -> None:
         st.divider()
 
         # Navigation
-        pages = ["Dashboard", "Manual Order Entry", "Kill Switch", "Audit Log"]
+        # FIX: Removed Audit Log from default - requires VIEW_AUDIT permission (C6.1 RBAC fix)
+        pages = ["Dashboard", "Manual Order Entry", "Kill Switch"]
         if config.FEATURE_MANUAL_CONTROLS and has_permission(user_info, Permission.VIEW_TRADES):
             pages.insert(2, "Manual Trade Controls")
         if config.FEATURE_CIRCUIT_BREAKER and has_permission(
@@ -829,6 +837,21 @@ def main() -> None:
             pages.append("User Management")
         if config.FEATURE_ALERTS and has_permission(user_info, Permission.VIEW_ALERTS):
             pages.append("Alerts")
+
+        # C6.1: System Health requires feature flag AND VIEW_CIRCUIT_BREAKER permission
+        if config.FEATURE_HEALTH_MONITOR and has_permission(
+            user_info, Permission.VIEW_CIRCUIT_BREAKER
+        ):
+            pages.append("System Health")
+
+        # C6.1: Audit Log requires VIEW_AUDIT permission (FIX for RBAC violation)
+        if has_permission(user_info, Permission.VIEW_AUDIT):
+            pages.append("Audit Log")
+
+        # C6.1: Admin Dashboard uses permission-based access (like User Management)
+        # Note: admin_permissions defined once, reused below in routing
+        if any(has_permission(user_info, p) for p in _ADMIN_PERMISSIONS):
+            pages.append("Admin Dashboard")
 
         page = st.radio(
             "Select Page",
@@ -875,7 +898,33 @@ def main() -> None:
             db_pool=get_db_pool(),
         )
     elif page == "Audit Log":
+        # C6.1: RBAC guard (defense in depth - permission already checked in nav)
+        if not has_permission(user_info, Permission.VIEW_AUDIT):
+            st.error("Access denied: VIEW_AUDIT permission required")
+            st.stop()
         render_audit_log()
+    elif page == "System Health":
+        from apps.web_console.pages.health import render_health_monitor
+
+        render_health_monitor(user=user_info, db_pool=get_db_pool())
+    elif page == "Admin Dashboard":
+        # C6.1: RBAC guard (defense in depth - permission already checked in nav)
+        if not any(has_permission(user_info, p) for p in _ADMIN_PERMISSIONS):
+            st.error(
+                "Access denied: requires MANAGE_API_KEYS, MANAGE_SYSTEM_CONFIG, or VIEW_AUDIT permission"
+            )
+            st.stop()
+
+        from apps.web_console.pages.admin import render_admin_page
+        from libs.web_console_auth.gateway_auth import AuthenticatedUser
+
+        # redis_client is now created inside async functions (see async_redis_client in redis_utils)
+        render_admin_page(
+            user=cast(AuthenticatedUser, user_info),
+            db_pool=get_db_pool(),
+            redis_client=None,  # Created inside async context to avoid event loop binding issues
+            audit_logger=AuditLogger(get_db_pool()),
+        )
     elif page == "Strategy Comparison":
         from apps.web_console.pages.compare import main as compare_main
 
