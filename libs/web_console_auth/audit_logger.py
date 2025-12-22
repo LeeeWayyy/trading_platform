@@ -80,8 +80,8 @@ class AuditLogger:
     ) -> None:
         details = details or {}
 
-        # Track admin actions for SLA metrics (both 'action' and 'admin' event types)
-        if event_type in ("action", "admin"):
+        # Track admin actions for SLA metrics (only 'admin' event type)
+        if event_type == "admin":
             admin_action_total.labels(action=action).inc()
 
         if not self.db_pool:

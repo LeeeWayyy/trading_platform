@@ -215,19 +215,19 @@ async def test_cache_invalidation_on_save(
     redis_mock = AsyncMock()
     monkeypatch.setattr(config_editor, "acquire_connection", lambda _: _FakeAsyncCM(fake_conn))
 
-    # Patch _async_redis to return our mock client
+    # Patch async_redis_client to return our mock client
     @asynccontextmanager
     async def mock_async_redis():
         yield redis_mock
 
-    with patch.object(config_editor, "_async_redis", mock_async_redis):
+    with patch("apps.web_console.components.config_editor.async_redis_client", mock_async_redis):
         await config_editor.save_config(
             config_key=config_editor.CONFIG_KEY_POSITION_LIMITS,
             config_value=PositionLimitsConfig(),
             user=admin_user,
             db_pool=fake_pool,
             audit_logger=fake_audit,
-            redis_client=None,  # Ignored, we use _async_redis now
+            redis_client=None,  # Ignored, we use async_redis_client now
         )
 
     redis_mock.delete.assert_awaited_with("system_config:position_limits")

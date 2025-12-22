@@ -44,6 +44,13 @@ from apps.web_console.utils.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
 
+# Admin Dashboard required permissions (defined once, used in nav and routing)
+_ADMIN_PERMISSIONS = [
+    Permission.MANAGE_API_KEYS,
+    Permission.MANAGE_SYSTEM_CONFIG,
+    Permission.VIEW_AUDIT,
+]
+
 # Note: Database pool moved to apps/web_console/utils/db_pool.py
 # Import get_db_pool from there (see imports above)
 
@@ -842,12 +849,8 @@ def main() -> None:
             pages.append("Audit Log")
 
         # C6.1: Admin Dashboard uses permission-based access (like User Management)
-        admin_permissions = [
-            Permission.MANAGE_API_KEYS,
-            Permission.MANAGE_SYSTEM_CONFIG,
-            Permission.VIEW_AUDIT,
-        ]
-        if any(has_permission(user_info, p) for p in admin_permissions):
+        # Note: admin_permissions defined once, reused below in routing
+        if any(has_permission(user_info, p) for p in _ADMIN_PERMISSIONS):
             pages.append("Admin Dashboard")
 
         page = st.radio(
@@ -906,12 +909,7 @@ def main() -> None:
         render_health_monitor(user=user_info, db_pool=get_db_pool())
     elif page == "Admin Dashboard":
         # C6.1: RBAC guard (defense in depth - permission already checked in nav)
-        admin_permissions = [
-            Permission.MANAGE_API_KEYS,
-            Permission.MANAGE_SYSTEM_CONFIG,
-            Permission.VIEW_AUDIT,
-        ]
-        if not any(has_permission(user_info, p) for p in admin_permissions):
+        if not any(has_permission(user_info, p) for p in _ADMIN_PERMISSIONS):
             st.error(
                 "Access denied: requires MANAGE_API_KEYS, MANAGE_SYSTEM_CONFIG, or VIEW_AUDIT permission"
             )
@@ -920,7 +918,7 @@ def main() -> None:
         from apps.web_console.pages.admin import render_admin_page
         from libs.web_console_auth.gateway_auth import AuthenticatedUser
 
-        # redis_client is now created inside async functions (see _async_redis() in components)
+        # redis_client is now created inside async functions (see async_redis_client in redis_utils)
         render_admin_page(
             user=cast(AuthenticatedUser, user_info),
             db_pool=get_db_pool(),

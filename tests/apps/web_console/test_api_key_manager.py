@@ -248,12 +248,12 @@ def test_revoke_flow(monkeypatch: pytest.MonkeyPatch, admin_user: AuthenticatedU
     redis_mock = AsyncMock()
     audit = _FakeAuditLogger()
 
-    # Patch _async_redis to return our mock client
+    # Patch async_redis_client to return our mock client
     @asynccontextmanager
     async def mock_async_redis():
         yield redis_mock
 
-    with patch.object(api_key_manager, "_async_redis", mock_async_redis):
+    with patch("apps.web_console.components.api_key_manager.async_redis_client", mock_async_redis):
         api_key_manager.render_api_key_manager(admin_user, fake_db, audit, None)
 
     update_queries = [q for q, _ in fake_db.executed if "UPDATE api_keys SET revoked_at" in q]
