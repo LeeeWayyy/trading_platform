@@ -1,8 +1,8 @@
 # Web Console User Guide
 
 **Version:** 0.1.0
-**Last Updated:** 2024-11-17
-**Status:** MVP (Development Mode)
+**Last Updated:** 2025-12-23
+**Status:** Development (Dev + OAuth2 + mTLS supported)
 
 ---
 
@@ -48,8 +48,14 @@ The Trading Platform Web Console is a Streamlit-based UI for operational oversig
 **Option 1: Docker (Recommended)**
 
 ```bash
-# Start web console with infrastructure
-docker-compose up web_console
+# Create .env (required for dev auth)
+cp .env.example .env
+# Set at minimum:
+# WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
+# Optional for OAuth2: AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_AUDIENCE, SESSION_ENCRYPTION_KEY
+
+# Start web console with infrastructure (dev profile)
+docker compose --profile dev up -d web_console_dev
 
 # Access console at http://localhost:8501
 ```
@@ -58,6 +64,7 @@ docker-compose up web_console
 
 ```bash
 # Install dependencies
+source .venv/bin/activate
 pip install -r apps/web_console/requirements.txt
 
 # Set environment variables
@@ -67,7 +74,7 @@ export WEB_CONSOLE_USER=admin
 export WEB_CONSOLE_PASSWORD=admin
 
 # Run Streamlit app
-streamlit run apps/web_console/app.py --server.port 8501
+python3 -m streamlit run apps/web_console/app.py --server.port 8501
 ```
 
 ### First Login
@@ -97,7 +104,7 @@ streamlit run apps/web_console/app.py --server.port 8501
 | `basic` | Form-based (same as dev mode) | Testing only - NOT HTTP Basic Auth protocol |
 | `oauth2` | OAuth2/OIDC (planned) | Production (not yet implemented) |
 
-**Current MVP:** Uses `dev` mode with credentials from `config.py`
+**Current Behavior:** Uses env-configured auth (defaults to `dev` if not set)
 
 **Note:** `basic` mode currently uses the same form-based authentication as `dev` mode.
 It does NOT implement the HTTP Basic Authentication protocol (Authorization header).
@@ -335,7 +342,7 @@ SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 100;
 
 ```bash
 # View audit logs (if using Docker)
-docker logs trading_platform_web_console | grep AUDIT
+docker logs trading_platform_web_console_dev | grep AUDIT
 
 # View audit logs (if running locally)
 # Check console output where Streamlit is running
@@ -407,12 +414,12 @@ docker logs trading_platform_web_console | grep AUDIT
 
 ### Issue: Docker Container Won't Start
 
-**Symptoms:** `docker-compose up web_console` fails
+**Symptoms:** `docker compose --profile dev up -d web_console_dev` fails
 
 **Solutions:**
 1. Check Docker logs:
    ```bash
-   docker logs trading_platform_web_console
+   docker logs trading_platform_web_console_dev
    ```
 2. Verify PostgreSQL is healthy:
    ```bash
@@ -424,8 +431,8 @@ docker logs trading_platform_web_console | grep AUDIT
    ```
 4. Rebuild container:
    ```bash
-   docker-compose build web_console
-   docker-compose up web_console
+   docker compose --profile dev build web_console_dev
+   docker compose --profile dev up -d web_console_dev
    ```
 
 ---
@@ -440,7 +447,7 @@ docker logs trading_platform_web_console | grep AUDIT
 **Logs:**
 ```bash
 # Web console logs
-docker logs -f trading_platform_web_console
+docker logs -f trading_platform_web_console_dev
 
 # Execution gateway logs
 docker logs -f trading_platform_execution_gateway
@@ -464,7 +471,7 @@ docker logs -f trading_platform_postgres
 | `WEB_CONSOLE_AUTH_TYPE` | dev | Authentication mode (dev, basic, oauth2) |
 | `WEB_CONSOLE_USER` | admin | Username (dev mode only) |
 | `WEB_CONSOLE_PASSWORD` | admin | Password (dev mode only) |
-| `DATABASE_URL` | postgresql://postgres:postgres@localhost:5432/trading_platform | PostgreSQL connection string |
+| `DATABASE_URL` | postgresql://trader:trader@localhost:5433/trader | PostgreSQL connection string |
 | `SESSION_TIMEOUT_MINUTES` | 15 | Idle session timeout |
 | `SESSION_ABSOLUTE_TIMEOUT_HOURS` | 4 | Absolute session timeout |
 

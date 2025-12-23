@@ -1,5 +1,5 @@
 # Multi-stage Docker build for Signal Service
-# Stage 1: Builder - install dependencies
+# Stage 1: Builder - install dependencies (including qlib from source for ARM64)
 # Stage 2: Runtime - copy only needed artifacts for smaller image
 
 # =============================================================================
@@ -7,19 +7,21 @@
 # =============================================================================
 FROM python:3.11-slim as builder
 
-# Install build dependencies
+# Install build dependencies (including those needed for qlib)
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     make \
     libpq-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /build
 
 # Copy requirements first for better layer caching
-COPY requirements.txt .
+# Use service-specific requirements (excludes pyqlib - we build from source)
+COPY apps/signal_service/requirements-docker.txt requirements.txt
 
 # Install Python dependencies into a virtual environment
 # This allows us to copy only the venv to the runtime stage
@@ -27,6 +29,13 @@ RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
     pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
+
+# Copy qlib source and build from source for ARM64 compatibility
+COPY qlib /build/qlib
+RUN . /opt/venv/bin/activate && \
+    cd /build/qlib && \
+    pip install --no-cache-dir cython numpy && \
+    pip install --no-cache-dir .
 
 # =============================================================================
 # Stage 2: Runtime
@@ -62,6 +71,9 @@ COPY --chown=trader:trader libs/ ./libs/
 
 # Copy strategies (changes occasionally)
 COPY --chown=trader:trader strategies/ ./strategies/
+
+# Copy model artifacts
+COPY --chown=trader:trader artifacts/ ./artifacts/
 
 # Copy apps (changes frequently)
 COPY --chown=trader:trader apps/__init__.py ./apps/

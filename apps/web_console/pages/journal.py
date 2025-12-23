@@ -11,7 +11,8 @@ import streamlit as st
 
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
-from apps.web_console.auth.session_manager import get_current_user, require_auth
+from apps.web_console.auth import get_current_user
+from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.trade_stats import render_trade_stats
 from apps.web_console.components.trade_table import render_trade_table
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
@@ -31,7 +32,7 @@ MAX_PAGE_SIZE = 100
 MAX_RANGE_DAYS = 365
 
 
-@require_auth
+@requires_auth
 def main() -> None:
     st.set_page_config(page_title="Trade Journal", page_icon="📔", layout="wide")
     st.title("Trade Journal")

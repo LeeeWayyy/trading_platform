@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Any
 
 import psycopg
@@ -75,17 +76,29 @@ async def list_users(db_pool: Any) -> list[UserInfo]:
         """
         )
         rows = await cursor.fetchall()
-        return [
-            UserInfo(
-                user_id=r[0],
-                role=r[1],
-                session_version=r[2],
-                updated_at=str(r[3]),
-                updated_by=r[4],
-                strategy_count=r[5],
-            )
-            for r in rows
-        ]
+        return [_row_to_user_info(row) for row in rows]
+
+
+def _row_to_user_info(row: Any) -> UserInfo:
+    """Convert tuple/dict row to UserInfo (supports dict_row connections)."""
+    if isinstance(row, Mapping):
+        return UserInfo(
+            user_id=str(row.get("user_id", "")),
+            role=str(row.get("role", "")),
+            session_version=int(row.get("session_version", 0)),
+            updated_at=str(row.get("updated_at", "")),
+            updated_by=row.get("updated_by"),
+            strategy_count=int(row.get("strategy_count", 0)),
+        )
+
+    return UserInfo(
+        user_id=str(row[0]),
+        role=str(row[1]),
+        session_version=int(row[2]),
+        updated_at=str(row[3]),
+        updated_by=row[4],
+        strategy_count=int(row[5]),
+    )
 
 
 async def change_user_role(

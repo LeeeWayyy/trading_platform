@@ -45,8 +45,8 @@ Required secrets for staging environment:
 
 | Secret Name | Value | Description |
 |-------------|-------|-------------|
-| `ALPACA_PAPER_API_KEY` | Your Alpaca paper API key | Paper trading API key |
-| `ALPACA_PAPER_API_SECRET` | Your Alpaca paper API secret | Paper trading API secret |
+| `ALPACA_PAPER_API_KEY` | Your Alpaca paper API key | Paper trading API key (mapped to `ALPACA_API_KEY_ID` in containers) |
+| `ALPACA_PAPER_API_SECRET` | Your Alpaca paper API secret | Paper trading API secret (mapped to `ALPACA_API_SECRET_KEY`) |
 | `STAGING_DB_PASSWORD` | Strong password | PostgreSQL password for staging |
 | `GRAFANA_PASSWORD` | Strong password | Grafana admin password (optional) |
 
@@ -94,7 +94,7 @@ curl http://staging.example.com:8002/health
 curl http://staging.example.com:8003/health
 
 # 4. Check logs for any authentication errors
-docker-compose -f docker-compose.staging.yml logs execution_gateway | grep -i "auth\|key"
+docker compose -f docker-compose.staging.yml logs execution_gateway | grep -i "auth\|key"
 ```
 
 ---
@@ -131,10 +131,10 @@ Workflow: `.github/workflows/deploy-staging.yml`
 https://github.com/YOUR_ORG/trading_platform/actions/workflows/deploy-staging.yml
 
 # Check running services
-docker-compose -f docker-compose.staging.yml ps
+docker compose -f docker-compose.staging.yml ps
 
 # View logs
-docker-compose -f docker-compose.staging.yml logs -f
+docker compose -f docker-compose.staging.yml logs -f
 ```
 
 ### Manual Deployment
@@ -185,7 +185,7 @@ curl http://localhost:8003/api/v1/orchestration/status
 
 ```bash
 # 1. Check all containers are running
-docker-compose -f docker-compose.staging.yml ps
+docker compose -f docker-compose.staging.yml ps
 
 # 2. Verify health checks
 for port in 8001 8002 8003; do
@@ -193,10 +193,10 @@ for port in 8001 8002 8003; do
 done
 
 # 3. Check logs for errors
-docker-compose -f docker-compose.staging.yml logs --tail=50 | grep -i "error\|critical"
+docker compose -f docker-compose.staging.yml logs --tail=50 | grep -i "error\|critical"
 
 # 4. Verify paper trading mode
-docker-compose -f docker-compose.staging.yml exec execution_gateway env | grep -E "DRY_RUN|ALPACA_PAPER"
+docker compose -f docker-compose.staging.yml exec execution_gateway env | grep -E "DRY_RUN|ALPACA_PAPER"
 
 # Expected output:
 # DRY_RUN=true
@@ -217,12 +217,12 @@ docker-compose -f docker-compose.staging.yml exec execution_gateway env | grep -
 
 ```bash
 # Check container status
-docker-compose -f docker-compose.staging.yml ps
+docker compose -f docker-compose.staging.yml ps
 
 # View logs for failing service
-docker-compose -f docker-compose.staging.yml logs signal_service
-docker-compose -f docker-compose.staging.yml logs execution_gateway
-docker-compose -f docker-compose.staging.yml logs orchestrator
+docker compose -f docker-compose.staging.yml logs signal_service
+docker compose -f docker-compose.staging.yml logs execution_gateway
+docker compose -f docker-compose.staging.yml logs orchestrator
 
 # Check resource usage
 docker stats
@@ -234,20 +234,20 @@ docker inspect staging_signal_service
 **Common causes:**
 1. **Database connection failure:** Check `DB_PASSWORD` secret
 2. **Redis connection failure:** Ensure redis container is healthy
-3. **Missing API credentials:** Verify `ALPACA_PAPER_API_KEY` and `ALPACA_PAPER_API_SECRET`
+3. **Missing API credentials:** Verify GitHub secrets `ALPACA_PAPER_API_KEY`/`ALPACA_PAPER_API_SECRET` (mapped to container env `ALPACA_API_KEY_ID`/`ALPACA_API_SECRET_KEY`)
 4. **Port conflicts:** Check if ports 8001/8002/8003 are available
 
 **Solutions:**
 
 ```bash
 # Restart all services
-docker-compose -f docker-compose.staging.yml restart
+docker compose -f docker-compose.staging.yml restart
 
 # Rebuild and restart specific service
-docker-compose -f docker-compose.staging.yml up -d --force-recreate execution_gateway
+docker compose -f docker-compose.staging.yml up -d --force-recreate execution_gateway
 
 # Check environment variables
-docker-compose -f docker-compose.staging.yml config | grep -A 5 "execution_gateway:"
+docker compose -f docker-compose.staging.yml config | grep -A 5 "execution_gateway:"
 ```
 
 ### Issue: Credential validation fails
@@ -262,8 +262,8 @@ docker-compose -f docker-compose.staging.yml config | grep -A 5 "execution_gatew
    - Repository → Settings → Environments → staging → Secrets
 
 2. Check secret names match exactly:
-   - `ALPACA_PAPER_API_KEY` (not ALPACA_API_KEY)
-   - `ALPACA_PAPER_API_SECRET` (not ALPACA_API_SECRET)
+   - GitHub secrets: `ALPACA_PAPER_API_KEY`, `ALPACA_PAPER_API_SECRET`
+   - Container env: `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`
 
 3. Ensure workflow uses correct environment:
    ```yaml
@@ -315,7 +315,7 @@ https://github.com/YOUR_ORG/trading_platform/actions/workflows/deploy-staging.ym
 
 ```bash
 # Check deployment info
-docker-compose -f docker-compose.staging.yml logs | grep "Commit SHA"
+docker compose -f docker-compose.staging.yml logs | grep "Commit SHA"
 
 # Run smoke tests
 curl -f http://localhost:8001/health
@@ -329,13 +329,13 @@ curl -f http://localhost:8003/health
 
 ```bash
 # Stop all services immediately
-docker-compose -f docker-compose.staging.yml down
+docker compose -f docker-compose.staging.yml down
 
 # Optional: preserve data volumes
-docker-compose -f docker-compose.staging.yml down  # volumes preserved by default
+docker compose -f docker-compose.staging.yml down  # volumes preserved by default
 
 # Optional: completely wipe environment
-docker-compose -f docker-compose.staging.yml down -v  # WARNING: deletes all data
+docker compose -f docker-compose.staging.yml down -v  # WARNING: deletes all data
 ```
 
 **Restart with previous images:**
@@ -351,7 +351,7 @@ docker tag ghcr.io/YOUR_ORG/trading-platform-signal_service:PREVIOUS_SHA \
   ghcr.io/YOUR_ORG/trading-platform-signal_service:latest
 
 # Restart services
-docker-compose -f docker-compose.staging.yml up -d
+docker compose -f docker-compose.staging.yml up -d
 ```
 
 ---

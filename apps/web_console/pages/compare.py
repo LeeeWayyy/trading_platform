@@ -8,7 +8,8 @@ import pandas as pd
 import streamlit as st
 
 from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
-from apps.web_console.auth.session_manager import get_current_user, require_auth
+from apps.web_console.auth import get_current_user
+from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.comparison_charts import (
     render_equity_comparison,
     render_metrics_table,
@@ -31,7 +32,7 @@ def _default_date_range() -> tuple[date, date]:
     return today - timedelta(days=DEFAULT_LOOKBACK_DAYS), today
 
 
-@require_auth
+@requires_auth
 def main() -> None:
     # Note: set_page_config is called in main app.py; calling it here would raise
     # StreamlitAPIException in multi-page apps

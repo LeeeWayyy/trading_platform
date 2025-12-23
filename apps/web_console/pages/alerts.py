@@ -189,3 +189,21 @@ def render_alerts_page(user: dict[str, Any], db_pool: Any) -> None:
 
 
 __all__ = ["render_alerts_page"]
+
+
+def main() -> None:
+    """Entry point for direct page access."""
+    import streamlit as st
+
+    from apps.web_console.utils.db_pool import get_db_pool
+
+    user = {
+        "user_id": st.session_state.get("user_id", "unknown"),
+        "role": st.session_state.get("role"),
+        "strategies": st.session_state.get("strategies", []),
+    }
+    render_alerts_page(user=user, db_pool=get_db_pool())
+
+
+if __name__ == "__main__":
+    main()

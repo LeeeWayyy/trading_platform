@@ -1,4 +1,4 @@
-.PHONY: help up down logs fmt fmt-check lint validate-docs test test-cov test-watch clean install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs test test-cov test-watch clean install requirements install-hooks ci-local pre-push
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -20,8 +20,25 @@ up: ## Start infrastructure (Postgres, Redis, Prometheus, Grafana)
 	@sleep 5
 	@docker compose ps
 
+up-dev: ## Start all dev services (infrastructure + APIs + web console)
+	docker compose --profile dev up -d
+	@echo "Waiting for services to be healthy..."
+	@sleep 10
+	@docker compose --profile dev ps
+	@echo ""
+	@echo "Services available:"
+	@echo "  - Web Console:       http://localhost:8501"
+	@echo "  - Execution Gateway: http://localhost:8002"
+	@echo "  - Signal Service:    http://localhost:8001"
+	@echo "  - Orchestrator:      http://localhost:8003"
+	@echo "  - Grafana:           http://localhost:3000"
+	@echo "  - Prometheus:        http://localhost:9090"
+
 down: ## Stop infrastructure
 	docker compose down
+
+down-dev: ## Stop all dev services
+	docker compose --profile dev down
 
 down-v: ## Stop infrastructure and remove volumes
 	docker compose down -v

@@ -19,7 +19,11 @@ import requests
 from apps.web_console.auth.permissions import get_authorized_strategies
 from apps.web_console.auth.session_manager import get_current_user
 from apps.web_console.config import (
+    AUTH_TYPE,
     API_REQUEST_TIMEOUT,
+    DEV_ROLE,
+    DEV_STRATEGIES,
+    DEV_USER_ID,
     ENDPOINTS,
     MANUAL_CONTROLS_API_BASE,
 )
@@ -57,6 +61,14 @@ def get_auth_headers(user: Mapping[str, Any]) -> dict[str, str]:
     role = user.get("role")
     user_id = user.get("user_id")
     strategies = get_authorized_strategies(user)
+
+    if AUTH_TYPE in {"dev", "basic"}:
+        if not role:
+            role = DEV_ROLE
+        if not user_id:
+            user_id = DEV_USER_ID
+        if not strategies:
+            strategies = DEV_STRATEGIES
 
     if role:
         headers["X-User-Role"] = str(role)

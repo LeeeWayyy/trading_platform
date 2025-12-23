@@ -38,11 +38,19 @@ def get_session_cookie() -> str | None:
         Session ID from cookie, or None if not found
     """
     try:
-        # Access cookies from Streamlit's request context
-        # This requires Streamlit >=1.28.0 with cookie support
-        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        # Preferred (Streamlit >=1.35): st.context.headers
+        headers = {}
+        try:
+            headers = dict(st.context.headers)  # type: ignore[attr-defined]
+        except Exception:
+            headers = {}
 
-        headers = _get_websocket_headers()
+        if not headers:
+            # Fallback for older Streamlit versions
+            from streamlit.web.server.websocket_headers import _get_websocket_headers
+
+            headers = _get_websocket_headers() or {}
+
         cookie_header = headers.get("Cookie", "") if headers else ""
 
         # Parse cookie header (format: "key1=value1; key2=value2")

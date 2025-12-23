@@ -98,14 +98,14 @@ stat -f "%A %N" apps/web_console/certs/server.key
 #### 5. Reload nginx (Zero-Downtime)
 ```bash
 # Test nginx configuration first
-docker exec nginx nginx -t
+docker exec trading_platform_nginx_mtls nginx -t
 
 # Expected output:
 # nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 # nginx: configuration file /etc/nginx/nginx.conf test is successful
 
 # Reload nginx (zero-downtime)
-docker exec nginx nginx -s reload
+docker exec trading_platform_nginx_mtls nginx -s reload
 
 # Expected output: (none if successful)
 ```
@@ -127,10 +127,10 @@ openssl s_client -connect localhost:443 -CAfile apps/web_console/certs/ca.crt \
 #### 7. Monitor for Issues
 ```bash
 # Check nginx logs for SSL errors
-docker logs nginx --tail 100 | grep -i ssl
+docker logs trading_platform_nginx_mtls --tail 100 | grep -i ssl
 
 # Check for failed handshakes
-docker logs nginx --tail 100 | grep -i "handshake"
+docker logs trading_platform_nginx_mtls --tail 100 | grep -i "handshake"
 
 # Verify client connections successful
 # (Users should be able to authenticate without errors)
@@ -146,7 +146,7 @@ cp apps/web_console/certs/backups/server.key.YYYYMMDD \
    apps/web_console/certs/server.key
 
 # Reload nginx
-docker exec nginx nginx -s reload
+docker exec trading_platform_nginx_mtls nginx -s reload
 
 # Verify rollback successful
 openssl s_client -connect localhost:443 -CAfile apps/web_console/certs/ca.crt \
@@ -391,10 +391,10 @@ done
 # Just reload nginx to pick up new CA
 
 # Test nginx configuration
-docker exec nginx nginx -t
+docker exec trading_platform_nginx_mtls nginx -t
 
 # Reload nginx
-docker exec nginx nginx -s reload
+docker exec trading_platform_nginx_mtls nginx -s reload
 ```
 
 #### 7. Distribute New Client Certificates to Users
@@ -409,7 +409,7 @@ docker exec nginx nginx -s reload
 # Monitor audit logs for successful logins
 
 # Check audit log
-docker exec -it postgres psql -U postgres -d trading_platform -c \
+docker exec -it trading_platform_postgres psql -U trader -d trader -c \
   "SELECT timestamp, user_id, action FROM audit_log WHERE action='login_success' ORDER BY timestamp DESC LIMIT 10;"
 ```
 
@@ -453,7 +453,7 @@ rm apps/web_console/certs/client-alice.key
 #### 3. Reload nginx
 ```bash
 # Reload nginx to apply changes
-docker exec nginx nginx -s reload
+docker exec trading_platform_nginx_mtls nginx -s reload
 ```
 
 #### 4. Verify Revocation
@@ -470,7 +470,7 @@ openssl s_client -connect localhost:443 \
 #### 5. Audit Log Verification
 ```bash
 # Verify no successful logins from revoked user
-docker exec -it postgres psql -U postgres -d trading_platform -c \
+docker exec -it trading_platform_postgres psql -U trader -d trader -c \
   "SELECT timestamp, user_id, action FROM audit_log WHERE user_id='alice' ORDER BY timestamp DESC LIMIT 10;"
 
 # Should show failed login attempts after revocation
@@ -522,7 +522,7 @@ openssl verify -CAfile apps/web_console/certs/ca.crt \
 **Resolution:**
 - Ensure server certificate was signed by current CA
 - Regenerate server certificate: `./scripts/generate_certs.py --server-only`
-- Reload nginx: `docker exec nginx nginx -s reload`
+- Reload nginx: `docker exec trading_platform_nginx_mtls nginx -s reload`
 
 ### Client Cannot Authenticate After Rotation
 
@@ -539,15 +539,15 @@ openssl verify -CAfile apps/web_console/certs/ca.crt \
 
 ### nginx Reload Fails
 
-**Symptom:** `docker exec nginx nginx -s reload` returns error
+**Symptom:** `docker exec trading_platform_nginx_mtls nginx -s reload` returns error
 
 **Diagnosis:**
 ```bash
 # Check nginx configuration
-docker exec nginx nginx -t
+docker exec trading_platform_nginx_mtls nginx -t
 
 # Check nginx logs
-docker logs nginx --tail 50
+docker logs trading_platform_nginx_mtls --tail 50
 ```
 
 **Resolution:**

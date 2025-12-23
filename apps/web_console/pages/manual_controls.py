@@ -588,3 +588,23 @@ __all__ = [
     "adjust_position",
     "flatten_all_positions",
 ]
+
+
+def main() -> None:
+    """Entry point for direct page access."""
+    import streamlit as st
+
+    from apps.web_console.auth.audit_log import AuditLogger
+    from apps.web_console.utils.db_pool import get_db_pool
+
+    user = {
+        "user_id": st.session_state.get("user_id", "unknown"),
+        "role": st.session_state.get("role"),
+        "strategies": st.session_state.get("strategies", []),
+    }
+    db_pool = get_db_pool()
+    render_manual_controls(user=user, db_pool=db_pool, audit_logger=AuditLogger(db_pool))
+
+
+if __name__ == "__main__":
+    main()

@@ -67,6 +67,18 @@ AUTH_TYPE: Literal["basic", "oauth2", "dev", "mtls"] = os.getenv(  # type: ignor
 # Basic auth credentials (dev mode only)
 DEV_USER = os.getenv("WEB_CONSOLE_USER", "admin")
 DEV_PASSWORD = os.getenv("WEB_CONSOLE_PASSWORD", "admin")
+DEV_ROLE = os.getenv("WEB_CONSOLE_DEV_ROLE", "admin")
+DEV_USER_ID = os.getenv("WEB_CONSOLE_DEV_USER_ID", "") or DEV_USER
+DEV_SESSION_VERSION = int(os.getenv("WEB_CONSOLE_DEV_SESSION_VERSION", "1"))
+DEV_STRATEGIES = [
+    s.strip()
+    for s in os.getenv("WEB_CONSOLE_DEV_STRATEGIES", "").split(",")
+    if s.strip()
+]
+if not DEV_STRATEGIES:
+    default_strategy = os.getenv("STRATEGY_ID", "").strip()
+    if default_strategy:
+        DEV_STRATEGIES = [default_strategy]
 
 # Session configuration
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "15"))

@@ -367,6 +367,7 @@ def _dev_auth() -> bool:
     Development mode authentication (simple username/password).
 
     For local development only. Uses credentials from config.
+    Uses cookie-based session persistence to survive page refreshes.
 
     Returns:
         bool: True if authenticated
@@ -378,6 +379,17 @@ def _dev_auth() -> bool:
         else:
             # Session expired
             st.session_state.clear()
+            _clear_dev_session_cookie()
+            st.rerun()
+
+    # Try to restore session from cookie (survives page refresh)
+    if _restore_dev_session_from_cookie():
+        if _check_session_timeout():
+            return True
+        else:
+            # Restored session expired
+            st.session_state.clear()
+            _clear_dev_session_cookie()
             st.rerun()
 
     # Initialize rate limiting state
@@ -421,6 +433,8 @@ def _dev_auth() -> bool:
                 st.session_state["failed_login_attempts"] = 0
                 st.session_state["lockout_until"] = None
                 _init_session(username, "dev")
+                # Save session to cookie for persistence across page refresh
+                _save_dev_session_to_cookie()
                 st.toast("Logged in successfully!")
                 st.rerun()
             else:
@@ -859,6 +873,13 @@ def _init_session(username: str, auth_method: str) -> None:
     st.session_state["login_time"] = now
     st.session_state["last_activity"] = now
     st.session_state["session_id"] = _generate_session_id(username, now)
+    # Dev/basic auth needs explicit RBAC context for API headers.
+    from apps.web_console.config import DEV_ROLE, DEV_SESSION_VERSION, DEV_STRATEGIES, DEV_USER_ID
+
+    st.session_state.setdefault("user_id", DEV_USER_ID or username)
+    st.session_state.setdefault("role", DEV_ROLE)
+    st.session_state.setdefault("strategies", DEV_STRATEGIES)
+    st.session_state.setdefault("session_version", DEV_SESSION_VERSION)
 
     # Audit successful login
     _audit_successful_login(username, auth_method)
@@ -948,6 +969,193 @@ def _generate_session_id(username: str, login_time: datetime) -> str:
     """
     data = f"{username}:{login_time.isoformat()}:{time.time()}"
     return hashlib.sha256(data.encode()).hexdigest()[:16]
+
+
+# ============================================================================
+# Dev Mode Cookie-Based Session Persistence
+# ============================================================================
+# These functions enable session persistence across page refreshes in dev mode
+# by storing session data in Redis and using a session cookie to identify sessions.
+
+_DEV_SESSION_PREFIX = "web_console:dev_session:"
+_DEV_SESSION_COOKIE_NAME = "dev_session_id"
+_DEV_SESSION_TTL_SECONDS = 4 * 60 * 60  # 4 hours (matches SESSION_ABSOLUTE_TIMEOUT_HOURS)
+
+
+def _get_dev_session_redis() -> redis.Redis | None:
+    """Get Redis client for dev session storage."""
+    try:
+        redis_host = os.environ.get("REDIS_HOST", "localhost")
+        redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+        client = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            db=1,  # Same DB as OAuth2 sessions
+            decode_responses=True,
+            socket_timeout=2,
+        )
+        client.ping()
+        return client
+    except Exception as e:
+        logger.warning(f"Failed to connect to Redis for dev session: {e}")
+        return None
+
+
+def _save_dev_session_to_cookie() -> None:
+    """Save current session to Redis and set a session cookie via JavaScript."""
+    session_id = st.session_state.get("session_id")
+    if not session_id:
+        return
+
+    # Store session data in Redis
+    redis_client = _get_dev_session_redis()
+    if redis_client:
+        try:
+            session_data = json.dumps({
+                "username": st.session_state.get("username"),
+                "auth_method": st.session_state.get("auth_method"),
+                "login_time": st.session_state.get("login_time").isoformat()
+                if st.session_state.get("login_time") else None,
+                "last_activity": st.session_state.get("last_activity").isoformat()
+                if st.session_state.get("last_activity") else None,
+                "user_id": st.session_state.get("user_id"),
+                "role": st.session_state.get("role"),
+                "strategies": st.session_state.get("strategies", []),
+                "session_version": st.session_state.get("session_version"),
+            })
+            redis_client.setex(
+                f"{_DEV_SESSION_PREFIX}{session_id}",
+                _DEV_SESSION_TTL_SECONDS,
+                session_data,
+            )
+            logger.debug(f"Saved dev session to Redis: {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to save dev session to Redis: {e}")
+            return
+
+    # Set cookie via JavaScript (Streamlit doesn't have native cookie support)
+    # Use a hidden component to inject JavaScript
+    cookie_js = f"""
+    <script>
+    document.cookie = "{_DEV_SESSION_COOKIE_NAME}={session_id}; path=/; max-age={_DEV_SESSION_TTL_SECONDS}; SameSite=Lax";
+    </script>
+    """
+    st.components.v1.html(cookie_js, height=0)
+
+
+def _get_dev_session_cookie() -> str | None:
+    """Get dev session cookie value from request headers."""
+    try:
+        headers = _get_request_headers()
+        cookie_header = headers.get("Cookie", "")
+        if not cookie_header:
+            return None
+
+        # Parse cookies
+        for cookie in cookie_header.split(";"):
+            cookie = cookie.strip()
+            if cookie.startswith(f"{_DEV_SESSION_COOKIE_NAME}="):
+                return cookie[len(f"{_DEV_SESSION_COOKIE_NAME}="):]
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to get dev session cookie: {e}")
+        return None
+
+
+def _restore_dev_session_from_cookie() -> bool:
+    """Restore session from Redis using cookie session ID."""
+    session_id = _get_dev_session_cookie()
+    if not session_id:
+        return False
+
+    redis_client = _get_dev_session_redis()
+    if not redis_client:
+        return False
+
+    try:
+        session_data_raw = redis_client.get(f"{_DEV_SESSION_PREFIX}{session_id}")
+        if not session_data_raw:
+            logger.debug(f"Dev session not found in Redis: {session_id}")
+            return False
+
+        session_data = json.loads(session_data_raw)
+
+        # Restore session state
+        st.session_state["authenticated"] = True
+        st.session_state["username"] = session_data.get("username")
+        st.session_state["auth_method"] = session_data.get("auth_method", "dev")
+        st.session_state["session_id"] = session_id
+        st.session_state["user_id"] = session_data.get("user_id")
+        st.session_state["role"] = session_data.get("role")
+        st.session_state["strategies"] = session_data.get("strategies", [])
+        st.session_state["session_version"] = session_data.get("session_version")
+
+        # Parse datetime fields
+        if session_data.get("login_time"):
+            st.session_state["login_time"] = datetime.fromisoformat(session_data["login_time"])
+        if session_data.get("last_activity"):
+            st.session_state["last_activity"] = datetime.fromisoformat(session_data["last_activity"])
+
+        # Update last activity and save back to Redis
+        st.session_state["last_activity"] = datetime.now(UTC)
+        _update_dev_session_in_redis(session_id)
+
+        logger.info(f"Restored dev session from cookie: {session_id}")
+        return True
+
+    except Exception as e:
+        logger.warning(f"Failed to restore dev session: {e}")
+        return False
+
+
+def _update_dev_session_in_redis(session_id: str) -> None:
+    """Update last_activity in Redis session."""
+    redis_client = _get_dev_session_redis()
+    if not redis_client:
+        return
+
+    try:
+        session_data = json.dumps({
+            "username": st.session_state.get("username"),
+            "auth_method": st.session_state.get("auth_method"),
+            "login_time": st.session_state.get("login_time").isoformat()
+            if st.session_state.get("login_time") else None,
+            "last_activity": st.session_state.get("last_activity").isoformat()
+            if st.session_state.get("last_activity") else None,
+            "user_id": st.session_state.get("user_id"),
+            "role": st.session_state.get("role"),
+            "strategies": st.session_state.get("strategies", []),
+            "session_version": st.session_state.get("session_version"),
+        })
+        # Refresh TTL on activity
+        redis_client.setex(
+            f"{_DEV_SESSION_PREFIX}{session_id}",
+            _DEV_SESSION_TTL_SECONDS,
+            session_data,
+        )
+    except Exception as e:
+        logger.debug(f"Failed to update dev session in Redis: {e}")
+
+
+def _clear_dev_session_cookie() -> None:
+    """Clear dev session cookie and delete from Redis."""
+    session_id = _get_dev_session_cookie()
+    if session_id:
+        # Delete from Redis
+        redis_client = _get_dev_session_redis()
+        if redis_client:
+            try:
+                redis_client.delete(f"{_DEV_SESSION_PREFIX}{session_id}")
+            except Exception as e:
+                logger.debug(f"Failed to delete dev session from Redis: {e}")
+
+    # Clear cookie via JavaScript
+    cookie_js = f"""
+    <script>
+    document.cookie = "{_DEV_SESSION_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax";
+    </script>
+    """
+    st.components.v1.html(cookie_js, height=0)
 
 
 def _get_remote_addr() -> str:
@@ -1066,6 +1274,11 @@ def audit_to_database(
     details: dict[str, Any],
     reason: str | None = None,
     session_id: str | None = None,
+    *,
+    event_type: str = "auth",
+    resource_type: str = "system",
+    resource_id: str | None = None,
+    outcome: str = "success",
 ) -> None:
     """
     Write audit entry to database.
@@ -1095,10 +1308,15 @@ def audit_to_database(
         "reason": reason,
         "ip_address": ip_address,
         "session_id": session_id or "N/A",
+        "event_type": event_type,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "outcome": outcome,
     }
 
     try:
         import psycopg
+        from psycopg.types.json import Jsonb
 
         # Set short connection timeout to prevent blocking auth flows
         # Use conninfo parameter instead of URL manipulation to preserve existing query params
@@ -1107,16 +1325,31 @@ def audit_to_database(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO audit_log (user_id, action, details, reason, ip_address, session_id)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO audit_log (
+                        user_id,
+                        action,
+                        details,
+                        reason,
+                        ip_address,
+                        session_id,
+                        event_type,
+                        resource_type,
+                        resource_id,
+                        outcome
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         user_id,
                         action,
-                        details,  # psycopg3 auto-adapts dict to JSONB, no Jsonb() wrapper needed
+                        Jsonb(details),
                         reason,
                         ip_address,
                         session_id or "N/A",
+                        event_type,
+                        resource_type,
+                        resource_id,
+                        outcome,
                     ),
                 )
                 conn.commit()
@@ -1149,6 +1382,10 @@ def _audit_successful_login(username: str, auth_method: str) -> None:
         action="login_success",
         details=details,
         session_id=session_id,
+        event_type="auth",
+        resource_type="session",
+        resource_id="login",
+        outcome="success",
     )
 
 
@@ -1168,6 +1405,10 @@ def _audit_failed_login(auth_method: str) -> None:
         action="login_failed",
         details=details,
         session_id="N/A",  # No session for failed login
+        event_type="auth",
+        resource_type="session",
+        resource_id="login",
+        outcome="denied",
     )
 
 
@@ -1447,6 +1688,10 @@ def get_current_user() -> dict[str, Any]:
         "auth_method": st.session_state.get("auth_method", "unknown"),
         "login_time": st.session_state.get("login_time"),
         "session_id": st.session_state.get("session_id", "unknown"),
+        "user_id": st.session_state.get("user_id", st.session_state.get("username", "unknown")),
+        "role": st.session_state.get("role"),
+        "strategies": st.session_state.get("strategies", []),
+        "session_version": st.session_state.get("session_version"),
     }
 
 
@@ -1586,6 +1831,10 @@ def _mtls_fallback_auth() -> bool:
             "crl_status": cert_info.crl_status,
         },
         session_id=st.session_state["session_id"],
+        event_type="auth",
+        resource_type="session",
+        resource_id="mtls_fallback_login",
+        outcome="success",
     )
 
     logger.info(
@@ -1607,12 +1856,17 @@ def logout() -> None:
     For mTLS mode: Terminates session (revokes tokens, cleans up session index).
     For OAuth2 mode: Redirects to FastAPI /logout (clears cookie, redirects to Auth0 logout).
     For mTLS fallback mode: Clears session state and audit logs.
+    For dev mode: Clears session cookie and Redis session.
     For other modes: Simply clears session state.
     """
     username = st.session_state.get("username", "unknown")
     auth_method = st.session_state.get("auth_method", "unknown")
     # Get session_id from session_state first (available in all modes)
     session_id = st.session_state.get("session_id")
+
+    # Clear dev session cookie and Redis
+    if auth_method == "dev":
+        _clear_dev_session_cookie()
 
     # Terminate session for mTLS mode (revokes tokens and cleans up session index)
     if auth_method == "mtls":
@@ -1645,6 +1899,10 @@ def logout() -> None:
         action="logout",
         details=details,
         session_id=session_id,
+        event_type="auth",
+        resource_type="session",
+        resource_id="logout",
+        outcome="success",
     )
 
     st.session_state.clear()

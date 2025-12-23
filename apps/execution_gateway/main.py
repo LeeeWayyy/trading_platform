@@ -4295,6 +4295,14 @@ async def startup_event() -> None:
     logger.info(f"DRY_RUN mode: {DRY_RUN}")
     logger.info(f"Strategy ID: {STRATEGY_ID}")
 
+    # Open async database pool for auth/session validation
+    from apps.execution_gateway.api.dependencies import get_db_pool
+
+    async_db_pool = get_db_pool()
+    if not async_db_pool._opened:
+        await async_db_pool.open()
+        logger.info("Async database pool opened")
+
     # Check database connection
     if not db_client.check_connection():
         logger.error("Database connection failed at startup!")
@@ -4356,6 +4364,14 @@ async def shutdown_event() -> None:
         logger.info("Shutting down slice scheduler...")
         slice_scheduler.shutdown(wait=True)
         logger.info("Slice scheduler shutdown complete")
+
+    # Close async database pool for auth/session validation
+    from apps.execution_gateway.api.dependencies import get_db_pool
+
+    async_db_pool = get_db_pool()
+    if async_db_pool._opened:
+        await async_db_pool.close()
+        logger.info("Async database pool closed")
 
     # H2 Fix: Close database connection pool for clean shutdown
     db_client.close()

@@ -32,24 +32,24 @@ SELECT
     id, timestamp, user_id, action, event_type,
     resource_type, resource_id, outcome, details
 FROM audit_log
-WHERE (%s IS NULL OR user_id = %s)
-  AND (%s IS NULL OR action = %s)
-  AND (%s IS NULL OR event_type = %s)
-  AND (%s IS NULL OR outcome = %s)
-  AND (%s IS NULL OR timestamp >= %s)
-  AND (%s IS NULL OR timestamp <= %s)
+WHERE (%s::text IS NULL OR user_id = %s::text)
+  AND (%s::text IS NULL OR action = %s::text)
+  AND (%s::text IS NULL OR event_type = %s::text)
+  AND (%s::text IS NULL OR outcome = %s::text)
+  AND (%s::timestamptz IS NULL OR timestamp >= %s::timestamptz)
+  AND (%s::timestamptz IS NULL OR timestamp <= %s::timestamptz)
 ORDER BY timestamp DESC
-LIMIT %s OFFSET %s
+LIMIT %s::int OFFSET %s::int
 """
 
 _COUNT_QUERY = """
 SELECT COUNT(*) FROM audit_log
-WHERE (%s IS NULL OR user_id = %s)
-  AND (%s IS NULL OR action = %s)
-  AND (%s IS NULL OR event_type = %s)
-  AND (%s IS NULL OR outcome = %s)
-  AND (%s IS NULL OR timestamp >= %s)
-  AND (%s IS NULL OR timestamp <= %s)
+WHERE (%s::text IS NULL OR user_id = %s::text)
+  AND (%s::text IS NULL OR action = %s::text)
+  AND (%s::text IS NULL OR event_type = %s::text)
+  AND (%s::text IS NULL OR outcome = %s::text)
+  AND (%s::timestamptz IS NULL OR timestamp >= %s::timestamptz)
+  AND (%s::timestamptz IS NULL OR timestamp <= %s::timestamptz)
 """
 
 _ACTION_CHOICES = [

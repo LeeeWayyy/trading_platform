@@ -19,7 +19,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /build
 
 # Copy requirements first for better layer caching
-COPY requirements.txt .
+# Use service-specific requirements (excludes pyqlib for ARM64 compatibility)
+COPY apps/execution_gateway/requirements-docker.txt requirements.txt
 
 # Install Python dependencies into a virtual environment
 # This allows us to copy only the venv to the runtime stage

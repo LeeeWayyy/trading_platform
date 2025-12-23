@@ -17,7 +17,8 @@ from typing import Any
 import streamlit as st
 
 from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
-from apps.web_console.auth.session_manager import get_current_user, require_auth
+from apps.web_console.auth import get_current_user
+from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.factor_exposure_chart import render_factor_exposure
 from apps.web_console.components.stress_test_results import render_stress_tests
 from apps.web_console.components.var_chart import render_var_history, render_var_metrics
@@ -28,7 +29,6 @@ from apps.web_console.config import (
 )
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
 from apps.web_console.services.risk_service import RiskDashboardData, RiskService
-from apps.web_console.utils.api_client import safe_current_user
 from apps.web_console.utils.async_helpers import run_async
 from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
 from apps.web_console.utils.validators import validate_risk_metrics
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 @st.cache_data(ttl=300)
-def _fetch_risk_data(user_id: str, strategies: tuple[str, ...]) -> dict[str, Any]:
+def _fetch_risk_data(user_id: str, role: str, strategies: tuple[str, ...]) -> dict[str, Any]:
     """Fetch risk data via RiskService with caching.
 
     Cache key includes user_id and strategies tuple for isolation.
@@ -56,10 +56,8 @@ def _fetch_risk_data(user_id: str, strategies: tuple[str, ...]) -> dict[str, Any
     """
     if not user_id:
         raise RuntimeError("Missing user_id; refuse to fetch risk data")
-
-    user = safe_current_user()
-    if not user:
-        raise RuntimeError("No authenticated user")
+    if not role:
+        raise RuntimeError("Missing role; refuse to fetch risk data")
 
     # T6.4a: Wire real DB/Redis connections for direct data access
     # get_db_pool() returns AsyncConnectionAdapter (fresh connections per call)
@@ -71,7 +69,7 @@ def _fetch_risk_data(user_id: str, strategies: tuple[str, ...]) -> dict[str, Any
     scoped_access = StrategyScopedDataAccess(
         db_pool=db_pool,
         redis_client=get_redis_client(),
-        user=dict(user),
+        user={"user_id": user_id, "role": role, "strategies": list(strategies)},
     )
     service = RiskService(scoped_access)
 
@@ -184,7 +182,7 @@ def render_risk_dashboard(data: dict[str, Any]) -> None:
     render_stress_tests(data.get("stress_tests", []))
 
 
-@require_auth
+@requires_auth
 def main() -> None:
     """Main entry point for risk dashboard page."""
     st.set_page_config(page_title="Risk Analytics Dashboard", page_icon="📊", layout="wide")
@@ -223,8 +221,10 @@ def main() -> None:
     # Fetch risk data
     with st.spinner("Loading risk analytics..."):
         try:
+            role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
             data = _fetch_risk_data(
                 user_id=str(user_id),
+                role=str(role or ""),
                 strategies=tuple(sorted(authorized_strategies)),
             )
         except PermissionError as e:

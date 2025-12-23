@@ -132,17 +132,34 @@ class HealthMonitorService:
             except (redis.RedisError, ConnectionError, TimeoutError) as exc:
                 return False, None, str(exc)
 
-        def _check_postgres() -> tuple[bool, float | None, str | None]:
+        async def _check_postgres_async() -> tuple[bool, float | None, str | None]:
+            """Async version of postgres health check for AsyncConnectionAdapter."""
             if not self.db_pool:
                 return False, None, "No database pool configured"
             start = datetime.now(UTC)
             try:
-                with self.db_pool.connection(timeout=2.0) as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT 1")
-                        cur.fetchone()
+                async with self.db_pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute("SELECT 1")
+                        await cur.fetchone()
                 latency_ms = (datetime.now(UTC) - start).total_seconds() * 1000
                 return True, latency_ms, None
+            except Exception as exc:
+                logger.warning("Postgres health check failed: %s", exc)
+                return False, None, str(exc)
+
+        def _check_postgres() -> tuple[bool, float | None, str | None]:
+            """Sync wrapper that runs the async check in a new event loop."""
+            if not self.db_pool:
+                return False, None, "No database pool configured"
+            try:
+                import asyncio
+                # Create a new event loop for this thread
+                loop = asyncio.new_event_loop()
+                try:
+                    return loop.run_until_complete(_check_postgres_async())
+                finally:
+                    loop.close()
             except Exception as exc:
                 # Broad exception handling to catch all DB errors (psycopg, pg8000, etc.)
                 # and let the stale-cache path execute instead of blanking the panel

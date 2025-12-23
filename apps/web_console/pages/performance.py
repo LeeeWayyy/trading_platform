@@ -12,7 +12,8 @@ import requests
 import streamlit as st
 
 from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
-from apps.web_console.auth.session_manager import get_current_user, require_auth
+from apps.web_console.auth import get_current_user
+from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.pnl_chart import render_drawdown_chart, render_equity_curve
 from apps.web_console.config import AUTO_REFRESH_INTERVAL
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
@@ -290,7 +291,7 @@ def _date_inputs() -> tuple[date, date]:
     return start, end
 
 
-@require_auth
+@requires_auth
 def main() -> None:
     st.set_page_config(page_title="Performance Dashboard", page_icon="📈", layout="wide")
 

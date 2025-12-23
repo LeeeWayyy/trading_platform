@@ -137,9 +137,13 @@ def error_detail(error: str, message: str, retry_after: int | None = None) -> di
 
 @lru_cache(maxsize=None)  # noqa: UP033 - explicit lru_cache requested for singleton behavior
 def get_db_pool() -> AsyncConnectionPool:
-    """Return async connection pool for auth/session validation."""
+    """Return async connection pool for auth/session validation.
 
-    return AsyncConnectionPool(DATABASE_URL, open=True)
+    Note: open=False allows lazy initialization within async context.
+    The pool will open automatically on first use.
+    """
+
+    return AsyncConnectionPool(DATABASE_URL, open=False)
 
 
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache

@@ -323,3 +323,6 @@ __all__ = [
     "render_circuit_breaker",
     "main",
 ]
+
+if __name__ == "__main__":
+    main()

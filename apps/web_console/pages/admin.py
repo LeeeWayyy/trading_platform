@@ -64,3 +64,29 @@ def render_admin_page(
 
     with audit_tab:
         render_audit_log_viewer(user=user, db_pool=db_pool)
+
+
+def main() -> None:
+    """Entry point for direct page access."""
+    import streamlit as st
+
+    from apps.web_console.auth.audit_log import AuditLogger
+    from apps.web_console.utils.db_pool import get_db_pool
+    from libs.web_console_auth.gateway_auth import AuthenticatedUser
+
+    user: AuthenticatedUser = {  # type: ignore[assignment]
+        "user_id": st.session_state.get("user_id", "unknown"),
+        "role": st.session_state.get("role"),
+        "strategies": st.session_state.get("strategies", []),
+    }
+    db_pool = get_db_pool()
+    render_admin_page(
+        user=user,
+        db_pool=db_pool,
+        redis_client=None,
+        audit_logger=AuditLogger(db_pool),
+    )
+
+
+if __name__ == "__main__":
+    main()
