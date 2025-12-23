@@ -42,12 +42,19 @@ from datetime import UTC, datetime
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, Info, make_asgi_app
 from pydantic import BaseModel, Field, validator
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from libs.common.api_auth_dependency import (
+    APIAuthConfig,
+    AuthContext,
+    api_auth,
+)
+from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.redis_client import (
     EventPublisher,
     FallbackBuffer,
@@ -56,6 +63,7 @@ from libs.redis_client import (
     RedisConnectionError,
     SignalEvent,
 )
+from libs.web_console_auth.permissions import Permission
 
 from .config import Settings
 from .model_registry import ModelMetadata, ModelRegistry
@@ -694,6 +702,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==============================================================================
+# Proxy Headers Middleware (for accurate client IP behind load balancers)
+# ==============================================================================
+# SECURITY: Restrict trusted_hosts to known ingress/load balancer IPs
+# Never use ["*"] in production - allows IP spoofing via X-Forwarded-For
+TRUSTED_PROXY_HOSTS = os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1").split(",")
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  # type: ignore[arg-type]
+
+# ==============================================================================
+# Rate Limiting Configuration
+# ==============================================================================
+# Signal generation has no broker calls, can be higher than order limits
+SIGNAL_GENERATE_LIMIT = int(os.getenv("SIGNAL_GENERATE_RATE_LIMIT", "30"))
+
+signal_generate_rl = rate_limit(
+    RateLimitConfig(
+        action="signal_generate",
+        max_requests=SIGNAL_GENERATE_LIMIT,
+        window_seconds=60,
+        burst_buffer=10,
+        fallback_mode="deny",
+        global_limit=160,  # No broker calls, can be higher
+    )
+)
+
+# ==============================================================================
+# API Authentication Configuration (C6)
+# ==============================================================================
+# Auth dependency for signal generation endpoint. Defaults to enforce mode (fail-closed).
+# Set API_AUTH_MODE=log_only for staged rollout.
+
+signal_generate_auth = api_auth(
+    APIAuthConfig(
+        action="signal_generate",
+        require_role=None,  # Role checked via permission
+        require_permission=Permission.GENERATE_SIGNALS,
+    )
+)
+
 
 # ==============================================================================
 # Prometheus Metrics
@@ -1278,7 +1325,14 @@ async def readiness_check() -> HealthResponse:
     tags=["Signals"],
     status_code=status.HTTP_200_OK,
 )
-async def generate_signals(request: SignalRequest) -> SignalResponse:
+async def generate_signals(
+    request: SignalRequest,
+    response: Response,
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
+    _auth_context: AuthContext = Depends(signal_generate_auth),
+    _rate_limit_remaining: int = Depends(signal_generate_rl),
+) -> SignalResponse:
     """
     Generate trading signals for given symbols.
 

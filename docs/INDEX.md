@@ -435,6 +435,9 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1.8_PLAN.md](./TASKS/P4T1.8_PLAN.md) - P4T1.8: Unified Data Fetcher Protocol Implementation Plan
 
+**Backlog Tasks (B0):**
+- [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./TASKS/B0T1_TASK.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis
+
 **Checking Current/Next Task:**
 ```bash
 # Show current task in progress

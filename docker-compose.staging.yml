@@ -153,6 +153,12 @@ services:
       # Model registry
       MODEL_ARTIFACTS_DIR: /app/models
       MODEL_NAME: ${MODEL_NAME:-alpha_baseline}
+
+      # C5/C6 Authentication
+      API_AUTH_MODE: ${API_AUTH_MODE:-enforce}
+      INTERNAL_TOKEN_REQUIRED: "true"
+      INTERNAL_TOKEN_SECRET: ${INTERNAL_TOKEN_SECRET}
+      RATE_LIMIT_MODE: ${RATE_LIMIT_MODE:-enforce}
     ports:
       - "8001:8001"
     depends_on:
@@ -199,6 +205,12 @@ services:
 
       # Circuit breaker
       CIRCUIT_BREAKER_ENABLED: "true"
+
+      # C5/C6 Authentication
+      API_AUTH_MODE: ${API_AUTH_MODE:-enforce}
+      INTERNAL_TOKEN_REQUIRED: "true"
+      INTERNAL_TOKEN_SECRET: ${INTERNAL_TOKEN_SECRET}
+      RATE_LIMIT_MODE: ${RATE_LIMIT_MODE:-enforce}
     ports:
       - "8002:8002"
     depends_on:
@@ -238,6 +250,12 @@ services:
 
       # CRITICAL SAFETY: Paper trading only
       DRY_RUN: "true"  # MANDATORY: Always true in staging
+
+      # C5/C6 Authentication
+      API_AUTH_MODE: ${API_AUTH_MODE:-enforce}
+      INTERNAL_TOKEN_REQUIRED: "true"
+      INTERNAL_TOKEN_SECRET: ${INTERNAL_TOKEN_SECRET}
+      RATE_LIMIT_MODE: ${RATE_LIMIT_MODE:-enforce}
     ports:
       - "8003:8003"
     depends_on:

@@ -56,6 +56,10 @@ class Permission(str, Enum):
     TEST_NOTIFICATION = "test_notification"
     ACKNOWLEDGE_ALERT = "acknowledge_alert"
 
+    # Trading API permissions (C6)
+    SUBMIT_ORDER = "submit_order"
+    GENERATE_SIGNALS = "generate_signals"
+
 
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.VIEWER: {
@@ -83,6 +87,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.UPDATE_ALERT_RULE,
         Permission.TEST_NOTIFICATION,
         Permission.ACKNOWLEDGE_ALERT,
+        Permission.SUBMIT_ORDER,  # C6: Trading API access
+        Permission.GENERATE_SIGNALS,  # C6: Signal generation access
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }

@@ -45,12 +45,13 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Protocol, cast
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from psycopg.errors import UniqueViolation
 from pydantic import ValidationError
 from redis.exceptions import RedisError
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from apps.execution_gateway import __version__
 from apps.execution_gateway.alpaca_client import (
@@ -114,6 +115,12 @@ from apps.execution_gateway.webhook_security import (
     verify_webhook_signature,
 )
 from config.settings import get_settings
+from libs.common.api_auth_dependency import (
+    APIAuthConfig,
+    AuthContext,
+    api_auth,
+)
+from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
     CircuitBreaker,
@@ -430,6 +437,85 @@ app = FastAPI(
     version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
+)
+
+# ============================================================================
+# Proxy Headers Middleware (for accurate client IP behind load balancers)
+# ============================================================================
+# SECURITY: Restrict trusted_hosts to known ingress/load balancer IPs
+# Never use ["*"] in production - allows IP spoofing via X-Forwarded-For
+TRUSTED_PROXY_HOSTS = os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1").split(",")
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  # type: ignore[arg-type]
+
+# ============================================================================
+# Rate Limiting Configuration
+# ============================================================================
+# Conservative limits: 80 direct + 30 slices x 3 = 170 broker orders/min (< 200 Alpaca ceiling)
+ORDER_SUBMIT_LIMIT = int(os.getenv("ORDER_SUBMIT_RATE_LIMIT", "40"))
+ORDER_SLICE_LIMIT = int(os.getenv("ORDER_SLICE_RATE_LIMIT", "10"))
+ORDER_CANCEL_LIMIT = int(os.getenv("ORDER_CANCEL_RATE_LIMIT", "100"))  # Higher limit for safety ops
+
+order_submit_rl = rate_limit(
+    RateLimitConfig(
+        action="order_submit",
+        max_requests=ORDER_SUBMIT_LIMIT,
+        window_seconds=60,
+        burst_buffer=10,
+        fallback_mode="deny",
+        global_limit=80,  # Direct orders only
+    )
+)
+
+order_slice_rl = rate_limit(
+    RateLimitConfig(
+        action="order_slice",
+        max_requests=ORDER_SLICE_LIMIT,
+        window_seconds=60,
+        burst_buffer=3,
+        fallback_mode="deny",
+        global_limit=30,  # 30 x 3 fan-out = 90 broker orders
+    )
+)
+
+order_cancel_rl = rate_limit(
+    RateLimitConfig(
+        action="order_cancel",
+        max_requests=ORDER_CANCEL_LIMIT,
+        window_seconds=60,
+        burst_buffer=20,  # Allow burst for kill-switch scenarios
+        fallback_mode="allow",  # Allow cancels on Redis failure (safety-first)
+        global_limit=200,  # Higher global for emergency cancellations
+    )
+)
+
+# ============================================================================
+# API Authentication Configuration (C6)
+# ============================================================================
+# Auth dependencies for trading endpoints. Defaults to enforce mode (fail-closed).
+# Set API_AUTH_MODE=log_only for staged rollout.
+
+order_submit_auth = api_auth(
+    APIAuthConfig(
+        action="order_submit",
+        require_role=None,  # Role checked via permission
+        require_permission=Permission.SUBMIT_ORDER,
+    )
+)
+
+order_slice_auth = api_auth(
+    APIAuthConfig(
+        action="order_slice",
+        require_role=None,
+        require_permission=Permission.SUBMIT_ORDER,
+    )
+)
+
+order_cancel_auth = api_auth(
+    APIAuthConfig(
+        action="order_cancel",
+        require_role=None,
+        require_permission=Permission.CANCEL_ORDER,
+    )
 )
 
 app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Controls"])
@@ -2181,7 +2267,14 @@ async def force_complete_reconciliation(
 
 
 @app.post("/api/v1/orders", response_model=OrderResponse, tags=["Orders"])
-async def submit_order(order: OrderRequest) -> OrderResponse:
+async def submit_order(
+    order: OrderRequest,
+    response: Response,
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
+    _auth_context: AuthContext = Depends(order_submit_auth),
+    _rate_limit_remaining: int = Depends(order_submit_rl),
+) -> OrderResponse:
     """
     Submit order with idempotent retry semantics.
 
@@ -2809,8 +2902,14 @@ async def submit_order(order: OrderRequest) -> OrderResponse:
 
 
 @app.post("/api/v1/orders/{client_order_id}/cancel", tags=["Orders"])
-@require_permission(Permission.CANCEL_ORDER)
-async def cancel_order(client_order_id: str) -> dict[str, Any]:
+async def cancel_order(
+    client_order_id: str,
+    response: Response,
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
+    _auth_context: AuthContext = Depends(order_cancel_auth),
+    _rate_limit_remaining: int = Depends(order_cancel_rl),
+) -> dict[str, Any]:
     """Cancel a single order by client_order_id."""
     order = db_client.get_order_by_client_id(client_order_id)
     if not order:
@@ -3317,7 +3416,14 @@ def _schedule_slices_with_compensation(
 
 
 @app.post("/api/v1/orders/slice", response_model=SlicingPlan, tags=["Orders"])
-async def submit_sliced_order(request: SlicingRequest) -> SlicingPlan:
+async def submit_sliced_order(
+    request: SlicingRequest,
+    response: Response,
+    # IMPORTANT: Auth must run BEFORE rate limiting to populate request.state with user context
+    # This allows rate limiter to bucket by user/service instead of anonymous IP
+    _auth_context: AuthContext = Depends(order_slice_auth),
+    _rate_limit_remaining: int = Depends(order_slice_rl),
+) -> SlicingPlan:
     """
     Submit TWAP order with automatic slicing and scheduled execution.
 
