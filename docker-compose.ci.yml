@@ -52,6 +52,8 @@ services:
     build:
       context: .
       dockerfile: apps/signal_service/Dockerfile
+      args:
+        BUILD_MODE: ci  # Use root requirements.txt with pyqlib from pip
     container_name: ci_signal_service
     environment:
       # Service config

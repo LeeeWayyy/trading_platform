@@ -21,6 +21,7 @@ Note:
     For P2T3 Phase 2, we add mtls mode with certificate-based authentication.
 """
 
+import atexit
 import hashlib
 import hmac
 import json
@@ -309,6 +310,19 @@ def _get_audit_db_pool() -> ConnectionPool:
         )
 
     return _audit_db_pool
+
+
+def _close_audit_db_pool() -> None:
+    """Close the audit database pool on shutdown."""
+    global _audit_db_pool
+    if _audit_db_pool is not None:
+        try:
+            _audit_db_pool.close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_audit_db_pool)
 
 
 def _get_idp_health_checker() -> "IdPHealthChecker":
@@ -1121,7 +1135,11 @@ def _get_dev_session_redis() -> redis.Redis | None:
         try:
             _dev_session_redis.ping()
             return _dev_session_redis
-        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.RedisError) as e:
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            redis.exceptions.RedisError,
+        ) as e:
             logger.warning(f"Cached dev session Redis client unhealthy: {e}")
             try:
                 _dev_session_redis.close()
@@ -1130,21 +1148,37 @@ def _get_dev_session_redis() -> redis.Redis | None:
             _dev_session_redis = None
 
     try:
-        redis_host = os.environ.get("REDIS_HOST", "localhost")
-        redis_port = int(os.environ.get("REDIS_PORT", "6379"))
-        client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            db=_REDIS_SESSION_DB,  # Use env var for consistency with OAuth2 sessions
+        redis_url = os.environ.get("REDIS_URL", f"redis://localhost:6379/{_REDIS_SESSION_DB}")
+        # Parse URL and override db if needed
+        client = redis.Redis.from_url(
+            redis_url,
+            db=_REDIS_SESSION_DB,  # Override db from URL to ensure correct session db
             decode_responses=True,
             socket_timeout=2,
         )
         client.ping()
         _dev_session_redis = client
         return _dev_session_redis
-    except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.RedisError) as e:
+    except (
+        redis.exceptions.ConnectionError,
+        redis.exceptions.TimeoutError,
+        redis.exceptions.RedisError,
+    ) as e:
         logger.warning(f"Failed to connect to Redis for dev session: {e}")
         return None
+
+
+def _close_dev_session_redis() -> None:
+    """Close the dev session Redis client on shutdown."""
+    global _dev_session_redis
+    if _dev_session_redis is not None:
+        try:
+            _dev_session_redis.close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_dev_session_redis)
 
 
 def _save_dev_session_to_cookie() -> None:
@@ -1163,12 +1197,12 @@ def _save_dev_session_to_cookie() -> None:
                 {
                     "username": st.session_state.get("username"),
                     "auth_method": st.session_state.get("auth_method"),
-                    "login_time": login_time.isoformat()
-                    if isinstance(login_time, datetime)
-                    else None,
-                    "last_activity": last_activity.isoformat()
-                    if isinstance(last_activity, datetime)
-                    else None,
+                    "login_time": (
+                        login_time.isoformat() if isinstance(login_time, datetime) else None
+                    ),
+                    "last_activity": (
+                        last_activity.isoformat() if isinstance(last_activity, datetime) else None
+                    ),
                     "user_id": st.session_state.get("user_id"),
                     "role": st.session_state.get("role"),
                     "strategies": st.session_state.get("strategies", []),
@@ -1316,9 +1350,9 @@ def _update_dev_session_in_redis(session_id: str) -> None:
                 "username": st.session_state.get("username"),
                 "auth_method": st.session_state.get("auth_method"),
                 "login_time": login_time.isoformat() if isinstance(login_time, datetime) else None,
-                "last_activity": last_activity.isoformat()
-                if isinstance(last_activity, datetime)
-                else None,
+                "last_activity": (
+                    last_activity.isoformat() if isinstance(last_activity, datetime) else None
+                ),
                 "user_id": st.session_state.get("user_id"),
                 "role": st.session_state.get("role"),
                 "strategies": st.session_state.get("strategies", []),
