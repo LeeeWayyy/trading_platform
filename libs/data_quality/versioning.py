@@ -222,7 +222,8 @@ class DatasetVersionManager:
     CAS_DIR = Path("data/cas")
     DIFFS_DIR = Path("data/diffs")
     BACKTESTS_DIR = Path("data/backtests")
-    LOCKS_DIR = Path("data/locks")
+    # Lock directory configurable via env var for Docker read-only data mounts
+    LOCKS_DIR = Path(os.environ.get("DATA_LOCK_DIR", "data/locks"))
 
     # Retention policy
     RETENTION_DAYS = 90

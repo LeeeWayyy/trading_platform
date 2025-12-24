@@ -21,7 +21,6 @@ def test_app_with_mocks():
         patch("apps.execution_gateway.main.redis_client"),
         patch("apps.execution_gateway.main.twap_slicer"),
     ):
-
         from apps.execution_gateway import main
 
         # Set recovery_manager state to healthy placeholders

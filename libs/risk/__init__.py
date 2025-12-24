@@ -25,8 +25,9 @@ from libs.risk.factor_covariance import (
     FactorCovarianceEstimator,
     InsufficientDataError,
 )
+
 try:
-    from libs.risk.portfolio_optimizer import (
+    from libs.risk.portfolio_optimizer import (  # noqa: F401
         BoxConstraint,
         BudgetConstraint,
         Constraint,
@@ -43,6 +44,7 @@ try:
         SectorConstraint,
         TurnoverConstraint,
     )
+
     _PORTFOLIO_EXPORTS = [
         "OptimizerConfig",
         "OptimizationResult",

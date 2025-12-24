@@ -27,6 +27,7 @@ ALL_FILES=$(find . -name "*.md" -type f \
     -not -path "./.claude/analysis/*" \
     -not -path "./.claude/plans/*" \
     -not -path "./.ai_workflow/*" \
+    -not -path "./qlib/*" \
     2>/dev/null)
 
 # Transform paths to be relative to docs/INDEX.md

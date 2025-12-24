@@ -52,7 +52,6 @@ def mock_oauth2_handler():
         patch("apps.auth_service.routes.refresh.get_oauth2_handler") as mock_refresh,
         patch("apps.auth_service.routes.logout.get_oauth2_handler") as mock_logout,
     ):
-
         mock_handler = MagicMock()
 
         # Mock initiate_login
@@ -91,7 +90,6 @@ def mock_rate_limiters():
         patch("apps.auth_service.routes.callback.get_rate_limiters") as mock_callback_get,
         patch("apps.auth_service.routes.refresh.get_rate_limiters") as mock_refresh_get,
     ):
-
         mock_callback_limiter = AsyncMock()
         mock_callback_limiter.is_allowed = AsyncMock(return_value=True)
 

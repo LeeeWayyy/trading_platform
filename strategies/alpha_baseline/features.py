@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import cast
 
 import pandas as pd
+
 import qlib
 from qlib.contrib.data.handler import Alpha158
 
@@ -43,7 +44,10 @@ def initialize_qlib_with_t1_data(data_dir: Path = Path("data/adjusted")) -> None
     # Initialize Qlib with provider_uri pointing to T1 data
     # For now, we'll use Qlib's default initialization
     # In Phase 3, we'll create a custom provider integration
-    qlib.init(provider_uri=str(data_dir), region="us")
+    init_func = getattr(qlib, "init", None)
+    if init_func is None:
+        raise RuntimeError("Qlib init() is unavailable in the current environment")
+    init_func(provider_uri=str(data_dir), region="us")
 
 
 def get_alpha158_features(

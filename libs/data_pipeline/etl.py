@@ -225,7 +225,9 @@ def _save_results(
             symbol_data = good_data.filter(pl.col("symbol") == symbol)
             output_path = adjusted_dir / f"{symbol}.parquet"
             symbol_data.write_parquet(
-                output_path, compression="snappy", use_pyarrow=False  # Use Polars native writer
+                output_path,
+                compression="snappy",
+                use_pyarrow=False,  # Use Polars native writer
             )
 
     # Save quarantined data (one file per symbol)
@@ -290,7 +292,9 @@ def load_adjusted_data(
     # Filter by symbols if provided
     if symbols is not None:
         parquet_files = [
-            f for f in parquet_files if f.stem in symbols  # f.stem is filename without extension
+            f
+            for f in parquet_files
+            if f.stem in symbols  # f.stem is filename without extension
         ]
 
     if not parquet_files:

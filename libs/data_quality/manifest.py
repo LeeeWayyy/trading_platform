@@ -134,7 +134,8 @@ class ManifestManager:
 
     DATA_ROOT = Path("data")  # Root directory for all data operations
     MANIFEST_DIR = Path("data/manifests")
-    LOCK_DIR = Path("data/locks")
+    # Lock directory configurable via env var for Docker read-only data mounts
+    LOCK_DIR = Path(os.environ.get("DATA_LOCK_DIR", "data/locks"))
     BACKUP_DIR = Path("data/manifests/backups")
     QUARANTINE_DIR = Path("data/quarantine")
 

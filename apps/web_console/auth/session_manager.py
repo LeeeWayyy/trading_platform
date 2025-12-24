@@ -41,7 +41,7 @@ def get_session_cookie() -> str | None:
         # Preferred (Streamlit >=1.35): st.context.headers
         headers = {}
         try:
-            headers = dict(st.context.headers)  # type: ignore[attr-defined]
+            headers = dict(st.context.headers)
         except Exception:
             headers = {}
 

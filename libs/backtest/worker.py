@@ -377,22 +377,30 @@ def _save_parquet_artifacts(job_id: str, result: BacktestResult) -> Path:
     _validate_schema(result.daily_ic, required_ic_schema)
     _validate_schema(result.daily_portfolio_returns, required_portfolio_schema)
 
-    result.daily_signals.select(["date", "permno", "signal"]).cast(required_signal_schema).write_parquet(  # type: ignore[arg-type]
+    result.daily_signals.select(["date", "permno", "signal"]).cast(
+        cast(Any, required_signal_schema)
+    ).write_parquet(
         result_dir / "daily_signals.parquet",
         compression="snappy",
     )
 
-    result.daily_weights.select(["date", "permno", "weight"]).cast(required_weight_schema).write_parquet(  # type: ignore[arg-type]
+    result.daily_weights.select(["date", "permno", "weight"]).cast(
+        cast(Any, required_weight_schema)
+    ).write_parquet(
         result_dir / "daily_weights.parquet",
         compression="snappy",
     )
 
-    result.daily_ic.select(["date", "ic", "rank_ic"]).cast(required_ic_schema).write_parquet(  # type: ignore[arg-type]
+    result.daily_ic.select(["date", "ic", "rank_ic"]).cast(
+        cast(Any, required_ic_schema)
+    ).write_parquet(
         result_dir / "daily_ic.parquet",
         compression="snappy",
     )
 
-    result.daily_portfolio_returns.select(["date", "return"]).cast(required_portfolio_schema).write_parquet(  # type: ignore[arg-type]
+    result.daily_portfolio_returns.select(["date", "return"]).cast(
+        cast(Any, required_portfolio_schema)
+    ).write_parquet(
         result_dir / "daily_portfolio_returns.parquet",
         compression="snappy",
     )

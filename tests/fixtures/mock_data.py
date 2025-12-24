@@ -67,7 +67,9 @@ def create_normal_ohlcv(
 
         # Timestamp: market close at 4:00 PM ET
         timestamp = datetime.combine(d, datetime.min.time()).replace(
-            hour=20, minute=0, tzinfo=UTC  # 4 PM ET = 8 PM UTC (winter)
+            hour=20,
+            minute=0,
+            tzinfo=UTC,  # 4 PM ET = 8 PM UTC (winter)
         )
 
         data.append(

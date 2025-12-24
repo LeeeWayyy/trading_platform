@@ -71,9 +71,7 @@ DEV_ROLE = os.getenv("WEB_CONSOLE_DEV_ROLE", "admin")
 DEV_USER_ID = os.getenv("WEB_CONSOLE_DEV_USER_ID", "") or DEV_USER
 DEV_SESSION_VERSION = int(os.getenv("WEB_CONSOLE_DEV_SESSION_VERSION", "1"))
 DEV_STRATEGIES = [
-    s.strip()
-    for s in os.getenv("WEB_CONSOLE_DEV_STRATEGIES", "").split(",")
-    if s.strip()
+    s.strip() for s in os.getenv("WEB_CONSOLE_DEV_STRATEGIES", "").split(",") if s.strip()
 ]
 if not DEV_STRATEGIES:
     default_strategy = os.getenv("STRATEGY_ID", "").strip()

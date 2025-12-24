@@ -16,6 +16,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from numbers import Real
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -39,6 +40,14 @@ if TYPE_CHECKING:
     from libs.data_providers.taq_query_provider import TAQLocalProvider
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_mean(frame: pl.DataFrame) -> float:
+    """Resolve Polars mean output to a float or NaN for type safety."""
+    mean_value = frame["vpin"].mean()
+    if isinstance(mean_value, Real):
+        return float(mean_value)
+    return float("nan")
 
 
 @dataclass
@@ -474,7 +483,7 @@ class MicrostructureAnalyzer:
             data=bucket_df,
             num_buckets=len(buckets),
             num_valid_vpin=valid_vpin.height,
-            avg_vpin=float(valid_vpin["vpin"].mean()) if valid_vpin.height > 0 and valid_vpin["vpin"].mean() is not None else float("nan"),  # type: ignore[arg-type]
+            avg_vpin=_resolve_mean(valid_vpin) if valid_vpin.height > 0 else float("nan"),
             warnings=warnings,
         )
 

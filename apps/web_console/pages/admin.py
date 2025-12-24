@@ -72,7 +72,6 @@ def main() -> None:
 
     from apps.web_console.auth.audit_log import AuditLogger
     from apps.web_console.utils.db_pool import get_db_pool
-    from libs.web_console_auth.gateway_auth import AuthenticatedUser
 
     user: AuthenticatedUser = {  # type: ignore[assignment]
         "user_id": st.session_state.get("user_id", "unknown"),

@@ -148,36 +148,19 @@ class HealthMonitorService:
                 logger.warning("Postgres health check failed: %s", exc)
                 return False, None, str(exc)
 
-        def _check_postgres() -> tuple[bool, float | None, str | None]:
-            """Sync wrapper that runs the async check in a new event loop."""
-            if not self.db_pool:
-                return False, None, "No database pool configured"
-            try:
-                import asyncio
-                # Create a new event loop for this thread
-                loop = asyncio.new_event_loop()
-                try:
-                    return loop.run_until_complete(_check_postgres_async())
-                finally:
-                    loop.close()
-            except Exception as exc:
-                # Broad exception handling to catch all DB errors (psycopg, pg8000, etc.)
-                # and let the stale-cache path execute instead of blanking the panel
-                logger.warning("Postgres health check failed: %s", exc)
-                return False, None, str(exc)
-
         try:
             # Use get_running_loop() (not deprecated get_event_loop())
-            # Use default executor (None) to avoid ThreadPool churn
+            # Redis check is sync - run in executor thread
+            # Postgres check is async - run directly in main loop (avoid event loop mismatch)
             loop = asyncio.get_running_loop()
             redis_future = loop.run_in_executor(None, _check_redis)
-            postgres_future = loop.run_in_executor(None, _check_postgres)
+            postgres_task = asyncio.create_task(_check_postgres_async())
 
             # Use gather with return_exceptions to handle failures independently
             # This ensures one service's failure doesn't mask the other's status
             results = await asyncio.gather(
                 asyncio.wait_for(redis_future, timeout=5.0),
-                asyncio.wait_for(postgres_future, timeout=5.0),
+                asyncio.wait_for(postgres_task, timeout=5.0),
                 return_exceptions=True,
             )
             redis_res, pg_res = results

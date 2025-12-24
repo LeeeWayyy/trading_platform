@@ -5,6 +5,7 @@ x-backtest-worker-env-base: &backtest-worker-env-base
   REDIS_URL: ${REDIS_URL_DOCKER:-redis://redis:6379/0}
   DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}}
   BACKTEST_JOB_MEMORY_LIMIT: ${BACKTEST_JOB_MEMORY_LIMIT:-4294967296}
+  DATA_LOCK_DIR: /app/locks  # Lock directory outside read-only data mount
 
 x-backtest-worker-base: &backtest-worker-base
   build: &backtest-worker-build
@@ -15,8 +16,9 @@ x-backtest-worker-base: &backtest-worker-base
     <<: *backtest-worker-env-base
     RQ_QUEUES: backtest_high
   volumes: &backtest-worker-volumes
-    - ./data:/app/data  # Market data (CRSP, Compustat parquets)
+    - ./data:/app/data:ro  # Market data (CRSP, Compustat parquets) - read-only for safety
     - backtest_data:/app/data/backtest_results  # Results output (writable)
+    - /tmp/backtest_locks:/app/locks  # Writable lock directory outside data
   depends_on: &backtest-worker-depends
     - redis
     - postgres
@@ -31,7 +33,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-trader}
     ports:
       # Use 5433 to avoid conflict with local PostgreSQL installation
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -46,7 +48,7 @@ services:
     # NOTE: Port exposed for local development. In production, remove port mapping.
     # For dev access via CLI: docker exec -it trading_platform_redis redis-cli
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command: redis-server --appendonly yes
     volumes:
       - redisdata:/data
@@ -291,10 +293,8 @@ services:
     # env_file:
     #   - .env
     environment:
-      # host.docker.internal allows container to reach host services (execution gateway on port 8002)
-      # NOTE: On Linux, may need to add --add-host=host.docker.internal:host-gateway to docker run,
-      # or use network_mode: host, or specify host IP directly (e.g., http://172.17.0.1:8002)
-      - EXECUTION_GATEWAY_URL=http://host.docker.internal:8002
+      # Use Docker DNS for in-network execution gateway access
+      - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
       - WEB_CONSOLE_AUTH_TYPE=dev  # ⚠️ INSECURE: Change for production!
       # SECURITY: No defaults - force explicit credential configuration
       # Create .env file with: WEB_CONSOLE_USER=<your_username>

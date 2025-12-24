@@ -74,7 +74,6 @@ class TestAlpacaClientTypeGuards:
             patch("apps.execution_gateway.alpaca_client.Position", MockPosition),
             patch("apps.execution_gateway.alpaca_client.TradeAccount", MockTradeAccount),
         ):
-
             # Create client with mocked dependencies
             client = AlpacaExecutor(api_key="test_key", secret_key="test_secret", paper=True)
 

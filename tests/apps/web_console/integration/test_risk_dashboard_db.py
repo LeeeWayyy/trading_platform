@@ -138,16 +138,18 @@ def test_fetch_risk_data_uses_fresh_connections(monkeypatch: Any) -> None:
     monkeypatch.setattr(risk_page, "get_db_pool", lambda: adapter)
     monkeypatch.setattr(risk_page, "get_redis_client", lambda: redis_sentinel)
     monkeypatch.setattr(
-        risk_page, "safe_current_user", lambda: {"user_id": "u1", "strategies": ["s1"]}
+        risk_page,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "admin", "strategies": ["s1"]},
     )
     monkeypatch.setattr(risk_page, "run_async", _run_async_fresh_loop)
     monkeypatch.setattr(risk_page, "StrategyScopedDataAccess", FakeScopedAccess)
     monkeypatch.setattr(risk_page, "RiskService", FakeRiskService)
 
     # First call
-    result1 = risk_page._fetch_risk_data(user_id="u1", strategies=("s1",))
+    result1 = risk_page._fetch_risk_data(user_id="u1", role="admin", strategies=("s1",))
     # Second call with different args to avoid cache key collision
-    result2 = risk_page._fetch_risk_data(user_id="u1", strategies=("s1", "s2"))
+    result2 = risk_page._fetch_risk_data(user_id="u1", role="admin", strategies=("s1", "s2"))
 
     # Two connections should be opened (fresh per call)
     assert len(adapter.loop_ids) == 2

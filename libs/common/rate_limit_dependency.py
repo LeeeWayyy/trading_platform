@@ -155,7 +155,9 @@ def get_principal_key(request: Request) -> tuple[str, str]:
         # If S2S call has user context, use it for rate limiting (audit trail)
         if hasattr(request.state, "user") and request.state.user:
             user = request.state.user
-            user_id = user.get("user_id") if isinstance(user, dict) else getattr(user, "user_id", None)
+            user_id = (
+                user.get("user_id") if isinstance(user, dict) else getattr(user, "user_id", None)
+            )
             if user_id:
                 return f"user:{user_id}", "user"
 

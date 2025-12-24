@@ -30,7 +30,8 @@ def _qlib_available() -> bool:
         import qlib
         from qlib.contrib.evaluate import risk_analysis  # noqa: F401
 
-        logger.debug(f"Qlib {qlib.__version__} available")
+        qlib_version = getattr(qlib, "__version__", "unknown")
+        logger.debug(f"Qlib {qlib_version} available")
         return True
     except ImportError as e:
         logger.info(f"Qlib not available ({e}), using local Polars backend")

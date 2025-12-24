@@ -167,7 +167,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		echo "❌ markdown-link-check not found. Installing..."; \
 		npm install -g markdown-link-check; \
 	}
-	@HANG_TIMEOUT=60 ./scripts/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
+	@HANG_TIMEOUT=60 ./scripts/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" ! -path "./qlib/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
 			echo ""; \
@@ -221,7 +221,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Step 6/6: Verifying workflow gate compliance (review approval markers)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@CI=true PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
+	@CI=true PYTHONPATH=. poetry run python scripts/verify_gate_compliance.py || { \
 		echo ""; \
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo "❌ Workflow gate compliance failed!"; \

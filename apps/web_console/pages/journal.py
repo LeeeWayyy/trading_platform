@@ -9,9 +9,9 @@ from typing import Any
 
 import streamlit as st
 
+from apps.web_console.auth import get_current_user
 from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
-from apps.web_console.auth import get_current_user
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.trade_stats import render_trade_stats
 from apps.web_console.components.trade_table import render_trade_table

@@ -143,7 +143,9 @@ def fetch_api(
         if method == "GET":
             response = session.get(url, headers=headers, timeout=config.API_REQUEST_TIMEOUT)
         elif method == "POST":
-            response = session.post(url, json=data, headers=headers, timeout=config.API_REQUEST_TIMEOUT)
+            response = session.post(
+                url, json=data, headers=headers, timeout=config.API_REQUEST_TIMEOUT
+            )
         elif method == "DELETE":
             response = session.delete(url, headers=headers, timeout=config.API_REQUEST_TIMEOUT)
         else:

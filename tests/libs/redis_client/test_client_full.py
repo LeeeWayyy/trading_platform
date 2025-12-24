@@ -34,6 +34,7 @@ event_pub_stub = ModuleType("libs.redis_client.event_publisher")
 
 class _DummyPublisher:
     def __init__(self, *_args, **_kwargs): ...
+
     def publish(self, *_args, **_kwargs):
         return True
 

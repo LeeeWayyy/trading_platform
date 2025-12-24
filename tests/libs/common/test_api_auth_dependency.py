@@ -184,6 +184,7 @@ class TestVerifyInternalToken:
         which prevents delimiter collision attacks.
         """
         import json
+
         payload_dict = {
             "service_id": service_id,
             "method": method,
@@ -211,8 +212,13 @@ class TestVerifyInternalToken:
         empty_body_hash = hashlib.sha256(b"").hexdigest()
 
         token = self._generate_token(
-            service_id, "POST", "/api/v1/orders", timestamp, nonce,
-            body_hash=empty_body_hash, secret=secret
+            service_id,
+            "POST",
+            "/api/v1/orders",
+            timestamp,
+            nonce,
+            body_hash=empty_body_hash,
+            secret=secret,
         )
 
         # Patch module constant directly (loaded at import time, not from env at call time)
@@ -353,8 +359,13 @@ class TestVerifyInternalToken:
         empty_body_hash = hashlib.sha256(b"").hexdigest()
 
         token = self._generate_token(
-            service_id, "POST", "/api/v1/orders", timestamp, nonce,
-            body_hash=empty_body_hash, secret=secret
+            service_id,
+            "POST",
+            "/api/v1/orders",
+            timestamp,
+            nonce,
+            body_hash=empty_body_hash,
+            secret=secret,
         )
 
         # Simulate Redis error
@@ -373,7 +384,7 @@ class TestVerifyInternalToken:
                         user_id=None,
                         strategy_id=None,
                         body_hash=empty_body_hash,
-                        )
+                    )
                 assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio()
@@ -388,8 +399,13 @@ class TestVerifyInternalToken:
         empty_body_hash = hashlib.sha256(b"").hexdigest()
 
         token = self._generate_token(
-            service_id, "POST", "/api/v1/orders", timestamp, nonce,
-            body_hash=empty_body_hash, secret=secret
+            service_id,
+            "POST",
+            "/api/v1/orders",
+            timestamp,
+            nonce,
+            body_hash=empty_body_hash,
+            secret=secret,
         )
 
         # Simulate Redis error
@@ -746,12 +762,8 @@ class TestInternalAuthHeaders:
 
         secret = "a" * 64
         with patch.dict(os.environ, {"INTERNAL_TOKEN_SECRET": secret}, clear=False):
-            headers1 = _get_internal_auth_headers(
-                "POST", "/api/v1/orders", user_id="user-1"
-            )
-            headers2 = _get_internal_auth_headers(
-                "POST", "/api/v1/orders", user_id="user-2"
-            )
+            headers1 = _get_internal_auth_headers("POST", "/api/v1/orders", user_id="user-1")
+            headers2 = _get_internal_auth_headers("POST", "/api/v1/orders", user_id="user-2")
 
         # Different user_id should produce different signature (timestamp/nonce differ too)
         # Just verify both have valid format
@@ -921,6 +933,7 @@ class TestUnknownServiceIdRejection:
 
         # Generate a valid token for the unknown service using JSON format
         import json
+
         payload_dict = {
             "service_id": service_id,
             "method": "POST",

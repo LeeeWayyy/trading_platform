@@ -1032,8 +1032,9 @@ class FactorAttribution:
         aligned = portfolio_returns.join(ff_factors, on="date", how="inner")
 
         if aligned.height == 0:
-            p_min, p_max = str(portfolio_returns["date"].min()), str(
-                portfolio_returns["date"].max()
+            p_min, p_max = (
+                str(portfolio_returns["date"].min()),
+                str(portfolio_returns["date"].max()),
             )
             f_min, f_max = str(ff_factors["date"].min()), str(ff_factors["date"].max())
             raise DataMismatchError(

@@ -15,6 +15,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+trade_stats = None
+trade_table = None
+journal_page = None
+StrategyScopedDataAccess = None
+_date_to_utc_datetime = None
+
 # ---------------------------------------------------------------------------
 # Import-time stubs to avoid heavy dependencies (jwt/streamlit/auth stacks)
 # ---------------------------------------------------------------------------
@@ -38,9 +44,6 @@ scriptrunner_mod.get_script_run_ctx = lambda: None
 runtime_mod.scriptrunner = scriptrunner_mod
 streamlit_mod.runtime = runtime_mod
 streamlit_mod.cache_resource = lambda func=None, **_kwargs: func if func else (lambda f: f)
-sys.modules.setdefault("streamlit", streamlit_mod)
-sys.modules.setdefault("streamlit.runtime", runtime_mod)
-sys.modules.setdefault("streamlit.runtime.scriptrunner", scriptrunner_mod)
 
 # Ensure feature flag defaults to enabled for tests; individual tests override
 os.environ.setdefault("FEATURE_TRADE_JOURNAL", "true")
@@ -77,25 +80,13 @@ audit_stub.AuditLogger = _AuditLogger
 # Stub auth package to avoid executing heavy __init__
 auth_pkg = types.ModuleType("apps.web_console.auth")
 auth_pkg.__path__ = []
-sys.modules.setdefault("apps.web_console.auth", auth_pkg)
-sys.modules.setdefault("apps.web_console.auth.permissions", permissions_stub)
-sys.modules.setdefault("apps.web_console.auth.session_manager", session_stub)
-sys.modules.setdefault("apps.web_console.auth.audit_log", audit_stub)
+auth_pkg.get_current_user = session_stub.get_current_user
 
 # Stub components package to bypass heavy __init__ that imports bulk operations
 components_pkg = types.ModuleType("apps.web_console.components")
 components_pkg.__path__ = [
     str(Path(__file__).resolve().parents[3] / "apps" / "web_console" / "components")
 ]
-sys.modules.setdefault("apps.web_console.components", components_pkg)
-
-trade_stats = import_module("apps.web_console.components.trade_stats")
-trade_table = import_module("apps.web_console.components.trade_table")
-from apps.web_console.data.strategy_scoped_queries import (
-    StrategyScopedDataAccess,
-    _date_to_utc_datetime,
-)
-from apps.web_console.pages import journal as journal_page
 
 
 class DummySpinner:
@@ -215,6 +206,58 @@ class DummyStreamlit:
 
     def rerun(self):
         raise SystemExit()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _load_trade_journal_modules():
+    """Load journal modules with import-time stubs, then restore sys.modules."""
+    module_names = [
+        "streamlit",
+        "streamlit.runtime",
+        "streamlit.runtime.scriptrunner",
+        "apps.web_console.auth",
+        "apps.web_console.auth.permissions",
+        "apps.web_console.auth.session_manager",
+        "apps.web_console.auth.audit_log",
+        "apps.web_console.auth.streamlit_helpers",
+        "apps.web_console.components",
+        "apps.web_console.components.trade_stats",
+        "apps.web_console.components.trade_table",
+        "apps.web_console.data.strategy_scoped_queries",
+        "apps.web_console.pages.journal",
+    ]
+    originals = {name: sys.modules.get(name) for name in module_names}
+
+    sys.modules["streamlit"] = streamlit_mod
+    sys.modules["streamlit.runtime"] = runtime_mod
+    sys.modules["streamlit.runtime.scriptrunner"] = scriptrunner_mod
+
+    sys.modules["apps.web_console.auth"] = auth_pkg
+    sys.modules["apps.web_console.auth.permissions"] = permissions_stub
+    sys.modules["apps.web_console.auth.session_manager"] = session_stub
+    sys.modules["apps.web_console.auth.audit_log"] = audit_stub
+    sys.modules["apps.web_console.auth.streamlit_helpers"] = types.SimpleNamespace(
+        requires_auth=lambda fn: fn
+    )
+    sys.modules["apps.web_console.components"] = components_pkg
+
+    sys.modules.pop("apps.web_console.pages.journal", None)
+
+    global trade_stats, trade_table, StrategyScopedDataAccess, _date_to_utc_datetime, journal_page
+    trade_stats = import_module("apps.web_console.components.trade_stats")
+    trade_table = import_module("apps.web_console.components.trade_table")
+    strategy_module = import_module("apps.web_console.data.strategy_scoped_queries")
+    StrategyScopedDataAccess = strategy_module.StrategyScopedDataAccess
+    _date_to_utc_datetime = strategy_module._date_to_utc_datetime
+    journal_page = import_module("apps.web_console.pages.journal")
+
+    yield
+
+    for name, module in originals.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
 
 
 @pytest.fixture(autouse=True)

@@ -19,8 +19,8 @@ import requests
 from apps.web_console.auth.permissions import get_authorized_strategies
 from apps.web_console.auth.session_manager import get_current_user
 from apps.web_console.config import (
-    AUTH_TYPE,
     API_REQUEST_TIMEOUT,
+    AUTH_TYPE,
     DEV_ROLE,
     DEV_STRATEGIES,
     DEV_USER_ID,

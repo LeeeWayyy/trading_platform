@@ -11,8 +11,8 @@ from typing import Any
 import requests
 import streamlit as st
 
-from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
 from apps.web_console.auth import get_current_user
+from apps.web_console.auth.permissions import Permission, get_authorized_strategies, has_permission
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.pnl_chart import render_drawdown_chart, render_equity_curve
 from apps.web_console.config import AUTO_REFRESH_INTERVAL

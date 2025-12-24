@@ -41,6 +41,8 @@ def restore_main_globals():
         main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
         main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
         main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
+        main.app.dependency_overrides[main.order_read_auth] = _mock_auth_context
+        main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
     except (ImportError, AttributeError):
         # Auth dependencies not available (module stubs in test files)
         pass

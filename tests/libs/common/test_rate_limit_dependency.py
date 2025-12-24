@@ -367,9 +367,7 @@ class TestRedisResilience:
             fallback_mode="deny",
         )
 
-        with patch(
-            "libs.common.rate_limit_dependency._get_redis_client"
-        ) as mock_get_client:
+        with patch("libs.common.rate_limit_dependency._get_redis_client") as mock_get_client:
             mock_redis = AsyncMock()
             mock_redis.eval.side_effect = TimeoutError()
             mock_get_client.return_value = mock_redis
@@ -391,9 +389,7 @@ class TestRedisResilience:
             fallback_mode="allow",
         )
 
-        with patch(
-            "libs.common.rate_limit_dependency._get_redis_client"
-        ) as mock_get_client:
+        with patch("libs.common.rate_limit_dependency._get_redis_client") as mock_get_client:
             mock_redis = AsyncMock()
             mock_redis.eval.side_effect = TimeoutError()
             mock_get_client.return_value = mock_redis
@@ -415,9 +411,7 @@ class TestRedisResilience:
             fallback_mode="deny",
         )
 
-        with patch(
-            "libs.common.rate_limit_dependency._get_redis_client"
-        ) as mock_get_client:
+        with patch("libs.common.rate_limit_dependency._get_redis_client") as mock_get_client:
             mock_redis = AsyncMock()
             mock_redis.eval.side_effect = Exception("Redis connection failed")
             mock_get_client.return_value = mock_redis

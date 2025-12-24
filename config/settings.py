@@ -89,7 +89,7 @@ class Settings(BaseSettings):
         description="HMAC secret for X-Internal-Token validation (empty disables validation)",
     )
     internal_token_required: bool = Field(
-        default=False,
+        default=True,
         description="Require X-Internal-Token validation for internal headers",
     )
     internal_token_timestamp_tolerance_seconds: int = Field(

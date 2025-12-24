@@ -557,9 +557,7 @@ def render_flatten_all(user: Mapping[str, Any]) -> None:
 # -----------------------------------------------------------------------------
 
 
-def render_manual_controls(
-    user: Mapping[str, Any], db_pool: Any, audit_logger: Any
-) -> None:  # noqa: ARG001
+def render_manual_controls(user: Mapping[str, Any], db_pool: Any, audit_logger: Any) -> None:  # noqa: ARG001
     """Render manual controls page."""
 
     if not FEATURE_MANUAL_CONTROLS:

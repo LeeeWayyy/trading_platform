@@ -309,10 +309,15 @@ class PortfolioBacktest:
         drawdown = (cumulative - running_max) / running_max
 
         plt.figure(figsize=(12, 6))
+        drawdown_values = np.asarray(drawdown.values, dtype=float) * 100
         plt.fill_between(
-            drawdown.index, drawdown.values * 100, 0, alpha=0.3, color="red"  # type: ignore[operator]
+            drawdown.index,
+            drawdown_values,
+            0,
+            alpha=0.3,
+            color="red",
         )
-        plt.plot(drawdown.index, drawdown.values * 100, color="red")  # type: ignore[operator]
+        plt.plot(drawdown.index, drawdown_values, color="red")
         plt.title("Portfolio Drawdown", fontsize=14, fontweight="bold")
         plt.xlabel("Date")
         plt.ylabel("Drawdown (%)")
