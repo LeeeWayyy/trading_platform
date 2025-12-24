@@ -1043,7 +1043,7 @@ if not _DEV_SESSION_HMAC_SECRET:
 
 def _ensure_dev_auth_allowed() -> bool:
     """Guard: dev auth is only allowed in local/dev environments."""
-    env = os.getenv("ENVIRONMENT", "").lower()
+    env = os.getenv("ENVIRONMENT", "dev").lower()
     if env not in _ALLOWED_DEV_AUTH_ENVIRONMENTS:
         st.error(
             "🔒 Dev auth is disabled outside local/dev environments.\n\n"
@@ -1392,8 +1392,6 @@ def _get_remote_addr() -> str:
     except Exception as e:
         logger.debug(f"Failed to extract remote_addr: {e}")
         return ""
-
-    return ""
 
 
 def _get_client_ip() -> str:
