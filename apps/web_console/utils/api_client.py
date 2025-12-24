@@ -9,6 +9,10 @@ This module centralizes common API-related utilities used across pages:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
+import time
 import uuid
 from collections.abc import Mapping
 from functools import lru_cache
@@ -51,11 +55,16 @@ def safe_current_user() -> Mapping[str, Any]:
 def get_auth_headers(user: Mapping[str, Any]) -> dict[str, str]:
     """Build X-User-* headers for API requests.
 
+    When INTERNAL_TOKEN_SECRET is configured (production default), includes
+    HMAC signature headers (X-User-Signature, X-Request-Timestamp) for
+    internal token authentication.
+
     Args:
         user: User dict from session (must have role, user_id)
 
     Returns:
         Headers dict with X-User-Role, X-User-Id, X-User-Strategies
+        and optionally X-User-Signature, X-Request-Timestamp
     """
     headers: dict[str, str] = {}
     role = user.get("role")
@@ -76,6 +85,26 @@ def get_auth_headers(user: Mapping[str, Any]) -> dict[str, str]:
         headers["X-User-Id"] = str(user_id)
     if strategies:
         headers["X-User-Strategies"] = ",".join(sorted(strategies))
+
+    # Add HMAC signature headers when internal token secret is configured
+    internal_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+    if internal_secret and user_id and role:
+        # Generate timestamp as current Unix epoch
+        timestamp = str(int(time.time()))
+
+        # Build signature payload: timestamp|user_id|role|strategies
+        strategies_str = ",".join(sorted(strategies)) if strategies else ""
+        payload = f"{timestamp}|{user_id}|{role}|{strategies_str}"
+
+        # Generate HMAC-SHA256 signature
+        signature = hmac.new(
+            internal_secret.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+        headers["X-Request-Timestamp"] = timestamp
+        headers["X-User-Signature"] = signature
 
     return headers
 

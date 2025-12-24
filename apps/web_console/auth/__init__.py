@@ -1066,10 +1066,25 @@ def _ensure_dev_auth_allowed() -> bool:
 
 
 def _is_localhost_request() -> bool:
-    """Return True if request host is localhost/loopback."""
+    """Return True if request host is localhost/loopback or Docker bridge."""
     loopback_values = {"localhost", "127.0.0.1", "::1"}
     remote_addr = _get_remote_addr()
-    return remote_addr in loopback_values
+
+    # Allow localhost/loopback
+    if remote_addr in loopback_values:
+        return True
+
+    # Allow Docker bridge networks (172.16.0.0/12 range covers 172.16-31.x.x)
+    # This enables dev auth when running Streamlit in Docker with port mapping
+    if remote_addr.startswith("172."):
+        try:
+            second_octet = int(remote_addr.split(".")[1])
+            if 16 <= second_octet <= 31:
+                return True
+        except (ValueError, IndexError):
+            pass
+
+    return False
 
 
 def _sign_dev_session_id(session_id: str) -> str:
@@ -1106,7 +1121,7 @@ def _get_dev_session_redis() -> redis.Redis | None:
         try:
             _dev_session_redis.ping()
             return _dev_session_redis
-        except Exception as e:
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.RedisError) as e:
             logger.warning(f"Cached dev session Redis client unhealthy: {e}")
             try:
                 _dev_session_redis.close()
@@ -1127,7 +1142,7 @@ def _get_dev_session_redis() -> redis.Redis | None:
         client.ping()
         _dev_session_redis = client
         return _dev_session_redis
-    except Exception as e:
+    except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.RedisError) as e:
         logger.warning(f"Failed to connect to Redis for dev session: {e}")
         return None
 
