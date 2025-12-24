@@ -557,7 +557,7 @@ def render_flatten_all(user: Mapping[str, Any]) -> None:
 # -----------------------------------------------------------------------------
 
 
-def render_manual_controls(user: Mapping[str, Any], db_pool: Any, audit_logger: Any) -> None:  # noqa: ARG001
+def render_manual_controls(user: Mapping[str, Any]) -> None:
     """Render manual controls page."""
 
     if not FEATURE_MANUAL_CONTROLS:
@@ -592,16 +592,12 @@ def main() -> None:
     """Entry point for direct page access."""
     import streamlit as st
 
-    from apps.web_console.auth.audit_log import AuditLogger
-    from apps.web_console.utils.db_pool import get_db_pool
-
     user = {
         "user_id": st.session_state.get("user_id", "unknown"),
         "role": st.session_state.get("role"),
         "strategies": st.session_state.get("strategies", []),
     }
-    db_pool = get_db_pool()
-    render_manual_controls(user=user, db_pool=db_pool, audit_logger=AuditLogger(db_pool))
+    render_manual_controls(user=user)
 
 
 if __name__ == "__main__":

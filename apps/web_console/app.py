@@ -890,11 +890,7 @@ def main() -> None:
     elif page == "Manual Trade Controls":
         from apps.web_console.pages.manual_controls import render_manual_controls
 
-        render_manual_controls(
-            user=user_info,
-            db_pool=get_db_pool(),
-            audit_logger=AuditLogger(get_db_pool()),
-        )
+        render_manual_controls(user=user_info)
     elif page == "Kill Switch":
         render_kill_switch()
     elif page == "Circuit Breaker":

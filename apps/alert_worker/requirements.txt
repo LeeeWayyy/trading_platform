@@ -1,3 +1,13 @@
+# Alert Worker Service Dependencies
+#
+# Versioning Strategy:
+# - Version ranges (>=) allow flexibility for Docker builds and minor updates
+# - Root requirements.txt has exact pins for development environment
+# - This approach balances reproducibility with security patch flexibility
+# - Critical: rq is constrained <2.0.0 due to breaking API changes
+#
+# To regenerate with exact versions: pip freeze > requirements.txt
+
 aiosmtplib>=3.0.0
 boto3>=1.35.0
 cryptography>=41.0.0

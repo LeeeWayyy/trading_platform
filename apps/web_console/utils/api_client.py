@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import time
 import uuid
@@ -92,9 +93,16 @@ def get_auth_headers(user: Mapping[str, Any]) -> dict[str, str]:
         # Generate timestamp as current Unix epoch
         timestamp = str(int(time.time()))
 
-        # Build signature payload: timestamp|user_id|role|strategies
+        # Build canonical JSON payload matching server's format
+        # Must match execution_gateway/main.py HMAC verification logic
         strategies_str = ",".join(sorted(strategies)) if strategies else ""
-        payload = f"{timestamp}|{user_id}|{role}|{strategies_str}"
+        payload_data = {
+            "uid": str(user_id).strip(),
+            "role": str(role).strip(),
+            "strats": strategies_str,
+            "ts": timestamp,
+        }
+        payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
 
         # Generate HMAC-SHA256 signature
         signature = hmac.new(
