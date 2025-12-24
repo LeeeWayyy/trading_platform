@@ -68,6 +68,8 @@ openpyxl = "^3.1.0"
 pytest = "^8.0.0"
 pytest-asyncio = "^0.23.0"
 pytest-cov = "^4.1.0"
+playwright = ">=1.43.0"
+pytest-playwright = ">=0.4.4"
 fakeredis = "^2.20.0"
 # Linting & formatting
 black = "^24.1.0"

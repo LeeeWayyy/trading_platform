@@ -1,11 +1,18 @@
 # Multi-stage Docker build for Orchestrator
 # Stage 1: Builder - install dependencies
 # Stage 2: Runtime - copy only needed artifacts for smaller image
+#
+# Build modes:
+#   - Local (ARM64): BUILD_MODE=local (default) - uses service-specific requirements
+#   - CI (x86_64):   BUILD_MODE=ci - uses root requirements.txt
 
 # =============================================================================
 # Stage 1: Builder
 # =============================================================================
 FROM python:3.11-slim as builder
+
+# Build mode: "local" (ARM64) or "ci" (x86_64)
+ARG BUILD_MODE=local
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -18,16 +25,22 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /build
 
-# Copy requirements first for better layer caching
-# Use service-specific requirements (excludes pyqlib for ARM64 compatibility)
-COPY apps/orchestrator/requirements-docker.txt requirements.txt
+# Copy requirements - use service-specific for local, root for CI
+# For local ARM64 builds: excludes pyqlib (not needed for this service)
+# For CI x86_64 builds: uses full requirements.txt
+COPY apps/orchestrator/requirements-docker.txt requirements-local.txt
+COPY requirements.txt requirements-ci.txt
 
 # Install Python dependencies into a virtual environment
 # This allows us to copy only the venv to the runtime stage
 RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
     pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    if [ "$BUILD_MODE" = "ci" ]; then \
+        pip install --no-cache-dir -r requirements-ci.txt; \
+    else \
+        pip install --no-cache-dir -r requirements-local.txt; \
+    fi
 
 # =============================================================================
 # Stage 2: Runtime

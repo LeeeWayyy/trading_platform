@@ -106,6 +106,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
+            BUILD_MODE=ci
             SERVICE_NAME=${{ matrix.service.name }}
             SERVICE_PORT=${{ matrix.service.port }}
 
