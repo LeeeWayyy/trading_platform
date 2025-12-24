@@ -1393,6 +1393,10 @@ def _get_remote_addr() -> str:
         logger.debug(f"Failed to extract remote_addr: {e}")
         return ""
 
+    # Return empty string if try block completes without finding remote_ip
+    # (e.g., ctx is None, runtime is None, session lacks ws attribute)
+    return ""
+
 
 def _get_client_ip() -> str:
     """
