@@ -27,6 +27,8 @@ def restore_main_globals():
     # Override auth dependencies for tests (C6)
     # Import lazily to avoid import order issues with test files that stub modules
     try:
+        from typing import Any
+
         from libs.common.api_auth_dependency import AuthContext
 
         def _mock_auth_context() -> AuthContext:
@@ -38,11 +40,22 @@ def restore_main_globals():
                 is_authenticated=True,
             )
 
+        def _mock_user_context() -> dict[str, Any]:
+            """Return a mock user context for RBAC tests."""
+            return {
+                "role": "admin",
+                "strategies": ["alpha_baseline"],
+                "requested_strategies": [],
+                "user_id": "test-user",
+                "user": {"role": "admin", "strategies": ["alpha_baseline"], "user_id": "test-user"},
+            }
+
         main.app.dependency_overrides[main.order_submit_auth] = _mock_auth_context
         main.app.dependency_overrides[main.order_slice_auth] = _mock_auth_context
         main.app.dependency_overrides[main.order_cancel_auth] = _mock_auth_context
         main.app.dependency_overrides[main.order_read_auth] = _mock_auth_context
         main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
+        main.app.dependency_overrides[main._build_user_context] = _mock_user_context
     except (ImportError, AttributeError):
         # Auth dependencies not available (module stubs in test files)
         pass

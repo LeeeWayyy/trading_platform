@@ -274,6 +274,24 @@ class TestKillSwitchJSONBodyHandling:
     validation and nested object support.
     """
 
+    @pytest.fixture(autouse=True)
+    def _setup_auth_overrides(self):
+        """Set up auth overrides for all tests in this class (C6 integration)."""
+        from libs.common.api_auth_dependency import AuthContext
+
+        def _mock_auth_context() -> AuthContext:
+            """Return a mock AuthContext that bypasses authentication for tests."""
+            return AuthContext(
+                user=None,
+                internal_claims=None,
+                auth_type="test",
+                is_authenticated=True,
+            )
+
+        main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
+        yield
+        main.app.dependency_overrides.clear()
+
     @pytest.fixture()
     def mock_redis_and_kill_switch(self):
         """Mock Redis and KillSwitch for testing."""
@@ -514,6 +532,24 @@ class TestKillSwitchEndToEnd:
 
     These tests verify the fixes work together in realistic scenarios.
     """
+
+    @pytest.fixture(autouse=True)
+    def _setup_auth_overrides(self):
+        """Set up auth overrides for all tests in this class (C6 integration)."""
+        from libs.common.api_auth_dependency import AuthContext
+
+        def _mock_auth_context() -> AuthContext:
+            """Return a mock AuthContext that bypasses authentication for tests."""
+            return AuthContext(
+                user=None,
+                internal_claims=None,
+                auth_type="test",
+                is_authenticated=True,
+            )
+
+        main.app.dependency_overrides[main.kill_switch_auth] = _mock_auth_context
+        yield
+        main.app.dependency_overrides.clear()
 
     @pytest.fixture()
     def mock_components(self):
