@@ -199,8 +199,8 @@ services:
 
       # CRITICAL SAFETY: Paper trading credentials only
       DRY_RUN: "true"  # MANDATORY: Always true in staging
-      ALPACA_API_KEY: ${ALPACA_API_KEY}  # Paper API key from secrets
-      ALPACA_API_SECRET: ${ALPACA_API_SECRET}  # Paper API secret from secrets
+      ALPACA_API_KEY_ID: ${ALPACA_API_KEY_ID}  # Paper API key ID from secrets
+      ALPACA_API_SECRET_KEY: ${ALPACA_API_SECRET_KEY}  # Paper API secret from secrets
       ALPACA_PAPER: "true"  # MANDATORY: Always true in staging
 
       # Circuit breaker

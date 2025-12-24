@@ -54,6 +54,15 @@ This runbook guides operators through migrating credentials from `.env` files to
    # ALPACA_API_KEY_ID=<YOUR_ALPACA_KEY_ID>
    # ALPACA_API_SECRET_KEY=<YOUR_ALPACA_SECRET>
 
+   # Internal Service Auth (SECRETS - populate via SecretManager)
+   # INTERNAL_TOKEN_SECRET=<64+ HEX CHARS>
+
+   # Alert Delivery (SECRETS - populate via SecretManager)
+   # ALERT_RECIPIENT_HASH_SECRET=<32+ HEX CHARS>
+
+   # OAuth2 Session Encryption (SECRETS - populate via SecretManager)
+   # SESSION_ENCRYPTION_KEY=<BASE64 32-BYTE KEY>
+
    # Database Credentials (SECRETS - populate via SecretManager)
    # DATABASE_PASSWORD=<YOUR_DB_PASSWORD>
 
@@ -63,13 +72,15 @@ This runbook guides operators through migrating credentials from `.env` files to
    # Configuration (ENV VARS - keep in .env)
    ALPACA_BASE_URL=https://paper-api.alpaca.markets
    DATABASE_HOST=localhost
-   DATABASE_PORT=5432
+   DATABASE_PORT=5433
    DATABASE_NAME=trader
    DATABASE_USER=trader
-   REDIS_URL=redis://localhost:6379/0
+   REDIS_URL=redis://localhost:6379/1
    DRY_RUN=true
    LOG_LEVEL=INFO
    STRATEGY_ID=alpha_baseline
+   API_AUTH_MODE=enforce
+   INTERNAL_TOKEN_REQUIRED=true
    EOF
    ```
 

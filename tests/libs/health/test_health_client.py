@@ -188,7 +188,7 @@ def test_extract_last_operation_timestamp_fallback_timestamp(
 
 
 def test_extract_last_operation_timestamp_invalid_returns_none(
-    service_urls: dict[str, str]
+    service_urls: dict[str, str],
 ) -> None:
     client = HealthClient(service_urls)
     data = {"last_order_at": "not-a-date"}

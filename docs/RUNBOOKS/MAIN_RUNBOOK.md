@@ -24,6 +24,7 @@ Use this checklist to set up the trading platform from scratch.
 - [ ] **Git hooks installed** - `make install-hooks`
 - [ ] **Environment file created** - `cp .env.example .env`
 - [ ] **Environment file configured** - Edit `.env` with Alpaca credentials
+- [ ] **Secrets generated** - `INTERNAL_TOKEN_SECRET`, `ALERT_RECIPIENT_HASH_SECRET`, `SESSION_ENCRYPTION_KEY`
 
 #### Phase 3: Infrastructure
 - [ ] **Docker services started** - `make up`
@@ -38,6 +39,7 @@ Use this checklist to set up the trading platform from scratch.
 - [ ] **Migration 001 applied** - `docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/001_create_model_registry.sql`
 - [ ] **Migration 002 applied** - `docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/002_create_execution_tables.sql`
 - [ ] **Migration 003 applied** - `docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/003_create_orchestration_tables.sql`
+- [ ] **Slicing migration applied** - `docker exec -i trading_platform_postgres psql -U trader -d trader < db/migrations/0001_extend_orders_for_slicing.sql`
 - [ ] **Tables verified** - `docker exec -it trading_platform_postgres psql -U trader -d trader -c "\dt"`
 
 #### Phase 5: Verification
@@ -126,18 +128,24 @@ ALPACA_BASE_URL=https://paper-api.alpaca.markets  # Paper trading (recommended)
 # ═══════════════════════════════════════════════════════════════════
 # REQUIRED: Database Configuration
 # ═══════════════════════════════════════════════════════════════════
-DATABASE_URL=postgresql+psycopg://trader:trader@localhost:5432/trader
+# NOTE: Use postgresql:// (not postgresql+psycopg://) for psycopg3 compatibility
+# Port 5433 avoids conflict with local PostgreSQL installations on port 5432
+DATABASE_URL=postgresql://trader:trader@localhost:5433/trader
 POSTGRES_USER=trader
 POSTGRES_PASSWORD=trader
 POSTGRES_DB=trader
+# Optional override for containers (used by docker-compose worker profiles)
+DATABASE_URL_DOCKER=postgresql://trader:trader@postgres:5432/trader
 
 # ═══════════════════════════════════════════════════════════════════
 # REQUIRED: Redis Configuration
 # ═══════════════════════════════════════════════════════════════════
-# NOTE: Redis has no host port mapping for security.
+# NOTE: Redis is exposed on localhost:6379 for local development.
 # Services inside Docker network use: redis://redis:6379/0
-# For local development outside Docker, you may need to add port mapping.
-REDIS_URL=redis://localhost:6379/0
+# Default DB 1 is reserved for OAuth2/web console sessions.
+REDIS_URL=redis://localhost:6379/1
+# Optional override for containers (used by docker-compose worker profiles)
+REDIS_URL_DOCKER=redis://redis:6379/0
 
 # ═══════════════════════════════════════════════════════════════════
 # APPLICATION CONFIGURATION
@@ -164,6 +172,27 @@ EXECUTION_GATEWAY_URL=http://localhost:8002
 ORCHESTRATOR_URL=http://localhost:8003
 
 # ═══════════════════════════════════════════════════════════════════
+# SLICE RECOVERY SETTINGS (Execution Gateway)
+# ═══════════════════════════════════════════════════════════════════
+MISFIRE_GRACE_SECONDS=60
+STALE_SLICE_EXPIRY_SECONDS=86400  # 24h default, 0 disables expiry
+
+# ═══════════════════════════════════════════════════════════════════
+# API AUTHENTICATION (C6)
+# ═══════════════════════════════════════════════════════════════════
+# SECURITY: Defaults to enforce (fail-closed). Only use log_only for staged rollout.
+API_AUTH_MODE=enforce  # enforce | log_only
+
+# ═══════════════════════════════════════════════════════════════════
+# INTERNAL SERVICE AUTH (X-Internal-Token)
+# ═══════════════════════════════════════════════════════════════════
+# SECURITY: Defaults to true (fail-closed). Set to false ONLY for development.
+INTERNAL_TOKEN_REQUIRED=true  # true | false
+# Generate with: openssl rand -hex 32
+INTERNAL_TOKEN_SECRET=your-hex-secret-here-min-64-chars
+INTERNAL_TOKEN_TIMESTAMP_TOLERANCE_SECONDS=300
+
+# ═══════════════════════════════════════════════════════════════════
 # PAPER RUN DEFAULTS
 # ═══════════════════════════════════════════════════════════════════
 PAPER_RUN_SYMBOLS=AAPL,MSFT,GOOGL
@@ -183,10 +212,46 @@ MLFLOW_EXPERIMENT_NAME=alpha_baseline
 LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
 
 # ═══════════════════════════════════════════════════════════════════
+# ALERT DELIVERY SERVICE (required if alert_worker is running)
+# ═══════════════════════════════════════════════════════════════════
+# Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+ALERT_RECIPIENT_HASH_SECRET=your-secret-here-min-32-chars
+
+# ═══════════════════════════════════════════════════════════════════
+# OAUTH2 / OIDC (Optional - for web console)
+# ═══════════════════════════════════════════════════════════════════
+AUTH0_DOMAIN=your-tenant.us.auth0.com
+AUTH0_CLIENT_ID=your_client_id_here
+AUTH0_CLIENT_SECRET=your_client_secret_here
+AUTH0_AUDIENCE=https://api.trading-platform.local
+# Generate with: python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+SESSION_ENCRYPTION_KEY=your_base64_encoded_32_byte_key_here
+
+# ═══════════════════════════════════════════════════════════════════
 # WEB CONSOLE (Optional - for development)
 # ═══════════════════════════════════════════════════════════════════
 WEB_CONSOLE_USER=admin
 WEB_CONSOLE_PASSWORD=changeme  # CHANGE THIS!
+WEB_CONSOLE_DEV_ROLE=admin
+WEB_CONSOLE_DEV_USER_ID=admin
+WEB_CONSOLE_DEV_STRATEGIES=
+
+# Operations Dashboard Dev Auth (P4T5 - Track 7)
+# WARNING: NEVER set to true in production/staging
+# Only allowed in: development, dev, local, test, ci
+OPERATIONS_DEV_AUTH=false
+```
+
+**Generate required secrets (local dev):**
+```bash
+# Internal service auth (64+ hex chars)
+openssl rand -hex 32
+
+# Alert recipient hash secret (32+ hex chars)
+openssl rand -hex 32
+
+# Session encryption key (base64 32 bytes)
+openssl rand -base64 32
 ```
 
 #### Variable Reference (Comprehensive)
@@ -200,11 +265,11 @@ WEB_CONSOLE_PASSWORD=changeme  # CHANGE THIS!
 | `ALPACA_API_SECRET_KEY` | ✅ | 40+ char secret from Alpaca | 🔐 Secret | Store in secrets manager |
 | `ALPACA_BASE_URL` | ✅ | `https://paper-api.alpaca.markets` (paper) or `https://api.alpaca.markets` (live) | ⚠️ Critical | Wrong URL = real money trades! |
 | **Database** |||||
-| `DATABASE_URL` | ✅ | `postgresql+psycopg://user:pass@host:port/db` | 🔐 Secret | Prefer TLS, non-superuser |
+| `DATABASE_URL` | ✅ | `postgresql://user:pass@host:port/db` | 🔐 Secret | Prefer TLS, non-superuser (local uses port 5433) |
 | `POSTGRES_USER` | ✅ | String | 🔐 Secret | Default: `trader` |
 | `POSTGRES_PASSWORD` | ✅ | String | 🔐 Secret | Rotate regularly |
 | **Redis** |||||
-| `REDIS_URL` | ✅ | `redis://host:port/db_index` | 🔐 Secret | Enable AUTH in production |
+| `REDIS_URL` | ✅ | `redis://host:port/db_index` | 🔐 Secret | Local default `db=1` for sessions; enable AUTH/TLS in production |
 | **Trading Safety** |||||
 | `DRY_RUN` | ✅ | `true` / `false` | ⚠️ Critical | `true` = no real orders |
 | `CAPITAL` | ✅ | Positive integer (USD) | 💰 Financial | Match broker account equity |
@@ -217,13 +282,32 @@ WEB_CONSOLE_PASSWORD=changeme  # CHANGE THIS!
 | `SIGNAL_SERVICE_URL` | ✅ | `http://localhost:8001` | - | Internal service |
 | `EXECUTION_GATEWAY_URL` | ✅ | `http://localhost:8002` | - | Controls order path |
 | `ORCHESTRATOR_URL` | ✅ | `http://localhost:8003` | - | Workflow controller |
+| **Slice Recovery** |||||
+| `MISFIRE_GRACE_SECONDS` | ❌ | Integer (default: 60) | - | Scheduler grace window before misfire |
+| `STALE_SLICE_EXPIRY_SECONDS` | ❌ | Integer (default: 86400) | - | 0 disables stale slice expiry |
+| **API Authentication** |||||
+| `API_AUTH_MODE` | ❌ | `enforce` / `log_only` | ⚠️ Critical | Fail-closed default; only use log_only for staged rollout |
+| **Internal Service Auth** |||||
+| `INTERNAL_TOKEN_REQUIRED` | ❌ | `true` / `false` | ⚠️ Critical | Default true; never disable in production |
+| `INTERNAL_TOKEN_SECRET` | ✅ | 64+ hex chars | 🔐 Secret | Required when INTERNAL_TOKEN_REQUIRED=true |
+| `INTERNAL_TOKEN_TIMESTAMP_TOLERANCE_SECONDS` | ❌ | Integer (default: 300) | - | Allowed clock skew for tokens |
 | **OAuth2 (Optional)** |||||
 | `AUTH0_DOMAIN` | ❌ | `tenant.us.auth0.com` | - | Required if auth_type=oauth2 |
 | `AUTH0_CLIENT_ID` | ❌ | UUID string | - | Non-secret but sensitive |
 | `AUTH0_CLIENT_SECRET` | ❌ | Confidential string | 🔐 Secret | Never commit |
-| `SESSION_ENCRYPTION_KEY` | ❌ | Base64 32-byte key | 🔐 Secret | Generate: `python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"` |
+| `AUTH0_AUDIENCE` | ❌ | URL string | - | API audience for OAuth2 |
+| `SESSION_ENCRYPTION_KEY` | ❌ | Base64 32-byte key | 🔐 Secret | Generate: `openssl rand -base64 32` |
+| **Web Console** |||||
+| `WEB_CONSOLE_USER` | ✅ | String | 🔐 Secret | Required for dev auth |
+| `WEB_CONSOLE_PASSWORD` | ✅ | String | 🔐 Secret | Change before deploy |
+| `WEB_CONSOLE_DEV_ROLE` | ❌ | `admin`, `operator`, `viewer` | - | Dev-only RBAC role for gateway headers |
+| `WEB_CONSOLE_DEV_USER_ID` | ❌ | String | - | Dev-only user ID (defaults to WEB_CONSOLE_USER) |
+| `WEB_CONSOLE_DEV_STRATEGIES` | ❌ | Comma-separated strategy IDs | - | Optional for non-admin roles |
+| `OPERATIONS_DEV_AUTH` | ❌ | `true` / `false` | ⚠️ Critical | NEVER enable in production/staging |
 | **Logging** |||||
 | `LOG_LEVEL` | ❌ | `DEBUG`, `INFO`, `WARNING`, `ERROR` | - | Avoid DEBUG in prod (PII risk) |
+| **Alerts** |||||
+| `ALERT_RECIPIENT_HASH_SECRET` | ✅ | 32+ hex chars | 🔐 Secret | Required for `alert_worker` rate limiting |
 
 ---
 
@@ -267,22 +351,52 @@ make install-hooks
 # Start PostgreSQL, Redis, Prometheus, Grafana, Loki, Promtail
 make up
 
+# Optional workers (backtest + alert) - enable explicitly
+# NOTE: If BuildKit snapshot errors occur, disable BuildKit for the build.
+DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose --profile workers up -d
+
 # Verify all services are running
 docker compose ps
 ```
 
+#### Step 5.1: Start Core APIs (required for Web Console)
+```bash
+# In a shell with the venv active and .env loaded
+source .venv/bin/activate
+set -a; source .env; set +a
+
+# Execution Gateway (port 8002) — required by web console
+PYTHONUNBUFFERED=1 poetry run uvicorn apps.execution_gateway.main:app \
+  --host 0.0.0.0 --port 8002 > logs/execution_gateway.log 2>&1 &
+
+# Optional for full local stack:
+# Signal Service (port 8001)
+PYTHONUNBUFFERED=1 poetry run uvicorn apps.signal_service.main:app \
+  --host 0.0.0.0 --port 8001 > logs/signal_service.log 2>&1 &
+
+# Orchestrator (port 8003)
+PYTHONUNBUFFERED=1 poetry run uvicorn apps.orchestrator.main:app \
+  --host 0.0.0.0 --port 8003 > logs/orchestrator.log 2>&1 &
+```
+
+**Local dev note (Web Console auth):**
+- For local dev without internal auth tokens, set `INTERNAL_TOKEN_REQUIRED=false`
+  in `.env` and restart the gateway so the web console headers are trusted.
+- If you still see `401 Unauthorized`, set `API_AUTH_MODE=log_only` in `.env` (dev only)
+  and restart the gateway.
+
 Expected output:
 ```
 NAME                           STATUS          PORTS
-trading_platform_postgres      Up (healthy)    0.0.0.0:5432->5432/tcp
-trading_platform_redis         Up (healthy)    (no host port - internal only)
+trading_platform_postgres      Up (healthy)    0.0.0.0:5433->5432/tcp
+trading_platform_redis         Up (healthy)    0.0.0.0:6379->6379/tcp
 trading_platform_prometheus    Up              0.0.0.0:9090->9090/tcp
 trading_platform_grafana       Up              0.0.0.0:3000->3000/tcp
 trading_platform_loki          Up (healthy)    0.0.0.0:3100->3100/tcp
 trading_platform_promtail      Up              -
 ```
 
-**Note:** Redis has no host port mapping for security (prevents direct tampering with JTI revocation blacklist). Access Redis via:
+**Note:** Redis is exposed on localhost:6379 for local development. In production, remove the host port mapping. Access Redis via:
 ```bash
 docker exec -it trading_platform_redis redis-cli
 ```
@@ -293,7 +407,10 @@ docker exec -it trading_platform_redis redis-cli
 docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/001_create_model_registry.sql
 docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/002_create_execution_tables.sql
 docker exec -i trading_platform_postgres psql -U trader -d trader < migrations/003_create_orchestration_tables.sql
+docker exec -i trading_platform_postgres psql -U trader -d trader < db/migrations/0001_extend_orders_for_slicing.sql
 ```
+
+**Note:** Rerunning migrations may print "already exists" warnings; those are safe in local dev.
 
 #### Step 7: Verify Installation
 ```bash
@@ -654,6 +771,28 @@ make down
 
 ---
 
+### A.9.1 Web Console JWT Keys (Generate/Rotate)
+The web console uses RS256 JWTs for service calls (manual controls, alert manager).
+Generate key material before starting the web console container.
+
+Generate keys locally:
+```bash
+source .venv/bin/activate
+python scripts/generate_certs.py
+```
+
+Expected output files:
+```bash
+ls -1 apps/web_console/certs/jwt_private.key apps/web_console/certs/jwt_public.pem
+```
+
+Rebuild the web console to pick up the keys:
+```bash
+docker compose --profile dev up -d --build web_console_dev
+```
+
+---
+
 ### A.10 Troubleshooting Guide
 
 #### Service Won't Start
@@ -668,6 +807,127 @@ kill -9 $(lsof -t -i:8001)
 
 # Check for import errors
 PYTHONPATH=. python3 -c "from apps.signal_service.main import app"
+```
+
+#### Web Console: `API Error: pnl_realtime - 401 Unauthorized`
+Symptom: Streamlit shows `401 Unauthorized` for
+`/api/v1/positions/pnl/realtime` (and dashboard widgets fail to load).
+
+Cause: Execution Gateway requires `X-User-Role` + `X-User-Id` headers.
+If the web console session lacks RBAC context, the headers are empty and the
+gateway returns 401.
+
+Fix (dev auth):
+```bash
+# Ensure dev auth has RBAC defaults
+grep WEB_CONSOLE_DEV_ .env
+# Expected (example):
+# WEB_CONSOLE_DEV_ROLE=admin
+# WEB_CONSOLE_DEV_USER_ID=admin
+
+# Restart the web console container so it reloads env vars
+docker compose --profile dev up -d --build web_console_dev
+```
+
+Verify:
+```bash
+curl -H "X-User-Role: admin" -H "X-User-Id: admin" \
+  http://localhost:8002/api/v1/positions/pnl/realtime
+```
+
+If you see `401` with `Invalid or missing internal authentication token`,
+set `INTERNAL_TOKEN_REQUIRED=false` (dev only) and restart the gateway.
+
+#### Web Console: Auth0 Login Loops Back to Login Page
+Symptom: Clicking "Login with Auth0" refreshes and returns to the same page.
+
+Cause (most common):
+- `WEB_CONSOLE_AUTH_TYPE=dev` (Auth0 flow is not active).
+- `OAUTH2_LOGIN_URL` not set (defaults to `/login`, which just reloads the Streamlit login page).
+- Auth0 values are placeholders and auth_service/nginx OAuth2 stack is not running.
+
+Fix (choose one):
+```bash
+# Option A: Dev auth (recommended for local dev)
+# Keep WEB_CONSOLE_AUTH_TYPE=dev and use the normal dev login on the main page.
+# Do NOT use the Auth0 login page in dev mode.
+
+# Option B: Enable OAuth2 stack (Auth0)
+# 1) Configure real Auth0 env vars + local callback URLs
+# 2) Start oauth2 profile services
+docker compose --profile oauth2 up -d web_console_oauth2 auth_service nginx_oauth2
+```
+
+Notes:
+- If using OAuth2 on localhost (http), set `COOKIE_SECURE=false` in `.env`.
+- Ensure Auth0 "Allowed Callback URLs" match `OAUTH2_REDIRECT_URI`.
+
+#### Web Console: Panels Empty / "No strategy access"
+Symptom: Strategy list, positions, or performance panels are blank and API
+returns `403 No strategy access`.
+
+Cause: The web console did not send `X-User-Strategies` (missing strategy scope).
+
+Fix:
+```bash
+# Option A: set explicit dev strategies
+export WEB_CONSOLE_DEV_STRATEGIES=alpha_baseline
+
+# Option B: rely on STRATEGY_ID fallback (recommended)
+grep STRATEGY_ID .env
+# Ensure docker-compose passes STRATEGY_ID into web_console and rebuild:
+docker compose --profile dev up -d --build web_console_dev
+```
+
+#### Web Console: Manual Controls Panel Blank / `session_version` Missing
+Symptom: Manual controls page is blank or shows an exception like
+`User session missing session_version - cannot call backend API`.
+
+Cause: Manual controls API requires `X-Session-Version`. Dev auth sets it in
+session state, but the web console must pass it through to API headers.
+
+Fix:
+```bash
+# Ensure dev session version env is set
+grep WEB_CONSOLE_DEV_SESSION_VERSION .env
+# Example:
+# WEB_CONSOLE_DEV_SESSION_VERSION=1
+
+# Rebuild/restart the web console to reload the code + env
+docker compose --profile dev up -d --build web_console_dev
+```
+
+Verify:
+```bash
+docker logs --tail=50 trading_platform_web_console_dev
+```
+
+#### Web Console: ModuleNotFoundError (aiosmtplib / rq / boto3 / hvac)
+Symptom: Streamlit page errors like:
+`ModuleNotFoundError: No module named 'aiosmtplib'` (alerts),
+`No module named 'rq'` (backtest),
+`No module named 'boto3'` or `hvac` (secrets backends).
+
+Fix:
+```bash
+# Rebuild web console image to pick up updated requirements
+docker compose --profile dev up -d --build web_console_dev
+```
+
+#### Web Console: `pnl_realtime` Network Error (`host.docker.internal` unreachable)
+Symptom: `Network is unreachable` from the web console container when calling
+`http://host.docker.internal:8002/...`.
+
+Fix:
+```bash
+# Ensure Execution Gateway is running on the host
+lsof -i :8002
+
+# On Linux, Docker may not resolve host.docker.internal by default.
+# Use host-gateway to add it, or run the gateway inside Docker instead.
+# Example: add this to the web_console service if needed:
+# extra_hosts:
+#   - "host.docker.internal:host-gateway"
 ```
 
 #### PostgreSQL Port Conflict (Local PostgreSQL Installed)
@@ -704,6 +964,23 @@ docker compose logs postgres
 docker compose restart postgres
 ```
 
+#### Worker DB Error: `connection refused` to `localhost:5433`
+Symptom: Worker logs (alert_worker/backtest_worker) show
+`connection refused` to `localhost:5433`.
+
+Cause: Containers must use `postgres:5432` (the Docker network hostname),
+but an old container or mis-set env is pointing at host `localhost:5433`.
+
+Fix:
+```bash
+# Recreate worker container to pick up correct env
+docker compose --profile workers up -d --force-recreate alert_worker
+
+# Verify inside container
+docker exec trading_platform-alert_worker-1 env | rg DATABASE_URL
+# Should be: postgresql://trader:trader@postgres:5432/trader
+```
+
 #### Redis Connection Failed
 ```bash
 # Check Redis is running
@@ -718,6 +995,32 @@ docker exec trading_platform_redis redis-cli KEYS "*"
 
 # Restart if needed
 docker compose restart redis
+```
+
+#### Debug Runbook
+For troubleshooting scenarios (empty pages, service startup failures, build/cache errors),
+see `docs/RUNBOOKS/debug-runbook.md`.
+
+#### Web Console UI E2E Smoke Tests (Playwright)
+Use Playwright to exercise core panels via a real browser.
+
+Prerequisites:
+```bash
+# Start web console (dev auth)
+docker compose --profile dev up -d web_console_dev
+```
+
+Install dev dependencies and browser:
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+python -m playwright install chromium
+```
+
+Run the e2e smoke tests:
+```bash
+# Requires dev auth; uses WEB_CONSOLE_USER/PASSWORD from .env
+RUN_E2E=1 WEB_CONSOLE_URL=http://localhost:8501 pytest tests/e2e/web_console -v -m e2e
 ```
 
 #### Circuit Breaker Won't Reset
@@ -845,8 +1148,8 @@ This section covers key considerations when deploying the trading platform to cl
 | Aspect | Local Development | Cloud Production |
 |--------|------------------|------------------|
 | **Loki user** | `user: "0"` (root - for volume permissions) | Non-root UID 10001 with proper PV permissions |
-| **Redis** | No host port (internal network) | Private subnet, Redis AUTH enabled |
-| **PostgreSQL** | localhost:5432 | Managed service (RDS, Cloud SQL, Azure DB) |
+| **Redis** | localhost:6379 (dev only) | Private subnet, Redis AUTH enabled |
+| **PostgreSQL** | localhost:5433 | Managed service (RDS, Cloud SQL, Azure DB) |
 | **Secrets** | `.env` file | Secrets Manager (AWS SM, HashiCorp Vault) |
 | **TLS** | Optional (self-signed) | Required (Let's Encrypt / ACM) |
 | **Scaling** | Single instance | Horizontal scaling with load balancer |
@@ -954,7 +1257,7 @@ redis:
 services:
   all-services:
     environment:
-      - DATABASE_URL=postgresql+psycopg://user:pass@rds-endpoint:5432/trader?sslmode=verify-full
+      - DATABASE_URL=postgresql://user:pass@rds-endpoint:5432/trader?sslmode=verify-full
       - REDIS_URL=rediss://:${REDIS_PASSWORD}@elasticache-endpoint:6379/0
 ```
 
@@ -994,7 +1297,7 @@ spec:
 # Cloud-specific additions to .env
 
 # Database (use managed service endpoint)
-DATABASE_URL=postgresql+psycopg://trader:${DB_PASSWORD}@my-rds-instance.region.rds.amazonaws.com:5432/trader?sslmode=verify-full
+DATABASE_URL=postgresql://trader:${DB_PASSWORD}@my-rds-instance.region.rds.amazonaws.com:5432/trader?sslmode=verify-full
 
 # Redis (use managed service with TLS)
 REDIS_URL=rediss://:${REDIS_PASSWORD}@my-elasticache.region.cache.amazonaws.com:6379/0

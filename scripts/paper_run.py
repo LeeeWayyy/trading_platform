@@ -604,7 +604,9 @@ def load_configuration(args: argparse.Namespace) -> dict[str, Any]:
 
     # Parse symbols (can be list from CLI or comma-separated string from .env)
     symbols_raw = get_config(
-        args.symbols, "PAPER_RUN_SYMBOLS", "AAPL,MSFT,GOOGL"  # Default MVP symbols
+        args.symbols,
+        "PAPER_RUN_SYMBOLS",
+        "AAPL,MSFT,GOOGL",  # Default MVP symbols
     )
     symbols = (
         symbols_raw
@@ -631,7 +633,9 @@ def load_configuration(args: argparse.Namespace) -> dict[str, Any]:
         "as_of_date": args.as_of_date,  # None = today
         # Service URLs
         "orchestrator_url": get_config(
-            args.orchestrator_url, "ORCHESTRATOR_URL", "http://localhost:8003"  # T5 default port
+            args.orchestrator_url,
+            "ORCHESTRATOR_URL",
+            "http://localhost:8003",  # T5 default port
         ),
         "execution_gateway_url": get_config(
             args.execution_gateway_url,

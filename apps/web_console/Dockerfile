@@ -3,8 +3,8 @@
 # Local build:
 #   docker build -t trading-platform-web-console -f apps/web_console/Dockerfile .
 #
-# The image now generates requirements.txt internally from pyproject.toml/poetry.lock,
-# so no pre-generated requirements file is needed for local or CI builds.
+# The image installs from service-specific requirements.txt to avoid pulling full
+# research dependencies (e.g., pyqlib) that are not needed for the web console.
 #
 # Run: docker run -p 8501:8501 --env-file .env trading-platform-web-console
 #
@@ -24,12 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency manifests and generate requirements.txt inside the image.
-# This avoids relying on a pre-generated requirements.txt (which is .gitignored).
-COPY pyproject.toml poetry.lock ./
-RUN pip install --no-cache-dir poetry \
-    && poetry export -f requirements.txt --without-hashes --output /tmp/requirements.txt \
-    && pip install --no-cache-dir --target=/build/packages -r /tmp/requirements.txt
+# Copy service requirements and install.
+COPY apps/web_console/requirements.txt ./
+RUN pip install --no-cache-dir --target=/build/packages -r requirements.txt
 
 # ============================================================================
 # Stage 2: Final - Minimal runtime image
@@ -45,7 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for running the application
-RUN groupadd -r appuser && useradd -r -g appuser -u 1000 appuser
+RUN groupadd -r appuser && useradd -m -r -g appuser -u 1000 appuser
+ENV HOME=/home/appuser
 
 # Copy installed packages from builder stage
 COPY --from=builder /build/packages /usr/local/lib/python3.11/site-packages
@@ -57,7 +55,7 @@ COPY apps/web_console /app/apps/web_console
 COPY libs /app/libs
 
 # Change ownership to non-root user
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app /home/appuser
 
 # Switch to non-root user
 USER appuser

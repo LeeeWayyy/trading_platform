@@ -123,6 +123,12 @@ def test_compare_page_renders(monkeypatch, stub_streamlit: DummyStreamlit) -> No
         get_current_user=lambda: {"user_id": "u1", "strategies": ["s1", "s2", "s3"]},
         require_auth=lambda fn: fn,
     )
+    auth_stub = types.ModuleType("apps.web_console.auth")
+    auth_stub.get_current_user = session_stub.get_current_user
+    sys.modules["apps.web_console.auth"] = auth_stub
+    sys.modules["apps.web_console.auth.streamlit_helpers"] = types.SimpleNamespace(
+        requires_auth=lambda fn: fn
+    )
     sys.modules["apps.web_console.auth.permissions"] = permissions_stub
     sys.modules["apps.web_console.auth.session_manager"] = session_stub
 
@@ -138,6 +144,12 @@ def test_compare_page_renders(monkeypatch, stub_streamlit: DummyStreamlit) -> No
     sys.modules["apps.web_console.components"] = components_pkg
     sys.modules["apps.web_console.components.comparison_charts"] = comparison_charts_stub
     sys.modules["apps.web_console.components.correlation_matrix"] = corr_stub
+
+    services_pkg = types.ModuleType("apps.web_console.services")
+    services_pkg.__path__ = []
+    comparison_service_stub = types.ModuleType("apps.web_console.services.comparison_service")
+    sys.modules["apps.web_console.services"] = services_pkg
+    sys.modules["apps.web_console.services.comparison_service"] = comparison_service_stub
 
     # Stub data access and service
     class DummyScopedAccess:
@@ -183,6 +195,7 @@ def test_compare_page_renders(monkeypatch, stub_streamlit: DummyStreamlit) -> No
             return {"equity_curve": [{"date": date(2025, 1, 1), "equity": 1.5}]}
 
     DummyService.validate_weights = staticmethod(lambda weights: (True, ""))  # type: ignore[attr-defined]
+    comparison_service_stub.ComparisonService = DummyService
 
     import importlib
 
@@ -190,6 +203,13 @@ def test_compare_page_renders(monkeypatch, stub_streamlit: DummyStreamlit) -> No
     monkeypatch.setattr(compare_page, "FEATURE_STRATEGY_COMPARISON", True)
     monkeypatch.setattr(compare_page, "StrategyScopedDataAccess", DummyScopedAccess)
     monkeypatch.setattr(compare_page, "ComparisonService", DummyService)
+    monkeypatch.setattr(
+        compare_page,
+        "get_current_user",
+        lambda: {"user_id": "u1", "role": "admin", "strategies": ["s1", "s2"]},
+    )
+    monkeypatch.setattr(compare_page, "has_permission", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(compare_page, "get_authorized_strategies", lambda *_args: ["s1", "s2"])
     # Return a mock db_pool to prevent st.stop() at config guard (line 86-91)
     mock_db_pool = types.SimpleNamespace()
     monkeypatch.setattr(compare_page, "get_db_pool", lambda: mock_db_pool)

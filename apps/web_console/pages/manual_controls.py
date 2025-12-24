@@ -557,9 +557,7 @@ def render_flatten_all(user: Mapping[str, Any]) -> None:
 # -----------------------------------------------------------------------------
 
 
-def render_manual_controls(
-    user: Mapping[str, Any], db_pool: Any, audit_logger: Any
-) -> None:  # noqa: ARG001
+def render_manual_controls(user: Mapping[str, Any]) -> None:
     """Render manual controls page."""
 
     if not FEATURE_MANUAL_CONTROLS:
@@ -588,3 +586,19 @@ __all__ = [
     "adjust_position",
     "flatten_all_positions",
 ]
+
+
+def main() -> None:
+    """Entry point for direct page access."""
+    import streamlit as st
+
+    user = {
+        "user_id": st.session_state.get("user_id", "unknown"),
+        "role": st.session_state.get("role"),
+        "strategies": st.session_state.get("strategies", []),
+    }
+    render_manual_controls(user=user)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,42 @@
+# Docker-specific requirements for Execution Gateway
+# Excludes pyqlib (not available on ARM64 Linux)
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Data validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# Database
+psycopg[binary]>=3.1.0
+psycopg-pool>=3.1.0
+
+# Redis
+redis>=5.0.0
+
+# HTTP client
+httpx>=0.25.0
+
+# Retry logic
+tenacity>=8.2.0
+
+# Alpaca API
+alpaca-py>=0.15.0
+
+# Task scheduling (TWAP slicer)
+apscheduler>=3.10.0
+
+# Metrics
+prometheus-client>=0.19.0
+
+# JWT
+PyJWT>=2.8.0
+cryptography>=41.0.0
+
+# Data processing (needed by config.universe)
+polars>=1.0.0
+pandas>=2.2.0
+numpy>=1.26.0

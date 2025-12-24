@@ -38,7 +38,9 @@ fi
 
 # Find all markdown files in target path
 echo -e "${YELLOW}Searching for markdown files in: ${TARGET_PATH}${NC}"
-MARKDOWN_FILES=$(find "$TARGET_PATH" -name "*.md" -type f | sort)
+MARKDOWN_FILES=$(find "$TARGET_PATH" -name "*.md" -type f \
+    -not -path "./qlib/*" \
+    | sort)
 
 if [ -z "$MARKDOWN_FILES" ]; then
     echo -e "${RED}❌ No markdown files found in ${TARGET_PATH}${NC}"

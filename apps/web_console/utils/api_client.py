@@ -9,6 +9,11 @@ This module centralizes common API-related utilities used across pages:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import os
+import time
 import uuid
 from collections.abc import Mapping
 from functools import lru_cache
@@ -20,6 +25,10 @@ from apps.web_console.auth.permissions import get_authorized_strategies
 from apps.web_console.auth.session_manager import get_current_user
 from apps.web_console.config import (
     API_REQUEST_TIMEOUT,
+    AUTH_TYPE,
+    DEV_ROLE,
+    DEV_STRATEGIES,
+    DEV_USER_ID,
     ENDPOINTS,
     MANUAL_CONTROLS_API_BASE,
 )
@@ -47,16 +56,29 @@ def safe_current_user() -> Mapping[str, Any]:
 def get_auth_headers(user: Mapping[str, Any]) -> dict[str, str]:
     """Build X-User-* headers for API requests.
 
+    When INTERNAL_TOKEN_SECRET is configured (production default), includes
+    HMAC signature headers (X-User-Signature, X-Request-Timestamp) for
+    internal token authentication.
+
     Args:
         user: User dict from session (must have role, user_id)
 
     Returns:
         Headers dict with X-User-Role, X-User-Id, X-User-Strategies
+        and optionally X-User-Signature, X-Request-Timestamp
     """
     headers: dict[str, str] = {}
     role = user.get("role")
     user_id = user.get("user_id")
     strategies = get_authorized_strategies(user)
+
+    if AUTH_TYPE in {"dev", "basic"}:
+        if not role:
+            role = DEV_ROLE
+        if not user_id:
+            user_id = DEV_USER_ID
+        if not strategies:
+            strategies = DEV_STRATEGIES
 
     if role:
         headers["X-User-Role"] = str(role)
@@ -64,6 +86,33 @@ def get_auth_headers(user: Mapping[str, Any]) -> dict[str, str]:
         headers["X-User-Id"] = str(user_id)
     if strategies:
         headers["X-User-Strategies"] = ",".join(sorted(strategies))
+
+    # Add HMAC signature headers when internal token secret is configured
+    internal_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+    if internal_secret and user_id and role:
+        # Generate timestamp as current Unix epoch
+        timestamp = str(int(time.time()))
+
+        # Build canonical JSON payload matching server's format
+        # Must match execution_gateway/main.py HMAC verification logic
+        strategies_str = ",".join(sorted(strategies)) if strategies else ""
+        payload_data = {
+            "uid": str(user_id).strip(),
+            "role": str(role).strip(),
+            "strats": strategies_str,
+            "ts": timestamp,
+        }
+        payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
+
+        # Generate HMAC-SHA256 signature
+        signature = hmac.new(
+            internal_secret.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+        headers["X-Request-Timestamp"] = timestamp
+        headers["X-User-Signature"] = signature
 
     return headers
 

@@ -479,6 +479,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-11-27, Runbook] [auth0-idp-outage.md](./RUNBOOKS/auth0-idp-outage.md) - Auth0 IdP outage response and mTLS fallback procedures
 - [CURRENT, 2025-12-02, Runbook] [MAIN_RUNBOOK.md](./RUNBOOKS/MAIN_RUNBOOK.md) - Main runbook for local development setup, Docker operations, and troubleshooting
 - [CURRENT, 2025-10-20, Runbook] [ops.md](./RUNBOOKS/ops.md) - Core operational procedures for deployment and troubleshooting
+- [CURRENT, 2025-12-24, Runbook] [debug-runbook.md](./RUNBOOKS/debug-runbook.md) - Debugging checklist and incident triage workflow
 - [CURRENT, 2025-11-27, Runbook] [mtls-fallback-admin-certs.md](./RUNBOOKS/mtls-fallback-admin-certs.md) - mTLS fallback emergency admin certificate generation and rotation
 - [CURRENT, 2025-11-27, Runbook] [oauth2-session-cleanup.md](./RUNBOOKS/oauth2-session-cleanup.md) - OAuth2 session cleanup and expired token removal procedures
 - [CURRENT, 2025-11-15, Runbook] [secret-rotation.md](./RUNBOOKS/secret-rotation.md) - Secret rotation procedures for Google Cloud Secret Manager

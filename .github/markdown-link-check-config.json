@@ -116,6 +116,9 @@
     },
     {
       "pattern": "^https://www.quantconnect.com"
+    },
+    {
+      "pattern": "^https://dohost.us"
     }
   ],
   "replacementPatterns": [

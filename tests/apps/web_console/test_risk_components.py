@@ -549,7 +549,8 @@ class TestApiClient:
         """Test get_auth_headers with empty user."""
         from apps.web_console.utils.api_client import get_auth_headers
 
-        headers = get_auth_headers({})
+        with patch("apps.web_console.utils.api_client.AUTH_TYPE", "oauth2"):
+            headers = get_auth_headers({})
         assert headers == {}
 
     def test_get_auth_headers_full_user(self, monkeypatch):

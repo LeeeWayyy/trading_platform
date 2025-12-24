@@ -114,8 +114,8 @@ jobs:
       - name: Start services with latest images
         env:
           # Paper trading credentials (from GitHub Environments secrets)
-          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_PAPER_API_SECRET }}
           ALPACA_PAPER: "true"
           DRY_RUN: "true"
 

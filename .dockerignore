@@ -46,7 +46,9 @@ README*
 
 # Data (exclude large data files from Docker context)
 data/
-artifacts/
+# Include model artifacts but exclude large files
+artifacts/backtests/
+artifacts/reports/
 *.parquet
 *.duckdb
 *.duckdb.wal

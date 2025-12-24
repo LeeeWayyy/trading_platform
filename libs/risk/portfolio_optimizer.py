@@ -767,7 +767,9 @@ class PortfolioOptimizer:
     # Private Helper Methods
     # ========================================================================
 
-    def _build_covariance(self, universe: list[int]) -> tuple[
+    def _build_covariance(
+        self, universe: list[int]
+    ) -> tuple[
         NDArray[np.floating[Any]],
         list[int],
         NDArray[np.floating[Any]],

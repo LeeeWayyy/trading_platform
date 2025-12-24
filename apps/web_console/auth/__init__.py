@@ -21,19 +21,22 @@ Note:
     For P2T3 Phase 2, we add mtls mode with certificate-based authentication.
 """
 
+import atexit
 import hashlib
 import hmac
 import json
 import logging
 import os
-import time
+import re
+import secrets
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jwt
 import redis
 import streamlit as st
 from prometheus_client import Counter, Gauge
+from psycopg_pool import ConnectionPool
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 if TYPE_CHECKING:
@@ -73,6 +76,17 @@ from libs.web_console_auth.jwt_manager import JWTManager
 from libs.web_console_auth.session import SessionManager
 
 logger = logging.getLogger(__name__)
+
+# Allowlist: ONLY these environments can use dev auth (fail-closed security)
+_ALLOWED_DEV_AUTH_ENVIRONMENTS = frozenset(
+    {
+        "development",
+        "dev",
+        "local",
+        "test",
+        "ci",
+    }
+)
 
 # ============================================================================
 # Prometheus Metrics (Component 6+7: P2T3 Phase 3)
@@ -272,6 +286,44 @@ def _get_session_manager() -> SessionManager:
 _idp_health_checker: "IdPHealthChecker | None" = None
 _mtls_fallback_validator: "MtlsFallbackValidator | None" = None
 
+# Audit log connection pool (lazy init)
+_audit_db_pool: ConnectionPool | None = None
+# Dev session Redis client (lazy init)
+_dev_session_redis: redis.Redis | None = None
+
+
+def _get_audit_db_pool() -> ConnectionPool:
+    """Get or initialize a shared psycopg_pool.ConnectionPool for audit logging."""
+    global _audit_db_pool
+
+    if _audit_db_pool is None:
+        _audit_db_pool = ConnectionPool(
+            conninfo=DATABASE_URL,
+            min_size=1,
+            max_size=5,
+            kwargs={"connect_timeout": int(DATABASE_CONNECT_TIMEOUT)},
+        )
+        _audit_db_pool.open()
+        logger.info(
+            "Audit DB pool initialized",
+            extra={"pool_min": 1, "pool_max": 5, "connect_timeout": DATABASE_CONNECT_TIMEOUT},
+        )
+
+    return _audit_db_pool
+
+
+def _close_audit_db_pool() -> None:
+    """Close the audit database pool on shutdown."""
+    global _audit_db_pool
+    if _audit_db_pool is not None:
+        try:
+            _audit_db_pool.close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_audit_db_pool)
+
 
 def _get_idp_health_checker() -> "IdPHealthChecker":
     """
@@ -362,22 +414,46 @@ def check_password() -> bool:
         return False
 
 
+def _handle_session_timeout_check() -> bool | None:
+    """
+    Check session timeout and handle cleanup if expired.
+
+    Returns:
+        True if session is valid, None if expired (cleanup handled internally)
+    """
+    if _check_session_timeout():
+        return True
+    else:
+        # Session expired - clear and prepare for rerun
+        st.session_state.clear()
+        _clear_dev_session_cookie()
+        return None
+
+
 def _dev_auth() -> bool:
     """
     Development mode authentication (simple username/password).
 
     For local development only. Uses credentials from config.
+    Uses cookie-based session persistence to survive page refreshes.
 
     Returns:
         bool: True if authenticated
     """
+    if not _ensure_dev_auth_allowed():
+        return False
     # Check if already logged in (dict-style access for test compatibility)
     if "authenticated" in st.session_state and st.session_state.get("authenticated", False):
-        if _check_session_timeout():
+        if _handle_session_timeout_check():
             return True
         else:
-            # Session expired
-            st.session_state.clear()
+            st.rerun()
+
+    # Try to restore session from cookie (survives page refresh)
+    if _restore_dev_session_from_cookie():
+        if _handle_session_timeout_check():
+            return True
+        else:
             st.rerun()
 
     # Initialize rate limiting state
@@ -421,6 +497,8 @@ def _dev_auth() -> bool:
                 st.session_state["failed_login_attempts"] = 0
                 st.session_state["lockout_until"] = None
                 _init_session(username, "dev")
+                # Save session to cookie for persistence across page refresh
+                _save_dev_session_to_cookie()
                 st.toast("Logged in successfully!")
                 st.rerun()
             else:
@@ -859,6 +937,13 @@ def _init_session(username: str, auth_method: str) -> None:
     st.session_state["login_time"] = now
     st.session_state["last_activity"] = now
     st.session_state["session_id"] = _generate_session_id(username, now)
+    # Dev/basic auth needs explicit RBAC context for API headers.
+    from apps.web_console.config import DEV_ROLE, DEV_SESSION_VERSION, DEV_STRATEGIES, DEV_USER_ID
+
+    st.session_state.setdefault("user_id", DEV_USER_ID or username)
+    st.session_state.setdefault("role", DEV_ROLE)
+    st.session_state.setdefault("strategies", DEV_STRATEGIES)
+    st.session_state.setdefault("session_version", DEV_SESSION_VERSION)
 
     # Audit successful login
     _audit_successful_login(username, auth_method)
@@ -944,10 +1029,366 @@ def _generate_session_id(username: str, login_time: datetime) -> str:
         login_time: Login timestamp
 
     Returns:
-        str: Session ID (SHA256 hash)
+        str: Session ID (random, URL-safe)
     """
-    data = f"{username}:{login_time.isoformat()}:{time.time()}"
-    return hashlib.sha256(data.encode()).hexdigest()[:16]
+    _ = username, login_time
+    return secrets.token_urlsafe(32)
+
+
+# ============================================================================
+# Dev Mode Cookie-Based Session Persistence
+# ============================================================================
+# These functions enable session persistence across page refreshes in dev mode
+# by storing session data in Redis and using a session cookie to identify sessions.
+
+_DEV_SESSION_PREFIX = "web_console:dev_session:"
+_DEV_SESSION_COOKIE_NAME = "dev_session_id"
+_DEV_SESSION_TTL_SECONDS = 4 * 60 * 60  # 4 hours (matches SESSION_ABSOLUTE_TIMEOUT_HOURS)
+# Session DB: Use REDIS_SESSION_DB env var for consistency with OAuth2 sessions
+# Default to DB 1 (separate from job queue on DB 0)
+_REDIS_SESSION_DB = int(os.environ.get("REDIS_SESSION_DB", "1"))
+_DEV_SESSION_HMAC_SECRET = os.getenv("WEB_CONSOLE_DEV_SESSION_SECRET", "").strip()
+if not _DEV_SESSION_HMAC_SECRET:
+    _DEV_SESSION_HMAC_SECRET = secrets.token_urlsafe(32)
+    logger.warning(
+        "WEB_CONSOLE_DEV_SESSION_SECRET not set; using ephemeral secret for dev session cookies."
+    )
+
+
+def _ensure_dev_auth_allowed() -> bool:
+    """Guard: dev auth is only allowed in local/dev environments."""
+    env = os.getenv("ENVIRONMENT", "dev").lower()
+    if env not in _ALLOWED_DEV_AUTH_ENVIRONMENTS:
+        st.error(
+            "🔒 Dev auth is disabled outside local/dev environments.\n\n"
+            f"ENVIRONMENT must be one of {sorted(_ALLOWED_DEV_AUTH_ENVIRONMENTS)}. "
+            f"Current ENVIRONMENT='{env or '(unset)'}'."
+        )
+        logger.error(
+            "Dev auth blocked: ENVIRONMENT not allowed",
+            extra={"environment": env or "(unset)"},
+        )
+        return False
+    if not _is_localhost_request():
+        st.error("🔒 Dev auth is restricted to localhost (127.0.0.1 or ::1).")
+        logger.error(
+            "Dev auth blocked: non-localhost request",
+            extra={"client_ip": _get_client_ip()},
+        )
+        return False
+    return True
+
+
+def _is_localhost_request() -> bool:
+    """Return True if request host is localhost/loopback or Docker bridge."""
+    loopback_values = {"localhost", "127.0.0.1", "::1"}
+    remote_addr = _get_remote_addr()
+
+    # Allow localhost/loopback
+    if remote_addr in loopback_values:
+        return True
+
+    # Allow Docker bridge networks (172.16.0.0/12 range covers 172.16-31.x.x)
+    # This enables dev auth when running Streamlit in Docker with port mapping
+    if remote_addr.startswith("172."):
+        try:
+            second_octet = int(remote_addr.split(".")[1])
+            if 16 <= second_octet <= 31:
+                return True
+        except (ValueError, IndexError):
+            pass
+
+    return False
+
+
+def _sign_dev_session_id(session_id: str) -> str:
+    """Return hex HMAC-SHA256 signature for session_id."""
+    secret = _DEV_SESSION_HMAC_SECRET.encode("utf-8")
+    return hmac.new(secret, session_id.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _format_dev_session_cookie_value(session_id: str) -> str:
+    signature = _sign_dev_session_id(session_id)
+    return f"{session_id}.{signature}"
+
+
+def _parse_dev_session_cookie_value(value: str) -> str | None:
+    """Return session_id if cookie signature is valid, else None."""
+    if "." not in value:
+        return None
+    session_id, signature = value.rsplit(".", 1)
+    expected = _sign_dev_session_id(session_id)
+    if not hmac.compare_digest(expected, signature):
+        return None
+    return session_id
+
+
+def _get_dev_session_redis() -> redis.Redis | None:
+    """Get Redis client for dev session storage.
+
+    Uses REDIS_SESSION_DB env var (default: 1) to match OAuth2 session storage.
+    This keeps sessions separate from the job queue (DB 0).
+    """
+    global _dev_session_redis
+
+    if _dev_session_redis is not None:
+        try:
+            _dev_session_redis.ping()
+            return _dev_session_redis
+        except (
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            redis.exceptions.RedisError,
+        ) as e:
+            logger.warning(f"Cached dev session Redis client unhealthy: {e}")
+            try:
+                _dev_session_redis.close()
+            except Exception:
+                pass
+            _dev_session_redis = None
+
+    try:
+        redis_url = os.environ.get("REDIS_URL", f"redis://localhost:6379/{_REDIS_SESSION_DB}")
+        # Parse URL and override db if needed
+        client = redis.Redis.from_url(
+            redis_url,
+            db=_REDIS_SESSION_DB,  # Override db from URL to ensure correct session db
+            decode_responses=True,
+            socket_timeout=2,
+        )
+        client.ping()
+        _dev_session_redis = client
+        return _dev_session_redis
+    except (
+        redis.exceptions.ConnectionError,
+        redis.exceptions.TimeoutError,
+        redis.exceptions.RedisError,
+    ) as e:
+        logger.warning(f"Failed to connect to Redis for dev session: {e}")
+        return None
+
+
+def _close_dev_session_redis() -> None:
+    """Close the dev session Redis client on shutdown."""
+    global _dev_session_redis
+    if _dev_session_redis is not None:
+        try:
+            _dev_session_redis.close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_dev_session_redis)
+
+
+def _save_dev_session_to_cookie() -> None:
+    """Save current session to Redis and set a session cookie via JavaScript."""
+    session_id = st.session_state.get("session_id")
+    if not session_id:
+        return
+
+    # Store session data in Redis
+    redis_client = _get_dev_session_redis()
+    if redis_client:
+        try:
+            login_time = st.session_state.get("login_time")
+            last_activity = st.session_state.get("last_activity")
+            session_data = json.dumps(
+                {
+                    "username": st.session_state.get("username"),
+                    "auth_method": st.session_state.get("auth_method"),
+                    "login_time": (
+                        login_time.isoformat() if isinstance(login_time, datetime) else None
+                    ),
+                    "last_activity": (
+                        last_activity.isoformat() if isinstance(last_activity, datetime) else None
+                    ),
+                    "user_id": st.session_state.get("user_id"),
+                    "role": st.session_state.get("role"),
+                    "strategies": st.session_state.get("strategies", []),
+                    "session_version": st.session_state.get("session_version"),
+                }
+            )
+            redis_client.setex(
+                f"{_DEV_SESSION_PREFIX}{session_id}",
+                _DEV_SESSION_TTL_SECONDS,
+                session_data,
+            )
+            logger.debug(f"Saved dev session to Redis: {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to save dev session to Redis: {e}")
+            return
+
+    # Set cookie via JavaScript (Streamlit doesn't have native cookie support)
+    # Use a hidden component to inject JavaScript
+    secure_flag = "" if _is_localhost_request() else "; Secure"
+    cookie_value = _format_dev_session_cookie_value(session_id)
+    cookie_js = f"""
+    <script>
+    document.cookie = "{_DEV_SESSION_COOKIE_NAME}={cookie_value}; path=/; max-age={_DEV_SESSION_TTL_SECONDS}; SameSite=Lax{secure_flag}";
+    </script>
+    """
+    st.components.v1.html(cookie_js, height=0)
+
+
+def _get_dev_session_cookie_raw() -> str | None:
+    """Get raw dev session cookie value from request headers."""
+    try:
+        headers = _get_request_headers()
+        cookie_header = headers.get("Cookie", "")
+        if not cookie_header:
+            return None
+
+        # Parse cookies
+        for cookie in cookie_header.split(";"):
+            cookie = cookie.strip()
+            if cookie.startswith(f"{_DEV_SESSION_COOKIE_NAME}="):
+                return cookie[len(f"{_DEV_SESSION_COOKIE_NAME}=") :]
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to get dev session cookie: {e}")
+        return None
+
+
+def _get_dev_session_cookie() -> str | None:
+    """Return validated dev session_id from cookie (HMAC-verified)."""
+    raw_value = _get_dev_session_cookie_raw()
+    if not raw_value:
+        return None
+    session_id = _parse_dev_session_cookie_value(raw_value)
+    if not session_id:
+        logger.warning("Invalid dev session cookie signature")
+        return None
+    return session_id
+
+
+def _restore_dev_session_from_cookie() -> bool:
+    """Restore session from Redis using cookie session ID."""
+    raw_value = _get_dev_session_cookie_raw()
+    if not raw_value:
+        return False
+
+    session_id = _parse_dev_session_cookie_value(raw_value)
+    if not session_id:
+        logger.warning("Rejected dev session cookie with invalid signature")
+        _clear_dev_session_cookie()
+        return False
+
+    redis_client = _get_dev_session_redis()
+    if not redis_client:
+        return False
+
+    try:
+        session_data_raw = redis_client.get(f"{_DEV_SESSION_PREFIX}{session_id}")
+        if not session_data_raw:
+            logger.debug(f"Dev session not found in Redis: {session_id}")
+            return False
+
+        if isinstance(session_data_raw, bytes):
+            session_data_raw = session_data_raw.decode("utf-8")
+        session_data = json.loads(cast(str, session_data_raw))
+        from apps.web_console.config import DEV_SESSION_VERSION
+
+        stored_version = session_data.get("session_version")
+        if stored_version != DEV_SESSION_VERSION:
+            logger.warning(
+                "Rejected dev session due to version mismatch",
+                extra={
+                    "session_id": session_id,
+                    "stored_version": stored_version,
+                    "expected_version": DEV_SESSION_VERSION,
+                },
+            )
+            try:
+                redis_client.delete(f"{_DEV_SESSION_PREFIX}{session_id}")
+            except Exception as delete_error:
+                logger.debug(f"Failed to delete version-mismatched dev session: {delete_error}")
+            _clear_dev_session_cookie()
+            return False
+
+        # Restore session state
+        st.session_state["authenticated"] = True
+        st.session_state["username"] = session_data.get("username")
+        st.session_state["auth_method"] = session_data.get("auth_method", "dev")
+        st.session_state["session_id"] = session_id
+        st.session_state["user_id"] = session_data.get("user_id")
+        st.session_state["role"] = session_data.get("role")
+        st.session_state["strategies"] = session_data.get("strategies", [])
+        st.session_state["session_version"] = session_data.get("session_version")
+
+        # Parse datetime fields
+        if session_data.get("login_time"):
+            st.session_state["login_time"] = datetime.fromisoformat(session_data["login_time"])
+        if session_data.get("last_activity"):
+            st.session_state["last_activity"] = datetime.fromisoformat(
+                session_data["last_activity"]
+            )
+
+        # Update last activity and save back to Redis
+        st.session_state["last_activity"] = datetime.now(UTC)
+        _update_dev_session_in_redis(session_id)
+
+        logger.info(f"Restored dev session from cookie: {session_id}")
+        return True
+
+    except Exception as e:
+        logger.warning(f"Failed to restore dev session: {e}")
+        return False
+
+
+def _update_dev_session_in_redis(session_id: str) -> None:
+    """Update last_activity in Redis session."""
+    redis_client = _get_dev_session_redis()
+    if not redis_client:
+        return
+
+    try:
+        login_time = st.session_state.get("login_time")
+        last_activity = st.session_state.get("last_activity")
+        session_data = json.dumps(
+            {
+                "username": st.session_state.get("username"),
+                "auth_method": st.session_state.get("auth_method"),
+                "login_time": login_time.isoformat() if isinstance(login_time, datetime) else None,
+                "last_activity": (
+                    last_activity.isoformat() if isinstance(last_activity, datetime) else None
+                ),
+                "user_id": st.session_state.get("user_id"),
+                "role": st.session_state.get("role"),
+                "strategies": st.session_state.get("strategies", []),
+                "session_version": st.session_state.get("session_version"),
+            }
+        )
+        # Refresh TTL on activity
+        redis_client.setex(
+            f"{_DEV_SESSION_PREFIX}{session_id}",
+            _DEV_SESSION_TTL_SECONDS,
+            session_data,
+        )
+    except Exception as e:
+        logger.debug(f"Failed to update dev session in Redis: {e}")
+
+
+def _clear_dev_session_cookie() -> None:
+    """Clear dev session cookie and delete from Redis."""
+    session_id = _get_dev_session_cookie()
+    if session_id:
+        # Delete from Redis
+        redis_client = _get_dev_session_redis()
+        if redis_client:
+            try:
+                redis_client.delete(f"{_DEV_SESSION_PREFIX}{session_id}")
+            except Exception as e:
+                logger.debug(f"Failed to delete dev session from Redis: {e}")
+
+    # Clear cookie via JavaScript
+    secure_flag = "" if _is_localhost_request() else "; Secure"
+    cookie_js = f"""
+    <script>
+    document.cookie = "{_DEV_SESSION_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax{secure_flag}";
+    </script>
+    """
+    st.components.v1.html(cookie_js, height=0)
 
 
 def _get_remote_addr() -> str:
@@ -982,14 +1423,13 @@ def _get_remote_addr() -> str:
         # We use remote_addr to VALIDATE headers (trusted proxy check).
         # Reading headers to get remote_addr would create a circular trust vulnerability.
 
-        # Fallback: environment variable for testing
-        env_remote = os.environ.get("REMOTE_ADDR", "127.0.0.1")
-        logger.debug(f"Using env REMOTE_ADDR: {env_remote}")
-        return env_remote
-
     except Exception as e:
-        logger.debug(f"Failed to extract remote_addr: {e}. Using 127.0.0.1")
-        return "127.0.0.1"
+        logger.debug(f"Failed to extract remote_addr: {e}")
+        return ""
+
+    # Return empty string if try block completes without finding remote_ip
+    # (e.g., ctx is None, runtime is None, session lacks ws attribute)
+    return ""
 
 
 def _get_client_ip() -> str:
@@ -1045,13 +1485,6 @@ def _get_client_ip() -> str:
                 )
                 return client_ip
 
-        # Fallback: check environment variable (for testing)
-        env_xff = os.environ.get("X_FORWARDED_FOR", "")
-        if env_xff:
-            client_ip = env_xff.split(",")[0].strip()
-            logger.debug(f"Extracted client IP from env X_FORWARDED_FOR: {client_ip}")
-            return client_ip
-
         # No X-Forwarded-For header - fall back to remote_addr
         logger.debug(f"No X-Forwarded-For header found, using remote_addr: {remote_addr}")
         return remote_addr
@@ -1066,6 +1499,11 @@ def audit_to_database(
     details: dict[str, Any],
     reason: str | None = None,
     session_id: str | None = None,
+    *,
+    event_type: str = "auth",
+    resource_type: str = "system",
+    resource_id: str | None = None,
+    outcome: str = "success",
 ) -> None:
     """
     Write audit entry to database.
@@ -1095,28 +1533,46 @@ def audit_to_database(
         "reason": reason,
         "ip_address": ip_address,
         "session_id": session_id or "N/A",
+        "event_type": event_type,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "outcome": outcome,
     }
 
     try:
         import psycopg
+        from psycopg.types.json import Jsonb
 
-        # Set short connection timeout to prevent blocking auth flows
-        # Use conninfo parameter instead of URL manipulation to preserve existing query params
-        # MVP: New connection per audit entry. Production TODO: Use connection pool
-        with psycopg.connect(DATABASE_URL, connect_timeout=DATABASE_CONNECT_TIMEOUT) as conn:
+        # Use shared connection pool to avoid per-entry connection overhead.
+        with _get_audit_db_pool().connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO audit_log (user_id, action, details, reason, ip_address, session_id)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO audit_log (
+                        user_id,
+                        action,
+                        details,
+                        reason,
+                        ip_address,
+                        session_id,
+                        event_type,
+                        resource_type,
+                        resource_id,
+                        outcome
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         user_id,
                         action,
-                        details,  # psycopg3 auto-adapts dict to JSONB, no Jsonb() wrapper needed
+                        Jsonb(details),
                         reason,
                         ip_address,
                         session_id or "N/A",
+                        event_type,
+                        resource_type,
+                        resource_id,
+                        outcome,
                     ),
                 )
                 conn.commit()
@@ -1149,6 +1605,10 @@ def _audit_successful_login(username: str, auth_method: str) -> None:
         action="login_success",
         details=details,
         session_id=session_id,
+        event_type="auth",
+        resource_type="session",
+        resource_id="login",
+        outcome="success",
     )
 
 
@@ -1168,6 +1628,10 @@ def _audit_failed_login(auth_method: str) -> None:
         action="login_failed",
         details=details,
         session_id="N/A",  # No session for failed login
+        event_type="auth",
+        resource_type="session",
+        resource_id="login",
+        outcome="denied",
     )
 
 
@@ -1176,12 +1640,10 @@ def _get_request_headers() -> dict[str, str]:
     Get request headers from Streamlit context.
 
     Attempts to access nginx-forwarded headers using Streamlit's session_info API.
-    Falls back to environment variables if session_info unavailable (e.g., older Streamlit versions).
 
     Implementation Notes:
     - Streamlit exposes headers via session_info.ws.request (WebSocket request object)
     - This is the recommended approach for production deployment behind nginx
-    - Fallback to os.environ for testing/development without nginx
 
     Returns:
         dict: Request headers (X-SSL-Client-* headers from nginx)
@@ -1209,20 +1671,7 @@ def _get_request_headers() -> dict[str, str]:
                         headers[key] = value
                     logger.debug(f"Retrieved {len(headers)} headers from session_info")
     except Exception as e:
-        logger.debug(
-            f"Could not access session_info headers: {e}. Falling back to environment variables."
-        )
-
-    # Fallback: Check environment variables (for testing/development)
-    if not headers:
-        headers = {
-            "X-SSL-Client-Verify": os.environ.get("X_SSL_CLIENT_VERIFY", ""),
-            "X-SSL-Client-S-DN": os.environ.get("X_SSL_CLIENT_S_DN", ""),
-            "X-SSL-Client-I-DN": os.environ.get("X_SSL_CLIENT_I_DN", ""),
-            "X-SSL-Client-Serial": os.environ.get("X_SSL_CLIENT_SERIAL", ""),
-            "X-SSL-Client-Fingerprint": os.environ.get("X_SSL_CLIENT_FINGERPRINT", ""),
-        }
-        logger.debug("Using environment variable fallback for headers")
+        logger.debug(f"Could not access session_info headers: {e}.")
 
     return headers
 
@@ -1240,12 +1689,18 @@ def _extract_cn_from_dn(dn: str) -> str:
     Returns:
         str: Common Name (CN) component, or full DN if CN not found
     """
+
     # Parse DN to extract CN (Common Name)
+    # RFC 4514: commas can be escaped (\,), so split on commas not preceded by backslash
     # DN format: "CN=value,OU=value,O=value,C=value"
-    for component in dn.split(","):
+    def _unescape_dn_value(value: str) -> str:
+        return re.sub(r"\\(.)", r"\1", value)
+
+    components = re.split(r"(?<!\\),", dn)
+    for component in components:
         component = component.strip()
-        if component.startswith("CN="):
-            return component[3:]  # Remove "CN=" prefix
+        if component.upper().startswith("CN="):
+            return _unescape_dn_value(component[3:])  # Remove "CN=" prefix
 
     # Fallback: Return full DN if CN not found
     logger.warning(f"CN not found in DN: {dn}")
@@ -1447,6 +1902,10 @@ def get_current_user() -> dict[str, Any]:
         "auth_method": st.session_state.get("auth_method", "unknown"),
         "login_time": st.session_state.get("login_time"),
         "session_id": st.session_state.get("session_id", "unknown"),
+        "user_id": st.session_state.get("user_id", st.session_state.get("username", "unknown")),
+        "role": st.session_state.get("role"),
+        "strategies": st.session_state.get("strategies", []),
+        "session_version": st.session_state.get("session_version"),
     }
 
 
@@ -1484,6 +1943,41 @@ def _mtls_fallback_auth() -> bool:
 
     # Get request headers
     headers = _get_request_headers()
+
+    # Step 0: Verify request comes from trusted proxy (defense-in-depth)
+    # Match _mtls_auth behavior to prevent header spoofing in fallback mode
+    if not TRUSTED_PROXY_IPS:
+        if not os.environ.get("ALLOW_INSECURE_MTLS_DEV", "").lower() == "true":
+            st.error(
+                "🔒 Configuration Error: mTLS fallback requires TRUSTED_PROXY_IPS.\n\n"
+                "TRUSTED_PROXY_IPS environment variable is not configured.\n\n"
+                "For production: Set TRUSTED_PROXY_IPS to your nginx proxy IP.\n"
+                "For development: Set ALLOW_INSECURE_MTLS_DEV=true (insecure!)."
+            )
+            logger.error(
+                "mTLS fallback rejected: TRUSTED_PROXY_IPS not configured. "
+                "Set ALLOW_INSECURE_MTLS_DEV=true to allow dev mode (insecure)."
+            )
+            _audit_failed_login("mtls_fallback")
+            return False
+        logger.warning(
+            "mTLS fallback running in INSECURE dev mode (ALLOW_INSECURE_MTLS_DEV=true). "
+            "Headers are NOT verified. DO NOT use in production!"
+        )
+    else:
+        remote_addr = _get_remote_addr()
+        if remote_addr not in TRUSTED_PROXY_IPS:
+            st.error(
+                "🔒 Authentication failed: Request not from trusted proxy.\n\n"
+                f"Source: {remote_addr}\n\n"
+                "This may indicate a security issue. Please contact your administrator."
+            )
+            logger.error(
+                f"mTLS fallback rejected: Request from untrusted source {remote_addr} "
+                f"(not in TRUSTED_PROXY_IPS). Possible header spoofing attempt."
+            )
+            _audit_failed_login("mtls_fallback")
+            return False
 
     # Get client certificate from nginx header (URL-encoded PEM)
     cert_pem_encoded = headers.get("X-SSL-Client-Cert", "")
@@ -1586,6 +2080,10 @@ def _mtls_fallback_auth() -> bool:
             "crl_status": cert_info.crl_status,
         },
         session_id=st.session_state["session_id"],
+        event_type="auth",
+        resource_type="session",
+        resource_id="mtls_fallback_login",
+        outcome="success",
     )
 
     logger.info(
@@ -1607,12 +2105,17 @@ def logout() -> None:
     For mTLS mode: Terminates session (revokes tokens, cleans up session index).
     For OAuth2 mode: Redirects to FastAPI /logout (clears cookie, redirects to Auth0 logout).
     For mTLS fallback mode: Clears session state and audit logs.
+    For dev mode: Clears session cookie and Redis session.
     For other modes: Simply clears session state.
     """
     username = st.session_state.get("username", "unknown")
     auth_method = st.session_state.get("auth_method", "unknown")
     # Get session_id from session_state first (available in all modes)
     session_id = st.session_state.get("session_id")
+
+    # Clear dev session cookie and Redis
+    if auth_method == "dev":
+        _clear_dev_session_cookie()
 
     # Terminate session for mTLS mode (revokes tokens and cleans up session index)
     if auth_method == "mtls":
@@ -1645,6 +2148,10 @@ def logout() -> None:
         action="logout",
         details=details,
         session_id=session_id,
+        event_type="auth",
+        resource_type="session",
+        resource_id="logout",
+        outcome="success",
     )
 
     st.session_state.clear()

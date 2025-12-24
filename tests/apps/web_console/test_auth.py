@@ -10,7 +10,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from apps.web_console import auth
+
+
+@pytest.fixture(autouse=True)
+def _allow_dev_auth() -> None:
+    """Allow dev auth in tests without requiring localhost environment setup."""
+    with patch("apps.web_console.auth._ensure_dev_auth_allowed", return_value=True):
+        yield
 
 
 class TestDevAuth:
@@ -95,9 +104,9 @@ class TestDevAuth:
 
         # IDs should be different (includes timestamp in hash)
         assert id1 != id2
-        # IDs should be 16 characters
-        assert len(id1) == 16
-        assert len(id2) == 16
+        # IDs should be non-empty and sufficiently long
+        assert len(id1) >= 32
+        assert len(id2) >= 32
 
     def test_get_current_user(self):
         """Test getting current user info."""
@@ -231,24 +240,23 @@ class TestDevAuthWorkflow:
                     with patch("apps.web_console.auth.st.form") as mock_form:
                         with patch("apps.web_console.auth._init_session"):
                             with patch("apps.web_console.auth.st.success"):
-                                with patch("apps.web_console.auth.time"):
-                                    with patch("apps.web_console.auth.st.rerun"):
-                                        # Mock form inputs
-                                        mock_form_context = MagicMock()
-                                        mock_form.return_value.__enter__.return_value = (
-                                            mock_form_context
-                                        )
-                                        mock_form_context.text_input.side_effect = [
-                                            "admin",
-                                            "admin",
-                                        ]
-                                        mock_form_context.form_submit_button.return_value = True
+                                with patch("apps.web_console.auth.st.rerun"):
+                                    # Mock form inputs
+                                    mock_form_context = MagicMock()
+                                    mock_form.return_value.__enter__.return_value = (
+                                        mock_form_context
+                                    )
+                                    mock_form_context.text_input.side_effect = [
+                                        "admin",
+                                        "admin",
+                                    ]
+                                    mock_form_context.form_submit_button.return_value = True
 
-                                        auth._dev_auth()
+                                    auth._dev_auth()
 
-                                        # Should reset failed attempts on success
-                                        assert mock_session_state["failed_login_attempts"] == 0
-                                        assert mock_session_state["lockout_until"] is None
+                                    # Should reset failed attempts on success
+                                    assert mock_session_state["failed_login_attempts"] == 0
+                                    assert mock_session_state["lockout_until"] is None
 
     def test_dev_auth_rate_limiting_3_attempts(self):
         """Test rate limiting after 3 failed attempts (30s lockout)."""

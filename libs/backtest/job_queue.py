@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import structlog
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 from redis import Redis
 from rq import Queue, Retry
@@ -178,7 +179,7 @@ class BacktestJobQueue:
             "start": config.start_date,
             "end": config.end_date,
             "weight": config.weight_method,
-            "config": config.to_dict(),
+            "config": Json(config.to_dict()),  # Wrap dict for psycopg3 JSONB
             "created_by": created_by,
             "timeout": job_timeout,
             "is_rerun": is_rerun,

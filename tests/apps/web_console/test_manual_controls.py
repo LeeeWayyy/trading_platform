@@ -235,7 +235,7 @@ def test_permission_gating_blocks(monkeypatch, stub_streamlit, user_with_session
     monkeypatch.setattr(manual_controls, "has_permission", lambda *_args: False)
 
     with pytest.raises(RuntimeError, match="st.stop"):
-        manual_controls.render_manual_controls(user_with_session, None, None)
+        manual_controls.render_manual_controls(user_with_session)
 
 
 def test_close_position_partial_qty(monkeypatch, stub_streamlit, user_with_session):

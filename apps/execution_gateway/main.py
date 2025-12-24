@@ -444,7 +444,11 @@ app = FastAPI(
 # ============================================================================
 # SECURITY: Restrict trusted_hosts to known ingress/load balancer IPs
 # Never use ["*"] in production - allows IP spoofing via X-Forwarded-For
-TRUSTED_PROXY_HOSTS = os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1").split(",")
+TRUSTED_PROXY_HOSTS = [
+    host.strip()
+    for host in os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1").split(",")
+    if host.strip()
+]
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=TRUSTED_PROXY_HOSTS)  # type: ignore[arg-type]
 
 # ============================================================================
@@ -518,6 +522,22 @@ order_cancel_auth = api_auth(
     )
 )
 
+order_read_auth = api_auth(
+    APIAuthConfig(
+        action="order_read",
+        require_role=None,
+        require_permission=Permission.VIEW_POSITIONS,
+    )
+)
+
+kill_switch_auth = api_auth(
+    APIAuthConfig(
+        action="kill_switch",
+        require_role=None,
+        require_permission=Permission.CANCEL_ORDER,
+    )
+)
+
 app.include_router(manual_controls_router, prefix="/api/v1", tags=["Manual Controls"])
 
 
@@ -554,7 +574,7 @@ def _verify_internal_token(
     strategies: str,
     settings: _InternalTokenSettings,
 ) -> tuple[bool, str]:
-    """Verify X-Internal-Token using HMAC-SHA256.
+    """Verify X-User-Signature using HMAC-SHA256.
 
     Token format: HMAC-SHA256(secret, canonical_json_payload)
     where the payload is a JSON object with sorted keys:
@@ -562,7 +582,7 @@ def _verify_internal_token(
     This prevents delimiter injection attacks that could occur with simple concatenation.
 
     Args:
-        token: Value from X-Internal-Token header
+        token: Value from X-User-Signature header
         timestamp_str: Value from X-Request-Timestamp header (epoch seconds)
         user_id: Value from X-User-Id header
         role: Value from X-User-Role header
@@ -651,18 +671,18 @@ async def populate_user_from_headers(request: Request, call_next: Any) -> Any:
 
     The performance dashboard Streamlit client sends X-User-Role, X-User-Id, and
     X-User-Strategies headers. This middleware validates these headers using
-    HMAC-signed X-Internal-Token when INTERNAL_TOKEN_REQUIRED=true.
+    HMAC-signed X-User-Signature when INTERNAL_TOKEN_REQUIRED=true.
 
     Headers:
         X-User-Role: User role (admin, trader, viewer)
         X-User-Id: User identifier
         X-User-Strategies: Comma-separated list of authorized strategies
-        X-Internal-Token: HMAC-SHA256 signature (when validation enabled)
+        X-User-Signature: HMAC-SHA256 signature (when validation enabled)
         X-Request-Timestamp: Epoch seconds for replay protection
 
     Backward Compatibility:
-        - INTERNAL_TOKEN_REQUIRED=false (default): Headers trusted without validation
-        - INTERNAL_TOKEN_REQUIRED=true: Token validation required for user context
+        - INTERNAL_TOKEN_REQUIRED=false (explicit): Headers trusted without validation
+        - INTERNAL_TOKEN_REQUIRED=true (default): Token validation required for user context
 
     This middleware populates request.state.user which _build_user_context
     then uses for RBAC enforcement.
@@ -675,7 +695,7 @@ async def populate_user_from_headers(request: Request, call_next: Any) -> Any:
         # Validate internal token if required
         settings = get_settings()
         if settings.internal_token_required:
-            token = request.headers.get("X-Internal-Token")
+            token = request.headers.get("X-User-Signature")
             timestamp = request.headers.get("X-Request-Timestamp")
 
             is_valid, error_reason = _verify_internal_token(
@@ -2018,7 +2038,10 @@ async def get_strategy_status(
 
 
 @app.post("/api/v1/kill-switch/engage", tags=["Kill-Switch"])
-async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]:
+async def engage_kill_switch(
+    request: KillSwitchEngageRequest,
+    _auth_context: AuthContext = Depends(kill_switch_auth),
+) -> dict[str, Any]:
     """
     Engage kill-switch (emergency trading halt).
 
@@ -2083,7 +2106,10 @@ async def engage_kill_switch(request: KillSwitchEngageRequest) -> dict[str, Any]
 
 
 @app.post("/api/v1/kill-switch/disengage", tags=["Kill-Switch"])
-async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str, Any]:
+async def disengage_kill_switch(
+    request: KillSwitchDisengageRequest,
+    _auth_context: AuthContext = Depends(kill_switch_auth),
+) -> dict[str, Any]:
     """
     Disengage kill-switch (resume trading).
 
@@ -2144,7 +2170,9 @@ async def disengage_kill_switch(request: KillSwitchDisengageRequest) -> dict[str
 
 
 @app.get("/api/v1/kill-switch/status", tags=["Kill-Switch"])
-async def get_kill_switch_status() -> dict[str, Any]:
+async def get_kill_switch_status(
+    _auth_context: AuthContext = Depends(kill_switch_auth),
+) -> dict[str, Any]:
     """
     Get kill-switch status.
 
@@ -3616,7 +3644,10 @@ async def submit_sliced_order(
 
 
 @app.get("/api/v1/orders/{parent_id}/slices", response_model=list[OrderDetail], tags=["Orders"])
-async def get_slices_by_parent(parent_id: str) -> list[OrderDetail]:
+async def get_slices_by_parent(
+    parent_id: str,
+    _auth_context: AuthContext = Depends(order_read_auth),
+) -> list[OrderDetail]:
     """
     Get all child slices for a parent TWAP order.
 
@@ -3669,7 +3700,10 @@ async def get_slices_by_parent(parent_id: str) -> list[OrderDetail]:
 
 
 @app.delete("/api/v1/orders/{parent_id}/slices", tags=["Orders"])
-async def cancel_slices(parent_id: str) -> dict[str, Any]:
+async def cancel_slices(
+    parent_id: str,
+    _auth_context: AuthContext = Depends(order_cancel_auth),
+) -> dict[str, Any]:
     """
     Cancel all pending child slices for a parent TWAP order.
 
@@ -3751,7 +3785,10 @@ async def cancel_slices(parent_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/v1/orders/{client_order_id}", response_model=OrderDetail, tags=["Orders"])
-async def get_order(client_order_id: str) -> OrderDetail:
+async def get_order(
+    client_order_id: str,
+    _auth_context: AuthContext = Depends(order_read_auth),
+) -> OrderDetail:
     """
     Get order details by client_order_id.
 
@@ -3796,7 +3833,9 @@ async def get_order(client_order_id: str) -> OrderDetail:
 
 
 @app.get("/api/v1/positions", response_model=PositionsResponse, tags=["Positions"])
-async def get_positions() -> PositionsResponse:
+async def get_positions(
+    _auth_context: AuthContext = Depends(order_read_auth),
+) -> PositionsResponse:
     """
     Get all current positions.
 
@@ -4295,6 +4334,22 @@ async def startup_event() -> None:
     logger.info(f"DRY_RUN mode: {DRY_RUN}")
     logger.info(f"Strategy ID: {STRATEGY_ID}")
 
+    settings = get_settings()
+    if settings.internal_token_required:
+        secret_value = settings.internal_token_secret.get_secret_value()
+        if not secret_value:
+            logger.warning(
+                "INTERNAL_TOKEN_REQUIRED=true but INTERNAL_TOKEN_SECRET is not configured",
+            )
+
+    # Open async database pool for auth/session validation
+    # Note: open() is idempotent - safe to call multiple times
+    from apps.execution_gateway.api.dependencies import get_db_pool
+
+    async_db_pool = get_db_pool()
+    await async_db_pool.open()
+    logger.info("Async database pool opened")
+
     # Check database connection
     if not db_client.check_connection():
         logger.error("Database connection failed at startup!")
@@ -4356,6 +4411,14 @@ async def shutdown_event() -> None:
         logger.info("Shutting down slice scheduler...")
         slice_scheduler.shutdown(wait=True)
         logger.info("Slice scheduler shutdown complete")
+
+    # Close async database pool for auth/session validation
+    # Note: close() is idempotent - safe to call multiple times
+    from apps.execution_gateway.api.dependencies import get_db_pool
+
+    async_db_pool = get_db_pool()
+    await async_db_pool.close()
+    logger.info("Async database pool closed")
 
     # H2 Fix: Close database connection pool for clean shutdown
     db_client.close()

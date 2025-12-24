@@ -1,4 +1,4 @@
-.PHONY: help up down logs fmt fmt-check lint validate-docs test test-cov test-watch clean install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs test test-cov test-watch clean install requirements install-hooks ci-local pre-push
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -20,8 +20,25 @@ up: ## Start infrastructure (Postgres, Redis, Prometheus, Grafana)
 	@sleep 5
 	@docker compose ps
 
+up-dev: ## Start all dev services (infrastructure + APIs + web console)
+	docker compose --profile dev up -d
+	@echo "Waiting for services to be healthy..."
+	@sleep 10
+	@docker compose --profile dev ps
+	@echo ""
+	@echo "Services available:"
+	@echo "  - Web Console:       http://localhost:8501"
+	@echo "  - Execution Gateway: http://localhost:8002"
+	@echo "  - Signal Service:    http://localhost:8001"
+	@echo "  - Orchestrator:      http://localhost:8003"
+	@echo "  - Grafana:           http://localhost:3000"
+	@echo "  - Prometheus:        http://localhost:9090"
+
 down: ## Stop infrastructure
 	docker compose down
+
+down-dev: ## Stop all dev services
+	docker compose --profile dev down
 
 down-v: ## Stop infrastructure and remove volumes
 	docker compose down -v
@@ -150,7 +167,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 		echo "❌ markdown-link-check not found. Installing..."; \
 		npm install -g markdown-link-check; \
 	}
-	@HANG_TIMEOUT=60 ./scripts/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
+	@HANG_TIMEOUT=60 ./scripts/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" ! -path "./qlib/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
 			echo ""; \
@@ -204,7 +221,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Step 6/6: Verifying workflow gate compliance (review approval markers)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@CI=true PYTHONPATH=. python3 scripts/verify_gate_compliance.py || { \
+	@CI=true PYTHONPATH=. poetry run python scripts/verify_gate_compliance.py || { \
 		echo ""; \
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo "❌ Workflow gate compliance failed!"; \

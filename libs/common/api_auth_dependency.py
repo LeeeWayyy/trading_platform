@@ -63,13 +63,40 @@ def _get_internal_token_secret() -> str:
     """
     return os.getenv("INTERNAL_TOKEN_SECRET", "")
 
+
 # SECURITY: Service ID whitelist - only allow known internal services
 # Prevents rogue services from authenticating with stolen secrets
 # Note: Normalize by stripping whitespace and lowercasing for robustness
 _raw_service_ids = os.getenv("ALLOWED_SERVICE_IDS", "orchestrator,signal_service,execution_gateway")
-ALLOWED_SERVICE_IDS = frozenset(
-    s.strip().lower() for s in _raw_service_ids.split(",") if s.strip()
-)
+ALLOWED_SERVICE_IDS = frozenset(s.strip().lower() for s in _raw_service_ids.split(",") if s.strip())
+
+# Explicit permission allowlist per internal service.
+# This ensures internal tokens can't bypass endpoint permissions.
+_SERVICE_PERMISSION_ALLOWLIST: dict[str, set[Permission]] = {
+    "orchestrator": {
+        Permission.GENERATE_SIGNALS,
+        Permission.SUBMIT_ORDER,
+        Permission.CANCEL_ORDER,
+        Permission.VIEW_POSITIONS,
+    },
+    "signal_service": {
+        Permission.GENERATE_SIGNALS,
+    },
+    "execution_gateway": {
+        Permission.SUBMIT_ORDER,
+        Permission.CANCEL_ORDER,
+    },
+}
+
+
+def _service_has_permission(service_id: str, permission: Permission | None) -> bool:
+    """Return True if service_id is allowed for the permission."""
+    if permission is None:
+        return True
+    allowed = _SERVICE_PERMISSION_ALLOWLIST.get(service_id.lower())
+    if not allowed:
+        return False
+    return permission in allowed
 
 
 def _get_auth_mode() -> str:
@@ -411,7 +438,16 @@ async def verify_internal_token(
     actual_query = request.url.query or ""
 
     if not _verify_hmac_signature(
-        token, service_id, method, path, actual_query, timestamp, nonce, user_id, strategy_id, body_hash or ""
+        token,
+        service_id,
+        method,
+        path,
+        actual_query,
+        timestamp,
+        nonce,
+        user_id,
+        strategy_id,
+        body_hash or "",
     ):
         logger.warning(
             "s2s_signature_invalid",
@@ -451,7 +487,9 @@ async def verify_internal_token(
                             "actual_hash": actual_body_hash[:16] + "...",
                         },
                     )
-                    s2s_auth_checks_total.labels(service_id=service_id, result="body_tampered").inc()
+                    s2s_auth_checks_total.labels(
+                        service_id=service_id, result="body_tampered"
+                    ).inc()
                     return None
             except Exception as exc:
                 logger.error("s2s_body_read_error", extra={"error": str(exc)})
@@ -466,7 +504,9 @@ async def verify_internal_token(
                     "s2s_body_hash_invalid_for_method",
                     extra={"service_id": service_id, "method": method},
                 )
-                s2s_auth_checks_total.labels(service_id=service_id, result="body_hash_invalid").inc()
+                s2s_auth_checks_total.labels(
+                    service_id=service_id, result="body_hash_invalid"
+                ).inc()
                 return None
 
     # Check nonce uniqueness (replay protection)
@@ -574,8 +614,45 @@ def api_auth(
                 body_hash=x_body_hash,
             )
             if internal_claims:
+                if not _service_has_permission(
+                    internal_claims.service_id, config.require_permission
+                ):
+                    api_auth_checks_total.labels(
+                        action=config.action,
+                        result="permission_denied",
+                        auth_type="internal_token",
+                        mode=mode,
+                    ).inc()
+                    logger.warning(
+                        "internal_permission_denied",
+                        extra={
+                            "action": config.action,
+                            "service_id": internal_claims.service_id,
+                            "permission": (
+                                config.require_permission.value
+                                if config.require_permission
+                                else None
+                            ),
+                        },
+                    )
+                    if mode == "enforce":
+                        required_permission = (
+                            config.require_permission.value
+                            if config.require_permission is not None
+                            else "unknown"
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail={
+                                "error": "permission_denied",
+                                "message": f"Permission {required_permission} required",
+                            },
+                        )
                 api_auth_checks_total.labels(
-                    action=config.action, result="internal_bypass", auth_type="internal_token", mode=mode
+                    action=config.action,
+                    result="internal_bypass",
+                    auth_type="internal_token",
+                    mode=mode,
                 ).inc()
                 return AuthContext(
                     user=None,
@@ -590,7 +667,10 @@ def api_auth(
                     extra={"action": config.action, "service_id": x_service_id},
                 )
                 api_auth_checks_total.labels(
-                    action=config.action, result="internal_token_invalid", auth_type="internal_token", mode=mode
+                    action=config.action,
+                    result="internal_token_invalid",
+                    auth_type="internal_token",
+                    mode=mode,
                 ).inc()
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -612,6 +692,7 @@ def api_auth(
                         from apps.execution_gateway.api.dependencies import (
                             build_gateway_authenticator,
                         )
+
                         authenticator = build_gateway_authenticator()
                     session_version = int(x_session_version)
                     user = await authenticator.authenticate(
@@ -650,7 +731,10 @@ def api_auth(
                             )
                             raise HTTPException(
                                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                detail={"error": "configuration_error", "message": "Invalid role configuration"},
+                                detail={
+                                    "error": "configuration_error",
+                                    "message": "Invalid role configuration",
+                                },
                             )
                         if user_level < required_level:
                             api_auth_checks_total.labels(

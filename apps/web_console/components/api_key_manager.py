@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime, time
 from typing import Any
 
@@ -33,7 +34,7 @@ _DB_OPERATION_TIMEOUT_SECONDS = 10.0
 
 
 def render_api_key_manager(
-    user: AuthenticatedUser,
+    user: AuthenticatedUser | Mapping[str, Any],
     db_pool: Any,
     audit_logger: AuditLogger,
     redis_client: Any,
@@ -44,6 +45,11 @@ def render_api_key_manager(
         st.error("Permission denied: MANAGE_API_KEYS required")
         return
 
+    user_id = _get_user_id(user)
+    if not user_id:
+        st.error("Invalid user context: missing user_id")
+        return
+
     st.title("API Key Manager")
     st.caption("Create, rotate, and revoke API keys for programmatic access.")
 
@@ -51,15 +57,15 @@ def render_api_key_manager(
 
     _render_one_time_modal()
 
-    _render_create_form(user, db_pool, audit_logger, csrf_token)
+    _render_create_form(user_id, db_pool, audit_logger, csrf_token)
 
-    keys = _list_keys_sync(db_pool, user.user_id)
+    keys = _list_keys_sync(db_pool, user_id)
 
     if _PENDING_REVOKE_KEY not in st.session_state:
         st.session_state[_PENDING_REVOKE_KEY] = set()
 
     _render_keys_table(
-        user=user,
+        user_id=user_id,
         keys=keys,
         db_pool=db_pool,
         audit_logger=audit_logger,
@@ -68,7 +74,7 @@ def render_api_key_manager(
     )
 
     _render_revoke_dialog(
-        user=user,
+        user_id=user_id,
         db_pool=db_pool,
         audit_logger=audit_logger,
         redis_client=redis_client,
@@ -76,7 +82,7 @@ def render_api_key_manager(
     )
 
     _render_rotate_dialog(
-        user=user,
+        user_id=user_id,
         db_pool=db_pool,
         audit_logger=audit_logger,
         csrf_token=csrf_token,
@@ -84,7 +90,7 @@ def render_api_key_manager(
 
 
 def _render_create_form(
-    user: AuthenticatedUser,
+    user_id: str,
     db_pool: Any,
     audit_logger: AuditLogger,
     csrf_token: str,
@@ -135,7 +141,7 @@ def _render_create_form(
 
         creation = _create_key_sync(
             db_pool=db_pool,
-            user_id=user.user_id,
+            user_id=user_id,
             name=name.strip(),
             scopes=scopes,
             expires_at=expires_at,
@@ -149,7 +155,7 @@ def _render_create_form(
 
         run_async(
             audit_logger.log_action(
-                user_id=user.user_id,
+                user_id=user_id,
                 action="api_key_created",
                 resource_type="api_key",
                 resource_id=creation["prefix"],
@@ -162,7 +168,7 @@ def _render_create_form(
 
 
 def _render_keys_table(
-    user: AuthenticatedUser,
+    user_id: str,
     keys: list[dict[str, Any]],
     db_pool: Any,
     audit_logger: AuditLogger,
@@ -197,7 +203,7 @@ def _render_keys_table(
 
 
 def _render_revoke_dialog(
-    user: AuthenticatedUser,
+    user_id: str,
     db_pool: Any,
     audit_logger: AuditLogger,
     redis_client: Any,
@@ -238,7 +244,7 @@ def _render_revoke_dialog(
 
         success = _revoke_key_sync(
             db_pool=db_pool,
-            user_id=user.user_id,
+            user_id=user_id,
             prefix=target["key_prefix"],
             redis_client=redis_client,
         )
@@ -247,7 +253,7 @@ def _render_revoke_dialog(
             st.success("API key revoked.")
             run_async(
                 audit_logger.log_action(
-                    user_id=user.user_id,
+                    user_id=user_id,
                     action="api_key_revoked",
                     resource_type="api_key",
                     resource_id=target["key_prefix"],
@@ -266,7 +272,7 @@ def _render_revoke_dialog(
 
 
 def _render_rotate_dialog(
-    user: AuthenticatedUser,
+    user_id: str,
     db_pool: Any,
     audit_logger: AuditLogger,
     csrf_token: str,
@@ -300,7 +306,7 @@ def _render_rotate_dialog(
         expires_at = _coerce_datetime(target.get("expires_at"))
         new_key = _create_key_sync(
             db_pool=db_pool,
-            user_id=user.user_id,
+            user_id=user_id,
             name=rotated_name,
             scopes={scope: True for scope in _normalize_scopes(target["scopes"])},
             expires_at=expires_at,
@@ -319,7 +325,7 @@ def _render_rotate_dialog(
 
         run_async(
             audit_logger.log_action(
-                user_id=user.user_id,
+                user_id=user_id,
                 action="api_key_rotated",
                 resource_type="api_key",
                 resource_id=target["key_prefix"],
@@ -347,6 +353,13 @@ def _render_one_time_modal() -> None:
             return
         st.session_state.pop(_MODAL_STATE_KEY, None)
         st.session_state.pop("api_key_acknowledged", None)
+
+
+def _get_user_id(user: AuthenticatedUser | Mapping[str, Any]) -> str:
+    """Extract user_id from AuthenticatedUser or dict context."""
+    if isinstance(user, Mapping):
+        return str(user.get("user_id") or user.get("username") or "")
+    return str(user.user_id)
 
 
 def _validate_create_input(

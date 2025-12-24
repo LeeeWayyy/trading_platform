@@ -80,7 +80,6 @@ class TestRedisClientOperations:
             patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
             patch("libs.redis_client.client.ConnectionPool"),
         ):
-
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.return_value = mock_redis
@@ -167,7 +166,6 @@ class TestRedisClientPubSub:
             patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
             patch("libs.redis_client.client.ConnectionPool"),
         ):
-
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.return_value = mock_redis
@@ -218,7 +216,6 @@ class TestRedisClientHealthCheck:
             patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
             patch("libs.redis_client.client.ConnectionPool"),
         ):
-
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.return_value = mock_redis
@@ -291,7 +288,6 @@ class TestRedisClientErrorHandling:
             patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
             patch("libs.redis_client.client.ConnectionPool"),
         ):
-
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.return_value = mock_redis
@@ -344,7 +340,6 @@ class TestRedisClientListOperations:
             patch("libs.redis_client.client.redis.Redis") as mock_redis_class,
             patch("libs.redis_client.client.ConnectionPool"),
         ):
-
             mock_redis = Mock()
             mock_redis.ping.return_value = True
             mock_redis_class.return_value = mock_redis

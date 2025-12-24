@@ -120,7 +120,8 @@ returns = returns.fillna(0)  # Fill first day with 0
 
 # Create index matching original
 predictions = pd.Series(
-    returns.values + np.random.randn(len(returns)) * 0.001, index=test_df.index  # Add small noise
+    returns.values + np.random.randn(len(returns)) * 0.001,
+    index=test_df.index,  # Add small noise
 )
 
 actual_returns = pd.Series(returns.values, index=test_df.index)

@@ -132,35 +132,35 @@ class HealthMonitorService:
             except (redis.RedisError, ConnectionError, TimeoutError) as exc:
                 return False, None, str(exc)
 
-        def _check_postgres() -> tuple[bool, float | None, str | None]:
+        async def _check_postgres_async() -> tuple[bool, float | None, str | None]:
+            """Async version of postgres health check for AsyncConnectionAdapter."""
             if not self.db_pool:
                 return False, None, "No database pool configured"
             start = datetime.now(UTC)
             try:
-                with self.db_pool.connection(timeout=2.0) as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT 1")
-                        cur.fetchone()
+                async with self.db_pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute("SELECT 1")
+                        await cur.fetchone()
                 latency_ms = (datetime.now(UTC) - start).total_seconds() * 1000
                 return True, latency_ms, None
             except Exception as exc:
-                # Broad exception handling to catch all DB errors (psycopg, pg8000, etc.)
-                # and let the stale-cache path execute instead of blanking the panel
                 logger.warning("Postgres health check failed: %s", exc)
                 return False, None, str(exc)
 
         try:
             # Use get_running_loop() (not deprecated get_event_loop())
-            # Use default executor (None) to avoid ThreadPool churn
+            # Redis check is sync - run in executor thread
+            # Postgres check is async - run directly in main loop (avoid event loop mismatch)
             loop = asyncio.get_running_loop()
             redis_future = loop.run_in_executor(None, _check_redis)
-            postgres_future = loop.run_in_executor(None, _check_postgres)
+            postgres_task = asyncio.create_task(_check_postgres_async())
 
             # Use gather with return_exceptions to handle failures independently
             # This ensures one service's failure doesn't mask the other's status
             results = await asyncio.gather(
                 asyncio.wait_for(redis_future, timeout=5.0),
-                asyncio.wait_for(postgres_future, timeout=5.0),
+                asyncio.wait_for(postgres_task, timeout=5.0),
                 return_exceptions=True,
             )
             redis_res, pg_res = results

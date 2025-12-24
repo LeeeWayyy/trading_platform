@@ -27,7 +27,7 @@ The web console supports two deployment modes:
 ```
 User → http://localhost:8501 → Streamlit (no nginx, basic auth)
 ```
-- **Usage:** `docker-compose --profile dev up -d`
+- **Usage:** `docker compose --profile dev up -d`
 - **Port:** 8501 (direct access)
 - **Auth:** Username/password (WEB_CONSOLE_AUTH_TYPE=dev)
 
@@ -35,7 +35,7 @@ User → http://localhost:8501 → Streamlit (no nginx, basic auth)
 ```
 User → https://localhost:443 → Nginx (mTLS + HTTPS) → http://web_console:8501 → Streamlit
 ```
-- **Usage:** `docker-compose --profile mtls up -d`
+- **Usage:** `docker compose --profile mtls up -d`
 - **Ports:** 443 (HTTPS), 80 (redirect to HTTPS)
 - **Auth:** Client certificates + JWT-DN binding (WEB_CONSOLE_AUTH_TYPE=mtls)
 
@@ -102,7 +102,7 @@ PYTHONPATH=. python3 scripts/generate_certs.py --client <username>
 
 **⚠️ CRITICAL:** DH parameters MUST be generated on the host before starting nginx.
 
-**Why:** The nginx Dockerfile does NOT generate dhparam.pem. It is mounted from the host via docker-compose volume. If missing, nginx will fail to start.
+**Why:** The nginx Dockerfile does NOT generate dhparam.pem. It is mounted from the host via docker compose volume. If missing, nginx will fail to start.
 
 ```bash
 # Generate 4096-bit DH parameters (takes 5-15 minutes)
@@ -135,30 +135,17 @@ ls -l apps/web_console/certs/*.key apps/web_console/certs/dhparam.pem
 
 **Create `.env` file (if not exists):**
 ```bash
-cat > .env <<EOF
-# Web Console Credentials
-WEB_CONSOLE_USER=admin
-WEB_CONSOLE_PASSWORD=secure_password_here
+cp .env.example .env
 
-# JWT Secret (REQUIRED for mTLS mode)
-# Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-# CRITICAL: Without this, sessions will be invalidated on container restart
-WEB_CONSOLE_JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-
-# Database (optional, uses defaults if not set)
-POSTGRES_USER=trader
-POSTGRES_PASSWORD=trader
-POSTGRES_DB=trader
-EOF
+# Set at minimum:
+# WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
+# Optional for OAuth2 profile:
+# AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_AUDIENCE, SESSION_ENCRYPTION_KEY
 
 chmod 600 .env  # Secure credentials file
 ```
 
-**Verify JWT secret was generated:**
-```bash
-grep WEB_CONSOLE_JWT_SECRET .env
-# Expected: WEB_CONSOLE_JWT_SECRET=<43-character random string>
-```
+**Note:** `SESSION_ENCRYPTION_KEY` is required only for OAuth2 profile (`--profile oauth2`), not for mTLS.
 
 ---
 
@@ -168,7 +155,7 @@ grep WEB_CONSOLE_JWT_SECRET .env
 
 ```bash
 # Start web console without nginx
-docker-compose --profile dev up -d
+docker compose --profile dev up -d
 
 # Verify service is running
 docker ps | grep web_console
@@ -183,11 +170,11 @@ open http://localhost:8501
 
 ```bash
 # Start web console + nginx reverse proxy
-docker-compose --profile mtls up -d
+docker compose --profile mtls up -d
 
 # Verify both services running
 docker ps | grep -E "nginx|web_console"
-# Expected: trading_platform_nginx, trading_platform_web_console_mtls
+# Expected: trading_platform_nginx_mtls, trading_platform_web_console_mtls
 
 # Verify port 8501 NOT exposed
 curl -I http://localhost:8501 2>&1
@@ -203,11 +190,11 @@ open https://localhost:443
 
 ```bash
 # Check nginx health
-docker exec trading_platform_nginx nginx -t
+docker exec trading_platform_nginx_mtls nginx -t
 # Expected: "nginx: configuration file /etc/nginx/nginx.conf test is successful"
 
 # Check nginx logs
-docker logs trading_platform_nginx --tail 50
+docker logs trading_platform_nginx_mtls --tail 50
 
 # Check web console logs
 docker logs trading_platform_web_console_mtls --tail 50
@@ -236,7 +223,7 @@ PYTHONPATH=. python3 scripts/generate_certs.py --server-only \
   --san DNS:web-console.trading-platform.local,DNS:localhost,DNS:web_console_nginx --force
 
 # 3. Test configuration BEFORE reload (CRITICAL)
-docker exec trading_platform_nginx nginx -t
+docker exec trading_platform_nginx_mtls nginx -t
 if [ $? -ne 0 ]; then
   echo "ERROR: nginx config test failed, rolling back"
   mv apps/web_console/certs/ca.crt.backup apps/web_console/certs/ca.crt
@@ -246,11 +233,11 @@ if [ $? -ne 0 ]; then
 fi
 
 # 4. Reload nginx configuration (graceful, no downtime)
-docker exec trading_platform_nginx nginx -s reload
+docker exec trading_platform_nginx_mtls nginx -s reload
 
 # 5. Verify reload succeeded
-docker exec trading_platform_nginx nginx -T | grep "ssl_certificate"
-docker logs trading_platform_nginx --tail 10
+docker exec trading_platform_nginx_mtls nginx -T | grep "ssl_certificate"
+docker logs trading_platform_nginx_mtls --tail 10
 
 # 6. Test with new client certificate
 # Browser: Import new client_<username>.crt
@@ -291,7 +278,7 @@ PYTHONPATH=. python3 scripts/generate_certs.py --client new_user
 PYTHONPATH=. python3 scripts/generate_certs.py --ca-only --force
 
 # Update nginx configuration
-docker exec trading_platform_nginx nginx -s reload
+docker exec trading_platform_nginx_mtls nginx -s reload
 
 # All old client certificates immediately invalid
 # Generate new client certificates for authorized users
@@ -323,8 +310,8 @@ grep -A 5 "web_console_mtls:" docker-compose.yml
 # Verify NO "ports:" section under web_console_mtls service
 
 # Restart services
-docker-compose down
-docker-compose --profile mtls up -d
+docker compose down
+docker compose --profile mtls up -d
 ```
 
 ### WebSocket Connections Dropping After 2 Minutes
@@ -336,7 +323,7 @@ docker-compose --profile mtls up -d
 **Fix:**
 ```bash
 # Verify WebSocket location exists in nginx.conf
-docker exec trading_platform_nginx cat /etc/nginx/nginx.conf | grep -A 10 "_stcore/stream"
+docker exec trading_platform_nginx_mtls cat /etc/nginx/nginx.conf | grep -A 10 "_stcore/stream"
 
 # Expected output:
 # location /_stcore/stream {
@@ -348,8 +335,8 @@ docker exec trading_platform_nginx cat /etc/nginx/nginx.conf | grep -A 10 "_stco
 
 # If missing or incorrect:
 # 1. Update apps/web_console/nginx/nginx.conf
-# 2. Rebuild nginx image: docker-compose build nginx
-# 3. Restart: docker-compose --profile mtls up -d
+# 2. Rebuild nginx image: docker compose --profile mtls build nginx_mtls
+# 3. Restart: docker compose --profile mtls up -d nginx_mtls
 ```
 
 ### JWT-DN Binding Validation Failures
@@ -361,7 +348,7 @@ docker exec trading_platform_nginx cat /etc/nginx/nginx.conf | grep -A 10 "_stco
 **Diagnosis:**
 ```bash
 # Check nginx forwards mTLS headers
-docker exec trading_platform_nginx cat /etc/nginx/nginx.conf | grep "X-SSL-Client"
+docker exec trading_platform_nginx_mtls cat /etc/nginx/nginx.conf | grep "X-SSL-Client"
 
 # Expected:
 # proxy_set_header X-SSL-Client-Verify $ssl_client_verify;
@@ -376,8 +363,8 @@ docker exec trading_platform_nginx cat /etc/nginx/nginx.conf | grep "X-SSL-Clien
 ```bash
 # If headers missing:
 # 1. Verify nginx.conf has proxy_set_header directives
-# 2. Rebuild nginx: docker-compose build nginx
-# 3. Restart: docker-compose --profile mtls up -d
+# 2. Rebuild nginx: docker compose --profile mtls build nginx_mtls
+# 3. Restart: docker compose --profile mtls up -d nginx_mtls
 
 # If headers present but not accessible in Streamlit:
 # 1. Check Streamlit version: docker exec trading_platform_web_console_mtls python3 -c "import streamlit; print(streamlit.__version__)"
@@ -425,8 +412,8 @@ resolver_timeout 5s;
 
 **Apply Changes:**
 ```bash
-docker-compose build nginx
-docker-compose --profile mtls up -d
+docker compose --profile mtls build nginx_mtls
+docker compose --profile mtls up -d nginx_mtls
 ```
 
 ### Rate Limiting Too Aggressive
@@ -436,7 +423,7 @@ docker-compose --profile mtls up -d
 **Diagnosis:**
 ```bash
 # Check nginx access logs for rate limit denials
-docker logs trading_platform_nginx 2>&1 | grep "limiting requests"
+docker logs trading_platform_nginx_mtls 2>&1 | grep "limiting requests"
 
 # Example: "limiting requests, excess: 5.123 by zone 'mtls_limit'"
 ```
@@ -457,8 +444,8 @@ limit_req zone=mtls_limit burst=50 nodelay;  # Was 20
 
 **Apply:**
 ```bash
-docker exec trading_platform_nginx nginx -t
-docker exec trading_platform_nginx nginx -s reload
+docker exec trading_platform_nginx_mtls nginx -t
+docker exec trading_platform_nginx_mtls nginx -s reload
 ```
 
 ---
@@ -533,7 +520,7 @@ done
 wait
 
 # Check logs for connection rejections
-docker logs trading_platform_nginx 2>&1 | grep "limiting connections"
+docker logs trading_platform_nginx_mtls 2>&1 | grep "limiting connections"
 # Expected: Some connections rejected after limit (50)
 ```
 
@@ -572,7 +559,7 @@ openssl s_client -connect localhost:443 -status \
 docker ps | grep nginx
 
 # Check recent errors
-docker logs trading_platform_nginx --since 1h | grep -i error
+docker logs trading_platform_nginx_mtls --since 1h | grep -i error
 
 # Verify HTTPS endpoint
 curl -k --cert apps/web_console/certs/client_<username>.crt \
@@ -583,10 +570,10 @@ curl -k --cert apps/web_console/certs/client_<username>.crt \
 **Monitor Rate Limiting:**
 ```bash
 # Check for excessive rate limit hits (may indicate DoS)
-docker logs trading_platform_nginx --since 1h | grep "limiting" | wc -l
+docker logs trading_platform_nginx_mtls --since 1h | grep "limiting" | wc -l
 
 # Investigate source IPs if count high
-docker logs trading_platform_nginx --since 1h | grep "limiting" | awk '{print $1}' | sort | uniq -c | sort -rn
+docker logs trading_platform_nginx_mtls --since 1h | grep "limiting" | awk '{print $1}' | sort | uniq -c | sort -rn
 ```
 
 ### Certificate Expiration Monitoring
@@ -637,10 +624,10 @@ fi
 
 **Procedure: nginx Down**
 1. Check container status: `docker ps -a | grep nginx`
-2. Review logs: `docker logs trading_platform_nginx`
+2. Review logs: `docker logs trading_platform_nginx_mtls`
 3. Verify certificates exist and valid
-4. Test configuration: `docker exec trading_platform_nginx nginx -t`
-5. Restart if healthy: `docker-compose --profile mtls restart nginx`
+4. Test configuration: `docker exec trading_platform_nginx_mtls nginx -t`
+5. Restart if healthy: `docker compose --profile mtls restart nginx_mtls`
 6. If persistent failure: rollback to last known good config
 
 ---

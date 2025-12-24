@@ -122,7 +122,8 @@ class SchemaRegistry:
     """
 
     SCHEMA_DIR = Path("data/schemas")
-    LOCK_DIR = Path("data/locks")
+    # Lock directory configurable via env var for Docker read-only data mounts
+    LOCK_DIR = Path(os.environ.get("DATA_LOCK_DIR", "data/locks"))
 
     # Lock timeout constants
     LOCK_STALE_SECONDS = 300  # 5 minutes - check PID liveness after this

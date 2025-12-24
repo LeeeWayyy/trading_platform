@@ -40,6 +40,7 @@ from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.auth.permissions import Permission, has_permission
 from apps.web_console.auth.streamlit_helpers import requires_auth
 from apps.web_console.components.session_status import render_session_status
+from apps.web_console.utils.api_client import get_auth_headers
 from apps.web_console.utils.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
@@ -136,14 +137,17 @@ def fetch_api(
     """
     url = config.ENDPOINTS[endpoint]
     session = _get_api_session()
+    headers = get_auth_headers(auth.get_current_user())
 
     try:
         if method == "GET":
-            response = session.get(url, timeout=config.API_REQUEST_TIMEOUT)
+            response = session.get(url, headers=headers, timeout=config.API_REQUEST_TIMEOUT)
         elif method == "POST":
-            response = session.post(url, json=data, timeout=config.API_REQUEST_TIMEOUT)
+            response = session.post(
+                url, json=data, headers=headers, timeout=config.API_REQUEST_TIMEOUT
+            )
         elif method == "DELETE":
-            response = session.delete(url, timeout=config.API_REQUEST_TIMEOUT)
+            response = session.delete(url, headers=headers, timeout=config.API_REQUEST_TIMEOUT)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -224,6 +228,9 @@ def audit_log(action: str, details: dict[str, Any], reason: str | None = None) -
         details=details,
         reason=reason,
         session_id=user_info["session_id"],
+        event_type="action",
+        resource_type="manual_action",
+        resource_id=action,
     )
 
 
@@ -883,11 +890,7 @@ def main() -> None:
     elif page == "Manual Trade Controls":
         from apps.web_console.pages.manual_controls import render_manual_controls
 
-        render_manual_controls(
-            user=user_info,
-            db_pool=get_db_pool(),
-            audit_logger=AuditLogger(get_db_pool()),
-        )
+        render_manual_controls(user=user_info)
     elif page == "Kill Switch":
         render_kill_switch()
     elif page == "Circuit Breaker":

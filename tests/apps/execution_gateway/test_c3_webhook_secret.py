@@ -79,7 +79,9 @@ class TestWebhookSecretValidation:
     def test_webhook_secret_whitespace_only_rejected(self):
         """Verify whitespace-only WEBHOOK_SECRET is treated as missing."""
         should_error = self._check_webhook_secret_required(
-            webhook_secret="   ", environment="production", dry_run=False  # Whitespace only
+            webhook_secret="   ",
+            environment="production",
+            dry_run=False,  # Whitespace only
         )
         assert should_error, "Whitespace-only WEBHOOK_SECRET should be rejected in production"
 

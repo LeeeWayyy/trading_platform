@@ -406,3 +406,6 @@ def main() -> None:
 
 
 __all__ = ["render_health_monitor", "main"]
+
+if __name__ == "__main__":
+    main()
