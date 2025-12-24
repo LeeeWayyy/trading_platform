@@ -6,7 +6,17 @@ import os
 
 import pytest
 import requests
-from playwright.sync_api import Page, expect
+
+# Guard against missing playwright - skip collection if not installed
+# This prevents CI failures when running with -m "not e2e"
+try:
+    from playwright.sync_api import Page, expect
+except ImportError:
+    # Create dummy types to allow module to load for collection
+    # Tests will be skipped anyway via require_e2e_enabled fixture
+    Page = object  # type: ignore[misc,assignment]
+    expect = None  # type: ignore[assignment]
+    pytest.importorskip("playwright", reason="playwright not installed")
 
 
 def _truthy(value: str | None) -> bool:
