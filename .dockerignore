@@ -79,3 +79,5 @@ tests/
 
 # Development tools
 Makefile
+pyproject.toml
+poetry.lock

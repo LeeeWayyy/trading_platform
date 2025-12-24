@@ -287,6 +287,8 @@ _mtls_fallback_validator: "MtlsFallbackValidator | None" = None
 
 # Audit log connection pool (lazy init)
 _audit_db_pool: ConnectionPool | None = None
+# Dev session Redis client (lazy init)
+_dev_session_redis: redis.Redis | None = None
 
 
 def _get_audit_db_pool() -> ConnectionPool:
@@ -1091,6 +1093,20 @@ def _get_dev_session_redis() -> redis.Redis | None:
     Uses REDIS_SESSION_DB env var (default: 1) to match OAuth2 session storage.
     This keeps sessions separate from the job queue (DB 0).
     """
+    global _dev_session_redis
+
+    if _dev_session_redis is not None:
+        try:
+            _dev_session_redis.ping()
+            return _dev_session_redis
+        except Exception as e:
+            logger.warning(f"Cached dev session Redis client unhealthy: {e}")
+            try:
+                _dev_session_redis.close()
+            except Exception:
+                pass
+            _dev_session_redis = None
+
     try:
         redis_host = os.environ.get("REDIS_HOST", "localhost")
         redis_port = int(os.environ.get("REDIS_PORT", "6379"))
@@ -1102,7 +1118,8 @@ def _get_dev_session_redis() -> redis.Redis | None:
             socket_timeout=2,
         )
         client.ping()
-        return client
+        _dev_session_redis = client
+        return _dev_session_redis
     except Exception as e:
         logger.warning(f"Failed to connect to Redis for dev session: {e}")
         return None
@@ -1350,14 +1367,11 @@ def _get_remote_addr() -> str:
         # We use remote_addr to VALIDATE headers (trusted proxy check).
         # Reading headers to get remote_addr would create a circular trust vulnerability.
 
-        # Fallback: environment variable for testing
-        env_remote = os.environ.get("REMOTE_ADDR", "127.0.0.1")
-        logger.debug(f"Using env REMOTE_ADDR: {env_remote}")
-        return env_remote
-
     except Exception as e:
-        logger.debug(f"Failed to extract remote_addr: {e}. Using 127.0.0.1")
-        return "127.0.0.1"
+        logger.debug(f"Failed to extract remote_addr: {e}")
+        return ""
+
+    return ""
 
 
 def _get_client_ip() -> str:

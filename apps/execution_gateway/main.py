@@ -526,7 +526,7 @@ order_read_auth = api_auth(
     APIAuthConfig(
         action="order_read",
         require_role=None,
-        require_permission=Permission.GENERATE_SIGNALS,
+        require_permission=Permission.VIEW_POSITIONS,
     )
 )
 
