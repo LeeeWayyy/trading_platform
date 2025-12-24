@@ -400,6 +400,22 @@ def check_password() -> bool:
         return False
 
 
+def _handle_session_timeout_check() -> bool | None:
+    """
+    Check session timeout and handle cleanup if expired.
+
+    Returns:
+        True if session is valid, None if expired (cleanup handled internally)
+    """
+    if _check_session_timeout():
+        return True
+    else:
+        # Session expired - clear and prepare for rerun
+        st.session_state.clear()
+        _clear_dev_session_cookie()
+        return None
+
+
 def _dev_auth() -> bool:
     """
     Development mode authentication (simple username/password).
@@ -414,22 +430,16 @@ def _dev_auth() -> bool:
         return False
     # Check if already logged in (dict-style access for test compatibility)
     if "authenticated" in st.session_state and st.session_state.get("authenticated", False):
-        if _check_session_timeout():
+        if _handle_session_timeout_check():
             return True
         else:
-            # Session expired
-            st.session_state.clear()
-            _clear_dev_session_cookie()
             st.rerun()
 
     # Try to restore session from cookie (survives page refresh)
     if _restore_dev_session_from_cookie():
-        if _check_session_timeout():
+        if _handle_session_timeout_check():
             return True
         else:
-            # Restored session expired
-            st.session_state.clear()
-            _clear_dev_session_cookie()
             st.rerun()
 
     # Initialize rate limiting state
@@ -1058,11 +1068,8 @@ def _ensure_dev_auth_allowed() -> bool:
 def _is_localhost_request() -> bool:
     """Return True if request host is localhost/loopback."""
     loopback_values = {"localhost", "127.0.0.1", "::1"}
-    try:
-        remote_addr = _get_remote_addr()
-        return remote_addr in loopback_values
-    except Exception:
-        return False
+    remote_addr = _get_remote_addr()
+    return remote_addr in loopback_values
 
 
 def _sign_dev_session_id(session_id: str) -> str:

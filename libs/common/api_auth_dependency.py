@@ -77,6 +77,7 @@ _SERVICE_PERMISSION_ALLOWLIST: dict[str, set[Permission]] = {
         Permission.GENERATE_SIGNALS,
         Permission.SUBMIT_ORDER,
         Permission.CANCEL_ORDER,
+        Permission.VIEW_POSITIONS,
     },
     "signal_service": {
         Permission.GENERATE_SIGNALS,

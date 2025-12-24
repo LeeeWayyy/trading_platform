@@ -187,6 +187,7 @@ services:
       - DRY_RUN=${DRY_RUN:-true}
       - STRATEGY_ID=${STRATEGY_ID:-alpha_baseline}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Default to false for local dev to simplify setup. Production should use true.
       - INTERNAL_TOKEN_REQUIRED=${INTERNAL_TOKEN_REQUIRED:-false}
       - INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:-}
       - API_AUTH_MODE=${API_AUTH_MODE:-log_only}
