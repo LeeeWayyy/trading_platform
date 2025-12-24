@@ -6,7 +6,22 @@ from dependency_overrides and module-level mocks.
 
 from __future__ import annotations
 
+import os
+
 import pytest
+
+# Disable internal token validation for all execution_gateway tests
+# This MUST override any CI environment setting to prevent 401s in tests
+# Set before importing main.py to ensure settings are configured correctly
+os.environ["INTERNAL_TOKEN_REQUIRED"] = "false"
+
+# Clear settings cache to ensure our env var takes effect
+# This is needed because settings may have been cached before this conftest runs
+try:
+    from config.settings import get_settings
+    get_settings.cache_clear()
+except (ImportError, AttributeError):
+    pass
 
 
 @pytest.fixture(autouse=True)
