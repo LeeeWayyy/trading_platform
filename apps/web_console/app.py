@@ -844,6 +844,12 @@ def main() -> None:
             pages.append("User Management")
         if config.FEATURE_ALERTS and has_permission(user_info, Permission.VIEW_ALERTS):
             pages.append("Alerts")
+        if has_permission(user_info, Permission.VIEW_DATA_SYNC):
+            pages.append("Data Sync Dashboard")
+        if has_permission(user_info, Permission.QUERY_DATA):
+            pages.append("Dataset Explorer")
+        if has_permission(user_info, Permission.VIEW_DATA_QUALITY):
+            pages.append("Data Quality Reports")
 
         # C6.1: System Health requires feature flag AND VIEW_CIRCUIT_BREAKER permission
         if config.FEATURE_HEALTH_MONITOR and has_permission(
@@ -948,6 +954,30 @@ def main() -> None:
         from apps.web_console.pages.alerts import render_alerts_page
 
         render_alerts_page(user=user_info, db_pool=get_db_pool())
+    elif page == "Data Sync Dashboard":
+        if not has_permission(user_info, Permission.VIEW_DATA_SYNC):
+            st.error("Access denied: VIEW_DATA_SYNC permission required")
+            st.stop()
+
+        from apps.web_console.pages.data_sync import render_data_sync_dashboard
+
+        render_data_sync_dashboard(user=user_info)
+    elif page == "Dataset Explorer":
+        if not has_permission(user_info, Permission.QUERY_DATA):
+            st.error("Access denied: QUERY_DATA permission required")
+            st.stop()
+
+        from apps.web_console.pages.data_explorer import render_dataset_explorer
+
+        render_dataset_explorer(user=user_info)
+    elif page == "Data Quality Reports":
+        if not has_permission(user_info, Permission.VIEW_DATA_QUALITY):
+            st.error("Access denied: VIEW_DATA_QUALITY permission required")
+            st.stop()
+
+        from apps.web_console.pages.data_quality import render_data_quality_reports
+
+        render_data_quality_reports(user=user_info)
 
 
 if __name__ == "__main__":

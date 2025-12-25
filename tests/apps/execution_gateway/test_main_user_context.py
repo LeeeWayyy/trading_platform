@@ -166,9 +166,7 @@ def test_daily_performance_invalid_strategy_subset(monkeypatch, test_client):
     }
     main.app.dependency_overrides[main._build_user_context] = _make_user_context_override(req_user)
 
-    with (
-        monkeypatch.context() as m,
-    ):
+    with (monkeypatch.context() as m,):
         m.setattr(main, "db_client", main.db_client)
         m.setattr(main, "redis_client", main.redis_client)
         m.setattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)

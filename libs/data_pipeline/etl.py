@@ -292,9 +292,7 @@ def load_adjusted_data(
     # Filter by symbols if provided
     if symbols is not None:
         parquet_files = [
-            f
-            for f in parquet_files
-            if f.stem in symbols  # f.stem is filename without extension
+            f for f in parquet_files if f.stem in symbols  # f.stem is filename without extension
         ]
 
     if not parquet_files:

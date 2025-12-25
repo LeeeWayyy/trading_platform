@@ -116,7 +116,10 @@ def detect_outliers(
     df_with_returns = df_sorted.with_columns(
         [
             # Previous close within each symbol group
-            pl.col("close").shift(1).over("symbol").alias("prev_close"),
+            pl.col("close")
+            .shift(1)
+            .over("symbol")
+            .alias("prev_close"),
         ]
     )
 

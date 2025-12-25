@@ -106,9 +106,7 @@ def get_auth_headers(user: Mapping[str, Any]) -> dict[str, str]:
 
         # Generate HMAC-SHA256 signature
         signature = hmac.new(
-            internal_secret.encode("utf-8"),
-            payload.encode("utf-8"),
-            hashlib.sha256
+            internal_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
         ).hexdigest()
 
         headers["X-Request-Timestamp"] = timestamp
