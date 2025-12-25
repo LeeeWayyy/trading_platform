@@ -1966,11 +1966,14 @@ if __name__ == "__main__":
 
     For production, use:
         uvicorn apps.signal_service.main:app --host 0.0.0.0 --port 8001
+
+    Note: Uses env vars/defaults since settings is initialized in lifespan.
+    For custom host/port, use uvicorn CLI directly or set HOST/PORT env vars.
     """
     uvicorn.run(
         "apps.signal_service.main:app",
-        host=settings.host,
-        port=settings.port,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8001")),
         reload=True,  # Auto-reload on code changes (dev only)
         log_level="info",
     )

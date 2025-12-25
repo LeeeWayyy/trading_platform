@@ -428,7 +428,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     api_key=alpaca_api_key_id,
                     secret_key=alpaca_api_secret_key,
                     base_url=ALPACA_BASE_URL,
-                    paper=True,
+                    paper=ALPACA_PAPER,
                 )
                 logger.info("Alpaca client initialized successfully")
 

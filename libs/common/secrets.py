@@ -63,8 +63,8 @@ def _get_validation_mode() -> str:
         )
         return "strict"
     if mode == "warn":
-        # Use DEPLOYMENT_ENV (consistent with libs/secrets/factory.py)
-        env = os.getenv("DEPLOYMENT_ENV", "production")
+        # Use DEPLOYMENT_ENV (consistent with libs/secrets/factory.py which defaults to "local")
+        env = os.getenv("DEPLOYMENT_ENV", "local")
         if env == "production":
             logger.warning(
                 "secrets_warn_mode_in_production",
