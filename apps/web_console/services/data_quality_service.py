@@ -16,6 +16,7 @@ from apps.web_console.schemas.data_management import (
     QuarantineEntryDTO,
     ValidationResultDTO,
 )
+from apps.web_console.utils.auth_helpers import get_user_id
 from libs.web_console_auth.permissions import Permission, has_dataset_permission, has_permission
 
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french")
@@ -151,7 +152,7 @@ class DataQualityService:
             dataset=dataset,
             metric="row_drop",
             severity="warning",
-            acknowledged_by=self._user_id(user),
+            acknowledged_by=get_user_id(user),
             acknowledged_at=now,
             reason=reason,
         )
@@ -209,15 +210,6 @@ class DataQualityService:
         # Current stub returns fama_french for interface testing only.
         # Production must: SELECT dataset FROM data_anomaly_alerts WHERE id = alert_id
         return "fama_french"
-
-    @staticmethod
-    def _user_id(user: Any | dict[str, Any]) -> str:
-        value = getattr(user, "user_id", None)
-        if value:
-            return str(value)
-        if isinstance(user, dict):
-            return str(user.get("user_id", "unknown"))
-        return "unknown"
 
 
 __all__ = ["DataQualityService"]

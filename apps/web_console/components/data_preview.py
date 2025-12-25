@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from apps.web_console.components.dataset_helpers import load_user_datasets
 from apps.web_console.services.data_explorer_service import DataExplorerService
 from libs.common.async_utils import run_async
 
@@ -18,8 +19,9 @@ def render_data_preview(service: DataExplorerService, user: Any) -> None:
 
     st.subheader("Data Preview")
 
-    datasets = _load_datasets(service, user)
+    datasets = load_user_datasets(service, user)
     if not datasets:
+        st.info("No datasets available for preview.")
         return
 
     dataset = st.selectbox("Dataset", options=datasets)
@@ -43,20 +45,6 @@ def render_data_preview(service: DataExplorerService, user: Any) -> None:
         df = pd.DataFrame(preview.rows, columns=preview.columns or None)
         st.dataframe(df, use_container_width=True)
         st.caption(f"Total rows in dataset: {preview.total_count}")
-
-
-def _load_datasets(service: DataExplorerService, user: Any) -> list[str]:
-    try:
-        with st.spinner("Loading datasets..."):
-            datasets = run_async(service.list_datasets(user), timeout=_FETCH_TIMEOUT_SECONDS)
-    except Exception as exc:
-        st.error(f"Failed to load datasets: {exc}")
-        return []
-
-    names = [dataset.name for dataset in datasets]
-    if not names:
-        st.info("No datasets available for preview.")
-    return names
 
 
 __all__ = ["render_data_preview"]

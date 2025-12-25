@@ -165,6 +165,14 @@ class TestRowLimit:
         result = validator.enforce_row_limit("SELECT * FROM crsp_daily LIMIT 50", max_rows=100)
         assert "LIMIT 50" in result.upper()
 
+    def test_preserves_offset_when_clamping(self, validator: SQLValidator) -> None:
+        """OFFSET should be preserved when LIMIT is clamped."""
+        result = validator.enforce_row_limit(
+            "SELECT * FROM crsp_daily LIMIT 20000 OFFSET 1000", max_rows=100
+        )
+        assert "LIMIT 100" in result.upper()
+        assert "OFFSET 1000" in result.upper()
+
     def test_invalid_max_rows_raises(self, validator: SQLValidator) -> None:
         with pytest.raises(ValueError, match="positive"):
             validator.enforce_row_limit("SELECT 1", max_rows=0)

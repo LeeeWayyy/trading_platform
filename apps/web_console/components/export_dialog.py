@@ -6,6 +6,7 @@ from typing import Any, Literal, cast
 
 import streamlit as st
 
+from apps.web_console.components.dataset_helpers import load_user_datasets
 from apps.web_console.services.data_explorer_service import DataExplorerService
 from libs.common.async_utils import run_async
 
@@ -17,8 +18,9 @@ def render_export_dialog(service: DataExplorerService, user: Any) -> None:
 
     st.subheader("Export Data")
 
-    datasets = _load_datasets(service, user)
+    datasets = load_user_datasets(service, user)
     if not datasets:
+        st.info("No datasets available for export.")
         return
 
     dataset = st.selectbox("Dataset", options=datasets)
@@ -52,20 +54,6 @@ def render_export_dialog(service: DataExplorerService, user: Any) -> None:
                 "expires_at": job.expires_at.isoformat() if job.expires_at else None,
             }
         )
-
-
-def _load_datasets(service: DataExplorerService, user: Any) -> list[str]:
-    try:
-        with st.spinner("Loading datasets..."):
-            datasets = run_async(service.list_datasets(user), timeout=_FETCH_TIMEOUT_SECONDS)
-    except Exception as exc:
-        st.error(f"Failed to load datasets: {exc}")
-        return []
-
-    names = [dataset.name for dataset in datasets]
-    if not names:
-        st.info("No datasets available for export.")
-    return names
 
 
 __all__ = ["render_export_dialog"]

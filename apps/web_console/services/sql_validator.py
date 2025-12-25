@@ -99,7 +99,10 @@ class SQLValidator:
         return list(self._extract_tables_from_expression(expression))
 
     def enforce_row_limit(self, query: str, max_rows: int) -> str:
-        """Add or clamp LIMIT clause to enforce a maximum row count."""
+        """Add or clamp LIMIT clause to enforce a maximum row count.
+
+        Preserves existing OFFSET if present.
+        """
         if max_rows <= 0:
             raise ValueError("max_rows must be positive")
 
@@ -114,7 +117,11 @@ class SQLValidator:
         else:
             limit_value = self._limit_value(limit_node)
             if limit_value is None or limit_value > max_rows:
+                # Preserve existing OFFSET when clamping LIMIT
+                offset_node = target.args.get("offset")
                 target.set("limit", exp.Limit(expression=exp.Literal.number(max_rows)))
+                if offset_node is not None:
+                    target.set("offset", offset_node)
 
         return str(expression.sql(dialect="duckdb"))
 

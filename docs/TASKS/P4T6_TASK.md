@@ -263,18 +263,18 @@ class DataQualityService:
 **Migration Naming Convention:** Uses existing numbered `.sql` format: `db/migrations/NNNN_description.sql`
 
 **Migration Dependency Order (CRITICAL):**
-1. `0035_sync_logs.sql` - No dependencies
-2. `0036_sync_schedule.sql` - No dependencies
-3. `0037_query_audit.sql` - No dependencies
-4. `0038_validation_results.sql` - No dependencies
-5. `0039_anomaly_alerts.sql` - No dependencies
-6. `0040_alert_acknowledgments.sql` - **DEPENDS ON** 0039 (FK to data_anomaly_alerts)
+1. `0012_sync_logs.sql` - No dependencies
+2. `0013_sync_schedule.sql` - No dependencies
+3. `0014_query_audit.sql` - No dependencies
+4. `0015_validation_results.sql` - No dependencies
+5. `0016_anomaly_alerts.sql` - No dependencies
+6. `0017_alert_acknowledgments.sql` - **DEPENDS ON** 0016 (FK to data_anomaly_alerts)
 
-### Anomaly Alerts Table (Migration 0039 - BEFORE acknowledgments)
+### Anomaly Alerts Table (Migration 0016 - BEFORE acknowledgments)
 
 ```sql
--- db/migrations/0039_anomaly_alerts.sql
--- MUST run before 0040_alert_acknowledgments.sql due to FK dependency
+-- db/migrations/0016_anomaly_alerts.sql
+-- MUST run before 0017_alert_acknowledgments.sql due to FK dependency
 
 CREATE TABLE data_anomaly_alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -294,11 +294,11 @@ CREATE INDEX idx_anomaly_alerts_created ON data_anomaly_alerts(created_at DESC);
 CREATE INDEX idx_anomaly_alerts_severity ON data_anomaly_alerts(severity);
 ```
 
-### Alert Acknowledgments Table (Migration 0040 - AFTER anomaly_alerts)
+### Alert Acknowledgments Table (Migration 0017 - AFTER anomaly_alerts)
 
 ```sql
--- db/migrations/0040_alert_acknowledgments.sql
--- DEPENDS ON: 0039_anomaly_alerts.sql (FK reference)
+-- db/migrations/0017_alert_acknowledgments.sql
+-- DEPENDS ON: 0016_anomaly_alerts.sql (FK reference)
 
 CREATE TABLE data_quality_alert_acknowledgments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -321,7 +321,7 @@ CREATE INDEX idx_alert_ack_acknowledged_at ON data_quality_alert_acknowledgments
 ### Sync Schedule Configuration Table
 
 ```sql
--- db/migrations/0036_sync_schedule.sql
+-- db/migrations/0013_sync_schedule.sql
 
 CREATE TABLE data_sync_schedule (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -345,7 +345,7 @@ CREATE UNIQUE INDEX idx_sync_schedule_dataset ON data_sync_schedule(dataset);
 ### Sync Logs Storage Table
 
 ```sql
--- db/migrations/0035_sync_logs.sql
+-- db/migrations/0012_sync_logs.sql
 
 CREATE TABLE data_sync_logs (
     id BIGSERIAL PRIMARY KEY,
@@ -371,7 +371,7 @@ CREATE INDEX idx_sync_logs_created ON data_sync_logs(created_at DESC);
 ### Query Audit Log Table
 
 ```sql
--- db/migrations/0037_query_audit.sql
+-- db/migrations/0014_query_audit.sql
 
 CREATE TABLE data_query_audit (
     id BIGSERIAL PRIMARY KEY,
@@ -403,7 +403,7 @@ CREATE INDEX idx_query_audit_created ON data_query_audit(created_at DESC);
 **Note:** Current P4T1 SyncManifest only stores `validation_status` (passed/failed/quarantined), not historical validation runs or anomaly details. T8.3 requires persistent storage for validation results and anomaly alerts.
 
 ```sql
--- db/migrations/0038_validation_results.sql
+-- db/migrations/0015_validation_results.sql
 
 CREATE TABLE data_validation_results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -422,7 +422,7 @@ CREATE INDEX idx_validation_results_created ON data_validation_results(created_a
 CREATE INDEX idx_validation_results_status ON data_validation_results(status);
 ```
 
-**(Anomaly Alerts table defined above in Migration 0039)**
+**(Anomaly Alerts table defined above in Migration 0016)**
 
 **Data Flow for T8.3:**
 ```python
@@ -959,12 +959,12 @@ QUALITY_REPORT_VIEWS = Counter("data_quality_report_views_total", "Quality dashb
 
 **Database Migrations (6 files, ordered for FK dependencies):**
 ```
-db/migrations/0035_sync_logs.sql
-db/migrations/0036_sync_schedule.sql
-db/migrations/0037_query_audit.sql
-db/migrations/0038_validation_results.sql
-db/migrations/0039_anomaly_alerts.sql
-db/migrations/0040_alert_acknowledgments.sql  # Depends on 0039
+db/migrations/0012_sync_logs.sql
+db/migrations/0013_sync_schedule.sql
+db/migrations/0014_query_audit.sql
+db/migrations/0015_validation_results.sql
+db/migrations/0016_anomaly_alerts.sql
+db/migrations/0017_alert_acknowledgments.sql  # Depends on 0016
 ```
 
 **Pages (3 files):**
@@ -1117,9 +1117,8 @@ class DatasetPermission(str, Enum):
 
 **Role Mapping:**
 - `viewer`: VIEW_DATA_SYNC, VIEW_DATA_QUALITY, FAMA_FRENCH_ACCESS
-- `analyst`: Above + QUERY_DATA, ACKNOWLEDGE_ALERTS, CRSP_ACCESS
-- `operator`: Above + TRIGGER_DATA_SYNC, EXPORT_DATA, MANAGE_SYNC_SCHEDULE, COMPUSTAT_ACCESS
-- `admin`: All permissions including all dataset access
+- `operator`: Above + QUERY_DATA, ACKNOWLEDGE_ALERTS, TRIGGER_DATA_SYNC, EXPORT_DATA, MANAGE_SYNC_SCHEDULE, CRSP_ACCESS, COMPUSTAT_ACCESS
+- `admin`: All permissions including all dataset access (TAQ_ACCESS)
 
 ---
 

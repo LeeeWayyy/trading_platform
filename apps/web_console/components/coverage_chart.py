@@ -82,14 +82,12 @@ def _load_dataset_options(service: DataQualityService, user: Any) -> list[str]:
 
 
 def _to_float(value: object) -> float | None:
-    if isinstance(value, int | float):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
+    """Safely convert a value to float."""
+
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return None
 
 
 __all__ = ["render_coverage_chart"]

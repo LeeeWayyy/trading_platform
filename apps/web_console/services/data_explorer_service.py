@@ -17,6 +17,7 @@ from apps.web_console.schemas.data_management import (
     QueryResultDTO,
 )
 from apps.web_console.services.sql_validator import SQLValidator
+from apps.web_console.utils.auth_helpers import get_user_id
 from libs.web_console_auth.permissions import Permission, has_dataset_permission, has_permission
 
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french")
@@ -169,7 +170,7 @@ class DataExplorerService:
         max_requests: int,
         window: int,
     ) -> None:
-        user_id = self._user_id(user)
+        user_id = get_user_id(user)
         allowed, _remaining = await self._rate_limit_check(
             user_id, action=action, max_requests=max_requests, window=window
         )
@@ -192,15 +193,6 @@ class DataExplorerService:
             max_requests=max_requests,
             window_seconds=window,
         )
-
-    @staticmethod
-    def _user_id(user: Any | dict[str, Any]) -> str:
-        value = getattr(user, "user_id", None)
-        if value:
-            return str(value)
-        if isinstance(user, dict):
-            return str(user.get("user_id", "unknown"))
-        return "unknown"
 
 
 __all__ = ["DataExplorerService", "RateLimitExceeded"]
