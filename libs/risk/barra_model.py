@@ -468,9 +468,7 @@ class BarraRiskModel:
             }
         )
 
-    def _build_aligned_arrays(
-        self, portfolio: pl.DataFrame
-    ) -> tuple[
+    def _build_aligned_arrays(self, portfolio: pl.DataFrame) -> tuple[
         NDArray[np.floating[Any]],
         NDArray[np.floating[Any]],
         NDArray[np.floating[Any]],

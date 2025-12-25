@@ -845,7 +845,9 @@ class TAQStorageManager:
             WHERE sym_root = :symbol
             AND DATE(datetime) = :date
             ORDER BY datetime
-        """.format(sample_date.strftime("%Y%m%d"))
+        """.format(
+            sample_date.strftime("%Y%m%d")
+        )
 
         return query, params
 

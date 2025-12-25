@@ -19,6 +19,7 @@ os.environ["INTERNAL_TOKEN_REQUIRED"] = "false"
 # This is needed because settings may have been cached before this conftest runs
 try:
     from config.settings import get_settings
+
     get_settings.cache_clear()
 except (ImportError, AttributeError):
     pass

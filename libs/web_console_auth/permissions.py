@@ -43,6 +43,18 @@ class Permission(str, Enum):
     MANAGE_API_KEYS = "manage_api_keys"  # [v2.0] API key lifecycle operations
     MANAGE_SYSTEM_CONFIG = "manage_system_config"  # [v2.0] System config editing
 
+    # T8.1: Data Sync Dashboard
+    VIEW_DATA_SYNC = "view_data_sync"
+    TRIGGER_DATA_SYNC = "trigger_data_sync"
+    MANAGE_SYNC_SCHEDULE = "manage_sync_schedule"
+
+    # T8.2: Dataset Explorer
+    QUERY_DATA = "query_data"
+
+    # T8.3: Data Quality
+    VIEW_DATA_QUALITY = "view_data_quality"
+    ACKNOWLEDGE_ALERTS = "acknowledge_alerts"  # Note: distinct from ACKNOWLEDGE_ALERT
+
     # Circuit Breaker permissions (T7.1)
     VIEW_CIRCUIT_BREAKER = "view_circuit_breaker"
     TRIP_CIRCUIT = "trip_circuit"
@@ -61,11 +73,22 @@ class Permission(str, Enum):
     GENERATE_SIGNALS = "generate_signals"
 
 
+class DatasetPermission(str, Enum):
+    """Per-dataset access permissions for licensing compliance."""
+
+    CRSP_ACCESS = "dataset:crsp"
+    COMPUSTAT_ACCESS = "dataset:compustat"
+    TAQ_ACCESS = "dataset:taq"
+    FAMA_FRENCH_ACCESS = "dataset:fama_french"
+
+
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.VIEWER: {
         Permission.VIEW_POSITIONS,
         Permission.VIEW_PNL,
         Permission.VIEW_TRADES,
+        Permission.VIEW_DATA_SYNC,
+        Permission.VIEW_DATA_QUALITY,
         Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
         Permission.VIEW_ALERTS,
     },
@@ -78,6 +101,11 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ADJUST_POSITION,
         Permission.FLATTEN_ALL,
         Permission.EXPORT_DATA,
+        Permission.QUERY_DATA,
+        Permission.VIEW_DATA_SYNC,
+        Permission.TRIGGER_DATA_SYNC,
+        Permission.VIEW_DATA_QUALITY,
+        Permission.ACKNOWLEDGE_ALERTS,
         Permission.MANAGE_STRATEGIES,  # [v1.5] Operators can manage strategies
         Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
         Permission.TRIP_CIRCUIT,  # T7.1: Can manually trip CB
@@ -91,6 +119,16 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.GENERATE_SIGNALS,  # C6: Signal generation access
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
+}
+
+ROLE_DATASET_PERMISSIONS: dict[Role, set[DatasetPermission]] = {
+    Role.VIEWER: {DatasetPermission.FAMA_FRENCH_ACCESS},
+    Role.OPERATOR: {
+        DatasetPermission.FAMA_FRENCH_ACCESS,
+        DatasetPermission.CRSP_ACCESS,
+        DatasetPermission.COMPUSTAT_ACCESS,
+    },
+    Role.ADMIN: set(DatasetPermission),  # All datasets
 }
 
 
@@ -120,6 +158,15 @@ def _extract_role(user_or_role: Any) -> Role | None:
     return _normalize_role(user_or_role)
 
 
+def _normalize_dataset_key(dataset: str) -> str:
+    """Normalize dataset names for lookup."""
+
+    normalized = dataset.strip().lower().replace(" ", "_").replace("-", "_")
+    if normalized.startswith("dataset:"):
+        normalized = normalized.split(":", 1)[1]
+    return normalized
+
+
 def has_permission(user_or_role: Any, permission: Permission) -> bool:
     """Check if role grants a permission (default‑deny on unknown)."""
 
@@ -131,6 +178,37 @@ def has_permission(user_or_role: Any, permission: Permission) -> bool:
         return True
 
     return permission in ROLE_PERMISSIONS.get(role, set())
+
+
+def has_dataset_permission(user_or_role: Any, dataset: str) -> bool:
+    """Check if user has access to specific dataset."""
+
+    if not dataset:
+        return False
+
+    role = _extract_role(user_or_role)
+    if role is None:
+        return False
+
+    if role is Role.ADMIN:
+        return True
+
+    permission: DatasetPermission | None
+    if isinstance(dataset, DatasetPermission):
+        permission = dataset
+    else:
+        dataset_key = _normalize_dataset_key(str(dataset))
+        permission = {
+            "crsp": DatasetPermission.CRSP_ACCESS,
+            "compustat": DatasetPermission.COMPUSTAT_ACCESS,
+            "taq": DatasetPermission.TAQ_ACCESS,
+            "fama_french": DatasetPermission.FAMA_FRENCH_ACCESS,
+        }.get(dataset_key)
+
+    if permission is None:
+        return False
+
+    return permission in ROLE_DATASET_PERMISSIONS.get(role, set())
 
 
 def require_permission(
@@ -247,8 +325,11 @@ def get_authorized_strategies(user: Any | None) -> list[str]:
 __all__ = [
     "Role",
     "Permission",
+    "DatasetPermission",
     "ROLE_PERMISSIONS",
+    "ROLE_DATASET_PERMISSIONS",
     "has_permission",
+    "has_dataset_permission",
     "require_permission",
     "get_authorized_strategies",
 ]

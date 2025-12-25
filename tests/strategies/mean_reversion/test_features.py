@@ -450,7 +450,9 @@ class TestEdgeCases:
                 "open": list(range(100, 120)) + list(range(200, 220)),
                 "volume": [1000000] * 40,
             }
-        ).sort(["symbol", "date"])  # Ensure sorted by symbol, date
+        ).sort(
+            ["symbol", "date"]
+        )  # Ensure sorted by symbol, date
 
         # Test RSI - should be calculated independently per symbol
         result_rsi = compute_rsi(prices, period=14)

@@ -110,8 +110,7 @@ class SignalToWeight:
                     .otherwise(pl.col("zscore") / pl.col("_abs_sum") * self.target_leverage)
                     .alias("weight")
                 ]
-            )
-            .drop("_abs_sum")
+            ).drop("_abs_sum")
         )
 
         if self.long_only:
@@ -216,8 +215,7 @@ class SignalToWeight:
                     .otherwise(pl.col("demeaned_rank") / pl.col("_abs_sum") * self.target_leverage)
                     .alias("weight")
                 ]
-            )
-            .drop("_abs_sum")
+            ).drop("_abs_sum")
         )
 
         if self.long_only:
