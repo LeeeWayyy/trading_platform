@@ -88,6 +88,7 @@ class DataExplorerService:
         query: str,
         timeout_seconds: int = 30,
     ) -> QueryResultDTO:
+        # TODO: Pass timeout_seconds to DuckDB client when query execution is implemented
         """Execute read-only SQL query against a SINGLE dataset.
 
         Permission: QUERY_DATA + dataset-level access for specified dataset

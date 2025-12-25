@@ -216,7 +216,7 @@ class DataQualityService:
                 return _SUPPORTED_DATASETS[idx]
         except (ValueError, IndexError):
             pass
-        return "fama_french"  # Fallback for unknown alert_id formats
+        raise ValueError(f"Could not resolve dataset for alert_id: {alert_id}")
 
 
 __all__ = ["DataQualityService"]

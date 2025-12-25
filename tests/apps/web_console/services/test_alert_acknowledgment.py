@@ -42,9 +42,10 @@ async def test_acknowledge_alert_returns_existing_on_conflict(
     service: DataQualityService, operator_user: DummyUser
 ) -> None:
     """Existing acknowledgment should be returned without modification."""
+    # Use alert-4 which maps to fama_french (idx=3, _SUPPORTED_DATASETS[3])
     existing = AlertAcknowledgmentDTO(
         id=str(uuid4()),
-        alert_id="alert-42",
+        alert_id="alert-4",
         dataset="fama_french",
         metric="row_drop",
         severity="warning",
@@ -52,9 +53,9 @@ async def test_acknowledge_alert_returns_existing_on_conflict(
         acknowledged_at=datetime.now(UTC),
         reason="seed",
     )
-    service._ack_store["alert-42"] = existing
+    service._ack_store["alert-4"] = existing
 
-    result = await service.acknowledge_alert(operator_user, alert_id="alert-42", reason="retry")
+    result = await service.acknowledge_alert(operator_user, alert_id="alert-4", reason="retry")
 
     assert result.id == existing.id
     assert result.reason == "seed"
@@ -85,6 +86,7 @@ async def test_acknowledge_alert_records_user_id(
     service: DataQualityService, operator_user: DummyUser
 ) -> None:
     """Acknowledgment should record the requester user id."""
-    ack = await service.acknowledge_alert(operator_user, alert_id="alert-10", reason="triage")
+    # Use alert-2 which maps to compustat (operator has access)
+    ack = await service.acknowledge_alert(operator_user, alert_id="alert-2", reason="triage")
 
     assert ack.acknowledged_by == "user-operator"

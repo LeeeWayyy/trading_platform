@@ -39,7 +39,7 @@ def load_sync_datasets(service: DataSyncService, user: Any) -> list[str] | None:
     datasets = sorted({status.dataset for status in statuses})
     if not datasets:
         st.info("No datasets available.")
-        return None
+        return []
     return datasets
 
 
