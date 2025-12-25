@@ -31,7 +31,7 @@ class TestCreateSecretManagerBackendSelection:
     """Test backend selection via SECRET_BACKEND environment variable."""
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.EnvSecretManager")
+    @patch("libs.secrets.env_backend.EnvSecretManager")
     def test_default_backend_env(self, mock_env_backend: object) -> None:
         """
         Default backend is EnvSecretManager when SECRET_BACKEND not set.
@@ -45,7 +45,7 @@ class TestCreateSecretManagerBackendSelection:
             assert mock_env_backend.called
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.EnvSecretManager")
+    @patch("libs.secrets.env_backend.EnvSecretManager")
     def test_env_backend_explicit(self, mock_env_backend: object) -> None:
         """
         Select EnvSecretManager when SECRET_BACKEND='env'.
@@ -58,7 +58,7 @@ class TestCreateSecretManagerBackendSelection:
             assert mock_env_backend.called
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.VaultSecretManager")
+    @patch("libs.secrets.vault_backend.VaultSecretManager")
     def test_vault_backend_selection(self, mock_vault_backend: object) -> None:
         """
         Select VaultSecretManager when SECRET_BACKEND='vault'.
@@ -73,7 +73,7 @@ class TestCreateSecretManagerBackendSelection:
             assert mock_vault_backend.called
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.AWSSecretsManager")
+    @patch("libs.secrets.aws_backend.AWSSecretsManager")
     def test_aws_backend_selection(self, mock_aws_backend: object) -> None:
         """
         Select AWSSecretsManager when SECRET_BACKEND='aws'.
@@ -103,7 +103,7 @@ class TestCreateSecretManagerBackendSelection:
             mock_aws_backend.assert_called_with(region_name="us-east-1")
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.VaultSecretManager")
+    @patch("libs.secrets.vault_backend.VaultSecretManager")
     def test_backend_override_parameter(self, mock_vault_backend: object) -> None:
         """
         Override backend selection via function parameter.
@@ -119,7 +119,7 @@ class TestCreateSecretManagerBackendSelection:
             assert mock_vault_backend.called
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.EnvSecretManager")
+    @patch("libs.secrets.env_backend.EnvSecretManager")
     def test_case_insensitive_backend_name(self, mock_env_backend: object) -> None:
         """
         Backend names are case-insensitive.
@@ -135,7 +135,7 @@ class TestCreateSecretManagerBackendSelection:
                 assert mock_env_backend.called, f"Failed for backend: {backend_name}"
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.EnvSecretManager")
+    @patch("libs.secrets.env_backend.EnvSecretManager")
     def test_env_backend_loads_default_dotenv_when_present(
         self, mock_env_backend: object, tmp_path: Path, monkeypatch
     ) -> None:
@@ -154,7 +154,7 @@ class TestCreateSecretManagerBackendSelection:
         assert kwargs.get("dotenv_path") == dotenv_file
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.EnvSecretManager")
+    @patch("libs.secrets.env_backend.EnvSecretManager")
     def test_env_backend_uses_secret_dotenv_path_override(
         self, mock_env_backend: object, tmp_path: Path
     ) -> None:
@@ -183,7 +183,7 @@ class TestCreateSecretManagerProductionGuardrail:
     """Test production guardrail preventing EnvSecretManager in staging/production."""
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.EnvSecretManager")
+    @patch("libs.secrets.env_backend.EnvSecretManager")
     def test_env_backend_allowed_in_local(self, mock_env_backend: object) -> None:
         """
         EnvSecretManager allowed when DEPLOYMENT_ENV='local'.
@@ -192,6 +192,18 @@ class TestCreateSecretManagerProductionGuardrail:
         (production guardrail only applies to staging/production).
         """
         with patch.dict(os.environ, {"SECRET_BACKEND": "env", "DEPLOYMENT_ENV": "local"}):
+            create_secret_manager()
+            assert mock_env_backend.called
+
+    @pytest.mark.unit()
+    @patch("libs.secrets.env_backend.EnvSecretManager")
+    def test_env_backend_allowed_in_test(self, mock_env_backend: object) -> None:
+        """
+        EnvSecretManager allowed when DEPLOYMENT_ENV='test'.
+
+        CI/E2E environments use DEPLOYMENT_ENV='test' and should permit the env backend.
+        """
+        with patch.dict(os.environ, {"SECRET_BACKEND": "env", "DEPLOYMENT_ENV": "test"}):
             create_secret_manager()
             assert mock_env_backend.called
 
@@ -229,7 +241,7 @@ class TestCreateSecretManagerProductionGuardrail:
             assert "SECURITY VIOLATION" in error_msg
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.EnvSecretManager")
+    @patch("libs.secrets.env_backend.EnvSecretManager")
     def test_env_backend_allowed_with_override_flag(self, mock_env_backend: object) -> None:
         """
         SECRET_ALLOW_ENV_IN_NON_LOCAL overrides the guardrail (emergency-only).
@@ -262,7 +274,7 @@ class TestCreateSecretManagerProductionGuardrail:
             assert "EnvSecretManager not allowed in production" in str(exc_info.value)
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.VaultSecretManager")
+    @patch("libs.secrets.vault_backend.VaultSecretManager")
     def test_vault_allowed_in_production(self, mock_vault_backend: object) -> None:
         """
         VaultSecretManager allowed in production.
@@ -282,7 +294,7 @@ class TestCreateSecretManagerProductionGuardrail:
             assert mock_vault_backend.called
 
     @pytest.mark.unit()
-    @patch("libs.secrets.factory.AWSSecretsManager")
+    @patch("libs.secrets.aws_backend.AWSSecretsManager")
     def test_aws_allowed_in_production(self, mock_aws_backend: object) -> None:
         """
         AWSSecretsManager allowed in production.

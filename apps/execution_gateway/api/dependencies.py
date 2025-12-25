@@ -20,6 +20,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from apps.execution_gateway.alpaca_client import AlpacaExecutor
 from apps.execution_gateway.database import DatabaseClient
+from libs.common.secrets import get_required_secret
 from libs.web_console_auth.audit_logger import AuditLogger
 from libs.web_console_auth.config import AuthConfig
 from libs.web_console_auth.exceptions import (
@@ -51,8 +52,8 @@ logger = logging.getLogger(__name__)
 TwoFaResult = tuple[bool, str | None, str | None]
 TwoFaValidator = Callable[[str, str], Awaitable[TwoFaResult]]
 
-# Environment configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader")
+# Environment configuration (CONFIG - not secrets)
+# DATABASE_URL will be loaded lazily via get_database_url()
 REDIS_CONFIG = load_redis_config()
 
 AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID", "")
@@ -135,6 +136,12 @@ def error_detail(error: str, message: str, retry_after: int | None = None) -> di
     return detail
 
 
+@lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
+def get_database_url() -> str:
+    """Return database URL from secrets (lazy loading)."""
+    return get_required_secret("database/url")
+
+
 @lru_cache(maxsize=None)  # noqa: UP033 - explicit lru_cache requested for singleton behavior
 def get_db_pool() -> AsyncConnectionPool:
     """Return async connection pool for auth/session validation.
@@ -143,7 +150,7 @@ def get_db_pool() -> AsyncConnectionPool:
     The pool will open automatically on first use.
     """
 
-    return AsyncConnectionPool(DATABASE_URL, open=False)
+    return AsyncConnectionPool(get_database_url(), open=False)
 
 
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
@@ -238,7 +245,7 @@ def get_db_client() -> DatabaseClient:
     its _db_call helper, which is the intended usage pattern here.
     """
 
-    return DatabaseClient(DATABASE_URL)
+    return DatabaseClient(get_database_url())
 
 
 @lru_cache(maxsize=None)  # noqa: UP033 - thread-safe singleton with lru_cache
@@ -248,8 +255,15 @@ def get_alpaca_executor() -> AlpacaExecutor | None:
     if DRY_RUN:
         return None
 
-    api_key = os.getenv("ALPACA_API_KEY_ID", "")
-    secret_key = os.getenv("ALPACA_API_SECRET_KEY", "")
+    # Use lazy secret loading
+    try:
+        api_key = get_required_secret("alpaca/api_key_id")
+        secret_key = get_required_secret("alpaca/api_secret_key")
+    except RuntimeError:
+        # Secrets not configured - return None for fail-closed behavior
+        logger.warning("Alpaca credentials not configured (DRY_RUN=false)")
+        return None
+
     base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
     paper_flag = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 

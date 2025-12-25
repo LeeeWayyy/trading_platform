@@ -4,10 +4,10 @@ Factory for creating SecretManager instances based on environment configuration.
 This module implements the Abstract Factory Pattern for selecting secrets backends:
     - SECRET_BACKEND="vault" → VaultSecretManager (production)
     - SECRET_BACKEND="aws" → AWSSecretsManager (production)
-    - SECRET_BACKEND="env" → EnvSecretManager (local development only)
+    - SECRET_BACKEND="env" → EnvSecretManager (local/test environments only)
 
 Production Guardrails:
-    - EnvSecretManager is ONLY allowed when DEPLOYMENT_ENV="local" (default)
+    - EnvSecretManager is ONLY allowed when DEPLOYMENT_ENV is "local" or "test" (default: "local")
     - Staging/production MUST use Vault or AWS Secrets Manager unless an explicit override flag is set
     - Factory raises SecretManagerError if configuration is invalid
 
@@ -28,11 +28,11 @@ Environment Variables:
     SECRET_BACKEND (str):
         Backend selection: "vault", "aws", or "env" (default: "env")
     DEPLOYMENT_ENV (str):
-        Environment name: "local", "staging", or "production" (default: "local")
+        Environment name: "local", "test", "staging", or "production" (default: "local")
     SECRET_DOTENV_PATH (str, optional):
         Absolute or relative path to a .env file for EnvSecretManager
     SECRET_ALLOW_ENV_IN_NON_LOCAL (bool, optional):
-        Set to "true"/"1" to allow EnvSecretManager outside local environments (emergency use only)
+        Set to "true"/"1" to allow EnvSecretManager outside local/test environments (emergency use only)
     AWS_REGION (str, optional):
         AWS region for AWSSecretsManager (e.g., "us-west-2", "eu-west-1")
         Falls back to AWS_DEFAULT_REGION, then "us-east-1" if not set
@@ -47,13 +47,18 @@ See Also:
 import logging
 import os
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
-from libs.secrets.aws_backend import AWSSecretsManager
-from libs.secrets.env_backend import EnvSecretManager
 from libs.secrets.exceptions import SecretManagerError
 from libs.secrets.manager import SecretManager
-from libs.secrets.vault_backend import VaultSecretManager
+
+# Lazy imports: Backend implementations are only imported when selected.
+# This prevents optional dependencies (boto3 for AWS, hvac for Vault) from
+# breaking the env backend which only needs standard library.
+if TYPE_CHECKING:
+    from libs.secrets.aws_backend import AWSSecretsManager  # noqa: F401
+    from libs.secrets.env_backend import EnvSecretManager  # noqa: F401
+    from libs.secrets.vault_backend import VaultSecretManager  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -155,16 +160,17 @@ def create_secret_manager(
     if not selected_backend:
         selected_backend = "env"
 
-    # Production guardrail: Prevent EnvSecretManager in staging/production unless override set
+    # Guardrail: Prevent EnvSecretManager outside local/test unless override set
+    # NOTE: "test" is treated as non-production to support CI/E2E environments.
     allow_env_override = _is_truthy(os.getenv("SECRET_ALLOW_ENV_IN_NON_LOCAL"))
-    if selected_backend == "env" and selected_env != "local" and not allow_env_override:
+    if selected_backend == "env" and selected_env not in {"local", "test"} and not allow_env_override:
         raise SecretManagerError(
             f"EnvSecretManager not allowed in {selected_env} environment. "
             f"SECURITY VIOLATION: Plain-text .env files are LOCAL DEVELOPMENT ONLY. "
             f"Use SECRET_BACKEND='vault' or 'aws' for staging/production. "
             f"See docs/ADRs/0017-secrets-management.md for migration guide."
         )
-    if selected_backend == "env" and selected_env != "local" and allow_env_override:
+    if selected_backend == "env" and selected_env not in {"local", "test"} and allow_env_override:
         logger.warning(
             "EnvSecretManager override enabled for %s environment. "
             "Use only for rollback/emergency scenarios.",
@@ -172,7 +178,11 @@ def create_secret_manager(
         )
 
     # Backend selection with helpful error messages
+    # NOTE: Backends are imported lazily to prevent optional dependencies
+    # (boto3, hvac) from breaking when using the env backend.
     if selected_backend == "env":
+        from libs.secrets.env_backend import EnvSecretManager
+
         dotenv_path = _resolve_dotenv_path()
         if dotenv_path:
             logger.info(
@@ -183,6 +193,8 @@ def create_secret_manager(
         return EnvSecretManager()
 
     elif selected_backend == "vault":
+        from libs.secrets.vault_backend import VaultSecretManager
+
         # VaultSecretManager requires VAULT_ADDR environment variable
         vault_url = os.getenv("VAULT_ADDR")
         if not vault_url:
@@ -194,6 +206,8 @@ def create_secret_manager(
         return VaultSecretManager(vault_url=vault_url)
 
     elif selected_backend == "aws":
+        from libs.secrets.aws_backend import AWSSecretsManager
+
         # Read AWS region from environment variables
         # Priority: AWS_REGION > AWS_DEFAULT_REGION > us-east-1 (default)
         region_name = os.environ.get("AWS_REGION") or os.environ.get(

@@ -68,8 +68,11 @@ async def test_health_reports_degraded_when_hydration_incomplete(
     redis_client.health_check.return_value = True
     monkeypatch.setattr(main, "redis_client", redis_client)
     monkeypatch.setattr(main, "feature_cache", MagicMock())
-    monkeypatch.setattr(main.settings, "redis_enabled", True)
-    monkeypatch.setattr(main.settings, "feature_hydration_enabled", True)
+    # Create mock settings object instead of patching None
+    mock_settings = MagicMock()
+    mock_settings.redis_enabled = True
+    mock_settings.feature_hydration_enabled = True
+    monkeypatch.setattr(main, "settings", mock_settings)
     monkeypatch.setattr(main, "hydration_complete", False)
 
     response = await main.health_check()
@@ -90,8 +93,11 @@ async def test_ready_returns_503_when_degraded(monkeypatch: pytest.MonkeyPatch) 
     redis_client.health_check.return_value = True
     monkeypatch.setattr(main, "redis_client", redis_client)
     monkeypatch.setattr(main, "feature_cache", MagicMock())
-    monkeypatch.setattr(main.settings, "redis_enabled", True)
-    monkeypatch.setattr(main.settings, "feature_hydration_enabled", True)
+    # Create mock settings object instead of patching None
+    mock_settings = MagicMock()
+    mock_settings.redis_enabled = True
+    mock_settings.feature_hydration_enabled = True
+    monkeypatch.setattr(main, "settings", mock_settings)
     monkeypatch.setattr(main, "hydration_complete", False)
 
     with pytest.raises(HTTPException) as exc:
@@ -114,8 +120,11 @@ async def test_ready_returns_200_when_healthy(monkeypatch: pytest.MonkeyPatch) -
     redis_client.health_check.return_value = True
     monkeypatch.setattr(main, "redis_client", redis_client)
     monkeypatch.setattr(main, "feature_cache", MagicMock())
-    monkeypatch.setattr(main.settings, "redis_enabled", True)
-    monkeypatch.setattr(main.settings, "feature_hydration_enabled", True)
+    # Create mock settings object instead of patching None
+    mock_settings = MagicMock()
+    mock_settings.redis_enabled = True
+    mock_settings.feature_hydration_enabled = True
+    monkeypatch.setattr(main, "settings", mock_settings)
     monkeypatch.setattr(main, "hydration_complete", True)
 
     response = await main.readiness_check()

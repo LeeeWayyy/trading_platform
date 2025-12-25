@@ -65,11 +65,12 @@ class TestFailClosedBehaviorExecutionGateway:
     def _mock_redis_unavailable(self):
         """Mock Redis connection failure during initialization."""
         # Mock module-level variables to simulate Redis unavailable state
-        main.recovery_manager._state.kill_switch = None
-        main.recovery_manager.set_kill_switch_unavailable(True)
+        # Note: recovery_manager is a Mock from conftest, so we set attributes directly
+        main.recovery_manager.kill_switch = None
         with (
             patch("apps.execution_gateway.main.redis_client", None),
             patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=True),
+            patch.object(main.recovery_manager, "needs_recovery", return_value=True),
         ):
             yield
 
@@ -147,11 +148,12 @@ class TestFailClosedBehaviorExecutionGateway:
         mock_redis = Mock()
         mock_redis.health_check.return_value = True
 
-        main.recovery_manager._state.kill_switch = None
-        main.recovery_manager.set_kill_switch_unavailable(True)
+        # Note: recovery_manager is a Mock from conftest, so we set attributes directly
+        main.recovery_manager.kill_switch = None
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
             patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=True),
+            patch.object(main.recovery_manager, "needs_recovery", return_value=True),
         ):
             yield mock_redis
 
@@ -311,8 +313,9 @@ class TestKillSwitchJSONBodyHandling:
             "timestamp": datetime.now().isoformat(),
         }
 
-        main.recovery_manager._state.kill_switch = mock_ks
-        main.recovery_manager.set_kill_switch_unavailable(False)
+        # Note: recovery_manager is a Mock from conftest, so we set attributes directly
+        # (not via _state which is for real RecoveryManager instances)
+        main.recovery_manager.kill_switch = mock_ks
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
             patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=False),
@@ -575,8 +578,8 @@ class TestKillSwitchEndToEnd:
             "timestamp": datetime.now().isoformat(),
         }
 
-        main.recovery_manager._state.kill_switch = mock_ks
-        main.recovery_manager.set_kill_switch_unavailable(False)
+        # Note: recovery_manager is a Mock from conftest, so we set attributes directly
+        main.recovery_manager.kill_switch = mock_ks
         with (
             patch("apps.execution_gateway.main.redis_client", mock_redis),
             patch.object(main.recovery_manager, "is_kill_switch_unavailable", return_value=False),

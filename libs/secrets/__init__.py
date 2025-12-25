@@ -19,7 +19,7 @@ Quick Start:
 Backend Selection (via SECRET_BACKEND environment variable):
     - "vault" → VaultSecretManager (production: HashiCorp Vault)
     - "aws" → AWSSecretsManager (production: AWS Secrets Manager)
-    - "env" → EnvSecretManager (local development: .env files)
+    - "env" → EnvSecretManager (local/test: .env files)
 
 Security Requirements:
     - AC12: Secret values NEVER logged (only names/paths)
@@ -32,9 +32,19 @@ See Also:
     - docs/RUNBOOKS/secret-rotation.md - 90-day rotation procedures
 """
 
-from libs.secrets.aws_backend import AWSSecretsManager
+from typing import TYPE_CHECKING, Any
+
+# Lazy imports: Backend implementations are only imported when explicitly accessed.
+# This prevents optional dependencies (boto3 for AWS, hvac for Vault) from being
+# required when using the env backend which only needs standard library.
+# Use create_secret_manager() factory which handles lazy loading automatically.
+if TYPE_CHECKING:
+    from libs.secrets.aws_backend import AWSSecretsManager as AWSSecretsManager
+    from libs.secrets.env_backend import EnvSecretManager as EnvSecretManager
+    from libs.secrets.vault_backend import VaultSecretManager as VaultSecretManager
+
+# These modules don't have heavy dependencies, safe to import at module level
 from libs.secrets.cache import SecretCache
-from libs.secrets.env_backend import EnvSecretManager
 from libs.secrets.exceptions import (
     SecretAccessError,
     SecretManagerError,
@@ -43,7 +53,28 @@ from libs.secrets.exceptions import (
 )
 from libs.secrets.factory import create_secret_manager
 from libs.secrets.manager import SecretManager
-from libs.secrets.vault_backend import VaultSecretManager
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy load backend implementations to avoid importing optional dependencies.
+
+    This allows `from libs.secrets import AWSSecretsManager` to work without
+    requiring boto3 to be installed unless AWSSecretsManager is actually used.
+    """
+    if name == "AWSSecretsManager":
+        from libs.secrets.aws_backend import AWSSecretsManager
+
+        return AWSSecretsManager
+    if name == "VaultSecretManager":
+        from libs.secrets.vault_backend import VaultSecretManager
+
+        return VaultSecretManager
+    if name == "EnvSecretManager":
+        from libs.secrets.env_backend import EnvSecretManager
+
+        return EnvSecretManager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Package exports (PEP 8: __all__ defines public API)
 __all__ = [
@@ -51,9 +82,8 @@ __all__ = [
     "SecretManager",
     # Factory (recommended for most use cases)
     "create_secret_manager",
-    # Backend implementations (local development)
+    # Backend implementations (lazy loaded)
     "EnvSecretManager",
-    # Backend implementations (production)
     "VaultSecretManager",
     "AWSSecretsManager",
     # Cache utility (for custom implementations)

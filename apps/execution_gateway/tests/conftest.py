@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import pytest
 
+# Import shared mock helpers from root conftest (DRY principle)
+from tests.conftest import _create_mock_db_client, _create_mock_recovery_manager
+
 
 @pytest.fixture(autouse=True)
 def _restore_main_globals():
@@ -16,6 +19,10 @@ def _restore_main_globals():
     Several tests monkeypatch main.db_client, main.redis_client, etc.
     which persists across tests since Python modules are singletons.
     This fixture saves and restores them to prevent pollution.
+
+    Also sets up default mocks for module-level variables that are None
+    by default (initialized in lifespan) to allow tests to run without
+    the full lifespan context.
     """
     # Import the module
     try:
@@ -32,10 +39,15 @@ def _restore_main_globals():
     original_reconciliation_task = getattr(main, "reconciliation_task", None)
     original_feature_flag = getattr(main, "FEATURE_PERFORMANCE_DASHBOARD", True)
 
+    # Set up default mocks for variables that are None (initialized in lifespan)
+    if main.db_client is None:
+        main.db_client = _create_mock_db_client()
+    if main.recovery_manager is None:
+        main.recovery_manager = _create_mock_recovery_manager()
+
     yield
 
-    # Restore original values
-    # The first assignment needs type: ignore because db_client is typed but we saved it as Any
+    # Restore original values (may be None in test context)
     main.db_client = original_db_client  # type: ignore[assignment]
     main.redis_client = original_redis_client
     main.recovery_manager = original_recovery_manager  # type: ignore[assignment]

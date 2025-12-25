@@ -62,6 +62,13 @@ services:
       PORT: 8001
       LOG_LEVEL: INFO
 
+      # Secrets configuration (C7)
+      SECRET_BACKEND: env
+      DEPLOYMENT_ENV: test
+      SECRET_ALLOW_ENV_IN_NON_LOCAL: "1"  # Allow env backend in CI test environment
+      SECRETS_VALIDATION_MODE: warn
+      ENVIRONMENT: test
+
       # Database
       DATABASE_URL: postgresql://trader:test_password@postgres:5432/trader_test
 
@@ -112,6 +119,13 @@ services:
       HOST: 0.0.0.0
       PORT: 8002
       LOG_LEVEL: INFO
+
+      # Secrets configuration (C7)
+      SECRET_BACKEND: env
+      DEPLOYMENT_ENV: test
+      SECRET_ALLOW_ENV_IN_NON_LOCAL: "1"  # Allow env backend in CI test environment
+      SECRETS_VALIDATION_MODE: warn
+      ENVIRONMENT: test
 
       # Database
       DATABASE_URL: postgresql://trader:test_password@postgres:5432/trader_test
@@ -165,6 +179,13 @@ services:
       HOST: 0.0.0.0
       PORT: 8003
       LOG_LEVEL: INFO
+
+      # Secrets configuration (C7)
+      SECRET_BACKEND: env
+      DEPLOYMENT_ENV: test
+      SECRET_ALLOW_ENV_IN_NON_LOCAL: "1"  # Allow env backend in CI test environment
+      SECRETS_VALIDATION_MODE: warn
+      ENVIRONMENT: test
 
       # Database
       DATABASE_URL: postgresql://trader:test_password@postgres:5432/trader_test
