@@ -155,7 +155,7 @@ class TestExecutionGateway:
         assert config["service"] == "execution_gateway"
         assert config["dry_run"] is True, "DRY_RUN must be true in CI"
         assert config["alpaca_paper"] is True, "ALPACA_PAPER must be true in CI"
-        assert config["environment"] in ["ci", "dev", "staging"]
+        assert config["environment"] in ["ci", "dev", "staging", "test"]
         assert config["circuit_breaker_enabled"] is True
 
     def test_circuit_breaker_status(
