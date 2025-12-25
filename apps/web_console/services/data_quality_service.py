@@ -38,10 +38,11 @@ class DataQualityService:
     - DB persistence for alert acknowledgments
     """
 
-    # TODO: Replace with PostgreSQL persistence using data_quality_alert_acknowledgments table
-    # Current in-memory implementation is for interface validation only.
-    # Production requires: INSERT ... ON CONFLICT DO NOTHING RETURNING for idempotency
-    _ack_store: dict[str, AlertAcknowledgmentDTO] = {}
+    def __init__(self) -> None:
+        # TODO: Replace with PostgreSQL persistence using data_quality_alert_acknowledgments table
+        # Current in-memory implementation is for interface validation only.
+        # Production requires: INSERT ... ON CONFLICT DO NOTHING RETURNING for idempotency
+        self._ack_store: dict[str, AlertAcknowledgmentDTO] = {}
 
     async def get_validation_results(
         self,
@@ -207,9 +208,15 @@ class DataQualityService:
     @staticmethod
     def _resolve_alert_dataset(alert_id: str) -> str:
         # TODO: Query data_anomaly_alerts table to get actual dataset for alert_id
-        # Current stub returns fama_french for interface testing only.
         # Production must: SELECT dataset FROM data_anomaly_alerts WHERE id = alert_id
-        return "fama_french"
+        # Current mock derives dataset from alert ID format "alert-{idx}" where idx maps to dataset
+        try:
+            idx = int(alert_id.split("-")[1]) - 1
+            if 0 <= idx < len(_SUPPORTED_DATASETS):
+                return _SUPPORTED_DATASETS[idx]
+        except (ValueError, IndexError):
+            pass
+        return "fama_french"  # Fallback for unknown alert_id formats
 
 
 __all__ = ["DataQualityService"]

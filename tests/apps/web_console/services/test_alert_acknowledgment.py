@@ -21,13 +21,9 @@ class DummyUser:
     role: Role
 
 
-@pytest.fixture(autouse=True)
-async def clear_ack_store() -> None:
-    DataQualityService._ack_store.clear()
-
-
 @pytest.fixture()
 async def service() -> DataQualityService:
+    """Create fresh service instance with empty ack store."""
     return DataQualityService()
 
 
@@ -56,7 +52,7 @@ async def test_acknowledge_alert_returns_existing_on_conflict(
         acknowledged_at=datetime.now(UTC),
         reason="seed",
     )
-    DataQualityService._ack_store["alert-42"] = existing
+    service._ack_store["alert-42"] = existing
 
     result = await service.acknowledge_alert(operator_user, alert_id="alert-42", reason="retry")
 

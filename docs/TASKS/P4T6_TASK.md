@@ -790,13 +790,9 @@ class DatasetPermission(str, Enum):
     TAQ_ACCESS = "dataset:taq"
     FAMA_FRENCH_ACCESS = "dataset:fama_french"  # Public, default granted
 
-# Role mapping extension
+# Role mapping extension (matches libs/web_console_auth/permissions.py)
 ROLE_DATASET_PERMISSIONS = {
     Role.VIEWER: [DatasetPermission.FAMA_FRENCH_ACCESS],
-    Role.ANALYST: [
-        DatasetPermission.FAMA_FRENCH_ACCESS,
-        DatasetPermission.CRSP_ACCESS,
-    ],
     Role.OPERATOR: [
         DatasetPermission.FAMA_FRENCH_ACCESS,
         DatasetPermission.CRSP_ACCESS,

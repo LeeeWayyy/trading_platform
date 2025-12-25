@@ -18,14 +18,9 @@ class DummyUser:
     role: Role
 
 
-@pytest.fixture(autouse=True)
-async def clear_ack_store() -> None:
-    """Ensure acknowledgment store is cleared between tests."""
-    DataQualityService._ack_store.clear()
-
-
 @pytest.fixture()
 async def service() -> DataQualityService:
+    """Create fresh service instance with empty ack store."""
     return DataQualityService()
 
 
