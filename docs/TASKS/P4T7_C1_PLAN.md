@@ -112,14 +112,16 @@ if TYPE_CHECKING:
 @dataclass
 class SignalSummary:
     """Summary of alpha signal for list view."""
-    signal_id: str
-    name: str
+    signal_id: str  # model_id from ModelMetadata
+    name: str  # Derived from model_id or parameters
     version: str
-    status: ModelStatus
-    mean_ic: float | None
-    icir: float | None
+    status: ModelStatus  # staged, production, archived, failed
+    mean_ic: float | None  # From metrics dict
+    icir: float | None  # From metrics dict
     created_at: date
-    backtest_id: str | None
+    # Backtest linkage via run_id or experiment_id (NOT backtest_id)
+    run_id: str | None  # Links to BacktestResultStorage
+    experiment_id: str | None
 
 
 @dataclass
@@ -164,7 +166,7 @@ class AlphaExplorerService:
             Tuple of (signals, total_count)
         """
         models = self._registry.list_models(
-            model_type=ModelType.ALPHA_SIGNAL,
+            model_type=ModelType.alpha_weights,
             status=status,
         )
 
@@ -188,7 +190,7 @@ class AlphaExplorerService:
         metadata = self._registry.get_model_metadata(model_type, version)
 
         # Load backtest result if available
-        backtest_result = self._load_backtest_result(metadata.backtest_id)
+        backtest_result = self._load_backtest_result(metadata.run_id)
 
         return SignalMetrics(
             signal_id=signal_id,
@@ -212,7 +214,7 @@ class AlphaExplorerService:
         """
         model_type, version = self._parse_signal_id(signal_id)
         metadata = self._registry.get_model_metadata(model_type, version)
-        backtest_result = self._load_backtest_result(metadata.backtest_id)
+        backtest_result = self._load_backtest_result(metadata.run_id)
 
         if backtest_result is None:
             return pl.DataFrame(schema={"date": pl.Date, "ic": pl.Float64, "rank_ic": pl.Float64})
@@ -231,7 +233,7 @@ class AlphaExplorerService:
         """
         model_type, version = self._parse_signal_id(signal_id)
         metadata = self._registry.get_model_metadata(model_type, version)
-        backtest_result = self._load_backtest_result(metadata.backtest_id)
+        backtest_result = self._load_backtest_result(metadata.run_id)
 
         if backtest_result is None:
             return pl.DataFrame(schema={"horizon": pl.Int64, "ic": pl.Float64, "rank_ic": pl.Float64})
@@ -248,7 +250,7 @@ class AlphaExplorerService:
         for sid in signal_ids:
             model_type, version = self._parse_signal_id(sid)
             metadata = self._registry.get_model_metadata(model_type, version)
-            backtest_result = self._load_backtest_result(metadata.backtest_id)
+            backtest_result = self._load_backtest_result(metadata.run_id)
 
             if backtest_result is not None:
                 # Aggregate to daily cross-sectional mean signal
@@ -285,7 +287,8 @@ class AlphaExplorerService:
             mean_ic=metadata.metrics.get("mean_ic") if metadata.metrics else None,
             icir=metadata.metrics.get("icir") if metadata.metrics else None,
             created_at=metadata.created_at.date(),
-            backtest_id=metadata.backtest_id,
+            run_id=metadata.run_id,
+            experiment_id=metadata.experiment_id,
         )
 
     def _in_ic_range(
@@ -301,9 +304,13 @@ class AlphaExplorerService:
             return False
         return True
 
-    def _load_backtest_result(self, backtest_id: str | None):
-        """Load backtest result from storage."""
-        if backtest_id is None:
+    def _load_backtest_result(self, run_id: str | None):
+        """Load backtest result from BacktestResultStorage via run_id.
+
+        The run_id from ModelMetadata links to backtest results.
+        See libs/backtest/result_storage.py for the storage API.
+        """
+        if run_id is None:
             return None
         # TODO: Load from backtest result storage
         return None
@@ -598,13 +605,13 @@ def mock_registry():
     registry = MagicMock()
     registry.list_models.return_value = [
         ModelMetadata(
-            model_type=ModelType.ALPHA_SIGNAL,
+            model_type=ModelType.alpha_weights,
             version="v1.0",
             name="momentum_alpha",
             status=ModelStatus.VALIDATED,
             metrics={"mean_ic": 0.05, "icir": 1.2},
             created_at=datetime.now(UTC),
-            backtest_id="bt-123",
+            run_id="run-123",  # Links to BacktestResultStorage
         ),
     ]
     return registry

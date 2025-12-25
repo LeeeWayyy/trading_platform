@@ -52,7 +52,7 @@ Implement T9.4 Scheduled Reports that enables users to configure, schedule, and 
             │                     │                     │
             ▼                     ▼                     ▼
 ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│ ReportGenerator │   │ Celery Beat     │   │ DeliveryService │
+│ ReportGenerator │   │ APScheduler     │   │ DeliveryService │
 │ (PDF/HTML)      │   │ (Scheduler)     │   │ (from T7.5)     │
 └─────────────────┘   └─────────────────┘   └─────────────────┘
             │                                       │
@@ -82,7 +82,7 @@ libs/reporting/
 ├── report_generator.py          # Core report generation
 ├── pdf_generator.py             # PDF generation (WeasyPrint)
 ├── html_generator.py            # HTML generation (Jinja2)
-├── scheduler.py                 # Celery beat integration
+├── scheduler.py                 # APScheduler with DB-persisted schedules
 ├── templates/
 │   ├── base.html                # Base Jinja2 template
 │   ├── daily_summary.html       # Daily summary template
@@ -93,7 +93,7 @@ libs/reporting/
     └── logo.png                 # Platform branding
 
 db/migrations/
-└── 0012_create_report_tables.sql
+└── 0018_create_report_tables.sql
 
 tests/libs/reporting/
 ├── test_report_generator.py
@@ -113,20 +113,24 @@ docs/
 ### 1. Database Schema
 
 ```sql
--- db/migrations/0012_create_report_tables.sql
+-- db/migrations/0018_create_report_tables.sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- Report templates
+-- Report templates (with multi-tenant scoping per P4T7_TASK.md)
 CREATE TABLE IF NOT EXISTS report_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL,  -- Multi-tenant scoping
     name VARCHAR(255) NOT NULL,
     description TEXT,
     template_type VARCHAR(50) NOT NULL,  -- daily_summary, weekly_performance, monthly_pnl
     config JSONB NOT NULL DEFAULT '{}',
     created_by UUID NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(account_id, name)  -- Template names unique per account
 );
+
+CREATE INDEX idx_report_templates_account ON report_templates(account_id);
 
 -- Example config JSONB structure:
 -- {
@@ -137,9 +141,10 @@ CREATE TABLE IF NOT EXISTS report_templates (
 --   "include_charts": true
 -- }
 
--- Report schedules
+-- Report schedules (with multi-tenant scoping)
 CREATE TABLE IF NOT EXISTS report_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL,  -- Multi-tenant scoping
     template_id UUID NOT NULL REFERENCES report_templates(id) ON DELETE CASCADE,
     schedule_type VARCHAR(20) NOT NULL,  -- daily, weekly, monthly
     schedule_config JSONB NOT NULL DEFAULT '{}',
@@ -157,13 +162,16 @@ CREATE TABLE IF NOT EXISTS report_schedules (
 -- weekly: {"day_of_week": 1, "hour": 6}  -- Monday 6am
 -- monthly: {"day_of_month": 1, "hour": 6}  -- 1st of month 6am
 
+CREATE INDEX idx_report_schedules_account ON report_schedules(account_id);
 CREATE INDEX idx_report_schedules_next_run ON report_schedules(next_run_at) WHERE enabled = true;
 
--- Report archives
+-- Report archives (with idempotency)
 CREATE TABLE IF NOT EXISTS report_archives (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL,  -- Multi-tenant scoping
     schedule_id UUID REFERENCES report_schedules(id) ON DELETE SET NULL,
     template_id UUID NOT NULL REFERENCES report_templates(id),
+    idempotency_key VARCHAR(100) NOT NULL,  -- schedule_id + generated_at to prevent duplicates
     generated_at TIMESTAMPTZ NOT NULL,
     file_path VARCHAR(500) NOT NULL,
     file_format VARCHAR(10) NOT NULL,  -- pdf, html
@@ -171,9 +179,25 @@ CREATE TABLE IF NOT EXISTS report_archives (
     delivery_status VARCHAR(20) DEFAULT 'pending',
     delivered_at TIMESTAMPTZ,
     error_message TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(idempotency_key)  -- Prevent duplicate archive generation
 );
 
+-- Schedule run tracking for idempotency (APScheduler)
+CREATE TABLE IF NOT EXISTS report_schedule_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    schedule_id UUID NOT NULL REFERENCES report_schedules(id),
+    run_key VARCHAR(100) NOT NULL,  -- schedule_id + date for idempotency
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending, running, completed, failed
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    archive_id UUID REFERENCES report_archives(id),
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(run_key)  -- Prevent duplicate runs
+);
+
+CREATE INDEX idx_report_archives_account ON report_archives(account_id);
 CREATE INDEX idx_report_archives_generated ON report_archives(generated_at);
 ```
 
@@ -956,9 +980,9 @@ def test_pdf_output_matches_golden():
 2. **PDFGenerator:** WeasyPrint PDF generation
 3. **HTMLGenerator:** Jinja2 HTML rendering
 4. **ReportService:** Template, schedule, and archive management
-5. **Celery Integration:** Scheduler for periodic reports
+5. **APScheduler Integration:** Scheduler for periodic reports (DB-persisted)
 6. **Reports Page:** Streamlit UI
-7. **Database Migration:** 0012_create_report_tables.sql
+7. **Database Migration:** 0018_create_report_tables.sql
 8. **Tests:** Unit and golden tests
 9. **Documentation:** `docs/CONCEPTS/reporting.md`, `docs/ADRs/ADR-0030-reporting-architecture.md`
 

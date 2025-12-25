@@ -74,7 +74,7 @@ libs/tax/
 ├── export.py                    # Export formatters (TXF, CSV, PDF)
 
 db/migrations/
-└── 0013_create_tax_lots.sql
+└── 0019_create_tax_lots.sql
 
 tests/libs/tax/
 ├── test_cost_basis.py
@@ -93,7 +93,7 @@ docs/CONCEPTS/
 ### 1. Database Schema
 
 ```sql
--- db/migrations/0013_create_tax_lots.sql
+-- db/migrations/0019_create_tax_lots.sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Tax lots (positions acquired)
@@ -1190,7 +1190,7 @@ python scripts/backfill_tax_lots.py --account-id UUID
 1. **CostBasisCalculator:** FIFO/LIFO/Specific ID implementation
 2. **Export Formatters:** TXF, CSV, PDF export
 3. **Tax Lots Page:** Streamlit UI
-4. **Database Migration:** 0013_create_tax_lots.sql
+4. **Database Migration:** 0019_create_tax_lots.sql
 5. **Backfill Utility:** `scripts/backfill_tax_lots.py`
 6. **Tests:** Unit tests for cost basis logic
 7. **Documentation:** `docs/CONCEPTS/tax-lot-accounting.md`

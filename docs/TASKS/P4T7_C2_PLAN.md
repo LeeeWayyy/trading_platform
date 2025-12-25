@@ -170,14 +170,34 @@ class FactorExposureService:
             holdings = self._get_portfolio_holdings(portfolio_id, current_date)
 
             if holdings is not None and not holdings.is_empty():
+                # Get PERMNOs from holdings for factor computation
+                permnos = holdings.select("permno").to_series().to_list()
+
+                # Compute all factors for universe (uses actual FactorBuilder API)
+                factor_result = self._builder.compute_all_factors(
+                    as_of_date=current_date,
+                    universe=permnos,
+                )
+
+                # Weight-average per-stock exposures by portfolio weights
                 for factor in factors:
-                    exposure = self._builder.compute_portfolio_exposure(
-                        holdings, factor, current_date
+                    factor_exposures = factor_result.exposures.filter(
+                        pl.col("factor_name") == factor
+                    )
+                    # Join with holdings weights
+                    merged = factor_exposures.join(
+                        holdings.select(["permno", "weight"]),
+                        on="permno",
+                    )
+                    # Portfolio exposure = sum(weight * zscore)
+                    portfolio_exposure = (
+                        merged.select((pl.col("weight") * pl.col("zscore")).sum())
+                        .item()
                     )
                     results.append({
                         "date": current_date,
                         "factor": factor,
-                        "exposure": exposure,
+                        "exposure": portfolio_exposure,
                     })
 
             current_date = current_date + timedelta(days=1)
@@ -240,10 +260,25 @@ class FactorExposureService:
                 "contribution": pl.Float64,
             })
 
-        # Compute exposure for each stock
-        stock_exposures = self._builder.compute_stock_exposures(
-            holdings, factor, as_of_date
+        # Get PERMNOs from holdings for factor computation
+        permnos = holdings.select("permno").to_series().to_list()
+
+        # Compute factor exposures using actual FactorBuilder API
+        factor_result = self._builder.compute_factor(
+            factor_name=factor,
+            as_of_date=as_of_date,
+            universe=permnos,
         )
+
+        # Join exposures with holdings to get weights
+        stock_exposures = factor_result.exposures.join(
+            holdings.select(["permno", "symbol", "weight"]),
+            on="permno",
+        ).select([
+            "symbol",
+            "weight",
+            pl.col("zscore").alias("exposure"),
+        ])
 
         # Add contribution = weight * exposure
         return stock_exposures.with_columns([
@@ -254,9 +289,44 @@ class FactorExposureService:
         """Get portfolio holdings as of date.
 
         Returns DataFrame with columns [permno, symbol, weight]
+
+        Data Source Options (to be finalized in C0):
+        1. positions table via reconciler (current holdings)
+        2. Trade journal historical snapshots
+        3. Strategy target weights from signal_service
+
+        For MVP, use positions table joined with CRSP to get PERMNOs.
         """
-        # TODO: Implement position data lookup
-        return None
+        # Query positions table for portfolio holdings
+        async def _fetch():
+            async with self._db.connection() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT p.symbol, p.qty, p.market_value
+                    FROM positions p
+                    WHERE p.strategy_id = $1
+                      AND p.as_of_date <= $2
+                    ORDER BY p.as_of_date DESC
+                    """,
+                    portfolio_id,
+                    as_of_date,
+                )
+                if not rows:
+                    return None
+
+                # Convert to DataFrame and compute weights
+                df = pl.DataFrame([dict(r) for r in rows])
+                total_value = df.select(pl.col("market_value").sum()).item()
+                if total_value == 0:
+                    return None
+
+                return df.with_columns([
+                    (pl.col("market_value") / total_value).alias("weight"),
+                ]).select(["symbol", "weight"])
+
+        # TODO: Add PERMNO lookup via CRSP linkage
+        from apps.web_console.utils.run_async import run_async
+        return run_async(_fetch())
 ```
 
 ### 2. Heatmap Chart Component

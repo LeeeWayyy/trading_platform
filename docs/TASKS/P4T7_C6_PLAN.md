@@ -101,10 +101,13 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
-    import asyncpg
+    from apps.web_console.utils.db_pool import AsyncConnectionAdapter
     from libs.tax.cost_basis import TaxLot
 
 logger = logging.getLogger(__name__)
+
+# NOTE: Use psycopg AsyncConnectionAdapter pattern, NOT asyncpg
+# See apps/web_console/utils/db_pool.py for the correct pattern
 
 # IRS wash sale window: 30 days before to 30 days after
 WASH_SALE_WINDOW_DAYS = 30
@@ -146,8 +149,9 @@ class WashSaleDetector:
       - Contracts to acquire same stock
     """
 
-    def __init__(self, db_pool: asyncpg.Pool):
-        self._db = db_pool
+    def __init__(self, db_adapter: "AsyncConnectionAdapter"):
+        """Initialize with psycopg AsyncConnectionAdapter."""
+        self._db = db_adapter
 
     async def detect_wash_sales(
         self,
@@ -403,10 +407,11 @@ class TaxLossHarvester:
 
     def __init__(
         self,
-        db_pool: asyncpg.Pool,
+        db_adapter: "AsyncConnectionAdapter",
         wash_sale_detector: WashSaleDetector,
     ):
-        self._db = db_pool
+        """Initialize with psycopg AsyncConnectionAdapter."""
+        self._db = db_adapter
         self._wash_detector = wash_sale_detector
 
     async def find_opportunities(
