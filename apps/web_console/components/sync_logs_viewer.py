@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from apps.web_console.components.dataset_helpers import load_sync_datasets
 from apps.web_console.services.data_sync_service import DataSyncService
 from libs.common.async_utils import run_async
 
@@ -19,7 +20,7 @@ def render_sync_logs_viewer(service: DataSyncService, user: Any) -> None:
 
     st.subheader("Sync Logs")
 
-    datasets = _load_dataset_options(service, user)
+    datasets = load_sync_datasets(service, user)
     if datasets is None:
         return
 
@@ -75,22 +76,6 @@ def render_sync_logs_viewer(service: DataSyncService, user: Any) -> None:
             if log.extra:
                 st.json(log.extra)
             st.divider()
-
-
-def _load_dataset_options(service: DataSyncService, user: Any) -> list[str] | None:
-    try:
-        with st.spinner("Loading datasets..."):
-            statuses = run_async(service.get_sync_status(user), timeout=_FETCH_TIMEOUT_SECONDS)
-    except Exception as exc:
-        st.error(f"Failed to load dataset options: {exc}")
-        return None
-
-    datasets = sorted({status.dataset for status in statuses})
-    if not datasets:
-        st.info("No datasets available for sync logs.")
-        return None
-
-    return datasets
 
 
 def _format_dt(value: datetime | None) -> str:

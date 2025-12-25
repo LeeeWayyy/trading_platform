@@ -1251,7 +1251,7 @@ The following features were identified during review but are **explicitly deferr
 - [P4_PLANNING.md](./P4_PLANNING.md) - Track 8 specification
 - [P4T1_TASK.md](./P4T1_TASK.md) - Data infrastructure (dependency)
 - [P4T5_TASK.md](./P4T5_TASK.md) - Track 7 Operations (auth patterns)
-- [ADR-0023-data-quality-framework.md](../ADRs/ADR-0023-data-quality-framework.md)
+- [ADR-024-analytics-security.md](../ADRs/ADR-024-analytics-security.md) - Security patterns for data access
 
 ---
 

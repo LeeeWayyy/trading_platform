@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from apps.web_console.components.dataset_helpers import load_quality_datasets
 from apps.web_console.services.data_quality_service import DataQualityService
 from libs.common.async_utils import run_async
 
@@ -19,7 +20,7 @@ def render_coverage_chart(service: DataQualityService, user: Any) -> None:
 
     st.subheader("Coverage Gaps")
 
-    dataset_options = _load_dataset_options(service, user)
+    dataset_options = load_quality_datasets(service, user)
     if not dataset_options:
         st.info("No datasets available for coverage chart.")
         return
@@ -64,21 +65,6 @@ def render_coverage_chart(service: DataQualityService, user: Any) -> None:
         fig = px.bar(df, x="date", y="gap", color="validation")
         fig.update_layout(height=320, xaxis_title="Date", yaxis_title="Gap")
         st.plotly_chart(fig, use_container_width=True)
-
-
-def _load_dataset_options(service: DataQualityService, user: Any) -> list[str]:
-    try:
-        with st.spinner("Loading datasets..."):
-            results = run_async(
-                service.get_validation_results(user=user, dataset=None, limit=50),
-                timeout=_FETCH_TIMEOUT_SECONDS,
-            )
-    except Exception as exc:
-        st.error(f"Failed to load dataset options: {exc}")
-        return []
-
-    datasets = sorted({result.dataset for result in results})
-    return datasets
 
 
 def _to_float(value: object) -> float | None:

@@ -27,8 +27,8 @@ def _get_data_explorer_service() -> DataExplorerService:
 def render_dataset_explorer(user: dict[str, object]) -> None:
     st.title("Dataset Explorer")
 
-    if not has_permission(user, Permission.VIEW_DATA_SYNC):
-        st.error("Permission denied: VIEW_DATA_SYNC required")
+    if not has_permission(user, Permission.QUERY_DATA):
+        st.error("Permission denied: QUERY_DATA required")
         st.stop()
 
     service = _get_data_explorer_service()

@@ -846,6 +846,7 @@ def main() -> None:
             pages.append("Alerts")
         if has_permission(user_info, Permission.VIEW_DATA_SYNC):
             pages.append("Data Sync Dashboard")
+        if has_permission(user_info, Permission.QUERY_DATA):
             pages.append("Dataset Explorer")
         if has_permission(user_info, Permission.VIEW_DATA_QUALITY):
             pages.append("Data Quality Reports")
@@ -962,8 +963,8 @@ def main() -> None:
 
         render_data_sync_dashboard(user=user_info)
     elif page == "Dataset Explorer":
-        if not has_permission(user_info, Permission.VIEW_DATA_SYNC):
-            st.error("Access denied: VIEW_DATA_SYNC permission required")
+        if not has_permission(user_info, Permission.QUERY_DATA):
+            st.error("Access denied: QUERY_DATA permission required")
             st.stop()
 
         from apps.web_console.pages.data_explorer import render_dataset_explorer

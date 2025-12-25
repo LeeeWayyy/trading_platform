@@ -25,7 +25,9 @@ def render_query_editor(service: DataExplorerService, user: Any) -> None:
         return
 
     dataset = st.selectbox("Dataset", options=datasets)
-    default_query = st.session_state.get("query_editor_default", "SELECT * FROM table LIMIT 100")
+    default_query = st.session_state.get(
+        "query_editor_default", "-- Example: SELECT * FROM crsp_daily LIMIT 100"
+    )
     query = st.text_area("SQL Query", value=default_query, height=160)
 
     if st.button("Run Query", type="primary"):

@@ -24,7 +24,9 @@ def render_export_dialog(service: DataExplorerService, user: Any) -> None:
         return
 
     dataset = st.selectbox("Dataset", options=datasets)
-    query = st.text_area("SQL Query", value="SELECT * FROM table LIMIT 1000", height=160)
+    query = st.text_area(
+        "SQL Query", value="-- Example: SELECT * FROM crsp_daily LIMIT 1000", height=160
+    )
     format_choice: Literal["csv", "parquet"] = cast(
         Literal["csv", "parquet"], st.selectbox("Format", options=["csv", "parquet"])
     )
