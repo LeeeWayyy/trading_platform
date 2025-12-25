@@ -100,14 +100,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+# Import Protocol from C5 to avoid layering violation (libs importing from apps)
+from libs.tax.cost_basis import AsyncConnectionPool
+
 if TYPE_CHECKING:
-    from apps.web_console.utils.db_pool import AsyncConnectionAdapter
     from libs.tax.cost_basis import TaxLot
 
 logger = logging.getLogger(__name__)
-
-# NOTE: Use psycopg AsyncConnectionAdapter pattern, NOT asyncpg
-# See apps/web_console/utils/db_pool.py for the correct pattern
 
 # IRS wash sale window: 30 days before to 30 days after
 WASH_SALE_WINDOW_DAYS = 30
@@ -149,13 +148,17 @@ class WashSaleDetector:
       - Contracts to acquire same stock
     """
 
-    def __init__(self, db_adapter: "AsyncConnectionAdapter"):
-        """Initialize with psycopg AsyncConnectionAdapter."""
+    def __init__(self, db_adapter: AsyncConnectionPool):
+        """Initialize with database adapter.
+
+        Args:
+            db_adapter: Any AsyncConnectionPool implementation (Protocol).
+        """
         self._db = db_adapter
 
     async def detect_wash_sales(
         self,
-        account_id: UUID,
+        user_id: str,
         symbol: str,
         sale_date: datetime,
         loss_amount: Decimal,
@@ -164,7 +167,7 @@ class WashSaleDetector:
         """Detect wash sales for a loss transaction.
 
         Args:
-            account_id: Account that sold
+            user_id: User that sold (VARCHAR to match RBAC)
             symbol: Symbol sold at a loss
             sale_date: Date of sale
             loss_amount: Total loss on sale (negative)
@@ -172,7 +175,13 @@ class WashSaleDetector:
 
         Returns:
             List of WashSaleMatch for any matching replacements
+
+        Raises:
+            ValueError: If shares_sold <= 0 (invalid input)
         """
+        if shares_sold <= 0:
+            raise ValueError(f"shares_sold must be positive, got {shares_sold}")
+
         if loss_amount >= 0:
             # No loss, no wash sale possible
             return []
@@ -181,56 +190,65 @@ class WashSaleDetector:
         window_end = sale_date + timedelta(days=WASH_SALE_WINDOW_DAYS)
 
         async with self._db.connection() as conn:
-            # Find purchases in wash sale window
-            replacements = await conn.fetch(
-                """
-                SELECT id, symbol, quantity, cost_per_share, acquired_at
-                FROM tax_lots
-                WHERE account_id = $1
-                  AND symbol = $2
-                  AND acquired_at >= $3
-                  AND acquired_at <= $4
-                  AND acquired_at != $5
-                ORDER BY acquired_at
-                """,
-                account_id,
-                symbol,
-                window_start,
-                window_end,
-                sale_date,  # Exclude same-day purchases counted elsewhere
-            )
+            async with conn.cursor() as cur:
+                # Find purchases in wash sale window (psycopg cursor pattern)
+                # IRS wash sale rule includes same-day repurchases, so no exclusion
+                # NOTE: Do NOT filter by remaining_quantity - wash sales are triggered
+                # by replacement purchases even if those lots were later fully sold.
+                # The purchase itself triggers the wash sale rule, not the current state.
+                await cur.execute(
+                    """
+                    SELECT id, symbol, quantity, remaining_quantity, cost_per_share, acquired_at
+                    FROM tax_lots
+                    WHERE user_id = %s
+                      AND symbol = %s
+                      AND acquired_at >= %s
+                      AND acquired_at <= %s
+                    ORDER BY acquired_at
+                    """,
+                    (user_id, symbol, window_start, window_end),
+                )
+                replacements = await cur.fetchall()
 
-            if not replacements:
-                return []
+                if not replacements:
+                    return []
 
-            # Calculate wash sale matches
-            matches = []
-            remaining_loss = abs(loss_amount)
-            remaining_shares = shares_sold
-            loss_per_share = remaining_loss / shares_sold
+                # Calculate wash sale matches
+                matches = []
+                remaining_loss = abs(loss_amount)
+                remaining_shares = shares_sold
+                loss_per_share = remaining_loss / shares_sold
 
-            for row in replacements:
-                if remaining_shares <= 0:
-                    break
+                for row in replacements:
+                    if remaining_shares <= 0:
+                        break
 
-                # Match shares proportionally
-                matching_shares = min(row["quantity"], remaining_shares)
-                matching_loss = matching_shares * loss_per_share
+                    # psycopg with dict_row returns dicts
+                    lot_id = row["id"]
+                    lot_quantity = row["quantity"]  # Original purchase quantity (not remaining)
+                    acquired_at = row["acquired_at"]
 
-                matches.append(WashSaleMatch(
-                    loss_disposition_id=UUID("00000000-0000-0000-0000-000000000000"),  # Set later
-                    replacement_lot_id=row["id"],
-                    symbol=symbol,
-                    disallowed_loss=matching_loss,
-                    matching_shares=matching_shares,
-                    sale_date=sale_date,
-                    replacement_date=row["acquired_at"],
-                ))
+                    # Match shares using ORIGINAL purchase quantity for wash sale purposes
+                    # Per IRS: The replacement purchase amount matters, not current remaining
+                    # e.g., if bought 100 shares (replacement), then sold 50, the full 100
+                    # can still trigger wash sale for up to 100 shares of the original loss
+                    matching_shares = min(lot_quantity, remaining_shares)
+                    matching_loss = matching_shares * loss_per_share
 
-                remaining_shares -= matching_shares
-                remaining_loss -= matching_loss
+                    matches.append(WashSaleMatch(
+                        loss_disposition_id=UUID("00000000-0000-0000-0000-000000000000"),  # Set later
+                        replacement_lot_id=lot_id,
+                        symbol=symbol,
+                        disallowed_loss=matching_loss,
+                        matching_shares=matching_shares,
+                        sale_date=sale_date,
+                        replacement_date=acquired_at,
+                    ))
 
-            return matches
+                    remaining_shares -= matching_shares
+                    remaining_loss -= matching_loss
+
+                return matches
 
     async def apply_wash_sale_adjustments(
         self,
@@ -254,49 +272,75 @@ class WashSaleDetector:
         adjustments = []
 
         async with self._db.connection() as conn:
-            async with conn.transaction():
+            async with conn.cursor() as cur:
                 for match in matches:
-                    # Update disposition with disallowed amount
-                    await conn.execute(
+                    # Update disposition total disallowed amount (psycopg cursor pattern)
+                    await cur.execute(
                         """
                         UPDATE tax_lot_dispositions
-                        SET wash_sale_disallowed = wash_sale_disallowed + $1,
-                            wash_sale_adjustment_lot_id = $2
-                        WHERE id = $3
+                        SET wash_sale_disallowed = wash_sale_disallowed + %s
+                        WHERE id = %s
                         """,
-                        match.disallowed_loss,
-                        match.replacement_lot_id,
-                        loss_disposition_id,
+                        (match.disallowed_loss, loss_disposition_id),
                     )
 
-                    # Get original lot dates for holding period calculation
-                    original_lot = await conn.fetchrow(
+                    # Get original lot dates for holding period calculation FIRST
+                    # (needed for both junction table insert and basis adjustment)
+                    await cur.execute(
                         """
                         SELECT acquired_at FROM tax_lots
                         WHERE id = (
-                            SELECT lot_id FROM tax_lot_dispositions WHERE id = $1
+                            SELECT lot_id FROM tax_lot_dispositions WHERE id = %s
                         )
                         """,
-                        loss_disposition_id,
+                        (loss_disposition_id,),
                     )
+                    original_lot = await cur.fetchone()
 
                     # Calculate holding period adjustment
                     # Per IRS: Add original holding period to replacement
+                    # psycopg with dict_row returns dicts
                     if original_lot:
                         days_held = (match.sale_date - original_lot["acquired_at"]).days
                     else:
                         days_held = 0
 
+                    # Insert per-lot adjustment into junction table for audit trail
+                    # Includes holding_period_adjustment_days for proper long/short-term classification
+                    # UNIQUE constraint handles idempotency; ON CONFLICT updates
+                    await cur.execute(
+                        """
+                        INSERT INTO tax_wash_sale_adjustments
+                        (disposition_id, replacement_lot_id, matching_shares, disallowed_loss,
+                         holding_period_adjustment_days)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (disposition_id, replacement_lot_id) DO UPDATE SET
+                            matching_shares = EXCLUDED.matching_shares,
+                            disallowed_loss = EXCLUDED.disallowed_loss,
+                            holding_period_adjustment_days = EXCLUDED.holding_period_adjustment_days
+                        """,
+                        (loss_disposition_id, match.replacement_lot_id,
+                         match.matching_shares, match.disallowed_loss, days_held),
+                    )
+
                     # Update replacement lot with adjusted basis
-                    await conn.execute(
+                    # ALWAYS update total_cost (required for accurate tax reporting,
+                    # even if lot is fully disposed - preserves audit trail).
+                    # Only update cost_per_share if remaining_quantity > 0
+                    # (meaningless when fully disposed; use NULLIF to avoid div-by-zero).
+                    await cur.execute(
                         """
                         UPDATE tax_lots
-                        SET cost_per_share = cost_per_share + ($1 / remaining_quantity),
-                            total_cost = total_cost + $1
-                        WHERE id = $2
+                        SET total_cost = total_cost + %s,
+                            cost_per_share = CASE
+                                WHEN remaining_quantity > 0 THEN
+                                    cost_per_share + (%s / LEAST(%s, remaining_quantity))
+                                ELSE cost_per_share  -- Keep existing when fully disposed
+                            END
+                        WHERE id = %s
                         """,
-                        match.disallowed_loss,
-                        match.replacement_lot_id,
+                        (match.disallowed_loss, match.disallowed_loss,
+                         match.matching_shares, match.replacement_lot_id),
                     )
 
                     adjustments.append(WashSaleAdjustment(
@@ -311,38 +355,46 @@ class WashSaleDetector:
                         extra={
                             "disposition_id": str(loss_disposition_id),
                             "replacement_lot_id": str(match.replacement_lot_id),
+                            "matching_shares": str(match.matching_shares),
                             "disallowed_loss": str(match.disallowed_loss),
                         },
                     )
+            # psycopg3 requires explicit commit (autocommit=False by default)
+            await conn.commit()
 
         return adjustments
 
     async def get_wash_sale_summary(
         self,
-        account_id: UUID,
+        user_id: str,
         tax_year: int,
     ) -> dict:
-        """Get wash sale summary for tax year."""
-        async with self._db.connection() as conn:
-            result = await conn.fetchrow(
-                """
-                SELECT
-                    COUNT(*) as wash_sale_count,
-                    SUM(wash_sale_disallowed) as total_disallowed
-                FROM tax_lot_dispositions d
-                JOIN tax_lots l ON d.lot_id = l.id
-                WHERE l.account_id = $1
-                  AND date_trunc('year', d.disposed_at) = date_trunc('year', $2::date)
-                  AND wash_sale_disallowed > 0
-                """,
-                account_id,
-                datetime(tax_year, 1, 1),
-            )
+        """Get wash sale summary for tax year.
 
-            return {
-                "wash_sale_count": result["wash_sale_count"] or 0,
-                "total_disallowed": result["total_disallowed"] or Decimal(0),
-            }
+        Uses psycopg cursor pattern with %s placeholders.
+        """
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT
+                        COUNT(*) as wash_sale_count,
+                        SUM(wash_sale_disallowed) as total_disallowed
+                    FROM tax_lot_dispositions d
+                    JOIN tax_lots l ON d.lot_id = l.id
+                    WHERE l.user_id = %s
+                      AND date_trunc('year', d.disposed_at) = date_trunc('year', %s::date)
+                      AND wash_sale_disallowed > 0
+                    """,
+                    (user_id, datetime(tax_year, 1, 1)),
+                )
+                result = await cur.fetchone()
+
+                # psycopg with dict_row returns dicts
+                return {
+                    "wash_sale_count": result["wash_sale_count"] or 0,
+                    "total_disallowed": result["total_disallowed"] or Decimal(0),
+                }
 ```
 
 ### 2. Tax-Loss Harvesting Recommender
@@ -355,13 +407,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+# Import Protocol for type hint (not TYPE_CHECKING since used at runtime)
+from libs.tax.cost_basis import AsyncConnectionPool
+
 if TYPE_CHECKING:
-    import asyncpg
     from libs.tax.cost_basis import TaxLot
     from libs.tax.wash_sale_detector import WashSaleDetector
 
@@ -407,23 +461,28 @@ class TaxLossHarvester:
 
     def __init__(
         self,
-        db_adapter: "AsyncConnectionAdapter",
+        db_adapter: AsyncConnectionPool,
         wash_sale_detector: WashSaleDetector,
     ):
-        """Initialize with psycopg AsyncConnectionAdapter."""
+        """Initialize with database adapter.
+
+        Args:
+            db_adapter: Any AsyncConnectionPool implementation (Protocol).
+            wash_sale_detector: WashSaleDetector for checking wash sale rules.
+        """
         self._db = db_adapter
         self._wash_detector = wash_sale_detector
 
     async def find_opportunities(
         self,
-        account_id: UUID,
+        user_id: str,
         current_prices: dict[str, Decimal],
         min_loss_threshold: Decimal = Decimal("100"),
     ) -> HarvestingRecommendation:
         """Find tax-loss harvesting opportunities.
 
         Args:
-            account_id: Account to analyze
+            user_id: User to analyze (VARCHAR to match RBAC)
             current_prices: Current market prices by symbol
             min_loss_threshold: Minimum loss to consider
 
@@ -431,125 +490,136 @@ class TaxLossHarvester:
             HarvestingRecommendation with opportunities
         """
         async with self._db.connection() as conn:
-            # Get all open lots
-            lots = await conn.fetch(
-                """
-                SELECT * FROM tax_lots
-                WHERE account_id = $1 AND remaining_quantity > 0
-                ORDER BY symbol, acquired_at
-                """,
-                account_id,
-            )
-
-            opportunities = []
-            warnings = []
-            total_loss = Decimal(0)
-
-            for lot in lots:
-                symbol = lot["symbol"]
-                current_price = current_prices.get(symbol)
-
-                if current_price is None:
-                    warnings.append(f"No price available for {symbol}")
-                    continue
-
-                # Calculate unrealized loss
-                current_value = lot["remaining_quantity"] * current_price
-                cost_basis = lot["remaining_quantity"] * lot["cost_per_share"]
-                unrealized_pnl = current_value - cost_basis
-
-                if unrealized_pnl >= 0:
-                    # Not a loss, skip
-                    continue
-
-                if abs(unrealized_pnl) < min_loss_threshold:
-                    # Below threshold
-                    continue
-
-                # Check wash sale risk
-                wash_sale_risk, clear_date = await self._check_wash_sale_risk(
-                    conn, account_id, symbol, lot["id"]
+            async with conn.cursor() as cur:
+                # Get all open lots (psycopg cursor pattern)
+                await cur.execute(
+                    """
+                    SELECT id, symbol, remaining_quantity, cost_per_share, acquired_at
+                    FROM tax_lots
+                    WHERE user_id = %s AND remaining_quantity > 0
+                    ORDER BY symbol, acquired_at
+                    """,
+                    (user_id,),
                 )
+                lots = await cur.fetchall()
 
-                # Determine holding period
-                days_held = (datetime.now() - lot["acquired_at"]).days
-                holding_period = "long_term" if days_held > 365 else "short_term"
+                opportunities = []
+                warnings = []
+                total_loss = Decimal(0)
 
-                opportunities.append(HarvestingOpportunity(
-                    lot_id=lot["id"],
-                    symbol=symbol,
-                    shares=lot["remaining_quantity"],
-                    cost_basis=cost_basis,
-                    current_price=current_price,
-                    unrealized_loss=unrealized_pnl,  # Negative
-                    holding_period=holding_period,
-                    wash_sale_risk=wash_sale_risk,
-                    wash_sale_clear_date=clear_date,
-                ))
+                for lot in lots:
+                    # psycopg with dict_row returns dicts
+                    lot_id = lot["id"]
+                    symbol = lot["symbol"]
+                    remaining_qty = lot["remaining_quantity"]
+                    cost_per_share = lot["cost_per_share"]
+                    acquired_at = lot["acquired_at"]
+                    current_price = current_prices.get(symbol)
 
-                if not wash_sale_risk:
-                    total_loss += abs(unrealized_pnl)
+                    if current_price is None:
+                        warnings.append(f"No price available for {symbol}")
+                        continue
 
-            # Estimate tax savings (simplified)
-            # Short-term: ordinary income rate (~35%)
-            # Long-term: capital gains rate (~15%)
-            estimated_savings = self._estimate_tax_savings(opportunities)
+                    # Calculate unrealized loss
+                    current_value = remaining_qty * current_price
+                    cost_basis = remaining_qty * cost_per_share
+                    unrealized_pnl = current_value - cost_basis
 
-            return HarvestingRecommendation(
-                opportunities=sorted(
-                    opportunities,
-                    key=lambda x: x.unrealized_loss,  # Most negative first
-                ),
-                total_harvestable_loss=total_loss,
-                estimated_tax_savings=estimated_savings,
-                warnings=warnings,
-            )
+                    if unrealized_pnl >= 0:
+                        # Not a loss, skip
+                        continue
+
+                    if abs(unrealized_pnl) < min_loss_threshold:
+                        # Below threshold
+                        continue
+
+                    # Check wash sale risk
+                    wash_sale_risk, clear_date = await self._check_wash_sale_risk(
+                        cur, user_id, symbol, lot_id
+                    )
+
+                    # Determine holding period
+                    # Use UTC-aware datetime to match timestamptz columns
+                    days_held = (datetime.now(UTC) - acquired_at).days
+                    holding_period = "long_term" if days_held > 365 else "short_term"
+
+                    opportunities.append(HarvestingOpportunity(
+                        lot_id=lot_id,
+                        symbol=symbol,
+                        shares=remaining_qty,
+                        cost_basis=cost_basis,
+                        current_price=current_price,
+                        unrealized_loss=unrealized_pnl,  # Negative
+                        holding_period=holding_period,
+                        wash_sale_risk=wash_sale_risk,
+                        wash_sale_clear_date=clear_date,
+                    ))
+
+                    if not wash_sale_risk:
+                        total_loss += abs(unrealized_pnl)
+
+                # Estimate tax savings (simplified)
+                # Short-term: ordinary income rate (~35%)
+                # Long-term: capital gains rate (~15%)
+                estimated_savings = self._estimate_tax_savings(opportunities)
+
+                return HarvestingRecommendation(
+                    opportunities=sorted(
+                        opportunities,
+                        key=lambda x: x.unrealized_loss,  # Most negative first
+                    ),
+                    total_harvestable_loss=total_loss,
+                    estimated_tax_savings=estimated_savings,
+                    warnings=warnings,
+                )
 
     async def _check_wash_sale_risk(
         self,
-        conn,
-        account_id: UUID,
+        cur,  # psycopg cursor
+        user_id: str,
         symbol: str,
         lot_id: UUID,
     ) -> tuple[bool, date | None]:
         """Check if selling this lot would trigger wash sale.
 
+        Uses psycopg cursor pattern with %s placeholders.
+
         Returns:
             (has_risk, clear_date) - clear_date is when wash window ends
         """
-        today = datetime.now()
+        # Use UTC-aware datetime to match timestamptz columns
+        today = datetime.now(UTC)
         lookback = today - timedelta(days=30)
 
         # Check for recent purchases (excluding this lot)
-        recent = await conn.fetchval(
+        await cur.execute(
             """
             SELECT COUNT(*) FROM tax_lots
-            WHERE account_id = $1
-              AND symbol = $2
-              AND id != $3
-              AND acquired_at >= $4
+            WHERE user_id = %s
+              AND symbol = %s
+              AND id != %s
+              AND acquired_at >= %s
             """,
-            account_id,
-            symbol,
-            lot_id,
-            lookback,
+            (user_id, symbol, lot_id, lookback),
         )
+        # psycopg with dict_row returns dicts
+        result = await cur.fetchone()
+        recent = result["count"]
 
         if recent > 0:
             # Find when window clears
-            latest = await conn.fetchval(
+            await cur.execute(
                 """
-                SELECT MAX(acquired_at) FROM tax_lots
-                WHERE account_id = $1
-                  AND symbol = $2
-                  AND id != $3
-                  AND acquired_at >= $4
+                SELECT MAX(acquired_at) as max_acquired FROM tax_lots
+                WHERE user_id = %s
+                  AND symbol = %s
+                  AND id != %s
+                  AND acquired_at >= %s
                 """,
-                account_id,
-                symbol,
-                lot_id,
-                lookback,
+                (user_id, symbol, lot_id, lookback),
             )
+            result = await cur.fetchone()
+            latest = result["max_acquired"]
             clear_date = (latest + timedelta(days=31)).date()
             return True, clear_date
 
@@ -628,6 +698,11 @@ class Form8949Exporter:
         rows: list[TaxReportRow],
     ) -> dict[str, list[Form8949Row]]:
         """Format rows for Form 8949.
+
+        Note: TaxReportRow.wash_sale_adjustment corresponds to the
+        tax_lot_dispositions.wash_sale_disallowed column. The mapping:
+        - Database: wash_sale_disallowed (IRS-disallowed loss amount)
+        - Export: wash_sale_adjustment (Form 8949 adjustment column 'g')
 
         Returns:
             Dict with keys 'short_term' and 'long_term'
@@ -744,7 +819,7 @@ class TestWashSaleDetection:
     async def test_no_wash_sale_without_replacement(self, detector):
         """No wash sale if no replacement purchase."""
         matches = await detector.detect_wash_sales(
-            account_id=uuid4(),
+            user_id="test_user_123",  # VARCHAR to match RBAC
             symbol="AAPL",
             sale_date=datetime(2024, 6, 15),
             loss_amount=Decimal("-1000"),
@@ -757,7 +832,7 @@ class TestWashSaleDetection:
         """Wash sale triggered by same-day repurchase."""
         # Sold at loss, bought same day
         matches = await detector.detect_wash_sales(
-            account_id=setup_lots["account_id"],
+            user_id=setup_lots["user_id"],  # VARCHAR to match RBAC
             symbol="AAPL",
             sale_date=setup_lots["repurchase_date"],
             loss_amount=Decimal("-1000"),

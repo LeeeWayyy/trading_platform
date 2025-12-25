@@ -111,17 +111,24 @@ if TYPE_CHECKING:
 
 @dataclass
 class SignalSummary:
-    """Summary of alpha signal for list view."""
+    """Summary of alpha signal for list view.
+
+    NOTE: ModelMetadata has NO 'name' or 'status' fields.
+    - Display name is derived from model_id or parameters['name']
+    - Status filtering available via ModelRegistry.list_models(status=...) if needed
+    """
     signal_id: str  # model_id from ModelMetadata
-    name: str  # Derived from model_id or parameters
+    display_name: str  # Derived from model_id or parameters.get('name', model_id)
     version: str
-    status: ModelStatus  # staged, production, archived, failed
+    # NOTE: ModelMetadata has no status field - track separately via registry
+    # For MVP, use 'active' for all loaded models; future: add status table
     mean_ic: float | None  # From metrics dict
     icir: float | None  # From metrics dict
     created_at: date
-    # Backtest linkage via run_id or experiment_id (NOT backtest_id)
-    run_id: str | None  # Links to BacktestResultStorage
-    experiment_id: str | None
+    # Backtest linkage via backtest_job_id in parameters dict
+    # The job_id is stored at model registration time after backtest completes
+    # This links to BacktestResultStorage.get_result(job_id)
+    backtest_job_id: str | None  # Links to BacktestResultStorage
 
 
 @dataclass
@@ -147,7 +154,7 @@ class AlphaExplorerService:
     def __init__(
         self,
         registry: ModelRegistry,
-        metrics_adapter: AlphaMetricsAdapter,
+        metrics_adapter: AlphaMetricsAdapter | None = None,
     ):
         self._registry = registry
         self._metrics = metrics_adapter
@@ -162,12 +169,19 @@ class AlphaExplorerService:
     ) -> tuple[list[SignalSummary], int]:
         """List signals with filtering and pagination.
 
+        Args:
+            status: Filter by ModelStatus (staged, production, archived, failed)
+            min_ic: Minimum IC threshold
+            max_ic: Maximum IC threshold
+            limit: Page size
+            offset: Page offset
+
         Returns:
             Tuple of (signals, total_count)
         """
         models = self._registry.list_models(
             model_type=ModelType.alpha_weights,
-            status=status,
+            status=status,  # Pass status filter to registry
         )
 
         # Filter by IC range
@@ -184,17 +198,25 @@ class AlphaExplorerService:
         return summaries, total
 
     def get_signal_metrics(self, signal_id: str) -> SignalMetrics:
-        """Get detailed metrics for a signal."""
-        # Parse signal_id to get model_type and version
-        model_type, version = self._parse_signal_id(signal_id)
-        metadata = self._registry.get_model_metadata(model_type, version)
+        """Get detailed metrics for a signal.
 
-        # Load backtest result if available
-        backtest_result = self._load_backtest_result(metadata.run_id)
+        signal_id is the model_id from ModelMetadata (NOT model_type:version).
+        Uses get_model_by_id to look up by model_id directly.
+        """
+        # signal_id IS model_id - look up directly
+        metadata = self._registry.get_model_by_id(signal_id)
+        if not metadata:
+            raise ValueError(f"Signal not found: {signal_id}")
+
+        # Load backtest result if available (via job_id in parameters)
+        backtest_result = self._load_backtest_result(metadata)
+
+        # ModelMetadata has no 'name' field - use parameters['name'] or model_id
+        display_name = metadata.parameters.get("name", signal_id)
 
         return SignalMetrics(
             signal_id=signal_id,
-            name=metadata.name,
+            name=display_name,
             version=metadata.version,
             mean_ic=backtest_result.mean_ic if backtest_result else 0.0,
             icir=backtest_result.icir if backtest_result else 0.0,
@@ -210,11 +232,15 @@ class AlphaExplorerService:
     def get_ic_timeseries(self, signal_id: str) -> pl.DataFrame:
         """Get daily IC time series for visualization.
 
+        signal_id is the model_id - look up directly via get_model_by_id.
+
         Returns DataFrame with columns: [date, ic, rank_ic, rolling_ic_20d]
         """
-        model_type, version = self._parse_signal_id(signal_id)
-        metadata = self._registry.get_model_metadata(model_type, version)
-        backtest_result = self._load_backtest_result(metadata.run_id)
+        metadata = self._registry.get_model_by_id(signal_id)
+        if not metadata:
+            return pl.DataFrame(schema={"date": pl.Date, "ic": pl.Float64, "rank_ic": pl.Float64})
+
+        backtest_result = self._load_backtest_result(metadata)
 
         if backtest_result is None:
             return pl.DataFrame(schema={"date": pl.Date, "ic": pl.Float64, "rank_ic": pl.Float64})
@@ -229,11 +255,15 @@ class AlphaExplorerService:
     def get_decay_curve(self, signal_id: str) -> pl.DataFrame:
         """Get decay curve data for visualization.
 
+        signal_id is the model_id - look up directly via get_model_by_id.
+
         Returns DataFrame with columns: [horizon, ic, rank_ic]
         """
-        model_type, version = self._parse_signal_id(signal_id)
-        metadata = self._registry.get_model_metadata(model_type, version)
-        backtest_result = self._load_backtest_result(metadata.run_id)
+        metadata = self._registry.get_model_by_id(signal_id)
+        if not metadata:
+            return pl.DataFrame(schema={"horizon": pl.Int64, "ic": pl.Float64, "rank_ic": pl.Float64})
+
+        backtest_result = self._load_backtest_result(metadata)
 
         if backtest_result is None:
             return pl.DataFrame(schema={"horizon": pl.Int64, "ic": pl.Float64, "rank_ic": pl.Float64})
@@ -243,14 +273,18 @@ class AlphaExplorerService:
     def compute_correlation(self, signal_ids: list[str]) -> pl.DataFrame:
         """Compute correlation matrix for selected signals.
 
+        signal_ids are model_ids - look up directly via get_model_by_id.
+
         Returns DataFrame with signal names as index/columns.
         """
         # Load daily signals for each
         signals_data = {}
         for sid in signal_ids:
-            model_type, version = self._parse_signal_id(sid)
-            metadata = self._registry.get_model_metadata(model_type, version)
-            backtest_result = self._load_backtest_result(metadata.run_id)
+            metadata = self._registry.get_model_by_id(sid)
+            if not metadata:
+                continue
+
+            backtest_result = self._load_backtest_result(metadata)
 
             if backtest_result is not None:
                 # Aggregate to daily cross-sectional mean signal
@@ -259,7 +293,9 @@ class AlphaExplorerService:
                     .group_by("date")
                     .agg(pl.col("signal").mean())
                 )
-                signals_data[metadata.name] = daily_mean
+                # ModelMetadata has no 'name' - use parameters['name'] or model_id
+                display_name = metadata.parameters.get("name", sid)
+                signals_data[display_name] = daily_mean
 
         # Compute pairwise correlations
         if len(signals_data) < 2:
@@ -270,25 +306,32 @@ class AlphaExplorerService:
 
         return pl.DataFrame()  # placeholder
 
-    def _parse_signal_id(self, signal_id: str) -> tuple[str, str]:
-        """Parse signal_id into model_type and version."""
-        parts = signal_id.split(":")
-        if len(parts) != 2:
-            raise ValueError(f"Invalid signal_id format: {signal_id}")
-        return parts[0], parts[1]
-
     def _to_summary(self, metadata: ModelMetadata) -> SignalSummary:
-        """Convert ModelMetadata to SignalSummary."""
+        """Convert ModelMetadata to SignalSummary.
+
+        NOTE: ModelMetadata has no 'name' or 'status' fields.
+        - Display name derived from parameters['name'] or model_id
+        - Status tracking is separate (MVP: assume all loaded = active)
+        - backtest_job_id comes from parameters['backtest_job_id'] set at registration
+        """
+        # Derive display name from parameters or model_id
+        display_name = metadata.parameters.get("name", metadata.model_id)
+
+        # Get backtest_job_id from parameters (set during model registration)
+        backtest_job_id = (
+            metadata.parameters.get("backtest_job_id")
+            if metadata.parameters
+            else None
+        )
+
         return SignalSummary(
-            signal_id=f"{metadata.model_type}:{metadata.version}",
-            name=metadata.name,
+            signal_id=metadata.model_id,  # Use model_id directly
+            display_name=display_name,
             version=metadata.version,
-            status=metadata.status,
             mean_ic=metadata.metrics.get("mean_ic") if metadata.metrics else None,
             icir=metadata.metrics.get("icir") if metadata.metrics else None,
             created_at=metadata.created_at.date(),
-            run_id=metadata.run_id,
-            experiment_id=metadata.experiment_id,
+            backtest_job_id=backtest_job_id,
         )
 
     def _in_ic_range(
@@ -304,16 +347,50 @@ class AlphaExplorerService:
             return False
         return True
 
-    def _load_backtest_result(self, run_id: str | None):
-        """Load backtest result from BacktestResultStorage via run_id.
+    def _load_backtest_result(self, metadata: ModelMetadata | None):
+        """Load backtest result from BacktestResultStorage.
 
-        The run_id from ModelMetadata links to backtest results.
-        See libs/backtest/result_storage.py for the storage API.
+        IMPORTANT: BacktestResultStorage is keyed by job_id (str), not run_id.
+        The mapping approach:
+        - ModelMetadata.parameters['backtest_job_id'] stores the job_id at registration time
+
+        For MVP, we assume backtest_job_id is stored in ModelMetadata.parameters
+        during the model registration process (after backtest completes).
+
+        Example registration flow:
+          1. Run backtest via backtest_jobs table -> job_id (str) created
+          2. Register model -> registry.register(..., parameters={'backtest_job_id': job_id})
+          3. Load here -> storage.get_result(job_id)
+
+        Note: BacktestResultStorage.get_result() takes a str job_id, not UUID.
+
+        CRITICAL: BacktestResultStorage uses SYNC database pool (not async).
+        Must use get_sync_db_pool() from apps.web_console.utils.sync_db_pool,
+        NOT the async pool from db_pool.py.
         """
-        if run_id is None:
+        if metadata is None:
             return None
-        # TODO: Load from backtest result storage
-        return None
+
+        # Get job_id from parameters (stored during model registration)
+        job_id = metadata.parameters.get("backtest_job_id") if metadata.parameters else None
+        if not job_id:
+            return None
+
+        # BacktestResultStorage uses SYNC psycopg pool - same as backtest.py page
+        from apps.web_console.utils.sync_db_pool import get_sync_db_pool
+        from libs.backtest.result_storage import BacktestResultStorage
+
+        try:
+            pool = get_sync_db_pool()  # Sync pool, not async
+            storage = BacktestResultStorage(pool)
+            return storage.get_result(job_id)  # job_id is str, not UUID
+        except Exception:
+            # Log and return None on storage errors
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Failed to load backtest result for job_id={job_id}"
+            )
+            return None
 ```
 
 ### 2. IC Chart Component
@@ -496,26 +573,32 @@ def main() -> None:
         st.error("Permission denied: VIEW_ALPHA_SIGNALS required.")
         st.stop()
 
-    # Initialize service
-    registry = ModelRegistry()  # TODO: Get from dependency injection
-    service = AlphaExplorerService(registry, None)
+    # Initialize service - ModelRegistry requires registry_dir
+    from pathlib import Path
+    from libs.alpha.metrics import AlphaMetricsAdapter
+
+    registry_dir = Path(os.getenv("MODEL_REGISTRY_DIR", "data/models"))
+    registry = ModelRegistry(registry_dir=registry_dir)
+    metrics_adapter = AlphaMetricsAdapter()  # Optional for display-only features
+    service = AlphaExplorerService(registry, metrics_adapter)
 
     # Sidebar filters
     with st.sidebar:
         st.header("Filters")
 
-        status_filter = st.selectbox(
-            "Status",
-            ["All", "staged", "production", "archived", "failed"],  # Per ModelStatus enum
-        )
-        status = None if status_filter == "All" else ModelStatus(status_filter)
+        # NOTE: ModelMetadata has no status field
+        # Status filter (ModelStatus: staged, production, archived, failed)
+        status_options = ["All", "staged", "production", "archived", "failed"]
+        status_selection = st.selectbox("Status", status_options, index=0)
+        status_filter = ModelStatus(status_selection) if status_selection != "All" else None
 
+        # IC range filter
         min_ic = st.number_input("Min IC", value=0.0, step=0.01)
         max_ic = st.number_input("Max IC", value=1.0, step=0.01)
 
-    # Signal list
+    # Signal list with status and IC filtering
     signals, total = service.list_signals(
-        status=status,
+        status=status_filter,
         min_ic=min_ic if min_ic > 0 else None,
         max_ic=max_ic if max_ic < 1 else None,
         limit=DEFAULT_PAGE_SIZE,
@@ -528,7 +611,7 @@ def main() -> None:
         return
 
     # Signal table
-    signal_names = [s.name for s in signals]
+    signal_names = [s.display_name for s in signals]
     selected_idx = st.selectbox("Select Signal", range(len(signal_names)), format_func=lambda i: signal_names[i])
     selected = signals[selected_idx]
 
@@ -591,27 +674,51 @@ if __name__ == "__main__":
 # tests/apps/web_console/services/test_alpha_explorer_service.py
 
 import pytest
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from apps.web_console.services.alpha_explorer_service import (
     AlphaExplorerService,
     SignalSummary,
 )
-from libs.models.types import ModelMetadata, ModelStatus, ModelType
+from libs.models.types import EnvironmentMetadata, ModelMetadata, ModelStatus, ModelType
 
 
 @pytest.fixture
 def mock_registry():
+    """Mock registry returning ModelMetadata with correct fields.
+
+    NOTE: ModelMetadata has no 'name' or 'status' fields.
+    Display name is derived from parameters['name'] or model_id.
+
+    EnvironmentMetadata requires: python_version, dependencies_hash, platform,
+    created_by, numpy_version, polars_version (sklearn_version, cvxpy_version optional).
+    """
     registry = MagicMock()
     registry.list_models.return_value = [
         ModelMetadata(
+            model_id="momentum_alpha_v1",
             model_type=ModelType.alpha_weights,
-            version="v1.0",
-            name="momentum_alpha",
-            status=ModelStatus.production,  # Per ModelStatus enum: staged, production, archived, failed
-            metrics={"mean_ic": 0.05, "icir": 1.2},
+            version="v1.0.0",
             created_at=datetime.now(UTC),
-            run_id="run-123",  # Links to BacktestResultStorage
+            dataset_version_ids={"crsp": "v1.0.0"},
+            snapshot_id="snap-001",
+            checksum_sha256="abc123",
+            env=EnvironmentMetadata(
+                python_version="3.11.5",
+                dependencies_hash="sha256abc123",
+                platform="linux-x86_64",
+                created_by="test_user",
+                numpy_version="1.26.0",
+                polars_version="0.20.0",
+            ),
+            config={},
+            config_hash="cfg123",
+            parameters={
+                "name": "momentum_alpha",  # Display name
+                "backtest_job_id": "job-123",  # Links to BacktestResultStorage
+            },
+            metrics={"mean_ic": 0.05, "icir": 1.2},
         ),
     ]
     return registry
@@ -624,7 +731,7 @@ def test_list_signals_returns_summaries(mock_registry):
 
     assert total == 1
     assert len(signals) == 1
-    assert signals[0].name == "momentum_alpha"
+    assert signals[0].display_name == "momentum_alpha"  # From parameters['name']
     assert signals[0].mean_ic == 0.05
 
 

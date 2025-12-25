@@ -94,13 +94,17 @@ docs/CONCEPTS/
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 import polars as pl
 
 if TYPE_CHECKING:
+    from typing import Any
+    from apps.web_console.utils.db_pool import AsyncConnectionAdapter
     from libs.factors.factor_builder import FactorBuilder
+    # NOTE: get_current_user() returns dict, not a typed User class
+    # Use dict[str, Any] for user type until auth types are formalized
 
 
 @dataclass
@@ -120,22 +124,46 @@ class ExposureData:
 
 
 class FactorExposureService:
-    """Service for computing and retrieving factor exposures."""
+    """Service for computing and retrieving factor exposures.
 
-    def __init__(self, factor_builder: FactorBuilder):
+    Uses StrategyScopedDataAccess for positions to enforce RBAC authorization.
+    """
+
+    def __init__(
+        self,
+        factor_builder: FactorBuilder,
+        db_adapter: "AsyncConnectionAdapter",
+        redis_client: "Any",  # Redis client from get_redis_client() - may be None
+        user: dict,  # User dict from get_current_user()
+    ):
+        """Initialize with factor builder, database adapter, and user context.
+
+        Args:
+            factor_builder: FactorBuilder instance for computing exposures
+            db_adapter: AsyncConnectionAdapter from apps.web_console.utils.db_pool
+            redis_client: Redis client for StrategyScopedDataAccess caching (may be None)
+            user: User dict from get_current_user() (for strategy authorization)
+        """
         self._builder = factor_builder
+        self._db = db_adapter
+        self._redis = redis_client
+        self._user = user
 
     def get_factor_definitions(self) -> list[FactorDefinition]:
-        """Get all available factor definitions."""
-        from libs.factors.factor_definitions import FACTOR_REGISTRY
+        """Get all available factor definitions.
+
+        Uses CANONICAL_FACTORS from libs/factors/factor_definitions.py
+        NOTE: category is an instance property, so we must instantiate the class.
+        """
+        from libs.factors import CANONICAL_FACTORS
 
         return [
             FactorDefinition(
-                name=f.name,
-                category=f.category,
-                description=f.description,
+                name=name,
+                category=factor_cls().category,  # Instantiate to access property
+                description=factor_cls().description,
             )
-            for f in FACTOR_REGISTRY.values()
+            for name, factor_cls in CANONICAL_FACTORS.items()
         ]
 
     def get_portfolio_exposures(
@@ -218,8 +246,11 @@ class FactorExposureService:
         start_date: date,
         end_date: date,
         factors: list[str] | None = None,
-    ) -> ExposureData:
+    ) -> ExposureData | None:
         """Get factor exposures for benchmark index.
+
+        OUT OF MVP SCOPE: Benchmark comparison requires external data source
+        (CRSP index constituents or ETF holdings feed) not currently available.
 
         Args:
             benchmark: Benchmark ticker symbol
@@ -228,11 +259,16 @@ class FactorExposureService:
             factors: Specific factors to compute (None = all)
 
         Returns:
-            ExposureData with daily exposures for each factor
+            None for MVP (feature not available)
+
+        Future: Implement with CRSP index constituents or external ETF holdings data.
         """
-        # Similar to portfolio exposures but for benchmark constituents
-        # TODO: Implement benchmark constituent lookup
-        ...
+        # MVP: Return None - benchmark comparison not available without data source
+        import logging
+        logging.getLogger(__name__).info(
+            f"Benchmark comparison not available for MVP: {benchmark}"
+        )
+        return None
 
     def get_stock_exposures(
         self,
@@ -286,71 +322,130 @@ class FactorExposureService:
         ]).sort("contribution", descending=True)
 
     def _get_portfolio_holdings(self, portfolio_id: str, as_of_date: date) -> pl.DataFrame | None:
-        """Get portfolio holdings as of date.
+        """Get portfolio holdings using strategy-scoped access.
+
+        IMPORTANT: Returns CURRENT positions only. Historical position snapshots
+        are not currently available in the codebase. The as_of_date parameter is
+        used only for PERMNO mapping (ticker to PERMNO as of that date).
+
+        For time-series analysis, all dates in the range will show the same
+        (current) portfolio composition. Historical exposure tracking requires
+        position snapshot tables (future enhancement).
 
         Returns DataFrame with columns [permno, symbol, weight]
 
-        Data Source Options (to be finalized in C0):
-        1. positions table via reconciler (current holdings)
-        2. Trade journal historical snapshots
-        3. Strategy target weights from signal_service
+        Data Source: Uses StrategyScopedDataAccess.get_positions() which enforces
+        strategy-level authorization based on user permissions.
 
-        For MVP, use positions table joined with CRSP linkage to get PERMNOs.
+        NOTE: portfolio_id maps to strategy_id in this implementation.
+        The user's authorized strategies are determined by StrategyScopedDataAccess.
+
+        PERMNO Mapping: Use CRSPLocalProvider.ticker_to_permno() from
+        libs/data_providers/crsp_local_provider.py (not a separate table)
+
+        Handles both long and short positions using absolute market values for weighting.
         """
-        # Query positions table for portfolio holdings
+        from pathlib import Path
+        from libs.data_providers.crsp_local_provider import CRSPLocalProvider
+        from libs.data_quality.exceptions import DataNotFoundError
+        from libs.data_quality.manifest import ManifestManager
+
+        # NOTE: positions table is GLOBAL (no strategy_id column) so we can't use
+        # StrategyScopedDataAccess.get_positions() which filters by strategy_id.
+        # Instead, query positions directly with VIEW_ALL_POSITIONS permission gate.
         async def _fetch():
-            async with self._db.connection() as conn:
-                # Join positions with CRSP linkage table to get PERMNOs
-                # The crsp_symbol_permno table maps ticker symbols to CRSP PERMNOs
-                # This is essential for FactorBuilder which requires PERMNOs
-                rows = await conn.fetch(
-                    """
-                    SELECT
-                        p.symbol,
-                        p.qty,
-                        p.market_value,
-                        cl.permno
-                    FROM positions p
-                    LEFT JOIN crsp_symbol_permno cl
-                        ON p.symbol = cl.symbol
-                        AND cl.start_date <= $2
-                        AND (cl.end_date IS NULL OR cl.end_date >= $2)
-                    WHERE p.strategy_id = $1
-                      AND p.as_of_date <= $2
-                    ORDER BY p.as_of_date DESC
-                    """,
-                    portfolio_id,
-                    as_of_date,
+            from apps.web_console.auth.permissions import Permission, has_permission
+            import logging
+
+            # SECURITY: Positions are GLOBAL (symbol-keyed, NO strategy_id).
+            # Require VIEW_ALL_POSITIONS to prevent leaking positions across users.
+            # Future enhancement: Add position-strategy mapping table for proper scoping.
+            if not has_permission(self._user, Permission.VIEW_ALL_POSITIONS):
+                logging.getLogger(__name__).warning(
+                    f"User {self._user.get('user_id')} denied access to global positions - "
+                    "VIEW_ALL_POSITIONS permission required"
                 )
-                if not rows:
-                    return None
+                return None
 
-                # Convert to DataFrame and compute weights
-                df = pl.DataFrame([dict(r) for r in rows])
+            # Direct query to positions table (global, no strategy_id)
+            # Schema: symbol, qty, avg_entry_price, current_price (no strategy_id)
+            async with self._db.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT symbol, qty, avg_entry_price, current_price
+                        FROM positions
+                        WHERE qty != 0
+                        """,
+                    )
+                    rows = await cur.fetchall()
 
-                # Warn about missing PERMNO mappings
-                missing = df.filter(pl.col("permno").is_null())
-                if not missing.is_empty():
+            if not rows:
+                return None
+
+            # Compute market values and weights
+            # Include both long and short positions using absolute market value
+            data = []
+            total_abs_value = 0
+            for row in rows:
+                # Schema uses 'qty' column (not 'quantity')
+                qty = row.get("qty", 0)
+                # Skip zero positions
+                if qty == 0:
+                    continue
+                # Skip positions with NULL current_price (can't compute market value)
+                # This may occur for delisted securities or pricing gaps
+                if row.get("current_price") is None:
                     import logging
-                    logger = logging.getLogger(__name__)
-                    logger.warning(
-                        f"Missing PERMNO mapping for symbols: {missing['symbol'].to_list()}"
+                    logging.getLogger(__name__).warning(
+                        f"Skipping {row['symbol']}: NULL current_price"
+                    )
+                    continue
+                # Use absolute market value for weighting (handles shorts)
+                market_value = qty * row["current_price"]
+                abs_value = abs(market_value)
+                total_abs_value += abs_value
+                data.append({
+                    "symbol": row["symbol"],
+                    "qty": qty,  # Use extracted qty variable
+                    "market_value": market_value,  # Signed for exposure direction
+                    "abs_value": abs_value,  # Absolute for weight calculation
+                })
+
+            if total_abs_value == 0:
+                return None
+
+            # Map symbols to PERMNOs using CRSPLocalProvider
+            # CRSPLocalProvider requires storage_path and manifest_manager
+            storage_path = Path("data/wrds/crsp/daily")
+            manifest_manager = ManifestManager(Path("data/manifests"))
+            crsp = CRSPLocalProvider(storage_path, manifest_manager)
+
+            result = []
+            for row_data in data:
+                try:
+                    permno = crsp.ticker_to_permno(row_data["symbol"], as_of_date)
+                    # Use signed weight (negative for shorts, positive for longs)
+                    # This preserves exposure direction while using absolute total for scaling
+                    result.append({
+                        "permno": permno,
+                        "symbol": row_data["symbol"],
+                        "weight": row_data["market_value"] / total_abs_value,
+                    })
+                except DataNotFoundError:
+                    # Symbol not found in CRSP - skip with warning
+                    # DataNotFoundError from libs.data_quality.exceptions
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"No PERMNO mapping for {row_data['symbol']} as of {as_of_date}"
                     )
 
-                # Filter to only rows with valid PERMNOs
-                df = df.filter(pl.col("permno").is_not_null())
-                if df.is_empty():
-                    return None
+            if not result:
+                return None
 
-                total_value = df.select(pl.col("market_value").sum()).item()
-                if total_value == 0:
-                    return None
+            return pl.DataFrame(result)
 
-                return df.with_columns([
-                    (pl.col("market_value") / total_value).alias("weight"),
-                ]).select(["permno", "symbol", "weight"])
-
-        from apps.web_console.utils.run_async import run_async
+        from apps.web_console.utils.async_helpers import run_async
         return run_async(_fetch())
 ```
 
@@ -584,8 +679,42 @@ def main() -> None:
         st.error("Permission denied: VIEW_FACTOR_ANALYTICS required.")
         st.stop()
 
-    # Initialize service
-    service = FactorExposureService(None)  # TODO: Inject factor builder
+    # MVP LIMITATION: Positions are global (not per-strategy) in current schema
+    # Display warning to users about data scope
+    st.warning(
+        "**Note:** Position data is aggregated across all strategies. "
+        "Per-portfolio position filtering will be available in a future update."
+    )
+
+    # Initialize service with required dependencies
+    from pathlib import Path
+    from libs.factors.factor_builder import FactorBuilder
+    from libs.data_providers.crsp_local_provider import CRSPLocalProvider
+    from libs.data_providers.compustat_local_provider import CompustatLocalProvider
+    from libs.data_quality.manifest import ManifestManager
+    from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
+
+    # FactorBuilder requires data providers and manifest manager
+    manifest_manager = ManifestManager(Path("data/manifests"))
+    crsp_provider = CRSPLocalProvider(
+        storage_path=Path("data/wrds/crsp/daily"),
+        manifest_manager=manifest_manager,
+    )
+    compustat_provider = CompustatLocalProvider(
+        storage_path=Path("data/wrds/compustat"),
+        manifest_manager=manifest_manager,
+    )
+    factor_builder = FactorBuilder(
+        crsp_provider=crsp_provider,
+        compustat_provider=compustat_provider,
+        manifest_manager=manifest_manager,
+    )
+    db_adapter = get_db_pool()
+    redis_client = get_redis_client()
+
+    # Service requires user for StrategyScopedDataAccess authorization
+    # NOTE: get_redis_client() may return None if Redis not available
+    service = FactorExposureService(factor_builder, db_adapter, redis_client, user)
 
     # Sidebar controls
     with st.sidebar:
@@ -672,20 +801,112 @@ if __name__ == "__main__":
 
 import pytest
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from apps.web_console.services.factor_exposure_service import FactorExposureService
 
 
 @pytest.fixture
 def mock_factor_builder():
+    """Mock FactorBuilder with compute_all_factors returning FactorResult.
+
+    FactorBuilder.compute_all_factors returns FactorResult with exposures DataFrame.
+    The actual API does not have compute_portfolio_exposure method.
+    """
+    import polars as pl
+
     builder = MagicMock()
-    builder.compute_portfolio_exposure.return_value = 0.15
+    # Mock compute_all_factors to return FactorResult-like structure
+    mock_result = MagicMock()
+    mock_result.exposures = pl.DataFrame({
+        "permno": [10001, 10002],
+        "date": ["2024-01-15", "2024-01-15"],
+        "factor_name": ["momentum_12_1", "momentum_12_1"],
+        "raw_value": [0.15, 0.20],
+        "zscore": [1.5, 2.0],
+        "percentile": [0.75, 0.85],
+    })
+    mock_result.as_of_date = "2024-01-15"
+    builder.compute_all_factors.return_value = mock_result
+    builder.list_factors.return_value = ["momentum_12_1", "book_to_market", "roe"]
     return builder
 
 
-def test_get_factor_definitions(mock_factor_builder):
-    service = FactorExposureService(mock_factor_builder)
+@pytest.fixture
+def mock_db_adapter():
+    """Mock AsyncConnectionAdapter for database access.
+
+    Must properly mock the async context manager pattern:
+    async with adapter.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(...)
+            rows = await cur.fetchall()
+    """
+    from unittest.mock import AsyncMock
+    from contextlib import asynccontextmanager
+
+    # Create mock cursor with async methods
+    mock_cursor = MagicMock()
+    mock_cursor.execute = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[
+        {"symbol": "AAPL", "qty": 100, "current_price": 150.0},
+        {"symbol": "GOOGL", "qty": 50, "current_price": 140.0},
+    ])
+    mock_cursor.fetchone = AsyncMock(return_value=None)
+
+    # Create mock connection with cursor context manager
+    mock_conn = MagicMock()
+
+    @asynccontextmanager
+    async def cursor_cm():
+        yield mock_cursor
+
+    mock_conn.cursor = cursor_cm
+
+    # Create mock adapter with connection context manager
+    adapter = MagicMock()
+
+    @asynccontextmanager
+    async def conn_cm():
+        yield mock_conn
+
+    adapter.connection = conn_cm
+    return adapter
+
+
+@pytest.fixture
+def mock_redis_adapter():
+    """Create a mock AsyncRedisAdapter for tests."""
+    from unittest.mock import MagicMock, AsyncMock
+    from contextlib import asynccontextmanager
+
+    mock_redis = MagicMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.setex = AsyncMock()
+
+    adapter = MagicMock()
+
+    @asynccontextmanager
+    async def client_cm():
+        yield mock_redis
+
+    adapter.client = client_cm
+    return adapter
+
+
+@pytest.fixture
+def mock_user():
+    """Create a mock User for tests."""
+    from unittest.mock import MagicMock
+    user = MagicMock()
+    user.user_id = "test_user"
+    user.strategies = ["alpha_baseline"]
+    return user
+
+
+def test_get_factor_definitions(mock_factor_builder, mock_db_adapter, mock_redis_adapter, mock_user):
+    """Test that factor definitions are returned from CANONICAL_FACTORS."""
+    service = FactorExposureService(mock_factor_builder, mock_db_adapter, mock_redis_adapter, mock_user)
 
     defs = service.get_factor_definitions()
 
@@ -694,8 +915,9 @@ def test_get_factor_definitions(mock_factor_builder):
     assert all(d.category for d in defs)
 
 
-def test_get_portfolio_exposures_returns_data(mock_factor_builder):
-    service = FactorExposureService(mock_factor_builder)
+def test_get_portfolio_exposures_returns_data(mock_factor_builder, mock_db_adapter, mock_redis_adapter, mock_user):
+    """Test portfolio exposures returns properly structured data."""
+    service = FactorExposureService(mock_factor_builder, mock_db_adapter, mock_redis_adapter, mock_user)
 
     data = service.get_portfolio_exposures(
         "test_portfolio",

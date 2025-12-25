@@ -38,7 +38,7 @@ Implement T9.5 Tax Lot Reporter - Core that provides cost basis tracking, realiz
 │  │    tax_lots     │───▶│ tax_lot_        │                     │
 │  │                 │    │ dispositions    │                     │
 │  │ - id            │    │                 │                     │
-│  │ - account_id    │    │ - lot_id        │                     │
+│  │ - user_id       │    │ - lot_id        │                     │
 │  │ - symbol        │    │ - quantity      │                     │
 │  │ - quantity      │    │ - proceeds      │                     │
 │  │ - cost_per_share│    │ - disposed_at   │                     │
@@ -49,7 +49,7 @@ Implement T9.5 Tax Lot Reporter - Core that provides cost basis tracking, realiz
 │  ┌─────────────────┐                                            │
 │  │  tax_settings   │                                            │
 │  │                 │                                            │
-│  │ - account_id    │                                            │
+│  │ - user_id       │                                            │
 │  │ - cost_basis_   │                                            │
 │  │   method        │                                            │
 │  └─────────────────┘                                            │
@@ -97,42 +97,72 @@ docs/CONCEPTS/
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Tax lots (positions acquired)
+-- NOTE: source_order_id is TEXT to match existing client_order_id/broker_order_id columns
+-- NOTE: user_id VARCHAR matches existing RBAC tables (0006_create_rbac_tables.sql)
 CREATE TABLE IF NOT EXISTS tax_lots (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL,
+    user_id VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     symbol VARCHAR(20) NOT NULL,
     quantity DECIMAL(18, 8) NOT NULL,
     cost_per_share DECIMAL(18, 8) NOT NULL,
     total_cost DECIMAL(18, 4) NOT NULL,
     acquired_at TIMESTAMPTZ NOT NULL,
     acquisition_type VARCHAR(20) NOT NULL,  -- buy, transfer_in, dividend_reinvest
-    source_order_id UUID,
+    source_order_id TEXT,  -- TEXT to match existing order ID types
     remaining_quantity DECIMAL(18, 8) NOT NULL,
     closed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Tax lot dispositions (sales from lots)
+-- NOTE: destination_order_id is TEXT to match existing order ID types
+-- NOTE: wash_sale_disallowed is total for this disposition; per-lot detail in junction table
 CREATE TABLE IF NOT EXISTS tax_lot_dispositions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lot_id UUID NOT NULL REFERENCES tax_lots(id),
     quantity DECIMAL(18, 8) NOT NULL,
+    cost_basis DECIMAL(18, 4) NOT NULL,  -- Total cost basis for disposed shares
     proceeds_per_share DECIMAL(18, 8) NOT NULL,
     total_proceeds DECIMAL(18, 4) NOT NULL,
     disposed_at TIMESTAMPTZ NOT NULL,
     disposition_type VARCHAR(20) NOT NULL,  -- sell, transfer_out
-    destination_order_id UUID,
+    destination_order_id TEXT,  -- TEXT to match existing order ID types (legacy/reference)
+    idempotency_key TEXT NOT NULL,  -- REQUIRED: prevents double-decrement on retry
     realized_gain_loss DECIMAL(18, 4) NOT NULL,
     holding_period VARCHAR(10) NOT NULL,  -- short_term, long_term
-    wash_sale_disallowed DECIMAL(18, 4) DEFAULT 0,
-    wash_sale_adjustment_lot_id UUID,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    wash_sale_disallowed DECIMAL(18, 4) DEFAULT 0,  -- Total disallowed for this disposition
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_disposition_idempotency UNIQUE (idempotency_key)
 );
 
--- Tax settings per account
+-- Idempotency key format:
+-- For order-driven: "order:{destination_order_id}"
+-- For manual/transfer: client-provided key (e.g., "manual:{user_id}:{timestamp}")
+
+-- Wash sale adjustments junction table
+-- Tracks per-replacement-lot attribution for multi-lot wash sales
+-- Required for accurate IRS Form 8949 detail
+CREATE TABLE IF NOT EXISTS tax_wash_sale_adjustments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    disposition_id UUID NOT NULL REFERENCES tax_lot_dispositions(id),
+    replacement_lot_id UUID NOT NULL REFERENCES tax_lots(id),
+    matching_shares DECIMAL(18, 8) NOT NULL,  -- Shares matched to this replacement lot
+    disallowed_loss DECIMAL(18, 4) NOT NULL,  -- Loss disallowed for these shares
+    -- Holding period adjustment for wash sales (IRS rule: extend by original holding period)
+    holding_period_adjustment_days INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(disposition_id, replacement_lot_id)  -- One adjustment per disposition-lot pair
+);
+
+CREATE INDEX idx_wash_sale_adjustments_disposition
+    ON tax_wash_sale_adjustments(disposition_id);
+CREATE INDEX idx_wash_sale_adjustments_replacement
+    ON tax_wash_sale_adjustments(replacement_lot_id);
+
+-- Tax settings per user
 CREATE TABLE IF NOT EXISTS tax_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL UNIQUE,
+    user_id VARCHAR(255) NOT NULL UNIQUE,  -- Matches RBAC user_id type
     cost_basis_method VARCHAR(20) NOT NULL DEFAULT 'fifo',
     wash_sale_tracking BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -142,19 +172,30 @@ CREATE TABLE IF NOT EXISTS tax_settings (
 -- Audit log for method changes
 CREATE TABLE IF NOT EXISTS tax_settings_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL,
+    user_id VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     old_method VARCHAR(20),
     new_method VARCHAR(20) NOT NULL,
-    changed_by UUID NOT NULL,
+    changed_by VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     changed_at TIMESTAMPTZ DEFAULT NOW(),
     reason TEXT
 );
 
-CREATE INDEX idx_tax_lots_account_symbol ON tax_lots(account_id, symbol);
+-- Indexes for performance
+CREATE INDEX idx_tax_lots_user_symbol ON tax_lots(user_id, symbol);
 CREATE INDEX idx_tax_lots_acquired ON tax_lots(acquired_at);
-CREATE INDEX idx_tax_lots_remaining ON tax_lots(account_id, symbol, remaining_quantity) WHERE remaining_quantity > 0;
+CREATE INDEX idx_tax_lots_remaining ON tax_lots(user_id, symbol, remaining_quantity) WHERE remaining_quantity > 0;
 CREATE INDEX idx_tax_lot_dispositions_disposed ON tax_lot_dispositions(disposed_at);
 CREATE INDEX idx_tax_lot_dispositions_tax_year ON tax_lot_dispositions(date_trunc('year', disposed_at));
+
+-- Partial unique indexes for idempotency (Postgres doesn't allow WHERE in inline UNIQUE)
+-- These prevent duplicate lots/dispositions from webhook retries
+CREATE UNIQUE INDEX idx_tax_lots_source_order_id
+    ON tax_lots(user_id, source_order_id)
+    WHERE source_order_id IS NOT NULL;
+
+CREATE UNIQUE INDEX idx_tax_lot_dispositions_dest_order_id
+    ON tax_lot_dispositions(lot_id, destination_order_id)
+    WHERE destination_order_id IS NOT NULL;
 ```
 
 ### 2. Cost Basis Calculator
@@ -166,20 +207,39 @@ CREATE INDEX idx_tax_lot_dispositions_tax_year ON tax_lot_dispositions(date_trun
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol
 from uuid import UUID
-
-if TYPE_CHECKING:
-    from apps.web_console.utils.db_pool import AsyncConnectionAdapter
 
 logger = logging.getLogger(__name__)
 
-# NOTE: Use psycopg AsyncConnectionAdapter pattern, NOT asyncpg
-# See apps/web_console/utils/db_pool.py for the correct pattern
+
+class AsyncConnection(Protocol):
+    """Protocol for async database connection (psycopg-compatible)."""
+
+    def cursor(self) -> Any:
+        """Return cursor context manager."""
+        ...
+
+
+class AsyncConnectionPool(Protocol):
+    """Protocol for async connection pool (psycopg-compatible).
+
+    This protocol decouples libs/tax from apps.web_console.utils.db_pool,
+    allowing libs to define the interface it needs while apps provide
+    the implementation.
+
+    Compatible with: apps.web_console.utils.db_pool.AsyncConnectionAdapter
+    """
+
+    @asynccontextmanager
+    async def connection(self) -> AsyncIterator[AsyncConnection]:
+        """Return async context manager for connection."""
+        ...
 
 # Long-term holding period (IRS: more than 1 year = more than 365 days)
 # Per IRS rules, holding period starts day AFTER acquisition
@@ -197,7 +257,7 @@ class CostBasisMethod(str, Enum):
 class TaxLot:
     """A tax lot representing shares acquired at a specific time and price."""
     id: UUID
-    account_id: UUID
+    user_id: str  # VARCHAR(255) to match RBAC user_id type
     symbol: str
     quantity: Decimal
     cost_per_share: Decimal
@@ -243,112 +303,169 @@ class GainsSummary:
 class CostBasisCalculator:
     """Calculates cost basis and tracks tax lots.
 
-    Uses psycopg AsyncConnectionAdapter pattern for Streamlit compatibility.
+    Uses AsyncConnectionPool protocol for database access, decoupling from
+    specific implementations (e.g., apps.web_console.utils.db_pool).
+
+    IMPORTANT: This class assumes dict-style row access (row["column"]).
+    The database adapter MUST use row_factory=dict_row or equivalent.
+    AsyncConnectionAdapter from apps.web_console.utils.db_pool is configured
+    correctly by default.
     """
 
-    def __init__(self, db_adapter: "AsyncConnectionAdapter"):
+    def __init__(self, db_adapter: AsyncConnectionPool):
+        """Initialize with database adapter.
+
+        Args:
+            db_adapter: Any object implementing AsyncConnectionPool protocol.
+                        Compatible with apps.web_console.utils.db_pool.AsyncConnectionAdapter.
+
+        IMPORTANT: The adapter MUST use row_factory=dict_row (or equivalent)
+        so that row["column"] access works. The default AsyncConnectionAdapter
+        is configured correctly. If using a custom adapter, ensure dict_row.
+        """
         self._db = db_adapter
 
-    async def get_account_method(self, account_id: UUID) -> CostBasisMethod:
-        """Get cost basis method for account."""
-        async with self._db.connection() as conn:
-            row = await conn.fetchrow(
-                "SELECT cost_basis_method FROM tax_settings WHERE account_id = $1",
-                account_id,
-            )
-            if row:
-                return CostBasisMethod(row["cost_basis_method"])
-            return CostBasisMethod.FIFO
+    @staticmethod
+    def _ensure_dict(row) -> dict:
+        """Ensure row is a dict for dict-style access.
 
-    async def set_account_method(
+        Handles both dict_row (already dict) and tuple rows.
+        For tuple rows, this requires column name knowledge - callers
+        should prefer using row_factory=dict_row instead.
+        """
+        if isinstance(row, dict):
+            return row
+        # If we get here with a non-dict row, it means row_factory wasn't set
+        raise TypeError(
+            "Row is not a dict - ensure db_adapter uses row_factory=dict_row. "
+            "See apps.web_console.utils.db_pool.AsyncConnectionAdapter for example."
+        )
+
+    async def get_user_method(self, user_id: str) -> CostBasisMethod:
+        """Get cost basis method for user.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        user_id is VARCHAR(255) to match RBAC tables.
+        """
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT cost_basis_method FROM tax_settings WHERE user_id = %s",
+                    (user_id,),
+                )
+                row = await cur.fetchone()
+                if row:
+                    # psycopg with dict_row returns dicts
+                    return CostBasisMethod(row["cost_basis_method"])
+                return CostBasisMethod.FIFO
+
+    async def set_user_method(
         self,
-        account_id: UUID,
+        user_id: str,
         method: CostBasisMethod,
-        changed_by: UUID,
+        changed_by: str,
         reason: str | None = None,
     ) -> None:
-        """Set cost basis method for account with audit."""
+        """Set cost basis method for account with audit.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        """
         async with self._db.connection() as conn:
-            async with conn.transaction():
+            async with conn.cursor() as cur:
                 # Get old method
-                old_row = await conn.fetchrow(
-                    "SELECT cost_basis_method FROM tax_settings WHERE account_id = $1",
-                    account_id,
+                await cur.execute(
+                    "SELECT cost_basis_method FROM tax_settings WHERE user_id = %s",
+                    (user_id,),
                 )
+                old_row = await cur.fetchone()
+                # psycopg with dict_row returns dicts
                 old_method = old_row["cost_basis_method"] if old_row else None
 
                 # Upsert settings
-                await conn.execute(
+                await cur.execute(
                     """
-                    INSERT INTO tax_settings (account_id, cost_basis_method, updated_at)
-                    VALUES ($1, $2, NOW())
-                    ON CONFLICT (account_id) DO UPDATE SET
+                    INSERT INTO tax_settings (user_id, cost_basis_method, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
                         cost_basis_method = EXCLUDED.cost_basis_method,
                         updated_at = NOW()
                     """,
-                    account_id,
-                    method.value,
+                    (user_id, method.value),
                 )
 
                 # Audit log
-                await conn.execute(
+                await cur.execute(
                     """
                     INSERT INTO tax_settings_audit
-                    (account_id, old_method, new_method, changed_by, reason)
-                    VALUES ($1, $2, $3, $4, $5)
+                    (user_id, old_method, new_method, changed_by, reason)
+                    VALUES (%s, %s, %s, %s, %s)
                     """,
-                    account_id,
-                    old_method,
-                    method.value,
-                    changed_by,
-                    reason,
+                    (user_id, old_method, method.value, changed_by, reason),
                 )
+            # psycopg3 requires explicit commit (autocommit=False by default)
+            await conn.commit()
 
         logger.info(
             "Cost basis method changed",
             extra={
-                "account_id": str(account_id),
+                "user_id": user_id,
                 "old_method": old_method,
                 "new_method": method.value,
-                "changed_by": str(changed_by),
+                "changed_by": changed_by,
             },
         )
 
     async def record_acquisition(
         self,
-        account_id: UUID,
+        user_id: str,
         symbol: str,
         quantity: Decimal,
         cost_per_share: Decimal,
         acquired_at: datetime,
         acquisition_type: str = "buy",
-        source_order_id: UUID | None = None,
+        source_order_id: str | None = None,  # TEXT to match existing order ID types
     ) -> TaxLot:
-        """Record a new tax lot from share acquisition."""
+        """Record a new tax lot from share acquisition.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        Idempotent: ON CONFLICT handles duplicate source_order_id.
+        """
         total_cost = quantity * cost_per_share
 
         async with self._db.connection() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO tax_lots
-                (account_id, symbol, quantity, cost_per_share, total_cost,
-                 acquired_at, acquisition_type, source_order_id, remaining_quantity)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $3)
-                RETURNING id
-                """,
-                account_id,
-                symbol,
-                quantity,
-                cost_per_share,
-                total_cost,
-                acquired_at,
-                acquisition_type,
-                source_order_id,
-            )
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO tax_lots
+                    (user_id, symbol, quantity, cost_per_share, total_cost,
+                     acquired_at, acquisition_type, source_order_id, remaining_quantity)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id, source_order_id)
+                    WHERE source_order_id IS NOT NULL
+                    DO NOTHING
+                    RETURNING id
+                    """,
+                    (user_id, symbol, quantity, cost_per_share, total_cost,
+                     acquired_at, acquisition_type, source_order_id, quantity),
+                )
+                row = await cur.fetchone()
+
+                # If conflict (duplicate order), fetch existing lot
+                if row is None and source_order_id:
+                    await cur.execute(
+                        "SELECT id FROM tax_lots WHERE user_id = %s AND source_order_id = %s",
+                        (user_id, source_order_id),
+                    )
+                    row = await cur.fetchone()
+
+                lot_id = row["id"]  # psycopg with dict_row returns dicts
+
+            # psycopg3 requires explicit commit (autocommit=False by default)
+            await conn.commit()
 
             return TaxLot(
-                id=row["id"],
-                account_id=account_id,
+                id=lot_id,
+                user_id=user_id,
                 symbol=symbol,
                 quantity=quantity,
                 cost_per_share=cost_per_share,
@@ -360,38 +477,114 @@ class CostBasisCalculator:
 
     async def record_disposition(
         self,
-        account_id: UUID,
+        user_id: str,
         symbol: str,
         quantity: Decimal,
         proceeds_per_share: Decimal,
         disposed_at: datetime,
         disposition_type: str = "sell",
+        destination_order_id: str | None = None,  # TEXT to match existing order ID types
+        idempotency_key: str | None = None,  # REQUIRED for non-order dispositions
         specific_lot_ids: list[UUID] | None = None,
     ) -> list[Disposition]:
         """Record share disposition and calculate gains/losses.
 
+        Uses psycopg cursor pattern with %s placeholders.
+
+        IDEMPOTENCY: Every disposition requires an idempotency key to prevent
+        double-decrement on retry. For order-driven sells, use destination_order_id.
+        For manual/transfer dispositions, caller must provide idempotency_key.
+
         Args:
-            account_id: Account selling shares
+            user_id: User selling shares (VARCHAR to match RBAC)
             symbol: Symbol being sold
             quantity: Number of shares to sell
             proceeds_per_share: Price per share received
             disposed_at: DateTime of sale
             disposition_type: Type of disposition (sell, transfer_out)
+            destination_order_id: Order ID for order-driven sells (webhook retries)
+            idempotency_key: Required if destination_order_id is None.
+                            Client-provided unique key for manual/transfer dispositions.
             specific_lot_ids: For SPECIFIC_ID method, the lots to use
+
+        Raises:
+            ValueError: If neither destination_order_id nor idempotency_key provided
 
         Returns:
             List of Dispositions showing which lots were used
         """
-        method = await self.get_account_method(account_id)
+        # IDEMPOTENCY: Require a key for ALL dispositions to prevent double-decrement
+        # Either destination_order_id (for broker sells) or explicit idempotency_key
+        if destination_order_id:
+            # Order-driven: prefix with "order:" for namespace separation
+            effective_idem_key = f"order:{destination_order_id}"
+        elif idempotency_key:
+            # Manual/transfer: use client-provided key directly
+            effective_idem_key = idempotency_key
+        else:
+            raise ValueError(
+                "Idempotency key required: provide destination_order_id for order-driven "
+                "dispositions or idempotency_key for manual/transfer dispositions"
+            )
+
+        method = await self.get_user_method(user_id)
         total_proceeds = quantity * proceeds_per_share
 
         async with self._db.connection() as conn:
-            async with conn.transaction():
-                # Get available lots
-                if method == CostBasisMethod.SPECIFIC_ID and specific_lot_ids:
-                    lots = await self._get_specific_lots(conn, specific_lot_ids)
+            async with conn.cursor() as cur:
+                # IDEMPOTENCY CHECK: Return existing dispositions if already processed
+                # This ensures retries return the same allocation as the original
+                # Uses idempotency_key column with unique constraint
+                await cur.execute(
+                    """
+                    SELECT d.id, d.lot_id, d.quantity, d.cost_basis,
+                           d.proceeds_per_share, d.total_proceeds, d.disposed_at,
+                           d.disposition_type, d.realized_gain_loss, d.holding_period
+                    FROM tax_lot_dispositions d
+                    JOIN tax_lots t ON t.id = d.lot_id
+                    WHERE d.idempotency_key = %s
+                      AND t.user_id = %s
+                      AND t.symbol = %s
+                    ORDER BY d.created_at
+                    """,
+                    (effective_idem_key, user_id, symbol),
+                )
+                existing = await cur.fetchall()
+
+                if existing:
+                    # Already processed - return stored allocations
+                    logger.info(
+                        "Idempotent disposition return",
+                        extra={
+                            "idempotency_key": effective_idem_key,
+                            "existing_count": len(existing),
+                        },
+                    )
+                    # Reconstruct Disposition from stored data using actual stored values
+                    return [
+                        Disposition(
+                            lot_id=row["lot_id"],
+                            quantity=row["quantity"],
+                            cost_basis=row["cost_basis"],  # Use stored cost_basis
+                            proceeds=row["total_proceeds"],
+                            realized_gain_loss=row["realized_gain_loss"],
+                            holding_period=row["holding_period"],
+                            disposed_at=row["disposed_at"],
+                        )
+                        for row in existing
+                    ]
+
+                # Get available lots (with user/symbol scoping for security)
+                # VALIDATION: Specific ID method requires lot IDs - never fall back silently
+                if method == CostBasisMethod.SPECIFIC_ID:
+                    if not specific_lot_ids:
+                        raise ValueError(
+                            "SPECIFIC_ID method requires specific_lot_ids parameter. "
+                            "Cannot fall back to FIFO/LIFO as this would dispose wrong lots."
+                        )
+                    lots = await self._get_specific_lots(cur, specific_lot_ids, user_id, symbol)
                 else:
-                    lots = await self._get_available_lots(conn, account_id, symbol, method)
+                    lots = await self._get_available_lots(cur, user_id, symbol, method)
 
                 # Allocate shares to lots
                 dispositions = []
@@ -415,36 +608,42 @@ class CostBasisCalculator:
                     holding_days = (disposed_at - lot.acquired_at).days
                     holding_period = "long_term" if holding_days > LONG_TERM_THRESHOLD_DAYS else "short_term"
 
-                    # Record disposition
-                    await conn.execute(
+                    # Record disposition with idempotency (psycopg cursor pattern)
+                    # Uses unique constraint on idempotency_key to prevent duplicates
+                    # RETURNING id detects if insert succeeded (vs conflict)
+                    await cur.execute(
                         """
                         INSERT INTO tax_lot_dispositions
-                        (lot_id, quantity, proceeds_per_share, total_proceeds,
-                         disposed_at, disposition_type, realized_gain_loss, holding_period)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        (lot_id, quantity, cost_basis, proceeds_per_share, total_proceeds,
+                         disposed_at, disposition_type, destination_order_id, idempotency_key,
+                         realized_gain_loss, holding_period)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (idempotency_key) DO NOTHING
+                        RETURNING id
                         """,
-                        lot.id,
-                        from_lot,
-                        proceeds_per_share,
-                        lot_proceeds,
-                        disposed_at,
-                        disposition_type,
-                        gain_loss,
-                        holding_period,
+                        (lot.id, from_lot, cost_basis, proceeds_per_share, lot_proceeds,
+                         disposed_at, disposition_type, destination_order_id, effective_idem_key,
+                         gain_loss, holding_period),
                     )
+                    inserted_row = await cur.fetchone()
 
-                    # Update lot remaining quantity
-                    new_remaining = lot.remaining_quantity - from_lot
-                    await conn.execute(
-                        """
-                        UPDATE tax_lots
-                        SET remaining_quantity = $1,
-                            closed_at = CASE WHEN $1 = 0 THEN NOW() ELSE NULL END
-                        WHERE id = $2
-                        """,
-                        new_remaining,
-                        lot.id,
-                    )
+                    # Only update lot if insert succeeded (not a duplicate)
+                    # This prevents double-decrement on webhook retries
+                    if inserted_row is not None:
+                        new_remaining = lot.remaining_quantity - from_lot
+                        await cur.execute(
+                            """
+                            UPDATE tax_lots
+                            SET remaining_quantity = %s,
+                                closed_at = CASE WHEN %s = 0 THEN NOW() ELSE NULL END
+                            WHERE id = %s
+                            """,
+                            (new_remaining, new_remaining, lot.id),
+                        )
+                    else:
+                        # Duplicate disposition - skip lot update but still add to results
+                        # (idempotent: return same result as original call)
+                        new_remaining = lot.remaining_quantity  # No change
 
                     dispositions.append(Disposition(
                         lot_id=lot.id,
@@ -464,59 +663,69 @@ class CostBasisCalculator:
                         f"{quantity - remaining_to_sell} available"
                     )
 
-                return dispositions
+            # psycopg3 requires explicit commit (autocommit=False by default)
+            await conn.commit()
+
+            return dispositions
 
     async def get_unrealized_lots(
         self,
-        account_id: UUID,
+        user_id: str,
         symbol: str | None = None,
     ) -> list[TaxLot]:
-        """Get open tax lots with remaining shares."""
-        async with self._db.connection() as conn:
-            if symbol:
-                rows = await conn.fetch(
-                    """
-                    SELECT * FROM tax_lots
-                    WHERE account_id = $1 AND symbol = $2 AND remaining_quantity > 0
-                    ORDER BY acquired_at
-                    """,
-                    account_id,
-                    symbol,
-                )
-            else:
-                rows = await conn.fetch(
-                    """
-                    SELECT * FROM tax_lots
-                    WHERE account_id = $1 AND remaining_quantity > 0
-                    ORDER BY symbol, acquired_at
-                    """,
-                    account_id,
-                )
+        """Get open tax lots with remaining shares.
 
-            return [self._row_to_lot(row) for row in rows]
+        Uses psycopg cursor pattern with %s placeholders.
+        """
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                if symbol:
+                    await cur.execute(
+                        """
+                        SELECT * FROM tax_lots
+                        WHERE user_id = %s AND symbol = %s AND remaining_quantity > 0
+                        ORDER BY acquired_at
+                        """,
+                        (user_id, symbol),
+                    )
+                else:
+                    await cur.execute(
+                        """
+                        SELECT * FROM tax_lots
+                        WHERE user_id = %s AND remaining_quantity > 0
+                        ORDER BY symbol, acquired_at
+                        """,
+                        (user_id,),
+                    )
+                rows = await cur.fetchall()
+                return [self._row_to_lot(row) for row in rows]
 
     async def get_gains_summary(
         self,
-        account_id: UUID,
+        user_id: str,
         tax_year: int,
     ) -> GainsSummary:
-        """Get gains/losses summary for tax year."""
+        """Get gains/losses summary for tax year.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        """
         async with self._db.connection() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT
-                    d.holding_period,
-                    SUM(CASE WHEN d.realized_gain_loss > 0 THEN d.realized_gain_loss ELSE 0 END) as gains,
-                    SUM(CASE WHEN d.realized_gain_loss < 0 THEN d.realized_gain_loss ELSE 0 END) as losses
-                FROM tax_lot_dispositions d
-                JOIN tax_lots l ON d.lot_id = l.id
-                WHERE l.account_id = $1
-                  AND date_trunc('year', d.disposed_at) = date_trunc('year', $2::date)
-                GROUP BY d.holding_period
-                """,
-                account_id,
-                date(tax_year, 1, 1),
-            )
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT
+                        d.holding_period,
+                        SUM(CASE WHEN d.realized_gain_loss > 0 THEN d.realized_gain_loss ELSE 0 END) as gains,
+                        SUM(CASE WHEN d.realized_gain_loss < 0 THEN d.realized_gain_loss ELSE 0 END) as losses
+                    FROM tax_lot_dispositions d
+                    JOIN tax_lots l ON d.lot_id = l.id
+                    WHERE l.user_id = %s
+                      AND date_trunc('year', d.disposed_at) = date_trunc('year', %s::date)
+                    GROUP BY d.holding_period
+                    """,
+                    (user_id, date(tax_year, 1, 1)),
+                )
+                rows = await cur.fetchall()
 
             summary = GainsSummary(
                 short_term_gains=Decimal(0),
@@ -537,41 +746,66 @@ class CostBasisCalculator:
 
     async def _get_available_lots(
         self,
-        conn,
-        account_id: UUID,
+        cur,  # psycopg cursor from parent context
+        user_id: str,
         symbol: str,
         method: CostBasisMethod,
     ) -> list[TaxLot]:
-        """Get available lots sorted by method."""
+        """Get available lots sorted by method with row locking.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        Note: cur is the cursor from the parent record_disposition context.
+
+        CONCURRENCY: Uses FOR UPDATE to lock rows during disposition,
+        preventing concurrent sales from double-allocating the same lots.
+        """
         order = "ASC" if method == CostBasisMethod.FIFO else "DESC"
-        rows = await conn.fetch(
+        await cur.execute(
             f"""
             SELECT * FROM tax_lots
-            WHERE account_id = $1 AND symbol = $2 AND remaining_quantity > 0
+            WHERE user_id = %s AND symbol = %s AND remaining_quantity > 0
             ORDER BY acquired_at {order}
+            FOR UPDATE
             """,
-            account_id,
-            symbol,
+            (user_id, symbol),
         )
+        rows = await cur.fetchall()
         return [self._row_to_lot(row) for row in rows]
 
-    async def _get_specific_lots(self, conn, lot_ids: list[UUID]) -> list[TaxLot]:
-        """Get specific lots by ID."""
-        rows = await conn.fetch(
+    async def _get_specific_lots(
+        self, cur, lot_ids: list[UUID], user_id: str, symbol: str
+    ) -> list[TaxLot]:
+        """Get specific lots by ID with ownership validation and row locking.
+
+        SECURITY: Validates user_id and symbol match to prevent cross-tenant
+        access. Only returns lots owned by the specified user for the symbol.
+
+        CONCURRENCY: Uses FOR UPDATE to lock rows during disposition,
+        preventing concurrent sales from double-allocating the same lots.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        Note: cur is the cursor from the parent record_disposition context.
+        """
+        await cur.execute(
             """
             SELECT * FROM tax_lots
-            WHERE id = ANY($1) AND remaining_quantity > 0
+            WHERE id = ANY(%s)
+              AND user_id = %s
+              AND symbol = %s
+              AND remaining_quantity > 0
             ORDER BY acquired_at
+            FOR UPDATE
             """,
-            lot_ids,
+            (lot_ids, user_id, symbol),
         )
+        rows = await cur.fetchall()
         return [self._row_to_lot(row) for row in rows]
 
     def _row_to_lot(self, row) -> TaxLot:
         """Convert database row to TaxLot."""
         return TaxLot(
             id=row["id"],
-            account_id=row["account_id"],
+            user_id=row["user_id"],
             symbol=row["symbol"],
             quantity=row["quantity"],
             cost_per_share=row["cost_per_share"],
@@ -818,7 +1052,7 @@ def main() -> None:
         st.error("Permission denied: VIEW_TAX_REPORTS required.")
         st.stop()
 
-    account_id = user.get("account_id")
+    user_id = user.get("user_id")  # VARCHAR to match RBAC
     db_pool = get_db_pool()
     calculator = CostBasisCalculator(db_pool)
 
@@ -830,26 +1064,26 @@ def main() -> None:
     ])
 
     with tab1:
-        _render_open_positions(calculator, account_id)
+        _render_open_positions(calculator, user_id)
 
     with tab2:
-        _render_gains_losses(calculator, account_id)
+        _render_gains_losses(calculator, user_id)
 
     with tab3:
-        _render_export(calculator, account_id)
+        _render_export(calculator, user_id)
 
     with tab4:
-        _render_settings(calculator, account_id, user)
+        _render_settings(calculator, user_id, user)
 
 
-def _render_open_positions(calculator: CostBasisCalculator, account_id) -> None:
+def _render_open_positions(calculator: CostBasisCalculator, user_id: str) -> None:
     """Render open tax lots."""
     st.subheader("Open Tax Lots")
 
     symbol_filter = st.text_input("Filter by Symbol").upper().strip() or None
 
     # This would need to be async in practice
-    # lots = await calculator.get_unrealized_lots(account_id, symbol_filter)
+    # lots = await calculator.get_unrealized_lots(user_id, symbol_filter)
     lots = []  # Placeholder
 
     if not lots:
@@ -865,7 +1099,7 @@ def _render_open_positions(calculator: CostBasisCalculator, account_id) -> None:
             col3.metric("Acquired", lot.acquired_at.strftime("%Y-%m-%d"))
 
 
-def _render_gains_losses(calculator: CostBasisCalculator, account_id) -> None:
+def _render_gains_losses(calculator: CostBasisCalculator, user_id: str) -> None:
     """Render gains/losses summary."""
     st.subheader("Capital Gains Summary")
 
@@ -874,7 +1108,7 @@ def _render_gains_losses(calculator: CostBasisCalculator, account_id) -> None:
         list(range(date.today().year, 2020, -1)),
     )
 
-    # summary = await calculator.get_gains_summary(account_id, tax_year)
+    # summary = await calculator.get_gains_summary(user_id, tax_year)
     summary = None  # Placeholder
 
     if summary:
@@ -896,7 +1130,7 @@ def _render_gains_losses(calculator: CostBasisCalculator, account_id) -> None:
         st.metric("Total Net Gain/Loss", f"${summary.total_net:,.2f}")
 
 
-def _render_export(calculator: CostBasisCalculator, account_id) -> None:
+def _render_export(calculator: CostBasisCalculator, user_id: str) -> None:
     """Render export controls."""
     st.subheader("Export Tax Reports")
 
@@ -916,11 +1150,11 @@ def _render_export(calculator: CostBasisCalculator, account_id) -> None:
         st.info(f"Export for {tax_year} in {format_choice} format would be generated here.")
 
 
-def _render_settings(calculator: CostBasisCalculator, account_id, user) -> None:
+def _render_settings(calculator: CostBasisCalculator, user_id: str, user) -> None:
     """Render cost basis settings."""
     st.subheader("Cost Basis Settings")
 
-    # current_method = await calculator.get_account_method(account_id)
+    # current_method = await calculator.get_user_method(user_id)
     current_method = CostBasisMethod.FIFO  # Placeholder
 
     new_method = st.selectbox(
@@ -968,12 +1202,15 @@ from libs.tax.cost_basis import CostBasisCalculator, CostBasisMethod, TaxLot
 
 @pytest.fixture
 def sample_lots():
-    """Create sample tax lots for testing."""
+    """Create sample tax lots for testing.
+
+    user_id is a string (VARCHAR) to match RBAC tables.
+    """
     base_date = datetime(2023, 1, 15)
     return [
         TaxLot(
             id=uuid4(),
-            account_id=uuid4(),
+            user_id="test_user_123",  # VARCHAR to match RBAC
             symbol="AAPL",
             quantity=Decimal(100),
             cost_per_share=Decimal("150.00"),
@@ -984,7 +1221,7 @@ def sample_lots():
         ),
         TaxLot(
             id=uuid4(),
-            account_id=uuid4(),
+            user_id="test_user_123",  # Same user for both lots
             symbol="AAPL",
             quantity=Decimal(50),
             cost_per_share=Decimal("160.00"),
@@ -1061,7 +1298,9 @@ For existing accounts with trade history but no tax lots, use the backfill utili
 # scripts/backfill_tax_lots.py
 """Backfill tax lots from historical trade data.
 
-Uses psycopg AsyncConnectionAdapter pattern for consistency with web console.
+NOTE: Scripts (not libs) can import from apps. The libs/tax module uses a
+Protocol interface (AsyncConnectionPool) to avoid importing from apps.
+Scripts inject the concrete implementation from apps.web_console.utils.db_pool.
 """
 
 from __future__ import annotations
@@ -1072,22 +1311,29 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from apps.web_console.utils.db_pool import create_db_pool, AsyncConnectionAdapter
-from libs.tax.cost_basis import CostBasisCalculator
+# Scripts can import from apps (unlike libs which use Protocol interfaces)
+from apps.web_console.utils.db_pool import get_db_pool
+from libs.tax.cost_basis import CostBasisCalculator, AsyncConnectionPool
 
 logger = logging.getLogger(__name__)
 
 
 async def backfill_tax_lots(
-    db_adapter: AsyncConnectionAdapter,
-    account_id: UUID,
+    db_adapter: AsyncConnectionPool,
+    user_id: str,
+    strategy_id: str,
     dry_run: bool = True,
 ) -> dict:
     """Backfill tax lots from order history.
 
+    The orders table uses strategy_id (not user_id), so both are required:
+    - user_id: Used for tax lot ownership (matches RBAC user_id VARCHAR)
+    - strategy_id: Used to query orders (e.g., "alpha_baseline")
+
     Args:
-        db_adapter: AsyncConnectionAdapter (psycopg pattern)
-        account_id: Account to backfill
+        db_adapter: Any AsyncConnectionPool implementation (e.g., from get_db_pool)
+        user_id: User who owns the tax lots (VARCHAR to match RBAC)
+        strategy_id: Strategy ID to fetch orders from (e.g., "alpha_baseline")
         dry_run: If True, don't commit changes
 
     Returns:
@@ -1095,21 +1341,27 @@ async def backfill_tax_lots(
     """
     calculator = CostBasisCalculator(db_adapter)
 
-    # Fetch all executed orders for account, ordered by timestamp
+    # Fetch all executed orders for strategy, ordered by timestamp
+    # Uses psycopg cursor pattern with %s placeholders
+    # NOTE: orders table uses strategy_id, not user_id. The caller must map
+    # user_id to their strategy_id(s). A single user may have multiple strategies.
+    # IMPORTANT: strategy_id parameter is passed, not user_id - caller resolves mapping.
     async with db_adapter.connection() as conn:
-        orders = await conn.fetch(
-            """
-            SELECT
-                id, symbol, side, filled_qty, avg_fill_price,
-                filled_at, order_type
-            FROM orders
-            WHERE account_id = $1
-              AND status = 'filled'
-              AND filled_at IS NOT NULL
-            ORDER BY filled_at ASC
-            """,
-            account_id,
-        )
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT
+                    client_order_id, symbol, side, filled_qty, filled_avg_price,
+                    filled_at, order_type
+                FROM orders
+                WHERE strategy_id = %s
+                  AND status = 'filled'
+                  AND filled_at IS NOT NULL
+                ORDER BY filled_at ASC
+                """,
+                (strategy_id,),
+            )
+            orders = await cur.fetchall()
 
     stats = {
         "lots_created": 0,
@@ -1123,43 +1375,45 @@ async def backfill_tax_lots(
                 # Record acquisition
                 if not dry_run:
                     await calculator.record_acquisition(
-                        account_id=account_id,
+                        user_id=user_id,
                         symbol=order["symbol"],
                         quantity=Decimal(str(order["filled_qty"])),
-                        cost_per_share=Decimal(str(order["avg_fill_price"])),
+                        cost_per_share=Decimal(str(order["filled_avg_price"])),
                         acquired_at=order["filled_at"],
                         acquisition_type="buy",
-                        source_order_id=order["id"],
+                        source_order_id=order["client_order_id"],
                     )
                 stats["lots_created"] += 1
 
             elif order["side"] == "sell":
-                # Record disposition
+                # Record disposition with order_id for idempotency
+                # destination_order_id ensures re-running backfill won't double-dispose
                 if not dry_run:
                     await calculator.record_disposition(
-                        account_id=account_id,
+                        user_id=user_id,
                         symbol=order["symbol"],
                         quantity=Decimal(str(order["filled_qty"])),
-                        proceeds_per_share=Decimal(str(order["avg_fill_price"])),
+                        proceeds_per_share=Decimal(str(order["filled_avg_price"])),
                         disposed_at=order["filled_at"],
                         disposition_type="sell",
+                        destination_order_id=order["client_order_id"],  # Idempotency key
                     )
                 stats["dispositions_recorded"] += 1
 
         except Exception as e:
             stats["errors"].append({
-                "order_id": str(order["id"]),
+                "order_id": order["client_order_id"],
                 "error": str(e),
             })
             logger.error(
                 "Failed to process order in backfill",
-                extra={"order_id": str(order["id"]), "error": str(e)},
+                extra={"order_id": order["client_order_id"], "error": str(e)},
             )
 
     logger.info(
         "Tax lot backfill completed",
         extra={
-            "account_id": str(account_id),
+            "user_id": user_id,
             "dry_run": dry_run,
             **stats,
         },
@@ -1170,35 +1424,34 @@ async def backfill_tax_lots(
 
 async def main():
     import argparse
-    import os
 
     parser = argparse.ArgumentParser(description="Backfill tax lots from trade history")
-    parser.add_argument("--account-id", required=True, help="Account UUID to backfill")
+    parser.add_argument("--user-id", required=True, help="User ID for tax lot ownership (VARCHAR)")
+    parser.add_argument("--strategy-id", required=True, help="Strategy ID to query orders (e.g., alpha_baseline)")
     parser.add_argument("--dry-run", action="store_true", help="Preview without committing")
     args = parser.parse_args()
 
     # Use psycopg AsyncConnectionAdapter pattern (same as web console)
-    db_adapter = await create_db_pool(os.getenv("DATABASE_URL"))
+    # get_db_pool() returns the singleton pool - no await needed
+    # NOTE: The adapter uses connection pooling, no explicit close() needed
+    db_adapter = get_db_pool()
 
-    try:
-        stats = await backfill_tax_lots(
-            db_adapter,
-            UUID(args.account_id),
-            dry_run=args.dry_run,
-        )
+    stats = await backfill_tax_lots(
+        db_adapter,
+        args.user_id,  # VARCHAR string for tax lot ownership
+        args.strategy_id,  # Strategy ID for orders query
+        dry_run=args.dry_run,
+    )
 
-        print(f"\nBackfill {'preview' if args.dry_run else 'complete'}:")
-        print(f"  Lots created: {stats['lots_created']}")
-        print(f"  Dispositions: {stats['dispositions_recorded']}")
-        print(f"  Errors: {len(stats['errors'])}")
+    print(f"\nBackfill {'preview' if args.dry_run else 'complete'}:")
+    print(f"  Lots created: {stats['lots_created']}")
+    print(f"  Dispositions: {stats['dispositions_recorded']}")
+    print(f"  Errors: {len(stats['errors'])}")
 
-        if stats["errors"]:
-            print("\nErrors:")
-            for err in stats["errors"][:10]:
-                print(f"  - Order {err['order_id']}: {err['error']}")
-
-    finally:
-        await db_adapter.close()
+    if stats["errors"]:
+        print("\nErrors:")
+        for err in stats["errors"][:10]:
+            print(f"  - Order {err['order_id']}: {err['error']}")
 
 
 if __name__ == "__main__":
@@ -1207,11 +1460,11 @@ if __name__ == "__main__":
 
 **Usage:**
 ```bash
-# Preview what would be created
-python scripts/backfill_tax_lots.py --account-id UUID --dry-run
+# Preview what would be created for user "alice" from strategy "alpha_baseline"
+python scripts/backfill_tax_lots.py --user-id alice --strategy-id alpha_baseline --dry-run
 
 # Execute backfill
-python scripts/backfill_tax_lots.py --account-id UUID
+python scripts/backfill_tax_lots.py --user-id alice --strategy-id alpha_baseline
 ```
 
 ---

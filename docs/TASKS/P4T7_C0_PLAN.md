@@ -57,7 +57,7 @@ class ModelRegistry:
 - [ ] Confirm `ModelMetadata.metrics` dict contains IC metrics (set during registration)
 - [ ] Confirm backtest linkage via `BacktestResultStorage` (separate from registry)
 - [ ] Write contract test for API stability
-- [ ] Document how to link ModelMetadata to BacktestResult (via run_id or experiment_id)
+- [ ] Document backtest linkage: `ModelMetadata.parameters['backtest_job_id']` → `BacktestResultStorage.get_result(job_id)`
 
 ### 2. Alpha Metrics API (VERIFY)
 
@@ -134,7 +134,7 @@ class FactorResult:
 ```
 
 **Verification steps:**
-- [ ] Confirm factor list from `list_factors()`: momentum_12_1, value, quality, size, low_vol
+- [ ] Confirm factor list from `list_factors()`: momentum_12_1, book_to_market, roe, log_market_cap, realized_vol
 - [ ] Confirm `compute_all_factors()` returns per-stock z-scores
 - [ ] Define portfolio holdings data source for C2 (reconciler positions or journal)
 - [ ] Implement weight-averaging logic in FactorExposureService
@@ -143,25 +143,39 @@ class FactorResult:
 
 **Location:** `libs/alerts/delivery_service.py` (from T7.5)
 
-**CRITICAL: Current API does NOT support attachments.**
+**NOTE: EmailChannel already supports attachments.**
 
-The existing `DeliveryExecutor` and `EmailChannel` handle alert notifications but lack file attachment support. For C4 (Scheduled Reports), we need one of:
+The existing `EmailChannel.send(..., attachments=...)` method already accepts a list of
+file paths for attachments. This means C4 (Scheduled Reports) can use the existing
+infrastructure directly without modification.
 
-**Option A: Extend EmailChannel (Recommended)**
-- Add `attachments: list[Path]` parameter to `EmailChannel.deliver()`
-- Modify SMTP logic to attach files as MIME multipart
-- Minimal change, reuses existing infrastructure
+**Usage for C4:**
+```python
+from libs.alerts.channels import EmailChannel
 
-**Option B: Direct SMTP for Reports**
-- Create `libs/reporting/email_sender.py` with direct smtplib usage
-- Bypasses alert queue, simpler for reports
-- Less reuse but more isolated
+# EmailChannel uses explicit SMTP args, not smtp_config dict
+email = EmailChannel(
+    smtp_host="smtp.example.com",
+    smtp_port=587,
+    smtp_user="user",
+    smtp_password="password",
+)
+
+# send() takes positional args: recipient, subject, body
+# Plus optional attachments parameter
+for recipient in recipients:
+    await email.send(
+        recipient,  # single recipient per call
+        "Daily Report",
+        report_html,
+        attachments=[report_pdf_path],  # Already supported
+    )
+```
 
 **Verification steps:**
-- [ ] Confirm EmailChannel uses smtplib (can be extended for attachments)
-- [ ] Review alert queue model - does it support large payloads?
-- [ ] Decision: Extend EmailChannel vs. create separate sender
-- [ ] Plan attachment support implementation in C4
+- [x] Confirm EmailChannel supports attachments parameter (verified)
+- [ ] Test attachment size limits with report PDFs
+- [ ] Verify MIME multipart handling for PDF reports
 
 ### 5. Database Dependencies (VERIFY)
 
@@ -182,11 +196,14 @@ See `apps/web_console/utils/db_pool.py`:
 ```python
 # Correct pattern for Streamlit pages:
 from apps.web_console.utils.db_pool import get_db_pool
-from apps.web_console.utils.run_async import run_async
+from apps.web_console.utils.async_helpers import run_async  # Correct module
 
 db_adapter = get_db_pool()
+# MUST use cursor pattern, NOT conn.execute directly
 async with db_adapter.connection() as conn:
-    result = await conn.execute(query)
+    async with conn.cursor() as cur:
+        await cur.execute(query, params)  # Use %s placeholders, tuple params
+        rows = await cur.fetchall()
 ```
 
 **Verification steps:**
@@ -268,14 +285,91 @@ Current repo uses APScheduler in `apps/execution_gateway/slice_scheduler.py`.
 | Data Source | Purpose | Location | Status |
 |-------------|---------|----------|--------|
 | Holdings/Positions | Factor exposure calculation | Positions table via reconciler | Verify schema |
-| Benchmark Constituents | Portfolio vs benchmark | Define benchmark data source | TBD |
+| Benchmark Constituents | Portfolio vs benchmark | N/A for MVP | OUT OF SCOPE - Future: CRSP index constituents or external feed |
 | Backtest Results | IC time-series, decay curves | `libs/backtest/result_storage.py` | Via BacktestResultStorage |
 | Factor Returns | Factor exposure analysis | Computed via FactorBuilder | Available |
 | Alpha Model Metrics | IC/ICIR display | ModelMetadata.metrics dict | Set during registration |
 
 **Backtest-Registry Linkage:**
-- `ModelMetadata.run_id` or `experiment_id` can link to BacktestResultStorage
-- C1 must query BacktestResultStorage using these IDs to get daily IC series
+- `ModelMetadata.parameters['backtest_job_id']` stores the job_id at model registration
+- Registration flow: Run backtest → get job_id → register model with `parameters={'backtest_job_id': job_id}`
+- C1 calls `BacktestResultStorage.get_result(job_id)` to load IC/decay data
+
+### 9. RBAC Permissions (REQUIRED)
+
+**CRITICAL: New permissions must be added to `libs/web_console_auth/permissions.py`**
+
+P4T7 components require new permissions not currently in the Permission enum:
+
+```python
+# libs/web_console_auth/permissions.py - REQUIRED ADDITIONS
+
+class Permission(str, Enum):
+    # ... existing permissions ...
+
+    # P4T7: Alpha Signal Explorer (C1)
+    VIEW_ALPHA_SIGNALS = "view_alpha_signals"
+
+    # P4T7: Factor Exposure Heatmap (C2)
+    VIEW_FACTOR_ANALYTICS = "view_factor_analytics"
+    # VIEW_ALL_POSITIONS: Required for global positions access (no strategy_id in schema)
+    # Only admin users should have this - prevents leaking positions across users
+    VIEW_ALL_POSITIONS = "view_all_positions"
+
+    # P4T7: Research Notebook Launcher (C3)
+    LAUNCH_NOTEBOOKS = "launch_notebooks"
+    MANAGE_NOTEBOOKS = "manage_notebooks"  # Admin: view/stop others' sessions
+
+    # P4T7: Scheduled Reports (C4)
+    MANAGE_REPORTS = "manage_reports"
+    VIEW_REPORTS = "view_reports"
+
+    # P4T7: Tax Lot Reporter (C5/C6)
+    VIEW_TAX_REPORTS = "view_tax_reports"
+    MANAGE_TAX_SETTINGS = "manage_tax_settings"
+
+
+# Update ROLE_PERMISSIONS mapping
+ROLE_PERMISSIONS = {
+    Role.ADMIN: [
+        # ... existing ...
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_FACTOR_ANALYTICS,
+        Permission.VIEW_ALL_POSITIONS,  # Admin-only: access global positions
+        Permission.LAUNCH_NOTEBOOKS,
+        Permission.MANAGE_NOTEBOOKS,
+        Permission.MANAGE_REPORTS,
+        Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_REPORTS,
+        Permission.MANAGE_TAX_SETTINGS,
+    ],
+    Role.RESEARCHER: [
+        # New role for researchers
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_FACTOR_ANALYTICS,
+        # NOTE: Researchers do NOT get VIEW_ALL_POSITIONS - positions are global
+        # and would leak cross-user data. They can only use strategy-scoped data.
+        Permission.LAUNCH_NOTEBOOKS,
+        Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_REPORTS,
+    ],
+    Role.OPERATOR: [
+        # ... existing ...
+        Permission.VIEW_REPORTS,
+    ],
+    Role.VIEWER: [
+        # ... existing ...
+        Permission.VIEW_REPORTS,
+    ],
+}
+```
+
+**Verification steps:**
+- [ ] Add new permissions to Permission enum
+- [ ] Add RESEARCHER role if not exists
+- [ ] Update ROLE_PERMISSIONS with new mappings
+- [ ] Write tests for permission checks
+- [ ] Document permission requirements in each page
 
 **Gap analysis output:**
 - [ ] Document authoritative source for each data type
@@ -350,7 +444,7 @@ We will implement...
 2. **Gap Analysis:** Any missing capabilities requiring enhancement
 3. **Integration Gap Report:** Data source mapping and adapter requirements
 4. **ADR-0030 Outline:** `docs/ADRs/ADR-0030-reporting-architecture.md`
-5. **Migration Plan:** Outline for 0012 and 0013 migrations
+5. **Migration Plan:** Outline for 0018 and 0019 migrations
 6. **Dependency Verification:** Confirmed all prerequisites met
 7. **WeasyPrint Smoke Test:** Minimal PDF generation test
 

@@ -117,20 +117,22 @@ docs/
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Report templates (with multi-tenant scoping per P4T7_TASK.md)
+-- NOTE: Using user_id VARCHAR to match existing RBAC tables (0006_create_rbac_tables.sql)
+-- If accounts table is added later, can migrate to account_id UUID
 CREATE TABLE IF NOT EXISTS report_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL,  -- Multi-tenant scoping
+    user_id VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     name VARCHAR(255) NOT NULL,
     description TEXT,
     template_type VARCHAR(50) NOT NULL,  -- daily_summary, weekly_performance, monthly_pnl
     config JSONB NOT NULL DEFAULT '{}',
-    created_by UUID NOT NULL,
+    created_by VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(account_id, name)  -- Template names unique per account
+    UNIQUE(user_id, name)  -- Template names unique per user
 );
 
-CREATE INDEX idx_report_templates_account ON report_templates(account_id);
+CREATE INDEX idx_report_templates_user ON report_templates(user_id);
 
 -- Example config JSONB structure:
 -- {
@@ -144,7 +146,7 @@ CREATE INDEX idx_report_templates_account ON report_templates(account_id);
 -- Report schedules (with multi-tenant scoping)
 CREATE TABLE IF NOT EXISTS report_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL,  -- Multi-tenant scoping
+    user_id VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     template_id UUID NOT NULL REFERENCES report_templates(id) ON DELETE CASCADE,
     schedule_type VARCHAR(20) NOT NULL,  -- daily, weekly, monthly
     schedule_config JSONB NOT NULL DEFAULT '{}',
@@ -152,7 +154,7 @@ CREATE TABLE IF NOT EXISTS report_schedules (
     enabled BOOLEAN DEFAULT true,
     last_run_at TIMESTAMPTZ,
     next_run_at TIMESTAMPTZ,
-    created_by UUID NOT NULL,
+    created_by VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -162,13 +164,13 @@ CREATE TABLE IF NOT EXISTS report_schedules (
 -- weekly: {"day_of_week": 1, "hour": 6}  -- Monday 6am
 -- monthly: {"day_of_month": 1, "hour": 6}  -- 1st of month 6am
 
-CREATE INDEX idx_report_schedules_account ON report_schedules(account_id);
+CREATE INDEX idx_report_schedules_user ON report_schedules(user_id);
 CREATE INDEX idx_report_schedules_next_run ON report_schedules(next_run_at) WHERE enabled = true;
 
 -- Report archives (with idempotency)
 CREATE TABLE IF NOT EXISTS report_archives (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL,  -- Multi-tenant scoping
+    user_id VARCHAR(255) NOT NULL,  -- Matches RBAC user_id type
     schedule_id UUID REFERENCES report_schedules(id) ON DELETE SET NULL,
     template_id UUID NOT NULL REFERENCES report_templates(id),
     idempotency_key VARCHAR(100) NOT NULL,  -- schedule_id + generated_at to prevent duplicates
@@ -197,7 +199,7 @@ CREATE TABLE IF NOT EXISTS report_schedule_runs (
     UNIQUE(run_key)  -- Prevent duplicate runs
 );
 
-CREATE INDEX idx_report_archives_account ON report_archives(account_id);
+CREATE INDEX idx_report_archives_user ON report_archives(user_id);
 CREATE INDEX idx_report_archives_generated ON report_archives(generated_at);
 ```
 
@@ -214,7 +216,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from libs.reporting.html_generator import HTMLGenerator
 from libs.reporting.pdf_generator import PDFGenerator
@@ -241,6 +243,7 @@ class GeneratedReport:
     file_format: str
     file_size_bytes: int
     generated_at: datetime
+    archive_id: UUID | None = None  # Set after archiving to DB
 
 
 class ReportGenerator:
@@ -440,18 +443,30 @@ class HTMLGenerator:
         template = self._env.get_template(template_name)
 
         # Convert any Plotly figures to static images
+        # Use executor to avoid blocking async event loop
         if context.get("include_charts"):
-            context = self._embed_charts(context)
+            context = await self._embed_charts_async(context)
 
         return template.render(**context)
 
-    def _embed_charts(self, context: dict[str, Any]) -> dict[str, Any]:
-        """Convert Plotly figures to base64 images for embedding."""
+    async def _embed_charts_async(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Convert Plotly figures to base64 images for embedding.
+
+        Runs image conversion in thread executor since fig.to_image() is blocking.
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        # Run synchronous chart embedding in executor
+        return await loop.run_in_executor(None, self._embed_charts_sync, context)
+
+    def _embed_charts_sync(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Synchronous chart embedding - runs in thread executor."""
         charts = context.get("charts", {})
         embedded = {}
 
         for name, fig in charts.items():
             if isinstance(fig, go.Figure):
+                # This is blocking I/O - runs in thread executor
                 img_bytes = fig.to_image(format="png", width=800, height=400)
                 b64 = base64.b64encode(img_bytes).decode()
                 embedded[name] = f"data:image/png;base64,{b64}"
@@ -488,10 +503,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from libs.alerts.delivery_service import AlertDeliveryService
+from libs.alerts.channels import EmailChannel
 from libs.reporting.report_generator import GeneratedReport, ReportConfig, ReportGenerator
 
 logger = logging.getLogger(__name__)
@@ -505,7 +521,7 @@ class ReportTemplate:
     description: str | None
     template_type: str
     config: dict[str, Any]
-    created_by: UUID
+    created_by: str  # VARCHAR(255) to match RBAC user_id type
     created_at: datetime
 
 
@@ -529,35 +545,98 @@ class ReportService:
         self,
         db_pool,
         report_generator: ReportGenerator,
-        delivery_service: AlertDeliveryService,
+        email_channel: EmailChannel,
     ):
+        """Initialize ReportService.
+
+        Args:
+            db_pool: AsyncConnectionAdapter from apps.web_console.utils.db_pool
+            report_generator: ReportGenerator instance for generating reports
+            email_channel: EmailChannel from libs.alerts.channels for sending emails
+        """
         self._db = db_pool
         self._generator = report_generator
-        self._delivery = delivery_service
+        self._email = email_channel
+
+    async def _validate_user_strategies(
+        self,
+        user_id: str,
+        strategies: list[str],
+    ) -> None:
+        """Validate that user is authorized to access the specified strategies.
+
+        SECURITY: Prevents users from creating templates/schedules for strategies
+        they don't have permission to access.
+
+        Args:
+            user_id: User requesting access
+            strategies: Strategy IDs to validate
+
+        Raises:
+            ValueError: If user is not authorized for any strategy
+        """
+        if not strategies:
+            return
+
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                # Query user's authorized strategies from RBAC table
+                # user_strategy_access is from db/migrations/0006_create_rbac_tables.sql
+                await cur.execute(
+                    """
+                    SELECT strategy_id FROM user_strategy_access
+                    WHERE user_id = %s AND strategy_id = ANY(%s)
+                    """,
+                    (user_id, strategies),
+                )
+                authorized = await cur.fetchall()
+                authorized_ids = {row["strategy_id"] for row in authorized}
+
+        unauthorized = set(strategies) - authorized_ids
+        if unauthorized:
+            raise ValueError(
+                f"User not authorized for strategies: {', '.join(unauthorized)}"
+            )
 
     async def create_template(
         self,
+        user_id: str,
         name: str,
         template_type: str,
         config: dict[str, Any],
-        created_by: UUID,
+        created_by: str,
         description: str | None = None,
     ) -> ReportTemplate:
-        """Create a new report template."""
-        async with self._db.connection() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO report_templates (name, description, template_type, config, created_by)
-                VALUES ($1, $2, $3, $4, $5)
-                RETURNING id, created_at
-                """,
-                name,
-                description,
-                template_type,
-                config,
-                created_by,
-            )
+        """Create a new report template.
 
+        SECURITY: Validates that user is authorized for strategies in config.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        user_id is VARCHAR(255) to match RBAC tables.
+        """
+        import json
+
+        # SECURITY: Validate strategy access before creating template
+        strategies = config.get("strategies", [])
+        if strategies:
+            await self._validate_user_strategies(user_id, strategies)
+
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO report_templates
+                    (user_id, name, description, template_type, config, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id, created_at
+                    """,
+                    (user_id, name, description, template_type, json.dumps(config), created_by),
+                )
+                row = await cur.fetchone()
+            # psycopg3 requires explicit commit (autocommit=False by default)
+            await conn.commit()
+
+            # psycopg with dict_row returns dicts
             return ReportTemplate(
                 id=row["id"],
                 name=name,
@@ -570,31 +649,50 @@ class ReportService:
 
     async def create_schedule(
         self,
+        user_id: str,
         template_id: UUID,
         schedule_type: str,
         schedule_config: dict[str, Any],
         recipients: list[str],
-        created_by: UUID,
+        created_by: str,
     ) -> ReportSchedule:
-        """Create a report schedule."""
+        """Create a report schedule.
+
+        SECURITY: Verifies user owns the template before creating schedule.
+        Uses INSERT...SELECT pattern to atomically check ownership.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        """
+        import json
         next_run = self._calculate_next_run(schedule_type, schedule_config)
 
         async with self._db.connection() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO report_schedules
-                (template_id, schedule_type, schedule_config, recipients, next_run_at, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING id
-                """,
-                template_id,
-                schedule_type,
-                schedule_config,
-                recipients,
-                next_run,
-                created_by,
-            )
+            async with conn.cursor() as cur:
+                # SECURITY: Use INSERT...SELECT to verify template ownership atomically
+                # Only inserts if template exists AND is owned by the user
+                await cur.execute(
+                    """
+                    INSERT INTO report_schedules
+                    (user_id, template_id, schedule_type, schedule_config, recipients, next_run_at, created_by)
+                    SELECT %s, id, %s, %s, %s, %s, %s
+                    FROM report_templates
+                    WHERE id = %s AND user_id = %s
+                    RETURNING id
+                    """,
+                    (user_id, schedule_type, json.dumps(schedule_config),
+                     json.dumps(recipients), next_run, created_by,
+                     template_id, user_id),
+                )
+                row = await cur.fetchone()
 
+                if not row:
+                    raise ValueError(
+                        f"Template {template_id} not found or not owned by user"
+                    )
+            # psycopg3 requires explicit commit (autocommit=False by default)
+            await conn.commit()
+
+            # psycopg with dict_row returns dicts
             return ReportSchedule(
                 id=row["id"],
                 template_id=template_id,
@@ -606,171 +704,338 @@ class ReportService:
                 next_run_at=next_run,
             )
 
-    async def run_schedule(self, schedule_id: UUID) -> GeneratedReport:
+    async def run_schedule(
+        self,
+        schedule_id: UUID,
+        manual: bool = False,
+        user_id: str | None = None,
+    ) -> GeneratedReport:
         """Execute a scheduled report with idempotency protection.
 
         Uses report_schedule_runs table to prevent duplicate executions.
+        Uses ATOMIC insert-based idempotency: INSERT ... ON CONFLICT DO NOTHING.
+        This prevents race conditions between concurrent workers.
+
+        Args:
+            schedule_id: UUID of the schedule to run
+            manual: If True, this is a "Run Now" request. Uses timestamp-based
+                   run_key to allow multiple manual runs in the same day.
+                   If False (default), uses date-based run_key for scheduled runs
+                   to prevent duplicate automated runs.
+            user_id: Required for manual runs. Verifies the user owns this schedule.
+                    Not required for automated scheduler runs (internal worker).
+
+        Uses psycopg cursor pattern with %s placeholders.
         """
-        today = datetime.now(UTC).date()
-        run_key = f"{schedule_id}:{today.isoformat()}"
+        now = datetime.now(UTC)
+
+        # SECURITY: Manual "Run Now" requires user_id and ownership verification
+        # Prevents unauthorized execution if schedule UUID is leaked
+        if manual:
+            if not user_id:
+                raise ValueError("user_id required for manual schedule runs")
+            # Verify ownership before execution
+            async with self._db.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT 1 FROM report_schedules WHERE id = %s AND user_id = %s",
+                        (schedule_id, user_id),
+                    )
+                    if not await cur.fetchone():
+                        raise PermissionError(
+                            f"User {user_id} does not own schedule {schedule_id}"
+                        )
+            # Manual "Run Now": include timestamp to allow multiple runs per day
+            run_key = f"{schedule_id}:manual:{now.isoformat()}"
+        else:
+            # Scheduled run: date-based key prevents duplicate automated runs
+            # No user_id check - scheduler worker is trusted internal process
+            run_key = f"{schedule_id}:{now.date().isoformat()}"
 
         async with self._db.connection() as conn:
-            # Idempotency check: prevent duplicate runs
-            existing = await conn.fetchrow(
-                "SELECT id, status FROM report_schedule_runs WHERE run_key = $1",
-                run_key,
-            )
-            if existing:
-                if existing["status"] == "completed":
-                    raise ValueError(f"Schedule {schedule_id} already ran today")
-                elif existing["status"] == "running":
-                    raise ValueError(f"Schedule {schedule_id} is already running")
-                # If failed, allow retry by continuing
+            async with conn.cursor() as cur:
+                # ATOMIC idempotency: Try to insert new run record
+                # ON CONFLICT DO NOTHING means only ONE worker will get a row returned
+                # Other concurrent workers will get NULL and must check existing status
+                await cur.execute(
+                    """
+                    INSERT INTO report_schedule_runs (schedule_id, run_key, status, started_at)
+                    VALUES (%s, %s, 'running', NOW())
+                    ON CONFLICT (run_key) DO NOTHING
+                    RETURNING id
+                    """,
+                    (schedule_id, run_key),
+                )
+                row = await cur.fetchone()
 
-            # Record run start
-            run_id = await conn.fetchval(
-                """
-                INSERT INTO report_schedule_runs (schedule_id, run_key, status, started_at)
-                VALUES ($1, $2, 'running', NOW())
-                ON CONFLICT (run_key) DO UPDATE SET status = 'running', started_at = NOW()
-                RETURNING id
-                """,
-                schedule_id,
-                run_key,
-            )
+                if row:
+                    # We won the race - proceed with this run
+                    run_id = row["id"]
+                else:
+                    # Another worker already started - check existing status
+                    await cur.execute(
+                        "SELECT id, status FROM report_schedule_runs WHERE run_key = %s",
+                        (run_key,),
+                    )
+                    existing = await cur.fetchone()
+                    if not existing:
+                        # Should not happen, but handle gracefully
+                        raise ValueError(f"Concurrent run conflict for {schedule_id}")
+
+                    # dict_row returns dicts
+                    status = existing["status"]
+                    if status == "completed":
+                        raise ValueError(f"Schedule {schedule_id} already ran today")
+                    elif status == "running":
+                        raise ValueError(f"Schedule {schedule_id} is already running")
+                    elif status == "failed":
+                        # Allow retry - update to running and proceed
+                        await cur.execute(
+                            """
+                            UPDATE report_schedule_runs
+                            SET status = 'running', started_at = NOW()
+                            WHERE run_key = %s AND status = 'failed'
+                            RETURNING id
+                            """,
+                            (run_key,),
+                        )
+                        retry_row = await cur.fetchone()
+                        if not retry_row:
+                            raise ValueError(f"Failed to acquire retry lock for {schedule_id}")
+                        run_id = retry_row["id"]
+                    else:
+                        raise ValueError(f"Unknown status for {schedule_id}: {status}")
+
+            # psycopg3 requires explicit commit
+            await conn.commit()
 
         # Execute report generation (outside transaction for proper error handling)
+        # Pass run_key to use as archive idempotency_key (handles manual vs scheduled)
         try:
-            report = await self._execute_schedule(schedule_id)
+            report = await self._execute_schedule(schedule_id, run_key)
 
-            # Mark as completed
+            # Mark as completed (psycopg cursor pattern)
+            # Use archive_id from INSERT (not report.report_id which is file identifier)
             async with self._db.connection() as conn:
-                await conn.execute(
-                    """
-                    UPDATE report_schedule_runs
-                    SET status = 'completed', completed_at = NOW(), archive_id = $2
-                    WHERE id = $1
-                    """,
-                    run_id,
-                    UUID(report.report_id),
-                )
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        UPDATE report_schedule_runs
+                        SET status = 'completed', completed_at = NOW(), archive_id = %s
+                        WHERE id = %s
+                        """,
+                        (report.archive_id, run_id),
+                    )
+                # psycopg3 requires explicit commit
+                await conn.commit()
 
             return report
 
         except Exception as e:
-            # Mark as failed
+            # Mark as failed (psycopg cursor pattern)
             async with self._db.connection() as conn:
-                await conn.execute(
-                    """
-                    UPDATE report_schedule_runs
-                    SET status = 'failed', completed_at = NOW(), error_message = $2
-                    WHERE id = $1
-                    """,
-                    run_id,
-                    str(e),
-                )
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        UPDATE report_schedule_runs
+                        SET status = 'failed', completed_at = NOW(), error_message = %s
+                        WHERE id = %s
+                        """,
+                        (str(e), run_id),
+                    )
+                # psycopg3 requires explicit commit
+                await conn.commit()
             raise
 
-    async def _execute_schedule(self, schedule_id: UUID) -> GeneratedReport:
-        """Internal: Execute schedule without idempotency (called by run_schedule)."""
+    async def _execute_schedule(
+        self,
+        schedule_id: UUID,
+        run_key: str,
+    ) -> GeneratedReport:
+        """Internal: Execute schedule without idempotency (called by run_schedule).
+
+        Uses SHORT-LIVED database connections to avoid holding connections during
+        slow operations (report generation, PDF rendering, email delivery).
+
+        Pattern:
+        1. Short connection: Read schedule + template data
+        2. Release connection
+        3. Generate report + send emails (no DB held)
+        4. Short connection: Archive insert + schedule update
+
+        Args:
+            schedule_id: UUID of the schedule to execute
+            run_key: Unique run key from run_schedule (includes timestamp for manual
+                    runs, date-only for scheduled runs). Used as archive idempotency_key.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        """
+        # === SHORT-LIVED CONNECTION 1: Read schedule data ===
         async with self._db.connection() as conn:
-            schedule = await conn.fetchrow(
-                """
-                SELECT s.*, t.template_type, t.config
-                FROM report_schedules s
-                JOIN report_templates t ON s.template_id = t.id
-                WHERE s.id = $1
-                """,
-                schedule_id,
-            )
-
-            if not schedule:
-                raise ValueError(f"Schedule {schedule_id} not found")
-
-            # Generate report
-            config = ReportConfig(
-                template_type=schedule["template_type"],
-                metrics=schedule["config"].get("metrics", []),
-                strategies=schedule["config"].get("strategies", []),
-                date_range=self._resolve_date_range(schedule["config"].get("date_range")),
-                format=schedule["config"].get("format", "pdf"),
-                include_charts=schedule["config"].get("include_charts", True),
-            )
-
-            data = await self._fetch_report_data(config)
-            report = await self._generator.generate_report(config, data)
-
-            # Archive
-            await conn.execute(
-                """
-                INSERT INTO report_archives
-                (schedule_id, template_id, generated_at, file_path, file_format, file_size_bytes)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                """,
-                schedule_id,
-                schedule["template_id"],
-                report.generated_at,
-                str(report.file_path),
-                report.file_format,
-                report.file_size_bytes,
-            )
-
-            # Deliver via email
-            # NOTE: AlertDeliveryService (from T7.5) may need enhancement for attachments.
-            # Options for email attachments:
-            # 1. Extend AlertDeliveryService.send_email() to accept attachments parameter
-            # 2. Use dedicated email service (e.g., SendGrid, SES) with attachment support
-            # 3. Include download link in email body instead of attachment
-            # For MVP, include report download link; full attachment support is stretch.
-            report_url = f"/reports/archive/{report.report_id}"
-            for recipient in schedule["recipients"]:
-                await self._delivery.send_email(
-                    to=recipient,
-                    subject=f"Trading Report: {schedule['template_type']}",
-                    body=f"Your scheduled report is ready.\n\nDownload: {report_url}",
-                    # attachments=[report.file_path],  # TODO: Implement attachment support
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT s.id, s.user_id, s.template_id, s.schedule_type,
+                           s.schedule_config, s.recipients, t.template_type, t.config
+                    FROM report_schedules s
+                    JOIN report_templates t ON s.template_id = t.id
+                    WHERE s.id = %s
+                    """,
+                    (schedule_id,),
                 )
+                row = await cur.fetchone()
+                if not row:
+                    raise ValueError(f"Schedule {schedule_id} not found")
 
-            # Update schedule
-            next_run = self._calculate_next_run(
-                schedule["schedule_type"],
-                schedule["schedule_config"],
-            )
-            await conn.execute(
-                """
-                UPDATE report_schedules
-                SET last_run_at = $1, next_run_at = $2
-                WHERE id = $3
-                """,
-                datetime.now(UTC),
-                next_run,
-                schedule_id,
-            )
+                # dict_row returns dicts, access by column name
+                schedule = {
+                    "id": row["id"],
+                    "user_id": row["user_id"],
+                    "template_id": row["template_id"],
+                    "schedule_type": row["schedule_type"],
+                    "schedule_config": row["schedule_config"],
+                    "recipients": row["recipients"],
+                    "template_type": row["template_type"],
+                    "config": row["config"],
+                }
+        # Connection released here - no longer holding during slow operations
 
-            return report
+        # SECURITY: Re-validate strategy access before each run
+        # This ensures if user's access was revoked after schedule creation,
+        # the report won't leak data they're no longer authorized to see.
+        strategies = schedule["config"].get("strategies", [])
+        if strategies:
+            await self._validate_user_strategies(schedule["user_id"], strategies)
 
-    async def preview_report(self, template_id: UUID) -> bytes:
-        """Generate preview PDF for template."""
+        # === NO CONNECTION: Generate report (potentially slow) ===
+        config = ReportConfig(
+            template_type=schedule["template_type"],
+            metrics=schedule["config"].get("metrics", []),
+            strategies=strategies,
+            date_range=self._resolve_date_range(schedule["config"].get("date_range")),
+            format=schedule["config"].get("format", "pdf"),
+            include_charts=schedule["config"].get("include_charts", True),
+        )
+
+        # _fetch_report_data uses its own short-lived connection internally
+        data = await self._fetch_report_data(config)
+        report = await self._generator.generate_report(config, data)
+
+        # Use run_key as idempotency_key (passed from run_schedule)
+        # For scheduled runs: "schedule_id:YYYY-MM-DD" (one per day)
+        # For manual runs: "schedule_id:manual:timestamp" (unique per run)
+        # This ensures manual "Run Now" creates separate archive entries
+        idempotency_key = run_key
+
+        # === SHORT-LIVED CONNECTION 2: Archive insert + schedule update ===
         async with self._db.connection() as conn:
-            template = await conn.fetchrow(
-                "SELECT * FROM report_templates WHERE id = $1",
-                template_id,
+            async with conn.cursor() as cur:
+                # INSERT with RETURNING to get archive_id for run tracking
+                # ON CONFLICT: Update ALL file-related fields so retries point to new file
+                # This handles the case where a previous run partially failed (e.g., email
+                # delivery failed) and a retry generates a new report file.
+                await cur.execute(
+                    """
+                    INSERT INTO report_archives
+                    (user_id, schedule_id, template_id, idempotency_key,
+                     generated_at, file_path, file_format, file_size_bytes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (idempotency_key) DO UPDATE SET
+                        generated_at = EXCLUDED.generated_at,
+                        file_path = EXCLUDED.file_path,
+                        file_format = EXCLUDED.file_format,
+                        file_size_bytes = EXCLUDED.file_size_bytes
+                    RETURNING id
+                    """,
+                    (schedule["user_id"], schedule_id, schedule["template_id"],
+                     idempotency_key, report.generated_at, str(report.file_path),
+                     report.file_format, report.file_size_bytes),
+                )
+                row = await cur.fetchone()
+                # Store archive_id on report for run tracking
+                report.archive_id = row["id"]
+
+                # Update schedule next_run in same transaction
+                next_run = self._calculate_next_run(
+                    schedule["schedule_type"],
+                    schedule["schedule_config"],
+                )
+                await cur.execute(
+                    """
+                    UPDATE report_schedules
+                    SET last_run_at = %s, next_run_at = %s
+                    WHERE id = %s
+                    """,
+                    (datetime.now(UTC), next_run, schedule_id),
+                )
+            # psycopg3 requires explicit commit for all writes
+            await conn.commit()
+        # Connection released here before email delivery
+
+        # === NO CONNECTION: Send emails (potentially slow, external service) ===
+        # EmailChannel.send() expects list[str] for attachments (not Path)
+        report_url = f"/reports/archive/{report.archive_id}"
+        for recipient in schedule["recipients"]:
+            await self._email.send(
+                recipient=recipient,
+                subject=f"Trading Report: {schedule['template_type']}",
+                body=f"Your scheduled report is ready.\n\nDownload: {report_url}",
+                attachments=[str(report.file_path)],  # Convert Path to str
             )
 
-            if not template:
-                raise ValueError(f"Template {template_id} not found")
+        return report
 
-            config = ReportConfig(
-                template_type=template["template_type"],
-                metrics=template["config"].get("metrics", []),
-                strategies=template["config"].get("strategies", []),
-                date_range=self._resolve_date_range(template["config"].get("date_range")),
-                format="pdf",
-                include_charts=template["config"].get("include_charts", True),
-            )
+    async def preview_report(self, template_id: UUID, user_id: str) -> bytes:
+        """Generate preview PDF for template.
 
-            data = await self._fetch_report_data(config)
-            return await self._generator.preview_report(config, data)
+        SECURITY: Verifies user owns the template before generating preview.
+        This prevents unauthorized access to other users' template configurations.
+
+        Uses SHORT-LIVED connection: fetch template, release connection,
+        then generate preview (avoids holding connection during slow PDF generation).
+
+        Uses psycopg cursor pattern with %s placeholders.
+        """
+        # === SHORT-LIVED CONNECTION: Fetch template ===
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                # SECURITY: Check template ownership
+                await cur.execute(
+                    "SELECT id, template_type, config FROM report_templates WHERE id = %s AND user_id = %s",
+                    (template_id, user_id),
+                )
+                row = await cur.fetchone()
+
+                if not row:
+                    raise ValueError(f"Template {template_id} not found or not owned by user")
+
+                # psycopg with dict_row returns dicts
+                template = {
+                    "id": row["id"],
+                    "template_type": row["template_type"],
+                    "config": row["config"],
+                }
+        # Connection released here before slow operations
+
+        # SECURITY: Re-validate strategy access for preview
+        # User may still own template but have lost strategy access
+        strategies = template["config"].get("strategies", [])
+        if strategies:
+            await self._validate_user_strategies(user_id, strategies)
+
+        # === NO CONNECTION: Generate preview (potentially slow) ===
+        config = ReportConfig(
+            template_type=template["template_type"],
+            metrics=template["config"].get("metrics", []),
+            strategies=strategies,
+            date_range=self._resolve_date_range(template["config"].get("date_range")),
+            format="pdf",
+            include_charts=template["config"].get("include_charts", True),
+        )
+
+        # _fetch_report_data uses its own short-lived connection internally
+        data = await self._fetch_report_data(config)
+        return await self._generator.preview_report(config, data)
 
     def _calculate_next_run(
         self,
@@ -834,14 +1099,134 @@ class ReportService:
 
         return ranges.get(config, (today - timedelta(days=30), today))
 
+    async def get_archive(self, archive_id: UUID, user_id: str) -> bytes | None:
+        """Get archived report PDF for download.
+
+        Uses psycopg cursor pattern with %s placeholders.
+
+        Args:
+            archive_id: UUID of the archived report
+            user_id: Current user for authorization check
+
+        Returns:
+            PDF bytes if found and authorized, None otherwise
+        """
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT file_path, file_format, user_id
+                    FROM report_archives
+                    WHERE id = %s
+                    """,
+                    (archive_id,),
+                )
+                row = await cur.fetchone()
+
+                if not row:
+                    return None
+
+                # Authorization: only owner can access (or admin)
+                if row["user_id"] != user_id:
+                    logger.warning(
+                        "Unauthorized archive access attempt",
+                        extra={"archive_id": str(archive_id), "user_id": user_id},
+                    )
+                    return None
+
+                # SECURITY: Validate file_path is under allowed report output directory
+                # This prevents path traversal attacks if DB is compromised or corrupted
+                import os
+                report_output_dir = Path(
+                    os.getenv("REPORT_OUTPUT_DIR", "artifacts/reports")
+                ).resolve()
+                file_path = Path(row["file_path"]).resolve()
+
+                if not file_path.is_relative_to(report_output_dir):
+                    logger.error(
+                        "Archive file path outside allowed directory",
+                        extra={
+                            "archive_id": str(archive_id),
+                            "path": str(file_path),
+                            "allowed_dir": str(report_output_dir),
+                        },
+                    )
+                    return None
+
+                if not file_path.exists():
+                    logger.error(
+                        "Archive file missing",
+                        extra={"archive_id": str(archive_id), "path": str(file_path)},
+                    )
+                    return None
+
+                return file_path.read_bytes()
+
     async def _fetch_report_data(self, config: ReportConfig) -> dict[str, Any]:
-        """Fetch data for report generation."""
-        # TODO: Implement data fetching from performance, risk, etc.
-        return {
+        """Fetch data for report generation.
+
+        Collects performance metrics, P&L data, and position snapshots
+        using direct queries (not StrategyScopedDataAccess which requires role-based auth).
+
+        For scheduled reports, we bypass StrategyScopedDataAccess and query directly
+        with the explicit strategy list captured at schedule creation time. This avoids
+        the role/permission check that would fail for a background worker.
+
+        Uses psycopg cursor pattern with %s placeholders.
+        """
+        data: dict[str, Any] = {
             "metrics": {},
             "charts": {},
             "tables": {},
         }
+
+        date_from, date_to = config.date_range
+        # Convert date bounds to timestamps for proper timestamptz comparison
+        # Use exclusive end bound (date_to + 1 day) to include all fills on date_to
+        from datetime import timedelta
+        date_to_exclusive = date_to + timedelta(days=1)
+
+        async with self._db.connection() as conn:
+            async with conn.cursor() as cur:
+                # Fetch P&L for each strategy using direct query on orders table
+                # NOTE: orders table has strategy_id but NO realized_pnl column.
+                # We compute P&L from filled orders: (filled_avg_price - avg_entry) * filled_qty
+                # For MVP, count filled orders and sum filled values as proxy metrics.
+                for strategy in config.strategies:
+                    try:
+                        await cur.execute(
+                            """
+                            SELECT COUNT(*) as trade_count,
+                                   SUM(filled_qty * filled_avg_price) as total_value
+                            FROM orders
+                            WHERE strategy_id = %s
+                              AND filled_at >= %s AND filled_at < %s
+                              AND status = 'filled'
+                            """,
+                            (strategy, date_from, date_to_exclusive),
+                        )
+                        row = await cur.fetchone()
+                        data["metrics"][strategy] = {
+                            "total_value": row["total_value"] or Decimal(0),
+                            "trade_count": row["trade_count"] or 0,
+                        }
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch metrics for {strategy}: {e}")
+
+                # Fetch current positions
+                # NOTE: positions table is symbol-keyed with NO strategy_id column.
+                # This means positions are GLOBAL (not per-strategy).
+                #
+                # SECURITY: Positions are omitted unless user has VIEW_ALL_POSITIONS.
+                # This prevents scheduled reports from leaking other users' positions.
+                # Schema: positions has qty, symbol, avg_entry_price, current_price (NO realized_pl)
+                #
+                # For admin reports, we could add position data here; for now, skip
+                # to avoid leaking global positions to non-admin scheduled reports.
+                # Future enhancement: Add position-strategy mapping table.
+                data["tables"]["positions"] = []  # Empty until proper scoping exists
+
+        return data
 ```
 
 ### 6. Report Page
@@ -957,8 +1342,24 @@ def _render_schedules_tab(can_manage: bool) -> None:
 
 
 def _render_archive_tab() -> None:
-    """Render archive viewer tab."""
+    """Render archive viewer tab with download functionality.
+
+    NOTE: For archive viewing, we only need db_pool access.
+    ReportService is only used here for get_archive() which only needs db.
+    For full report generation, the worker process creates ReportService
+    with all dependencies (report_generator, email_channel).
+    """
+    from apps.web_console.utils.db_pool import get_db_pool
+    from apps.web_console.utils.async_helpers import run_async
+
     st.subheader("Report Archive")
+
+    user = get_current_user()
+    db_adapter = get_db_pool()
+
+    # For archive viewing, use a lightweight service with only db access.
+    # Full ReportService with generator/email is instantiated in scheduler worker.
+    # Here we only need get_archive() which only requires db_pool.
 
     # Date filter
     col1, col2 = st.columns(2)
@@ -967,7 +1368,87 @@ def _render_archive_tab() -> None:
     with col2:
         end = st.date_input("To")
 
-    st.info("Archived reports would be listed here with download links.")
+    # Fetch archives for current user
+    # JOIN with report_templates to get template_type (not in report_archives)
+    # Use exclusive end bound to include all reports on the end date
+    from datetime import timedelta
+    end_exclusive = end + timedelta(days=1)
+
+    async def fetch_archives():
+        async with db_adapter.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT a.id, t.template_type, a.generated_at, a.file_format, a.file_size_bytes
+                    FROM report_archives a
+                    JOIN report_templates t ON a.template_id = t.id
+                    WHERE a.user_id = %s
+                      AND a.generated_at >= %s AND a.generated_at < %s
+                    ORDER BY a.generated_at DESC
+                    LIMIT 50
+                    """,
+                    (user["user_id"], start, end_exclusive),
+                )
+                return await cur.fetchall()
+
+    archives = run_async(fetch_archives())
+
+    if not archives:
+        st.info("No archived reports found for this date range.")
+        return
+
+    st.write(f"Found {len(archives)} archived reports")
+
+    for archive in archives:
+        with st.container():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.write(f"**{archive['template_type']}** - {archive['generated_at']}")
+            with col2:
+                st.write(f"{archive['file_size_bytes'] / 1024:.1f} KB")
+            with col3:
+                # Download button using Streamlit's native download
+                # Read file directly since we already verified ownership in query above
+                from pathlib import Path
+
+                async def get_archive_file(archive_id, user_id):
+                    """Get archive file with ownership check and path validation."""
+                    import os
+                    async with db_adapter.connection() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute(
+                                """SELECT file_path FROM report_archives
+                                WHERE id = %s AND user_id = %s""",
+                                (archive_id, user_id),
+                            )
+                            row = await cur.fetchone()
+                            if not row:
+                                return None
+                            # SECURITY: Validate path is under allowed directory
+                            report_output_dir = Path(
+                                os.getenv("REPORT_OUTPUT_DIR", "artifacts/reports")
+                            ).resolve()
+                            path = Path(row["file_path"]).resolve()
+                            if not path.is_relative_to(report_output_dir):
+                                return None  # Path traversal attempt
+                            if not path.exists():
+                                return None
+                            return path.read_bytes()
+
+                if st.button("Download", key=str(archive["id"])):
+                    pdf_bytes = run_async(
+                        get_archive_file(archive["id"], user["user_id"])
+                    )
+                    if pdf_bytes:
+                        st.download_button(
+                            label="📥 Save PDF",
+                            data=pdf_bytes,
+                            file_name=f"report_{archive['generated_at'].date()}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_{archive['id']}",
+                        )
+                    else:
+                        st.error("Report file not found")
 
 
 if __name__ == "__main__":
