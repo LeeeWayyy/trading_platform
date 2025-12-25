@@ -17,7 +17,24 @@ Verify all prerequisites for Track 9 implementation and confirm API stability fo
 
 ### 1. Model Registry API (VERIFY)
 
-**Location:** `libs/models/registry.py`
+**Location:** `libs/models/registry.py`, `libs/models/types.py`
+
+**CRITICAL: Actual ModelType enum values (from codebase verification):**
+```python
+class ModelType(str, Enum):
+    risk_model = "risk_model"
+    alpha_weights = "alpha_weights"  # Use this for alpha signals
+    factor_definitions = "factor_definitions"
+    feature_transforms = "feature_transforms"
+
+class ModelStatus(str, Enum):
+    staged = "staged"
+    production = "production"
+    archived = "archived"
+    failed = "failed"
+```
+
+**NOTE:** Plans must use `ModelType.alpha_weights` (NOT `ALPHA_SIGNAL`). The Alpha Explorer will work with `alpha_weights` model type which contains IC metrics in the `metrics` dict.
 
 Key methods needed for Alpha Explorer:
 ```python
@@ -30,16 +47,17 @@ class ModelRegistry:
         """List all registered models with optional filtering."""
         ...
 
-    def get_model_metadata(self, model_type: str, version: str) -> ModelMetadata:
-        """Get metadata for specific model version."""
+    def get_model_metadata(self, model_type: str, version: str) -> ModelMetadata | None:
+        """Get metadata for specific model version (returns None if not found)."""
         ...
 ```
 
 **Verification steps:**
-- [ ] Confirm `list_models()` returns alpha signal metadata
-- [ ] Confirm `ModelMetadata` includes IC metrics (mean_ic, icir)
-- [ ] Confirm backtest linkage via `backtest_id` field
+- [ ] Confirm `list_models(ModelType.alpha_weights)` returns alpha models
+- [ ] Confirm `ModelMetadata.metrics` dict contains IC metrics (set during registration)
+- [ ] Confirm backtest linkage via `BacktestResultStorage` (separate from registry)
 - [ ] Write contract test for API stability
+- [ ] Document how to link ModelMetadata to BacktestResult (via run_id or experiment_id)
 
 ### 2. Alpha Metrics API (VERIFY)
 
@@ -72,44 +90,78 @@ class AlphaMetricsAdapter:
 
 **Location:** `libs/factors/factor_builder.py` and `factor_definitions.py`
 
-Key classes:
+**CRITICAL: Actual FactorBuilder API (from codebase verification):**
 ```python
 class FactorBuilder:
-    def compute_factor_exposures(
-        self, portfolio: pl.DataFrame, factors: list[str], as_of_date: date
-    ) -> pl.DataFrame:
-        """Compute factor exposures for portfolio positions."""
+    def compute_factor(
+        self,
+        factor_name: str,
+        as_of_date: date,
+        universe: list[int] | None = None,  # PERMNOs
+        snapshot_date: date | None = None,
+    ) -> FactorResult:
+        """Compute single factor for given date."""
         ...
 
-class FactorDefinition:
-    name: str
-    category: str  # value, quality, momentum, size, low_vol
-    description: str
+    def compute_all_factors(
+        self,
+        as_of_date: date,
+        universe: list[int] | None = None,
+        snapshot_date: date | None = None,
+    ) -> FactorResult:
+        """Compute all registered factors for given date."""
+        ...
+
+    def list_factors(self) -> list[str]:
+        """Return list of registered factor names."""
+        ...
+```
+
+**NOTE:** The API computes factors for a UNIVERSE of stocks (by PERMNO), NOT for portfolio positions directly. The Factor Heatmap service (C2) must:
+1. Get portfolio holdings (PERMNOs + weights) from a holdings source
+2. Pass PERMNOs as universe to `compute_all_factors()`
+3. Weight-average the per-stock exposures to get portfolio-level exposure
+
+**FactorResult structure:**
+```python
+@dataclass
+class FactorResult:
+    exposures: pl.DataFrame  # Columns: permno, date, factor_name, raw_value, zscore, percentile
+    as_of_date: date
+    dataset_version_ids: dict[str, str]
+    computation_timestamp: datetime
+    reproducibility_hash: str
 ```
 
 **Verification steps:**
-- [ ] Confirm factor list from `factor_definitions.py`
-- [ ] Confirm exposure computation returns per-stock and aggregate exposures
-- [ ] Confirm date range support for time-series
+- [ ] Confirm factor list from `list_factors()`: momentum_12_1, value, quality, size, low_vol
+- [ ] Confirm `compute_all_factors()` returns per-stock z-scores
+- [ ] Define portfolio holdings data source for C2 (reconciler positions or journal)
+- [ ] Implement weight-averaging logic in FactorExposureService
 
 ### 4. Email Delivery Service (VERIFY)
 
 **Location:** `libs/alerts/delivery_service.py` (from T7.5)
 
-Reuse for report distribution:
-```python
-class AlertDeliveryService:
-    async def send_email(
-        self, to: str, subject: str, body: str, attachments: list[Path] | None = None
-    ) -> bool:
-        """Send email with optional attachments."""
-        ...
-```
+**CRITICAL: Current API does NOT support attachments.**
+
+The existing `DeliveryExecutor` and `EmailChannel` handle alert notifications but lack file attachment support. For C4 (Scheduled Reports), we need one of:
+
+**Option A: Extend EmailChannel (Recommended)**
+- Add `attachments: list[Path]` parameter to `EmailChannel.deliver()`
+- Modify SMTP logic to attach files as MIME multipart
+- Minimal change, reuses existing infrastructure
+
+**Option B: Direct SMTP for Reports**
+- Create `libs/reporting/email_sender.py` with direct smtplib usage
+- Bypasses alert queue, simpler for reports
+- Less reuse but more isolated
 
 **Verification steps:**
-- [ ] Confirm `send_email()` supports attachments (for PDF reports)
-- [ ] Confirm retry logic and delivery tracking
-- [ ] Confirm can be used outside alert context
+- [ ] Confirm EmailChannel uses smtplib (can be extended for attachments)
+- [ ] Review alert queue model - does it support large payloads?
+- [ ] Decision: Extend EmailChannel vs. create separate sender
+- [ ] Plan attachment support implementation in C4
 
 ### 5. Database Dependencies (VERIFY)
 
@@ -118,11 +170,31 @@ class AlertDeliveryService:
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 ```
 
+**CRITICAL: Migration numbering (from codebase verification):**
+Current migrations go up to `0017_alert_acknowledgments.sql`.
+New migrations must use:
+- `0018_create_report_tables.sql` (NOT 0012)
+- `0019_create_tax_lots.sql` (NOT 0013)
+
+**Database access pattern:**
+Web console uses `psycopg` with `AsyncConnectionAdapter` (NOT asyncpg).
+See `apps/web_console/utils/db_pool.py`:
+```python
+# Correct pattern for Streamlit pages:
+from apps.web_console.utils.db_pool import get_db_pool
+from apps.web_console.utils.run_async import run_async
+
+db_adapter = get_db_pool()
+async with db_adapter.connection() as conn:
+    result = await conn.execute(query)
+```
+
 **Verification steps:**
 - [ ] Confirm pgcrypto enabled (should exist from T7.5)
-- [ ] Plan migrations 0012 (reports) and 0013 (tax_lots)
+- [ ] Create migrations 0018 (reports) and 0019 (tax_lots)
+- [ ] Use psycopg AsyncConnectionAdapter pattern in all services
 
-### 6. WeasyPrint System Dependencies (VERIFY)
+### 6. WeasyPrint & Kaleido Dependencies (VERIFY)
 
 **Required for PDF generation (C4):**
 
@@ -131,6 +203,10 @@ WeasyPrint requires OS-level libraries:
 - `libcairo` - 2D graphics
 - `libgdk-pixbuf` - Image loading
 - `libffi` - Foreign function interface
+
+**Kaleido required for Plotly static export:**
+- Used by `fig.to_image()` for embedding charts in HTML/PDF reports
+- Add to pyproject.toml: `kaleido>=0.2.1`
 
 **Verification steps:**
 ```bash
@@ -142,29 +218,71 @@ dpkg -l | grep -E "pango|cairo|gdk-pixbuf"
 
 # Test WeasyPrint import
 python3 -c "from weasyprint import HTML; print('OK')"
+
+# Test Kaleido/Plotly export
+python3 -c "import plotly.graph_objects as go; fig = go.Figure(); fig.to_image(format='png')"
+```
+
+**Dependencies to add to pyproject.toml:**
+```toml
+weasyprint = ">=60.0"
+kaleido = ">=0.2.1"
+jinja2 = ">=3.1.0"
 ```
 
 - [ ] Confirm system dependencies installed (or document install steps)
-- [ ] Add weasyprint to pyproject.toml if not present
+- [ ] Add weasyprint, kaleido, jinja2 to pyproject.toml
 - [ ] Document Docker image updates needed for CI/production
 - [ ] Create minimal PDF smoke test
+- [ ] Create minimal Plotly export smoke test
 
-### 7. Integration Gap Analysis (PRODUCE)
+### 7. Scheduler Architecture Decision (REQUIRED)
+
+**CRITICAL: Celery is NOT in current dependencies.**
+
+Current repo uses APScheduler in `apps/execution_gateway/slice_scheduler.py`.
+
+**Options for C4 (Scheduled Reports):**
+
+**Option A: APScheduler in-process (Recommended for MVP)**
+- Reuse existing pattern from execution_gateway
+- Runs within Streamlit or separate worker process
+- Simpler, no new infrastructure
+- Risk: Process restart loses schedule state (must persist to DB)
+
+**Option B: Celery + Redis (Full solution)**
+- Add celery, celery-beat dependencies
+- Requires worker process deployment
+- Better for production scale
+- More infrastructure complexity
+
+**Decision for P4T7:** Use APScheduler with DB-persisted schedules.
+- Schedule config stored in `report_schedules` table
+- Worker process polls DB for due schedules
+- Simpler deployment, adequate for current scale
+
+### 8. Integration Gap Analysis (PRODUCE)
 
 **Required data sources for C1/C2:**
 
 | Data Source | Purpose | Location | Status |
 |-------------|---------|----------|--------|
-| Holdings/Positions | Factor exposure calculation | `apps/reconciler/` | TBD |
-| Benchmark Constituents | Portfolio vs benchmark | `data/benchmarks/` | TBD |
-| Backtest Results | IC time-series, decay curves | `artifacts/backtests/` | TBD |
-| Factor Returns | Factor exposure analysis | `data/factors/` | TBD |
+| Holdings/Positions | Factor exposure calculation | Positions table via reconciler | Verify schema |
+| Benchmark Constituents | Portfolio vs benchmark | Define benchmark data source | TBD |
+| Backtest Results | IC time-series, decay curves | `libs/backtest/result_storage.py` | Via BacktestResultStorage |
+| Factor Returns | Factor exposure analysis | Computed via FactorBuilder | Available |
+| Alpha Model Metrics | IC/ICIR display | ModelMetadata.metrics dict | Set during registration |
+
+**Backtest-Registry Linkage:**
+- `ModelMetadata.run_id` or `experiment_id` can link to BacktestResultStorage
+- C1 must query BacktestResultStorage using these IDs to get daily IC series
 
 **Gap analysis output:**
 - [ ] Document authoritative source for each data type
-- [ ] Identify any missing integrations requiring adapters
+- [ ] Implement BacktestResultStorage query for IC series
+- [ ] Define benchmark holdings source (S&P 500, custom)
 - [ ] Define caching strategy for computed exposures
-- [ ] Confirm backtest result storage path
+- [ ] Confirm portfolio holdings query from positions table
 
 ---
 

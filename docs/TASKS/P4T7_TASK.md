@@ -305,8 +305,8 @@ Build research tools and reporting features for the trading platform web console
 - `libs/reporting/html_generator.py` - HTML generation (Jinja2)
 - `libs/reporting/templates/daily_summary.html` - Jinja2 template
 - `libs/reporting/templates/weekly_performance.html` - Jinja2 template
-- `libs/reporting/scheduler.py` - Celery beat integration
-- `db/migrations/0012_create_report_tables.sql` - Report schema
+- `libs/reporting/scheduler.py` - APScheduler integration (DB-persisted schedules)
+- `db/migrations/0018_create_report_tables.sql` - Report schema
 - `tests/libs/reporting/test_report_generator.py`
 - `tests/libs/reporting/test_pdf_generator.py`
 - `tests/libs/reporting/golden_reports/` - Golden PDF fixtures
@@ -322,7 +322,7 @@ Build research tools and reporting features for the trading platform web console
 - `libs/tax/cost_basis.py` - Cost basis calculator
 - `libs/tax/models.py` - Pydantic models for tax lots
 - `libs/tax/export.py` - Export formatters (TXF, CSV, PDF)
-- `db/migrations/0013_create_tax_lots.sql` - Tax lots schema
+- `db/migrations/0019_create_tax_lots.sql` - Tax lots schema
 - `tests/libs/tax/test_cost_basis.py`
 - `tests/libs/tax/test_export.py`
 - `tests/apps/web_console/test_tax_lots_ui.py`
@@ -473,6 +473,7 @@ class Permission(str, Enum):
 
     # T9.1 Alpha Explorer
     VIEW_ALPHA_SIGNALS = "view_alpha_signals"
+    LAUNCH_BACKTEST = "launch_backtest"  # For backtest quick-launch
 
     # T9.2 Factor Heatmap
     VIEW_FACTOR_ANALYTICS = "view_factor_analytics"
@@ -487,6 +488,28 @@ class Permission(str, Enum):
     # T9.5/T9.6 Tax Lots
     VIEW_TAX_REPORTS = "view_tax_reports"
     MANAGE_TAX_SETTINGS = "manage_tax_settings"  # For changing cost basis method
+
+
+# CRITICAL: Must also update ROLE_PERMISSIONS mapping
+ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
+    Role.VIEWER: {
+        # ... existing ...
+        Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_REPORTS,
+    },
+    Role.OPERATOR: {
+        # ... existing ...
+        Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_REPORTS,
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_FACTOR_ANALYTICS,
+    },
+    Role.ADMIN: set(Permission),  # All permissions
+}
+
+# Add new "RESEARCHER" role or assign to OPERATOR:
+# For T9 features, OPERATOR gets view access, ADMIN gets full access
+# Consider adding RESEARCHER role for LAUNCH_NOTEBOOKS, MANAGE_REPORTS
 ```
 
 **RBAC Role Matrix:**

@@ -170,16 +170,21 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 if TYPE_CHECKING:
-    import asyncpg
+    from apps.web_console.utils.db_pool import AsyncConnectionAdapter
 
 logger = logging.getLogger(__name__)
 
-# Long-term holding period (IRS: more than 1 year)
-LONG_TERM_DAYS = 366
+# NOTE: Use psycopg AsyncConnectionAdapter pattern, NOT asyncpg
+# See apps/web_console/utils/db_pool.py for the correct pattern
+
+# Long-term holding period (IRS: more than 1 year = more than 365 days)
+# Per IRS rules, holding period starts day AFTER acquisition
+# Long-term = held MORE than one year (> 365 days, so >= 366 days from acquisition)
+LONG_TERM_THRESHOLD_DAYS = 365  # If held > 365 days, it's long-term
 
 
 class CostBasisMethod(str, Enum):
@@ -236,14 +241,17 @@ class GainsSummary:
 
 
 class CostBasisCalculator:
-    """Calculates cost basis and tracks tax lots."""
+    """Calculates cost basis and tracks tax lots.
 
-    def __init__(self, db_pool: asyncpg.Pool):
-        self._db = db_pool
+    Uses psycopg AsyncConnectionAdapter pattern for Streamlit compatibility.
+    """
+
+    def __init__(self, db_adapter: "AsyncConnectionAdapter"):
+        self._db = db_adapter
 
     async def get_account_method(self, account_id: UUID) -> CostBasisMethod:
         """Get cost basis method for account."""
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             row = await conn.fetchrow(
                 "SELECT cost_basis_method FROM tax_settings WHERE account_id = $1",
                 account_id,
@@ -260,7 +268,7 @@ class CostBasisCalculator:
         reason: str | None = None,
     ) -> None:
         """Set cost basis method for account with audit."""
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             async with conn.transaction():
                 # Get old method
                 old_row = await conn.fetchrow(
@@ -319,7 +327,7 @@ class CostBasisCalculator:
         """Record a new tax lot from share acquisition."""
         total_cost = quantity * cost_per_share
 
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             row = await conn.fetchrow(
                 """
                 INSERT INTO tax_lots
@@ -377,7 +385,7 @@ class CostBasisCalculator:
         method = await self.get_account_method(account_id)
         total_proceeds = quantity * proceeds_per_share
 
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             async with conn.transaction():
                 # Get available lots
                 if method == CostBasisMethod.SPECIFIC_ID and specific_lot_ids:
@@ -403,9 +411,9 @@ class CostBasisCalculator:
                     lot_proceeds = from_lot * proceeds_per_share
                     gain_loss = lot_proceeds - cost_basis
 
-                    # Determine holding period
+                    # Determine holding period (IRS: > 1 year = long-term)
                     holding_days = (disposed_at - lot.acquired_at).days
-                    holding_period = "long_term" if holding_days > LONG_TERM_DAYS else "short_term"
+                    holding_period = "long_term" if holding_days > LONG_TERM_THRESHOLD_DAYS else "short_term"
 
                     # Record disposition
                     await conn.execute(
@@ -464,7 +472,7 @@ class CostBasisCalculator:
         symbol: str | None = None,
     ) -> list[TaxLot]:
         """Get open tax lots with remaining shares."""
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             if symbol:
                 rows = await conn.fetch(
                     """
@@ -493,7 +501,7 @@ class CostBasisCalculator:
         tax_year: int,
     ) -> GainsSummary:
         """Get gains/losses summary for tax year."""
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             rows = await conn.fetch(
                 """
                 SELECT
@@ -1002,9 +1010,11 @@ def test_lifo_uses_newest_first(sample_lots):
 
 
 def test_holding_period_classification():
-    """Verify short-term vs long-term classification."""
+    """Verify short-term vs long-term classification per IRS rules."""
     # Shares held <= 365 days = short-term
-    # Shares held > 365 days = long-term
+    # Shares held > 365 days (more than 1 year) = long-term
+    # Edge case: exactly 365 days = short-term
+    # Edge case: 366 days = long-term
     pass
 
 

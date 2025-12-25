@@ -219,7 +219,11 @@ class NotebookService:
             },
             mem_limit="8g",
             cpu_quota=200000,  # 2 CPUs
-            network_mode="none",  # No network egress
+            # NOTE: network_mode="none" prevents port access!
+            # Use bridge network with egress controls instead
+            network_mode="bridge",
+            # Add iptables rules to block external egress while allowing localhost
+            # Alternative: Use Docker network with no external connectivity
             remove=True,
         )
 
@@ -460,12 +464,18 @@ if __name__ == "__main__":
 
 ## Security Considerations
 
-1. **Container Isolation:** Notebooks run in Docker with no network access
-2. **Read-Only Data:** Data directories mounted read-only
-3. **Resource Limits:** CPU (2 cores) and memory (8GB) caps
-4. **Token Auth:** Each session has unique token
-5. **Auto-Shutdown:** Sessions terminate after 4 hours idle
-6. **RBAC:** Only researchers/admins can launch
+1. **Container Isolation:** Notebooks run in Docker containers
+2. **Network Isolation:** Use bridge network with egress controls (NOT network_mode="none" which blocks port access)
+   - Option A: Custom Docker network with no default gateway
+   - Option B: iptables rules to block external egress
+   - Option C: Docker network policies (requires Docker Enterprise)
+3. **Read-Only Data:** Data directories mounted read-only
+4. **Resource Limits:** CPU (2 cores) and memory (8GB) caps
+5. **Token Auth:** Each session has unique token
+6. **Auto-Shutdown:** Sessions terminate after 4 hours idle
+7. **RBAC:** Only researchers/admins can launch (LAUNCH_NOTEBOOKS permission)
+8. **Session Persistence:** Store session state in Redis/DB (not just in-memory) to survive restarts
+9. **Activity Tracking:** Implement heartbeat to update `last_activity_at` via Jupyter API
 
 ---
 
