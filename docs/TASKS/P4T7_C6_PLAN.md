@@ -180,7 +180,7 @@ class WashSaleDetector:
         window_start = sale_date - timedelta(days=WASH_SALE_WINDOW_DAYS)
         window_end = sale_date + timedelta(days=WASH_SALE_WINDOW_DAYS)
 
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             # Find purchases in wash sale window
             replacements = await conn.fetch(
                 """
@@ -253,7 +253,7 @@ class WashSaleDetector:
         """
         adjustments = []
 
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             async with conn.transaction():
                 for match in matches:
                     # Update disposition with disallowed amount
@@ -323,7 +323,7 @@ class WashSaleDetector:
         tax_year: int,
     ) -> dict:
         """Get wash sale summary for tax year."""
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             result = await conn.fetchrow(
                 """
                 SELECT
@@ -430,7 +430,7 @@ class TaxLossHarvester:
         Returns:
             HarvestingRecommendation with opportunities
         """
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             # Get all open lots
             lots = await conn.fetch(
                 """

@@ -544,7 +544,7 @@ class ReportService:
         description: str | None = None,
     ) -> ReportTemplate:
         """Create a new report template."""
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             row = await conn.fetchrow(
                 """
                 INSERT INTO report_templates (name, description, template_type, config, created_by)
@@ -579,7 +579,7 @@ class ReportService:
         """Create a report schedule."""
         next_run = self._calculate_next_run(schedule_type, schedule_config)
 
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             row = await conn.fetchrow(
                 """
                 INSERT INTO report_schedules
@@ -607,8 +607,73 @@ class ReportService:
             )
 
     async def run_schedule(self, schedule_id: UUID) -> GeneratedReport:
-        """Execute a scheduled report."""
-        async with self._db.acquire() as conn:
+        """Execute a scheduled report with idempotency protection.
+
+        Uses report_schedule_runs table to prevent duplicate executions.
+        """
+        today = datetime.now(UTC).date()
+        run_key = f"{schedule_id}:{today.isoformat()}"
+
+        async with self._db.connection() as conn:
+            # Idempotency check: prevent duplicate runs
+            existing = await conn.fetchrow(
+                "SELECT id, status FROM report_schedule_runs WHERE run_key = $1",
+                run_key,
+            )
+            if existing:
+                if existing["status"] == "completed":
+                    raise ValueError(f"Schedule {schedule_id} already ran today")
+                elif existing["status"] == "running":
+                    raise ValueError(f"Schedule {schedule_id} is already running")
+                # If failed, allow retry by continuing
+
+            # Record run start
+            run_id = await conn.fetchval(
+                """
+                INSERT INTO report_schedule_runs (schedule_id, run_key, status, started_at)
+                VALUES ($1, $2, 'running', NOW())
+                ON CONFLICT (run_key) DO UPDATE SET status = 'running', started_at = NOW()
+                RETURNING id
+                """,
+                schedule_id,
+                run_key,
+            )
+
+        # Execute report generation (outside transaction for proper error handling)
+        try:
+            report = await self._execute_schedule(schedule_id)
+
+            # Mark as completed
+            async with self._db.connection() as conn:
+                await conn.execute(
+                    """
+                    UPDATE report_schedule_runs
+                    SET status = 'completed', completed_at = NOW(), archive_id = $2
+                    WHERE id = $1
+                    """,
+                    run_id,
+                    UUID(report.report_id),
+                )
+
+            return report
+
+        except Exception as e:
+            # Mark as failed
+            async with self._db.connection() as conn:
+                await conn.execute(
+                    """
+                    UPDATE report_schedule_runs
+                    SET status = 'failed', completed_at = NOW(), error_message = $2
+                    WHERE id = $1
+                    """,
+                    run_id,
+                    str(e),
+                )
+            raise
+
+    async def _execute_schedule(self, schedule_id: UUID) -> GeneratedReport:
+        """Internal: Execute schedule without idempotency (called by run_schedule)."""
+        async with self._db.connection() as conn:
             schedule = await conn.fetchrow(
                 """
                 SELECT s.*, t.template_type, t.config
@@ -650,13 +715,20 @@ class ReportService:
                 report.file_size_bytes,
             )
 
-            # Deliver
+            # Deliver via email
+            # NOTE: AlertDeliveryService (from T7.5) may need enhancement for attachments.
+            # Options for email attachments:
+            # 1. Extend AlertDeliveryService.send_email() to accept attachments parameter
+            # 2. Use dedicated email service (e.g., SendGrid, SES) with attachment support
+            # 3. Include download link in email body instead of attachment
+            # For MVP, include report download link; full attachment support is stretch.
+            report_url = f"/reports/archive/{report.report_id}"
             for recipient in schedule["recipients"]:
                 await self._delivery.send_email(
                     to=recipient,
                     subject=f"Trading Report: {schedule['template_type']}",
-                    body="Please find your scheduled report attached.",
-                    attachments=[report.file_path],
+                    body=f"Your scheduled report is ready.\n\nDownload: {report_url}",
+                    # attachments=[report.file_path],  # TODO: Implement attachment support
                 )
 
             # Update schedule
@@ -679,7 +751,7 @@ class ReportService:
 
     async def preview_report(self, template_id: UUID) -> bytes:
         """Generate preview PDF for template."""
-        async with self._db.acquire() as conn:
+        async with self._db.connection() as conn:
             template = await conn.fetchrow(
                 "SELECT * FROM report_templates WHERE id = $1",
                 template_id,

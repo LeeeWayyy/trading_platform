@@ -506,9 +506,9 @@ def main() -> None:
 
         status_filter = st.selectbox(
             "Status",
-            ["All", "Draft", "Validated", "Production", "Deprecated"],
+            ["All", "staged", "production", "archived", "failed"],  # Per ModelStatus enum
         )
-        status = None if status_filter == "All" else ModelStatus(status_filter.lower())
+        status = None if status_filter == "All" else ModelStatus(status_filter)
 
         min_ic = st.number_input("Min IC", value=0.0, step=0.01)
         max_ic = st.number_input("Max IC", value=1.0, step=0.01)
@@ -608,7 +608,7 @@ def mock_registry():
             model_type=ModelType.alpha_weights,
             version="v1.0",
             name="momentum_alpha",
-            status=ModelStatus.VALIDATED,
+            status=ModelStatus.production,  # Per ModelStatus enum: staged, production, archived, failed
             metrics={"mean_ic": 0.05, "icir": 1.2},
             created_at=datetime.now(UTC),
             run_id="run-123",  # Links to BacktestResultStorage

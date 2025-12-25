@@ -295,15 +295,26 @@ class FactorExposureService:
         2. Trade journal historical snapshots
         3. Strategy target weights from signal_service
 
-        For MVP, use positions table joined with CRSP to get PERMNOs.
+        For MVP, use positions table joined with CRSP linkage to get PERMNOs.
         """
         # Query positions table for portfolio holdings
         async def _fetch():
             async with self._db.connection() as conn:
+                # Join positions with CRSP linkage table to get PERMNOs
+                # The crsp_symbol_permno table maps ticker symbols to CRSP PERMNOs
+                # This is essential for FactorBuilder which requires PERMNOs
                 rows = await conn.fetch(
                     """
-                    SELECT p.symbol, p.qty, p.market_value
+                    SELECT
+                        p.symbol,
+                        p.qty,
+                        p.market_value,
+                        cl.permno
                     FROM positions p
+                    LEFT JOIN crsp_symbol_permno cl
+                        ON p.symbol = cl.symbol
+                        AND cl.start_date <= $2
+                        AND (cl.end_date IS NULL OR cl.end_date >= $2)
                     WHERE p.strategy_id = $1
                       AND p.as_of_date <= $2
                     ORDER BY p.as_of_date DESC
@@ -316,15 +327,29 @@ class FactorExposureService:
 
                 # Convert to DataFrame and compute weights
                 df = pl.DataFrame([dict(r) for r in rows])
+
+                # Warn about missing PERMNO mappings
+                missing = df.filter(pl.col("permno").is_null())
+                if not missing.is_empty():
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        f"Missing PERMNO mapping for symbols: {missing['symbol'].to_list()}"
+                    )
+
+                # Filter to only rows with valid PERMNOs
+                df = df.filter(pl.col("permno").is_not_null())
+                if df.is_empty():
+                    return None
+
                 total_value = df.select(pl.col("market_value").sum()).item()
                 if total_value == 0:
                     return None
 
                 return df.with_columns([
                     (pl.col("market_value") / total_value).alias("weight"),
-                ]).select(["symbol", "weight"])
+                ]).select(["permno", "symbol", "weight"])
 
-        # TODO: Add PERMNO lookup via CRSP linkage
         from apps.web_console.utils.run_async import run_async
         return run_async(_fetch())
 ```

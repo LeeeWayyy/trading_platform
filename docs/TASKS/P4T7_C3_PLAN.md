@@ -155,12 +155,69 @@ class NotebookSession:
 
 
 class NotebookService:
-    """Manages Jupyter notebook container sessions."""
+    """Manages Jupyter notebook container sessions.
 
-    def __init__(self, docker_client: docker.DockerClient | None = None):
+    Session state is persisted to Redis for:
+    1. Survival across web console restarts
+    2. Consistency across multiple web console instances
+    3. Activity tracking via heartbeat updates
+    """
+
+    def __init__(
+        self,
+        docker_client: docker.DockerClient | None = None,
+        redis_client: "Redis | None" = None,
+    ):
         self._client = docker_client or docker.from_env()
-        self._sessions: dict[str, NotebookSession] = {}
+        self._redis = redis_client  # For session persistence
+        self._sessions: dict[str, NotebookSession] = {}  # Local cache
         self._port_base = 8900  # User ports start here
+        self._session_ttl_hours = NOTEBOOK_TIMEOUT_HOURS
+
+    async def _persist_session(self, session: NotebookSession) -> None:
+        """Persist session state to Redis."""
+        if self._redis is None:
+            return  # Fall back to in-memory only
+        import json
+        key = f"notebook:session:{session.user_id}"
+        data = {
+            "user_id": session.user_id,
+            "container_id": session.container_id,
+            "port": session.port,
+            "token": session.token,
+            "status": session.status.value,
+            "started_at": session.started_at.isoformat(),
+            "last_activity_at": session.last_activity_at.isoformat(),
+            "url": session.url,
+        }
+        await self._redis.setex(key, self._session_ttl_hours * 3600, json.dumps(data))
+
+    async def _load_session(self, user_id: str) -> NotebookSession | None:
+        """Load session from Redis."""
+        if self._redis is None:
+            return self._sessions.get(user_id)
+        import json
+        key = f"notebook:session:{user_id}"
+        data = await self._redis.get(key)
+        if not data:
+            return None
+        parsed = json.loads(data)
+        return NotebookSession(
+            user_id=parsed["user_id"],
+            container_id=parsed["container_id"],
+            port=parsed["port"],
+            token=parsed["token"],
+            status=SessionStatus(parsed["status"]),
+            started_at=datetime.fromisoformat(parsed["started_at"]),
+            last_activity_at=datetime.fromisoformat(parsed["last_activity_at"]),
+            url=parsed["url"],
+        )
+
+    async def _delete_session(self, user_id: str) -> None:
+        """Delete session from Redis."""
+        if self._redis is not None:
+            await self._redis.delete(f"notebook:session:{user_id}")
+        self._sessions.pop(user_id, None)
 
     def start_session(
         self,
@@ -474,8 +531,9 @@ if __name__ == "__main__":
 5. **Token Auth:** Each session has unique token
 6. **Auto-Shutdown:** Sessions terminate after 4 hours idle
 7. **RBAC:** Only researchers/admins can launch (LAUNCH_NOTEBOOKS permission)
-8. **Session Persistence:** Store session state in Redis/DB (not just in-memory) to survive restarts
+8. **Session Persistence:** Session state stored in Redis with TTL to survive restarts
 9. **Activity Tracking:** Implement heartbeat to update `last_activity_at` via Jupyter API
+10. **Admin Permission:** MANAGE_NOTEBOOKS permission required to view/stop other users' sessions
 
 ---
 

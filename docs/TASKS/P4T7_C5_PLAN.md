@@ -1025,13 +1025,44 @@ def test_insufficient_shares_raises_error():
 
 ---
 
+## Tax Lot Ingestion Pipeline
+
+Tax lots can be created via two paths:
+
+### 1. Real-Time Trade Ingestion (Primary Path)
+
+New trades are automatically converted to tax lots via order fill webhooks:
+
+```
+Order Fill (Alpaca Webhook)
+        │
+        ▼
+ExecutionGateway.handle_fill()
+        │
+        ▼
+TaxLotService.on_order_filled(order)  # <-- New integration point
+        │
+        ├── If BUY: CostBasisCalculator.record_acquisition()
+        │
+        └── If SELL: CostBasisCalculator.record_disposition()
+```
+
+**Implementation Note:** Add a TaxLotService that listens to order fill events (via Redis pub/sub or direct call from ExecutionGateway) and creates/updates tax lots in real-time.
+
+### 2. Historical Backfill (One-Time Migration)
+
+For existing accounts with trade history but no tax lots, use the backfill utility:
+
 ## Tax Lot Backfill Utility
 
 **Purpose:** For existing accounts with trade history but no tax lots, replay all historical trades through the CostBasisCalculator to establish the current tax lot state.
 
 ```python
 # scripts/backfill_tax_lots.py
-"""Backfill tax lots from historical trade data."""
+"""Backfill tax lots from historical trade data.
+
+Uses psycopg AsyncConnectionAdapter pattern for consistency with web console.
+"""
 
 from __future__ import annotations
 
@@ -1041,32 +1072,31 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-import asyncpg
-
+from apps.web_console.utils.db_pool import create_db_pool, AsyncConnectionAdapter
 from libs.tax.cost_basis import CostBasisCalculator
 
 logger = logging.getLogger(__name__)
 
 
 async def backfill_tax_lots(
-    db_pool: asyncpg.Pool,
+    db_adapter: AsyncConnectionAdapter,
     account_id: UUID,
     dry_run: bool = True,
 ) -> dict:
     """Backfill tax lots from order history.
 
     Args:
-        db_pool: Database connection pool
+        db_adapter: AsyncConnectionAdapter (psycopg pattern)
         account_id: Account to backfill
         dry_run: If True, don't commit changes
 
     Returns:
         Summary of lots created and dispositions recorded
     """
-    calculator = CostBasisCalculator(db_pool)
+    calculator = CostBasisCalculator(db_adapter)
 
     # Fetch all executed orders for account, ordered by timestamp
-    async with db_pool.acquire() as conn:
+    async with db_adapter.connection() as conn:
         orders = await conn.fetch(
             """
             SELECT
@@ -1147,11 +1177,12 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Preview without committing")
     args = parser.parse_args()
 
-    db_pool = await asyncpg.create_pool(os.getenv("DATABASE_URL"))
+    # Use psycopg AsyncConnectionAdapter pattern (same as web console)
+    db_adapter = await create_db_pool(os.getenv("DATABASE_URL"))
 
     try:
         stats = await backfill_tax_lots(
-            db_pool,
+            db_adapter,
             UUID(args.account_id),
             dry_run=args.dry_run,
         )
@@ -1167,7 +1198,7 @@ async def main():
                 print(f"  - Order {err['order_id']}: {err['error']}")
 
     finally:
-        await db_pool.close()
+        await db_adapter.close()
 
 
 if __name__ == "__main__":
