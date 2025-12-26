@@ -41,6 +41,8 @@ import json
 import logging
 import os
 import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Protocol, cast
@@ -121,6 +123,13 @@ from libs.common.api_auth_dependency import (
     api_auth,
 )
 from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
+from libs.common.secrets import (
+    close_secret_manager,
+    get_optional_secret,
+    get_optional_secret_or_none,
+    get_required_secret,
+    validate_required_secrets,
+)
 from libs.redis_client import RedisClient, RedisConnectionError, RedisKeys
 from libs.risk_management import (
     CircuitBreaker,
@@ -178,11 +187,8 @@ def _get_decimal_env(name: str, default: Decimal) -> Decimal:
 # when callers request the same default pacing.
 LEGACY_TWAP_INTERVAL_SECONDS = 60
 
-# Environment variables
-ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "")
-ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
+# Environment variables (CONFIG - not secrets)
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://trader:trader@localhost:5433/trader")
 STRATEGY_ID = os.getenv("STRATEGY_ID", "alpha_baseline")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 ALPACA_PAPER = os.getenv("ALPACA_PAPER", "true").lower() == "true"
@@ -273,24 +279,13 @@ if _FAT_FINGER_MAX_ADV_PCT_INIT <= 0 or _FAT_FINGER_MAX_ADV_PCT_INIT > 1:
     )
     FAT_FINGER_MAX_ADV_PCT = None
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # Secret for webhook signature verification
-
-# C3 Fix: Validate webhook secret is set in production environments
-# In non-dev/test environments with DRY_RUN=false, webhook secret is MANDATORY
-# This prevents webhook spoofing attacks in production
-# Strip whitespace to prevent whitespace-only secrets (which would be useless)
-WEBHOOK_SECRET = WEBHOOK_SECRET.strip()
-if not WEBHOOK_SECRET and ENVIRONMENT not in ("dev", "test") and not DRY_RUN:
-    raise RuntimeError(
-        "WEBHOOK_SECRET must be set for production/staging environments. "
-        "Set WEBHOOK_SECRET environment variable or use DRY_RUN=true for testing."
-    )
+# WEBHOOK_SECRET will be loaded in lifespan after secret validation
 
 # Redis configuration (for real-time price lookups)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+# REDIS_PASSWORD will be loaded in lifespan after secret validation
 PERFORMANCE_CACHE_TTL = int(os.getenv("PERFORMANCE_CACHE_TTL", "300"))
 MAX_PERFORMANCE_DAYS = int(os.getenv("MAX_PERFORMANCE_DAYS", "90"))
 FEATURE_PERFORMANCE_DASHBOARD = os.getenv("FEATURE_PERFORMANCE_DASHBOARD", "false").lower() in (
@@ -308,80 +303,23 @@ STRATEGY_ACTIVITY_THRESHOLD_SECONDS = int(
 logger.info(f"Starting Execution Gateway (version={__version__}, dry_run={DRY_RUN})")
 
 # ============================================================================
-# Initialize Clients
+# Initialize Clients (in lifespan after secret validation)
 # ============================================================================
 
-# Database client
-db_client = DatabaseClient(DATABASE_URL)
-
-# Redis client (for real-time price lookups from Market Data Service)
-redis_client: RedisClient | None = None
-try:
-    redis_client = RedisClient(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        db=REDIS_DB,
-        password=REDIS_PASSWORD,
-    )
-    logger.info("Redis client initialized successfully")
-except (RedisError, RedisConnectionError) as e:
-    # Catch both redis-py errors (RedisError) and our custom RedisConnectionError
-    # Service should start even if Redis is misconfigured or unavailable
-    # RedisConnectionError is raised by RedisClient when initial ping() fails
-    logger.warning(
-        f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices."
-    )
-
-# Alpaca client (only if not in dry run mode and credentials provided)
+# Clients initialized in lifespan after secrets are validated.
+# Typed as non-None because FastAPI guarantees endpoints only run after lifespan completes.
+# The type:ignore[assignment] is the standard pattern for lifespan-initialized globals.
+db_client: DatabaseClient = None  # type: ignore[assignment]
+redis_client: RedisClient | None = None  # Can fail gracefully if Redis unavailable
 alpaca_client: AlpacaExecutor | None = None
-if not DRY_RUN:
-    if not ALPACA_API_KEY_ID or not ALPACA_API_SECRET_KEY:
-        logger.warning(
-            "DRY_RUN=false but Alpaca credentials not provided. "
-            "Set ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY environment variables."
-        )
-    else:
-        try:
-            alpaca_client = AlpacaExecutor(
-                api_key=ALPACA_API_KEY_ID,
-                secret_key=ALPACA_API_SECRET_KEY,
-                base_url=ALPACA_BASE_URL,
-                paper=True,
-            )
-            logger.info("Alpaca client initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Alpaca client: {e}")
+WEBHOOK_SECRET: str = ""  # Will be set in lifespan
 
 # Liquidity service (ADV lookup for TWAP slicing)
 liquidity_service: LiquidityService | None = None
-if LIQUIDITY_CHECK_ENABLED:
-    try:
-        liquidity_service = LiquidityService(
-            api_key=ALPACA_API_KEY_ID,
-            api_secret=ALPACA_API_SECRET_KEY,
-        )
-        logger.info("Liquidity service initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize Liquidity service: {e}")
 
 # Recovery manager orchestrates safety components and slice scheduler (fail-closed)
-recovery_manager = RecoveryManager(
-    redis_client=redis_client,
-    db_client=db_client,
-    executor=alpaca_client,
-)
-
-# Initialize safety components (fail-closed on any error)
-# Note: Factories only called when redis_client is verified available by RecoveryManager
-recovery_manager.initialize_kill_switch(
-    lambda: KillSwitch(redis_client=redis_client)  # type: ignore[arg-type]
-)
-recovery_manager.initialize_circuit_breaker(
-    lambda: CircuitBreaker(redis_client=redis_client)  # type: ignore[arg-type]
-)
-recovery_manager.initialize_position_reservation(
-    lambda: PositionReservation(redis=redis_client)  # type: ignore[arg-type]
-)
+# Initialized in lifespan; typed non-None (guaranteed when endpoints execute)
+recovery_manager: RecoveryManager = None  # type: ignore[assignment]
 
 # Risk Configuration (position limits, etc.)
 risk_config = RiskConfig()
@@ -398,34 +336,243 @@ fat_finger_validator = FatFingerValidator(
     )
 )
 
-# Position Reservation (for atomic position limit checking - prevents race conditions)
-# Codex HIGH fix: Wire PositionReservation into production to prevent concurrent orders
-# from both passing position limit check before either executes
-
 # TWAP Order Slicer (stateless, no dependencies)
 twap_slicer = TWAPSlicer()
 logger.info("TWAP slicer initialized successfully")
 
-# Slice Scheduler (for time-based TWAP slice execution)
-if recovery_manager.kill_switch and recovery_manager.circuit_breaker:
-    # Note: alpaca_client can be None in DRY_RUN mode - scheduler logs
-    # dry-run slices without broker submission
-    try:
-        recovery_manager.slice_scheduler = SliceScheduler(
-            kill_switch=recovery_manager.kill_switch,
-            breaker=recovery_manager.circuit_breaker,
-            db_client=db_client,
-            executor=alpaca_client,  # Can be None in DRY_RUN mode
-        )
-        logger.info("Slice scheduler initialized (not started yet)")
-    except Exception as e:
-        logger.error(f"Failed to initialize slice scheduler: {e}")
-else:
-    logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
-
 # Reconciliation service (startup gating + periodic sync)
 reconciliation_service: ReconciliationService | None = None
 reconciliation_task: asyncio.Task[None] | None = None
+
+# ============================================================================
+# Lifespan Context Manager
+# ============================================================================
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan for startup and shutdown logic with secret management."""
+    from apps.execution_gateway.api.dependencies import get_db_pool
+
+    global db_client, redis_client, alpaca_client, WEBHOOK_SECRET
+    global liquidity_service, recovery_manager, reconciliation_service, reconciliation_task
+
+    # ========== STARTUP ==========
+    logger.info("Execution Gateway started")
+    logger.info(f"DRY_RUN mode: {DRY_RUN}")
+    logger.info(f"Strategy ID: {STRATEGY_ID}")
+
+    try:
+        # 1. Validate required secrets BEFORE any external connections
+        required = ["database/url"]
+        if not DRY_RUN:
+            required.extend(["alpaca/api_key_id", "alpaca/api_secret_key"])
+        if ENVIRONMENT not in ("dev", "test"):
+            required.append("webhook/secret")
+        if os.getenv("REDIS_AUTH_REQUIRED", "false").lower() == "true":
+            required.append("redis/password")
+
+        validate_required_secrets(required)
+
+        # 2. Load secrets and initialize clients INSIDE lifespan
+        database_url = get_required_secret("database/url")
+        db_client = DatabaseClient(database_url)
+
+        # Redis client (for real-time price lookups from Market Data Service)
+        redis_password = get_optional_secret_or_none("redis/password")
+        # SECURITY: If Redis auth is required, fail-fast when password is missing
+        # This ensures safety components depending on Redis work correctly
+        if os.getenv("REDIS_AUTH_REQUIRED", "false").lower() == "true" and not redis_password:
+            raise RuntimeError(
+                "REDIS_AUTH_REQUIRED=true but redis/password is missing or empty. "
+                "Set redis/password in your secrets backend. "
+                "This is required for authenticated Redis in production."
+            )
+        try:
+            redis_client = RedisClient(
+                host=REDIS_HOST,
+                port=REDIS_PORT,
+                db=REDIS_DB,
+                password=redis_password,
+            )
+            logger.info("Redis client initialized successfully")
+        except (RedisError, RedisConnectionError) as e:
+            # Service should start even if Redis is misconfigured or unavailable
+            logger.warning(
+                f"Failed to initialize Redis client: {e}. Real-time P&L will fall back to database prices."
+            )
+            redis_client = None
+
+        # Webhook secret: REQUIRED in production, optional in dev/test
+        # SECURITY: In production, fail startup if webhook secret is missing
+        # This prevents a running service that rejects all webhooks (missed fills)
+        if ENVIRONMENT not in ("dev", "test"):
+            WEBHOOK_SECRET = get_required_secret("webhook/secret")
+            if not WEBHOOK_SECRET:
+                raise RuntimeError(
+                    "WEBHOOK_SECRET is required in production but not configured. "
+                    "Set the webhook/secret in your secrets backend. "
+                    "This prevents a running service that cannot receive Alpaca webhooks."
+                )
+        else:
+            WEBHOOK_SECRET = get_optional_secret("webhook/secret", "")
+
+        # Alpaca client and liquidity service (only if not in dry run mode)
+        # Note: get_required_secret raises on missing/empty, so no additional check needed
+        if not DRY_RUN:
+            alpaca_api_key_id = get_required_secret("alpaca/api_key_id")
+            alpaca_api_secret_key = get_required_secret("alpaca/api_secret_key")
+
+            try:
+                alpaca_client = AlpacaExecutor(
+                    api_key=alpaca_api_key_id,
+                    secret_key=alpaca_api_secret_key,
+                    base_url=ALPACA_BASE_URL,
+                    paper=ALPACA_PAPER,
+                )
+                logger.info("Alpaca client initialized successfully")
+
+                # Liquidity service (ADV lookup for TWAP slicing) - reuses same credentials
+                if LIQUIDITY_CHECK_ENABLED:
+                    liquidity_service = LiquidityService(
+                        api_key=alpaca_api_key_id,
+                        api_secret=alpaca_api_secret_key,
+                    )
+                    logger.info("Liquidity service initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Alpaca-dependent services: {e}")
+
+        # Recovery manager orchestrates safety components and slice scheduler (fail-closed)
+        recovery_manager = RecoveryManager(
+            redis_client=redis_client,
+            db_client=db_client,
+            executor=alpaca_client,
+        )
+
+        # Initialize safety components (fail-closed on any error)
+        recovery_manager.initialize_kill_switch(
+            lambda: KillSwitch(redis_client=redis_client)  # type: ignore[arg-type]
+        )
+        recovery_manager.initialize_circuit_breaker(
+            lambda: CircuitBreaker(redis_client=redis_client)  # type: ignore[arg-type]
+        )
+        recovery_manager.initialize_position_reservation(
+            lambda: PositionReservation(redis=redis_client)  # type: ignore[arg-type]
+        )
+
+        # Slice Scheduler (for time-based TWAP slice execution)
+        if recovery_manager.kill_switch and recovery_manager.circuit_breaker:
+            try:
+                recovery_manager.slice_scheduler = SliceScheduler(
+                    kill_switch=recovery_manager.kill_switch,
+                    breaker=recovery_manager.circuit_breaker,
+                    db_client=db_client,
+                    executor=alpaca_client,
+                )
+                logger.info("Slice scheduler initialized (not started yet)")
+            except Exception as e:
+                logger.error(f"Failed to initialize slice scheduler: {e}")
+        else:
+            logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
+
+        # Internal token check
+        settings = get_settings()
+        if settings.internal_token_required:
+            secret_value = settings.internal_token_secret.get_secret_value()
+            if not secret_value:
+                logger.warning(
+                    "INTERNAL_TOKEN_REQUIRED=true but INTERNAL_TOKEN_SECRET is not configured",
+                    extra={"warning": "API authentication will fail"},
+                )
+
+        # Open async database pool for auth/session validation
+        async_db_pool = get_db_pool()
+        await async_db_pool.open()
+        logger.info("Async database pool opened")
+
+        # Check database connection
+        if not db_client.check_connection():
+            logger.error("Database connection failed at startup!")
+        else:
+            logger.info("Database connection OK")
+
+        # Check Alpaca connection (if not DRY_RUN)
+        if not DRY_RUN and alpaca_client:
+            if not alpaca_client.check_connection():
+                logger.warning("Alpaca connection failed at startup!")
+            else:
+                logger.info("Alpaca connection OK")
+
+        # Start slice scheduler (for TWAP order execution)
+        slice_scheduler = recovery_manager.slice_scheduler if recovery_manager else None
+        if slice_scheduler:
+            if not slice_scheduler.scheduler.running:
+                slice_scheduler.start()
+                logger.info("Slice scheduler started")
+            else:
+                logger.info("Slice scheduler already running (skipping start)")
+        else:
+            logger.warning("Slice scheduler not available (not started)")
+
+        # Start reconciliation service (startup gating + periodic sync)
+        if DRY_RUN:
+            logger.info("DRY_RUN enabled - skipping reconciliation startup gating")
+        elif not alpaca_client:
+            logger.error(
+                "Alpaca client unavailable - reconciliation not started (gating remains active)"
+            )
+        else:
+            reconciliation_service = ReconciliationService(
+                db_client=db_client,
+                alpaca_client=alpaca_client,
+                redis_client=redis_client,
+                dry_run=DRY_RUN,
+            )
+            await reconciliation_service.run_startup_reconciliation()
+            reconciliation_task = asyncio.create_task(reconciliation_service.run_periodic_loop())
+            logger.info("Reconciliation service started")
+
+        # Recover any pending TWAP slices after reconciliation gate opens
+        asyncio.create_task(_recover_zombie_slices_after_reconciliation())
+
+        yield
+
+    finally:
+        # ========== SHUTDOWN ==========
+        logger.info("Execution Gateway shutting down")
+
+        # Shutdown slice scheduler (wait for running jobs to complete)
+        slice_scheduler = recovery_manager.slice_scheduler if recovery_manager else None
+        if slice_scheduler:
+            logger.info("Shutting down slice scheduler...")
+            slice_scheduler.shutdown(wait=True)
+            logger.info("Slice scheduler shutdown complete")
+
+        # Close async database pool for auth/session validation
+        # Guard: only close if pool was initialized (prevents masking startup failures)
+        if get_db_pool.cache_info().currsize > 0:
+            try:
+                async_db_pool = get_db_pool()
+                await async_db_pool.close()
+                logger.info("Async database pool closed")
+            except Exception as e:
+                logger.warning(f"Error closing async database pool: {e}")
+
+        # Close database connection pool for clean shutdown
+        if db_client:
+            db_client.close()
+            logger.info("Database connection pool closed")
+
+        # Stop reconciliation task
+        if reconciliation_service:
+            reconciliation_service.stop()
+        if reconciliation_task:
+            reconciliation_task.cancel()
+
+        # Close secret manager
+        close_secret_manager()
+        logger.info("Secret manager closed")
+
 
 # ============================================================================
 # FastAPI Application
@@ -437,6 +584,7 @@ app = FastAPI(
     version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # ============================================================================
@@ -992,6 +1140,9 @@ def _is_reconciliation_ready() -> bool:
 
 async def _recover_zombie_slices_after_reconciliation() -> None:
     """Recover pending TWAP slices after reconciliation gate opens."""
+    if not recovery_manager:
+        logger.warning("Recovery manager unavailable; skipping zombie slice recovery")
+        return
     slice_scheduler = recovery_manager.slice_scheduler
     if not slice_scheduler:
         logger.warning("Slice scheduler unavailable; skipping zombie slice recovery")
@@ -4155,7 +4306,18 @@ async def order_webhook(request: Request) -> dict[str, str]:
 
             logger.debug("Webhook signature verified successfully")
         else:
-            logger.warning("Webhook signature verification disabled (WEBHOOK_SECRET not set)")
+            # SECURITY: In production, missing webhook secret is a configuration error
+            # We must reject webhooks rather than accepting unsigned ones
+            if ENVIRONMENT not in ("dev", "test"):
+                logger.error(
+                    "Webhook rejected: WEBHOOK_SECRET not configured in production",
+                    extra={"environment": ENVIRONMENT},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Webhook verification unavailable - secret not configured",
+                )
+            logger.warning("Webhook signature verification disabled (WEBHOOK_SECRET not set, dev/test only)")
 
         logger.info(
             f"Webhook received: {payload.get('event', 'unknown')}", extra={"payload": payload}
@@ -4325,110 +4487,6 @@ async def order_webhook(request: Request) -> dict[str, str]:
 # ============================================================================
 # Startup / Shutdown
 # ============================================================================
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Application startup."""
-    logger.info("Execution Gateway started")
-    logger.info(f"DRY_RUN mode: {DRY_RUN}")
-    logger.info(f"Strategy ID: {STRATEGY_ID}")
-
-    settings = get_settings()
-    if settings.internal_token_required:
-        secret_value = settings.internal_token_secret.get_secret_value()
-        if not secret_value:
-            logger.warning(
-                "INTERNAL_TOKEN_REQUIRED=true but INTERNAL_TOKEN_SECRET is not configured",
-            )
-
-    # Open async database pool for auth/session validation
-    # Note: open() is idempotent - safe to call multiple times
-    from apps.execution_gateway.api.dependencies import get_db_pool
-
-    async_db_pool = get_db_pool()
-    await async_db_pool.open()
-    logger.info("Async database pool opened")
-
-    # Check database connection
-    if not db_client.check_connection():
-        logger.error("Database connection failed at startup!")
-    else:
-        logger.info("Database connection OK")
-
-    # Check Alpaca connection (if not DRY_RUN)
-    if not DRY_RUN and alpaca_client:
-        if not alpaca_client.check_connection():
-            logger.warning("Alpaca connection failed at startup!")
-        else:
-            logger.info("Alpaca connection OK")
-
-    # Start slice scheduler (for TWAP order execution)
-    slice_scheduler = recovery_manager.slice_scheduler
-    if slice_scheduler:
-        # Guard against restarting a shutdown scheduler (APScheduler limitation)
-        # After shutdown(), APScheduler cannot be restarted; this prevents errors
-        # in test scenarios or app reloads where startup is called multiple times
-        if not slice_scheduler.scheduler.running:
-            slice_scheduler.start()
-            logger.info("Slice scheduler started")
-        else:
-            logger.info("Slice scheduler already running (skipping start)")
-    else:
-        logger.warning("Slice scheduler not available (not started)")
-
-    # Start reconciliation service (startup gating + periodic sync)
-    global reconciliation_service, reconciliation_task
-    if DRY_RUN:
-        logger.info("DRY_RUN enabled - skipping reconciliation startup gating")
-    elif not alpaca_client:
-        logger.error(
-            "Alpaca client unavailable - reconciliation not started (gating remains active)"
-        )
-    else:
-        reconciliation_service = ReconciliationService(
-            db_client=db_client,
-            alpaca_client=alpaca_client,
-            redis_client=redis_client,
-            dry_run=DRY_RUN,
-        )
-        await reconciliation_service.run_startup_reconciliation()
-        reconciliation_task = asyncio.create_task(reconciliation_service.run_periodic_loop())
-        logger.info("Reconciliation service started")
-
-    # Recover any pending TWAP slices after reconciliation gate opens
-    asyncio.create_task(_recover_zombie_slices_after_reconciliation())
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Application shutdown."""
-    logger.info("Execution Gateway shutting down")
-
-    # Shutdown slice scheduler (wait for running jobs to complete)
-    slice_scheduler = recovery_manager.slice_scheduler
-    if slice_scheduler:
-        logger.info("Shutting down slice scheduler...")
-        slice_scheduler.shutdown(wait=True)
-        logger.info("Slice scheduler shutdown complete")
-
-    # Close async database pool for auth/session validation
-    # Note: close() is idempotent - safe to call multiple times
-    from apps.execution_gateway.api.dependencies import get_db_pool
-
-    async_db_pool = get_db_pool()
-    await async_db_pool.close()
-    logger.info("Async database pool closed")
-
-    # H2 Fix: Close database connection pool for clean shutdown
-    db_client.close()
-    logger.info("Database connection pool closed")
-
-    # Stop reconciliation task
-    if reconciliation_service:
-        reconciliation_service.stop()
-    if reconciliation_task:
-        reconciliation_task.cancel()
 
 
 if __name__ == "__main__":

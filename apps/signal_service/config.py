@@ -5,11 +5,21 @@ This module defines all configurable settings for the signal service using
 Pydantic Settings for type-safe configuration management. Settings can be
 overridden via environment variables or .env file.
 
-Example:
-    >>> from apps.signal_service.config import settings
+Note:
+    Settings are initialized during application lifespan, NOT at module import.
+    To access settings at runtime, use dependency injection or the settings
+    global after lifespan initialization.
+
+Example (during request handling):
+    >>> # Settings are available after lifespan initialization
+    >>> from apps.signal_service.main import settings
     >>> print(settings.port)
     8001
-    >>> print(settings.tradable_symbols)
+
+Example (direct instantiation for testing):
+    >>> from apps.signal_service.config import Settings
+    >>> test_settings = Settings(database_url="postgresql://test@localhost/test")
+    >>> print(test_settings.tradable_symbols)
     ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
 
 See Also:
@@ -52,9 +62,14 @@ class Settings(BaseSettings):
         # DATABASE_URL=postgresql://user:pass@localhost/db
         # TOP_N=5
 
-        # In code
-        from apps.signal_service.config import settings
+        # In code (after lifespan initialization)
+        from apps.signal_service.main import settings
         print(settings.top_n)  # 5
+
+        # For testing (direct instantiation)
+        from apps.signal_service.config import Settings
+        test_settings = Settings()
+        print(test_settings.top_n)  # 5
     """
 
     # ========================================================================
@@ -420,22 +435,5 @@ class Settings(BaseSettings):
 # ============================================================================
 # Global Settings Instance
 # ============================================================================
-
-settings = Settings()
-"""
-Global settings instance.
-
-Import this singleton instance throughout the application:
-
-Example:
-    >>> from apps.signal_service.config import settings
-    >>> print(settings.port)
-    8001
-    >>> print(settings.database_url)
-    postgresql://postgres:postgres@localhost:5432/trading_platform
-
-Notes:
-    - Settings loaded once on import
-    - Changes to environment variables require restart
-    - Override via pytest fixtures for testing
-"""
+# NOTE: Settings instance creation moved to apps/signal_service/main.py lifespan
+# This allows secrets to be validated before Settings instantiation

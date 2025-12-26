@@ -14,7 +14,7 @@ Architecture:
 Backend selection via factory (factory.py):
     - SECRET_BACKEND=vault → VaultSecretManager
     - SECRET_BACKEND=aws → AWSSecretsManager
-    - SECRET_BACKEND=env → EnvSecretManager (local dev only)
+    - SECRET_BACKEND=env → EnvSecretManager (local/test only)
 
 Usage Example:
     >>> from libs.secrets.factory import create_secret_manager
@@ -54,7 +54,7 @@ class SecretManager(ABC):
     Implementations:
         - VaultSecretManager: HashiCorp Vault via hvac library
         - AWSSecretsManager: AWS Secrets Manager via boto3
-        - EnvSecretManager: Local .env fallback (local development only)
+        - EnvSecretManager: Local .env fallback (local/test only)
 
     Thread Safety:
         - Implementations MUST be thread-safe (multiple concurrent get_secret calls)

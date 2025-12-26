@@ -55,6 +55,13 @@ from libs.common.api_auth_dependency import (
     api_auth,
 )
 from libs.common.rate_limit_dependency import RateLimitConfig, rate_limit
+from libs.common.secrets import (
+    close_secret_manager,
+    get_optional_secret,
+    get_optional_secret_or_none,
+    get_required_secret,
+    validate_required_secrets,
+)
 from libs.redis_client import (
     EventPublisher,
     FallbackBuffer,
@@ -88,13 +95,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load settings
-settings = Settings()
-
-# Global state (initialized in lifespan)
+# Global state initialized in lifespan.
+# Typed as non-None because FastAPI guarantees endpoints only run after lifespan completes.
+# The type:ignore[assignment] is the standard pattern for lifespan-initialized globals.
+settings: Settings = None  # type: ignore[assignment]
 model_registry: ModelRegistry | None = None
 signal_generator: SignalGenerator | None = None
-redis_client: RedisClient | None = None
+redis_client: RedisClient | None = None  # Can fail gracefully if Redis unavailable
 event_publisher: EventPublisher | None = None
 fallback_buffer: FallbackBuffer | None = None
 feature_cache: FeatureCache | None = None
@@ -108,6 +115,34 @@ hydration_complete = True
 _MAX_GENERATOR_CACHE_SIZE = 10  # Reasonable limit for (top_n, bottom_n) combinations
 _generator_cache: OrderedDict[tuple[int, int], SignalGenerator] = OrderedDict()
 _generator_cache_lock = asyncio.Lock()
+
+
+# ==============================================================================
+# Settings Accessor
+# ==============================================================================
+
+
+def get_settings() -> Settings:
+    """
+    Get settings instance.
+
+    Returns:
+        Settings instance initialized in lifespan
+
+    Raises:
+        RuntimeError: If called before lifespan initialization
+
+    Notes:
+        - Settings are initialized in lifespan after secrets validation
+        - Call this function inside request handlers, not at module level
+        - For FastAPI dependency injection, use Depends(get_settings)
+    """
+    if settings is None:
+        raise RuntimeError(
+            "Settings not initialized. This function should only be called "
+            "during request handling, after the lifespan context has started."
+        )
+    return settings
 
 
 # ==============================================================================
@@ -275,10 +310,12 @@ def _attempt_redis_reconnect() -> bool:
         return True
 
     try:
+        redis_password = get_optional_secret_or_none("redis/password")
         redis_client = RedisClient(
             host=settings.redis_host,
             port=settings.redis_port,
             db=settings.redis_db,
+            password=redis_password,
         )
         event_publisher = EventPublisher(redis_client)
 
@@ -365,16 +402,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Manage application startup and shutdown.
 
     Startup:
-        1. Initialize ModelRegistry with database connection
-        2. Load active model from database
-        3. Initialize Redis client (if enabled)
-        4. Initialize SignalGenerator with loaded model and feature cache
-        5. Log service readiness
+        1. Validate required secrets (fail-fast)
+        2. Initialize Settings with validated secrets
+        3. Initialize ModelRegistry with database connection
+        4. Load active model from database
+        5. Initialize Redis client (if enabled)
+        6. Initialize SignalGenerator with loaded model and feature cache
+        7. Log service readiness
 
     Shutdown:
         1. Stop background tasks
         2. Close Redis connection
-        3. Clean up resources (connections, file handles)
+        3. Close secret manager
+        4. Clean up resources (connections, file handles)
 
     Example:
         This is automatically called by FastAPI when starting the service.
@@ -386,8 +426,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         - Hot reload is handled by background task (Phase 5)
 
     Raises:
-        RuntimeError: If model loading fails at startup
+        RuntimeError: If model loading fails at startup or secrets are missing
     """
+    global settings
     global model_registry
     global signal_generator
     global redis_client
@@ -402,6 +443,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("=" * 60)
 
     try:
+        # Step 0: Validate required secrets (fail-fast before any connections)
+        # In dev/test, allow fallback to Settings defaults for easier local development
+        logger.info("Validating required secrets...")
+        if ENVIRONMENT not in ("dev", "test"):
+            validate_required_secrets(["database/url"])
+
+        # Step 0.5: Create Settings instance with validated secret
+        logger.info("Initializing settings...")
+        if ENVIRONMENT not in ("dev", "test"):
+            # Production: require secret from secrets backend
+            database_url = get_required_secret("database/url")
+            settings = Settings(database_url=database_url)
+        else:
+            # Dev/test: use secret if available, otherwise fall back to Settings default
+            database_url = get_optional_secret("database/url", "")
+            if database_url:
+                settings = Settings(database_url=database_url)
+            else:
+                logger.info("DATABASE_URL not set, using Settings default (dev/test mode)")
+                settings = Settings()
+
         # Step 1: Initialize ModelRegistry
         logger.info(
             "Connecting to database: %s",
@@ -487,10 +549,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             redis_fallback_buffer_size.set(fallback_buffer.size)
             try:
+                redis_password = get_optional_secret_or_none("redis/password")
                 redis_client = RedisClient(
                     host=settings.redis_host,
                     port=settings.redis_port,
                     db=settings.redis_db,
+                    password=redis_password,
                 )
                 event_publisher = EventPublisher(redis_client)
 
@@ -643,6 +707,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if model_registry is not None:
             logger.info("Closing database connection pool...")
             model_registry.close()
+
+        # Close secret manager
+        logger.info("Closing secret manager...")
+        close_secret_manager()
 
         logger.info("Signal Service shutting down...")
 
@@ -1898,11 +1966,14 @@ if __name__ == "__main__":
 
     For production, use:
         uvicorn apps.signal_service.main:app --host 0.0.0.0 --port 8001
+
+    Note: Uses env vars/defaults since settings is initialized in lifespan.
+    For custom host/port, use uvicorn CLI directly or set HOST/PORT env vars.
     """
     uvicorn.run(
         "apps.signal_service.main:app",
-        host=settings.host,
-        port=settings.port,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8001")),
         reload=True,  # Auto-reload on code changes (dev only)
         log_level="info",
     )
