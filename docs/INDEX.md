@@ -276,6 +276,7 @@ Educational explanations of trading and ML concepts:
 | [fundamental-data.md](./CONCEPTS/fundamental-data.md) | Compustat fundamentals, GVKEY, PIT correctness | Intermediate |
 | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) | Notional, realized, unrealized P&L | Beginner |
 | [alpha158-features.md](./CONCEPTS/alpha158-features.md) | Alpha158 feature set | Intermediate |
+| [alpha-signal-explorer.md](./CONCEPTS/alpha-signal-explorer.md) | Alpha signal browsing and IC analysis | Intermediate |
 | [backtest-result-storage.md](./CONCEPTS/backtest-result-storage.md) | Backtest result storage (Postgres + Parquet) | Intermediate |
 | [backtest-web-ui.md](./CONCEPTS/backtest-web-ui.md) | Backtest Web UI (Streamlit interface for job management) | Intermediate |
 | [walk-forward-optimization.md](./CONCEPTS/walk-forward-optimization.md) | Walk-forward optimization methodology | Intermediate |
@@ -287,6 +288,7 @@ Educational explanations of trading and ML concepts:
 | [distributed-tracing.md](./CONCEPTS/distributed-tracing.md) | Distributed tracing for microservices | Advanced |
 | [duckdb-basics.md](./CONCEPTS/duckdb-basics.md) | DuckDB embedded analytics | Beginner |
 | [execution-algorithms.md](./CONCEPTS/execution-algorithms.md) | Order execution strategies (TWAP, VWAP) | Intermediate |
+| [factor-exposure-visualization.md](./CONCEPTS/factor-exposure-visualization.md) | Factor exposure heatmaps and drill-down | Intermediate |
 | [fama-french-factors.md](./CONCEPTS/fama-french-factors.md) | Fama-French factor models (3F, 5F, 6F) | Intermediate |
 | [yfinance-limitations.md](./CONCEPTS/yfinance-limitations.md) | yfinance limitations and production gating | Beginner |
 | [unified-data-fetcher.md](./CONCEPTS/unified-data-fetcher.md) | Unified Data Fetcher for provider-agnostic data access | Intermediate |

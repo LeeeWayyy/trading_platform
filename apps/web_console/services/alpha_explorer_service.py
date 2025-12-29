@@ -13,6 +13,7 @@ from libs.models.types import ModelMetadata, ModelStatus, ModelType
 
 if TYPE_CHECKING:
     from libs.alpha.metrics import AlphaMetricsAdapter
+    from libs.alpha.research_platform import BacktestResult
 
 
 @dataclass
@@ -149,9 +150,9 @@ class AlphaExplorerService:
         if backtest_result is None:
             return pl.DataFrame(schema=ic_schema)
 
-        # Polars 1.0+ syntax: rolling(window_size).mean() replaces rolling_mean()
-        daily_ic = backtest_result.daily_ic.with_columns(
-            [pl.col("rank_ic").rolling(20).mean().alias("rolling_ic_20d")]
+        # Polars 1.x uses rolling_mean(window_size=N) for row-based rolling
+        daily_ic: pl.DataFrame = backtest_result.daily_ic.with_columns(
+            pl.col("rank_ic").rolling_mean(window_size=20).alias("rolling_ic_20d")
         )
 
         return daily_ic
@@ -252,7 +253,7 @@ class AlphaExplorerService:
             return False
         return True
 
-    def _load_backtest_result(self, metadata: ModelMetadata | None):
+    def _load_backtest_result(self, metadata: ModelMetadata | None) -> BacktestResult | None:
         """Load backtest result from BacktestResultStorage.
 
         IMPORTANT: BacktestResultStorage is keyed by job_id (str), not run_id.

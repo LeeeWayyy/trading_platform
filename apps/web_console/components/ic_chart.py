@@ -25,7 +25,7 @@ def render_ic_chart(daily_ic: pl.DataFrame) -> None:
             y=daily_ic["rank_ic"].to_list(),
             name="Rank IC",
             mode="lines",
-            line=dict(color="blue", width=1),
+            line={"color": "blue", "width": 1},
             opacity=0.5,
         )
     )
@@ -37,7 +37,7 @@ def render_ic_chart(daily_ic: pl.DataFrame) -> None:
                 y=daily_ic["rolling_ic_20d"].to_list(),
                 name="Rolling 20d Rank IC",
                 mode="lines",
-                line=dict(color="blue", width=2),
+                line={"color": "blue", "width": 2},
             )
         )
 
@@ -47,7 +47,7 @@ def render_ic_chart(daily_ic: pl.DataFrame) -> None:
             y=daily_ic["ic"].to_list(),
             name="Pearson IC",
             mode="lines",
-            line=dict(color="gray", width=1, dash="dot"),
+            line={"color": "gray", "width": 1, "dash": "dot"},
             opacity=0.5,
         )
     )
@@ -58,7 +58,7 @@ def render_ic_chart(daily_ic: pl.DataFrame) -> None:
         title="Information Coefficient Over Time",
         xaxis_title="Date",
         yaxis_title="IC",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
         height=400,
     )
 
