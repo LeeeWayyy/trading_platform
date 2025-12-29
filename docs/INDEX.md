@@ -301,6 +301,7 @@ Educational explanations of trading and ML concepts:
 | [parquet-format.md](./CONCEPTS/parquet-format.md) | Columnar storage format | Beginner |
 | [qlib-comparison.md](./CONCEPTS/qlib-comparison.md) | Qlib vs custom implementation comparison | Intermediate |
 | [scheduled-reports.md](./CONCEPTS/scheduled-reports.md) | Scheduled report generation and RBAC | Intermediate |
+| [tax-lot-tracking.md](./CONCEPTS/tax-lot-tracking.md) | Tax lot tracking service and RBAC | Intermediate |
 | [python-testing-tools.md](./CONCEPTS/python-testing-tools.md) | pytest and testing frameworks | Beginner |
 | [research-notebook-launcher.md](./CONCEPTS/research-notebook-launcher.md) | Research notebook session management | Intermediate |
 | [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |

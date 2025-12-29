@@ -89,6 +89,8 @@ class Permission(str, Enum):
     VIEW_REPORTS = "view_reports"
 
     # P4T7: Tax Lot Reporter (C5/C6)
+    VIEW_TAX_LOTS = "view_tax_lots"
+    MANAGE_TAX_LOTS = "manage_tax_lots"
     VIEW_TAX_REPORTS = "view_tax_reports"
     MANAGE_TAX_SETTINGS = "manage_tax_settings"
 
@@ -112,12 +114,14 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
         Permission.VIEW_ALERTS,
         Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_LOTS,
     },
     Role.RESEARCHER: {
         Permission.VIEW_ALPHA_SIGNALS,
         Permission.VIEW_FACTOR_ANALYTICS,
         Permission.LAUNCH_NOTEBOOKS,
         Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_LOTS,
         Permission.VIEW_TAX_REPORTS,
     },
     Role.OPERATOR: {
@@ -146,6 +150,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.SUBMIT_ORDER,  # C6: Trading API access
         Permission.GENERATE_SIGNALS,  # C6: Signal generation access
         Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_LOTS,
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
