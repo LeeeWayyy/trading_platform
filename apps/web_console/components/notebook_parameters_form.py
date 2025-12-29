@@ -34,17 +34,17 @@ def _render_param_input(template_id: str, param: NotebookParameter) -> Any:
     if param.kind == "text":
         return st.text_input(label, value=str(param.default or ""), help=param.help, key=key)
     if param.kind == "int":
-        default = int(param.default) if param.default is not None else 0
-        return st.number_input(label, value=default, step=1, help=param.help, key=key)
+        int_default = int(param.default) if param.default is not None else 0
+        return st.number_input(label, value=int_default, step=1, help=param.help, key=key)
     if param.kind == "float":
-        default = float(param.default) if param.default is not None else 0.0
-        return st.number_input(label, value=default, step=0.01, help=param.help, key=key)
+        float_default = float(param.default) if param.default is not None else 0.0
+        return st.number_input(label, value=float_default, step=0.01, help=param.help, key=key)
     if param.kind == "bool":
-        default = bool(param.default) if param.default is not None else False
-        return st.checkbox(label, value=default, help=param.help, key=key)
+        bool_default = bool(param.default) if param.default is not None else False
+        return st.checkbox(label, value=bool_default, help=param.help, key=key)
     if param.kind == "date":
-        default = param.default if isinstance(param.default, date) else date.today()
-        return st.date_input(label, value=default, help=param.help, key=key)
+        date_default: date = param.default if isinstance(param.default, date) else date.today()
+        return st.date_input(label, value=date_default, key=key, help=param.help)
     if param.kind == "select":
         options = param.options or []
         if not options:

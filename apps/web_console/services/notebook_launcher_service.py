@@ -9,10 +9,11 @@ import secrets
 import shlex
 import signal
 import subprocess
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Iterable
+from typing import Any
 from uuid import uuid4
 
 from libs.web_console_auth.permissions import Permission, has_permission
@@ -422,7 +423,7 @@ class NotebookLauncherService:
     @staticmethod
     def _json_default(value: Any) -> str:
         if hasattr(value, "isoformat"):
-            return value.isoformat()
+            return str(value.isoformat())
         return str(value)
 
 
