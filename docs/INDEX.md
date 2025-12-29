@@ -301,6 +301,7 @@ Educational explanations of trading and ML concepts:
 | [parquet-format.md](./CONCEPTS/parquet-format.md) | Columnar storage format | Beginner |
 | [qlib-comparison.md](./CONCEPTS/qlib-comparison.md) | Qlib vs custom implementation comparison | Intermediate |
 | [python-testing-tools.md](./CONCEPTS/python-testing-tools.md) | pytest and testing frameworks | Beginner |
+| [research-notebook-launcher.md](./CONCEPTS/research-notebook-launcher.md) | Research notebook session management | Intermediate |
 | [redis-patterns.md](./CONCEPTS/redis-patterns.md) | Redis caching and event patterns | Intermediate |
 | [risk-management.md](./CONCEPTS/risk-management.md) | Position limits and circuit breakers | Intermediate |
 | [risk-models.md](./CONCEPTS/risk-models.md) | Multi-factor Barra-style risk model methodology | Advanced |
