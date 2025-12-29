@@ -717,8 +717,9 @@ def api_auth(
                         # SECURITY: Use all Role enum values to ensure new roles don't bypass checks
                         ROLE_LEVELS: dict[Role, int] = {
                             Role.VIEWER: 0,
-                            Role.OPERATOR: 1,
-                            Role.ADMIN: 2,
+                            Role.RESEARCHER: 1,
+                            Role.OPERATOR: 2,
+                            Role.ADMIN: 3,
                         }
                         user_level = ROLE_LEVELS.get(user.role, -1) if user.role else -1
                         required_level = ROLE_LEVELS.get(config.require_role, -1)

@@ -248,6 +248,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0027](./ADRs/0027-liquidity-aware-slicing.md) | Liquidity-aware TWAP slicing with ADV constraints | ✅ Accepted |
 | [0028](./ADRs/0028-market-data-fallback-buffer.md) | Market data fallback buffer for Redis outages | ✅ Accepted |
 | [ADR-0029](./ADRs/ADR-0029-alerting-system.md) | Alerting system architecture (multi-channel delivery, rate limiting) | 🚧 Proposed |
+| [ADR-0030](./ADRs/ADR-0030-reporting-architecture.md) | Reporting architecture for scheduled reports and PDF generation | 🚧 Proposed |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -317,6 +318,9 @@ Educational explanations of trading and ML concepts:
 | [alerting.md](./CONCEPTS/alerting.md) | Alert configuration and notification channels | Intermediate |
 | [alert-delivery.md](./CONCEPTS/alert-delivery.md) | Alert delivery service with retry and poison queue | Intermediate |
 | [platform-administration.md](./CONCEPTS/platform-administration.md) | Admin dashboard with API keys and config management | Intermediate |
+| [data-quality-monitoring.md](./CONCEPTS/data-quality-monitoring.md) | Data quality monitoring with validation rules | Intermediate |
+| [data-sync-operations.md](./CONCEPTS/data-sync-operations.md) | Data sync operations and WRDS integration | Intermediate |
+| [dataset-explorer.md](./CONCEPTS/dataset-explorer.md) | Dataset explorer for browsing data warehouse | Beginner |
 
 **Priority:** 🟢 **LOW** - Read when you need to understand domain-specific concepts
 
@@ -437,6 +441,15 @@ Current and future work items organized by phase:
 
 **Backlog Tasks (B0):**
 - [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./TASKS/B0T1_TASK.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis
+- [CURRENT, 2025-12-28, Task] [P4T6_TASK.md](./TASKS/P4T6_TASK.md) - P4T6: Data Management module for web console
+- [CURRENT, 2025-12-28, Task] [P4T7_TASK.md](./TASKS/P4T7_TASK.md) - P4T7: Web Console Research & Reporting module
+- [CURRENT, 2025-12-28, Plan] [P4T7_C0_PLAN.md](./TASKS/P4T7_C0_PLAN.md) - P4T7 C0: Prep & Validation (RBAC, migrations, dependencies)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C1_PLAN.md](./TASKS/P4T7_C1_PLAN.md) - P4T7 C1: Alpha Signal Explorer (IC/ICIR visualization)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C2_PLAN.md](./TASKS/P4T7_C2_PLAN.md) - P4T7 C2: Factor Exposure Heatmap (portfolio analytics)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C3_PLAN.md](./TASKS/P4T7_C3_PLAN.md) - P4T7 C3: Research Notebook Launcher (Docker sessions)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C4_PLAN.md](./TASKS/P4T7_C4_PLAN.md) - P4T7 C4: Scheduled Reports (PDF generation, email)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C5_PLAN.md](./TASKS/P4T7_C5_PLAN.md) - P4T7 C5: Tax Lot Core (FIFO/LIFO/SpecID)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C6_PLAN.md](./TASKS/P4T7_C6_PLAN.md) - P4T7 C6: Tax Lot Advanced (wash sales, 8949)
 
 **Checking Current/Next Task:**
 ```bash
@@ -495,6 +508,9 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-12-04, Runbook] [wrds-credentials.md](./RUNBOOKS/wrds-credentials.md) - WRDS credential management, rotation, and expiry monitoring
 - [CURRENT, 2025-12-04, Runbook] [data-storage.md](./RUNBOOKS/data-storage.md) - Disk monitoring, cleanup procedures, and storage expansion
 - [CURRENT, 2025-12-08, Runbook] [model-registry-dr.md](./RUNBOOKS/model-registry-dr.md) - Model registry disaster recovery and backup procedures
+- [CURRENT, 2025-12-28, Runbook] [data-quality-ops.md](./RUNBOOKS/data-quality-ops.md) - Data quality monitoring operational procedures
+- [CURRENT, 2025-12-28, Runbook] [data-sync-ops.md](./RUNBOOKS/data-sync-ops.md) - Data sync operations and troubleshooting
+- [CURRENT, 2025-12-28, Runbook] [dataset-explorer-ops.md](./RUNBOOKS/dataset-explorer-ops.md) - Dataset explorer operational procedures
 - [CURRENT, 2025-12-21, Runbook] [circuit-breaker-ops.md](./RUNBOOKS/circuit-breaker-ops.md) - Circuit breaker operations, trip/reset procedures, and troubleshooting
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues

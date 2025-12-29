@@ -179,6 +179,7 @@ class DeliveryExecutor:
         subject: str,
         body: str,
         attempt: int = 0,
+        attachments: list[str] | None = None,
     ) -> DeliveryResult:
         """
         Execute delivery with immediate attempt + retry backoff.
@@ -381,7 +382,7 @@ class DeliveryExecutor:
                     return last_result
                 try:
                     last_result = await channel_handler.send(
-                        recipient, subject, body, metadata=None
+                        recipient, subject, body, metadata=None, attachments=attachments
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.exception(

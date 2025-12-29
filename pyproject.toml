@@ -61,8 +61,12 @@ cryptography = "^41.0.0"
 pyjwt = "^2.8.0"
 statsmodels = "^0.14.6"
 plotly = "^5.22.0"
+# kaleido = "^0.2.1"  # Optional: for Plotly static image export (no ARM64 wheel)
+# Install manually on x86_64 Linux/Windows for PDF reports: pip install kaleido
 openpyxl = "^3.1.0"
 sqlglot = "^28.5.0"
+weasyprint = "^67.0"
+jinja2 = "^3.1.6"
 
 [tool.poetry.group.dev.dependencies]
 # Testing

@@ -59,6 +59,7 @@ class SMSChannel(BaseChannel):
         subject: str,
         body: str,
         metadata: dict[str, Any] | None = None,
+        attachments: list[str] | None = None,  # SMS ignores attachments
     ) -> DeliveryResult:
         masked = mask_recipient(recipient, self.channel_type)
         logger.info("sms_send_attempt", extra={"recipient": masked})
