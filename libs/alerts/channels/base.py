@@ -23,7 +23,8 @@ class BaseChannel(ABC):
         recipient: str,
         subject: str,
         body: str,
-        metadata: dict[str, Any] | None,
+        metadata: dict[str, Any] | None = None,
+        attachments: list[str] | None = None,
     ) -> DeliveryResult:
         """Send a notification via the channel."""
         raise NotImplementedError

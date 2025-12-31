@@ -29,10 +29,11 @@ class SlackChannel(BaseChannel):
 
     async def send(
         self,
-        recipient: str | None,
+        recipient: str,
         subject: str,
         body: str,
         metadata: dict[str, Any] | None = None,
+        attachments: list[str] | None = None,  # Slack ignores attachments
     ) -> DeliveryResult:
         webhook_url = recipient or self.default_webhook_url
         if not webhook_url:

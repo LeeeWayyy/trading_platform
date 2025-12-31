@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 from email.message import EmailMessage
 from email.utils import make_msgid
+from pathlib import Path
 from typing import Any
 
 import aiosmtplib
@@ -71,6 +73,7 @@ class EmailChannel(BaseChannel):
         subject: str,
         body: str,
         metadata: dict[str, Any] | None = None,
+        attachments: list[str] | None = None,
     ) -> DeliveryResult:
         masked = mask_recipient(recipient, self.channel_type)
         logger.info("email_send_attempt", extra={"recipient": masked})
@@ -83,7 +86,7 @@ class EmailChannel(BaseChannel):
                 retryable=False,
             )
 
-        smtp_result = await self._send_smtp(recipient, subject, body)
+        smtp_result = await self._send_smtp(recipient, subject, body, attachments)
         if smtp_result.success:
             logger.info(
                 "email_smtp_sent",
@@ -108,6 +111,12 @@ class EmailChannel(BaseChannel):
                 metadata=smtp_result.metadata,
             )
 
+        if attachments:
+            logger.warning(
+                "SendGrid fallback does not support attachments yet, sending without attachments",
+                extra={"recipient": masked},
+            )
+
         sendgrid_result = await self._send_sendgrid(recipient, subject, body)
         if sendgrid_result.success:
             logger.info(
@@ -126,17 +135,45 @@ class EmailChannel(BaseChannel):
 
         return sendgrid_result
 
-    def _build_message(self, recipient: str, subject: str, body: str) -> EmailMessage:
+    def _build_message(
+        self, recipient: str, subject: str, body: str, attachments: list[str] | None = None
+    ) -> EmailMessage:
         message = EmailMessage()
         message["From"] = self.from_email
         message["To"] = recipient
         message["Subject"] = subject
         message["Message-ID"] = make_msgid()
         message.set_content(body)
+
+        if attachments:
+            for attachment_path in attachments:
+                path = Path(attachment_path)
+                if not path.exists():
+                    logger.warning(f"Attachment not found: {path}")
+                    continue
+
+                ctype, encoding = mimetypes.guess_type(path)
+                if ctype is None or encoding is not None:
+                    # No guess could be made, or the file is encoded (compressed), so
+                    # use a generic bag-of-bits type.
+                    ctype = "application/octet-stream"
+
+                maintype, subtype = ctype.split("/", 1)
+
+                try:
+                    file_data = path.read_bytes()
+                    message.add_attachment(
+                        file_data, maintype=maintype, subtype=subtype, filename=path.name
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to attach file {path}: {e}")
+
         return message
 
-    async def _send_smtp(self, recipient: str, subject: str, body: str) -> DeliveryResult:
-        message = self._build_message(recipient, subject, body)
+    async def _send_smtp(
+        self, recipient: str, subject: str, body: str, attachments: list[str] | None = None
+    ) -> DeliveryResult:
+        message = self._build_message(recipient, subject, body, attachments)
         masked = mask_recipient(recipient, self.channel_type)
 
         try:

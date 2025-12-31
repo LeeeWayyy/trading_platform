@@ -20,6 +20,7 @@ class Role(str, Enum):
     """Supported RBAC roles."""
 
     VIEWER = "viewer"
+    RESEARCHER = "researcher"
     OPERATOR = "operator"
     ADMIN = "admin"
 
@@ -72,6 +73,27 @@ class Permission(str, Enum):
     SUBMIT_ORDER = "submit_order"
     GENERATE_SIGNALS = "generate_signals"
 
+    # P4T7: Alpha Signal Explorer (C1)
+    VIEW_ALPHA_SIGNALS = "view_alpha_signals"
+
+    # P4T7: Factor Exposure Heatmap (C2)
+    VIEW_FACTOR_ANALYTICS = "view_factor_analytics"
+    VIEW_ALL_POSITIONS = "view_all_positions"  # Admin-only for global positions
+
+    # P4T7: Research Notebook Launcher (C3)
+    LAUNCH_NOTEBOOKS = "launch_notebooks"
+    MANAGE_NOTEBOOKS = "manage_notebooks"
+
+    # P4T7: Scheduled Reports (C4)
+    MANAGE_REPORTS = "manage_reports"
+    VIEW_REPORTS = "view_reports"
+
+    # P4T7: Tax Lot Reporter (C5/C6)
+    VIEW_TAX_LOTS = "view_tax_lots"
+    MANAGE_TAX_LOTS = "manage_tax_lots"
+    VIEW_TAX_REPORTS = "view_tax_reports"
+    MANAGE_TAX_SETTINGS = "manage_tax_settings"
+
 
 class DatasetPermission(str, Enum):
     """Per-dataset access permissions for licensing compliance."""
@@ -91,6 +113,16 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VIEW_DATA_QUALITY,
         Permission.VIEW_CIRCUIT_BREAKER,  # T7.1: Can view CB status
         Permission.VIEW_ALERTS,
+        Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_LOTS,
+    },
+    Role.RESEARCHER: {
+        Permission.VIEW_ALPHA_SIGNALS,
+        Permission.VIEW_FACTOR_ANALYTICS,
+        Permission.LAUNCH_NOTEBOOKS,
+        Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_LOTS,
+        Permission.VIEW_TAX_REPORTS,
     },
     Role.OPERATOR: {
         Permission.VIEW_POSITIONS,
@@ -117,12 +149,15 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ACKNOWLEDGE_ALERT,
         Permission.SUBMIT_ORDER,  # C6: Trading API access
         Permission.GENERATE_SIGNALS,  # C6: Signal generation access
+        Permission.VIEW_REPORTS,
+        Permission.VIEW_TAX_LOTS,
     },
     Role.ADMIN: set(Permission),  # Admins have all permissions including VIEW_AUDIT
 }
 
 ROLE_DATASET_PERMISSIONS: dict[Role, set[DatasetPermission]] = {
     Role.VIEWER: {DatasetPermission.FAMA_FRENCH_ACCESS},
+    Role.RESEARCHER: {DatasetPermission.FAMA_FRENCH_ACCESS},
     Role.OPERATOR: {
         DatasetPermission.FAMA_FRENCH_ACCESS,
         DatasetPermission.CRSP_ACCESS,
