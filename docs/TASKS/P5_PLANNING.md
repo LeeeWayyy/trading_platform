@@ -328,34 +328,50 @@ class ServerSessionStore:
 
 # apps/web_console_ng/auth/middleware.py
 from nicegui import app, ui
+from starlette.requests import Request
 from functools import wraps
 from typing import Callable, Any
+
+def _get_session_from_cookie(request: Request) -> tuple[str, str] | None:
+    """Extract session_id and signature from signed HTTP cookie.
+
+    SECURITY: Session ID comes from HttpOnly cookie, NOT app.storage.user.
+    app.storage.user is client-side localStorage - never use for session ID!
+    """
+    cookie_value = request.cookies.get("__Host-nicegui_session")
+    if not cookie_value or "." not in cookie_value:
+        return None
+    session_id, signature = cookie_value.rsplit(".", 1)
+    return session_id, signature
 
 def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
     """NiceGUI auth decorator with server-side session validation."""
 
     @wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
-        # Get session_id from signed cookie (client only has ID)
-        session_id = app.storage.user.get("session_id")
+        # Get session_id from signed HTTP cookie (NOT app.storage.user!)
+        request = app.storage.request  # Access underlying Starlette request
+        session_tuple = _get_session_from_cookie(request)
 
-        if not session_id:
+        if not session_tuple:
             ui.navigate.to("/login")
             return
 
-        # Validate against server-side store
+        session_id, signature = session_tuple
+        client_ip = get_client_ip(request)
+
+        # Validate against server-side store with signature verification
         session_store = get_session_store()
-        session = session_store.get_session(session_id)
+        session = await session_store.validate_session(session_id, signature, client_ip)
 
         if not session:
-            app.storage.user.clear()
+            # Clear cookie on invalid session
             ui.navigate.to("/login?reason=session_expired")
             return
 
         # Device binding validation (with X-Forwarded-For handling)
-        if not validate_device_binding(session):
-            session_store.invalidate_session(session_id)
-            app.storage.user.clear()
+        if not validate_device_binding(session, request):
+            await session_store.invalidate_session(session_id)
             ui.navigate.to("/login?reason=device_mismatch")
             return
 
@@ -368,11 +384,14 @@ def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
 
 def has_permission(permission: str) -> bool:
     """Check if current user has permission."""
-    session_id = app.storage.user.get("session_id")
-    if not session_id:
+    request = app.storage.request
+    session_tuple = _get_session_from_cookie(request)
+    if not session_tuple:
         return False
 
-    session = get_session_store().get_session(session_id)
+    session_id, signature = session_tuple
+    # Note: This is sync for template usage - use async version for full validation
+    session = get_session_store().get_session_sync(session_id, signature)
     if not session:
         return False
 
@@ -393,7 +412,7 @@ def has_permission(permission: str) -> bool:
 
 | Security Control | Implementation |
 |-----------------|----------------|
-| **Cookie Flags** | `HttpOnly=True, Secure=True, SameSite=Strict` |
+| **Cookie Flags** | `HttpOnly=True, Secure=True, SameSite=Lax` (Lax required for OAuth2 redirects) |
 | **Session Fixation Prevention** | Rotate session ID on login and privilege escalation |
 | **Origin Checks (WebSocket)** | Validate `Origin` header matches allowed domains |
 | **CSRF for HTTP** | Double-submit cookie pattern for non-WS requests |
@@ -412,7 +431,7 @@ SESSION_COOKIE_CONFIG = {
     "name": "nicegui_session",
     "httponly": True,      # Prevent XSS access
     "secure": True,        # HTTPS only
-    "samesite": "strict",  # Prevent CSRF
+    "samesite": "lax",     # Lax required for OAuth2 redirects; use CSRF tokens for protection
     "max_age": 14400,      # 4 hours absolute
     "path": "/",
     "domain": None,        # Current domain only
