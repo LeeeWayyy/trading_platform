@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -136,11 +137,15 @@ class NotebookLauncherService:
                 token=token,
             )
             env = self._build_launch_env(template, session, command)
+            log_dir = Path("artifacts/notebook_logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            stdout_log = open(log_dir / f"{session.session_id}.out.log", "wb")
+            stderr_log = open(log_dir / f"{session.session_id}.err.log", "wb")
             process = subprocess.Popen(
                 command,
                 env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=stdout_log,
+                stderr=stderr_log,
             )
             session.process_id = process.pid
             session.command = command

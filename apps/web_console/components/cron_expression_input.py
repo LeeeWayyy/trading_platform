@@ -42,7 +42,7 @@ def _preview_cron(expression: str, count: int) -> list[str] | str | None:
 
     try:
         from croniter import croniter  # type: ignore
-    except Exception:
+    except ImportError:
         return None
 
     try:
@@ -53,7 +53,7 @@ def _preview_cron(expression: str, count: int) -> list[str] | str | None:
             next_time: Any = iterator.get_next(datetime)
             preview.append(next_time.strftime("%Y-%m-%d %H:%M"))
         return preview
-    except Exception as exc:
+    except (ValueError, KeyError) as exc:
         return str(exc)
 
 

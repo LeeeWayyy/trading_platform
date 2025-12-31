@@ -15,7 +15,7 @@ def render_correlation_matrix(corr_matrix: pl.DataFrame) -> None:
     Args:
         corr_matrix: Polars DataFrame with first column 'signal' and remaining columns as signals
     """
-    if corr_matrix is None or corr_matrix.is_empty():
+    if corr_matrix.is_empty():
         st.info("Not enough data to compute correlations.")
         return
 

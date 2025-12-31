@@ -25,7 +25,7 @@ def render_stock_exposure_table(df: pl.DataFrame) -> None:
         >>> render_stock_exposure_table(data)
     """
 
-    if df is None or df.is_empty():
+    if df.is_empty():
         st.info("No stock-level exposure data available.")
         return
 

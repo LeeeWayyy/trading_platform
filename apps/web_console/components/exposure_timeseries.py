@@ -26,7 +26,7 @@ def render_exposure_timeseries(df: pl.DataFrame) -> None:
         >>> render_exposure_timeseries(data)
     """
 
-    if df is None or df.is_empty():
+    if df.is_empty():
         st.info("No time-series exposure data available.")
         return
 

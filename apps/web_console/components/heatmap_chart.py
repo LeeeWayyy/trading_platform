@@ -26,7 +26,7 @@ def render_heatmap(df: pl.DataFrame) -> None:
         >>> render_heatmap(data)
     """
 
-    if df is None or df.is_empty():
+    if df.is_empty():
         st.info("No exposure data available.")
         return
 

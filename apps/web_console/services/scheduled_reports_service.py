@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from psycopg.rows import dict_row
+
 from apps.web_console.utils.db import acquire_connection
 from libs.web_console_auth.permissions import Permission, has_permission
 
@@ -84,7 +86,7 @@ class ScheduledReportsService:
         target_user_id = None if all_users else (user_id or current_user_id)
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor() as cur:
+            async with conn.cursor(row_factory=dict_row) as cur:
                 if target_user_id:
                     await cur.execute(
                         """
@@ -125,7 +127,7 @@ class ScheduledReportsService:
         schedule_config = {"cron": cron, "params": params}
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor() as cur:
+            async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(
                     """
                     INSERT INTO report_schedules (
@@ -178,7 +180,7 @@ class ScheduledReportsService:
             raise ValueError("No valid fields provided for update")
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor() as cur:
+            async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(
                     """
                     SELECT id, user_id, name, template_type, schedule_config,
@@ -247,7 +249,7 @@ class ScheduledReportsService:
         self._require_permission(Permission.MANAGE_REPORTS)
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor() as cur:
+            async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(
                     "DELETE FROM report_schedules WHERE id = %s",
                     (schedule_id,),
@@ -271,7 +273,7 @@ class ScheduledReportsService:
         has_manage = has_permission(self._user, Permission.MANAGE_REPORTS)
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor() as cur:
+            async with conn.cursor(row_factory=dict_row) as cur:
                 # Scope ownership query to prevent existence oracle attack
                 # Non-admins only see their own schedules; admins see all
                 if has_manage:
@@ -334,7 +336,7 @@ class ScheduledReportsService:
         run_key = run_id
 
         async with acquire_connection(self._db_pool) as conn:
-            async with conn.cursor() as cur:
+            async with conn.cursor(row_factory=dict_row) as cur:
                 # Scope run_key lookup to user via join to prevent metadata leakage
                 await cur.execute(
                     """

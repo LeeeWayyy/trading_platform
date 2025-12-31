@@ -152,6 +152,10 @@ class FactorExposureService:
         results: list[dict[str, Any]] = []
         current_date = start_date
 
+        # MVP LIMITATION: This loop uses current holdings for all days.
+        # For full accuracy, query historical holdings from positions_history table
+        # matching each date in the loop. Current implementation is fast but
+        # assumes holdings are stable across the date range.
         while current_date <= end_date:
             holdings = self._get_portfolio_holdings(portfolio_id, current_date)
 

@@ -54,7 +54,8 @@ class MockAsyncConnection:
         self._cursor = cursor
         self.commit = AsyncMock()
 
-    def cursor(self):
+    def cursor(self, *, row_factory=None):
+        # row_factory is accepted but ignored - mock always returns dicts
         return MockAsyncCursorCM(self._cursor)
 
 
@@ -385,7 +386,7 @@ async def test_get_run_history_returns_entries_for_owner() -> None:
     conn._cursor = cursor
 
     # Override cursor method to return our multi-query cursor
-    def cursor_cm():
+    def cursor_cm(*, row_factory=None):
         class _CM:
             async def __aenter__(self):
                 return cursor
@@ -431,7 +432,7 @@ async def test_get_run_history_returns_empty_for_other_users_schedule() -> None:
     cursor = MockCursorNoMatch()
     conn = MockAsyncConnection(MockAsyncCursor())
 
-    def cursor_cm():
+    def cursor_cm(*, row_factory=None):
         class _CM:
             async def __aenter__(self):
                 return cursor

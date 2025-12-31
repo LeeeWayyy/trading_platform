@@ -214,9 +214,9 @@ class AlphaExplorerService:
         if joined is None or joined.width < 3:
             return empty_corr
 
-        corr_pd = joined.drop("date").to_pandas().corr()
-        corr_pd.insert(0, "signal", corr_pd.index)
-        return pl.from_pandas(corr_pd, include_index=False)
+        corr_df = joined.drop("date").corr()
+        corr_df = corr_df.insert_column(0, pl.Series("signal", corr_df.columns))
+        return corr_df
 
     def _to_summary(self, metadata: ModelMetadata) -> SignalSummary:
         """Convert ModelMetadata to SignalSummary.
