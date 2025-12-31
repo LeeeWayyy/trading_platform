@@ -135,6 +135,7 @@ def test_port_allocation_skips_bound_port(monkeypatch: pytest.MonkeyPatch) -> No
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", bound_port))
+    sock.listen(1)  # Put socket in LISTEN state to make it truly unavailable
 
     try:
         service = NotebookLauncherService(user={"role": "researcher"})

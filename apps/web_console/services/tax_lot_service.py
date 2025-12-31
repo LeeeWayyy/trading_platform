@@ -171,19 +171,13 @@ class TaxLotService:
 
         quantity_decimal = _to_decimal(quantity)
         cost_basis_decimal = _to_decimal(cost_basis)
-        cost_per_share = (
-            cost_basis_decimal / quantity_decimal if quantity_decimal else Decimal("0")
-        )
+        cost_per_share = cost_basis_decimal / quantity_decimal if quantity_decimal else Decimal("0")
 
         status_normalized = (status or "open").strip().lower()
         if status_normalized not in {"open", "closed"}:
             raise ValueError(f"status must be 'open' or 'closed', got: {status_normalized}")
-        remaining_quantity = (
-            Decimal("0") if status_normalized == "closed" else quantity_decimal
-        )
-        closed_at = (
-            datetime.now(UTC) if status_normalized == "closed" else None
-        )
+        remaining_quantity = Decimal("0") if status_normalized == "closed" else quantity_decimal
+        closed_at = datetime.now(UTC) if status_normalized == "closed" else None
 
         async with acquire_connection(self._db_pool) as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
@@ -282,7 +276,9 @@ class TaxLotService:
 
                 current_quantity = _to_decimal(row.get("quantity"))
                 current_cost = _to_decimal(
-                    row.get("total_cost") if row.get("total_cost") is not None else row.get("cost_basis")
+                    row.get("total_cost")
+                    if row.get("total_cost") is not None
+                    else row.get("cost_basis")
                 )
 
                 new_quantity = _to_decimal(updates.get("quantity", current_quantity))
@@ -297,7 +293,9 @@ class TaxLotService:
                 if isinstance(status_override, str):
                     status_normalized = status_override.strip().lower()
                     if status_normalized not in {"open", "closed"}:
-                        raise ValueError(f"status must be 'open' or 'closed', got: {status_normalized}")
+                        raise ValueError(
+                            f"status must be 'open' or 'closed', got: {status_normalized}"
+                        )
                 else:
                     status_normalized = self._derive_status(row)
 
@@ -337,16 +335,24 @@ class TaxLotService:
                                 "note": "cost_per_share recalculated; provide cost_basis to update total_cost",
                             },
                         )
-                    cost_per_share = (
-                        new_cost / new_quantity if new_quantity else Decimal("0")
-                    )
+                    cost_per_share = new_cost / new_quantity if new_quantity else Decimal("0")
                     set_clauses.append("cost_per_share = %s")
                     values.append(cost_per_share)
                 if "acquisition_date" in updates:
                     if not isinstance(new_acquired_at, datetime):
-                        raise ValueError(f"acquisition_date must be datetime, got {type(new_acquired_at)}")
+                        raise ValueError(
+                            f"acquisition_date must be datetime, got {type(new_acquired_at)}"
+                        )
                     set_clauses.append("acquired_at = %s")
                     values.append(new_acquired_at)
+                # Only update status if a valid string was provided (ignore null/non-string values)
+                # Update remaining_quantity when quantity changes
+                if "quantity" in updates and "status" not in updates:
+                    # Cap remaining_quantity to new quantity if it exceeds
+                    current_remaining = _to_decimal(row.get("remaining_quantity", new_quantity))
+                    remaining_quantity = min(current_remaining, new_quantity)
+                    set_clauses.append("remaining_quantity = %s")
+                    values.append(remaining_quantity)
                 # Only update status if a valid string was provided (ignore null/non-string values)
                 if "status" in updates and isinstance(status_override, str):
                     set_clauses.append("remaining_quantity = %s")
@@ -470,7 +476,9 @@ class TaxLotService:
 
         quantity_value = row.get("quantity")
 
-        strategy_id_raw = strategy_override if strategy_override is not None else row.get("strategy_id")
+        strategy_id_raw = (
+            strategy_override if strategy_override is not None else row.get("strategy_id")
+        )
         # Defensive: convert "None" string to actual None
         strategy_id = None if strategy_id_raw in (None, "None", "") else str(strategy_id_raw)
         status = (

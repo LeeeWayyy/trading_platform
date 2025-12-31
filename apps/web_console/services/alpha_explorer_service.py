@@ -166,12 +166,16 @@ class AlphaExplorerService:
         """
         metadata = self._registry.get_model_by_id(signal_id)
         if not metadata:
-            return pl.DataFrame(schema={"horizon": pl.Int64, "ic": pl.Float64, "rank_ic": pl.Float64})
+            return pl.DataFrame(
+                schema={"horizon": pl.Int64, "ic": pl.Float64, "rank_ic": pl.Float64}
+            )
 
         backtest_result = self._load_backtest_result(metadata)
 
         if backtest_result is None:
-            return pl.DataFrame(schema={"horizon": pl.Int64, "ic": pl.Float64, "rank_ic": pl.Float64})
+            return pl.DataFrame(
+                schema={"horizon": pl.Int64, "ic": pl.Float64, "rank_ic": pl.Float64}
+            )
 
         return backtest_result.decay_curve
 
@@ -198,7 +202,9 @@ class AlphaExplorerService:
                 .sort("date")
             )
             display_name = metadata.parameters.get("name", sid)
-            signals_data[display_name] = daily_mean
+            # Append model_id to prevent duplicate signal names from overwriting
+            unique_key = f"{display_name}_{sid[:8]}"
+            signals_data[unique_key] = daily_mean
 
         # Return empty DataFrame with schema on insufficient data
         empty_corr = pl.DataFrame(schema={"signal": pl.Utf8})
@@ -228,7 +234,9 @@ class AlphaExplorerService:
         """
         display_name = metadata.parameters.get("name", metadata.model_id)
 
-        backtest_job_id = metadata.parameters.get("backtest_job_id") if metadata.parameters else None
+        backtest_job_id = (
+            metadata.parameters.get("backtest_job_id") if metadata.parameters else None
+        )
 
         return SignalSummary(
             signal_id=metadata.model_id,
@@ -288,8 +296,16 @@ class AlphaExplorerService:
             pool = get_sync_db_pool()
             storage = BacktestResultStorage(pool)
             return storage.get_result(job_id)
+        except (OSError, ValueError) as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Failed to load backtest result for job_id=%s: %s", job_id, exc
+            )
+            return None
         except Exception:
             import logging
+            import psycopg
 
             logging.getLogger(__name__).warning(
                 "Failed to load backtest result for job_id=%s", job_id

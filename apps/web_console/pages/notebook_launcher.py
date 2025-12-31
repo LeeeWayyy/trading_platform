@@ -42,7 +42,7 @@ def main() -> None:
 
     try:
         templates = service.list_templates()
-    except Exception as exc:
+    except (PermissionError, ValueError, RuntimeError) as exc:
         st.error(f"Failed to load notebook templates: {exc}")
         return
 
@@ -69,7 +69,7 @@ def main() -> None:
 
     try:
         sessions = service.list_sessions(include_stopped=False)
-    except Exception as exc:
+    except (PermissionError, ValueError, RuntimeError) as exc:
         st.error(f"Failed to load active sessions: {exc}")
         return
 

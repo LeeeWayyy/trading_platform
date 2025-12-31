@@ -48,11 +48,23 @@ def render_report_history_table(
             cols[5].write("Unavailable")
             continue
 
+        # Determine file format from run data or default to PDF
+        file_format = run.__dict__.get("format", "pdf").lower()
+        if file_format == "html":
+            file_name = f"report_{run.run_key}.html"
+            mime_type = "text/html"
+        elif file_format == "pdf":
+            file_name = f"report_{run.run_key}.pdf"
+            mime_type = "application/pdf"
+        else:
+            file_name = f"report_{run.run_key}.{file_format}"
+            mime_type = "application/octet-stream"
+
         cols[5].download_button(
             "Download",
             data=archive_bytes,
-            file_name=f"report_{run.run_key}.pdf",
-            mime="application/pdf",
+            file_name=file_name,
+            mime=mime_type,
             key=f"download_{run.id}",
         )
 

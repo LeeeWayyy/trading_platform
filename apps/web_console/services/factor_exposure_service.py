@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
@@ -180,9 +181,9 @@ class FactorExposureService:
                         continue
 
                     # Portfolio exposure is weight-averaged z-score across holdings.
-                    portfolio_exposure = (
-                        merged.select((pl.col("weight") * pl.col("zscore")).sum()).item()
-                    )
+                    portfolio_exposure = merged.select(
+                        (pl.col("weight") * pl.col("zscore")).sum()
+                    ).item()
                     results.append(
                         {
                             "date": current_date,
@@ -196,9 +197,7 @@ class FactorExposureService:
         exposures_df = (
             pl.DataFrame(results)
             if results
-            else pl.DataFrame(
-                schema={"date": pl.Date, "factor": pl.Utf8, "exposure": pl.Float64}
-            )
+            else pl.DataFrame(schema={"date": pl.Date, "factor": pl.Utf8, "exposure": pl.Float64})
         )
 
         return ExposureData(
@@ -305,12 +304,9 @@ class FactorExposureService:
             ]
         )
 
-        return (
-            stock_exposures.with_columns(
-                (pl.col("weight") * pl.col("exposure")).alias("contribution")
-            )
-            .sort("contribution", descending=True)
-        )
+        return stock_exposures.with_columns(
+            (pl.col("weight") * pl.col("exposure")).alias("contribution")
+        ).sort("contribution", descending=True)
 
     def _get_portfolio_holdings(
         self,
@@ -377,7 +373,7 @@ class FactorExposureService:
                 return None
 
             data: list[dict[str, Any]] = []
-            total_abs_value = 0.0
+            total_abs_value = Decimal("0")
 
             for row in rows:
                 qty = row["qty"] or 0
@@ -391,7 +387,7 @@ class FactorExposureService:
                     )
                     continue
 
-                market_value = float(qty) * float(current_price)
+                market_value = Decimal(str(qty)) * Decimal(str(current_price))
                 # Use absolute market value for scaling, but preserve sign in weights.
                 abs_value = abs(market_value)
                 total_abs_value += abs_value
@@ -403,7 +399,7 @@ class FactorExposureService:
                     }
                 )
 
-            if total_abs_value == 0:
+            if total_abs_value == Decimal("0"):
                 return None
 
             storage_path = Path("data/wrds/crsp/daily")
@@ -414,11 +410,12 @@ class FactorExposureService:
             for row_data in data:
                 try:
                     permno = crsp.ticker_to_permno(row_data["symbol"], as_of_date)
+                    weight = row_data["market_value"] / total_abs_value
                     result.append(
                         {
                             "permno": permno,
                             "symbol": row_data["symbol"],
-                            "weight": row_data["market_value"] / total_abs_value,
+                            "weight": float(weight),
                         }
                     )
                 except DataNotFoundError:

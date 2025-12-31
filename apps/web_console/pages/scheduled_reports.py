@@ -146,7 +146,10 @@ def main() -> None:
 
         def _download(run_id: str) -> bytes | None:
             path = run_async(service.download_archive(run_id))
-            return path.read_bytes() if path else None
+            if not path:
+                return None
+            with open(path, "rb") as f:
+                return f.read()
 
         render_report_history_table(runs, on_download=_download)
 

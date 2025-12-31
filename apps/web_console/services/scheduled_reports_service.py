@@ -371,9 +371,7 @@ class ScheduledReportsService:
         if not file_path_raw:
             return None
 
-        report_output_dir = Path(
-            os.getenv("REPORT_OUTPUT_DIR", "artifacts/reports")
-        ).resolve()
+        report_output_dir = Path(os.getenv("REPORT_OUTPUT_DIR", "artifacts/reports")).resolve()
         try:
             file_path = Path(file_path_raw).expanduser().resolve()
         except (OSError, RuntimeError) as exc:
@@ -430,24 +428,8 @@ class ScheduledReportsService:
         cron_value = config.get("cron") or config.get("cron_expression")
         params = config.get("params") or {}
 
-        recipients_raw = row.get("recipients") or []
-        strategies_raw = row.get("strategies") or []
-
-        if isinstance(recipients_raw, str):
-            try:
-                recipients = json.loads(recipients_raw)
-            except json.JSONDecodeError:
-                recipients = []
-        else:
-            recipients = list(recipients_raw)
-
-        if isinstance(strategies_raw, str):
-            try:
-                strategies = json.loads(strategies_raw)
-            except json.JSONDecodeError:
-                strategies = []
-        else:
-            strategies = list(strategies_raw)
+        recipients = self._parse_json_list(row.get("recipients"))
+        strategies = self._parse_json_list(row.get("strategies"))
 
         return ReportSchedule(
             id=str(row["id"]),
@@ -464,6 +446,19 @@ class ScheduledReportsService:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    @staticmethod
+    def _parse_json_list(value: Any) -> list[Any]:
+        """Parse a JSON string or list into a list."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return list(parsed) if isinstance(parsed, list) else []
+            except json.JSONDecodeError:
+                return []
+        return list(value) if hasattr(value, '__iter__') else []
 
 
 __all__ = [
