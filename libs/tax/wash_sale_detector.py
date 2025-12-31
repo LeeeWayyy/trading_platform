@@ -7,6 +7,21 @@ disallowed and added to the cost basis of the replacement shares.
 References:
 - IRS Publication 550: https://www.irs.gov/publications/p550
 - 61-day window: 30 days before + sale day + 30 days after
+
+KNOWN LIMITATIONS (for MVP scope):
+1. Same-symbol matching only: Does not detect "substantially identical"
+   securities (e.g., GOOG vs GOOGL, options on underlying stock).
+2. Open replacement lots only: Replacement lots that have been fully sold
+   (remaining_quantity = 0) are excluded from wash sale detection. Per IRS
+   rules, wash sales technically apply even if replacement shares are sold,
+   but implementing retroactive adjustment propagation to closed dispositions
+   is complex. This may result in under-reporting of wash sales.
+3. No cross-account detection: Only detects wash sales within single user.
+
+TODO: Future enhancement to support closed replacement lots would require:
+- Tracking all dispositions of replacement lots
+- Retroactively adjusting realized gain/loss on those dispositions
+- Handling cascading wash sales (replacement lot sold at loss)
 """
 
 from __future__ import annotations

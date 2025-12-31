@@ -206,7 +206,8 @@ class NotebookLauncherService:
         try:
             os.kill(session.process_id, signal.SIGTERM)
             # Keep status as STOPPING - get_session_status will mark STOPPED
-            # once process is confirmed dead (handles stubborn processes)
+            # once process is confirmed dead. If process ignores SIGTERM,
+            # caller should use force_terminate_session after timeout.
             return True
         except ProcessLookupError:
             # Process already dead
@@ -219,6 +220,87 @@ class NotebookLauncherService:
             session.updated_at = datetime.now(UTC)
             logger.exception(
                 "notebook_terminate_failed",
+                extra={
+                    "session_id": session_id,
+                    "process_id": session.process_id,
+                    "user_id": self._user.get("user_id"),
+                },
+            )
+            return False
+
+    def force_terminate_session(self, session_id: str) -> bool:
+        """Force terminate a session with SIGKILL.
+
+        Use this when a session is stuck in STOPPING state after SIGTERM.
+        SIGKILL cannot be ignored by the process.
+
+        Safety: Only sends SIGKILL if session is in STOPPING state (SIGTERM
+        was already sent) and process is still alive. This mitigates PID
+        reuse risk where a crashed process's PID is reassigned to another.
+
+        Args:
+            session_id: Session to force terminate.
+
+        Returns:
+            True if session was force terminated or already stopped.
+        """
+        self._require_permission()
+
+        session = self._sessions.get(session_id)
+        if session is None:
+            return False
+
+        if session.status == SessionStatus.STOPPED:
+            return True  # Already stopped
+
+        if session.process_id is None:
+            session.status = SessionStatus.STOPPED
+            session.updated_at = datetime.now(UTC)
+            return True
+
+        # Safety: Only force-terminate if already in STOPPING state (SIGTERM sent)
+        # This reduces PID reuse risk - we only SIGKILL processes we already signaled
+        if session.status != SessionStatus.STOPPING:
+            logger.warning(
+                "notebook_force_terminate_rejected",
+                extra={
+                    "session_id": session_id,
+                    "current_status": session.status.value,
+                    "reason": "Must call terminate_session first (SIGTERM before SIGKILL)",
+                },
+            )
+            return False
+
+        # Verify process is still alive before sending SIGKILL
+        if not self._is_process_alive(session.process_id):
+            session.status = SessionStatus.STOPPED
+            session.updated_at = datetime.now(UTC)
+            return True
+
+        try:
+            os.kill(session.process_id, signal.SIGKILL)
+            session.status = SessionStatus.STOPPED
+            session.updated_at = datetime.now(UTC)
+            logger.info(
+                "notebook_force_terminated",
+                extra={
+                    "session_id": session_id,
+                    "process_id": session.process_id,
+                    "user_id": self._user.get("user_id"),
+                },
+            )
+            return True
+        except ProcessLookupError:
+            # Process already dead
+            session.status = SessionStatus.STOPPED
+            session.updated_at = datetime.now(UTC)
+            return True
+        except Exception as exc:  # pragma: no cover - defensive
+            session.status = SessionStatus.ERROR
+            session.error_message = f"Force terminate failed: {exc}"
+            session.updated_at = datetime.now(UTC)
+            logger.exception(
+                "notebook_force_terminate_failed",
                 extra={
                     "session_id": session_id,
                     "process_id": session.process_id,

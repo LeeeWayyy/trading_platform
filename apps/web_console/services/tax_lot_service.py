@@ -323,6 +323,20 @@ class TaxLotService:
                     set_clauses.append("total_cost = %s")
                     values.append(new_cost)
                 if "quantity" in updates or "cost_basis" in updates:
+                    # When quantity changes without cost_basis, total_cost is preserved
+                    # and cost_per_share is recalculated. This maintains the total_cost
+                    # invariant but may not be the intended behavior.
+                    if "quantity" in updates and "cost_basis" not in updates:
+                        logger.warning(
+                            "tax_lot_quantity_updated_without_cost_basis",
+                            extra={
+                                "lot_id": str(lot_id),
+                                "old_quantity": str(current_quantity),
+                                "new_quantity": str(new_quantity),
+                                "total_cost_preserved": str(current_cost),
+                                "note": "cost_per_share recalculated; provide cost_basis to update total_cost",
+                            },
+                        )
                     cost_per_share = (
                         new_cost / new_quantity if new_quantity else Decimal("0")
                     )

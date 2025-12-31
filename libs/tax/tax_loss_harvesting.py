@@ -35,9 +35,16 @@ logger = logging.getLogger(__name__)
 # Default minimum loss to consider for harvesting
 DEFAULT_MIN_LOSS_THRESHOLD = Decimal("100")
 
-# Tax rates for estimation (simplified)
-SHORT_TERM_TAX_RATE = Decimal("0.35")  # Ordinary income rate
-LONG_TERM_TAX_RATE = Decimal("0.15")  # Capital gains rate
+# ILLUSTRATIVE tax rates for estimation purposes only.
+# These are example rates and do NOT represent actual tax liability.
+# They do NOT account for:
+# - State/local taxes
+# - Individual tax bracket (actual rates vary by income)
+# - Net Investment Income Tax (3.8%)
+# - AMT considerations
+# Users should consult a tax professional for accurate calculations.
+SHORT_TERM_TAX_RATE = Decimal("0.35")  # Example ordinary income rate
+LONG_TERM_TAX_RATE = Decimal("0.15")  # Example capital gains rate
 
 
 @dataclass(frozen=True)
@@ -78,13 +85,14 @@ class HarvestingRecommendation:
     Attributes:
         opportunities: List of potential harvesting opportunities.
         total_harvestable_loss: Total loss available to harvest (excludes wash sale risks).
-        estimated_tax_savings: Estimated tax savings from harvesting.
+        estimated_tax_savings: ILLUSTRATIVE estimate using example rates (35%/15%).
+            Does NOT represent actual tax liability. Consult a tax professional.
         warnings: List of warning messages (e.g., missing prices).
     """
 
     opportunities: list[HarvestingOpportunity]
     total_harvestable_loss: Decimal
-    estimated_tax_savings: Decimal
+    estimated_tax_savings: Decimal  # Illustrative estimate only
     warnings: list[str]
 
 
