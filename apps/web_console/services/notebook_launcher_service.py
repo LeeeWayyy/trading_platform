@@ -389,9 +389,7 @@ class NotebookLauncherService:
                 "NOTEBOOK_SESSION_ID": session.session_id,
                 "NOTEBOOK_TOKEN": session.token or "",
                 "NOTEBOOK_PORT": str(session.port or ""),
-                "NOTEBOOK_PARAMETERS": json.dumps(
-                    session.parameters, default=self._json_default
-                ),
+                "NOTEBOOK_PARAMETERS": json.dumps(session.parameters, default=self._json_default),
                 "NOTEBOOK_LAUNCH_COMMAND": " ".join(command),
             }
         )

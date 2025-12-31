@@ -305,7 +305,6 @@ class AlphaExplorerService:
             return None
         except Exception:
             import logging
-            import psycopg
 
             logging.getLogger(__name__).warning(
                 "Failed to load backtest result for job_id=%s", job_id

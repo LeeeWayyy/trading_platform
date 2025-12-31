@@ -328,7 +328,9 @@ class WashSaleDetector:
                         (loss_disposition_id, match.replacement_lot_id),
                     )
                     existing = await cur.fetchone()
-                    old_disallowed = Decimal(str(existing["disallowed_loss"])) if existing else Decimal(0)
+                    old_disallowed = (
+                        Decimal(str(existing["disallowed_loss"])) if existing else Decimal(0)
+                    )
                     delta_disallowed = match.disallowed_loss - old_disallowed
 
                     # Insert/update per-lot adjustment into junction table for audit trail.

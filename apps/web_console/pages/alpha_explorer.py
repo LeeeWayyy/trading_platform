@@ -150,9 +150,7 @@ def main() -> None:
         multi_select = st.multiselect(
             "Select Signals", options=signal_names, default=[selected.display_name]
         )
-        selected_ids = [
-            s.signal_id for s in signals if s.display_name in set(multi_select)
-        ]
+        selected_ids = [s.signal_id for s in signals if s.display_name in set(multi_select)]
         if len(selected_ids) < 2:
             st.info("Select at least two signals to view correlation matrix")
         else:

@@ -48,6 +48,7 @@ class ReportRun:
     started_at: datetime | None
     completed_at: datetime | None
     error_message: str | None
+    format: str = "pdf"
 
 
 class ScheduledReportsService:
@@ -452,13 +453,18 @@ class ScheduledReportsService:
         """Parse a JSON string or list into a list."""
         if value is None:
             return []
+        if isinstance(value, list):
+            return value
         if isinstance(value, str):
             try:
                 parsed = json.loads(value)
-                return list(parsed) if isinstance(parsed, list) else []
+                return parsed if isinstance(parsed, list) else []
             except json.JSONDecodeError:
                 return []
-        return list(value) if hasattr(value, '__iter__') else []
+        # For other iterables (not string)
+        if hasattr(value, "__iter__"):
+            return list(value)
+        return []
 
 
 __all__ = [

@@ -61,9 +61,7 @@ def render_heatmap(df: pl.DataFrame) -> None:
             ],
             zmid=0,
             colorbar={"title": "Exposure"},
-            hovertemplate=(
-                "Factor: %{y}<br>Date: %{x}<br>Exposure: %{z:.3f}<extra></extra>"
-            ),
+            hovertemplate=("Factor: %{y}<br>Date: %{x}<br>Exposure: %{z:.3f}<extra></extra>"),
         )
     )
 

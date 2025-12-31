@@ -101,14 +101,10 @@ def test_get_portfolio_exposures_weighted(mock_service: FactorExposureService) -
     assert result.exposures.height == 2
 
     momentum = (
-        result.exposures.filter(pl.col("factor") == "momentum_12_1")
-        .select("exposure")
-        .item()
+        result.exposures.filter(pl.col("factor") == "momentum_12_1").select("exposure").item()
     )
     book_to_market = (
-        result.exposures.filter(pl.col("factor") == "book_to_market")
-        .select("exposure")
-        .item()
+        result.exposures.filter(pl.col("factor") == "book_to_market").select("exposure").item()
     )
 
     assert pytest.approx(momentum, rel=1e-6) == 1.4

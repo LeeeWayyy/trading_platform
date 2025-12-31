@@ -102,9 +102,7 @@ def main() -> None:
         st.error("Database connection unavailable. Set DATABASE_URL.")
         return
 
-    st.warning(
-        "Positions are global (no strategy_id). Exposure views require VIEW_ALL_POSITIONS."
-    )
+    st.warning("Positions are global (no strategy_id). Exposure views require VIEW_ALL_POSITIONS.")
 
     service = _init_service(user)
 

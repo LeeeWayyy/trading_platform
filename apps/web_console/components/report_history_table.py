@@ -49,7 +49,7 @@ def render_report_history_table(
             continue
 
         # Determine file format from run data or default to PDF
-        file_format = run.__dict__.get("format", "pdf").lower()
+        file_format = getattr(run, "format", "pdf").lower()
         if file_format == "html":
             file_name = f"report_{run.run_key}.html"
             mime_type = "text/html"

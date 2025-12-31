@@ -63,7 +63,7 @@ class FactorAnalysisService:
                     exp_df = result.exposures.select(
                         pl.col("permno"),
                         pl.lit(factor_name).alias("factor"),
-                        pl.col("zscore").alias("exposure")
+                        pl.col("zscore").alias("exposure"),
                     )
                     stock_exposures_list.append(exp_df)
                 else:
@@ -80,9 +80,7 @@ class FactorAnalysisService:
         # Left join on portfolio weights ensures we track missing coverage
         joined = all_stock_exposures.join(portfolio_weights, on="permno", how="inner")
 
-        joined = joined.with_columns(
-            (pl.col("exposure") * pl.col("weight")).alias("contribution")
-        )
+        joined = joined.with_columns((pl.col("exposure") * pl.col("weight")).alias("contribution"))
 
         # Aggregated exposure per factor (sum of contributions)
         agg_exposures = joined.group_by("factor").agg(
@@ -90,24 +88,24 @@ class FactorAnalysisService:
         )
 
         # Compute coverage per factor (sum of weights of stocks with valid exposure)
-        coverage = joined.group_by("factor").agg(
-            pl.col("weight").sum().alias("coverage_pct")
-        )
+        coverage = joined.group_by("factor").agg(pl.col("weight").sum().alias("coverage_pct"))
 
         return PortfolioExposureResult(
-            date=as_of_date,
-            exposures=agg_exposures,
-            stock_exposures=joined,
-            coverage=coverage
+            date=as_of_date, exposures=agg_exposures, stock_exposures=joined, coverage=coverage
         )
 
     def _empty_result(self, as_of_date: date) -> PortfolioExposureResult:
         return PortfolioExposureResult(
             date=as_of_date,
             exposures=pl.DataFrame(schema={"factor": pl.Utf8, "exposure": pl.Float64}),
-            stock_exposures=pl.DataFrame(schema={
-                "permno": pl.Int64, "factor": pl.Utf8, "exposure": pl.Float64,
-                "weight": pl.Float64, "contribution": pl.Float64
-            }),
-            coverage=pl.DataFrame(schema={"factor": pl.Utf8, "coverage_pct": pl.Float64})
+            stock_exposures=pl.DataFrame(
+                schema={
+                    "permno": pl.Int64,
+                    "factor": pl.Utf8,
+                    "exposure": pl.Float64,
+                    "weight": pl.Float64,
+                    "contribution": pl.Float64,
+                }
+            ),
+            coverage=pl.DataFrame(schema={"factor": pl.Utf8, "coverage_pct": pl.Float64}),
         )

@@ -173,16 +173,18 @@ class Form8949Exporter:
             writer.writerow(["(Assets held one year or less)"])
             writer.writerow([])
 
-        writer.writerow([
-            "(a) Description",
-            "(b) Date acquired",
-            "(c) Date sold",
-            "(d) Proceeds",
-            "(e) Cost basis",
-            "(f) Code",
-            "(g) Adjustment",
-            "(h) Gain or loss",
-        ])
+        writer.writerow(
+            [
+                "(a) Description",
+                "(b) Date acquired",
+                "(c) Date sold",
+                "(d) Proceeds",
+                "(e) Cost basis",
+                "(f) Code",
+                "(g) Adjustment",
+                "(h) Gain or loss",
+            ]
+        )
 
         for row in rows.get("short_term", []):
             writer.writerow(self._row_to_csv_values(row))
@@ -191,16 +193,22 @@ class Form8949Exporter:
         if rows.get("short_term"):
             short_term_totals = self._calculate_totals(rows["short_term"])
             writer.writerow([])
-            writer.writerow([
-                "TOTALS",
-                "",
-                "",
-                f"{short_term_totals['proceeds']:.2f}",
-                f"{short_term_totals['cost_basis']:.2f}",
-                "",
-                f"{short_term_totals['adjustments']:.2f}" if short_term_totals['adjustments'] else "",
-                f"{short_term_totals['gain_loss']:.2f}",
-            ])
+            writer.writerow(
+                [
+                    "TOTALS",
+                    "",
+                    "",
+                    f"{short_term_totals['proceeds']:.2f}",
+                    f"{short_term_totals['cost_basis']:.2f}",
+                    "",
+                    (
+                        f"{short_term_totals['adjustments']:.2f}"
+                        if short_term_totals["adjustments"]
+                        else ""
+                    ),
+                    f"{short_term_totals['gain_loss']:.2f}",
+                ]
+            )
 
         writer.writerow([])
 
@@ -210,16 +218,18 @@ class Form8949Exporter:
             writer.writerow(["(Assets held more than one year)"])
             writer.writerow([])
 
-        writer.writerow([
-            "(a) Description",
-            "(b) Date acquired",
-            "(c) Date sold",
-            "(d) Proceeds",
-            "(e) Cost basis",
-            "(f) Code",
-            "(g) Adjustment",
-            "(h) Gain or loss",
-        ])
+        writer.writerow(
+            [
+                "(a) Description",
+                "(b) Date acquired",
+                "(c) Date sold",
+                "(d) Proceeds",
+                "(e) Cost basis",
+                "(f) Code",
+                "(g) Adjustment",
+                "(h) Gain or loss",
+            ]
+        )
 
         for row in rows.get("long_term", []):
             writer.writerow(self._row_to_csv_values(row))
@@ -228,16 +238,22 @@ class Form8949Exporter:
         if rows.get("long_term"):
             long_term_totals = self._calculate_totals(rows["long_term"])
             writer.writerow([])
-            writer.writerow([
-                "TOTALS",
-                "",
-                "",
-                f"{long_term_totals['proceeds']:.2f}",
-                f"{long_term_totals['cost_basis']:.2f}",
-                "",
-                f"{long_term_totals['adjustments']:.2f}" if long_term_totals['adjustments'] else "",
-                f"{long_term_totals['gain_loss']:.2f}",
-            ])
+            writer.writerow(
+                [
+                    "TOTALS",
+                    "",
+                    "",
+                    f"{long_term_totals['proceeds']:.2f}",
+                    f"{long_term_totals['cost_basis']:.2f}",
+                    "",
+                    (
+                        f"{long_term_totals['adjustments']:.2f}"
+                        if long_term_totals["adjustments"]
+                        else ""
+                    ),
+                    f"{long_term_totals['gain_loss']:.2f}",
+                ]
+            )
 
         return output.getvalue()
 
@@ -260,16 +276,20 @@ class Form8949Exporter:
 
         for period in ["short_term", "long_term"]:
             for row in rows.get(period, []):
-                result[period].append({
-                    "description": row.description,
-                    "date_acquired": row.date_acquired.isoformat(),
-                    "date_sold": row.date_sold.isoformat(),
-                    "proceeds": str(row.proceeds),
-                    "cost_basis": str(row.cost_basis),
-                    "adjustment_code": row.adjustment_code,
-                    "adjustment_amount": str(row.adjustment_amount) if row.adjustment_amount else None,
-                    "gain_or_loss": str(row.gain_or_loss),
-                })
+                result[period].append(
+                    {
+                        "description": row.description,
+                        "date_acquired": row.date_acquired.isoformat(),
+                        "date_sold": row.date_sold.isoformat(),
+                        "proceeds": str(row.proceeds),
+                        "cost_basis": str(row.cost_basis),
+                        "adjustment_code": row.adjustment_code,
+                        "adjustment_amount": (
+                            str(row.adjustment_amount) if row.adjustment_amount else None
+                        ),
+                        "gain_or_loss": str(row.gain_or_loss),
+                    }
+                )
 
         return result
 

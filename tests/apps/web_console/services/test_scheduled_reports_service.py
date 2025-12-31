@@ -399,9 +399,7 @@ async def test_get_run_history_returns_entries_for_owner() -> None:
     conn.cursor = cursor_cm
     pool = MockAsyncPool(conn)
 
-    service = ScheduledReportsService(
-        db_pool=pool, user=make_user("user-owner", Role.VIEWER)
-    )
+    service = ScheduledReportsService(db_pool=pool, user=make_user("user-owner", Role.VIEWER))
 
     runs = await service.get_run_history("schedule-owner")
 
@@ -446,9 +444,7 @@ async def test_get_run_history_returns_empty_for_other_users_schedule() -> None:
     pool = MockAsyncPool(conn)
 
     # VIEWER has VIEW_REPORTS but not MANAGE_REPORTS
-    service = ScheduledReportsService(
-        db_pool=pool, user=make_user("requesting-user", Role.VIEWER)
-    )
+    service = ScheduledReportsService(db_pool=pool, user=make_user("requesting-user", Role.VIEWER))
 
     # Returns empty list instead of PermissionError to prevent oracle attack
     result = await service.get_run_history("other-users-schedule")

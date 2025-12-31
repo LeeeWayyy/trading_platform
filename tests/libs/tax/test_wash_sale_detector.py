@@ -21,7 +21,9 @@ from libs.tax.wash_sale_detector import (
 class MockAsyncCursor:
     """Mock async cursor for psycopg-style usage."""
 
-    def __init__(self, *, rows: list[dict[str, Any]] | None = None, row: dict[str, Any] | None = None):
+    def __init__(
+        self, *, rows: list[dict[str, Any]] | None = None, row: dict[str, Any] | None = None
+    ):
         self._rows = rows or []
         self._row = row
         self._fetchone_calls = 0
@@ -90,7 +92,9 @@ class _MockConnCM:
 def make_pool():
     """Factory for creating mock pool with specified rows."""
 
-    def _make(rows: list[dict[str, Any]] | None = None, row: dict[str, Any] | None = None) -> MockAsyncPool:
+    def _make(
+        rows: list[dict[str, Any]] | None = None, row: dict[str, Any] | None = None
+    ) -> MockAsyncPool:
         cursor = MockAsyncCursor(rows=rows, row=row)
         conn = MockAsyncConnection(cursor)
         return MockAsyncPool(conn)

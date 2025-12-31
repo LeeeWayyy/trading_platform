@@ -112,10 +112,10 @@ class EmailChannel(BaseChannel):
             )
 
         if attachments:
-             logger.warning(
-                 "SendGrid fallback does not support attachments yet, sending without attachments",
-                 extra={"recipient": masked}
-             )
+            logger.warning(
+                "SendGrid fallback does not support attachments yet, sending without attachments",
+                extra={"recipient": masked},
+            )
 
         sendgrid_result = await self._send_sendgrid(recipient, subject, body)
         if sendgrid_result.success:
@@ -136,11 +136,7 @@ class EmailChannel(BaseChannel):
         return sendgrid_result
 
     def _build_message(
-        self,
-        recipient: str,
-        subject: str,
-        body: str,
-        attachments: list[str] | None = None
+        self, recipient: str, subject: str, body: str, attachments: list[str] | None = None
     ) -> EmailMessage:
         message = EmailMessage()
         message["From"] = self.from_email
@@ -167,10 +163,7 @@ class EmailChannel(BaseChannel):
                 try:
                     file_data = path.read_bytes()
                     message.add_attachment(
-                        file_data,
-                        maintype=maintype,
-                        subtype=subtype,
-                        filename=path.name
+                        file_data, maintype=maintype, subtype=subtype, filename=path.name
                     )
                 except Exception as e:
                     logger.error(f"Failed to attach file {path}: {e}")
@@ -178,11 +171,7 @@ class EmailChannel(BaseChannel):
         return message
 
     async def _send_smtp(
-        self,
-        recipient: str,
-        subject: str,
-        body: str,
-        attachments: list[str] | None = None
+        self, recipient: str, subject: str, body: str, attachments: list[str] | None = None
     ) -> DeliveryResult:
         message = self._build_message(recipient, subject, body, attachments)
         masked = mask_recipient(recipient, self.channel_type)

@@ -21,9 +21,7 @@ def render_active_sessions_table(
 
     if not sessions:
         st.info("No active notebook sessions.")
-        empty = pd.DataFrame(
-            columns=["Session ID", "Template", "Status", "Access URL", "Action"]
-        )
+        empty = pd.DataFrame(columns=["Session ID", "Template", "Status", "Access URL", "Action"])
         st.dataframe(empty, use_container_width=True)
         return
 
