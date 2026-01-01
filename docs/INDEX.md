@@ -106,6 +106,7 @@ Step-by-step procedures for development workflows:
 - [CURRENT, 2025-11-21, Workflow] [03-reviews.md](./AI/Workflows/03-reviews.md) - Zen-mcp comprehensive reviews: independent Gemini + Codex reviews for all commits and PRs
 - [CURRENT, 2025-10-21, Workflow] [04-development.md](./AI/Workflows/04-development.md) - Test execution, debugging procedures, and documentation writing
 - [CURRENT, 2025-10-18, Workflow] [05-operations.md](./AI/Workflows/05-operations.md) - Operations: ADRs, deployment, CI triage, environment setup, phase/task management
+- [CURRENT, 2025-12-31, Workflow] [06-repomix.md](./AI/Workflows/06-repomix.md) - Repomix integration for AI-optimized codebase analysis and context generation
 - [CURRENT, 2025-10-29, Workflow] [08-session-management.md](./AI/Workflows/08-session-management.md) - Auto-resume from task state and task state tracking
 - [CURRENT, 2025-11-01, Workflow] [16-pr-review-comment-check.md](./AI/Workflows/16-pr-review-comment-check.md) - Systematic PR review comment addressing
 - [CURRENT, 2025-11-15, Workflow] [16-subagent-delegation.md](./AI/Workflows/16-subagent-delegation.md) - Context monitoring and subagent delegation at 70%+ usage
@@ -787,6 +788,6 @@ Example: `- [CURRENT, 2025-01-15, Standard] [CODING_STANDARDS.md](./STANDARDS/CO
 
 ---
 
-**Last Updated:** 2025-10-31
+**Last Updated:** 2025-12-31
 **Maintained By:** Development Team
 **Format Version:** 1.2 (Added metadata, Quick Links, Update Policy - P1T13)

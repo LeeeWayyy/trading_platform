@@ -249,7 +249,7 @@ clean: ## Clean up generated files
 	rm -rf .mypy_cache
 	rm -rf .ruff_cache
 	rm -rf htmlcov
-	rm -rf .coverage
+	rm -rf .coverage*
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 

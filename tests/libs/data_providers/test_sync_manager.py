@@ -287,10 +287,11 @@ class TestIncrementalSync:
         self, sync_manager: SyncManager, test_dirs: dict[str, Path], mock_wrds_client: MagicMock
     ) -> None:
         """Test 30: Incremental sync merges new data with existing data."""
-        # Use current year for the test data
-        today = datetime.date.today()
-        current_year = today.year
-        yesterday = today - datetime.timedelta(days=1)
+        # Use fixed dates in mid-year to avoid year boundary issues
+        # This ensures the test works regardless of when it runs
+        test_year = 2024
+        today = datetime.date(test_year, 6, 15)  # June 15
+        yesterday = datetime.date(test_year, 6, 14)  # June 14
 
         # Register schema for crsp_daily
         sync_manager.schema_registry.register_schema(
@@ -312,7 +313,7 @@ class TestIncrementalSync:
                 "ret": [0.01, -0.02, 0.03],
             }
         )
-        initial_file = storage_dir / f"{current_year}.parquet"
+        initial_file = storage_dir / f"{test_year}.parquet"
         initial_df.write_parquet(initial_file)
 
         # Compute initial checksum
@@ -322,7 +323,7 @@ class TestIncrementalSync:
         initial_manifest = SyncManifest(
             dataset="crsp_daily",
             sync_timestamp=datetime.datetime.now(datetime.UTC),
-            start_date=datetime.date(current_year, 1, 1),
+            start_date=datetime.date(test_year, 1, 1),
             end_date=yesterday,  # Yesterday, triggers incremental for today
             row_count=3,
             checksum=initial_checksum,
@@ -346,8 +347,21 @@ class TestIncrementalSync:
         )
         mock_wrds_client.execute_query.return_value = new_data
 
-        # Call incremental sync
-        result_manifest = sync_manager.incremental_sync("crsp_daily")
+        # Mock datetime.date.today() to return our fixed date
+        # This ensures the test works regardless of when it runs
+        with patch("libs.data_providers.sync_manager.datetime") as mock_datetime:
+            mock_datetime.date.today.return_value = today
+            mock_datetime.datetime.now.return_value = datetime.datetime(
+                test_year, 6, 15, 12, 0, 0, tzinfo=datetime.UTC
+            )
+            mock_datetime.datetime.side_effect = lambda *args, **kwargs: datetime.datetime(
+                *args, **kwargs
+            )
+            mock_datetime.timedelta = datetime.timedelta
+            mock_datetime.UTC = datetime.UTC
+
+            # Call incremental sync
+            result_manifest = sync_manager.incremental_sync("crsp_daily")
 
         # Verify the file was updated with merged data
         result_df = pl.read_parquet(initial_file)

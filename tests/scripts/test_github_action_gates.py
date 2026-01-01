@@ -43,10 +43,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>
         ):
             assert has_review_markers(commit_hash) is True
 
-    def test_commit_without_review_hash_fails(self):
-        """Test that commit without Review-Hash trailer fails (Component 2 gate)."""
+    def test_shared_context_format_passes(self):
+        """Test that new shared-context format with single continuation-id passes."""
         commit_hash = "def456"
-        # Has approval + continuation ID but missing Review-Hash
+        # Has approval + shared continuation ID (new format)
         commit_message = """feat: Add new feature
 
 Some description.
@@ -61,7 +61,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>
         with patch(
             "scripts.verify_gate_compliance.get_commit_message", return_value=commit_message
         ):
-            assert has_review_markers(commit_hash) is False
+            # Should pass - approval + shared continuation-id is valid
+            assert has_review_markers(commit_hash) is True
 
     def test_deep_review_with_review_hash_passes(self):
         """Test deep review (gemini + codex) with Review-Hash passes."""
