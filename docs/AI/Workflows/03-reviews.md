@@ -116,7 +116,7 @@ Using continuation_id: <continuation_id_from_first_reviewer>
 
 [SAME REVIEW PROMPT AS ABOVE]
 
-Build upon shared context but provide your own independent findings.
+Build upon the shared context by adding your own independent findings.
 ```
 
 ### Step 3: Fix ALL Issues

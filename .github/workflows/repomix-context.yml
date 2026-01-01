@@ -39,6 +39,20 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Validate ignore patterns sync
+        run: |
+          # Extract patterns from repomix.config.json and compare with workflow
+          # This prevents configuration drift between local and CI contexts
+          CONFIG_PATTERNS=$(jq -r '.ignore.customPatterns | sort | join(",")' repomix.config.json)
+          WORKFLOW_PATTERNS="*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix-output.*,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json"
+          WORKFLOW_SORTED=$(echo "$WORKFLOW_PATTERNS" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
+          CONFIG_SORTED=$(echo "$CONFIG_PATTERNS" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
+          if [ "$WORKFLOW_SORTED" != "$CONFIG_SORTED" ]; then
+            echo "::warning::Ignore patterns may be out of sync between repomix.config.json and workflow"
+            echo "Config: $CONFIG_SORTED"
+            echo "Workflow: $WORKFLOW_SORTED"
+          fi
+
       - name: Get changed files
         id: changed-files
         if: github.event_name == 'pull_request'
