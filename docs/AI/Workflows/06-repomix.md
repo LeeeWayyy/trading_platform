@@ -112,8 +112,8 @@ Project configuration in `repomix.config.json`:
   },
   "ignore": {
     "customPatterns": [
-      "*.pyc", "__pycache__", ".venv",
-      "artifacts/", "data/", "htmlcov/"
+      "*.pyc", "__pycache__/**", ".venv/**",
+      "artifacts/**", "data/**", "htmlcov/**"
     ]
   },
   "security": {
