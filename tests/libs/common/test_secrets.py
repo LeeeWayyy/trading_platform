@@ -307,9 +307,7 @@ def test_invalid_validation_mode_defaults_to_strict(
 # ============================================================================
 
 
-def test_refresh_secrets_can_be_invoked(
-    monkeypatch: pytest.MonkeyPatch, clean_env: None
-) -> None:
+def test_refresh_secrets_can_be_invoked(monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
     """AC7d Test 4: Rotation hook refresh_secrets() can be invoked."""
     monkeypatch.setenv("SECRETS_VALIDATION_MODE", "strict")
     monkeypatch.setenv("SECRET_BACKEND", "env")
@@ -375,9 +373,7 @@ def test_get_secret_uncached_for_cert_rotation(
     assert path2 == "/new/cert.pem"  # No restart needed
 
 
-def test_invalidate_secret_clears_cache(
-    monkeypatch: pytest.MonkeyPatch, clean_env: None
-) -> None:
+def test_invalidate_secret_clears_cache(monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
     """Rotation: invalidate_secret() clears cache for subsequent reads."""
     monkeypatch.setenv("SECRETS_VALIDATION_MODE", "strict")
     monkeypatch.setenv("SECRET_BACKEND", "env")
@@ -739,9 +735,7 @@ def test_singleton_teardown_closes_manager(
     assert secrets._secret_manager is None
 
 
-def test_singleton_returns_same_instance(
-    monkeypatch: pytest.MonkeyPatch, clean_env: None
-) -> None:
+def test_singleton_returns_same_instance(monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
     """get_secret_manager() returns same instance on repeated calls."""
     monkeypatch.setenv("SECRET_BACKEND", "env")
     monkeypatch.setenv("DEPLOYMENT_ENV", "local")
@@ -793,9 +787,7 @@ def test_value_whitespace_stripping(monkeypatch: pytest.MonkeyPatch, clean_env: 
 # ============================================================================
 
 
-def test_backend_access_error_strict_mode(
-    monkeypatch: pytest.MonkeyPatch, clean_env: None
-) -> None:
+def test_backend_access_error_strict_mode(monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
     """SecretAccessError fails in strict mode."""
     monkeypatch.setenv("SECRETS_VALIDATION_MODE", "strict")
     monkeypatch.setenv("SECRET_BACKEND", "env")

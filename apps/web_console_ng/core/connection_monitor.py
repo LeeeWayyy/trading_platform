@@ -141,15 +141,21 @@ class ConnectionMonitorRegistry:
     def _validate_origin(self, client: Client) -> bool:
         environ = getattr(client, "environ", None)
         if not isinstance(environ, dict):
-            logger.warning("ws_origin_missing_environ", extra={"client_id": getattr(client, "id", None)})
+            logger.warning(
+                "ws_origin_missing_environ", extra={"client_id": getattr(client, "id", None)}
+            )
             return False
 
         origin = environ.get("HTTP_ORIGIN")
         if not origin:
             if self.require_origin:
-                logger.warning("ws_origin_missing", extra={"client_id": getattr(client, "id", None)})
+                logger.warning(
+                    "ws_origin_missing", extra={"client_id": getattr(client, "id", None)}
+                )
                 return False
-            logger.warning("ws_origin_missing_allowed", extra={"client_id": getattr(client, "id", None)})
+            logger.warning(
+                "ws_origin_missing_allowed", extra={"client_id": getattr(client, "id", None)}
+            )
             return True
 
         if "*" in self.allowed_hosts:

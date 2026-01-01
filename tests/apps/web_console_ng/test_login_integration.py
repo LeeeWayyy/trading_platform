@@ -14,12 +14,16 @@ async def test_login_page_redirects_if_logged_in() -> None:
     mock_app = MagicMock()
     # Mock storage.user as a dict
     mock_storage = MagicMock()
-    mock_storage.user.get.side_effect = lambda k: {"session_id": "sess_123", "logged_in": True}.get(k)
+    mock_storage.user.get.side_effect = lambda k: {"session_id": "sess_123", "logged_in": True}.get(
+        k
+    )
     mock_app.storage = mock_storage
 
     # We patch the 'app' object in the login page module
-    with patch("apps.web_console_ng.pages.login.app", mock_app), \
-         patch("nicegui.ui.navigate.to") as mock_navigate:
+    with (
+        patch("apps.web_console_ng.pages.login.app", mock_app),
+        patch("nicegui.ui.navigate.to") as mock_navigate,
+    ):
 
         await login_page()
 
@@ -33,9 +37,11 @@ async def test_login_page_renders_form_if_not_logged_in() -> None:
     mock_storage.user.get.side_effect = lambda k: {}
     mock_app.storage = mock_storage
 
-    with patch("apps.web_console_ng.pages.login.app", mock_app), \
-         patch("nicegui.ui.card") as mock_card, \
-         patch("nicegui.ui.navigate.to") as mock_navigate:
+    with (
+        patch("apps.web_console_ng.pages.login.app", mock_app),
+        patch("nicegui.ui.card") as mock_card,
+        patch("nicegui.ui.navigate.to") as mock_navigate,
+    ):
 
         await login_page()
 
@@ -50,8 +56,10 @@ async def test_mfa_page_redirects_if_no_pending_cookie() -> None:
     mock_storage.user.get.side_effect = lambda k: {}
     mock_app.storage = mock_storage
 
-    with patch("apps.web_console_ng.pages.mfa_verify.app", mock_app), \
-         patch("nicegui.ui.navigate.to") as mock_navigate:
+    with (
+        patch("apps.web_console_ng.pages.mfa_verify.app", mock_app),
+        patch("nicegui.ui.navigate.to") as mock_navigate,
+    ):
 
         await mfa_verify_page()
 

@@ -36,10 +36,16 @@ class OAuth2AuthHandler(AuthProvider):
         self.redis = _redis_from_url(config.REDIS_URL, decode_responses=False)
         self.client_id = getattr(config, "OAUTH2_CLIENT_ID", "mock_client_id")
         self.client_secret = getattr(config, "OAUTH2_CLIENT_SECRET", "mock_secret")
-        self.authorize_url = getattr(config, "OAUTH2_AUTHORIZE_URL", "https://mock.auth0.com/authorize")
+        self.authorize_url = getattr(
+            config, "OAUTH2_AUTHORIZE_URL", "https://mock.auth0.com/authorize"
+        )
         self.token_url = getattr(config, "OAUTH2_TOKEN_URL", "https://mock.auth0.com/oauth/token")
-        self.userinfo_url = getattr(config, "OAUTH2_USERINFO_URL", "https://mock.auth0.com/userinfo")
-        self.callback_url = getattr(config, "OAUTH2_CALLBACK_URL", "http://localhost:8080/auth/callback")
+        self.userinfo_url = getattr(
+            config, "OAUTH2_USERINFO_URL", "https://mock.auth0.com/userinfo"
+        )
+        self.callback_url = getattr(
+            config, "OAUTH2_CALLBACK_URL", "http://localhost:8080/auth/callback"
+        )
         self.issuer = getattr(config, "OAUTH2_ISSUER", "https://mock.auth0.com/")
         self._jwks_cache: dict[str, Any] | None = None
         self._jwks_cache_expires_at = 0.0

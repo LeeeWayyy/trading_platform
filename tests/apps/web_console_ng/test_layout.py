@@ -112,9 +112,13 @@ class _FakeUI:
         to = staticmethod(lambda *_args, **_kwargs: None)
 
 
-async def _run_layout(monkeypatch: pytest.MonkeyPatch, user_role: str, current_path: str) -> _FakeUI:
+async def _run_layout(
+    monkeypatch: pytest.MonkeyPatch, user_role: str, current_path: str
+) -> _FakeUI:
     fake_ui = _FakeUI()
-    storage = SimpleNamespace(user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path)))
+    storage = SimpleNamespace(
+        user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path))
+    )
     fake_app = SimpleNamespace(storage=storage)
 
     monkeypatch.setattr(layout_module, "ui", fake_ui)

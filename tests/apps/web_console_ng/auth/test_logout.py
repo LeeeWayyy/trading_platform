@@ -14,7 +14,11 @@ async def test_logout_clears_session() -> None:
     mock_app = MagicMock()
     # Mock storage.user as a dict-like object that also has a clear method
     mock_user_storage = MagicMock()
-    mock_user_storage.get.side_effect = lambda k: {"session_id": "sess_123", "user_id": "user_abc", "auth_method": "dev"}.get(k)
+    mock_user_storage.get.side_effect = lambda k: {
+        "session_id": "sess_123",
+        "user_id": "user_abc",
+        "auth_method": "dev",
+    }.get(k)
     # Allow dict-style access for other potential uses (though get() is used in implementation)
 
     mock_app.storage.user = mock_user_storage
@@ -28,8 +32,10 @@ async def test_logout_clears_session() -> None:
     request.state.response = response
 
     with patch("apps.web_console_ng.auth.logout.app", mock_app):
-        with patch("apps.web_console_ng.auth.logout.get_session_store") as mock_get_store, \
-             patch("redis.asyncio.from_url") as mock_redis_from_url:
+        with (
+            patch("apps.web_console_ng.auth.logout.get_session_store") as mock_get_store,
+            patch("redis.asyncio.from_url") as mock_redis_from_url,
+        ):
 
             # Mock session store
             mock_store = AsyncMock()
@@ -74,7 +80,7 @@ async def test_logout_oauth2_redirect() -> None:
     mock_user_storage.get.side_effect = lambda k: {
         "session_id": "sess_456",
         "auth_method": "oauth2",
-        "id_token": "id_token_xyz"
+        "id_token": "id_token_xyz",
     }.get(k)
 
     mock_app.storage.user = mock_user_storage
@@ -88,8 +94,10 @@ async def test_logout_oauth2_redirect() -> None:
     request.state.response = response
 
     with patch("apps.web_console_ng.auth.logout.app", mock_app):
-        with patch("apps.web_console_ng.auth.logout.get_session_store") as mock_get_store, \
-             patch("apps.web_console_ng.auth.logout.OAuth2AuthHandler") as MockHandler:
+        with (
+            patch("apps.web_console_ng.auth.logout.get_session_store") as mock_get_store,
+            patch("apps.web_console_ng.auth.logout.OAuth2AuthHandler") as MockHandler,
+        ):
 
             mock_store = AsyncMock()
             mock_get_store.return_value = mock_store

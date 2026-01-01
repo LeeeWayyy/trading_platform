@@ -38,8 +38,10 @@ async def logout_post(request: Request) -> Response:
 
     csrf_header = request.headers.get(CSRF_HEADER_NAME)
     session_csrf = session.get("csrf_token")
-    if not csrf_header or not session_csrf or not hmac.compare_digest(
-        csrf_header, str(session_csrf)
+    if (
+        not csrf_header
+        or not session_csrf
+        or not hmac.compare_digest(csrf_header, str(session_csrf))
     ):
         raise HTTPException(status_code=403, detail="csrf_invalid")
 
@@ -87,9 +89,7 @@ async def perform_logout(
             # Validate session to get user data (for OAuth2 logout)
             client_ip = get_client_ip(request)
             user_agent = request.headers.get("user-agent", "")
-            session = await session_store.validate_session(
-                cookie_value, client_ip, user_agent
-            )
+            session = await session_store.validate_session(cookie_value, client_ip, user_agent)
 
             # Extract session_id from cookie_value for invalidation
             session_id = session_store.verify_cookie(cookie_value)

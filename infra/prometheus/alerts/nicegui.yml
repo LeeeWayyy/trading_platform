@@ -1,0 +1,56 @@
+groups:
+  - name: nicegui
+    rules:
+      - alert: HighWSDisconnectRate
+        expr: |
+          sum by (pod) (rate(nicegui_ws_disconnects_total[5m]))
+          >
+          (avg_over_time(nicegui_ws_connections[5m]) * 0.05)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High WebSocket disconnect rate"
+          description: "Disconnect rate exceeds 5% of active connections"
+
+      - alert: AuthFailureSpike
+        expr: sum by (pod) (rate(nicegui_auth_failures_total[5m])) > 0.1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Authentication failure spike detected"
+          description: "Auth failure rate exceeds 10/min"
+
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, pod) (rate(nicegui_api_latency_seconds_bucket[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 API latency > 500ms"
+          description: "Backend API is responding slowly"
+
+      - alert: RedisLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le, pod) (rate(nicegui_redis_latency_seconds_bucket[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis P99 latency > 50ms"
+          description: "Redis latency is elevated"
+
+      - alert: CircuitBreakerTripped
+        expr: nicegui_circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker tripped"
+          description: "Trading circuit breaker is active"

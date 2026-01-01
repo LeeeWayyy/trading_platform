@@ -39,18 +39,20 @@ _secret_manager_lock = threading.Lock()  # Protects singleton operations
 # Critical secrets that must fail even in warn mode (safety-critical)
 # These secrets cannot be bypassed even with SECRETS_VALIDATION_MODE=warn
 # NOTE: Must be kept in sync with docs/RUNBOOKS/secrets-manifest.md
-CRITICAL_SECRETS = frozenset([
-    "database/url",  # DB connection is always critical
-    "alpaca/api_key_id",  # Trading credentials - never allow empty
-    "alpaca/api_secret_key",  # Trading credentials - never allow empty
-    # "internal_token/secret" - REMOVED: Not used in C7 scope (execution_gateway, signal_service)
-    # Will be added when auth_service/orchestrator are migrated
-    "killswitch/mtls_cert_path",
-    "killswitch/mtls_key_path",
-    "killswitch/ca_cert_path",
-    "killswitch/jwt_signing_key",
-    "killswitch/jwt_verification_key",
-])
+CRITICAL_SECRETS = frozenset(
+    [
+        "database/url",  # DB connection is always critical
+        "alpaca/api_key_id",  # Trading credentials - never allow empty
+        "alpaca/api_secret_key",  # Trading credentials - never allow empty
+        # "internal_token/secret" - REMOVED: Not used in C7 scope (execution_gateway, signal_service)
+        # Will be added when auth_service/orchestrator are migrated
+        "killswitch/mtls_cert_path",
+        "killswitch/mtls_key_path",
+        "killswitch/ca_cert_path",
+        "killswitch/jwt_signing_key",
+        "killswitch/jwt_verification_key",
+    ]
+)
 
 
 def _get_validation_mode() -> str:
@@ -199,7 +201,9 @@ def get_required_secret(name: str) -> str:
             msg = f"Required secret '{name}' is empty or whitespace-only."
             if mode == "strict" or is_critical:
                 raise RuntimeError(msg)
-            logger.warning("secrets_empty_warn", extra={"secret": name, "action": "returning_empty"})
+            logger.warning(
+                "secrets_empty_warn", extra={"secret": name, "action": "returning_empty"}
+            )
             return ""  # Caller must handle empty case
         return value.strip()
     except SecretNotFoundError as e:
@@ -212,7 +216,9 @@ def get_required_secret(name: str) -> str:
         msg = f"Failed to access secret '{name}' (backend error): {e}"
         if mode == "strict" or is_critical:
             raise RuntimeError(msg) from e
-        logger.warning("secrets_access_error_warn", extra={"secret": name, "action": "returning_empty"})
+        logger.warning(
+            "secrets_access_error_warn", extra={"secret": name, "action": "returning_empty"}
+        )
         return ""  # Caller must handle empty case
 
 

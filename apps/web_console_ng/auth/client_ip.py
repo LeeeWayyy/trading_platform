@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 
-from starlette.requests import Request
+from starlette.requests import HTTPConnection
 
 from apps.web_console_ng import config
 
@@ -11,14 +11,13 @@ logger = logging.getLogger(__name__)
 
 # Type alias for trusted proxies (IP or Network)
 TrustedProxy = (
-    ipaddress.IPv4Network
-    | ipaddress.IPv6Network
-    | ipaddress.IPv4Address
-    | ipaddress.IPv6Address
+    ipaddress.IPv4Network | ipaddress.IPv6Network | ipaddress.IPv4Address | ipaddress.IPv6Address
 )
 
 
-def get_client_ip(request: Request, trusted_proxies: list[TrustedProxy] | None = None) -> str:
+def get_client_ip(
+    request: HTTPConnection, trusted_proxies: list[TrustedProxy] | None = None
+) -> str:
     """Extract client IP, trusting X-Forwarded-For only from trusted proxies.
 
     Wrapper around extract_trusted_client_ip for compatibility with middleware.
@@ -34,7 +33,7 @@ def get_client_ip(request: Request, trusted_proxies: list[TrustedProxy] | None =
     return extract_trusted_client_ip(request, proxies)
 
 
-def extract_trusted_client_ip(request: Request, trusted_proxies: list[TrustedProxy]) -> str:
+def extract_trusted_client_ip(request: HTTPConnection, trusted_proxies: list[TrustedProxy]) -> str:
     """Extract client IP, trusting X-Forwarded-For only from trusted proxies.
 
     Args:

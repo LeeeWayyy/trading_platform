@@ -52,13 +52,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         continue
 
                     is_active = current_path == path
-                    active_classes = "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
+                    active_classes = (
+                        "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
+                    )
 
                     with ui.link(target=path).classes(f"nav-link w-full rounded {active_classes}"):
                         with ui.row().classes("items-center gap-3 p-2"):
-                            ui.icon(icon).classes(
-                                "text-blue-600" if is_active else "text-gray-600"
-                            )
+                            ui.icon(icon).classes("text-blue-600" if is_active else "text-gray-600")
                             ui.label(label).classes("text-sm")
 
         # Header

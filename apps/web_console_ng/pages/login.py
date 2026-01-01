@@ -168,17 +168,25 @@ async def login_page() -> None:
 
         # Username/password form
         with ui.column().classes("w-full gap-4") as form_section:
-            username_input = ui.input(
-                label="Username",
-                placeholder="Enter your username",
-            ).classes("w-full").props("outlined")
+            username_input = (
+                ui.input(
+                    label="Username",
+                    placeholder="Enter your username",
+                )
+                .classes("w-full")
+                .props("outlined")
+            )
 
-            password_input = ui.input(
-                label="Password",
-                placeholder="Enter your password",
-                password=True,
-                password_toggle_button=True,
-            ).classes("w-full").props("outlined")
+            password_input = (
+                ui.input(
+                    label="Password",
+                    placeholder="Enter your password",
+                    password=True,
+                    password_toggle_button=True,
+                )
+                .classes("w-full")
+                .props("outlined")
+            )
 
             # Rate limit message
             rate_limit_label = ui.label("").classes("text-orange-500 text-sm hidden")
@@ -269,9 +277,9 @@ async def login_page() -> None:
             ui.button("Sign In", on_click=submit_login).classes("w-full bg-blue-600 text-white")
 
             # Forgot password link (only for basic auth)
-            forgot_password_link = ui.link(
-                "Forgot Password?", target="/forgot-password"
-            ).classes("text-sm text-blue-600 hover:underline mt-2 text-center w-full hidden")
+            forgot_password_link = ui.link("Forgot Password?", target="/forgot-password").classes(
+                "text-sm text-blue-600 hover:underline mt-2 text-center w-full hidden"
+            )
 
         # OAuth2 button section (always create, toggle visibility)
         with ui.column().classes("w-full") as oauth2_section:
@@ -304,12 +312,10 @@ async def login_page() -> None:
                     "text-gray-500 text-sm text-center w-full"
                 )
             else:
-                ui.label("Authenticating via client certificate...").classes(
-                    "text-center w-full"
-                )
-                ui.label("No valid certificate detected. Please ensure your certificate is installed.").classes(
-                    "text-gray-500 text-sm text-center w-full"
-                )
+                ui.label("Authenticating via client certificate...").classes("text-center w-full")
+                ui.label(
+                    "No valid certificate detected. Please ensure your certificate is installed."
+                ).classes("text-gray-500 text-sm text-center w-full")
 
         # Visibility control
         def update_visibility(e: Any = None) -> None:

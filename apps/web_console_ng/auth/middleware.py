@@ -64,9 +64,7 @@ def _validate_mtls_request(request: Request, user_data: dict[str, Any]) -> bool:
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware to validate session on every request."""
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Any]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
         # Skip static files and health check
         if request.url.path.startswith(("/_nicegui", "/health")):
             return cast(Response, await call_next(request))
@@ -98,9 +96,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 class SessionMiddleware(BaseHTTPMiddleware):
     """Middleware to ensure session cookie integrity."""
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Any]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
         return cast(Response, await call_next(request))
 
 
@@ -119,9 +115,7 @@ def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
 
         if not cookie_value:
             # No session cookie - redirect to login
-            app.storage.user["redirect_after_login"] = sanitize_redirect_path(
-                request.url.path
-            )
+            app.storage.user["redirect_after_login"] = sanitize_redirect_path(request.url.path)
             ui.navigate.to("/login")
             return
 
@@ -130,16 +124,12 @@ def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
         client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
         user_agent = request.headers.get("user-agent", "")
 
-        session = await session_store.validate_session(
-            cookie_value, client_ip, user_agent
-        )
+        session = await session_store.validate_session(cookie_value, client_ip, user_agent)
 
         if not session:
             # Session invalid or expired
             app.storage.user.clear()
-            app.storage.user["redirect_after_login"] = sanitize_redirect_path(
-                request.url.path
-            )
+            app.storage.user["redirect_after_login"] = sanitize_redirect_path(request.url.path)
             app.storage.user["login_reason"] = "session_expired"
             ui.navigate.to("/login")
             return
@@ -148,9 +138,7 @@ def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
         user_data = session.get("user", {})
         if config.AUTH_TYPE == "mtls" and not _validate_mtls_request(request, user_data):
             app.storage.user.clear()
-            app.storage.user["redirect_after_login"] = sanitize_redirect_path(
-                request.url.path
-            )
+            app.storage.user["redirect_after_login"] = sanitize_redirect_path(request.url.path)
             app.storage.user["login_reason"] = "session_expired"
             ui.navigate.to("/login")
             return
@@ -183,9 +171,7 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
             cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
 
             if not cookie_value:
-                app.storage.user["redirect_after_login"] = sanitize_redirect_path(
-                    request.url.path
-                )
+                app.storage.user["redirect_after_login"] = sanitize_redirect_path(request.url.path)
                 ui.navigate.to("/login")
                 return
 
@@ -193,15 +179,11 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
             client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
             user_agent = request.headers.get("user-agent", "")
 
-            session = await session_store.validate_session(
-                cookie_value, client_ip, user_agent
-            )
+            session = await session_store.validate_session(cookie_value, client_ip, user_agent)
 
             if not session:
                 app.storage.user.clear()
-                app.storage.user["redirect_after_login"] = sanitize_redirect_path(
-                    request.url.path
-                )
+                app.storage.user["redirect_after_login"] = sanitize_redirect_path(request.url.path)
                 app.storage.user["login_reason"] = "session_expired"
                 ui.navigate.to("/login")
                 return
@@ -209,9 +191,7 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
             user_data = session.get("user", {})
             if config.AUTH_TYPE == "mtls" and not _validate_mtls_request(request, user_data):
                 app.storage.user.clear()
-                app.storage.user["redirect_after_login"] = sanitize_redirect_path(
-                    request.url.path
-                )
+                app.storage.user["redirect_after_login"] = sanitize_redirect_path(request.url.path)
                 app.storage.user["login_reason"] = "session_expired"
                 ui.navigate.to("/login")
                 return

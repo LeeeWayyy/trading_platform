@@ -21,7 +21,9 @@ async def mfa_verify_page() -> None:
 
     with ui.card().classes("absolute-center w-96 p-8"):
         ui.label("Two-Factor Authentication").classes("text-xl font-bold mb-4 w-full text-center")
-        ui.label("Enter the code from your authenticator app.").classes("text-gray-500 text-sm mb-6 w-full text-center")
+        ui.label("Enter the code from your authenticator app.").classes(
+            "text-gray-500 text-sm mb-6 w-full text-center"
+        )
 
         code_input = ui.input("Authentication Code").classes("w-full mb-4").props("outlined")
 

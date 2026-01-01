@@ -12,11 +12,13 @@ def screen_mfa(screen: Screen) -> Screen:
     @ui.page("/mfa-verify")
     def _():
         mfa_verify_page()
+
     return screen
 
 
 def test_mfa_page_rendering(screen_mfa: Screen) -> None:
     """Test that MFA page renders when pending session exists."""
+
     @ui.page("/setup_state")
     def setup():
         app.storage.user["pending_mfa_session"] = "test_pending_session"
@@ -33,6 +35,7 @@ def test_mfa_page_rendering(screen_mfa: Screen) -> None:
 
 def test_mfa_mock_success(screen_mfa: Screen) -> None:
     """Test mock successful verification."""
+
     @ui.page("/setup_state")
     def setup():
         app.storage.user["pending_mfa_session"] = "test_pending_session"
@@ -49,6 +52,7 @@ def test_mfa_mock_success(screen_mfa: Screen) -> None:
 
 def test_mfa_mock_failure(screen_mfa: Screen) -> None:
     """Test mock failed verification."""
+
     @ui.page("/setup_state")
     def setup():
         app.storage.user["pending_mfa_session"] = "test_pending_session"
@@ -65,6 +69,7 @@ def test_mfa_mock_failure(screen_mfa: Screen) -> None:
 
 def test_mfa_access_denied_without_pending_session(screen: Screen) -> None:
     """Test redirect if accessed without pending session."""
+
     @ui.page("/mfa-verify")
     def _():
         mfa_verify_page()

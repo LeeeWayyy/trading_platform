@@ -20,11 +20,49 @@ from typing import Literal, cast
 HOST = os.getenv("WEB_CONSOLE_NG_HOST", "0.0.0.0")
 PORT = int(os.getenv("WEB_CONSOLE_NG_PORT", "8080"))
 DEBUG = os.getenv("WEB_CONSOLE_NG_DEBUG", "false").lower() in {"1", "true", "yes", "on"}
-PAGE_TITLE = os.getenv(
-    "WEB_CONSOLE_NG_PAGE_TITLE", "Trading Platform - Web Console (NiceGUI)"
-)
+PAGE_TITLE = os.getenv("WEB_CONSOLE_NG_PAGE_TITLE", "Trading Platform - Web Console (NiceGUI)")
+POD_NAME = os.getenv("POD_NAME", "nicegui-0")
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Health Check & Observability
+# =============================================================================
+
+HEALTH_CHECK_BACKEND_ENABLED = os.getenv("HEALTH_CHECK_BACKEND_ENABLED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+METRICS_INGRESS_PROTECTED = os.getenv("METRICS_INGRESS_PROTECTED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+INTERNAL_PROBE_TOKEN = os.getenv("INTERNAL_PROBE_TOKEN", "").strip()
+INTERNAL_PROBE_DISABLE_IP_FALLBACK = os.getenv(
+    "INTERNAL_PROBE_DISABLE_IP_FALLBACK", "false"
+).lower() in {"1", "true", "yes", "on"}
+
+# =============================================================================
+# Admission Control / Connection Limits
+# =============================================================================
+
+# Global max WebSocket connections per pod (semaphore-enforced)
+WS_MAX_CONNECTIONS = int(os.getenv("WS_MAX_CONNECTIONS", "1000"))
+
+# Max concurrent connections per authenticated session (Redis-enforced)
+WS_MAX_CONNECTIONS_PER_SESSION = int(os.getenv("WS_MAX_CONNECTIONS_PER_SESSION", "2"))
+
+# TTL for session connection counter keys in Redis (seconds)
+WS_SESSION_CONN_TTL = int(os.getenv("WS_SESSION_CONN_TTL", "3600"))
+
+# Timeout for session validation during WebSocket admission (seconds)
+WS_SESSION_VALIDATION_TIMEOUT = float(os.getenv("WS_SESSION_VALIDATION_TIMEOUT", "2.0"))
 
 # =============================================================================
 # Backend endpoints
@@ -37,6 +75,45 @@ EXECUTION_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:800
 # =============================================================================
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/1")
+
+# Redis Sentinel / HA Configuration
+REDIS_USE_SENTINEL = os.getenv("REDIS_USE_SENTINEL", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+REDIS_MASTER_NAME = os.getenv("REDIS_MASTER_NAME", "nicegui-sessions")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_SENTINEL_PASSWORD = os.getenv("REDIS_SENTINEL_PASSWORD", REDIS_PASSWORD)
+REDIS_POOL_MAX_CONNECTIONS = int(os.getenv("REDIS_POOL_MAX_CONNECTIONS", "200"))
+
+_RAW_SENTINEL_HOSTS = os.getenv("REDIS_SENTINEL_HOSTS", "").strip()
+REDIS_SENTINEL_HOSTS: list[tuple[str, int]] = []
+if _RAW_SENTINEL_HOSTS:
+    for entry in _RAW_SENTINEL_HOSTS.split(","):
+        host, port = entry.strip().split(":")
+        REDIS_SENTINEL_HOSTS.append((host, int(port)))
+else:
+    # Default for local dev if Sentinel enabled but no hosts
+    if REDIS_USE_SENTINEL:
+        REDIS_SENTINEL_HOSTS = [("localhost", 26379)]
+
+# Redis SSL/TLS Configuration
+REDIS_SSL_ENABLED = os.getenv("REDIS_SSL_ENABLED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+REDIS_SENTINEL_SSL_ENABLED = os.getenv(
+    "REDIS_SENTINEL_SSL_ENABLED",
+    "true" if REDIS_SSL_ENABLED else "false",
+).lower() in {"1", "true", "yes", "on"}
+REDIS_SSL_CA_CERTS = os.getenv("REDIS_SSL_CA_CERTS", "")
+REDIS_SSL_CERTFILE = os.getenv("REDIS_SSL_CERTFILE", "")
+REDIS_SSL_KEYFILE = os.getenv("REDIS_SSL_KEYFILE", "")
+REDIS_SSL_CERT_REQS = os.getenv("REDIS_SSL_CERT_REQS", "required").lower()
 
 # =============================================================================
 # Session configuration (timeouts + cookies)
@@ -56,9 +133,7 @@ SESSION_COOKIE_SECURE = os.getenv(
 }
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "lax").lower()
 if SESSION_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
-    raise ValueError(
-        "SESSION_COOKIE_SAMESITE must be one of: lax, strict, none"
-    )
+    raise ValueError("SESSION_COOKIE_SAMESITE must be one of: lax, strict, none")
 SESSION_COOKIE_PATH = os.getenv("SESSION_COOKIE_PATH", "/")
 SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN", "") or None
 SESSION_COOKIE_HTTPONLY = os.getenv("SESSION_COOKIE_HTTPONLY", "true").lower() in {
@@ -67,9 +142,7 @@ SESSION_COOKIE_HTTPONLY = os.getenv("SESSION_COOKIE_HTTPONLY", "true").lower() i
     "yes",
     "on",
 }
-SESSION_COOKIE_NAME = (
-    "__Host-nicegui_session" if SESSION_COOKIE_SECURE else "nicegui_session"
-)
+SESSION_COOKIE_NAME = "__Host-nicegui_session" if SESSION_COOKIE_SECURE else "nicegui_session"
 
 # =============================================================================
 # Device binding + trusted proxies
@@ -84,10 +157,7 @@ DEVICE_BINDING_SUBNET_MASK = int(os.getenv("DEVICE_BINDING_SUBNET_MASK", "24"))
 
 _RAW_TRUSTED_PROXIES = os.getenv("TRUSTED_PROXY_IPS", "").strip()
 TrustedProxy = (
-    ipaddress.IPv4Network
-    | ipaddress.IPv6Network
-    | ipaddress.IPv4Address
-    | ipaddress.IPv6Address
+    ipaddress.IPv4Network | ipaddress.IPv6Network | ipaddress.IPv4Address | ipaddress.IPv6Address
 )
 
 TRUSTED_PROXY_IPS: list[TrustedProxy] = []
@@ -118,6 +188,7 @@ else:
 # Authentication configuration
 # =============================================================================
 
+
 def _load_auth_type() -> Literal["dev", "basic", "mtls", "oauth2"]:
     value = os.getenv("WEB_CONSOLE_AUTH_TYPE", "dev").lower()
     allowed = {"dev", "basic", "mtls", "oauth2"}
@@ -128,7 +199,12 @@ def _load_auth_type() -> Literal["dev", "basic", "mtls", "oauth2"]:
 
 AUTH_TYPE = _load_auth_type()
 # UI flag for login page to show/hide selector
-SHOW_AUTH_TYPE_SELECTOR = os.getenv("SHOW_AUTH_TYPE_SELECTOR", "false").lower() in {"1", "true", "yes", "on"}
+SHOW_AUTH_TYPE_SELECTOR = os.getenv("SHOW_AUTH_TYPE_SELECTOR", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 ALLOW_DEV_BASIC_AUTH = os.getenv("WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH", "false").lower() in {
     "1",
     "true",
@@ -136,9 +212,7 @@ ALLOW_DEV_BASIC_AUTH = os.getenv("WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH", "false").lo
     "on",
 }
 if ALLOW_DEV_BASIC_AUTH:
-    logger.warning(
-        "WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH is enabled; dev credentials are active."
-    )
+    logger.warning("WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH is enabled; dev credentials are active.")
 
 DEV_USER_ID = os.getenv("WEB_CONSOLE_DEV_USER_ID", "dev-user")
 DEV_ROLE = os.getenv("WEB_CONSOLE_DEV_ROLE", "admin")
@@ -158,9 +232,7 @@ AUDIT_LOG_DB_ENABLED = os.getenv(
     "AUDIT_LOG_DB_ENABLED", "true" if not DEBUG else "false"
 ).lower() in {"1", "true", "yes", "on"}
 
-AUDIT_LOG_SINK = os.getenv(
-    "AUDIT_LOG_SINK", "both" if not DEBUG else "log"
-).lower()
+AUDIT_LOG_SINK = os.getenv("AUDIT_LOG_SINK", "both" if not DEBUG else "log").lower()
 if AUDIT_LOG_SINK not in {"log", "db", "both"}:
     raise ValueError("AUDIT_LOG_SINK must be one of: log, db, both")
 
@@ -185,9 +257,7 @@ def _decode_base64_key(value: str, env_name: str) -> bytes:
     except Exception as exc:  # pragma: no cover - defensive
         raise ValueError(f"{env_name} must be base64-encoded: {exc}") from exc
     if len(key_bytes) != 32:
-        raise ValueError(
-            f"{env_name} must decode to 32 bytes (got {len(key_bytes)})"
-        )
+        raise ValueError(f"{env_name} must decode to 32 bytes (got {len(key_bytes)})")
     return key_bytes
 
 
@@ -205,11 +275,7 @@ def get_encryption_keys() -> list[bytes]:
 
     keys = [_decode_base64_key(SESSION_ENCRYPTION_KEY, "SESSION_ENCRYPTION_KEY")]
     if SESSION_ENCRYPTION_KEY_PREV:
-        keys.append(
-            _decode_base64_key(
-                SESSION_ENCRYPTION_KEY_PREV, "SESSION_ENCRYPTION_KEY_PREV"
-            )
-        )
+        keys.append(_decode_base64_key(SESSION_ENCRYPTION_KEY_PREV, "SESSION_ENCRYPTION_KEY_PREV"))
     return keys
 
 
@@ -228,9 +294,7 @@ def get_signing_keys() -> dict[str, bytes]:
         if not pair:
             continue
         if ":" not in pair:
-            raise ValueError(
-                "HMAC_SIGNING_KEYS must be in format 'id:key' separated by commas"
-            )
+            raise ValueError("HMAC_SIGNING_KEYS must be in format 'id:key' separated by commas")
         key_id, key_hex = pair.split(":", 1)
         key_id = key_id.strip()
         key_hex = key_hex.strip()
@@ -242,8 +306,6 @@ def get_signing_keys() -> dict[str, bytes]:
         raise ValueError("HMAC_SIGNING_KEYS must contain at least one key")
 
     if HMAC_CURRENT_KEY_ID and HMAC_CURRENT_KEY_ID not in key_map:
-        raise ValueError(
-            "HMAC_CURRENT_KEY_ID does not match any key id in HMAC_SIGNING_KEYS"
-        )
+        raise ValueError("HMAC_CURRENT_KEY_ID does not match any key id in HMAC_SIGNING_KEYS")
 
     return key_map

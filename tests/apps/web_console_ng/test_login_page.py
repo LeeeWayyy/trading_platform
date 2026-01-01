@@ -17,6 +17,7 @@ def screen_login(screen: Screen) -> Screen:
     @ui.page("/login")
     def _():
         login_page()
+
     return screen
 
 
@@ -74,7 +75,7 @@ def test_login_mock_mfa_redirect(screen_login: Screen) -> None:
 
     # Fill in mfa trigger credentials
     screen_login.type("Username", "mfa")
-    screen_login.type("Password", "any") # Password doesn't matter for this mock branch
+    screen_login.type("Password", "any")  # Password doesn't matter for this mock branch
 
     screen_login.click("Sign In")
 

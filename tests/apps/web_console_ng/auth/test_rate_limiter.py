@@ -93,6 +93,4 @@ async def test_clear_on_success() -> None:
 
     await limiter.clear_on_success("user1")
 
-    mock_redis.delete.assert_called_once_with(
-        "auth_failures:user1", "auth_lockout:user1"
-    )
+    mock_redis.delete.assert_called_once_with("auth_failures:user1", "auth_lockout:user1")

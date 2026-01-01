@@ -60,9 +60,7 @@ class MFAHandler:
             )
 
         limiter_key = user_data.get("user_id") or session_id
-        is_blocked, retry_after, reason = await self.rate_limiter.check_only(
-            client_ip, limiter_key
-        )
+        is_blocked, retry_after, reason = await self.rate_limiter.check_only(client_ip, limiter_key)
         if is_blocked:
             if reason == "account_locked":
                 return AuthResult(

@@ -42,6 +42,7 @@ def _init_db_pool() -> AsyncConnectionPool | None:
         open=False,
     )
 
+
 db_pool = _init_db_pool()
 audit_logger = AuthAuditLogger.get(
     db_enabled=config.AUDIT_LOG_DB_ENABLED,

@@ -146,7 +146,9 @@ def _extract_nav_items() -> list[tuple[str, str, str, str | None]]:
 
 async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _FakeUI:
     fake_ui = _FakeUI()
-    storage = SimpleNamespace(user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path)))
+    storage = SimpleNamespace(
+        user={}, request=SimpleNamespace(url=SimpleNamespace(path=current_path))
+    )
     fake_app = SimpleNamespace(storage=storage)
 
     monkeypatch.setattr(layout_module, "ui", fake_ui)

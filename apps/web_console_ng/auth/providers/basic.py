@@ -45,9 +45,7 @@ class BasicAuthHandler(AuthProvider):
         client_ip = kwargs.get("client_ip", "127.0.0.1")
 
         # Check rate limits BEFORE attempting authentication
-        is_blocked, retry_after, reason = await self._rate_limiter.check_only(
-            client_ip, username
-        )
+        is_blocked, retry_after, reason = await self._rate_limiter.check_only(client_ip, username)
         if is_blocked:
             if reason == "account_locked":
                 return AuthResult(

@@ -31,10 +31,7 @@ def test_extract_ip_trusted_proxy_chain() -> None:
     request.headers = {"X-Forwarded-For": "1.2.3.4, 192.168.1.1, 10.0.0.1"}
 
     # 10.0.0.1 is trusted, 192.168.1.1 is trusted (internal), 1.2.3.4 is real client
-    trusted = [
-        ipaddress.ip_network("10.0.0.0/8"),
-        ipaddress.ip_network("192.168.0.0/16")
-    ]
+    trusted = [ipaddress.ip_network("10.0.0.0/8"), ipaddress.ip_network("192.168.0.0/16")]
 
     ip = extract_trusted_client_ip(request, trusted)
     assert ip == "1.2.3.4"
@@ -42,8 +39,8 @@ def test_extract_ip_trusted_proxy_chain() -> None:
 
 def test_extract_ip_untrusted_direct_connection() -> None:
     request = MagicMock()
-    request.client.host = "1.2.3.4" # Untrusted source
-    request.headers = {"X-Forwarded-For": "9.9.9.9"} # Spoofed header
+    request.client.host = "1.2.3.4"  # Untrusted source
+    request.headers = {"X-Forwarded-For": "9.9.9.9"}  # Spoofed header
 
     trusted = [ipaddress.ip_network("10.0.0.0/8")]
     ip = extract_trusted_client_ip(request, trusted)

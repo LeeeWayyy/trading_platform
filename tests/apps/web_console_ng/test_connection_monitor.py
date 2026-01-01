@@ -14,7 +14,9 @@ class _SessionStore:
     def __init__(self, session: dict | None) -> None:
         self._session = session
 
-    async def validate_session(self, cookie_value: str, client_ip: str, user_agent: str | None = None):
+    async def validate_session(
+        self, cookie_value: str, client_ip: str, user_agent: str | None = None
+    ):
         return self._session
 
 
@@ -66,21 +68,25 @@ async def test_origin_validation() -> None:
         allowed_hosts=["example.com"],
     )
     cookie_value = f"{config.SESSION_COOKIE_NAME}=cookie"
-    client = _Client({
-        "HTTP_ORIGIN": "https://example.com",
-        "HTTP_COOKIE": cookie_value,
-        "REMOTE_ADDR": "10.0.0.1",
-    })
+    client = _Client(
+        {
+            "HTTP_ORIGIN": "https://example.com",
+            "HTTP_COOKIE": cookie_value,
+            "REMOTE_ADDR": "10.0.0.1",
+        }
+    )
 
     await registry._handle_connect(client)
     assert client.disconnect_called is False
     assert client.state.user == {"user_id": "u1"}
 
-    client_bad = _Client({
-        "HTTP_ORIGIN": "https://evil.com",
-        "HTTP_COOKIE": cookie_value,
-        "REMOTE_ADDR": "10.0.0.2",
-    })
+    client_bad = _Client(
+        {
+            "HTTP_ORIGIN": "https://evil.com",
+            "HTTP_COOKIE": cookie_value,
+            "REMOTE_ADDR": "10.0.0.2",
+        }
+    )
     await registry._handle_connect(client_bad)
     assert client_bad.disconnect_called is True
 
@@ -92,11 +98,13 @@ async def test_session_validation_on_connect() -> None:
         allowed_hosts=["example.com"],
     )
     cookie_value = f"{config.SESSION_COOKIE_NAME}=cookie"
-    client = _Client({
-        "HTTP_ORIGIN": "https://example.com",
-        "HTTP_COOKIE": cookie_value,
-        "REMOTE_ADDR": "10.0.0.3",
-    })
+    client = _Client(
+        {
+            "HTTP_ORIGIN": "https://example.com",
+            "HTTP_COOKIE": cookie_value,
+            "REMOTE_ADDR": "10.0.0.3",
+        }
+    )
 
     await registry._handle_connect(client)
     assert client.disconnect_called is True

@@ -163,7 +163,11 @@ def create_secret_manager(
     # Guardrail: Prevent EnvSecretManager outside local/test unless override set
     # NOTE: "test" is treated as non-production to support CI/E2E environments.
     allow_env_override = _is_truthy(os.getenv("SECRET_ALLOW_ENV_IN_NON_LOCAL"))
-    if selected_backend == "env" and selected_env not in {"local", "test"} and not allow_env_override:
+    if (
+        selected_backend == "env"
+        and selected_env not in {"local", "test"}
+        and not allow_env_override
+    ):
         raise SecretManagerError(
             f"EnvSecretManager not allowed in {selected_env} environment. "
             f"SECURITY VIOLATION: Plain-text .env files are LOCAL DEVELOPMENT ONLY. "

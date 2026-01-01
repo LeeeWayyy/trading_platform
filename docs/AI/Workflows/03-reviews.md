@@ -234,7 +234,7 @@ First reviewer starts FRESH (no continuation_id)
 Subsequent reviewers use SAME continuation_id
     ↓
 Issues found?
-    YES → Fix all → Re-review with SAME continuation_id → Loop
+    YES → Fix all → Re-review with SAME continuation_id → Loop til all Approved in this iteration.
     NO  → Were fixes made this iteration?
               YES → Start NEW iteration (fresh)
               NO  → APPROVED ✓
@@ -280,6 +280,7 @@ Look for:
 - [ ] First reviewer started FRESH (no continuation ID)
 - [ ] Subsequent reviewers used SAME continuation ID
 - [ ] ALL issues fixed (zero tolerance)
+- [ ] Each iteration need all reviewers' approval before start next iteration
 - [ ] If fixes made, started NEW iteration FRESH
 - [ ] Final iteration: ALL reviewers approved on FIRST TRY
 - [ ] Continuation ID in commit message

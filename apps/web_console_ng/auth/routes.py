@@ -53,9 +53,7 @@ async def auth_callback(code: str, state: str) -> None:
         app.storage.user["logged_in"] = True
         app.storage.user["user"] = result.user_data
 
-        redirect_to = sanitize_redirect_path(
-            app.storage.user.get("redirect_after_login")
-        )
+        redirect_to = sanitize_redirect_path(app.storage.user.get("redirect_after_login"))
         if "redirect_after_login" in app.storage.user:
             del app.storage.user["redirect_after_login"]
         ui.navigate.to(redirect_to)

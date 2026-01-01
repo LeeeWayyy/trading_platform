@@ -6,11 +6,13 @@ class Role(str, Enum):
     TRADER = "trader"
     VIEWER = "viewer"
 
+
 class Permission(str, Enum):
     VIEW_DASHBOARD = "view_dashboard"
     EXECUTE_TRADES = "execute_trades"
     MANAGE_USERS = "manage_users"
     VIEW_AUDIT_LOGS = "view_audit_logs"
+
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {

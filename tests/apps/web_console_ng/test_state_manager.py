@@ -1,44 +1,172 @@
-"""Tests for UserStateManager."""
-
-from __future__ import annotations
+# tests/apps/web_console_ng/test_state_manager.py
+import hashlib
+import json
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fakeredis.aioredis import FakeRedis
 
-from apps.web_console_ng.core.state_manager import UserStateManager
+from apps.web_console_ng.core.state_manager import (
+    TradingJSONEncoder,
+    UserStateManager,
+    trading_json_object_hook,
+)
+
+
+@pytest.fixture()
+def mock_redis_store():
+    with patch("apps.web_console_ng.core.state_manager.get_redis_store") as mock:
+        mock_instance = AsyncMock()
+        mock.return_value = mock_instance
+        yield mock_instance
+
+
+@pytest.fixture()
+def mock_trading_client():
+    with patch("apps.web_console_ng.core.state_manager.AsyncTradingClient") as mock:
+        # Ensure .get() is synchronous
+        mock.get = MagicMock()
+        mock_instance = AsyncMock()
+        mock.get.return_value = mock_instance
+        yield mock
+
+
+def test_json_encoder_decoder():
+    """Test custom JSON encoding/decoding."""
+    now = datetime.now(UTC)
+    today = date.today()
+    dec = Decimal("10.50")
+
+    data = {"ts": now, "d": today, "val": dec}
+
+    encoded = json.dumps(data, cls=TradingJSONEncoder)
+    decoded = json.loads(encoded, object_hook=trading_json_object_hook)
+
+    assert decoded["ts"] == now
+    assert decoded["d"] == today
+    assert decoded["val"] == dec
+    assert isinstance(decoded["val"], Decimal)
 
 
 @pytest.mark.asyncio()
-async def test_save_load_state() -> None:
-    redis_client = FakeRedis(decode_responses=True)
-    manager = UserStateManager(redis_url="redis://localhost:6379/1", ttl_seconds=60, redis_client=redis_client)
+async def test_save_critical_state(mock_redis_store):
+    """Test saving state to Redis."""
+    manager = UserStateManager("user1")
+    master_mock = AsyncMock()
+    mock_redis_store.get_master.return_value = master_mock
 
-    await manager.save_state("user-1", "prefs", {"theme": "light"})
-    state = await manager.load_state("user-1", "prefs")
-    assert state == {"theme": "light"}
+    state = {"preferences": {"theme": "dark"}}
+    await manager.save_critical_state(state)
+
+    master_mock.setex.assert_called_once()
+    args = master_mock.setex.call_args[0]
+    assert args[0] == "user_state:user1"
+    assert args[1] == 86400
+    saved_data = json.loads(args[2])
+    assert saved_data["data"] == state
+    assert "saved_at" in saved_data
 
 
 @pytest.mark.asyncio()
-async def test_missing_key_returns_none() -> None:
-    redis_client = FakeRedis(decode_responses=True)
-    manager = UserStateManager(redis_url="redis://localhost:6379/1", ttl_seconds=60, redis_client=redis_client)
+async def test_restore_state(mock_redis_store):
+    """Test restoring state from Redis."""
+    manager = UserStateManager("user1")
+    master_mock = AsyncMock()
+    mock_redis_store.get_master.return_value = master_mock
 
-    assert await manager.load_state("user-1", "missing") is None
+    state = {"preferences": {"theme": "dark"}}
+    state_with_meta = {
+        "data": state,
+        "saved_at": datetime.now(UTC).isoformat(),
+        "version": 1,
+    }
+    master_mock.get.return_value = json.dumps(state_with_meta)
+
+    restored = await manager.restore_state()
+    assert restored == state
 
 
 @pytest.mark.asyncio()
-async def test_ttl_expiry() -> None:
-    """Test that TTL is set correctly on keys.
+async def test_save_preferences_atomic(mock_redis_store):
+    """Test atomic preference update using WATCH/MULTI/EXEC."""
+    manager = UserStateManager("user1")
+    master_mock = AsyncMock()
+    mock_redis_store.get_master.return_value = master_mock
 
-    Note: FakeRedis doesn't actively expire keys like real Redis does.
-    We verify TTL was set rather than actual expiration behavior.
-    """
-    redis_client = FakeRedis(decode_responses=True)
-    manager = UserStateManager(redis_url="redis://localhost:6379/1", ttl_seconds=60, redis_client=redis_client)
+    # Mock pipeline - it must be synchronous but return an async context manager
+    pipeline_mock = AsyncMock()
+    master_mock.pipeline = MagicMock(return_value=pipeline_mock)
+    pipeline_mock.__aenter__.return_value = pipeline_mock
 
-    await manager.save_state("user-1", "prefs", {"theme": "dark"})
+    # Mock initial state
+    pipeline_mock.get.return_value = json.dumps({"data": {"preferences": {"theme": "light"}}})
 
-    # Verify key exists and TTL was set
-    ttl = await redis_client.ttl("ng_ui_state:user-1:prefs")
-    assert ttl > 0, "TTL should be set on the key"
-    assert ttl <= 60, "TTL should not exceed configured value"
+    await manager.save_preferences("theme", "dark")
+
+    pipeline_mock.watch.assert_called_with("user_state:user1")
+    pipeline_mock.multi.assert_called_once()
+    pipeline_mock.execute.assert_called_once()
+
+    # Verify setex called on pipeline
+    pipeline_mock.setex.assert_called_once()
+    args = pipeline_mock.setex.call_args[0]
+    saved_json = json.loads(args[2])
+    assert saved_json["data"]["preferences"]["theme"] == "dark"
+
+
+@pytest.mark.asyncio()
+async def test_save_pending_form_hashes_data(mock_redis_store):
+    """Test pending form hashing and client_order_id persistence."""
+    manager = UserStateManager("user1")
+    master_mock = AsyncMock()
+    mock_redis_store.get_master.return_value = master_mock
+
+    pipeline_mock = AsyncMock()
+    master_mock.pipeline = MagicMock(return_value=pipeline_mock)
+    pipeline_mock.__aenter__.return_value = pipeline_mock
+    pipeline_mock.get.return_value = json.dumps({"data": {}})
+
+    form_data = {"symbol": "AAPL", "qty": 10}
+    await manager.save_pending_form("order_form", form_data, client_order_id="cid-1")
+
+    args = pipeline_mock.setex.call_args[0]
+    saved_json = json.loads(args[2])
+    pending = saved_json["data"]["pending_forms"]["order_form"]
+    assert pending["client_order_id"] == "cid-1"
+    expected_hash = hashlib.sha256(
+        json.dumps(form_data, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    assert pending["original_data_hash"] == expected_hash
+
+
+@pytest.mark.asyncio()
+async def test_on_reconnect(mock_redis_store, mock_trading_client):
+    """Test full reconnection flow."""
+    manager = UserStateManager("user1")
+    master_mock = AsyncMock()
+    mock_redis_store.get_master.return_value = master_mock
+
+    # Mock stored state
+    stored_state = {"data": {"preferences": {"theme": "dark"}, "filters": {"symbol": "AAPL"}}}
+    master_mock.get.return_value = json.dumps(stored_state)
+
+    # Mock API returns
+    # mock_trading_client is the class/patch object.
+    # mock_trading_client.get() returns the singleton instance (AsyncMock).
+    client_instance = mock_trading_client.get.return_value
+
+    # IMPORTANT: Configure return_value of the AsyncMock methods
+    client_instance.fetch_positions.return_value = ["pos1"]
+    client_instance.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
+    client_instance.get_circuit_breaker_state.return_value = {"status": "OPEN"}
+
+    # Execute
+    ui_context = MagicMock()
+    result = await manager.on_reconnect(ui_context)
+
+    assert result["preferences"] == {"theme": "dark"}
+    assert result["filters"] == {"symbol": "AAPL"}
+    assert result["api_data"]["positions"] == ["pos1"]
+    assert result["api_data"]["kill_switch"] == {"state": "DISENGAGED"}
+    assert result["api_data"]["circuit_breaker"] == {"status": "OPEN"}

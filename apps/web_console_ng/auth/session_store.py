@@ -19,6 +19,7 @@ from cryptography.fernet import Fernet, MultiFernet
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.audit import AuthAuditLogger
+from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
@@ -216,9 +217,7 @@ class ServerSessionStore:
                 return None
             now = datetime.now(UTC)
 
-            created_at = datetime.fromisoformat(session["created_at"]).replace(
-                tzinfo=UTC
-            )
+            created_at = datetime.fromisoformat(session["created_at"]).replace(tzinfo=UTC)
             age_seconds = (now - created_at).total_seconds()
             if age_seconds > self.absolute_timeout:
                 await self.invalidate_session(session_id)
@@ -232,9 +231,7 @@ class ServerSessionStore:
                 )
                 return None
 
-            last_activity = datetime.fromisoformat(session["last_activity"]).replace(
-                tzinfo=UTC
-            )
+            last_activity = datetime.fromisoformat(session["last_activity"]).replace(tzinfo=UTC)
             if (now - last_activity).total_seconds() > self.idle_timeout:
                 await self.invalidate_session(session_id)
                 self._audit_failure(
@@ -249,9 +246,7 @@ class ServerSessionStore:
 
             if config.DEVICE_BINDING_ENABLED:
                 expected = session.get("device") or {}
-                current = self._build_device_info(
-                    client_ip, {"user_agent": user_agent}
-                )
+                current = self._build_device_info(client_ip, {"user_agent": user_agent})
                 if expected.get("ip_subnet") != current.get("ip_subnet") or expected.get(
                     "ua_hash"
                 ) != current.get("ua_hash"):
@@ -308,9 +303,7 @@ class ServerSessionStore:
 
             decrypted = self.fernet.decrypt(data).decode("utf-8")
             session = cast(dict[str, Any], json.loads(decrypted))
-            created_at = datetime.fromisoformat(session["created_at"]).replace(
-                tzinfo=UTC
-            )
+            created_at = datetime.fromisoformat(session["created_at"]).replace(tzinfo=UTC)
             now = datetime.now(UTC)
             remaining_ttl = int(self.absolute_timeout - (now - created_at).total_seconds())
 
@@ -454,11 +447,14 @@ def get_session_store(audit_logger: AuthAuditLogger | None = None) -> ServerSess
         resolved_logger = audit_logger or AuthAuditLogger.get(
             db_enabled=config.AUDIT_LOG_DB_ENABLED
         )
+        redis_store = get_redis_store()
+        redis_client = redis_store.get_master_client(decode_responses=False)
         _store = ServerSessionStore(
             redis_url=config.REDIS_URL,
             encryption_keys=config.get_encryption_keys(),
             signing_keys=signing_keys,
             current_signing_key_id=current_key_id,
+            redis_client=redis_client,
             audit_logger=resolved_logger,
         )
     elif audit_logger is not None and _store.audit_logger is None:
@@ -495,9 +491,25 @@ def _redis_from_url(url: str, *, decode_responses: bool) -> redis.Redis:
     return from_url(url, decode_responses=decode_responses)
 
 
+def extract_session_id(signed_cookie: str) -> str:
+    """Extract session ID from signed cookie.
+
+    Cookie format: {session_id}.{key_id}:{signature}
+    Handles additional dots in signature by only splitting twice.
+    """
+    if not signed_cookie:
+        raise ValueError("Empty cookie")
+    parts = signed_cookie.split(".", maxsplit=2)
+    session_id = parts[0]
+    if not session_id:
+        raise ValueError("Invalid cookie format: empty session ID")
+    return session_id
+
+
 __all__ = [
     "ServerSessionStore",
     "SessionCreationError",
     "RateLimitExceeded",
     "get_session_store",
+    "extract_session_id",
 ]

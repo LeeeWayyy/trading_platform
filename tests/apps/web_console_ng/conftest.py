@@ -10,9 +10,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 @pytest.fixture()
 def selenium_driver():
     options = webdriver.ChromeOptions()
-    options.add_argument('headless')
-    options.add_argument('no-sandbox')
-    options.add_argument('disable-dev-shm-usage')
+    options.add_argument("headless")
+    options.add_argument("no-sandbox")
+    options.add_argument("disable-dev-shm-usage")
 
     # Point to the playwright-installed chromium binary
     chromium_path = os.path.expanduser(
@@ -34,6 +34,7 @@ def selenium_driver():
     yield driver
     driver.quit()
 
+
 @pytest.fixture()
 def screen(selenium_driver, caplog):
     # Initialize Screen without context manager
@@ -41,7 +42,7 @@ def screen(selenium_driver, caplog):
 
     # Inject storage_secret for app.storage support
     # This is critical because our pages access app.storage.user
-    screen.ui_run_kwargs['storage_secret'] = 'test_secret_key_12345'
+    screen.ui_run_kwargs["storage_secret"] = "test_secret_key_12345"
 
     screen.start_server()
     yield screen
