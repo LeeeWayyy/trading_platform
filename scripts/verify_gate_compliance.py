@@ -24,7 +24,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from libs.common.hash_utils import compute_git_diff_hash, is_merge_commit
+from libs.common.hash_utils import is_merge_commit
 
 
 def get_pr_commits_from_github():
@@ -128,14 +128,17 @@ def get_commit_message(commit_hash):
 def has_review_markers(commit_hash):
     """Check if commit message contains zen-mcp review approval markers.
 
-    All reviews now use comprehensive independent review format:
-    - gemini-continuation-id: <final-uuid-from-approved-iteration>
-    - codex-continuation-id: <final-uuid-from-approved-iteration>
+    Accepts two formats:
 
-    Also accepts legacy marker names:
-    - gemini-review: (alias for gemini-continuation-id:)
-    - codex-review: (alias for codex-continuation-id:)
-    - continuation-id: (legacy single-phase format)
+    1. NEW: Shared-context iteration format (single continuation ID):
+       - continuation-id: <uuid-from-approved-iteration>
+
+    2. LEGACY: Independent review format (dual continuation IDs):
+       - gemini-continuation-id: <uuid> (or gemini-review:)
+       - codex-continuation-id: <uuid> (or codex-review:)
+
+    Both formats require:
+    - zen-mcp-review: approved
 
     Note: Review-Hash requirement was removed - the hook infrastructure for
     generating Review-Hash trailers was never completed.
@@ -148,146 +151,22 @@ def has_review_markers(commit_hash):
         return False
 
     # Check for continuation ID formats
-    # ONLY accept dual-phase (gemini + codex) format - no legacy format
-    # This enforces the new comprehensive independent review policy
+    # Accept EITHER new shared format OR legacy dual-phase format
 
-    # Use regex patterns to avoid false positives
+    # NEW format: Single shared continuation-id (shared-context iterations)
+    # Pattern matches "continuation-id:" but NOT "gemini-continuation-id:" or "codex-continuation-id:"
+    shared_id_pattern = r"(?:^|\n)\s*continuation-id:\s*[a-f0-9-]+"
+    has_shared_id = bool(re.search(shared_id_pattern, message))
+
+    # LEGACY format: Dual-phase (gemini + codex) continuation IDs
     gemini_trailer_pattern = r"(?:^|\n)\s*(?:gemini-continuation-id|gemini-review):"
     codex_trailer_pattern = r"(?:^|\n)\s*(?:codex-continuation-id|codex-review):"
     has_gemini = bool(re.search(gemini_trailer_pattern, message))
     has_codex = bool(re.search(codex_trailer_pattern, message))
     has_dual_phase = has_gemini and has_codex
 
-    # Require dual-phase review markers (gemini + codex)
-    # Review-Hash requirement removed - hook infrastructure incomplete
-    return has_dual_phase
-
-
-def extract_review_hash(commit_sha: str) -> str | None:
-    """
-    Extract Review-Hash trailer from commit message.
-
-    Component A2.1 (P1T13-F5): Server-side hash validation.
-
-    Args:
-        commit_sha: Git commit SHA
-
-    Returns:
-        Hash value if found, None otherwise
-
-    Example:
-        >>> extract_review_hash("abc123")
-        'a1b2c3d4e5f6...'
-    """
-    message = get_commit_message(commit_sha)
-
-    # Match Review-Hash: <hash_value>
-    # Case-insensitive, allows whitespace
-    # Allow 64-char hex hash OR empty string (for empty commits)
-    # Pattern allows trailers after Review-Hash (e.g., Co-authored-by, Signed-off-by)
-    pattern = r"(?:^|\n)\s*review-hash:\s*([0-9a-f]{64}|)\s*(?:\n|$)"
-    match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
-
-    if match:
-        hash_value = match.group(1).strip().lower()
-        return hash_value  # Returns hash string or empty string ""
-    return None
-
-
-def validate_review_hash(commit_sha: str) -> bool:
-    """
-    Validate Review-Hash trailer against actual commit changes.
-
-    Component A2.1 (P1T13-F5): Server-side validation with merge support.
-    This ensures commits can't bypass Review-Hash requirement via --no-verify.
-
-    Handles:
-    - Regular commits: Hash of git show output
-    - Merge commits: Hash of merge result (diff against first parent)
-    - Empty commits: Hash of empty string
-    - Initial commits: Exempt (no parent)
-
-    Args:
-        commit_sha: Git commit SHA to validate
-
-    Returns:
-        True if Review-Hash is valid or commit is exempt
-        False if Review-Hash is missing or mismatched
-    """
-    # Check for initial commit (no parents)
-    try:
-        parents_result = subprocess.run(
-            ["git", "rev-list", "--parents", "-n", "1", commit_sha],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        parents = parents_result.stdout.strip().split()
-
-        if len(parents) == 1:
-            # Initial commit - exempt
-            print(f"  ℹ️  Skipping initial commit {commit_sha[:8]} (no parent)")
-            return True
-    except subprocess.CalledProcessError as e:
-        print(f"  ❌ Error checking commit parents for {commit_sha[:8]}: {e}")
-        return False
-
-    # Determine if merge commit
-    try:
-        merge = is_merge_commit(commit_sha)
-        commit_type = "merge" if merge else "regular"
-    except subprocess.CalledProcessError as e:
-        print(f"  ❌ Error detecting merge status for {commit_sha[:8]}: {e}")
-        return False
-
-    # Compute actual hash from commit FIRST
-    try:
-        actual_hash = compute_git_diff_hash(commit_sha=commit_sha, is_merge=merge)
-    except subprocess.CalledProcessError as e:
-        print(f"  ❌ Error computing hash for {commit_sha[:8]}: {e}")
-        return False
-
-    # Extract claimed hash from commit message
-    claimed_hash = extract_review_hash(commit_sha)
-
-    # Review-Hash trailer is REQUIRED for all commits (even empty ones)
-    # For empty commits, the hash value itself can be empty, but trailer must exist
-    if claimed_hash is None:
-        print(f"  ❌ Missing Review-Hash trailer in {commit_type} commit {commit_sha[:8]}")
-        print("     All commits must include 'Review-Hash:' trailer (even empty commits)")
-        return False
-
-    # Handle empty commits - require empty hash value
-    if actual_hash == "":
-        if claimed_hash == "":
-            print(f"  ✅ Empty {commit_type} commit {commit_sha[:8]} (correct empty hash)")
-            return True
-        else:
-            print(f"  ❌ Empty {commit_type} commit but hash mismatch")
-            print(f"     Claimed: {claimed_hash[:16]}...")
-            print("     Expected: (empty)")
-            return False
-
-    # For non-empty commits, hash value must not be empty
-    if claimed_hash == "":
-        print(f"  ❌ Empty Review-Hash in non-empty {commit_type} commit {commit_sha[:8]}")
-        return False
-
-    # Validate hash
-    if claimed_hash != actual_hash:
-        print(f"  ❌ HASH MISMATCH in {commit_type} commit {commit_sha[:8]}")
-        print(f"     Claimed: {claimed_hash[:16]}...")
-        print(f"     Actual:  {actual_hash[:16]}...")
-        if merge:
-            print("     Note: Merge validated with diff against first parent")
-        return False
-
-    # Success
-    if merge:
-        print(f"  ✅ Valid Review-Hash in merge commit {commit_sha[:8]} (merge result verified)")
-    else:
-        print(f"  ✅ Valid Review-Hash in commit {commit_sha[:8]}")
-    return True
+    # Accept either new shared format OR legacy dual-phase format
+    return has_shared_id or has_dual_phase
 
 
 def main():
@@ -356,7 +235,13 @@ def main():
             print("   - Review markers were manually removed")
             print("   - Review process was bypassed")
             print()
-            print("   All commits must have approval markers:")
+            print("   All commits must have approval markers (one of these formats):")
+            print()
+            print("   NEW format (shared-context iterations):")
+            print("   - zen-mcp-review: approved")
+            print("   - continuation-id: <uuid>")
+            print()
+            print("   LEGACY format (independent reviews):")
             print("   - zen-mcp-review: approved")
             print("   - gemini-continuation-id: <uuid>")
             print("   - codex-continuation-id: <uuid>")

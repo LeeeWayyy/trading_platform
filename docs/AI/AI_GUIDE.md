@@ -108,7 +108,7 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 6. Repeat until feature complete
 
-7. **🔍 MANDATORY: Comprehensive review** via independent Gemini + Codex reviews: [Workflows/03-reviews.md](./Workflows/03-reviews.md)
+7. **🔍 MANDATORY: Comprehensive review** via shared-context iterations (Gemini + Codex): [Workflows/03-reviews.md](./Workflows/03-reviews.md)
 
 8. Create PR: [Workflows/01-git.md](./Workflows/01-git.md)
 
@@ -134,20 +134,20 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - **Reviews:** Requests reviews from Codex/Gemini via zen-mcp
 
 ### Codex (Code Review Agent via zen-mcp)
-- **Primary role:** Independent comprehensive code review
+- **Primary role:** Comprehensive code review (shared-context with other reviewers)
 - **Focus:** Trading safety, architecture, code quality, security, testing
-- **Speed:** 1-2 minutes per review (independent fresh analysis)
+- **Speed:** 1-2 minutes per review
 - **Access:** Via `mcp__zen__clink` with `cli_name='codex'` and `role='codereviewer'`
 
 ### Gemini (Code Review Agent via zen-mcp)
-- **Primary role:** Independent comprehensive code review
+- **Primary role:** Comprehensive code review (shared-context with other reviewers)
 - **Focus:** Architecture, integration concerns, test coverage, all comprehensive criteria
-- **Speed:** 2-3 minutes per review (independent fresh analysis)
+- **Speed:** 2-3 minutes per review
 - **Access:** Via `mcp__zen__clink` with `cli_name='gemini'` and `role='codereviewer'`
 
 ### Planning Review Agents (via zen-mcp)
 - **Primary role:** Task creation and planning validation
-- **Access:** Gemini planner + Codex planner (both independent reviews)
+- **Access:** Gemini planner + Codex planner (shared-context iterations)
 - **Speed:** ~3-5 minutes total (comprehensive planning review)
 - **Usage:** For task documents before implementation starts
 
@@ -157,11 +157,20 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 
 **⚠️ MANDATORY: ALL zen-mcp interactions MUST use `mcp__zen__clink` exclusively** (direct zen-mcp tools bypass CLI authentication).
 
-**See [Workflows/03-reviews.md](./Workflows/03-reviews.md) for:**
-- Complete review workflow
-- Usage examples
-- Error handling
-- Continuation ID management
+**Review approach:** Shared-context iterations
+- First reviewer starts fresh (generates continuation_id)
+- Subsequent reviewers use same continuation_id
+- Fix issues, re-review with same ID until all approve
+- If fixes made, start new iteration fresh (same prompt as iteration 1)
+- Approved = all reviewers approve on first try of an iteration
+
+**⚠️ CRITICAL: Fix ALL issues even if reviewers say "APPROVED"**
+- Reviewers may approve with LOW severity suggestions
+- These are still issues that MUST be fixed
+- "Approved with comments" = fix comments, then start new fresh iteration
+- Never rationalize skipping issues (e.g., "it's minor", "cleanup later", "pre-existing code")
+
+**See [Workflows/03-reviews.md](./Workflows/03-reviews.md) for complete workflow**
 
 ---
 
@@ -327,9 +336,9 @@ Use `workflow_gate.py` for all workflow operations. It enforces gates, manages c
 # → Implement + test (TDD)
 ./scripts/workflow_gate.py advance test
 ./scripts/workflow_gate.py advance review
-# → Request review via zen-mcp (mcp__zen__clink)
-./scripts/workflow_gate.py record-review gemini approved   # Record approval
-./scripts/workflow_gate.py record-review codex approved    # Record approval
+# → Request shared-context iteration reviews (see 03-reviews.md)
+./scripts/workflow_gate.py record-review gemini approved --continuation-id <id>
+./scripts/workflow_gate.py record-review codex approved --continuation-id <id>  # Same ID
 ./scripts/workflow_gate.py record-ci passed                # After make ci-local passes
 ./scripts/workflow_gate.py check-commit                    # Verify gates met
 git commit -m "message"                                    # Pre-commit hook enforces gates
@@ -343,9 +352,9 @@ gh pr create --title "..." --body "..."                    # Create the PR
 ./scripts/workflow_gate.py pr-check                        # Check PR status from GitHub
 # → Fix issues from reviewers
 make ci-local                                              # Run local CI
-# → Request fresh zen-mcp reviews (gemini + codex)
-./scripts/workflow_gate.py record-review gemini approved   # Record approval
-./scripts/workflow_gate.py record-review codex approved    # Record approval
+# → Request shared-context iteration reviews (see 03-reviews.md)
+./scripts/workflow_gate.py record-review gemini approved --continuation-id <id>
+./scripts/workflow_gate.py record-review codex approved --continuation-id <id>  # Same ID
 git commit -m "fix: Address PR feedback"                   # Commit fixes
 ./scripts/workflow_gate.py pr-record-commit --hash $(git rev-parse HEAD)  # Push and record
 ./scripts/workflow_gate.py pr-check                        # Re-check until approved
@@ -357,7 +366,7 @@ git commit -m "fix: Address PR feedback"                   # Commit fixes
 - **Planning discipline:** Create task file, set component, follow 6-step pattern
 - **TDD:** Write tests before implementation
 - **6-step pattern:** Plan → Plan Review → Implement → Test → Code Review → Commit
-- **Always Request Fresh Review:** You are requesting approval for entire plan or commit codes, NOT for the previous fix. ALWAYS request fresh review without previous memory (DO NOT reuse continuation-id, DO NOT bias the review context about your fix)
+- **Shared-context iterations:** First reviewer starts fresh → subsequent reviewers share continuation ID → fix issues → re-review with same ID → if fixes made, start new iteration fresh. Approval = all reviewers approve on first try of an iteration.
 - **No bypasses:** NEVER use `git commit --no-verify` (detected by CI)
 
 **See [Workflows/README.md](./Workflows/README.md) for detailed workflows**
@@ -492,6 +501,6 @@ See [/../GETTING_STARTED/GLOSSARY.md](../GETTING_STARTED/GLOSSARY.md) for full d
 
 ---
 
-**Last Updated:** 2025-11-21
+**Last Updated:** 2025-12-31
 **Maintained By:** Development Team
-**Version:** 2.0 (Consolidated from CLAUDE.md, AGENTS.md, and contributing docs)
+**Version:** 2.1 (Updated review workflow to shared-context iterations)
