@@ -1,0 +1,48 @@
+{
+  "$schema": "https://repomix.com/schema/repomix.config.json",
+  "_comment": "SYNC: Keep customPatterns in sync with .github/workflows/repomix-context.yml ignore list",
+  "output": {
+    "filePath": "repomix-output.xml",
+    "style": "xml",
+    "compress": true,
+    "headerText": "Trading Platform Codebase Context",
+    "showLineNumbers": true,
+    "copyToClipboard": false
+  },
+  "include": [],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "*.pyc",
+      "__pycache__/**",
+      ".venv/**",
+      "venv/**",
+      ".git/**",
+      "artifacts/**",
+      "data/**",
+      "htmlcov/**",
+      ".coverage*",
+      "coverage.xml",
+      ".pytest_cache/**",
+      ".mypy_cache/**",
+      ".ruff_cache/**",
+      "*.egg-info/**",
+      "dist/**",
+      "build/**",
+      "node_modules/**",
+      "repomix-output.*",
+      "*.log",
+      ".env",
+      ".env.*",
+      ".envrc",
+      "*.pem",
+      "*.key",
+      "credentials.json",
+      "secrets.json"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  }
+}

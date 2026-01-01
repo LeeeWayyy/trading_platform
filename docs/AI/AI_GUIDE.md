@@ -119,6 +119,7 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 | Category | Key Files |
 |----------|-----------|
 | **Workflows** | [Workflows/README.md](./Workflows/README.md) (index), [00-analysis-checklist.md](./Workflows/00-analysis-checklist.md), [12-component-cycle.md](./Workflows/12-component-cycle.md), [03-reviews.md](./Workflows/03-reviews.md), [01-git.md](./Workflows/01-git.md) |
+| **Tools** | [06-repomix.md](./Workflows/06-repomix.md) (codebase analysis), [repomix.config.json](../../repomix.config.json) (project config) |
 | **Standards** | [/../STANDARDS/](../STANDARDS/) (CODING, DOCUMENTATION, GIT_WORKFLOW, TESTING, ADR_GUIDE) |
 | **Implementation** | [/../TASKS/](../TASKS/) (tickets), [/../ADRs/](../ADRs/) (architecture decisions), [/../CONCEPTS/](../CONCEPTS/) (trading glossary) |
 | **Navigation** | [/../INDEX.md](../INDEX.md) (canonical index), this file (AI quick-start) |
@@ -171,6 +172,41 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 - Never rationalize skipping issues (e.g., "it's minor", "cleanup later", "pre-existing code")
 
 **See [Workflows/03-reviews.md](./Workflows/03-reviews.md) for complete workflow**
+
+---
+
+## 🔧 Repomix Integration
+
+Repomix packages codebases into AI-optimized formats with ~70% token reduction through Tree-sitter compression.
+
+### Available Tools
+
+| Tool | Purpose |
+|------|---------|
+| `/repomix-commands:pack-local` | Pack local directories for analysis |
+| `/repomix-commands:pack-remote` | Pack GitHub repositories |
+| `/repomix-explorer:explore-local` | Natural language codebase exploration |
+
+### When to Use
+
+- **Pre-analysis phase:** Pack directories before implementing features
+- **Understanding unfamiliar code:** Use explorer for natural language queries
+- **Delegation context:** Pack relevant files for subagent handoff
+
+### Quick Commands
+
+```bash
+# Pack specific directories
+/repomix-commands:pack-local ./libs/secrets ./apps/execution_gateway
+
+# Explore with natural language
+/repomix-explorer:explore-local ./apps "How does order execution work?"
+
+# Pack remote repository
+/repomix-commands:pack-remote alpacahq/alpaca-py
+```
+
+**See [Workflows/06-repomix.md](./Workflows/06-repomix.md) for complete guide**
 
 ---
 
@@ -503,4 +539,4 @@ See [/../GETTING_STARTED/GLOSSARY.md](../GETTING_STARTED/GLOSSARY.md) for full d
 
 **Last Updated:** 2025-12-31
 **Maintained By:** Development Team
-**Version:** 2.1 (Updated review workflow to shared-context iterations)
+**Version:** 2.2 (Added Repomix integration for AI-optimized codebase analysis)

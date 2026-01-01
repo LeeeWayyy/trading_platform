@@ -37,6 +37,28 @@
 
 ## Review Process
 
+### Step 0: Pack Context for Review
+
+**MANDATORY:** Pack changed directories before requesting review.
+
+```bash
+# Pack the directories you modified
+/repomix-commands:pack-local ./libs/<changed> ./apps/<changed> ./tests/<changed>
+```
+
+**Why pack before review?**
+- Provides reviewers with structured, compressed context
+- ~70% token reduction enables more thorough analysis
+- Reviewers can understand full component context, not just diffs
+- Catches issues that span multiple files
+
+**What to pack:**
+- All directories with staged changes
+- Related test directories
+- Any dependencies that reviewers should understand
+
+**See [06-repomix.md](./06-repomix.md) for complete guide**
+
 ### Step 1: Prepare Changes
 
 ```bash
@@ -54,7 +76,7 @@ Request review from the first enabled reviewer with this prompt:
 ```
 Request comprehensive zen-mcp review (fresh start, no continuation ID)
 
-Review all staged changes with focus on:
+Review all staged changes with focus on but not limited to:
 
 **Trading Safety (CRITICAL):**
 - Circuit breaker checks before critical operations?
@@ -139,12 +161,14 @@ If fixes were made in iteration N:
 
 ### Step 5: Approval Condition
 
-**Approved when:** ALL reviewers approve on FIRST TRY of an iteration with **ZERO issues of any severity**
+**Approved when:** ALL reviewers explicitly approve (say "APPROVED", "safe to merge", etc.)
 
-**⚠️ "Approved with comments" is NOT a clean approval:**
-- If reviewer says "APPROVED" but lists LOW/MEDIUM issues → you MUST fix them
-- Fix all issues → start new iteration fresh → get clean approval
-- Only a review with literally ZERO issues counts as approval
+**Approval with issues:**
+- If reviewer says "APPROVED" with **only LOW issues** → fix them → commit (no fresh iteration needed)
+- If reviewer says "APPROVED" with **MEDIUM/HIGH issues** → fix them → start fresh iteration
+- If reviewer does NOT say "APPROVED" → fix all issues → start fresh iteration
+
+**⚠️ You still MUST fix ALL issues including LOW before committing.**
 
 Record that `continuation_id` as the approval marker.
 
@@ -238,6 +262,7 @@ Look for:
 
 ## Validation Checklist
 
+- [ ] Packed relevant directories with repomix before review
 - [ ] First reviewer started FRESH (no continuation ID)
 - [ ] Subsequent reviewers used SAME continuation ID
 - [ ] ALL issues fixed (zero tolerance)

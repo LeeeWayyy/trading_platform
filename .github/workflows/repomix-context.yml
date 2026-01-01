@@ -1,0 +1,146 @@
+name: Repomix Context Generation
+
+# Generate AI-optimized codebase context on PRs
+# This provides structured context for AI-assisted code reviews
+#
+# Outputs:
+# - repomix-full.xml: Complete codebase (compressed)
+# - repomix-changed.xml: Only changed files in PR
+#
+# Artifacts retained for 7 days
+
+on:
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+    inputs:
+      directories:
+        description: 'Directories to pack (comma-separated)'
+        required: false
+        default: 'libs,apps'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  generate-context:
+    name: Generate Repomix Context
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for diff analysis
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Get changed files
+        id: changed-files
+        if: github.event_name == 'pull_request'
+        run: |
+          # Get list of changed files in PR with security filtering
+          # Excludes: binary files, sensitive files, comma-containing filenames
+          # NOTE: Keep sensitive patterns in sync with repomix.config.json customPatterns
+          git diff --name-only origin/${{ github.base_ref }}...HEAD \
+            | grep -v -E '\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|svg|pdf|pyc|pyo|so|o|a|dll|exe|bin)$' \
+            | grep -v -E '\.(pem|key)$' \
+            | grep -v -E '^\.env' \
+            | grep -v -E '(credentials|secrets)\.json$' \
+            | grep -v ',' \
+            | tr '\n' ',' \
+            | sed 's/,$//' > /tmp/changed-files.txt
+          CHANGED=$(cat /tmp/changed-files.txt)
+          # Guard against very large file lists (GitHub Actions output limit)
+          if [ ${#CHANGED} -gt 60000 ]; then
+            echo "::warning::Changed files list too large (${#CHANGED} chars), truncating"
+            CHANGED=""
+          fi
+          echo "files=$CHANGED" >> $GITHUB_OUTPUT
+          echo "Changed files: $CHANGED"
+
+      - name: Generate full codebase context
+        # NOTE: Keep ignore patterns in sync with repomix.config.json customPatterns
+        # The config file is the source of truth for local usage; this list mirrors it for CI
+        # Security: repomix.config.json enables security checks; action inherits this config
+        uses: yamadashy/repomix/.github/actions/repomix@46857e5a18dc2b4a31f0923ba391df3a68bf0bc8
+        with:
+          directories: ${{ github.event.inputs.directories || 'libs,apps,scripts,db,infra,tests,docs' }}
+          ignore: '*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix-output.*,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json'
+          output: 'repomix-full.xml'
+          compress: 'true'
+          style: 'xml'
+
+      - name: Verify no secrets in full context
+        run: |
+          # Defense-in-depth: verify no obvious secrets leaked into output
+          if grep -qiE '(api[_-]?key|secret[_-]?key|password|token|credential).*[:=].*[A-Za-z0-9+/]{20,}' repomix-full.xml 2>/dev/null; then
+            echo "::error::Potential secret detected in repomix-full.xml"
+            exit 1
+          fi
+          echo "Security check passed: no obvious secrets detected"
+
+      - name: Generate changed files context
+        if: github.event_name == 'pull_request' && steps.changed-files.outputs.files != ''
+        # NOTE: ignore patterns match repomix.config.json as defense-in-depth
+        uses: yamadashy/repomix/.github/actions/repomix@46857e5a18dc2b4a31f0923ba391df3a68bf0bc8
+        with:
+          include: ${{ steps.changed-files.outputs.files }}
+          ignore: '*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix-output.*,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json'
+          output: 'repomix-changed.xml'
+          compress: 'true'
+          style: 'xml'
+
+      - name: Verify no secrets in changed context
+        if: github.event_name == 'pull_request' && steps.changed-files.outputs.files != ''
+        run: |
+          # Defense-in-depth: verify no obvious secrets leaked into output
+          if grep -qiE '(api[_-]?key|secret[_-]?key|password|token|credential).*[:=].*[A-Za-z0-9+/]{20,}' repomix-changed.xml 2>/dev/null; then
+            echo "::error::Potential secret detected in repomix-changed.xml"
+            exit 1
+          fi
+          echo "Security check passed: no obvious secrets detected"
+
+      - name: Generate context summary
+        run: |
+          echo "## Repomix Context Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f repomix-full.xml ]; then
+            FULL_SIZE=$(du -h repomix-full.xml | cut -f1)
+            FULL_LINES=$(wc -l < repomix-full.xml)
+            echo "### Full Codebase Context" >> $GITHUB_STEP_SUMMARY
+            echo "- Size: $FULL_SIZE" >> $GITHUB_STEP_SUMMARY
+            echo "- Lines: $FULL_LINES" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f repomix-changed.xml ]; then
+            CHANGED_SIZE=$(du -h repomix-changed.xml | cut -f1)
+            CHANGED_LINES=$(wc -l < repomix-changed.xml)
+            echo "### Changed Files Context" >> $GITHUB_STEP_SUMMARY
+            echo "- Size: $CHANGED_SIZE" >> $GITHUB_STEP_SUMMARY
+            echo "- Lines: $CHANGED_LINES" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "Download artifacts for AI-assisted review." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload full context artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repomix-full-context
+          path: repomix-full.xml
+          retention-days: 7
+
+      - name: Upload changed files context artifact
+        if: github.event_name == 'pull_request' && steps.changed-files.outputs.files != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: repomix-changed-context
+          path: repomix-changed.xml
+          retention-days: 7

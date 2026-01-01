@@ -132,6 +132,7 @@ apps/web_console/certs/jwt_private.key
 
 # repomix
 repomix-output.xml
+repomix*.xml
 
 # locks
 .ci-local.lock

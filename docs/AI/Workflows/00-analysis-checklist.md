@@ -14,6 +14,33 @@
 
 ---
 
+## Phase 0: Pack Codebase Context (2 min)
+
+**MANDATORY:** Pack relevant directories before starting analysis.
+
+```bash
+# Pack directories related to your task
+/repomix-commands:pack-local ./libs/<relevant> ./apps/<relevant>
+
+# Or use explorer for natural language understanding
+/repomix-explorer:explore-local ./apps "How does <feature> work?"
+```
+
+**Why pack first?**
+- ~70% token reduction through Tree-sitter compression
+- Structured context helps identify patterns and dependencies
+- Prevents missing call sites or related components
+- Enables comprehensive understanding before implementation
+
+**What to pack:**
+- Directories you expect to modify
+- Directories with related functionality
+- Test directories for impacted components
+
+**See [06-repomix.md](./06-repomix.md) for complete guide**
+
+---
+
 ## Phase 1: Comprehensive Analysis (30-60 min)
 
 ### 1. Understand the Requirement (5 min)
