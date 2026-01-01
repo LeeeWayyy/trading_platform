@@ -155,7 +155,8 @@ def has_review_markers(commit_hash):
 
     # NEW format: Single shared continuation-id (shared-context iterations)
     # Pattern matches "continuation-id:" but NOT "gemini-continuation-id:" or "codex-continuation-id:"
-    shared_id_pattern = r"(?:^|\n)\s*continuation-id:\s*[a-f0-9-]+"
+    # Uses negative lookbehind to avoid matching legacy keys that contain "continuation-id" as substring
+    shared_id_pattern = r"(?:^|\n)\s*(?<![a-z-])continuation-id:\s*[a-f0-9-]+"
     has_shared_id = bool(re.search(shared_id_pattern, message))
 
     # LEGACY format: Dual-phase (gemini + codex) continuation IDs

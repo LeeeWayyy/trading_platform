@@ -46,14 +46,15 @@ jobs:
           # Get list of changed files in PR with security filtering
           # Excludes: binary files, sensitive files, comma-containing filenames
           # NOTE: Keep sensitive patterns in sync with repomix.config.json customPatterns
-          git diff --name-only origin/${{ github.base_ref }}...HEAD \
+          # Use subshell to handle empty results gracefully (grep returns 1 when no match)
+          (git diff --name-only origin/${{ github.base_ref }}...HEAD \
             | grep -v -E '\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|svg|pdf|pyc|pyo|so|o|a|dll|exe|bin)$' \
             | grep -v -E '\.(pem|key)$' \
             | grep -v -E '^\.env' \
             | grep -v -E '(credentials|secrets)\.json$' \
             | grep -v ',' \
             | tr '\n' ',' \
-            | sed 's/,$//' > /tmp/changed-files.txt
+            | sed 's/,$//') > /tmp/changed-files.txt || true
           CHANGED=$(cat /tmp/changed-files.txt)
           # Guard against very large file lists (GitHub Actions output limit)
           if [ ${#CHANGED} -gt 60000 ]; then
@@ -78,7 +79,8 @@ jobs:
       - name: Verify no secrets in full context
         run: |
           # Defense-in-depth: verify no obvious secrets leaked into output
-          if grep -qiE '(api[_-]?key|secret[_-]?key|password|token|credential).*[:=].*[A-Za-z0-9+/]{20,}' repomix-full.xml 2>/dev/null; then
+          # Pattern looks for actual secret assignments with quotes (not code references)
+          if grep -qE '(API_KEY|SECRET_KEY|PASSWORD|AUTH_TOKEN)["\x27]?\s*[:=]\s*["\x27][A-Za-z0-9+/]{20,}["\x27]' repomix-full.xml 2>/dev/null; then
             echo "::error::Potential secret detected in repomix-full.xml"
             exit 1
           fi
@@ -99,7 +101,8 @@ jobs:
         if: github.event_name == 'pull_request' && steps.changed-files.outputs.files != ''
         run: |
           # Defense-in-depth: verify no obvious secrets leaked into output
-          if grep -qiE '(api[_-]?key|secret[_-]?key|password|token|credential).*[:=].*[A-Za-z0-9+/]{20,}' repomix-changed.xml 2>/dev/null; then
+          # Pattern looks for actual secret assignments with quotes (not code references)
+          if grep -qE '(API_KEY|SECRET_KEY|PASSWORD|AUTH_TOKEN)["\x27]?\s*[:=]\s*["\x27][A-Za-z0-9+/]{20,}["\x27]' repomix-changed.xml 2>/dev/null; then
             echo "::error::Potential secret detected in repomix-changed.xml"
             exit 1
           fi

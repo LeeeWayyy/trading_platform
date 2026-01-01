@@ -165,8 +165,10 @@ If fixes were made in iteration N:
 
 **Approval with issues:**
 - If reviewer says "APPROVED" with **only LOW issues** → fix them → commit (no fresh iteration needed)
-- If reviewer says "APPROVED" with **MEDIUM/HIGH issues** → fix them → start fresh iteration
+- If reviewer lists **MEDIUM/HIGH issues** → treat as rejection → fix all issues → start fresh iteration
 - If reviewer does NOT say "APPROVED" → fix all issues → start fresh iteration
+
+**Note:** An "APPROVED" with MEDIUM/HIGH issues is contradictory and should be treated as a rejection requiring fixes.
 
 **⚠️ You still MUST fix ALL issues including LOW before committing.**
 

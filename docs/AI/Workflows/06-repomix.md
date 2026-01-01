@@ -141,7 +141,6 @@ Project configuration in `repomix.config.json`:
 - Pack the entire repo when only analyzing one component
 - Ignore Secretlint security warnings
 - Share packed output containing credentials
-- Skip repomix for simple, single-file changes
 
 ---
 

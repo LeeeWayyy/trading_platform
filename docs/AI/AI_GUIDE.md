@@ -168,7 +168,8 @@ This is a **Qlib + Alpaca trading platform** designed for algorithmic trading. T
 **⚠️ CRITICAL: Fix ALL issues even if reviewers say "APPROVED"**
 - Reviewers may approve with LOW severity suggestions
 - These are still issues that MUST be fixed
-- "Approved with comments" = fix comments, then start new fresh iteration
+- If approved with only LOW issues, fix them before committing (no new iteration needed)
+- If approved with any MEDIUM/HIGH issues, fix them and start a new fresh review iteration
 - Never rationalize skipping issues (e.g., "it's minor", "cleanup later", "pre-existing code")
 
 **See [Workflows/03-reviews.md](./Workflows/03-reviews.md) for complete workflow**
