@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       directories:
-        description: 'Directories to pack (comma-separated)'
+        description: 'Directories to pack (space-separated)'
         required: false
-        default: 'libs,apps'
+        default: 'libs apps'
 
 permissions:
   contents: read
@@ -69,7 +69,7 @@ jobs:
         # Security: repomix.config.json enables security checks; action inherits this config
         uses: yamadashy/repomix/.github/actions/repomix@46857e5a18dc2b4a31f0923ba391df3a68bf0bc8
         with:
-          directories: ${{ github.event.inputs.directories || 'libs,apps,scripts,db,infra,tests,docs' }}
+          directories: ${{ github.event.inputs.directories || 'libs apps scripts db infra tests docs' }}
           ignore: '*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix-output.*,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json'
           output: 'repomix-full.xml'
           compress: 'true'
