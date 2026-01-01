@@ -287,10 +287,10 @@ class TestIncrementalSync:
         self, sync_manager: SyncManager, test_dirs: dict[str, Path], mock_wrds_client: MagicMock
     ) -> None:
         """Test 30: Incremental sync merges new data with existing data."""
-        # Use current year for the test data
+        # Use yesterday's year to avoid year boundary issues (e.g., running on Jan 1)
         today = datetime.date.today()
-        current_year = today.year
         yesterday = today - datetime.timedelta(days=1)
+        test_year = yesterday.year  # Use yesterday's year to avoid boundary issues
 
         # Register schema for crsp_daily
         sync_manager.schema_registry.register_schema(
@@ -312,7 +312,7 @@ class TestIncrementalSync:
                 "ret": [0.01, -0.02, 0.03],
             }
         )
-        initial_file = storage_dir / f"{current_year}.parquet"
+        initial_file = storage_dir / f"{test_year}.parquet"
         initial_df.write_parquet(initial_file)
 
         # Compute initial checksum
@@ -322,7 +322,7 @@ class TestIncrementalSync:
         initial_manifest = SyncManifest(
             dataset="crsp_daily",
             sync_timestamp=datetime.datetime.now(datetime.UTC),
-            start_date=datetime.date(current_year, 1, 1),
+            start_date=datetime.date(test_year, 1, 1),
             end_date=yesterday,  # Yesterday, triggers incremental for today
             row_count=3,
             checksum=initial_checksum,
