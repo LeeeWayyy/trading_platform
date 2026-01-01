@@ -27,6 +27,32 @@ features: [T2.1, T2.2]
 
 ---
 
+## P5T1 Pre-implemented Security (Review Clarification)
+
+**The following security controls were already implemented in P5T1 and are available for P5T2:**
+
+| Control | P5T1 Implementation | File |
+|---------|---------------------|------|
+| **Session Cookie Security** | HttpOnly, Secure, SameSite, `__Host-` prefix | `auth/cookie_config.py` |
+| **CSRF Protection** | Double-submit cookie pattern with header validation | `auth/csrf.py` |
+| **Session Rate Limiting** | Redis Lua script (10 creates/min, 100 validates/min) | `auth/session_store.py` |
+| **Device Binding** | IP subnet + UA hash validation | `auth/session_store.py` |
+| **Audit Logging** | Structured auth event logging | `auth/audit.py` |
+| **Session Rotation** | Rotate session ID on privilege change | `auth/session_store.py` |
+
+**Component Dependency Order (Clarified):**
+1. **C0: Layout Component** - No internal dependencies
+2. **C3: Rate Limiting** - Implement before C2 (auth handlers need rate limiter)
+3. **C2: Auth Handlers** - Depends on C3 rate limiter + P5T1 session store
+4. **C1: Login UI Integration** - Depends on C2 auth handlers
+
+**Security Notes:**
+- Logout will be POST-only with CSRF validation (not GET)
+- SLA timings are non-blocking goals measured via manual Playwright timing assertions
+- OAuth2 callback method will be GET-only with state validation
+
+---
+
 ## Objective
 
 Establish the persistent layout (header, sidebar, content area) and implement all 4 authentication flows that all pages will inherit.
@@ -200,34 +226,33 @@ Establish the persistent layout (header, sidebar, content area) and implement al
 
 ## Approach
 
-### High-Level Plan
+### High-Level Plan (Dependency-Ordered)
 
-1. **C0: Layout Component** (2-3 days)
+1. **C0: Layout Component** (2-3 days) - No dependencies
    - Create main layout decorator
    - Implement header with status indicators
    - Create left drawer navigation
    - Add global status update timers
    - Role-based navigation filtering
 
-2. **C1: Login Page UI** (1-2 days)
-   - Create login page with form
-   - Add auth type selector
-   - Implement form validation
-   - Add error message handling
-   - MFA step-up UI
+2. **C3: Rate Limiting & Security** (1-2 days) - Depends on P5T1 Redis
+   - Auth rate limiter (per-IP + per-account)
+   - Account lockout logic with Lua scripts
+   - Logout handler (POST-only with CSRF)
+   - Session rotation on login
 
-3. **C2: Auth Handlers** (4-5 days)
-   - Dev auth handler (1 day)
-   - Basic auth handler (1 day)
-   - mTLS auth handler (1 day)
-   - OAuth2/OIDC handler (2 days)
+3. **C2: Auth Handlers** (4-5 days) - Depends on C3 + P5T1 session store
+   - Dev auth handler (uses P5T1 session_store.create_session)
+   - Basic auth handler with rate limiter
+   - mTLS auth handler with header trust validation
+   - OAuth2/OIDC handler with PKCE
    - Auth router/dispatcher
 
-4. **C3: Rate Limiting & Security** (1-2 days)
-   - Rate limiting implementation
-   - Account lockout logic
-   - Session rotation on login
-   - Logout flow with parallel run support
+4. **C1: Login Page UI Integration** (1-2 days) - Depends on C2
+   - Replace mock login with real auth handlers
+   - Integrate rate limiting feedback
+   - Wire MFA step-up flow
+   - Add OAuth2 authorization URL redirect
 
 ---
 
@@ -388,17 +413,29 @@ from apps.web_console_ng.auth.auth_router import get_auth_handler
 async def login_page() -> None:
     """Login page with auth type selection."""
 
-    # Check for existing session
-    session_id = app.storage.user.get("session_id")
-    if session_id:
-        # Already logged in
-        ui.navigate.to("/")
-        return
+    # Check for existing session via server-side validation
+    # Note: app.storage.user["logged_in"] is client-side flag; verify via cookie
+    from apps.web_console_ng.auth.session_store import get_session_store
+    from apps.web_console_ng.auth.cookie_config import CookieConfig
+    from apps.web_console_ng.auth.client_ip import get_client_ip
+
+    cookie_cfg = CookieConfig.from_env()
+    cookie_value = app.storage.request.cookies.get(cookie_cfg.get_cookie_name())
+    if cookie_value:
+        session_store = get_session_store()
+        client_ip = get_client_ip(app.storage.request)
+        user_agent = app.storage.request.headers.get("user-agent", "")
+        session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+        if session:
+            # Already logged in with valid session
+            ui.navigate.to("/")
+            return
 
     # Get redirect reason if any
     reason = app.storage.user.get("login_reason")
     if reason == "session_expired":
         ui.notify("Your session has expired. Please log in again.", type="warning")
+        del app.storage.user["login_reason"]  # Clear after showing
 
     with ui.card().classes("absolute-center w-96 p-8"):
         ui.label("Trading Console").classes("text-2xl font-bold text-center mb-2")
@@ -443,14 +480,34 @@ async def login_page() -> None:
                     result = await handler.authenticate(
                         username=username_input.value,
                         password=password_input.value,
+                        client_ip=get_client_ip(app.storage.request),
+                        user_agent=app.storage.request.headers.get("user-agent", ""),
                     )
 
                     if result.success:
                         if result.requires_mfa:
-                            app.storage.user["pending_mfa_session"] = result.session_id
+                            # Store pending session for MFA step-up
+                            app.storage.user["pending_mfa_cookie"] = result.cookie_value
                             ui.navigate.to("/mfa-verify")
                         else:
-                            app.storage.user["session_id"] = result.session_id
+                            # Set HttpOnly session cookie via response
+                            # Note: In NiceGUI, we use app.storage.request.state to access response
+                            from apps.web_console_ng.auth.cookie_config import CookieConfig
+                            cookie_cfg = CookieConfig.from_env()
+                            response = app.storage.request.state.response
+                            response.set_cookie(
+                                key=cookie_cfg.get_cookie_name(),
+                                value=result.cookie_value,
+                                **cookie_cfg.get_cookie_flags(),
+                            )
+                            # Set CSRF token cookie (not HttpOnly, readable by JS)
+                            response.set_cookie(
+                                key="ng_csrf",
+                                value=result.csrf_token,
+                                **cookie_cfg.get_csrf_flags(),
+                            )
+                            # Store logged-in flag in client storage (UI state only)
+                            app.storage.user["logged_in"] = True
                             redirect_to = app.storage.user.get("redirect_after_login", "/")
                             ui.navigate.to(redirect_to)
                     else:
@@ -556,9 +613,14 @@ from typing import Optional
 
 @dataclass
 class AuthResult:
-    """Result of an authentication attempt."""
+    """Result of an authentication attempt.
+
+    NOTE: Uses cookie_value (from P5T1 session_store) not session_id.
+    The cookie_value contains the signed session ID.
+    """
     success: bool
-    session_id: Optional[str] = None
+    cookie_value: Optional[str] = None  # Signed cookie value from session_store
+    csrf_token: Optional[str] = None    # CSRF token for forms
     user_data: Optional[dict] = None
     requires_mfa: bool = False
     error_message: Optional[str] = None
@@ -604,15 +666,17 @@ class DevAuthHandler:
             "auth_method": "dev",
         }
 
-        session_id, signature, csrf_token = await session_store.create_session(
+        # P5T1 API: create_session returns (cookie_value, csrf_token)
+        cookie_value, csrf_token = await session_store.create_session(
             user_data=user_data,
-            device_info=kwargs.get("device_info", {}),
+            device_info={"user_agent": kwargs.get("user_agent", "dev-browser")},
             client_ip=kwargs.get("client_ip", "127.0.0.1"),
         )
 
         return AuthResult(
             success=True,
-            session_id=session_id,
+            cookie_value=cookie_value,  # Use cookie_value, not session_id
+            csrf_token=csrf_token,
             user_data=user_data,
             requires_mfa=False,
         )
@@ -765,15 +829,17 @@ class OAuth2AuthHandler:
             "token_expires_at": token_expires_at,  # Absolute timestamp
         }
 
-        session_id, signature, csrf_token = await session_store.create_session(
+        # P5T1 API: create_session returns (cookie_value, csrf_token)
+        cookie_value, csrf_token = await session_store.create_session(
             user_data=user_data,
-            device_info=kwargs.get("device_info", {}),
+            device_info={"user_agent": kwargs.get("user_agent", "")},
             client_ip=kwargs.get("client_ip", "127.0.0.1"),
         )
 
         return AuthResult(
             success=True,
-            session_id=session_id,
+            cookie_value=cookie_value,
+            csrf_token=csrf_token,
             user_data=user_data,
             requires_mfa=self._requires_mfa(userinfo),
         )
@@ -1108,32 +1174,49 @@ def extract_trusted_client_ip(request, trusted_proxies: list[str]) -> str:
 from nicegui import app
 import redis.asyncio as redis
 from apps.web_console_ng.auth.session_store import get_session_store
+from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.oauth2_auth import OAuth2AuthHandler
+from apps.web_console_ng.auth.client_ip import get_client_ip
 from apps.web_console_ng import config
 
-async def perform_logout() -> str | None:
+async def perform_logout(request, response) -> str | None:
     """
-    Perform complete logout:
-    1. Invalidate NiceGUI session
-    2. Clear cookies
-    3. Invalidate Streamlit session (parallel run)
-    4. For OAuth2: return logout URL
+    Perform complete logout (POST-only with CSRF validation):
+    1. Validate and get session from cookie
+    2. Invalidate NiceGUI session in Redis
+    3. Clear cookies
+    4. Invalidate Streamlit session (parallel run)
+    5. For OAuth2: return logout URL
+
+    NOTE: CSRF validation happens in the route handler before calling this.
 
     Returns OAuth2 logout URL if applicable, None otherwise.
     """
     session_store = get_session_store()
-    session_id = app.storage.user.get("session_id")
+    cookie_cfg = CookieConfig.from_env()
 
-    if session_id:
-        # Get session data for OAuth2 logout
-        session = await session_store.validate_session(
-            session_id,
-            app.storage.user.get("session_signature", ""),
-            "127.0.0.1"  # IP not needed for logout
+    # Get cookie_value from HttpOnly cookie (P5T1 API)
+    cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
+
+    if cookie_value:
+        # Validate session using P5T1 API: validate_session(cookie_value, client_ip, user_agent)
+        client_ip = get_client_ip(request)
+        user_agent = request.headers.get("user-agent", "")
+        session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+
+        # Extract session_id from cookie_value for invalidation
+        session_id = session_store.verify_cookie(cookie_value)
+        if session_id:
+            await session_store.invalidate_session(session_id)
+
+        # Clear session cookie
+        response.delete_cookie(
+            key=cookie_cfg.get_cookie_name(),
+            path="/",
+            secure=cookie_cfg.secure,
         )
-
-        # Invalidate NiceGUI session
-        await session_store.invalidate_session(session_id)
+        # Clear CSRF cookie
+        response.delete_cookie(key="ng_csrf", path="/")
 
         # Clear Streamlit session if exists (parallel run)
         if session:
@@ -1145,7 +1228,7 @@ async def perform_logout() -> str | None:
         # Clear NiceGUI client storage
         app.storage.user.clear()
 
-        # Handle OAuth2 logout
+        # Handle OAuth2 RP-initiated logout
         if session and session.get("user", {}).get("auth_method") == "oauth2":
             id_token = session.get("user", {}).get("id_token")
             if id_token:

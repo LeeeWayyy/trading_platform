@@ -165,6 +165,10 @@ module = ["requests", "requests.*", "aiosmtplib"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["jose", "jose.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["qlib.*", "mlflow.*", "lightgbm.*", "matplotlib.*", "seaborn.*", "hvac.*", "boto3.*", "botocore.*", "pandas_datareader.*", "yfinance.*", "rq.*", "numba.*", "structlog.*", "twilio.*"]
 ignore_missing_imports = true
 

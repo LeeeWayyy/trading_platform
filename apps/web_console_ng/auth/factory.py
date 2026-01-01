@@ -6,10 +6,10 @@ from apps.web_console_ng.auth.providers import basic, dev, mtls, oauth2
 from apps.web_console_ng.auth.providers.base import AuthProvider
 
 _PROVIDERS: dict[str, type[AuthProvider]] = {
-    "dev": dev.DevAuthProvider,
-    "basic": basic.BasicAuthProvider,
-    "mtls": mtls.MTLSAuthProvider,
-    "oauth2": oauth2.OAuth2AuthProvider,
+    "dev": dev.DevAuthHandler,
+    "basic": basic.BasicAuthHandler,
+    "mtls": mtls.MTLSAuthHandler,
+    "oauth2": oauth2.OAuth2AuthHandler,
 }
 
 

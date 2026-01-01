@@ -287,8 +287,17 @@ class ServerSessionStore:
             logger.warning("Session validation failed: %s: %s", type(exc).__name__, exc)
             return None
 
-    async def rotate_session(self, old_session_id: str) -> tuple[str, str] | None:
+    async def rotate_session(
+        self,
+        old_session_id: str,
+        user_updates: dict[str, Any] | None = None,
+    ) -> tuple[str, str] | None:
         """Rotate session ID and CSRF token for fixation protection.
+
+        Args:
+            old_session_id: The session ID to rotate.
+            user_updates: Optional dict of fields to merge into session["user"].
+                         Useful for clearing mfa_pending after MFA verification.
 
         Returns (cookie_value, csrf_token) or None on failure.
         """
@@ -315,6 +324,10 @@ class ServerSessionStore:
             session["csrf_token"] = new_csrf
             session["issued_at"] = now.isoformat()
             session["last_activity"] = now.isoformat()
+
+            # Apply user updates if provided (e.g., clear mfa_pending)
+            if user_updates and isinstance(session.get("user"), dict):
+                session["user"].update(user_updates)
 
             encrypted = self.fernet.encrypt(json.dumps(session).encode())
             await self.redis.setex(

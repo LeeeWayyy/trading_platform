@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import binascii
 import ipaddress
+import logging
 import os
 from typing import Literal, cast
 
@@ -22,6 +23,8 @@ DEBUG = os.getenv("WEB_CONSOLE_NG_DEBUG", "false").lower() in {"1", "true", "yes
 PAGE_TITLE = os.getenv(
     "WEB_CONSOLE_NG_PAGE_TITLE", "Trading Platform - Web Console (NiceGUI)"
 )
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Backend endpoints
@@ -124,6 +127,18 @@ def _load_auth_type() -> Literal["dev", "basic", "mtls", "oauth2"]:
 
 
 AUTH_TYPE = _load_auth_type()
+# UI flag for login page to show/hide selector
+SHOW_AUTH_TYPE_SELECTOR = os.getenv("SHOW_AUTH_TYPE_SELECTOR", "false").lower() in {"1", "true", "yes", "on"}
+ALLOW_DEV_BASIC_AUTH = os.getenv("WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+if ALLOW_DEV_BASIC_AUTH:
+    logger.warning(
+        "WEB_CONSOLE_ALLOW_DEV_BASIC_AUTH is enabled; dev credentials are active."
+    )
 
 DEV_USER_ID = os.getenv("WEB_CONSOLE_DEV_USER_ID", "dev-user")
 DEV_ROLE = os.getenv("WEB_CONSOLE_DEV_ROLE", "admin")

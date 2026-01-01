@@ -116,3 +116,14 @@ class AsyncTradingClient:
         resp = await self._client.get("/api/v1/circuit-breaker/status", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_kill_switch_status(self, user_id: str) -> dict[str, Any]:
+        """Fetch kill switch status (GET - idempotent).
+
+        Returns dict with 'state' key: 'ENGAGED' or 'DISENGAGED'.
+        """
+        headers = self._get_auth_headers(user_id)
+        resp = await self._client.get("/api/v1/kill-switch/status", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)

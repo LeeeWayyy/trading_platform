@@ -1,12 +1,15 @@
-"""Client IP extraction with trusted proxy handling."""
-
 from __future__ import annotations
 
 import ipaddress
-from collections.abc import Iterable
+import logging
 
 from starlette.requests import Request
 
+from apps.web_console_ng import config
+
+logger = logging.getLogger(__name__)
+
+# Type alias for trusted proxies (IP or Network)
 TrustedProxy = (
     ipaddress.IPv4Network
     | ipaddress.IPv6Network
@@ -15,58 +18,80 @@ TrustedProxy = (
 )
 
 
-def _is_trusted(
-    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
-    trusted_proxies: Iterable[TrustedProxy],
-) -> bool:
-    for proxy in trusted_proxies:
-        if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
-            if ip in proxy:
-                return True
-        elif isinstance(proxy, ipaddress.IPv4Address | ipaddress.IPv6Address):
-            if ip == proxy:
-                return True
-    return False
+def get_client_ip(request: Request, trusted_proxies: list[TrustedProxy] | None = None) -> str:
+    """Extract client IP, trusting X-Forwarded-For only from trusted proxies.
 
+    Wrapper around extract_trusted_client_ip for compatibility with middleware.
 
-def get_client_ip(request: Request, trusted_proxies: Iterable[TrustedProxy]) -> str:
-    """Return the real client IP using trusted proxy rules.
+    Args:
+        request: The Starlette request object.
+        trusted_proxies: List of trusted IP/Network objects. If None, uses config.TRUSTED_PROXY_IPS.
 
-    Parsing rules:
-    - If the direct connection IP is not trusted, ignore X-Forwarded-For.
-    - If trusted, parse X-Forwarded-For right-to-left and return the first
-      untrusted IP.
-    - If all entries are trusted or header missing, return connection IP.
+    Returns:
+        The client IP address as a string.
     """
+    proxies = trusted_proxies if trusted_proxies is not None else config.TRUSTED_PROXY_IPS
+    return extract_trusted_client_ip(request, proxies)
 
-    connection_ip = request.client.host if request.client else ""
-    if not connection_ip:
-        return ""
 
+def extract_trusted_client_ip(request: Request, trusted_proxies: list[TrustedProxy]) -> str:
+    """Extract client IP, trusting X-Forwarded-For only from trusted proxies.
+
+    Args:
+        request: The Starlette request object.
+        trusted_proxies: List of ipaddress.IPv4Network/IPv6Network/IPv4Address/IPv6Address objects.
+
+    Returns:
+        The client IP address as a string.
+    """
+    remote_addr = request.client.host if request.client else "0.0.0.0"
+
+    # If direct connection isn't trusted, return it directly
+    is_trusted = False
     try:
-        connection_addr = ipaddress.ip_address(connection_ip)
+        ip = ipaddress.ip_address(remote_addr)
+        for proxy in trusted_proxies:
+            if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
+                if ip in proxy:
+                    is_trusted = True
+                    break
+            elif ip == proxy:
+                is_trusted = True
+                break
     except ValueError:
-        return connection_ip
+        pass
 
-    trusted = list(trusted_proxies)
-    if not trusted or not _is_trusted(connection_addr, trusted):
-        return connection_ip
+    if not is_trusted:
+        return remote_addr
 
-    forwarded = request.headers.get("x-forwarded-for")
-    if not forwarded:
-        return connection_ip
+    # If trusted, check X-Forwarded-For
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        # X-Forwarded-For: client, proxy1, proxy2
+        # We traverse from right to left (nearest proxy)
+        ips = [ip.strip() for ip in xff.split(",")]
 
-    parts = [part.strip() for part in forwarded.split(",") if part.strip()]
-    for part in reversed(parts):
-        try:
-            addr = ipaddress.ip_address(part)
-        except ValueError:
-            continue
-        if _is_trusted(addr, trusted):
-            continue
-        return part
+        # Start with the remote_addr (already verified as trusted)
+        # We walk backwards through the chain.
+        # If the current IP is trusted, we accept the *next* one to the left as potentially valid.
+        # Once we hit an untrusted IP, or run out of trusted proxies, that's the client IP.
 
-    return connection_ip
+        for ip_str in reversed(ips):
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                ip_is_trusted = False
+                for proxy in trusted_proxies:
+                    if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
+                        if ip in proxy:
+                            ip_is_trusted = True
+                            break
+                    elif ip == proxy:
+                        ip_is_trusted = True
+                        break
 
+                if not ip_is_trusted:
+                    return ip_str
+            except ValueError:
+                continue
 
-__all__ = ["get_client_ip", "TrustedProxy"]
+    return remote_addr
