@@ -287,10 +287,11 @@ class TestIncrementalSync:
         self, sync_manager: SyncManager, test_dirs: dict[str, Path], mock_wrds_client: MagicMock
     ) -> None:
         """Test 30: Incremental sync merges new data with existing data."""
-        # Use yesterday's year to avoid year boundary issues (e.g., running on Jan 1)
-        today = datetime.date.today()
-        yesterday = today - datetime.timedelta(days=1)
-        test_year = yesterday.year  # Use yesterday's year to avoid boundary issues
+        # Use fixed dates in mid-year to avoid year boundary issues
+        # This ensures the test works regardless of when it runs
+        test_year = 2024
+        today = datetime.date(test_year, 6, 15)  # June 15
+        yesterday = datetime.date(test_year, 6, 14)  # June 14
 
         # Register schema for crsp_daily
         sync_manager.schema_registry.register_schema(
@@ -346,8 +347,21 @@ class TestIncrementalSync:
         )
         mock_wrds_client.execute_query.return_value = new_data
 
-        # Call incremental sync
-        result_manifest = sync_manager.incremental_sync("crsp_daily")
+        # Mock datetime.date.today() to return our fixed date
+        # This ensures the test works regardless of when it runs
+        with patch("libs.data_providers.sync_manager.datetime") as mock_datetime:
+            mock_datetime.date.today.return_value = today
+            mock_datetime.datetime.now.return_value = datetime.datetime(
+                test_year, 6, 15, 12, 0, 0, tzinfo=datetime.UTC
+            )
+            mock_datetime.datetime.side_effect = lambda *args, **kwargs: datetime.datetime(
+                *args, **kwargs
+            )
+            mock_datetime.timedelta = datetime.timedelta
+            mock_datetime.UTC = datetime.UTC
+
+            # Call incremental sync
+            result_manifest = sync_manager.incremental_sync("crsp_daily")
 
         # Verify the file was updated with merged data
         result_df = pl.read_parquet(initial_file)

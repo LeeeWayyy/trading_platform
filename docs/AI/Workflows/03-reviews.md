@@ -78,14 +78,20 @@ Request comprehensive zen-mcp review (fresh start, no continuation ID)
 
 Review all staged changes with focus on but not limited to:
 
+**Architecture & Design (HIGH):**
+- Design patterns and maintainability standards followed?
+- Integration impact on other components considered?
+
 **Trading Safety (CRITICAL):**
 - Circuit breaker checks before critical operations?
 - Client_order_id values deterministic and collision-free?
 - Per-symbol and total position limits enforced?
+- Order state transitions valid and checked?
 
 **Concurrency & Data Safety (HIGH):**
 - Redis WATCH/MULTI/EXEC for concurrent updates?
 - DB operations wrapped in proper transactions?
+- Read-modify-write sequences atomic?
 
 **Error Handling (HIGH):**
 - Exceptions caught, logged with context, re-raised?
@@ -98,6 +104,12 @@ Review all staged changes with focus on but not limited to:
 **Code Quality (MEDIUM):**
 - All function signatures properly typed?
 - Input data validated (Pydantic, assertions)?
+- Docstrings complete and accurate?
+- ADRs created for architectural changes?
+
+**Testing & Edge Cases (MEDIUM):**
+- All code paths and boundary conditions tested?
+- Failure modes handled correctly?
 
 **Domain-Specific (HIGH):**
 - Research and production share feature calculation code?

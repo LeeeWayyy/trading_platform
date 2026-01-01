@@ -44,7 +44,7 @@ jobs:
           # Extract patterns from repomix.config.json and compare with workflow
           # This prevents configuration drift between local and CI contexts
           CONFIG_PATTERNS=$(jq -r '.ignore.customPatterns | sort | join(",")' repomix.config.json)
-          WORKFLOW_PATTERNS="*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix-output.*,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json"
+          WORKFLOW_PATTERNS="*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix*.xml,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json"
           WORKFLOW_SORTED=$(echo "$WORKFLOW_PATTERNS" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
           CONFIG_SORTED=$(echo "$CONFIG_PATTERNS" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
           if [ "$WORKFLOW_SORTED" != "$CONFIG_SORTED" ]; then
@@ -85,7 +85,7 @@ jobs:
         uses: yamadashy/repomix/.github/actions/repomix@46857e5a18dc2b4a31f0923ba391df3a68bf0bc8
         with:
           directories: ${{ github.event.inputs.directories || 'libs apps scripts db infra tests docs' }}
-          ignore: '*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix-output.*,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json'
+          ignore: '*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix*.xml,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json'
           output: 'repomix-full.xml'
           compress: 'true'
           style: 'xml'
@@ -106,7 +106,7 @@ jobs:
         uses: yamadashy/repomix/.github/actions/repomix@46857e5a18dc2b4a31f0923ba391df3a68bf0bc8
         with:
           include: ${{ steps.changed-files.outputs.files }}
-          ignore: '*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix-output.*,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json'
+          ignore: '*.pyc,__pycache__/**,.venv/**,venv/**,.git/**,artifacts/**,data/**,htmlcov/**,.coverage*,coverage.xml,.pytest_cache/**,.mypy_cache/**,.ruff_cache/**,*.egg-info/**,dist/**,build/**,node_modules/**,repomix*.xml,*.log,.env,.env.*,.envrc,*.pem,*.key,credentials.json,secrets.json'
           output: 'repomix-changed.xml'
           compress: 'true'
           style: 'xml'

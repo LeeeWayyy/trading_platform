@@ -31,7 +31,7 @@
       "dist/**",
       "build/**",
       "node_modules/**",
-      "repomix-output.*",
+      "repomix*.xml",
       "*.log",
       ".env",
       ".env.*",
