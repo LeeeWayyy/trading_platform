@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from nicegui import app, ui
 from starlette.requests import Request as StarletteRequest
 
@@ -8,6 +10,8 @@ from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.mfa import MFAHandler
 from apps.web_console_ng.auth.middleware import requires_auth
+
+logger = logging.getLogger(__name__)
 
 
 @ui.page("/mfa-verify")
@@ -71,8 +75,10 @@ async def mfa_verify_page() -> None:
                 else:
                     ui.notify(result.error_message or "Invalid code", type="negative")
                     code_input.value = ""
-            except Exception as e:
-                ui.notify(f"Verification error: {e}", type="negative")
+            except Exception:
+                # SECURITY: Log error details but show generic message to user
+                logger.exception("MFA verification error")
+                ui.notify("Verification failed. Please try again.", type="negative")
 
         ui.button("Verify", on_click=verify).classes("w-full bg-blue-600 text-white")
 

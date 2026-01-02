@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import cast
+from typing import TYPE_CHECKING
 
-import redis.asyncio as redis
 from redis import exceptions as redis_exceptions
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.audit import AuthAuditLogger
+from apps.web_console_ng.core.redis_ha import get_redis_store
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +86,9 @@ class AuthRateLimiter:
     """Atomic rate limiting for authentication attempts."""
 
     def __init__(self) -> None:
-        self.redis = _redis_from_url(config.REDIS_URL, decode_responses=False)
+        # Lazy initialization - Redis client is obtained on first use via get_redis_store()
+        # This ensures proper HA (Sentinel) and TLS configuration
+        self._redis: Redis | None = None
         self.max_attempts_per_ip = 10  # Per minute
         self.max_attempts_per_account = 5  # Before lockout
         self.lockout_duration = 15 * 60  # 15 minutes
@@ -92,12 +96,67 @@ class AuthRateLimiter:
         self._check_script_sha: str | None = None
         self._record_script_sha: str | None = None
 
+    async def _get_redis(self) -> Redis:
+        """Get Redis client lazily via HA store (Sentinel + TLS aware)."""
+        if self._redis is None:
+            store = get_redis_store()
+            # Use binary mode for Lua script compatibility
+            self._redis = store.get_master_client(decode_responses=False)
+        return self._redis
+
+    @property
+    def redis(self) -> Redis:
+        """Backwards-compatible property for sync access (raises if not initialized)."""
+        if self._redis is None:
+            # Fallback: initialize synchronously via store
+            store = get_redis_store()
+            self._redis = store.get_master_client(decode_responses=False)
+        return self._redis
+
     async def _load_scripts(self, force: bool = False) -> None:
         """Load Lua scripts (cached SHAs)."""
         if force or self._check_script_sha is None:
             self._check_script_sha = await self.redis.script_load(CHECK_ONLY_SCRIPT)
         if force or self._record_script_sha is None:
             self._record_script_sha = await self.redis.script_load(RECORD_FAILURE_SCRIPT)
+
+    async def check_and_increment_ip(self, client_ip: str) -> tuple[bool, int, str]:
+        """Check IP rate limit AND increment counter atomically.
+
+        Use for OAuth2 callbacks where we don't have a username yet.
+        This prevents IdP/Redis abuse from callback floods.
+
+        Returns:
+            (is_blocked, retry_after_seconds, reason)
+            Reasons: 'allowed', 'ip_rate_limit'
+        """
+        redis = await self._get_redis()
+        ip_key = f"auth_rate:ip:{client_ip}"
+
+        # Atomic increment and check using Lua
+        lua_script = """
+        local ip_key = KEYS[1]
+        local max_attempts = tonumber(ARGV[1])
+        local ip_count = redis.call('INCR', ip_key)
+        if ip_count == 1 then
+            redis.call('EXPIRE', ip_key, 60)  -- 1 minute window
+        end
+        if ip_count > max_attempts then
+            return {1, redis.call('TTL', ip_key), 'ip_rate_limit'}
+        end
+        return {0, 0, 'allowed'}
+        """
+        result = await redis.eval(  # type: ignore[misc]
+            lua_script, 1, ip_key, str(self.max_attempts_per_ip)
+        )
+
+        is_blocked = bool(result[0])
+        retry_after = int(result[1])
+        reason = result[2]
+        if isinstance(reason, bytes):
+            reason = reason.decode("utf-8")
+
+        return is_blocked, retry_after, reason
 
     async def check_only(self, client_ip: str, username: str) -> tuple[bool, int, str]:
         """Check rate limits WITHOUT incrementing counters.
@@ -224,8 +283,3 @@ class AuthRateLimiter:
         except Exception:
             logger.exception("Failed to unlock account for user=%s", username)
             return False
-
-
-def _redis_from_url(url: str, *, decode_responses: bool) -> redis.Redis:
-    from_url = cast(Callable[..., redis.Redis], redis.Redis.from_url)
-    return from_url(url, decode_responses=decode_responses)

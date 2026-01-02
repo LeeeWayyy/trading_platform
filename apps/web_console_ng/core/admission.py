@@ -162,6 +162,17 @@ class AdmissionControlMiddleware:
                 _increment_rejection("timeout")
                 await self._send_http_error(send, 503, "Service timeout", retry_after=5)
                 return
+            except ValueError as exc:
+                # Cookie parsing or session extraction error (malformed cookie)
+                # Treat as unauthenticated, not server error
+                logger.debug(
+                    "Session extraction failed (treating as unauthenticated): %s",
+                    exc,
+                    extra={"pod": POD_NAME},
+                )
+                _increment_rejection("invalid_session")
+                await self._send_http_error(send, 401, "Invalid session")
+                return
             except Exception as exc:
                 logger.error(
                     "Admission control error: %s",

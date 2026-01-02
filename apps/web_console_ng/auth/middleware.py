@@ -94,7 +94,23 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 class SessionMiddleware(BaseHTTPMiddleware):
-    """Middleware to ensure session cookie integrity."""
+    """Middleware to ensure session cookie integrity.
+
+    Note: Currently a pass-through. Session validation is done in @requires_auth decorator.
+    This middleware exists for future enhancement (e.g., global session refresh, logging).
+    """
+
+    def __init__(
+        self,
+        app: Any,
+        *,
+        session_store: Any = None,
+        trusted_proxies: Any = None,
+    ) -> None:
+        super().__init__(app)
+        # Store for future use (currently unused - validation is in @requires_auth)
+        self._session_store = session_store
+        self._trusted_proxies = trusted_proxies
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
         return cast(Response, await call_next(request))

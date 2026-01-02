@@ -82,8 +82,13 @@ def setup_connection_handlers() -> None:
         if request is not None:
             session_cookie = request.cookies.get(config.SESSION_COOKIE_NAME)
         if session_cookie:
-            session_id = extract_session_id(session_cookie)
-            client.storage["session_conn_key"] = f"session_conns:{session_id}"
+            try:
+                session_id = extract_session_id(session_cookie)
+                client.storage["session_conn_key"] = f"session_conns:{session_id}"
+            except ValueError:
+                # Malformed cookie - ignore and continue without session tracking
+                # Session will be validated properly in @requires_auth decorator
+                logger.debug("Malformed session cookie during connect, ignoring")
 
         await lifecycle.register_client(client_id)
 

@@ -3,20 +3,17 @@ from __future__ import annotations
 import hmac
 import json
 import logging
-from collections.abc import Callable
-from typing import cast
 
-import redis.asyncio as redis
 from fastapi import HTTPException, Request
 from nicegui import app
 from starlette.responses import JSONResponse, Response
 
-from apps.web_console_ng import config
 from apps.web_console_ng.auth.client_ip import get_client_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.csrf import CSRF_HEADER_NAME
 from apps.web_console_ng.auth.providers.oauth2 import OAuth2AuthHandler
 from apps.web_console_ng.auth.session_store import get_session_store
+from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +97,9 @@ async def perform_logout(
             if session:
                 user_id = session.get("user", {}).get("user_id")
                 if user_id:
-                    r = _redis_from_url(config.REDIS_URL, decode_responses=False)
-                    await r.delete(f"st_session:{user_id}")
-                    await r.aclose()
+                    store = get_redis_store()
+                    redis_client = store.get_master_client(decode_responses=False)
+                    await redis_client.delete(f"st_session:{user_id}")
 
                 # Handle OAuth2 RP-initiated logout
                 auth_method = session.get("user", {}).get("auth_method")
@@ -146,8 +143,3 @@ async def perform_logout(
             pass
 
     return None
-
-
-def _redis_from_url(url: str, *, decode_responses: bool) -> redis.Redis:
-    from_url = cast(Callable[..., redis.Redis], redis.Redis.from_url)
-    return from_url(url, decode_responses=decode_responses)

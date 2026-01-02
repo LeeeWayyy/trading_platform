@@ -10,9 +10,9 @@ from apps.web_console_ng.auth.rate_limiter import AuthRateLimiter
 @pytest.mark.asyncio()
 async def test_check_only_allowed() -> None:
     limiter = AuthRateLimiter()
-    # Mock redis
+    # Mock redis via private attribute (property uses lazy initialization)
     mock_redis = AsyncMock()
-    limiter.redis = mock_redis
+    limiter._redis = mock_redis
 
     # Mock script load to return a SHA
     mock_redis.script_load.return_value = "sha123"
@@ -39,7 +39,7 @@ async def test_check_only_allowed() -> None:
 async def test_check_only_blocked() -> None:
     limiter = AuthRateLimiter()
     mock_redis = AsyncMock()
-    limiter.redis = mock_redis
+    limiter._redis = mock_redis
     mock_redis.script_load.return_value = "sha123"
 
     # Blocked: [1, 60, 'ip_rate_limit']
@@ -56,7 +56,7 @@ async def test_check_only_blocked() -> None:
 async def test_record_failure_increment() -> None:
     limiter = AuthRateLimiter()
     mock_redis = AsyncMock()
-    limiter.redis = mock_redis
+    limiter._redis = mock_redis
     mock_redis.script_load.return_value = "sha456"
 
     # Recorded: [1, 0, 'failure_recorded'] (is_allowed=True means not yet blocked)
@@ -72,7 +72,7 @@ async def test_record_failure_increment() -> None:
 async def test_record_failure_lockout() -> None:
     limiter = AuthRateLimiter()
     mock_redis = AsyncMock()
-    limiter.redis = mock_redis
+    limiter._redis = mock_redis
     mock_redis.script_load.return_value = "sha456"
 
     # Locked out now: [0, 900, 'account_locked_now']
@@ -89,7 +89,7 @@ async def test_record_failure_lockout() -> None:
 async def test_clear_on_success() -> None:
     limiter = AuthRateLimiter()
     mock_redis = AsyncMock()
-    limiter.redis = mock_redis
+    limiter._redis = mock_redis
 
     await limiter.clear_on_success("user1")
 

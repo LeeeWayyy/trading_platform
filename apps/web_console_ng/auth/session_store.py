@@ -10,7 +10,6 @@ import ipaddress
 import json
 import logging
 import secrets
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -41,7 +40,11 @@ class RateLimitExceeded(Exception):
 
 
 class ServerSessionStore:
-    """Server-side session store with async Redis backend."""
+    """Server-side session store with async Redis backend.
+
+    IMPORTANT: Always use get_session_store() to instantiate, which provides
+    a redis_client from get_redis_store() for HA/Sentinel support.
+    """
 
     def __init__(
         self,
@@ -49,13 +52,12 @@ class ServerSessionStore:
         encryption_keys: list[bytes],
         signing_keys: dict[str, bytes],
         current_signing_key_id: str,
-        redis_client: redis.Redis | None = None,
+        redis_client: redis.Redis,
         audit_logger: AuthAuditLogger | None = None,
     ) -> None:
-        self.redis: redis.Redis = redis_client or _redis_from_url(
-            redis_url,
-            decode_responses=False,
-        )
+        # SECURITY: redis_client must be provided via get_redis_store() for HA support
+        # Do not fall back to direct Redis.from_url() as it bypasses Sentinel/TLS config
+        self.redis: redis.Redis = redis_client
         self.fernet = MultiFernet([Fernet(_normalize_fernet_key(k)) for k in encryption_keys])
         self.signing_keys = signing_keys
         self.current_signing_key_id = current_signing_key_id
@@ -484,11 +486,6 @@ def _ip_subnet(client_ip: str, mask_bits: int) -> str:
 def _get_user_id(session: dict[str, Any]) -> str | None:
     user = session.get("user") or {}
     return user.get("user_id") if isinstance(user, dict) else None
-
-
-def _redis_from_url(url: str, *, decode_responses: bool) -> redis.Redis:
-    from_url = cast(Callable[..., redis.Redis], redis.Redis.from_url)
-    return from_url(url, decode_responses=decode_responses)
 
 
 def extract_session_id(signed_cookie: str) -> str:

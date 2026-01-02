@@ -54,6 +54,8 @@ async def test_dev_auth_invalid_credentials(monkeypatch: pytest.MonkeyPatch) -> 
 @pytest.mark.asyncio()
 async def test_basic_auth_rate_limit_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "AUTH_TYPE", "basic")
+    monkeypatch.setattr(config, "DEBUG", True)  # Required for basic auth
+    monkeypatch.setattr(config, "ALLOW_DEV_BASIC_AUTH", True)  # Required for basic auth
     handler = BasicAuthHandler()
 
     rate_limiter = SimpleNamespace(
@@ -79,10 +81,17 @@ async def test_basic_auth_rate_limit_blocks(monkeypatch: pytest.MonkeyPatch) -> 
 
 @pytest.mark.asyncio()
 async def test_mtls_auth_uses_client_dn(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ipaddress
+
     monkeypatch.setattr(config, "AUTH_TYPE", "mtls")
+    # Add test IP to trusted proxies
+    monkeypatch.setattr(config, "TRUSTED_PROXY_IPS", [ipaddress.ip_address("10.0.0.1")])
     handler = MTLSAuthHandler()
 
-    request = SimpleNamespace(headers={"X-SSL-Client-Verify": "SUCCESS"})
+    request = SimpleNamespace(
+        headers={"X-SSL-Client-Verify": "SUCCESS"},
+        client=SimpleNamespace(host="10.0.0.1"),
+    )
 
     mock_store = AsyncMock()
     mock_store.create_session.return_value = ("cookie_mtls", "csrf_mtls")
@@ -108,7 +117,7 @@ async def test_oauth2_get_authorization_url(monkeypatch: pytest.MonkeyPatch) -> 
     handler = OAuth2AuthHandler()
 
     mock_redis = AsyncMock()
-    handler.redis = mock_redis
+    handler._redis = mock_redis  # Use private attribute, not property
 
     url = await handler.get_authorization_url()
 

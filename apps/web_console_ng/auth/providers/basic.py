@@ -34,6 +34,18 @@ class BasicAuthHandler(AuthProvider):
         """
         if config.AUTH_TYPE != "basic":
             return AuthResult(success=False, error_message="Basic auth not enabled")
+
+        # SECURITY: Dev credentials require BOTH debug mode AND explicit opt-in.
+        # This prevents accidental use of hardcoded credentials in production.
+        if not config.DEBUG:
+            logger.warning(
+                "basic_auth_blocked_production",
+                extra={"reason": "DEBUG mode required for basic auth with dev credentials"},
+            )
+            return AuthResult(
+                success=False,
+                error_message="Basic auth with dev credentials is disabled in production",
+            )
         if not config.ALLOW_DEV_BASIC_AUTH:
             return AuthResult(
                 success=False,

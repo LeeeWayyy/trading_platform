@@ -34,20 +34,23 @@ async def test_logout_clears_session() -> None:
     with patch("apps.web_console_ng.auth.logout.app", mock_app):
         with (
             patch("apps.web_console_ng.auth.logout.get_session_store") as mock_get_store,
-            patch("redis.asyncio.from_url") as mock_redis_from_url,
+            patch("apps.web_console_ng.auth.logout.get_redis_store") as mock_get_redis_store,
         ):
 
             # Mock session store
-            mock_store = AsyncMock()
-            mock_get_store.return_value = mock_store
-            mock_store.validate_session.return_value = {
-                "user": {"user_id": "user_abc", "auth_method": "dev"}
-            }
+            mock_store = MagicMock()
+            mock_store.validate_session = AsyncMock(
+                return_value={"user": {"user_id": "user_abc", "auth_method": "dev"}}
+            )
+            mock_store.invalidate_session = AsyncMock()
             mock_store.verify_cookie.return_value = "sess_123"
+            mock_get_store.return_value = mock_store
 
-            # Mock redis for streamlit
+            # Mock redis store for Streamlit session cleanup
             mock_redis_client = AsyncMock()
-            mock_redis_from_url.return_value = mock_redis_client
+            mock_redis_ha_store = MagicMock()
+            mock_redis_ha_store.get_master_client.return_value = mock_redis_client
+            mock_get_redis_store.return_value = mock_redis_ha_store
 
             url = await perform_logout(request=request, response=response)
 
@@ -96,6 +99,7 @@ async def test_logout_oauth2_redirect() -> None:
     with patch("apps.web_console_ng.auth.logout.app", mock_app):
         with (
             patch("apps.web_console_ng.auth.logout.get_session_store") as mock_get_store,
+            patch("apps.web_console_ng.auth.logout.get_redis_store") as mock_get_redis_store,
             patch("apps.web_console_ng.auth.logout.OAuth2AuthHandler") as MockHandler,
         ):
 
@@ -109,6 +113,12 @@ async def test_logout_oauth2_redirect() -> None:
                 }
             }
             mock_store.verify_cookie.return_value = "sess_456"
+
+            # Mock redis store for Streamlit session cleanup
+            mock_redis_client = AsyncMock()
+            mock_redis_ha_store = MagicMock()
+            mock_redis_ha_store.get_master_client.return_value = mock_redis_client
+            mock_get_redis_store.return_value = mock_redis_ha_store
 
             mock_handler_instance = AsyncMock()
             MockHandler.return_value = mock_handler_instance

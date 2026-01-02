@@ -193,10 +193,28 @@ async def readiness_check(request: Request) -> Response:
         if not config.HEALTH_CHECK_BACKEND_ENABLED:
             # Backend check disabled - assume ok (Redis is the critical dependency)
             return ("backend", "ok")
+
+        # SECURITY: In production with INTERNAL_TOKEN_SECRET, this check requires proper
+        # auth context (user_id, role, strategies) which health checks don't have.
+        # Skip the check to avoid false negatives. Use a dedicated unauthenticated
+        # /api/v1/health endpoint on the execution_gateway for production health checks.
+        internal_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+        if internal_secret and not config.DEBUG:
+            logger.debug("Backend health check skipped: requires auth context in production")
+            return ("backend", "ok")
+
         try:
             client = AsyncTradingClient.get()
             # Use fetch_kill_switch_status as lightweight health check (GET, no side effects)
-            await asyncio.wait_for(client.fetch_kill_switch_status("health-check"), timeout=2.0)
+            # NOTE: Only works in DEBUG mode where DEV_* fallbacks are available
+            await asyncio.wait_for(
+                client.fetch_kill_switch_status(
+                    user_id="health-check",
+                    role=config.DEV_ROLE,
+                    strategies=list(config.DEV_STRATEGIES),
+                ),
+                timeout=2.0,
+            )
             return ("backend", "ok")
         except Exception as e:
             # Sanitize error: don't expose raw exception to avoid info leak

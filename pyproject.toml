@@ -92,6 +92,7 @@ respx = "^0.22.0"
 
 [tool.poetry.group.web-console-ng.dependencies]
 nicegui = ">=2.0,<3.0"
+python-jose = {version = "^3.3.0", extras = ["cryptography"]}  # OAuth2 JWT validation
 
 [tool.black]
 line-length = 100

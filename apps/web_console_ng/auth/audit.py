@@ -175,6 +175,14 @@ class AuthAuditLogger:
                 )
         except Exception as exc:
             logger.error("Audit DB write failed: %s", exc)
+            # Expose metric for monitoring audit flush failures
+            try:
+                from apps.web_console_ng.core.metrics import audit_flush_errors_total
+
+                audit_flush_errors_total.labels(pod=config.POD_NAME).inc()
+            except ImportError:
+                logger.debug("Metrics module not available for audit flush error tracking")
+
             for payload, attempts in reversed(batch_items):
                 next_attempt = attempts + 1
                 if next_attempt >= self._max_retries:

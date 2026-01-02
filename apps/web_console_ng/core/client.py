@@ -50,27 +50,62 @@ class AsyncTradingClient:
             await self._http_client.aclose()
             self._http_client = None
 
-    def _get_auth_headers(self, user_id: str) -> dict[str, str]:
+    def _get_auth_headers(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, str]:
+        """Build auth headers for backend requests.
+
+        Args:
+            user_id: User ID from session (required in production).
+            role: User role from session. Falls back to DEV_ROLE only in DEBUG mode.
+            strategies: User strategies from session. Falls back to DEV_STRATEGIES only in DEBUG.
+
+        Returns:
+            Dict of auth headers including signature if INTERNAL_TOKEN_SECRET is set.
+
+        Raises:
+            ValueError: In production mode if required auth context is missing.
+        """
         headers: dict[str, str] = {}
 
-        role = config.DEV_ROLE
-        strategies = list(config.DEV_STRATEGIES)
-        resolved_user_id = user_id or config.DEV_USER_ID
+        # SECURITY: Only use DEV_* fallbacks in DEBUG mode
+        resolved_role: str | None
+        resolved_strategies: list[str]
+        resolved_user_id: str
+        if config.DEBUG:
+            resolved_role = role if role is not None else config.DEV_ROLE
+            resolved_strategies = (
+                strategies if strategies is not None else list(config.DEV_STRATEGIES)
+            )
+            resolved_user_id = user_id or config.DEV_USER_ID
+        else:
+            # Production mode: require actual user context
+            resolved_role = role
+            resolved_strategies = strategies or []
+            resolved_user_id = user_id or ""
 
-        if role:
-            headers["X-User-Role"] = str(role)
+            # Fail closed: in production, require user context when signature is needed
+            internal_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+            if internal_secret and not resolved_user_id:
+                raise ValueError("User ID required for authenticated requests in production mode")
+
+        if resolved_role:
+            headers["X-User-Role"] = str(resolved_role)
         if resolved_user_id:
             headers["X-User-Id"] = str(resolved_user_id)
-        if strategies:
-            headers["X-User-Strategies"] = ",".join(sorted(strategies))
+        if resolved_strategies:
+            headers["X-User-Strategies"] = ",".join(sorted(resolved_strategies))
 
         internal_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
-        if internal_secret and resolved_user_id and role is not None:
+        if internal_secret and resolved_user_id and resolved_role is not None:
             timestamp = str(int(time.time()))
-            strategies_str = ",".join(sorted(strategies)) if strategies else ""
+            strategies_str = ",".join(sorted(resolved_strategies)) if resolved_strategies else ""
             payload_data = {
                 "uid": str(resolved_user_id).strip(),
-                "role": str(role).strip(),
+                "role": str(resolved_role).strip(),
                 "strats": strategies_str,
                 "ts": timestamp,
             }
@@ -84,6 +119,13 @@ class AsyncTradingClient:
 
             headers["X-Request-Timestamp"] = timestamp
             headers["X-User-Signature"] = signature
+        elif internal_secret and not config.DEBUG:
+            # SECURITY: In production with INTERNAL_TOKEN_SECRET, require complete auth context
+            # Raise instead of silently sending unauthenticated request
+            raise ValueError(
+                "Role required for authenticated requests in production mode "
+                "(INTERNAL_TOKEN_SECRET is set but role is missing)"
+            )
 
         return headers
 
@@ -94,36 +136,56 @@ class AsyncTradingClient:
         return cast(dict[str, Any], payload)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
-    async def fetch_positions(self, user_id: str) -> dict[str, Any]:
+    async def fetch_positions(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Fetch current positions (GET - idempotent)."""
-        headers = self._get_auth_headers(user_id)
+        headers = self._get_auth_headers(user_id, role, strategies)
         resp = await self._client.get("/api/v1/positions", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
-    async def trigger_kill_switch(self, user_id: str) -> dict[str, Any]:
+    async def trigger_kill_switch(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Trigger kill switch (POST - non-idempotent, no 5xx retry)."""
-        headers = self._get_auth_headers(user_id)
+        headers = self._get_auth_headers(user_id, role, strategies)
         resp = await self._client.post("/api/v1/kill-switch", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
-    async def get_circuit_breaker_state(self, user_id: str) -> dict[str, Any]:
+    async def get_circuit_breaker_state(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Fetch circuit breaker state (GET - idempotent)."""
-        headers = self._get_auth_headers(user_id)
+        headers = self._get_auth_headers(user_id, role, strategies)
         resp = await self._client.get("/api/v1/circuit-breaker/status", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
-    async def fetch_kill_switch_status(self, user_id: str) -> dict[str, Any]:
+    async def fetch_kill_switch_status(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Fetch kill switch status (GET - idempotent).
 
         Returns dict with 'state' key: 'ENGAGED' or 'DISENGAGED'.
         """
-        headers = self._get_auth_headers(user_id)
+        headers = self._get_auth_headers(user_id, role, strategies)
         resp = await self._client.get("/api/v1/kill-switch/status", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)

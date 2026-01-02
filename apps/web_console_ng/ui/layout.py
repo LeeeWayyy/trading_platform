@@ -23,6 +23,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         user_role = str(user.get("role", "viewer"))
         user_name = str(user.get("username", "Unknown"))
         user_id = str(user.get("user_id") or user_name)
+        # Extract strategies for API calls (needed for INTERNAL_TOKEN_SECRET in production)
+        raw_strategies = user.get("strategies")
+        user_strategies: list[str] = (
+            list(raw_strategies) if isinstance(raw_strategies, list | tuple) else []
+        )
 
         request = getattr(app.storage, "request", None)
         current_path = "/"
@@ -132,7 +137,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         async def update_global_status() -> None:
             nonlocal last_kill_switch_state
             try:
-                status = await client.fetch_kill_switch_status(user_id)
+                # Pass full auth context for production with INTERNAL_TOKEN_SECRET
+                status = await client.fetch_kill_switch_status(
+                    user_id, role=user_role, strategies=user_strategies
+                )
                 state = str(status.get("state", "UNKNOWN")).upper()
 
                 if state == "ENGAGED":

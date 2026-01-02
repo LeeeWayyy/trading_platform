@@ -6,18 +6,20 @@ import json
 import logging
 import secrets
 import time
-from collections.abc import Callable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
-import redis.asyncio as redis
 from jose import JWTError, jwt
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_result import AuthResult
 from apps.web_console_ng.auth.providers.base import AuthProvider
 from apps.web_console_ng.auth.session_store import get_session_store
+from apps.web_console_ng.core.redis_ha import get_redis_store
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
@@ -31,24 +33,60 @@ class OAuth2AuthHandler(AuthProvider):
     ALLOWED_ALGORITHMS = ["RS256"]
 
     def __init__(self) -> None:
-        # Configuration keys would typically be in config.py
-        # For now we assume they exist or are passed/defaulted
-        self.redis = _redis_from_url(config.REDIS_URL, decode_responses=False)
-        self.client_id = getattr(config, "OAUTH2_CLIENT_ID", "mock_client_id")
-        self.client_secret = getattr(config, "OAUTH2_CLIENT_SECRET", "mock_secret")
-        self.authorize_url = getattr(
-            config, "OAUTH2_AUTHORIZE_URL", "https://mock.auth0.com/authorize"
-        )
-        self.token_url = getattr(config, "OAUTH2_TOKEN_URL", "https://mock.auth0.com/oauth/token")
-        self.userinfo_url = getattr(
-            config, "OAUTH2_USERINFO_URL", "https://mock.auth0.com/userinfo"
-        )
-        self.callback_url = getattr(
-            config, "OAUTH2_CALLBACK_URL", "http://localhost:8080/auth/callback"
-        )
-        self.issuer = getattr(config, "OAUTH2_ISSUER", "https://mock.auth0.com/")
+        # Lazy initialization - Redis client is obtained on first use via get_redis_store()
+        # This ensures proper HA (Sentinel) and TLS configuration
+        self._redis: Redis | None = None
+
+        # SECURITY: In production (non-DEBUG), OAuth2 config must be explicitly set.
+        # Mock defaults are only allowed in DEBUG mode for local development.
+        if config.DEBUG:
+            self.client_id = getattr(config, "OAUTH2_CLIENT_ID", "mock_client_id")
+            self.client_secret = getattr(config, "OAUTH2_CLIENT_SECRET", "mock_secret")
+            self.authorize_url = getattr(
+                config, "OAUTH2_AUTHORIZE_URL", "https://mock.auth0.com/authorize"
+            )
+            self.token_url = getattr(
+                config, "OAUTH2_TOKEN_URL", "https://mock.auth0.com/oauth/token"
+            )
+            self.userinfo_url = getattr(
+                config, "OAUTH2_USERINFO_URL", "https://mock.auth0.com/userinfo"
+            )
+            self.callback_url = getattr(
+                config, "OAUTH2_CALLBACK_URL", "http://localhost:8080/auth/callback"
+            )
+            self.issuer = getattr(config, "OAUTH2_ISSUER", "https://mock.auth0.com/")
+        else:
+            # Production: require all OAuth2 config to be explicitly set
+            self.client_id = self._require_config("OAUTH2_CLIENT_ID")
+            self.client_secret = self._require_config("OAUTH2_CLIENT_SECRET")
+            self.authorize_url = self._require_config("OAUTH2_AUTHORIZE_URL")
+            self.token_url = self._require_config("OAUTH2_TOKEN_URL")
+            self.userinfo_url = self._require_config("OAUTH2_USERINFO_URL")
+            self.callback_url = self._require_config("OAUTH2_CALLBACK_URL")
+            self.issuer = self._require_config("OAUTH2_ISSUER")
+
         self._jwks_cache: dict[str, Any] | None = None
         self._jwks_cache_expires_at = 0.0
+
+    @staticmethod
+    def _require_config(name: str) -> str:
+        """Get required config value, raise if not set."""
+        value = getattr(config, name, None)
+        if not value:
+            raise ValueError(
+                f"{name} must be set when AUTH_TYPE=oauth2 in production. "
+                "Set DEBUG=true for development with mock defaults."
+            )
+        return str(value)
+
+    @property
+    def redis(self) -> Redis:
+        """Get Redis client lazily via HA store (Sentinel + TLS aware)."""
+        if self._redis is None:
+            store = get_redis_store()
+            # Use binary mode for session data compatibility
+            self._redis = store.get_master_client(decode_responses=False)
+        return self._redis
 
     async def authenticate(self, **kwargs: Any) -> AuthResult:
         """Authenticate via OAuth2 (Callback handling).
@@ -147,7 +185,11 @@ class OAuth2AuthHandler(AuthProvider):
                 )
 
                 if token_response.status_code != 200:
-                    logger.error(f"Token exchange failed: {token_response.text}")
+                    # SECURITY: Don't log raw response body (may contain sensitive data)
+                    logger.error(
+                        "Token exchange failed",
+                        extra={"status_code": token_response.status_code},
+                    )
                     return AuthResult(success=False, error_message="Token exchange failed")
 
                 tokens = token_response.json()
@@ -178,9 +220,18 @@ class OAuth2AuthHandler(AuthProvider):
                 logger.error(f"OAuth2 request error: {e}")
                 return AuthResult(success=False, error_message="OAuth2 provider unreachable")
 
+        # SECURITY: Require stable user identifier from IdP
+        user_id = userinfo.get("sub")
+        if not user_id:
+            logger.error("OAuth2 userinfo missing 'sub' claim")
+            return AuthResult(
+                success=False,
+                error_message="Identity provider did not return valid user identifier",
+            )
+
         # Map user info - store id_token for RP-initiated logout
         user_data = {
-            "user_id": userinfo.get("sub"),
+            "user_id": user_id,
             "username": userinfo.get("email", userinfo.get("name")),
             "email": userinfo.get("email"),
             "role": self._map_role(userinfo),
@@ -311,8 +362,3 @@ class OAuth2AuthHandler(AuthProvider):
         parts = urlsplit(value)
         path = parts.path.rstrip("/") or "/"
         return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
-
-
-def _redis_from_url(url: str, *, decode_responses: bool) -> redis.Redis:
-    from_url = cast(Callable[..., redis.Redis], redis.Redis.from_url)
-    return from_url(url, decode_responses=decode_responses)

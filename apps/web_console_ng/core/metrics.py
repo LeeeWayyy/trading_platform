@@ -84,6 +84,12 @@ circuit_breaker_state = Gauge(
     ["pod"],
 )
 
+audit_flush_errors_total = Counter(
+    "nicegui_audit_flush_errors_total",
+    "Errors while flushing audit logs to database",
+    ["pod"],
+)
+
 
 @app.get("/metrics")
 async def metrics_endpoint(request: Request) -> Response:
@@ -186,6 +192,7 @@ __all__ = [
     "redis_latency_seconds",
     "state_save_errors_total",
     "circuit_breaker_state",
+    "audit_flush_errors_total",
     "record_state_save_error",
     "record_auth_failure",
     "set_circuit_breaker_state",

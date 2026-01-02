@@ -190,10 +190,35 @@ else:
 
 
 def _load_auth_type() -> Literal["dev", "basic", "mtls", "oauth2"]:
-    value = os.getenv("WEB_CONSOLE_AUTH_TYPE", "dev").lower()
+    """Load and validate auth type.
+
+    SECURITY: In production (DEBUG=False), AUTH_TYPE must be explicitly set.
+    'dev' auth type is only allowed when DEBUG=True.
+    """
+    value = os.getenv("WEB_CONSOLE_AUTH_TYPE", "").lower()
     allowed = {"dev", "basic", "mtls", "oauth2"}
+
+    # SECURITY: Require explicit AUTH_TYPE in production
+    if not value:
+        if DEBUG:
+            value = "dev"  # Allow implicit dev mode only in DEBUG
+            logger.warning("AUTH_TYPE not set, defaulting to 'dev' (DEBUG mode only)")
+        else:
+            raise ValueError(
+                "WEB_CONSOLE_AUTH_TYPE must be explicitly set in production. "
+                "Valid options: basic, mtls, oauth2"
+            )
+
     if value not in allowed:
         raise ValueError("WEB_CONSOLE_AUTH_TYPE must be one of: dev, basic, mtls, oauth2")
+
+    # SECURITY: 'dev' auth type requires DEBUG mode
+    if value == "dev" and not DEBUG:
+        raise ValueError(
+            "AUTH_TYPE='dev' is not allowed in production (DEBUG=False). "
+            "Use basic, mtls, or oauth2 for production deployments."
+        )
+
     return cast(Literal["dev", "basic", "mtls", "oauth2"], value)
 
 
@@ -223,6 +248,22 @@ if not DEV_STRATEGIES:
     default_strategy = os.getenv("STRATEGY_ID", "").strip()
     if default_strategy:
         DEV_STRATEGIES = [default_strategy]
+
+# =============================================================================
+# OAuth2/OIDC Configuration
+# =============================================================================
+# These are only required when AUTH_TYPE=oauth2 (validated in oauth2.py)
+
+OAUTH2_CLIENT_ID = os.getenv("OAUTH2_CLIENT_ID", "")
+OAUTH2_CLIENT_SECRET = os.getenv("OAUTH2_CLIENT_SECRET", "")
+OAUTH2_AUTHORIZE_URL = os.getenv("OAUTH2_AUTHORIZE_URL", "")
+OAUTH2_TOKEN_URL = os.getenv("OAUTH2_TOKEN_URL", "")
+OAUTH2_USERINFO_URL = os.getenv("OAUTH2_USERINFO_URL", "")
+OAUTH2_CALLBACK_URL = os.getenv("OAUTH2_CALLBACK_URL", "")
+OAUTH2_ISSUER = os.getenv("OAUTH2_ISSUER", "")
+# Optional - for RP-initiated logout
+OAUTH2_LOGOUT_URL = os.getenv("OAUTH2_LOGOUT_URL", "")
+OAUTH2_POST_LOGOUT_REDIRECT_URL = os.getenv("OAUTH2_POST_LOGOUT_REDIRECT_URL", "")
 
 # =============================================================================
 # Audit logging

@@ -221,6 +221,18 @@ async def login_page() -> None:
 
                     if result.success:
                         if result.requires_mfa:
+                            # MFA required - set session cookie with mfa_pending flag
+                            # The @requires_auth decorator will detect mfa_pending and allow
+                            # access only to /mfa-verify (see middleware.py:162-166)
+                            cookie_cfg = CookieConfig.from_env()
+                            if hasattr(inner_request.state, "response"):
+                                response = inner_request.state.response
+                                if result.cookie_value:
+                                    response.set_cookie(
+                                        key=cookie_cfg.get_cookie_name(),
+                                        value=result.cookie_value,
+                                        **cookie_cfg.get_cookie_flags(),
+                                    )
                             app.storage.user["pending_mfa_cookie"] = result.cookie_value
                             ui.navigate.to("/mfa-verify")
                         else:

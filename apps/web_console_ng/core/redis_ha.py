@@ -131,7 +131,11 @@ class HARedisStore:
     async def get_master(self) -> Redis:
         """Get master connection for writes with connection pooling.
 
-        NOTE: Returns client with decode_responses=True (strings, not bytes).
+        NOTE: This method is async because it performs a connection health check
+        via _is_connected() which pings Redis. The sync get_master_client() returns
+        the client without verification.
+
+        Returns client with decode_responses=True (strings, not bytes).
         For binary data (encryption), use get_master_client(decode_responses=False).
         """
         master = self.get_master_client(decode_responses=True)

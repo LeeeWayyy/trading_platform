@@ -1,5 +1,10 @@
 import os
 
+# CRITICAL: Set DEBUG mode BEFORE importing apps.web_console_ng modules.
+# The config module validates AUTH_TYPE at import time and requires explicit
+# configuration in production (DEBUG=false). Tests must run in DEBUG mode.
+os.environ.setdefault("WEB_CONSOLE_NG_DEBUG", "true")
+
 import pytest
 from nicegui.testing import Screen
 from selenium import webdriver

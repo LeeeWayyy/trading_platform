@@ -76,8 +76,15 @@ class UserStateManager:
     STATE_KEY_PREFIX = "user_state:"
     STATE_TTL = 86400  # 24 hours
 
-    def __init__(self, user_id: str) -> None:
+    def __init__(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> None:
         self.user_id = user_id
+        self.role = role
+        self.strategies = strategies or []
         self.redis: HARedisStore | SimpleRedisStore = get_redis_store()
         self.state_key = f"{self.STATE_KEY_PREFIX}{user_id}"
 
@@ -117,7 +124,19 @@ class UserStateManager:
         try:
             parsed = json.loads(data, object_hook=trading_json_decoder)
             return parsed.get("data", {})  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            # Log corrupted state for debugging (don't expose raw data, could contain PII)
+            logger.warning(
+                "restore_state: corrupted state detected, returning empty",
+                extra={"user_id": self.user_id, "error": str(e)},
+            )
+            # Increment metric for observability
+            try:
+                from apps.web_console_ng.core.metrics import record_state_save_error
+
+                record_state_save_error("json_decode_error")
+            except ImportError:
+                pass  # Metrics not available yet
             return {}
 
     async def save_preferences(self, key: str, value: Any) -> None:
@@ -327,11 +346,18 @@ class UserStateManager:
         state = await self.restore_state()
 
         # 2. Fetch fresh API data (use only existing AsyncTradingClient methods)
+        # Pass full auth context for production with INTERNAL_TOKEN_SECRET
         client = AsyncTradingClient.get()
         api_data = {
-            "positions": await client.fetch_positions(self.user_id),
-            "kill_switch": await client.fetch_kill_switch_status(self.user_id),
-            "circuit_breaker": await client.get_circuit_breaker_state(self.user_id),
+            "positions": await client.fetch_positions(
+                self.user_id, role=self.role, strategies=self.strategies
+            ),
+            "kill_switch": await client.fetch_kill_switch_status(
+                self.user_id, role=self.role, strategies=self.strategies
+            ),
+            "circuit_breaker": await client.get_circuit_breaker_state(
+                self.user_id, role=self.role, strategies=self.strategies
+            ),
         }
         # Note: Add fetch_open_orders() to AsyncTradingClient if order display needed
 

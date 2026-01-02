@@ -16,14 +16,21 @@ from starlette.requests import Request
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.client_ip import get_client_ip
 from apps.web_console_ng.auth.session_store import ServerSessionStore, get_session_store
+from apps.web_console_ng.core import health
 
 logger = logging.getLogger(__name__)
 
 
 def _parse_cookies(cookie_header: str) -> dict[str, str]:
-    cookie = SimpleCookie()
-    cookie.load(cookie_header)
-    return {key: morsel.value for key, morsel in cookie.items()}
+    """Parse cookie header, returning empty dict on malformed input."""
+    try:
+        cookie = SimpleCookie()
+        cookie.load(cookie_header)
+        return {key: morsel.value for key, morsel in cookie.items()}
+    except Exception:
+        # Malformed cookie header - treat as no cookies (unauthenticated)
+        logger.debug("Malformed cookie header, treating as unauthenticated")
+        return {}
 
 
 def _origin_host(origin: str) -> tuple[str, str]:
@@ -117,6 +124,12 @@ class ConnectionMonitorRegistry:
         return len(self._connected)
 
     async def _handle_connect(self, client: Client) -> None:
+        # Defense-in-depth: reject connections if draining (AdmissionControlMiddleware
+        # handles this at ASGI level, but connections may slip through during transition)
+        if health.is_draining:
+            await self._disconnect(client, "draining")
+            return
+
         if not self._validate_origin(client):
             await self._disconnect(client, "origin_not_allowed")
             return

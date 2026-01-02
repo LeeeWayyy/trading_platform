@@ -12,7 +12,9 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.audit import AuthAuditLogger
 from apps.web_console_ng.auth.middleware import AuthMiddleware, SessionMiddleware
 from apps.web_console_ng.auth.session_store import get_session_store
+from apps.web_console_ng.core.admission import AdmissionControlMiddleware
 from apps.web_console_ng.core.client import AsyncTradingClient
+from apps.web_console_ng.core.connection_events import setup_connection_handlers
 from apps.web_console_ng.core.connection_monitor import ConnectionMonitorRegistry
 from apps.web_console_ng.core.health import setup_health_endpoint
 from apps.web_console_ng.core.state_manager import get_state_manager
@@ -56,19 +58,26 @@ connection_monitor = ConnectionMonitorRegistry.get(session_store=session_store)
 # Import routes after audit logger + session store are configured.
 from apps.web_console_ng.auth import routes as auth_routes  # noqa: E402,F401
 
-# Middleware added in LIFO order: TrustedHost -> Session -> Auth.
+# Middleware added in LIFO order: TrustedHost -> Admission -> Session -> Auth.
+# AdmissionControlMiddleware MUST run before Session/Auth to enforce capacity limits
+# at the ASGI level before WebSocket upgrade completes.
 app.add_middleware(AuthMiddleware)
 app.add_middleware(
     SessionMiddleware,
     session_store=session_store,
     trusted_proxies=config.TRUSTED_PROXY_IPS,
 )
+app.add_middleware(AdmissionControlMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 
 
 async def startup() -> None:
     """Startup hook wiring C3 connection recovery components."""
+    # Register NiceGUI lifecycle hooks:
+    # - connection_monitor: origin validation, session validation, user attachment
+    # - connection_events: client ID generation, metrics, handshake coordination
     connection_monitor.register_hooks_once()
+    setup_connection_handlers()
     if db_pool is not None:
         await db_pool.open()
     await trading_client.startup()
