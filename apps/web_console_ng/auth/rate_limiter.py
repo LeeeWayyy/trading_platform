@@ -191,14 +191,6 @@ class AuthRateLimiter:
             result = await self.redis.evalsha(  # type: ignore[misc]
                 self._check_script_sha, len(keys), *keys, *str_args
             )
-        except redis_exceptions.RedisError as exc:
-            if "NOSCRIPT" in str(exc):
-                await self._load_scripts(force=True)
-                result = await self.redis.evalsha(  # type: ignore[misc]
-                    self._check_script_sha, len(keys), *keys, *str_args
-                )
-            else:
-                raise
 
         is_blocked = bool(result[0])
         retry_after = int(result[1])
@@ -242,14 +234,6 @@ class AuthRateLimiter:
             result = await self.redis.evalsha(  # type: ignore[misc]
                 self._record_script_sha, len(keys), *keys, *str_args
             )
-        except redis_exceptions.RedisError as exc:
-            if "NOSCRIPT" in str(exc):
-                await self._load_scripts(force=True)
-                result = await self.redis.evalsha(  # type: ignore[misc]
-                    self._record_script_sha, len(keys), *keys, *str_args
-                )
-            else:
-                raise
 
         is_allowed = bool(result[0])
         retry_after = int(result[1])

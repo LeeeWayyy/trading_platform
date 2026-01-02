@@ -284,15 +284,17 @@ Define and implement High Availability (HA) and horizontal scaling architecture 
           })
 
       async def _try_acquire_semaphore(self) -> bool:
-          """Non-blocking semaphore acquire attempt.
+          """Attempt a near-instant acquire of the connection semaphore.
 
-          NOTE: asyncio.Semaphore does NOT have acquire_nowait() in Python 3.11.
-          Use wait_for with timeout=0 for non-blocking behavior.
+          Uses asyncio.wait_for with a minimal timeout (1ms) to allow the
+          event loop to process the acquire. A timeout of 0 doesn't work
+          because semaphore.acquire() needs at least one event loop iteration.
           """
           try:
-              await asyncio.wait_for(_connection_semaphore.acquire(), timeout=0)
+              # Use 1ms timeout - enough for event loop to process if permit available
+              await asyncio.wait_for(_connection_semaphore.acquire(), timeout=0.001)
               return True
-          except asyncio.TimeoutError:
+          except TimeoutError:
               return False
   ```
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, overload
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.providers.base import AuthProvider
@@ -8,6 +8,26 @@ from apps.web_console_ng.auth.providers.basic import BasicAuthHandler
 from apps.web_console_ng.auth.providers.dev import DevAuthHandler
 from apps.web_console_ng.auth.providers.mtls import MTLSAuthHandler
 from apps.web_console_ng.auth.providers.oauth2 import OAuth2AuthHandler
+
+
+@overload
+def get_auth_handler(auth_type: Literal["mtls"]) -> MTLSAuthHandler: ...
+
+
+@overload
+def get_auth_handler(auth_type: Literal["dev"]) -> DevAuthHandler: ...
+
+
+@overload
+def get_auth_handler(auth_type: Literal["basic"]) -> BasicAuthHandler: ...
+
+
+@overload
+def get_auth_handler(auth_type: Literal["oauth2"]) -> OAuth2AuthHandler: ...
+
+
+@overload
+def get_auth_handler(auth_type: None = None) -> AuthProvider: ...
 
 
 def get_auth_handler(
