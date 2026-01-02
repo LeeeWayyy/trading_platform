@@ -358,7 +358,17 @@ class OAuth2AuthHandler(AuthProvider):
 
     @staticmethod
     def _normalize_redirect_uri(value: str) -> str:
-        """Normalize redirect URIs for comparison (strip query/fragment, normalize path)."""
+        """Normalize redirect URIs for comparison (strip query/fragment, normalize path).
+
+        Behind TLS-terminating proxies, request.url reports http:// while the
+        configured callback URL uses https://. Normalize scheme to https in
+        production to prevent false mismatches.
+        """
         parts = urlsplit(value)
         path = parts.path.rstrip("/") or "/"
-        return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+        # Normalize scheme: behind TLS proxy, internal request is http but external is https
+        # In production (not DEBUG), always normalize to https for comparison
+        scheme = parts.scheme
+        if not config.DEBUG and scheme == "http":
+            scheme = "https"
+        return urlunsplit((scheme, parts.netloc, path, "", ""))

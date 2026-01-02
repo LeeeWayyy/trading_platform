@@ -195,10 +195,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 class SessionMiddleware(BaseHTTPMiddleware):
-    """Middleware to ensure session cookie integrity.
+    """Middleware to validate session cookies and populate request.state.user.
 
-    Note: Currently a pass-through. Session validation is done in @requires_auth decorator.
-    This middleware exists for future enhancement (e.g., global session refresh, logging).
+    This middleware validates session cookies on every request and sets request.state.user
+    with the user data if valid. The @requires_auth and @requires_role decorators then
+    check request.state.user to avoid redundant Redis validation, improving performance.
 
     Important: trusted_proxies should match config.TRUSTED_PROXY_IPS to avoid device binding
     mismatches when running behind a reverse proxy. The default is config.TRUSTED_PROXY_IPS.
