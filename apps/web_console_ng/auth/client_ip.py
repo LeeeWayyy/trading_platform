@@ -15,6 +15,32 @@ TrustedProxy = (
 )
 
 
+def is_trusted_ip(ip_str: str, trusted_proxies: list[TrustedProxy] | None = None) -> bool:
+    """Check if an IP address is in the trusted proxies list.
+
+    Args:
+        ip_str: IP address string to check.
+        trusted_proxies: List of trusted IP/Network objects. If None, uses config.TRUSTED_PROXY_IPS.
+
+    Returns:
+        True if the IP is trusted, False otherwise.
+    """
+    proxies = trusted_proxies if trusted_proxies is not None else config.TRUSTED_PROXY_IPS
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+
+    for proxy in proxies:
+        if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
+            if ip in proxy:
+                return True
+        elif ip == proxy:
+            return True
+
+    return False
+
+
 def get_client_ip(
     request: HTTPConnection, trusted_proxies: list[TrustedProxy] | None = None
 ) -> str:
@@ -46,21 +72,7 @@ def extract_trusted_client_ip(request: HTTPConnection, trusted_proxies: list[Tru
     remote_addr = request.client.host if request.client else "0.0.0.0"
 
     # If direct connection isn't trusted, return it directly
-    is_trusted = False
-    try:
-        ip = ipaddress.ip_address(remote_addr)
-        for proxy in trusted_proxies:
-            if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
-                if ip in proxy:
-                    is_trusted = True
-                    break
-            elif ip == proxy:
-                is_trusted = True
-                break
-    except ValueError:
-        pass
-
-    if not is_trusted:
+    if not is_trusted_ip(remote_addr, trusted_proxies):
         return remote_addr
 
     # If trusted, check X-Forwarded-For
@@ -76,21 +88,12 @@ def extract_trusted_client_ip(request: HTTPConnection, trusted_proxies: list[Tru
         # Once we hit an untrusted IP, or run out of trusted proxies, that's the client IP.
 
         for ip_str in reversed(ips):
+            # Skip invalid IPs (is_trusted_ip returns False for invalid IPs)
             try:
-                ip = ipaddress.ip_address(ip_str)
-                ip_is_trusted = False
-                for proxy in trusted_proxies:
-                    if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
-                        if ip in proxy:
-                            ip_is_trusted = True
-                            break
-                    elif ip == proxy:
-                        ip_is_trusted = True
-                        break
-
-                if not ip_is_trusted:
-                    return ip_str
+                ipaddress.ip_address(ip_str)
             except ValueError:
                 continue
+            if not is_trusted_ip(ip_str, trusted_proxies):
+                return ip_str
 
     return remote_addr

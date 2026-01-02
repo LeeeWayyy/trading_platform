@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ipaddress
 import logging
 from typing import Any
 
@@ -8,6 +7,7 @@ from nicegui import app
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_result import AuthResult
+from apps.web_console_ng.auth.client_ip import is_trusted_ip
 from apps.web_console_ng.auth.providers.base import AuthProvider
 from apps.web_console_ng.auth.session_store import get_session_store
 
@@ -80,20 +80,9 @@ class MTLSAuthHandler(AuthProvider):
         )
 
     def _is_trusted_proxy(self, request: Any) -> bool:
+        """Check if request originates from a trusted proxy."""
         remote_addr = request.client.host if request.client else "0.0.0.0"
-        try:
-            ip = ipaddress.ip_address(remote_addr)
-        except ValueError:
-            return False
-
-        for proxy in config.TRUSTED_PROXY_IPS:
-            if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
-                if ip in proxy:
-                    return True
-            elif ip == proxy:
-                return True
-
-        return False
+        return is_trusted_ip(remote_addr)
 
     def _parse_dn(self, dn: str) -> dict[str, Any] | None:
         """Parse Distinguished Name string to user data dict."""
