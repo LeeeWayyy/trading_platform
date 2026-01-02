@@ -1,6 +1,6 @@
 """Add auth_audit_log table for authentication event auditing.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: 0d71fbaccbc4
 Revises: None
 Create Date: 2025-12-31 20:41:00 UTC
 
@@ -16,7 +16,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "a1b2c3d4e5f6"
+revision = "0d71fbaccbc4"
 down_revision = None
 branch_labels = None
 depends_on = None

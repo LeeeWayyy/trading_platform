@@ -68,6 +68,10 @@ app.add_middleware(
 app.add_middleware(AdmissionControlMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 
+# Register lifespan handler BEFORE startup hooks run.
+# This ensures graceful-drain and single-worker checks are active when the app starts.
+setup_health_endpoint()
+
 
 async def startup() -> None:
     """Startup hook wiring C3 connection recovery components."""
@@ -77,7 +81,6 @@ async def startup() -> None:
         await db_pool.open()
     await trading_client.startup()
     await audit_logger.start()
-    setup_health_endpoint()
     inject_disconnect_overlay()
 
 
