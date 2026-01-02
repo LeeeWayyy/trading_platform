@@ -492,11 +492,14 @@ def extract_session_id(signed_cookie: str) -> str:
     """Extract session ID from signed cookie.
 
     Cookie format: {session_id}.{key_id}:{signature}
-    Handles additional dots in signature by only splitting twice.
+    Uses rsplit to correctly handle session IDs that may contain dots.
     """
     if not signed_cookie:
         raise ValueError("Empty cookie")
-    parts = signed_cookie.split(".", maxsplit=2)
+    # Split from right to isolate key_id:signature part first
+    parts = signed_cookie.rsplit(".", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid cookie format: missing signature")
     session_id = parts[0]
     if not session_id:
         raise ValueError("Invalid cookie format: empty session ID")

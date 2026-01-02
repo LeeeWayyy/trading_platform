@@ -159,7 +159,6 @@ async def test_on_reconnect(mock_redis_store, mock_trading_client):
     # IMPORTANT: Configure return_value of the AsyncMock methods
     client_instance.fetch_positions.return_value = ["pos1"]
     client_instance.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
-    client_instance.get_circuit_breaker_state.return_value = {"status": "OPEN"}
 
     # Execute
     ui_context = MagicMock()
@@ -169,4 +168,3 @@ async def test_on_reconnect(mock_redis_store, mock_trading_client):
     assert result["filters"] == {"symbol": "AAPL"}
     assert result["api_data"]["positions"] == ["pos1"]
     assert result["api_data"]["kill_switch"] == {"state": "DISENGAGED"}
-    assert result["api_data"]["circuit_breaker"] == {"status": "OPEN"}

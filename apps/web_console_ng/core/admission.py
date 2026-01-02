@@ -82,6 +82,7 @@ class AdmissionControlMiddleware:
                     # to ensure semaphore is released if Redis or any other operation fails
                     session_conn_key: str | None = None
                     redis_incr_done = False
+                    redis_already_decremented = False  # Track if we decremented in rejection path
                     scope_state: dict[str, object] | None = None
 
                     try:
@@ -103,6 +104,7 @@ class AdmissionControlMiddleware:
 
                         if current_conns > MAX_CONNECTIONS_PER_SESSION:
                             await redis.decr(session_conn_key)
+                            redis_already_decremented = True  # Mark to skip finally decrement
                             _increment_rejection("session_limit")
                             await self._send_http_error(
                                 send, 429, "Too many connections for session"
@@ -130,8 +132,8 @@ class AdmissionControlMiddleware:
                             should_release = False
 
                         if should_release:
-                            # Decrement Redis counter if we incremented it
-                            if redis_incr_done and session_conn_key:
+                            # Decrement Redis counter if we incremented it and haven't already
+                            if redis_incr_done and session_conn_key and not redis_already_decremented:
                                 lua_decr = """
                                 local count = redis.call('GET', KEYS[1])
                                 if count and tonumber(count) > 0 then
@@ -224,6 +226,15 @@ class AdmissionControlMiddleware:
         )
 
     async def _try_acquire_semaphore(self) -> bool:
+        """Attempt a non-blocking acquire of the connection semaphore.
+
+        Uses `asyncio.wait_for` with a timeout of 0, which raises a
+        `TimeoutError` if the semaphore cannot be acquired immediately
+        without waiting. This effectively simulates a non-blocking acquire.
+
+        Returns:
+            True if acquired, False if capacity is exhausted.
+        """
         try:
             await asyncio.wait_for(_connection_semaphore.acquire(), timeout=0)
             return True

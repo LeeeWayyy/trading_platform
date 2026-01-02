@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-import pyotp  # type: ignore[import-not-found]
+import pyotp
 
 from apps.web_console_ng.auth.auth_result import AuthResult
 from apps.web_console_ng.auth.rate_limiter import AuthRateLimiter

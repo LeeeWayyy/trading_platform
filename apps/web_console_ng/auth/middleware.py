@@ -18,6 +18,22 @@ from apps.web_console_ng.auth.session_store import get_session_store
 logger = logging.getLogger(__name__)
 
 
+def _get_request_from_storage() -> Request:
+    """Return current request or a minimal fallback for tests."""
+    request = getattr(app.storage, "request", None)
+    if isinstance(request, Request):
+        return request
+    if request is None:
+        scope = {
+            "type": "http",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "path": "/",
+        }
+        return Request(scope)
+    return cast(Request, request)
+
+
 def get_current_user() -> dict[str, Any]:
     """Get the current user from the session storage."""
     result = app.storage.user.get("user", {"role": "viewer", "username": "Guest"})
@@ -90,9 +106,19 @@ def _redirect_to_login(request: Request, reason: str = "session_expired") -> Non
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware to validate session on every request."""
 
+    _EXEMPT_PATH_PREFIXES = (
+        "/_nicegui",
+        "/health",
+        "/healthz",
+        "/readyz",
+        "/dev/login",
+        "/login",
+        "/mfa-verify",
+    )
+
     async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
-        # Skip static files and health check
-        if request.url.path.startswith(("/_nicegui", "/health")):
+        # Skip static files, health checks, and auth entrypoints
+        if request.url.path.startswith(self._EXEMPT_PATH_PREFIXES):
             return cast(Response, await call_next(request))
 
         # 1. mTLS Auto-Login (if enabled)
@@ -113,8 +139,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # We can't easily access app.storage.user here because we are outside the websocket context context?
         # Actually starlette middleware runs before websocket upgrade for initial page load.
 
-        # For now, we rely on the decorators (@requires_auth) to do the strict checking.
-        # This middleware acts as a placeholder for global request logging or header checks.
+        user = getattr(request.state, "user", None)
+        if not user:
+            return Response(status_code=401)
 
         return cast(Response, await call_next(request))
 
@@ -134,11 +161,24 @@ class SessionMiddleware(BaseHTTPMiddleware):
         trusted_proxies: Any = None,
     ) -> None:
         super().__init__(app)
-        # Store for future use (currently unused - validation is in @requires_auth)
         self._session_store = session_store
         self._trusted_proxies = trusted_proxies
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
+        from apps.web_console_ng.auth.cookie_config import CookieConfig
+
+        cookie_cfg = CookieConfig.from_env()
+        cookie_name = cookie_cfg.get_cookie_name()
+        cookie_value = request.cookies.get(cookie_name)
+
+        if cookie_value:
+            session_store = self._session_store or get_session_store()
+            client_ip = extract_trusted_client_ip(request, self._trusted_proxies or [])
+            user_agent = request.headers.get("user-agent", "")
+            session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+            if session:
+                request.state.user = session.get("user", {})
+
         return cast(Response, await call_next(request))
 
 
@@ -150,7 +190,7 @@ def requires_auth(func: Callable[..., Any]) -> Callable[..., Any]:
     """
 
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
-        request: Request = app.storage.request  # type: ignore[attr-defined]
+        request = _get_request_from_storage()
 
         user_data, cookie_value = await _validate_session_and_get_user(request)
 
@@ -188,7 +228,7 @@ def requires_role(required_role: str) -> Callable[[Callable[..., Any]], Callable
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            request: Request = app.storage.request  # type: ignore[attr-defined]
+            request = _get_request_from_storage()
 
             user_data, cookie_value = await _validate_session_and_get_user(request)
 

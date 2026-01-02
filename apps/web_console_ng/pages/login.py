@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from typing import Any
+from typing import Any, cast
 
 from nicegui import app, ui
+from starlette.requests import Request as StarletteRequest
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_router import get_auth_handler
@@ -15,18 +16,31 @@ from apps.web_console_ng.auth.redirects import sanitize_redirect_path
 logger = logging.getLogger(__name__)
 
 
+def _get_request_from_storage(path: str) -> StarletteRequest:
+    request = getattr(app.storage, "request", None)
+    if isinstance(request, StarletteRequest):
+        return request
+    if request is None:
+        scope = {
+            "type": "http",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "path": path,
+        }
+        return StarletteRequest(scope)
+    return cast(StarletteRequest, request)
+
+
 @ui.page("/login")
 async def login_page() -> None:
     """Login page with auth type selection."""
     from datetime import UTC, datetime
 
-    from starlette.requests import Request as StarletteRequest
-
     from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip
     from apps.web_console_ng.auth.session_store import get_session_store
 
     # Check for existing valid session via server-side validation
-    request: StarletteRequest = app.storage.request  # type: ignore[attr-defined]
+    request = _get_request_from_storage("/login")
     cookie_cfg = CookieConfig.from_env()
     cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
 
@@ -210,7 +224,7 @@ async def login_page() -> None:
 
                 try:
                     # Get request info (reuse the request from scope or re-fetch)
-                    inner_request: StarletteRequest = app.storage.request  # type: ignore[attr-defined]
+                    inner_request = request
 
                     result = await handler.authenticate(
                         username=username_input.value,

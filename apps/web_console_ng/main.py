@@ -15,7 +15,6 @@ from apps.web_console_ng.auth.session_store import get_session_store
 from apps.web_console_ng.core.admission import AdmissionControlMiddleware
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.connection_events import setup_connection_handlers
-from apps.web_console_ng.core.connection_monitor import ConnectionMonitorRegistry
 from apps.web_console_ng.core.health import setup_health_endpoint
 from apps.web_console_ng.core.state_manager import get_state_manager
 from apps.web_console_ng.ui.disconnect_overlay import inject_disconnect_overlay
@@ -53,7 +52,6 @@ audit_logger = AuthAuditLogger.get(
 session_store = get_session_store(audit_logger=audit_logger)
 state_manager = get_state_manager()
 trading_client = AsyncTradingClient.get()
-connection_monitor = ConnectionMonitorRegistry.get(session_store=session_store)
 
 # Import routes after audit logger + session store are configured.
 from apps.web_console_ng.auth import routes as auth_routes  # noqa: E402,F401
@@ -73,10 +71,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 
 async def startup() -> None:
     """Startup hook wiring C3 connection recovery components."""
-    # Register NiceGUI lifecycle hooks:
-    # - connection_monitor: origin validation, session validation, user attachment
-    # - connection_events: client ID generation, metrics, handshake coordination
-    connection_monitor.register_hooks_once()
+    # Register NiceGUI lifecycle hooks for client ID generation, metrics, handshake coordination
     setup_connection_handlers()
     if db_pool is not None:
         await db_pool.open()
