@@ -181,9 +181,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # For API requests, return 401
             accept_header = request.headers.get("accept", "")
             if "text/html" in accept_header:
+                from urllib.parse import quote
+
                 from starlette.responses import RedirectResponse
 
-                return RedirectResponse(url="/login", status_code=302)
+                # Preserve the original path for post-login redirect
+                original_path = sanitize_redirect_path(request.url.path)
+                redirect_url = f"/login?next={quote(original_path)}"
+                return RedirectResponse(url=redirect_url, status_code=302)
             return Response(status_code=401)
 
         return cast(Response, await call_next(request))

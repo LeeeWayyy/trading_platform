@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 RUN groupadd -r appuser && useradd --no-create-home -r -g appuser appuser
 
 COPY --chown=appuser:appuser apps/web_console_ng /app/apps/web_console_ng
+COPY --chown=appuser:appuser libs /app/libs
 
 ENV PYTHONPATH=/app
 

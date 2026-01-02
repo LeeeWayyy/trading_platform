@@ -119,9 +119,12 @@ async def perform_logout(
                 user_id = session.get("user", {}).get("user_id")
                 if user_id:
                     try:
+                        from libs.redis_client.keys import RedisKeys
+
                         store = get_redis_store()
                         redis_client = store.get_master_client(decode_responses=False)
-                        await redis_client.delete(f"st_session:{user_id}")
+                        st_session_key = RedisKeys.streamlit_session(user_id)
+                        await redis_client.delete(st_session_key)
                     except Exception as st_err:
                         # Redis unavailable - log but continue with local cleanup
                         logger.warning("Failed to clear Streamlit session: %s", st_err)

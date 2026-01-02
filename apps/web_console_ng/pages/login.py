@@ -31,6 +31,25 @@ def _get_request_from_storage(path: str) -> StarletteRequest:
     return cast(StarletteRequest, request)
 
 
+def _get_redirect_destination(request: StarletteRequest) -> str:
+    """Get redirect destination from query param, storage, or default to '/'."""
+    from urllib.parse import parse_qs
+
+    # Check query parameter first (from AuthMiddleware redirect)
+    query_string = request.scope.get("query_string", b"").decode("utf-8")
+    query_params = parse_qs(query_string)
+    next_param = query_params.get("next", [None])[0]
+    if next_param:
+        return sanitize_redirect_path(next_param)
+
+    # Fall back to storage (from decorator redirect)
+    stored_redirect = app.storage.user.get("redirect_after_login")
+    if stored_redirect:
+        return sanitize_redirect_path(stored_redirect)
+
+    return "/"
+
+
 @ui.page("/login")
 async def login_page() -> None:
     """Login page with auth type selection."""
@@ -131,9 +150,7 @@ async def login_page() -> None:
                         if cert_expiry_warning:
                             ui.notify(cert_expiry_warning, type="warning", timeout=10000)
 
-                        redirect_to = sanitize_redirect_path(
-                            app.storage.user.get("redirect_after_login")
-                        )
+                        redirect_to = _get_redirect_destination(request)
                         if "redirect_after_login" in app.storage.user:
                             del app.storage.user["redirect_after_login"]
                         ui.navigate.to(redirect_to)
@@ -271,9 +288,7 @@ async def login_page() -> None:
                             app.storage.user["logged_in"] = True
                             app.storage.user["user"] = result.user_data
 
-                            redirect_to = sanitize_redirect_path(
-                                app.storage.user.get("redirect_after_login")
-                            )
+                            redirect_to = _get_redirect_destination(request)
                             if "redirect_after_login" in app.storage.user:
                                 del app.storage.user["redirect_after_login"]
                             ui.navigate.to(redirect_to)

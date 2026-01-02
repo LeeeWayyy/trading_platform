@@ -156,5 +156,28 @@ class RedisKeys:
         """
         return f"reduce_only_lock:{symbol}"
 
+    @staticmethod
+    def streamlit_session(user_id: str) -> str:
+        """
+        Generate Redis key for Streamlit session data.
+
+        Format: "st_session:{user_id}"
+
+        This key format is shared between the NiceGUI web console (for logout cleanup)
+        and the legacy Streamlit web console. Centralizing it here prevents coupling
+        between the two applications and ensures consistency if the format changes.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            Redis key string for Streamlit session
+
+        Used By:
+            - Streamlit Web Console (session storage)
+            - NiceGUI Web Console (logout cleanup for parallel sessions)
+        """
+        return f"st_session:{user_id}"
+
 
 __all__ = ["RedisKeys"]
