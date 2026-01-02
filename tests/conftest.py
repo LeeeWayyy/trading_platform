@@ -4,7 +4,15 @@ Root conftest for tests.
 This ensures:
 1. Redis module is properly initialized before test collection
 2. Execution gateway globals are mocked for lifespan-initialized variables
+3. NiceGUI web console runs in DEBUG mode (required for auth config validation)
 """
+
+import os
+
+# CRITICAL: Set NiceGUI web console DEBUG mode BEFORE any test collection.
+# The config module validates AUTH_TYPE at import time and requires explicit
+# configuration in production (DEBUG=false). Tests must run in DEBUG mode.
+os.environ.setdefault("WEB_CONSOLE_NG_DEBUG", "true")
 
 from unittest.mock import Mock
 

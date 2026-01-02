@@ -147,3 +147,9 @@ data/models/
 data/locks/
 # Qlib source (copied for Docker build, not tracked)
 qlib/
+
+# nicegui
+.nicegui/storage-*
+
+# local json
+response.json

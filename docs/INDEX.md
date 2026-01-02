@@ -250,6 +250,7 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [0028](./ADRs/0028-market-data-fallback-buffer.md) | Market data fallback buffer for Redis outages | ✅ Accepted |
 | [ADR-0029](./ADRs/ADR-0029-alerting-system.md) | Alerting system architecture (multi-channel delivery, rate limiting) | 🚧 Proposed |
 | [ADR-0030](./ADRs/ADR-0030-reporting-architecture.md) | Reporting architecture for scheduled reports and PDF generation | 🚧 Proposed |
+| [ADR-0031](./ADRs/ADR-0031-nicegui-migration.md) | NiceGUI migration from Streamlit for web console | ✅ Accepted |
 
 **Architecture Documentation:**
 - [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
@@ -373,6 +374,7 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-10-18, Planning] [P0_TASKS.md](./TASKS/P0_TASKS.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
 - [CURRENT, 2025-10-26, Planning] [P1_PLANNING.md](./TASKS/P1_PLANNING.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
 - [CURRENT, 2025-10-26, Planning] [P2_PLANNING.md](./TASKS/P2_PLANNING.md) - P2 advanced features planning - 📋 0% (0/6 tasks)
+- [CURRENT, 2025-12-31, Planning] [P5_PLANNING.md](./TASKS/P5_PLANNING.md) - P5 NiceGUI Migration phase planning
 - [CURRENT, 2025-10-18, Planning] [INDEX.md](./TASKS/INDEX.md) - Task index and status tracker
 - [CURRENT, 2025-10-18, Planning] [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) - Original master plan (reference)
 
@@ -444,6 +446,16 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
 - [CURRENT, 2025-12-05, Plan] [P4T1.8_PLAN.md](./TASKS/P4T1.8_PLAN.md) - P4T1.8: Unified Data Fetcher Protocol Implementation Plan
+
+**Phase 5 Tasks (NiceGUI Migration):**
+- [CURRENT, 2025-12-31, Task] [P5T1_TASK.md](./TASKS/P5T1_TASK.md) - P5T1: NiceGUI Migration Foundation (session, auth, client)
+- [CURRENT, 2025-12-31, Task] [P5T2_TASK.md](./TASKS/P5T2_TASK.md) - P5T2: Page Shell & Navigation (layout, routing, theming)
+- [CURRENT, 2025-12-31, Task] [P5T3_TASK.md](./TASKS/P5T3_TASK.md) - P5T3: Dashboard Migration (cards, charts, live data)
+- [CURRENT, 2025-12-31, Task] [P5T4_TASK.md](./TASKS/P5T4_TASK.md) - P5T4: Strategy Analytics Migration (tables, parameters)
+- [CURRENT, 2025-12-31, Task] [P5T5_TASK.md](./TASKS/P5T5_TASK.md) - P5T5: Risk & Trade Controls (circuit breaker, kill switch)
+- [CURRENT, 2025-12-31, Task] [P5T6_TASK.md](./TASKS/P5T6_TASK.md) - P5T6: Data Management Migration (sync, quality, explorer)
+- [CURRENT, 2025-12-31, Task] [P5T7_TASK.md](./TASKS/P5T7_TASK.md) - P5T7: Research & Reports Migration (notebooks, PDF)
+- [CURRENT, 2025-12-31, Task] [P5T8_TASK.md](./TASKS/P5T8_TASK.md) - P5T8: Integration & Cutover (testing, deployment)
 
 **Backlog Tasks (B0):**
 - [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./TASKS/B0T1_TASK.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis

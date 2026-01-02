@@ -157,13 +157,45 @@ jobs:
           name: codecov-umbrella
           fail_ci_if_error: false
 
-      - name: Comment coverage on PR
+      - name: Check PR diff size
         if: github.event_name == 'pull_request'
+        id: diff_check
+        run: |
+          # Get actual line count (insertions + deletions) using --numstat
+          # --numstat outputs: additions deletions filename (per file)
+          # Sum all additions and deletions for total changed lines
+          DIFF_LINES=$(git diff --numstat origin/${{ github.base_ref }}...HEAD | awk '{ adds += $1; dels += $2 } END { print adds + dels }' || echo "0")
+          # Handle empty output (no changes)
+          if [ -z "$DIFF_LINES" ]; then
+            DIFF_LINES=0
+          fi
+          echo "Diff lines (insertions + deletions): $DIFF_LINES"
+          echo "diff_lines=$DIFF_LINES" >> $GITHUB_OUTPUT
+          # Skip coverage comment if diff exceeds 15000 lines (action limit is 20000)
+          if [ "$DIFF_LINES" -gt 15000 ]; then
+            echo "skip_comment=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Skipping coverage comment: PR diff ($DIFF_LINES lines) exceeds 15000 line threshold"
+          else
+            echo "skip_comment=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request' && steps.diff_check.outputs.skip_comment != 'true'
         uses: py-cov-action/python-coverage-comment-action@v3
         with:
           GITHUB_TOKEN: ${{ secrets.USER_PR_TOKEN || github.token }}
           MINIMUM_GREEN: 90
           MINIMUM_ORANGE: 80
+
+      - name: Add coverage skip notice to PR
+        if: github.event_name == 'pull_request' && steps.diff_check.outputs.skip_comment == 'true'
+        run: |
+          echo "## Coverage Comment Skipped 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage comment was skipped because the PR diff (${{ steps.diff_check.outputs.diff_lines }} lines) exceeds the 15,000 line threshold." >> $GITHUB_STEP_SUMMARY
+          echo "This is to avoid the python-coverage-comment-action 406 error on large PRs." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View the coverage report in the uploaded artifacts instead." >> $GITHUB_STEP_SUMMARY
 
       - name: Archive coverage HTML report
         if: always()

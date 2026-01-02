@@ -473,7 +473,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except Exception as e:
                 logger.error(f"Failed to initialize slice scheduler: {e}")
         else:
-            logger.warning("Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)")
+            logger.warning(
+                "Slice scheduler not initialized (kill-switch or circuit-breaker unavailable)"
+            )
 
         # Internal token check
         settings = get_settings()
@@ -4317,7 +4319,9 @@ async def order_webhook(request: Request) -> dict[str, str]:
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Webhook verification unavailable - secret not configured",
                 )
-            logger.warning("Webhook signature verification disabled (WEBHOOK_SECRET not set, dev/test only)")
+            logger.warning(
+                "Webhook signature verification disabled (WEBHOOK_SECRET not set, dev/test only)"
+            )
 
         logger.info(
             f"Webhook received: {payload.get('event', 'unknown')}", extra={"payload": payload}
