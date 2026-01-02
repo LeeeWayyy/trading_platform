@@ -1,18 +1,34 @@
 from __future__ import annotations
 
-import ipaddress
 import logging
-from typing import Any
+from typing import Any, cast
 
 from nicegui import app, ui
+from starlette.requests import Request as StarletteRequest
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_router import get_auth_handler
-from apps.web_console_ng.auth.client_ip import get_client_ip
+from apps.web_console_ng.auth.client_ip import get_client_ip, is_trusted_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.redirects import sanitize_redirect_path
+from apps.web_console_ng.auth.session_store import SessionValidationError
 
 logger = logging.getLogger(__name__)
+
+
+def _get_request_from_storage(path: str) -> StarletteRequest:
+    request = getattr(app.storage, "request", None)
+    if isinstance(request, StarletteRequest):
+        return request
+    if request is None:
+        scope = {
+            "type": "http",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "path": path,
+        }
+        return StarletteRequest(scope)
+    return cast(StarletteRequest, request)
 
 
 @ui.page("/login")
@@ -20,13 +36,11 @@ async def login_page() -> None:
     """Login page with auth type selection."""
     from datetime import UTC, datetime
 
-    from starlette.requests import Request as StarletteRequest
-
     from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip
     from apps.web_console_ng.auth.session_store import get_session_store
 
     # Check for existing valid session via server-side validation
-    request: StarletteRequest = app.storage.request  # type: ignore[attr-defined]
+    request = _get_request_from_storage("/login")
     cookie_cfg = CookieConfig.from_env()
     cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
 
@@ -34,10 +48,18 @@ async def login_page() -> None:
         session_store = get_session_store()
         client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
         user_agent = request.headers.get("user-agent", "")
-        session = await session_store.validate_session(cookie_value, client_ip, user_agent)
-        if session:
-            # Already logged in with valid session
-            ui.navigate.to("/")
+        try:
+            session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+            if session:
+                # Already logged in with valid session
+                ui.navigate.to("/")
+                return
+        except SessionValidationError:
+            # Redis unavailable - show service unavailable message
+            with ui.card().classes("w-96 mx-auto mt-16 p-8"):
+                ui.label("Service Temporarily Unavailable").classes("text-xl font-bold")
+                ui.label("Please try again in a few moments.").classes("text-gray-600")
+                ui.button("Retry", on_click=lambda: ui.navigate.to("/login")).classes("mt-4")
             return
 
     # mTLS auto-login: Check for client certificate from trusted proxy
@@ -47,21 +69,9 @@ async def login_page() -> None:
     if config.AUTH_TYPE == "mtls":
         client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
         # Only trust certificate headers from trusted proxies
+        # Use is_trusted_ip helper to avoid code duplication
         remote_host = request.client.host if request.client else None
-        is_from_trusted_proxy = False
-        if remote_host:
-            try:
-                remote_ip = ipaddress.ip_address(remote_host)
-                for proxy in config.TRUSTED_PROXY_IPS:
-                    if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
-                        if remote_ip in proxy:
-                            is_from_trusted_proxy = True
-                            break
-                    elif remote_ip == proxy:
-                        is_from_trusted_proxy = True
-                        break
-            except ValueError:
-                is_from_trusted_proxy = False
+        is_from_trusted_proxy = is_trusted_ip(remote_host) if remote_host else False
 
         cert_verify = request.headers.get("X-SSL-Client-Verify", "")
         cert_dn = request.headers.get("X-SSL-Client-DN", "")
@@ -69,14 +79,18 @@ async def login_page() -> None:
 
         if is_from_trusted_proxy:
             if cert_verify == "SUCCESS" and cert_dn:
-                # Check certificate expiry warning (30 days)
+                # Check certificate expiry warning (30 days) or expired
                 if cert_not_after:
                     try:
                         # Parse nginx date format: "Dec 31 23:59:59 2025 GMT"
                         expiry = datetime.strptime(cert_not_after, "%b %d %H:%M:%S %Y %Z")
                         expiry = expiry.replace(tzinfo=UTC)
                         days_until_expiry = (expiry - datetime.now(UTC)).days
-                        if days_until_expiry < 30:
+                        if days_until_expiry <= 0:
+                            cert_expiry_warning = (
+                                "Your certificate has expired. Please renew it immediately."
+                            )
+                        elif days_until_expiry < 30:
                             cert_expiry_warning = (
                                 f"Your certificate expires in {days_until_expiry} days. "
                                 "Please renew it soon."
@@ -210,7 +224,7 @@ async def login_page() -> None:
 
                 try:
                     # Get request info (reuse the request from scope or re-fetch)
-                    inner_request: StarletteRequest = app.storage.request  # type: ignore[attr-defined]
+                    inner_request = request
 
                     result = await handler.authenticate(
                         username=username_input.value,

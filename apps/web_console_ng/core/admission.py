@@ -11,7 +11,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip
-from apps.web_console_ng.auth.session_store import extract_session_id, get_session_store
+from apps.web_console_ng.auth.session_store import (
+    SessionValidationError,
+    extract_session_id,
+    get_session_store,
+)
 from apps.web_console_ng.core import health
 from apps.web_console_ng.core.redis_ha import get_redis_store
 
@@ -27,6 +31,30 @@ MAX_CONNECTIONS_PER_SESSION = config.WS_MAX_CONNECTIONS_PER_SESSION
 SESSION_CONN_TTL = config.WS_SESSION_CONN_TTL
 
 _connection_semaphore = asyncio.Semaphore(MAX_CONNECTIONS)
+
+# Atomic Lua script to safely decrement session connection counter
+# Prevents counter from going negative in race conditions
+# Returns: new count after decrement (0 if key was deleted/not found)
+_DECR_SESSION_CONN_LUA = """
+local count = redis.call('GET', KEYS[1])
+if count and tonumber(count) > 0 then
+    count = redis.call('DECR', KEYS[1])
+    if tonumber(count) <= 0 then
+        redis.call('DEL', KEYS[1])
+    end
+    return count
+end
+return 0
+"""
+
+# Atomic Lua script to increment counter with TTL refresh on each connection
+# Refreshes TTL on every increment to prevent counter expiry during active sessions
+# Returns: new count after increment
+_INCR_SESSION_CONN_LUA = """
+local count = redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], ARGV[1])
+return count
+"""
 
 
 def _increment_rejection(reason: str) -> None:
@@ -82,6 +110,7 @@ class AdmissionControlMiddleware:
                     # to ensure semaphore is released if Redis or any other operation fails
                     session_conn_key: str | None = None
                     redis_incr_done = False
+                    redis_already_decremented = False  # Track if we decremented in rejection path
                     scope_state: dict[str, object] | None = None
 
                     try:
@@ -89,20 +118,19 @@ class AdmissionControlMiddleware:
                         session_conn_key = f"session_conns:{session_id}"
                         redis = await get_redis_store().get_master()
 
-                        lua_incr = """
-                        local count = redis.call('INCR', KEYS[1])
-                        if redis.call('TTL', KEYS[1]) == -1 then
-                            redis.call('EXPIRE', KEYS[1], ARGV[1])
-                        end
-                        return count
-                        """
+                        # Use atomic Lua script that refreshes TTL on every connection
+                        # This prevents counter expiry during active sessions
                         current_conns = await redis.eval(  # type: ignore[misc]
-                            lua_incr, 1, session_conn_key, str(SESSION_CONN_TTL)
+                            _INCR_SESSION_CONN_LUA, 1, session_conn_key, str(SESSION_CONN_TTL)
                         )
                         redis_incr_done = True
 
                         if current_conns > MAX_CONNECTIONS_PER_SESSION:
-                            await redis.decr(session_conn_key)
+                            # Use atomic Lua script to prevent race conditions
+                            await redis.eval(  # type: ignore[misc]
+                                _DECR_SESSION_CONN_LUA, 1, session_conn_key
+                            )
+                            redis_already_decremented = True  # Mark to skip finally decrement
                             _increment_rejection("session_limit")
                             await self._send_http_error(
                                 send, 429, "Too many connections for session"
@@ -130,23 +158,16 @@ class AdmissionControlMiddleware:
                             should_release = False
 
                         if should_release:
-                            # Decrement Redis counter if we incremented it
-                            if redis_incr_done and session_conn_key:
-                                lua_decr = """
-                                local count = redis.call('GET', KEYS[1])
-                                if count and tonumber(count) > 0 then
-                                    count = redis.call('DECR', KEYS[1])
-                                    if tonumber(count) <= 0 then
-                                        redis.call('DEL', KEYS[1])
-                                    end
-                                    return count
-                                end
-                                return 0
-                                """
+                            # Decrement Redis counter if we incremented it and haven't already
+                            if (
+                                redis_incr_done
+                                and session_conn_key
+                                and not redis_already_decremented
+                            ):
                                 try:
                                     redis = await get_redis_store().get_master()
                                     await redis.eval(  # type: ignore[misc]
-                                        lua_decr, 1, session_conn_key
+                                        _DECR_SESSION_CONN_LUA, 1, session_conn_key
                                     )
                                 except Exception:
                                     pass
@@ -161,6 +182,16 @@ class AdmissionControlMiddleware:
             except TimeoutError:
                 _increment_rejection("timeout")
                 await self._send_http_error(send, 503, "Service timeout", retry_after=5)
+                return
+            except SessionValidationError as exc:
+                # Redis unavailable - return 503 (not 401)
+                logger.warning(
+                    "Session validation infrastructure error: %s",
+                    exc,
+                    extra={"pod": POD_NAME},
+                )
+                _increment_rejection("service_unavailable")
+                await self._send_http_error(send, 503, "Service unavailable", retry_after=5)
                 return
             except ValueError as exc:
                 # Cookie parsing or session extraction error (malformed cookie)
@@ -224,8 +255,18 @@ class AdmissionControlMiddleware:
         )
 
     async def _try_acquire_semaphore(self) -> bool:
+        """Attempt a near-instant acquire of the connection semaphore.
+
+        Uses `asyncio.wait_for` with a minimal timeout (1ms) to allow the
+        event loop to process the acquire. A timeout of 0 doesn't work
+        because semaphore.acquire() needs at least one event loop iteration.
+
+        Returns:
+            True if acquired, False if capacity is exhausted.
+        """
         try:
-            await asyncio.wait_for(_connection_semaphore.acquire(), timeout=0)
+            # Use 1ms timeout - enough for event loop to process if permit available
+            await asyncio.wait_for(_connection_semaphore.acquire(), timeout=0.001)
             return True
         except TimeoutError:
             return False

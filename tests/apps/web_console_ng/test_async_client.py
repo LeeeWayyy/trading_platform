@@ -32,17 +32,17 @@ async def test_retry_transport_error_get(trading_client: AsyncTradingClient) -> 
 @pytest.mark.asyncio()
 @respx.mock
 async def test_retry_transport_error_post(trading_client: AsyncTradingClient) -> None:
-    route = respx.post("http://testserver/api/v1/kill-switch").mock(
+    route = respx.post("http://testserver/api/v1/kill-switch/engage").mock(
         side_effect=[
             httpx.ConnectError(
                 "boom",
-                request=httpx.Request("POST", "http://testserver/api/v1/kill-switch"),
+                request=httpx.Request("POST", "http://testserver/api/v1/kill-switch/engage"),
             ),
             Response(200, json={"status": "ok"}),
         ]
     )
 
-    result = await trading_client.trigger_kill_switch("user-1")
+    result = await trading_client.engage_kill_switch("user-1")
 
     assert result == {"status": "ok"}
     assert route.call_count == 2
@@ -67,12 +67,12 @@ async def test_retry_on_5xx_for_get_only(trading_client: AsyncTradingClient) -> 
 @pytest.mark.asyncio()
 @respx.mock
 async def test_no_retry_on_5xx_for_post(trading_client: AsyncTradingClient) -> None:
-    route = respx.post("http://testserver/api/v1/kill-switch").mock(
+    route = respx.post("http://testserver/api/v1/kill-switch/engage").mock(
         return_value=Response(500, json={"error": "boom"})
     )
 
     with pytest.raises(httpx.HTTPStatusError):
-        await trading_client.trigger_kill_switch("user-1")
+        await trading_client.engage_kill_switch("user-1")
 
     assert route.call_count == 1
 

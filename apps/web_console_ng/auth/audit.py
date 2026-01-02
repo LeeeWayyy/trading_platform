@@ -72,6 +72,14 @@ class AuthAuditLogger:
                 pass
             await self._flush_to_db()
 
+        # Log dead-letter contents on shutdown to prevent silent data loss
+        if self._dead_letter:
+            logger.error(
+                "Dumping %d audit events from dead-letter queue on shutdown.",
+                len(self._dead_letter),
+                extra={"dead_letter_events": json.dumps(list(self._dead_letter), default=str)},
+            )
+
     def log_event(
         self,
         *,
@@ -173,6 +181,11 @@ class AuthAuditLogger:
                     """,
                     batch_payloads,
                 )
+        except asyncio.CancelledError:
+            logger.warning("Audit DB flush cancelled. Re-queueing %d items.", len(batch_items))
+            for payload, attempts in reversed(batch_items):
+                self._queue.appendleft((payload, attempts))
+            raise
         except Exception as exc:
             logger.error("Audit DB write failed: %s", exc)
             # Expose metric for monitoring audit flush failures
@@ -181,7 +194,7 @@ class AuthAuditLogger:
 
                 audit_flush_errors_total.labels(pod=config.POD_NAME).inc()
             except ImportError:
-                logger.debug("Metrics module not available for audit flush error tracking")
+                logger.warning("Metrics module not available for audit flush error tracking")
 
             for payload, attempts in reversed(batch_items):
                 next_attempt = attempts + 1

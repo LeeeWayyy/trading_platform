@@ -12,7 +12,7 @@ from apps.web_console_ng.auth.client_ip import get_client_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.csrf import CSRF_HEADER_NAME
 from apps.web_console_ng.auth.providers.oauth2 import OAuth2AuthHandler
-from apps.web_console_ng.auth.session_store import get_session_store
+from apps.web_console_ng.auth.session_store import SessionValidationError, get_session_store
 from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,16 @@ async def logout_post(request: Request) -> Response:
     session_store = get_session_store()
     client_ip = get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
-    session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+    try:
+        session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+    except SessionValidationError:
+        # Redis unavailable - return 503 with Retry-After
+        return Response(
+            content='{"error": "Service temporarily unavailable"}',
+            status_code=503,
+            media_type="application/json",
+            headers={"Retry-After": "5"},
+        )
     if not session:
         raise HTTPException(status_code=401, detail="session_invalid")
 
@@ -77,7 +86,10 @@ async def perform_logout(
             app.storage.user.clear()
             return None
 
-        response = response or getattr(getattr(request, "state", None), "response", None)
+        # Safely access request.state.response without AttributeError
+        response = response or (
+            getattr(request.state, "response", None) if hasattr(request, "state") else None
+        )
 
         cookie_value = request.cookies.get(cookie_cfg.get_cookie_name())
         logout_url: str | None = None
@@ -86,20 +98,33 @@ async def perform_logout(
             # Validate session to get user data (for OAuth2 logout)
             client_ip = get_client_ip(request)
             user_agent = request.headers.get("user-agent", "")
-            session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+            try:
+                session = await session_store.validate_session(cookie_value, client_ip, user_agent)
+            except SessionValidationError:
+                # Redis unavailable - still proceed with local cleanup
+                logger.warning("Redis unavailable during logout, proceeding with local cleanup")
+                session = None
 
             # Extract session_id from cookie_value for invalidation
             session_id = session_store.verify_cookie(cookie_value)
             if session_id:
-                await session_store.invalidate_session(session_id)
+                try:
+                    await session_store.invalidate_session(session_id)
+                except Exception as inv_err:
+                    # Redis may be unavailable - log but continue with local cleanup
+                    logger.warning("Failed to invalidate session in Redis: %s", inv_err)
 
             # Clear Streamlit session if exists (parallel run)
             if session:
                 user_id = session.get("user", {}).get("user_id")
                 if user_id:
-                    store = get_redis_store()
-                    redis_client = store.get_master_client(decode_responses=False)
-                    await redis_client.delete(f"st_session:{user_id}")
+                    try:
+                        store = get_redis_store()
+                        redis_client = store.get_master_client(decode_responses=False)
+                        await redis_client.delete(f"st_session:{user_id}")
+                    except Exception as st_err:
+                        # Redis unavailable - log but continue with local cleanup
+                        logger.warning("Failed to clear Streamlit session: %s", st_err)
 
                 # Handle OAuth2 RP-initiated logout
                 auth_method = session.get("user", {}).get("auth_method")

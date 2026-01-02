@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from nicegui import app, ui
 from starlette.requests import Request as StarletteRequest
@@ -12,6 +13,21 @@ from apps.web_console_ng.auth.mfa import MFAHandler
 from apps.web_console_ng.auth.middleware import requires_auth
 
 logger = logging.getLogger(__name__)
+
+
+def _get_request_from_storage(path: str) -> StarletteRequest:
+    request = getattr(app.storage, "request", None)
+    if isinstance(request, StarletteRequest):
+        return request
+    if request is None:
+        scope = {
+            "type": "http",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "path": path,
+        }
+        return StarletteRequest(scope)
+    return cast(StarletteRequest, request)
 
 
 @ui.page("/mfa-verify")
@@ -35,7 +51,7 @@ async def mfa_verify_page() -> None:
             handler = MFAHandler()
             try:
                 # Get request context for session validation
-                request: StarletteRequest = app.storage.request  # type: ignore[attr-defined]
+                request = _get_request_from_storage("/mfa-verify")
                 client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
                 user_agent = request.headers.get("user-agent", "")
 

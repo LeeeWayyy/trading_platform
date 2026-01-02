@@ -277,6 +277,10 @@ async def lifespan(app: Any) -> AsyncIterator[None]:
             f"Got WEB_WORKERS={worker_count}. For horizontal scaling, use multiple pods."
         )
 
+    # Startup - initialize AsyncTradingClient for backend communication
+    trading_client = AsyncTradingClient.get()
+    await trading_client.startup()
+
     # Startup - register SIGTERM handler for graceful drain
     # Use get_running_loop() instead of get_event_loop() for Python 3.11+ compatibility
     try:
@@ -287,16 +291,20 @@ async def lifespan(app: Any) -> AsyncIterator[None]:
     except NotImplementedError:
         # Windows or other platforms without signal handler support
         logger.warning("Signal handler not supported on this platform")
-    yield
-    # Shutdown (after SIGTERM or normal exit)
-    # 1. Start graceful drain (returns 503 on readiness)
-    await start_graceful_shutdown()
-    # 2. Explicitly close Redis connections to prevent "Unclosed connection" warnings
     try:
-        redis = get_redis_store()
-        await redis.close()
-    except Exception:
-        pass  # Best-effort cleanup
+        yield
+    finally:
+        # Shutdown (after SIGTERM or normal exit)
+        # 1. Shutdown AsyncTradingClient
+        await trading_client.shutdown()
+        # 2. Start graceful drain (returns 503 on readiness)
+        await start_graceful_shutdown()
+        # 3. Explicitly close Redis connections to prevent "Unclosed connection" warnings
+        try:
+            redis = get_redis_store()
+            await redis.close()
+        except Exception:
+            pass  # Best-effort cleanup
 
 
 async def start_graceful_shutdown() -> None:
@@ -311,8 +319,9 @@ async def start_graceful_shutdown() -> None:
     if is_draining:
         return  # Already draining
     is_draining = True
-    # Allow 30s for existing connections to drain
-    await asyncio.sleep(30)
+    # Allow configurable time for existing connections to drain
+    drain_seconds = float(os.getenv("GRACEFUL_SHUTDOWN_SECONDS", "30"))
+    await asyncio.sleep(drain_seconds)
 
 
 _health_setup_done: bool = False

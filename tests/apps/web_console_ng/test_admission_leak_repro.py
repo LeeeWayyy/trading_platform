@@ -23,6 +23,11 @@ def _build_scope(cookie: str | None = None) -> dict[str, Any]:
     }
 
 
+def _session_cookie(session_id: str = "session") -> str:
+    # Minimal signed cookie format: {session_id}.{key_id}:{signature}
+    return f"{config.SESSION_COOKIE_NAME}={session_id}.k1:signature"
+
+
 async def _run_app(app, scope: dict[str, Any]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
 
@@ -70,7 +75,7 @@ async def test_semaphore_release_on_redis_error_before_incr(
         AsyncMock(return_value=True),
     )
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(lambda s, r, se: None)
 
     await _run_app(middleware, _build_scope(cookie))
@@ -111,7 +116,7 @@ async def test_semaphore_release_on_redis_error_during_incr(
         AsyncMock(return_value=True),
     )
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(lambda s, r, se: None)
 
     await _run_app(middleware, _build_scope(cookie))
@@ -155,7 +160,7 @@ async def test_semaphore_release_and_decr_on_app_error(monkeypatch: pytest.Monke
     async def _inner_raises(scope, receive, send):
         raise RuntimeError("App crashed")
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(_inner_raises)
 
     await _run_app(middleware, _build_scope(cookie))

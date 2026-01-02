@@ -1,4 +1,12 @@
-"""Async HTTP client for trading API calls."""
+"""Async HTTP client for trading API calls.
+
+TODO(P5T6+): Add circuit breaker to prevent retry storms during backend outages.
+The current implementation uses @with_retry for resilience but lacks a circuit
+breaker pattern. When the Execution Gateway is unavailable, this client will
+aggressively retry which could worsen cascading failures. Consider adding
+pybreaker or a custom circuit breaker implementation in a future task.
+See: ADR-0031-nicegui-migration for architecture decisions.
+"""
 
 from __future__ import annotations
 
@@ -149,28 +157,28 @@ class AsyncTradingClient:
         return self._json_dict(resp)
 
     @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
-    async def trigger_kill_switch(
+    async def engage_kill_switch(
         self,
         user_id: str,
         role: str | None = None,
         strategies: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Trigger kill switch (POST - non-idempotent, no 5xx retry)."""
+        """Engage kill switch - emergency trading halt (POST)."""
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.post("/api/v1/kill-switch", headers=headers)
+        resp = await self._client.post("/api/v1/kill-switch/engage", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 
-    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
-    async def get_circuit_breaker_state(
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def disengage_kill_switch(
         self,
         user_id: str,
         role: str | None = None,
         strategies: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Fetch circuit breaker state (GET - idempotent)."""
+        """Disengage kill switch - resume trading (POST)."""
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.get("/api/v1/circuit-breaker/status", headers=headers)
+        resp = await self._client.post("/api/v1/kill-switch/disengage", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 

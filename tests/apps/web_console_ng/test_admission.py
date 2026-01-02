@@ -24,6 +24,11 @@ def _build_scope(cookie: str | None = None) -> dict[str, Any]:
     }
 
 
+def _session_cookie(session_id: str = "session") -> str:
+    # Minimal signed cookie format: {session_id}.{key_id}:{signature}
+    return f"{config.SESSION_COOKIE_NAME}={session_id}.k1:signature"
+
+
 async def _run_app(app, scope: dict[str, Any]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
 
@@ -64,7 +69,7 @@ async def test_invalid_session_rejected(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(admission, "get_session_store", lambda: session_store)
     monkeypatch.setattr(admission, "_increment_rejection", lambda reason: None)
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(lambda s, r, se: None)
     events = await _run_app(middleware, _build_scope(cookie))
 
@@ -81,8 +86,9 @@ async def test_session_limit_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(admission, "_increment_rejection", lambda reason: None)
 
     redis = AsyncMock()
+    # First redis.eval call returns connection count over limit,
+    # second call is the decrement (now uses Lua script instead of redis.decr)
     redis.eval = AsyncMock(return_value=admission.MAX_CONNECTIONS_PER_SESSION + 1)
-    redis.decr = AsyncMock()
     redis_store = MagicMock()
     redis_store.get_master = AsyncMock(return_value=redis)
     monkeypatch.setattr(admission, "get_redis_store", lambda: redis_store)
@@ -94,12 +100,13 @@ async def test_session_limit_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         AsyncMock(return_value=True),
     )
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(lambda s, r, se: None)
     events = await _run_app(middleware, _build_scope(cookie))
 
     assert events[0]["status"] == 429
-    redis.decr.assert_called_once()
+    # redis.eval is called twice: once for increment, once for atomic decrement
+    assert redis.eval.call_count == 2
 
 
 @pytest.mark.asyncio()
@@ -147,7 +154,7 @@ async def test_handshake_failure_cleanup(monkeypatch: pytest.MonkeyPatch) -> Non
         # Simulate handshake failure (do not set handshake_complete)
         return None
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(_inner)
     await _run_app(middleware, _build_scope(cookie))
 
@@ -186,7 +193,7 @@ async def test_session_validation_timeout(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(admission, "get_session_store", lambda: session_store)
     monkeypatch.setattr(admission, "_increment_rejection", lambda reason: None)
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(lambda s, r, se: None)
     events = await _run_app(middleware, _build_scope(cookie))
 
@@ -206,7 +213,7 @@ async def test_session_validation_exception(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(admission, "get_session_store", lambda: session_store)
     monkeypatch.setattr(admission, "_increment_rejection", lambda reason: None)
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(lambda s, r, se: None)
     events = await _run_app(middleware, _build_scope(cookie))
 
@@ -278,7 +285,7 @@ async def test_session_success_with_handshake_complete(monkeypatch: pytest.Monke
         # Simulate successful handshake
         scope["state"]["handshake_complete"] = True
 
-    cookie = f"{config.SESSION_COOKIE_NAME}=session"
+    cookie = _session_cookie()
     middleware = admission.AdmissionControlMiddleware(_inner)
     await _run_app(middleware, _build_scope(cookie))
 

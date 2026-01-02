@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import inspect
 import ipaddress
 import json
 import logging
@@ -30,9 +29,31 @@ end
 return current
 """
 
+# Atomic session rotation: get old session, create new, delete old in one transaction
+# KEYS[1] = old session key, KEYS[2] = new session key
+# ARGV[1] = new encrypted data, ARGV[2] = TTL in seconds
+# Returns: old encrypted data if exists, nil otherwise
+_ROTATE_SESSION_LUA = """
+local old_data = redis.call("GET", KEYS[1])
+if not old_data then
+    return nil
+end
+redis.call("SETEX", KEYS[2], ARGV[2], ARGV[1])
+redis.call("DEL", KEYS[1])
+return old_data
+"""
+
 
 class SessionCreationError(Exception):
     """Raised when session creation fails (Redis unavailable, etc.)."""
+
+
+class SessionValidationError(Exception):
+    """Raised when session validation fails due to infrastructure errors.
+
+    This is distinct from invalid sessions - callers should respond with 503
+    (Service Unavailable) rather than 401 (Unauthorized) when this is raised.
+    """
 
 
 class RateLimitExceeded(Exception):
@@ -217,9 +238,24 @@ class ServerSessionStore:
                     "session_payload_invalid",
                 )
                 return None
-            now = datetime.now(UTC)
 
-            created_at = datetime.fromisoformat(session["created_at"]).replace(tzinfo=UTC)
+            # Validate required fields - missing/corrupt fields invalidate session
+            try:
+                now = datetime.now(UTC)
+                created_at = datetime.fromisoformat(session["created_at"]).replace(tzinfo=UTC)
+                last_activity = datetime.fromisoformat(session["last_activity"]).replace(tzinfo=UTC)
+            except (KeyError, ValueError, TypeError) as exc:
+                await self.invalidate_session(session_id)
+                self._audit_failure(
+                    "session_validation_failure",
+                    _get_user_id(session),
+                    session_id,
+                    client_ip,
+                    user_agent,
+                    f"corrupt_session_payload:{type(exc).__name__}",
+                )
+                return None
+
             age_seconds = (now - created_at).total_seconds()
             if age_seconds > self.absolute_timeout:
                 await self.invalidate_session(session_id)
@@ -233,7 +269,6 @@ class ServerSessionStore:
                 )
                 return None
 
-            last_activity = datetime.fromisoformat(session["last_activity"]).replace(tzinfo=UTC)
             if (now - last_activity).total_seconds() > self.idle_timeout:
                 await self.invalidate_session(session_id)
                 self._audit_failure(
@@ -278,8 +313,9 @@ class ServerSessionStore:
 
             return session
         except redis.RedisError as exc:
+            # Infrastructure error - callers should respond with 503, not 401
             logger.error("Redis error during session validation: %s", exc)
-            return None
+            raise SessionValidationError("Session validation failed - storage unavailable") from exc
         except Exception as exc:
             logger.warning("Session validation failed: %s: %s", type(exc).__name__, exc)
             return None
@@ -297,9 +333,13 @@ class ServerSessionStore:
                          Useful for clearing mfa_pending after MFA verification.
 
         Returns (cookie_value, csrf_token) or None on failure.
+
+        Note: Uses Lua script for atomic SETEX+DELETE to prevent race conditions
+        where both old and new sessions could briefly be valid.
         """
         try:
-            data = await self.redis.get(f"{self.session_prefix}{old_session_id}")
+            old_key = f"{self.session_prefix}{old_session_id}"
+            data = await self.redis.get(old_key)
             if not data:
                 return None
 
@@ -310,7 +350,7 @@ class ServerSessionStore:
             remaining_ttl = int(self.absolute_timeout - (now - created_at).total_seconds())
 
             if remaining_ttl <= 0:
-                await self.redis.delete(f"{self.session_prefix}{old_session_id}")
+                await self.redis.delete(old_key)
                 return None
 
             new_session_id = secrets.token_urlsafe(32)
@@ -325,12 +365,30 @@ class ServerSessionStore:
                 session["user"].update(user_updates)
 
             encrypted = self.fernet.encrypt(json.dumps(session).encode())
-            await self.redis.setex(
-                f"{self.session_prefix}{new_session_id}",
-                remaining_ttl,
-                encrypted,
-            )
-            await self.redis.delete(f"{self.session_prefix}{old_session_id}")
+            new_key = f"{self.session_prefix}{new_session_id}"
+
+            # Atomic rotation: SETEX new session + DELETE old session in one Lua call
+            # This prevents race conditions where both sessions could be valid briefly
+            try:
+                # Cast encrypted bytes to Any for eval() - Redis handles binary data fine
+                encrypted_arg: Any = encrypted
+                result = await self.redis.eval(  # type: ignore[misc]
+                    _ROTATE_SESSION_LUA,
+                    2,  # number of keys
+                    old_key,
+                    new_key,
+                    encrypted_arg,
+                    str(remaining_ttl),
+                )
+                if result is None:
+                    # Old session was deleted between GET and rotation - abort
+                    return None
+            except redis.RedisError as lua_err:
+                if "unknown command" not in str(lua_err).lower():
+                    raise
+                # Fallback for test doubles without EVAL support
+                await self.redis.setex(new_key, remaining_ttl, encrypted)
+                await self.redis.delete(old_key)
 
             cookie_value = self._build_cookie_value(new_session_id)
             if self.audit_logger:
@@ -355,15 +413,20 @@ class ServerSessionStore:
         key = f"{self.rate_limit_prefix}{action}:{client_ip}"
         ttl_seconds = 60
         try:
-            eval_result = self.redis.eval(_RATE_LIMIT_LUA, 1, key, str(ttl_seconds))
-            if inspect.isawaitable(eval_result):
-                count_raw = await eval_result
-            else:
-                count_raw = eval_result
+            count_raw = await self.redis.eval(  # type: ignore[misc]
+                _RATE_LIMIT_LUA, 1, key, str(ttl_seconds)
+            )
         except redis.RedisError as exc:
             if "unknown command" not in str(exc).lower():
                 raise
             # Fallback for test doubles (e.g., fakeredis) that don't implement EVAL.
+            # This fallback is NOT atomic (incr+expire race condition).
+            # Log warning in production to detect if this path is hit unexpectedly.
+            if not config.DEBUG:
+                logger.warning(
+                    "Rate limit fallback triggered - EVAL not supported. "
+                    "This should only happen in tests, not production."
+                )
             count_raw = await self.redis.incr(key)
             if int(cast(int, count_raw)) == 1:
                 await self.redis.expire(key, ttl_seconds)
@@ -492,11 +555,14 @@ def extract_session_id(signed_cookie: str) -> str:
     """Extract session ID from signed cookie.
 
     Cookie format: {session_id}.{key_id}:{signature}
-    Handles additional dots in signature by only splitting twice.
+    Uses rsplit to correctly handle session IDs that may contain dots.
     """
     if not signed_cookie:
         raise ValueError("Empty cookie")
-    parts = signed_cookie.split(".", maxsplit=2)
+    # Split from right to isolate key_id:signature part first
+    parts = signed_cookie.rsplit(".", 1)
+    if len(parts) != 2:
+        raise ValueError("Invalid cookie format: missing signature")
     session_id = parts[0]
     if not session_id:
         raise ValueError("Invalid cookie format: empty session ID")
@@ -506,6 +572,7 @@ def extract_session_id(signed_cookie: str) -> str:
 __all__ = [
     "ServerSessionStore",
     "SessionCreationError",
+    "SessionValidationError",
     "RateLimitExceeded",
     "get_session_store",
     "extract_session_id",

@@ -355,9 +355,7 @@ class UserStateManager:
             "kill_switch": await client.fetch_kill_switch_status(
                 self.user_id, role=self.role, strategies=self.strategies
             ),
-            "circuit_breaker": await client.get_circuit_breaker_state(
-                self.user_id, role=self.role, strategies=self.strategies
-            ),
+            # Note: circuit_breaker endpoint not yet available in execution_gateway
         }
         # Note: Add fetch_open_orders() to AsyncTradingClient if order display needed
 

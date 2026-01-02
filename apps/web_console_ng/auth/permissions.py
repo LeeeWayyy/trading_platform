@@ -1,31 +1,33 @@
-from enum import Enum
+"""Role and permission re-exports from shared auth library.
 
+This module re-exports the canonical Role and Permission enums from
+libs.web_console_auth.permissions to ensure consistent role taxonomy
+across all services.
 
-class Role(str, Enum):
-    ADMIN = "admin"
-    TRADER = "trader"
-    VIEWER = "viewer"
+IMPORTANT: Always use these imports rather than defining local roles.
+The shared library defines: VIEWER, RESEARCHER, OPERATOR, ADMIN.
+"""
 
+from libs.web_console_auth.permissions import (
+    ROLE_DATASET_PERMISSIONS,
+    ROLE_PERMISSIONS,
+    DatasetPermission,
+    Permission,
+    Role,
+    get_authorized_strategies,
+    has_dataset_permission,
+    has_permission,
+    require_permission,
+)
 
-class Permission(str, Enum):
-    VIEW_DASHBOARD = "view_dashboard"
-    EXECUTE_TRADES = "execute_trades"
-    MANAGE_USERS = "manage_users"
-    VIEW_AUDIT_LOGS = "view_audit_logs"
-
-
-ROLE_PERMISSIONS: dict[str, set[str]] = {
-    "admin": {
-        Permission.VIEW_DASHBOARD,
-        Permission.EXECUTE_TRADES,
-        Permission.MANAGE_USERS,
-        Permission.VIEW_AUDIT_LOGS,
-    },
-    "trader": {
-        Permission.VIEW_DASHBOARD,
-        Permission.EXECUTE_TRADES,
-    },
-    "viewer": {
-        Permission.VIEW_DASHBOARD,
-    },
-}
+__all__ = [
+    "Role",
+    "Permission",
+    "DatasetPermission",
+    "ROLE_PERMISSIONS",
+    "ROLE_DATASET_PERMISSIONS",
+    "has_permission",
+    "has_dataset_permission",
+    "require_permission",
+    "get_authorized_strategies",
+]

@@ -68,6 +68,7 @@ sqlglot = "^28.5.0"
 weasyprint = "^67.0"
 jinja2 = "^3.1.6"
 nicegui = ">=2.0,<3.0"
+pyotp = "^2.9.0"  # TOTP for MFA
 
 [tool.poetry.group.dev.dependencies]
 # Testing

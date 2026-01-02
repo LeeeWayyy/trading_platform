@@ -20,6 +20,7 @@ Test categories:
 from __future__ import annotations
 
 import os
+import tempfile
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -51,7 +52,7 @@ def reset_secret_manager() -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def clean_env(monkeypatch: pytest.MonkeyPatch):
     """Remove all secret-related env vars for clean test state."""
     secret_vars = [
         "DATABASE_URL",
@@ -67,9 +68,23 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "SECRETS_VALIDATION_MODE",
         "SECRET_BACKEND",
         "DEPLOYMENT_ENV",
+        "SECRET_DOTENV_PATH",
     ]
     for var in secret_vars:
         monkeypatch.delenv(var, raising=False)
+
+    # Force secrets factory to load an empty .env file instead of the repo's .env.
+    # This keeps tests deterministic and avoids leaking local dev defaults.
+    temp_env = tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False)
+    temp_env.close()
+    monkeypatch.setenv("SECRET_DOTENV_PATH", temp_env.name)
+    try:
+        yield
+    finally:
+        try:
+            os.unlink(temp_env.name)
+        except FileNotFoundError:
+            pass
 
 
 # ============================================================================

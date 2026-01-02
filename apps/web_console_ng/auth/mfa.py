@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 
-import pyotp  # type: ignore[import-not-found]
+import pyotp
 
 from apps.web_console_ng.auth.auth_result import AuthResult
 from apps.web_console_ng.auth.rate_limiter import AuthRateLimiter
-from apps.web_console_ng.auth.session_store import get_session_store
+from apps.web_console_ng.auth.session_store import SessionValidationError, get_session_store
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,18 @@ class MFAHandler:
             AuthResult: Success if code is valid, Failure otherwise.
         """
         # Validate the pending session with proper device context
-        session = await self.session_store.validate_session(
-            pending_cookie,
-            client_ip=client_ip,
-            user_agent=user_agent,
-        )
+        try:
+            session = await self.session_store.validate_session(
+                pending_cookie,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
+        except SessionValidationError:
+            # Redis unavailable - return service error
+            return AuthResult(
+                success=False,
+                error_message="Service temporarily unavailable. Please try again.",
+            )
 
         if not session:
             return AuthResult(success=False, error_message="Session expired or invalid")

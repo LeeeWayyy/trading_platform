@@ -9,7 +9,6 @@ from typing import Any, cast
 from nicegui import Client, app
 
 from apps.web_console_ng import config
-from apps.web_console_ng.auth.session_store import extract_session_id
 from apps.web_console_ng.core import health
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.redis_ha import get_redis_store
@@ -77,18 +76,11 @@ def setup_connection_handlers() -> None:
         if scope_state is not None:
             scope_state["handshake_complete"] = True
 
-        request = getattr(client, "request", None)
-        session_cookie = None
-        if request is not None:
-            session_cookie = request.cookies.get(config.SESSION_COOKIE_NAME)
-        if session_cookie:
-            try:
-                session_id = extract_session_id(session_cookie)
-                client.storage["session_conn_key"] = f"session_conns:{session_id}"
-            except ValueError:
-                # Malformed cookie - ignore and continue without session tracking
-                # Session will be validated properly in @requires_auth decorator
-                logger.debug("Malformed session cookie during connect, ignoring")
+            # Copy session_conn_key from scope state (set by admission.py) to client storage
+            # This avoids re-parsing the cookie and ensures cleanup key consistency
+            session_conn_key = scope_state.get("session_conn_key")
+            if session_conn_key:
+                client.storage["session_conn_key"] = session_conn_key
 
         await lifecycle.register_client(client_id)
 
