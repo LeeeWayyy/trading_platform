@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from nicegui import app
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_result import AuthResult
-from apps.web_console_ng.auth.client_ip import is_trusted_ip
+from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip, is_trusted_ip
 from apps.web_console_ng.auth.providers.base import AuthProvider
 from apps.web_console_ng.auth.session_store import get_session_store
 
@@ -21,7 +22,99 @@ class MTLSAuthHandler(AuthProvider):
     Headers:
         X-SSL-Client-Verify: SUCCESS
         X-SSL-Client-DN: /CN=user/OU=admin...
+        X-SSL-Client-Not-After: Certificate expiry date (optional, for warnings)
     """
+
+    async def try_auto_login(self, request: Any) -> AuthResult:
+        """Attempt mTLS auto-login from request headers.
+
+        This method encapsulates all mTLS header parsing and validation logic.
+        Callers should simply pass the request object; the handler handles
+        all proxy trust validation and certificate verification.
+
+        Args:
+            request: Starlette/NiceGUI Request object
+
+        Returns:
+            AuthResult with success=True if auto-login succeeded, or
+            success=False with error_message explaining why it failed.
+            On success, warning_message may contain certificate expiry warnings.
+        """
+        if config.AUTH_TYPE != "mtls":
+            return AuthResult(success=False, error_message="mTLS auth not enabled")
+
+        # Validate proxy trust (only accept headers from trusted IPs)
+        if not self._is_trusted_proxy(request):
+            return AuthResult(
+                success=False,
+                error_message="Client certificate required for mTLS authentication.",
+            )
+
+        # Check certificate verification status from proxy
+        verify = request.headers.get("X-SSL-Client-Verify", "")
+        cert_dn = request.headers.get("X-SSL-Client-DN", "")
+
+        if not verify or verify != "SUCCESS":
+            if verify and verify != "SUCCESS":
+                return AuthResult(
+                    success=False,
+                    error_message=f"Certificate verification failed: {verify}",
+                )
+            return AuthResult(
+                success=False,
+                error_message="Client certificate required for mTLS authentication.",
+            )
+
+        if not cert_dn:
+            return AuthResult(
+                success=False,
+                error_message="Client certificate required for mTLS authentication.",
+            )
+
+        # Check certificate expiry warning
+        warning_message = self._check_certificate_expiry(request)
+
+        # Extract client info for session creation
+        client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
+        user_agent = request.headers.get("user-agent", "")
+
+        # Delegate to authenticate() for actual session creation
+        result = await self.authenticate(
+            client_dn=cert_dn,
+            client_ip=client_ip,
+            user_agent=user_agent,
+            request=request,
+        )
+
+        # Add warning message to result if present
+        if result.success and warning_message:
+            result.warning_message = warning_message
+
+        return result
+
+    def _check_certificate_expiry(self, request: Any) -> str | None:
+        """Check certificate expiry and return warning message if expiring soon."""
+        cert_not_after = request.headers.get("X-SSL-Client-Not-After", "")
+        if not cert_not_after:
+            return None
+
+        try:
+            # Parse nginx date format: "Dec 31 23:59:59 2025 GMT"
+            expiry = datetime.strptime(cert_not_after, "%b %d %H:%M:%S %Y %Z")
+            expiry = expiry.replace(tzinfo=UTC)
+            days_until_expiry = (expiry - datetime.now(UTC)).days
+
+            if days_until_expiry <= 0:
+                return "Your certificate has expired. Please renew it immediately."
+            elif days_until_expiry < 30:
+                return (
+                    f"Your certificate expires in {days_until_expiry} days. "
+                    "Please renew it soon."
+                )
+        except ValueError:
+            pass  # Ignore parse errors
+
+        return None
 
     async def authenticate(self, client_dn: str | None = None, **kwargs: Any) -> AuthResult:
         """Authenticate using mTLS headers.

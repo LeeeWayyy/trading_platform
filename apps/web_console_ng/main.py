@@ -85,12 +85,25 @@ async def startup() -> None:
 
 
 async def shutdown() -> None:
-    """Shutdown hook for graceful cleanup."""
+    """Shutdown hook for graceful cleanup.
+
+    Note: Graceful drain (503 on readiness, SIGTERM handling) is managed by
+    the lifespan context in health.py. This hook handles app-specific resource
+    cleanup only, avoiding duplication between lifespan and on_shutdown.
+    """
+    from apps.web_console_ng.core.redis_ha import get_redis_store
+
     await trading_client.shutdown()
     await audit_logger.stop()
     if db_pool is not None:
         await db_pool.close()
     await state_manager.close()
+    # Close Redis connections to prevent "Unclosed connection" warnings
+    try:
+        redis = get_redis_store()
+        await redis.close()
+    except Exception:
+        pass  # Best-effort cleanup
 
 
 app.on_startup(startup)

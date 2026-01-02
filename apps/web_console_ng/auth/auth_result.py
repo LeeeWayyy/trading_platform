@@ -16,6 +16,7 @@ class AuthResult:
     csrf_token: str | None = None
     user_data: dict[str, Any] | None = None
     error_message: str | None = None
+    warning_message: str | None = None  # Non-fatal warning (e.g., certificate expiring soon)
     requires_mfa: bool = False
     rate_limited: bool = False
     retry_after: int = 0

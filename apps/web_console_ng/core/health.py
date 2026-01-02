@@ -277,9 +277,9 @@ async def lifespan(app: Any) -> AsyncIterator[None]:
             f"Got WEB_WORKERS={worker_count}. For horizontal scaling, use multiple pods."
         )
 
-    # Startup - initialize AsyncTradingClient for backend communication
-    trading_client = AsyncTradingClient.get()
-    await trading_client.startup()
+    # Note: App resource startup (trading_client, db_pool, audit_logger) is handled
+    # by main.py's on_startup hook to maintain clear separation of concerns.
+    # This lifespan handler only manages: worker check, SIGTERM handler, graceful drain.
 
     # Startup - register SIGTERM handler for graceful drain
     # Use get_running_loop() instead of get_event_loop() for Python 3.11+ compatibility
@@ -295,16 +295,11 @@ async def lifespan(app: Any) -> AsyncIterator[None]:
         yield
     finally:
         # Shutdown (after SIGTERM or normal exit)
-        # 1. Shutdown AsyncTradingClient
-        await trading_client.shutdown()
-        # 2. Start graceful drain (returns 503 on readiness)
+        # Only handle lifespan-specific cleanup here (graceful drain).
+        # App-specific resource cleanup (trading_client, audit_logger, db_pool, state_manager)
+        # is handled by main.py's on_shutdown hook to avoid duplication and maintain
+        # clear separation of concerns.
         await start_graceful_shutdown()
-        # 3. Explicitly close Redis connections to prevent "Unclosed connection" warnings
-        try:
-            redis = get_redis_store()
-            await redis.close()
-        except Exception:
-            pass  # Best-effort cleanup
 
 
 async def start_graceful_shutdown() -> None:

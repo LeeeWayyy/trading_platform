@@ -8,7 +8,7 @@ from starlette.requests import Request as StarletteRequest
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.auth_router import get_auth_handler
-from apps.web_console_ng.auth.client_ip import get_client_ip, is_trusted_ip
+from apps.web_console_ng.auth.client_ip import get_client_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.redirects import sanitize_redirect_path
 from apps.web_console_ng.auth.session_store import SessionValidationError
@@ -53,8 +53,6 @@ def _get_redirect_destination(request: StarletteRequest) -> str:
 @ui.page("/login")
 async def login_page() -> None:
     """Login page with auth type selection."""
-    from datetime import UTC, datetime
-
     from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip
     from apps.web_console_ng.auth.session_store import get_session_store
 
@@ -81,91 +79,49 @@ async def login_page() -> None:
                 ui.button("Retry", on_click=lambda: ui.navigate.to("/login")).classes("mt-4")
             return
 
-    # mTLS auto-login: Check for client certificate from trusted proxy
+    # mTLS auto-login: Delegate all header parsing and validation to MTLSAuthHandler
     mtls_error: str | None = None
-    cert_expiry_warning: str | None = None
 
     if config.AUTH_TYPE == "mtls":
-        client_ip = extract_trusted_client_ip(request, config.TRUSTED_PROXY_IPS)
-        # Only trust certificate headers from trusted proxies
-        # Use is_trusted_ip helper to avoid code duplication
-        remote_host = request.client.host if request.client else None
-        is_from_trusted_proxy = is_trusted_ip(remote_host) if remote_host else False
+        try:
+            handler = get_auth_handler("mtls")
+            # Use try_auto_login which encapsulates all mTLS header parsing logic
+            result = await handler.try_auto_login(request)
 
-        cert_verify = request.headers.get("X-SSL-Client-Verify", "")
-        cert_dn = request.headers.get("X-SSL-Client-DN", "")
-        cert_not_after = request.headers.get("X-SSL-Client-Not-After", "")
+            if result.success:
+                # Set cookies and redirect
+                if hasattr(request.state, "response"):
+                    response = request.state.response
+                    if result.cookie_value:
+                        response.set_cookie(
+                            key=cookie_cfg.get_cookie_name(),
+                            value=result.cookie_value,
+                            **cookie_cfg.get_cookie_flags(),
+                        )
+                    if result.csrf_token:
+                        response.set_cookie(
+                            key="ng_csrf",
+                            value=result.csrf_token,
+                            **cookie_cfg.get_csrf_flags(),
+                        )
 
-        if is_from_trusted_proxy:
-            if cert_verify == "SUCCESS" and cert_dn:
-                # Check certificate expiry warning (30 days) or expired
-                if cert_not_after:
-                    try:
-                        # Parse nginx date format: "Dec 31 23:59:59 2025 GMT"
-                        expiry = datetime.strptime(cert_not_after, "%b %d %H:%M:%S %Y %Z")
-                        expiry = expiry.replace(tzinfo=UTC)
-                        days_until_expiry = (expiry - datetime.now(UTC)).days
-                        if days_until_expiry <= 0:
-                            cert_expiry_warning = (
-                                "Your certificate has expired. Please renew it immediately."
-                            )
-                        elif days_until_expiry < 30:
-                            cert_expiry_warning = (
-                                f"Your certificate expires in {days_until_expiry} days. "
-                                "Please renew it soon."
-                            )
-                    except ValueError:
-                        pass  # Ignore parse errors
+                app.storage.user["logged_in"] = True
+                app.storage.user["user"] = result.user_data
 
-                # Attempt auto-login with mTLS handler
-                try:
-                    handler = get_auth_handler("mtls")
-                    result = await handler.authenticate(
-                        client_dn=cert_dn,
-                        client_ip=client_ip,
-                        user_agent=request.headers.get("user-agent", ""),
-                    )
+                # Show certificate expiry warning before redirect (from handler)
+                if result.warning_message:
+                    ui.notify(result.warning_message, type="warning", timeout=10000)
 
-                    if result.success:
-                        # Set cookies and redirect
-                        if hasattr(request.state, "response"):
-                            response = request.state.response
-                            if result.cookie_value:
-                                response.set_cookie(
-                                    key=cookie_cfg.get_cookie_name(),
-                                    value=result.cookie_value,
-                                    **cookie_cfg.get_cookie_flags(),
-                                )
-                            if result.csrf_token:
-                                response.set_cookie(
-                                    key="ng_csrf",
-                                    value=result.csrf_token,
-                                    **cookie_cfg.get_csrf_flags(),
-                                )
-
-                        app.storage.user["logged_in"] = True
-                        app.storage.user["user"] = result.user_data
-
-                        # Show expiry warning before redirect
-                        if cert_expiry_warning:
-                            ui.notify(cert_expiry_warning, type="warning", timeout=10000)
-
-                        redirect_to = _get_redirect_destination(request)
-                        if "redirect_after_login" in app.storage.user:
-                            del app.storage.user["redirect_after_login"]
-                        ui.navigate.to(redirect_to)
-                        return
-                    else:
-                        mtls_error = result.error_message
-                except Exception:
-                    logger.exception("mTLS authentication failed")
-                    mtls_error = "Authentication error. Please try again."
-            elif cert_verify and cert_verify != "SUCCESS":
-                mtls_error = f"Certificate verification failed: {cert_verify}"
+                redirect_to = _get_redirect_destination(request)
+                if "redirect_after_login" in app.storage.user:
+                    del app.storage.user["redirect_after_login"]
+                ui.navigate.to(redirect_to)
+                return
             else:
-                mtls_error = "Client certificate required for mTLS authentication."
-        else:
-            mtls_error = "Client certificate required for mTLS authentication."
+                mtls_error = result.error_message
+        except Exception:
+            logger.exception("mTLS authentication failed")
+            mtls_error = "Authentication error. Please try again."
 
     # Get redirect reason if any
     reason = app.storage.user.get("login_reason")
