@@ -18,6 +18,25 @@ from apps.web_console_ng.core.redis_ha import get_redis_store
 logger = logging.getLogger(__name__)
 
 
+def _clear_auth_cookies(response: Response, cookie_cfg: CookieConfig) -> None:
+    """Clear session and CSRF cookies from response.
+
+    Centralizes cookie clearing logic for logout and CSRF failure handling.
+    """
+    session_flags = cookie_cfg.get_cookie_flags()
+    csrf_flags = cookie_cfg.get_csrf_flags()
+    response.delete_cookie(
+        key=cookie_cfg.get_cookie_name(),
+        path=session_flags.get("path", "/"),
+        domain=session_flags.get("domain"),
+    )
+    response.delete_cookie(
+        key="ng_csrf",
+        path=csrf_flags.get("path", "/"),
+        domain=csrf_flags.get("domain"),
+    )
+
+
 @app.post("/auth/logout")
 async def logout_post(request: Request) -> Response:
     """Logout via POST with CSRF validation against the session token."""
@@ -49,7 +68,18 @@ async def logout_post(request: Request) -> Response:
         or not session_csrf
         or not hmac.compare_digest(csrf_header, str(session_csrf))
     ):
-        raise HTTPException(status_code=403, detail="csrf_invalid")
+        # Security: Invalidate session on CSRF failure as defense-in-depth
+        session_id = session_store.verify_cookie(cookie_value)
+        if session_id:
+            try:
+                await session_store.invalidate_session(session_id)
+            except Exception as inv_err:
+                logger.warning("Failed to invalidate session on CSRF failure: %s", inv_err)
+
+        # Clear cookies and return 403
+        response = JSONResponse(status_code=403, content={"error": "csrf_invalid"})
+        _clear_auth_cookies(response, cookie_cfg)
+        return response
 
     response = JSONResponse({"logout_url": None})
     logout_url = await perform_logout(request=request, response=response)
@@ -147,18 +177,7 @@ async def perform_logout(
             app.storage.user.clear()
 
         if response is not None:
-            session_flags = cookie_cfg.get_cookie_flags()
-            csrf_flags = cookie_cfg.get_csrf_flags()
-            response.delete_cookie(
-                key=cookie_cfg.get_cookie_name(),
-                path=session_flags.get("path", "/"),
-                domain=session_flags.get("domain"),
-            )
-            response.delete_cookie(
-                key="ng_csrf",
-                path=csrf_flags.get("path", "/"),
-                domain=csrf_flags.get("domain"),
-            )
+            _clear_auth_cookies(response, cookie_cfg)
 
         return logout_url
 

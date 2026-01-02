@@ -262,11 +262,11 @@ class AuthRateLimiter:
                 event_type="account_unlock",
                 user_id=username,
                 session_id=None,
-                client_ip="admin_action",
+                client_ip="0.0.0.0",  # Admin action - no client IP available
                 user_agent="",
                 auth_type=config.AUTH_TYPE,
                 outcome="success",
-                extra_data={"admin_user": admin_user},
+                extra_data={"admin_user": admin_user, "source": "admin_action"},
             )
             return True
         except Exception:
