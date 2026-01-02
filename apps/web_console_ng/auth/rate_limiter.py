@@ -38,6 +38,23 @@ end
 return {0, 0, 'allowed'}
 """
 
+# Lua script for CHECK AND INCREMENT IP (atomic increment + check)
+# Used for OAuth2 callbacks where we don't have a username yet.
+# KEYS[1]: ip_key (auth_rate:ip:...)
+# ARGV[1]: max_attempts
+CHECK_AND_INCR_IP_SCRIPT = """
+local ip_key = KEYS[1]
+local max_attempts = tonumber(ARGV[1])
+local ip_count = redis.call('INCR', ip_key)
+if ip_count == 1 then
+    redis.call('EXPIRE', ip_key, 60)  -- 1 minute window
+end
+if ip_count > max_attempts then
+    return {1, redis.call('TTL', ip_key), 'ip_rate_limit'}
+end
+return {0, 0, 'allowed'}
+"""
+
 # Lua script for RECORD FAILURE (single increment per failed attempt)
 # KEYS[1]: ip_key
 # KEYS[2]: failure_key (auth_failures:username)
@@ -133,21 +150,9 @@ class AuthRateLimiter:
         redis = await self._get_redis()
         ip_key = f"auth_rate:ip:{client_ip}"
 
-        # Atomic increment and check using Lua
-        lua_script = """
-        local ip_key = KEYS[1]
-        local max_attempts = tonumber(ARGV[1])
-        local ip_count = redis.call('INCR', ip_key)
-        if ip_count == 1 then
-            redis.call('EXPIRE', ip_key, 60)  -- 1 minute window
-        end
-        if ip_count > max_attempts then
-            return {1, redis.call('TTL', ip_key), 'ip_rate_limit'}
-        end
-        return {0, 0, 'allowed'}
-        """
+        # Atomic increment and check using Lua (module-level constant for consistency)
         result = await redis.eval(  # type: ignore[misc]
-            lua_script, 1, ip_key, str(self.max_attempts_per_ip)
+            CHECK_AND_INCR_IP_SCRIPT, 1, ip_key, str(self.max_attempts_per_ip)
         )
 
         is_blocked = bool(result[0])

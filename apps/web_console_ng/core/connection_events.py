@@ -108,19 +108,10 @@ def setup_connection_handlers() -> None:
         session_conn_key = client.storage.get("session_conn_key")
         if session_conn_key:
             try:
+                from apps.web_console_ng.core.admission import _DECR_SESSION_CONN_LUA
+
                 redis = await get_redis_store().get_master()
-                lua_decr = """
-                local count = redis.call('GET', KEYS[1])
-                if count and tonumber(count) > 0 then
-                    count = redis.call('DECR', KEYS[1])
-                    if tonumber(count) <= 0 then
-                        redis.call('DEL', KEYS[1])
-                    end
-                    return count
-                end
-                return 0
-                """
-                await redis.eval(lua_decr, 1, session_conn_key)  # type: ignore[misc]
+                await redis.eval(_DECR_SESSION_CONN_LUA, 1, session_conn_key)  # type: ignore[misc]
             except Exception as exc:
                 logger.warning(
                     "session_conn_decr_failed",

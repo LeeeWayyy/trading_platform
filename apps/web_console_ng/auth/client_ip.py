@@ -32,7 +32,9 @@ def is_trusted_ip(ip_str: str, trusted_proxies: list[TrustedProxy] | None = None
         return False
 
     for proxy in proxies:
-        if isinstance(proxy, ipaddress.IPv4Network | ipaddress.IPv6Network):
+        # Use tuple for isinstance() - union syntax causes TypeError at runtime
+        # noqa: UP038 - ruff wants union but isinstance() requires tuple at runtime
+        if isinstance(proxy, (ipaddress.IPv4Network, ipaddress.IPv6Network)):  # noqa: UP038
             if ip in proxy:
                 return True
         elif ip == proxy:
