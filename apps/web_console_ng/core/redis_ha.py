@@ -65,7 +65,7 @@ class HARedisStore:
             sentinel_kwargs["ssl_context"] = ssl_context
 
         # Use async Sentinel from redis.asyncio.sentinel
-        self.sentinel = Sentinel(
+        self.sentinel = Sentinel(  # type: ignore[no-untyped-call]
             config.REDIS_SENTINEL_HOSTS,  # [('sentinel-1', 26379), ...]
             socket_timeout=0.5,
             password=config.REDIS_PASSWORD,
