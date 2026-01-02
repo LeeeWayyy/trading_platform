@@ -15,6 +15,10 @@ from libs.web_console_auth.db import acquire_connection
 
 logger = logging.getLogger("audit.auth")
 
+# Namespace UUID for generating deterministic UUIDs from non-UUID request IDs
+# This ensures the same invalid request_id always maps to the same UUID for correlation
+_AUDIT_REQUEST_ID_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+
 
 class AuthAuditLogger:
     """Dual-sink audit logging: JSON logs + Postgres database."""
@@ -100,8 +104,9 @@ class AuthAuditLogger:
         try:
             req_uuid = uuid.UUID(req_id)
         except ValueError:
+            # Use deterministic UUID (uuid5) for correlation - same input always produces same UUID
             request_id_raw = req_id
-            req_uuid = uuid.uuid4()
+            req_uuid = uuid.uuid5(_AUDIT_REQUEST_ID_NAMESPACE, req_id)
             req_id = str(req_uuid)
             if extra_data is None:
                 extra_data = {}

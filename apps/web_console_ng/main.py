@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,8 @@ from apps.web_console_ng.ui.disconnect_overlay import inject_disconnect_overlay
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
+
+logger = logging.getLogger(__name__)
 
 
 def _init_db_pool() -> AsyncConnectionPool | None:
@@ -102,8 +105,8 @@ async def shutdown() -> None:
     try:
         redis = get_redis_store()
         await redis.close()
-    except Exception:
-        pass  # Best-effort cleanup
+    except (OSError, ConnectionError) as e:
+        logger.warning("Failed to close Redis connection during shutdown: %s", e)
 
 
 app.on_startup(startup)

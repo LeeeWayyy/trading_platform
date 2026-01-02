@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import ssl
 from typing import Any
 
 from redis.asyncio import Redis
 from redis.asyncio.sentinel import Sentinel
+from redis.exceptions import RedisError
 
 from apps.web_console_ng import config
+
+logger = logging.getLogger(__name__)
 
 
 def _build_ssl_context() -> ssl.SSLContext | None:
@@ -61,7 +65,7 @@ class HARedisStore:
             sentinel_kwargs["ssl_context"] = ssl_context
 
         # Use async Sentinel from redis.asyncio.sentinel
-        self.sentinel = Sentinel(  # type: ignore[no-untyped-call]
+        self.sentinel = Sentinel(
             config.REDIS_SENTINEL_HOSTS,  # [('sentinel-1', 26379), ...]
             socket_timeout=0.5,
             password=config.REDIS_PASSWORD,
@@ -196,8 +200,8 @@ class HARedisStore:
             if client is not None:
                 try:
                     await client.aclose()
-                except Exception:
-                    pass  # Best-effort cleanup
+                except (RedisError, OSError, ConnectionError) as e:
+                    logger.warning("Failed to close Redis client during shutdown: %s", e)
         self._master_text = None
         self._master_binary = None
         self._slave_text = None
@@ -277,12 +281,12 @@ class SimpleRedisStore:
         """Explicitly close Redis connection pools."""
         try:
             await self.redis.aclose()
-        except Exception:
-            pass
+        except (RedisError, OSError, ConnectionError) as e:
+            logger.warning("Failed to close Redis client during shutdown: %s", e)
         try:
             await self.redis_binary.aclose()
-        except Exception:
-            pass
+        except (RedisError, OSError, ConnectionError) as e:
+            logger.warning("Failed to close Redis binary client during shutdown: %s", e)
 
 
 def get_redis_store() -> HARedisStore | SimpleRedisStore:

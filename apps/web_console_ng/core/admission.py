@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
+from redis.exceptions import RedisError
 from starlette.requests import HTTPConnection
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -169,8 +170,10 @@ class AdmissionControlMiddleware:
                                     await redis.eval(  # type: ignore[misc]
                                         _DECR_SESSION_CONN_LUA, 1, session_conn_key
                                     )
-                                except Exception:
-                                    pass
+                                except (RedisError, OSError, ConnectionError) as e:
+                                    logger.warning(
+                                        "Failed to decrement session connection counter: %s", e
+                                    )
                             # Release semaphore
                             _connection_semaphore.release()
                     return

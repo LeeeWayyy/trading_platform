@@ -177,7 +177,7 @@ class UserStateManager:
                         "saved_at": datetime.now(UTC).isoformat(),
                         "version": 1,
                     }
-                    pipe.multi()  # type: ignore[no-untyped-call]
+                    pipe.multi()
                     pipe.setex(
                         self.state_key,
                         self.STATE_TTL,
@@ -260,7 +260,7 @@ class UserStateManager:
                         "saved_at": datetime.now(UTC).isoformat(),
                         "version": 1,
                     }
-                    pipe.multi()  # type: ignore[no-untyped-call]
+                    pipe.multi()
                     pipe.setex(
                         self.state_key,
                         self.STATE_TTL,
@@ -315,7 +315,7 @@ class UserStateManager:
                         "saved_at": datetime.now(UTC).isoformat(),
                         "version": 1,
                     }
-                    pipe.multi()  # type: ignore[no-untyped-call]
+                    pipe.multi()
                     pipe.setex(
                         self.state_key,
                         self.STATE_TTL,
