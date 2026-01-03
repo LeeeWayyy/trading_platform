@@ -703,8 +703,14 @@ async def position_management_page(client: Client) -> None:
     cancel_all_btn.on("click", show_cancel_all_dialog)
     flatten_btn.on("click", show_flatten_dialog)
 
-    # Refresh timer
-    timer = ui.timer(10.0, load_positions)
+    # Fallback polling timer for reliability
+    # Primary updates come via real-time subscription (on_position_update).
+    # This timer is a safety net for missed updates due to:
+    # - Transient Redis/network issues
+    # - Reconnection gaps in pub/sub
+    # - Edge cases where real-time event is lost
+    # Interval is longer (30s) since real-time handles the normal case.
+    timer = ui.timer(30.0, load_positions)
 
     async def cleanup() -> None:
         timer.cancel()
