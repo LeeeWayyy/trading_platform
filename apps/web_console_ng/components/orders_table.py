@@ -10,6 +10,8 @@ from nicegui import ui
 
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.synthetic_id import (
+    FALLBACK_ID_PREFIX,
+    SYNTHETIC_ID_PREFIX,
     SyntheticIdContext,
     compute_order_fingerprint,
     resolve_synthetic_id,
@@ -49,7 +51,7 @@ def _ensure_order_id(
 
     if broker_id:
         # Use broker ID as fallback
-        order["client_order_id"] = f"__ng_fallback_{broker_id}"
+        order["client_order_id"] = f"{FALLBACK_ID_PREFIX}{broker_id}"
         order["_missing_client_order_id"] = True
         logger.warning(
             "order_missing_client_order_id_using_fallback",
@@ -301,7 +303,7 @@ async def on_cancel_order(
         return
 
     # Backend cancel endpoint requires client_order_id - reject invalid IDs
-    if order_id.startswith("unknown_"):
+    if order_id.startswith(SYNTHETIC_ID_PREFIX):
         # Synthetic ID - no valid client_order_id
         logger.warning(
             "cancel_order_synthetic_id_blocked",
@@ -319,7 +321,7 @@ async def on_cancel_order(
         )
         return
 
-    if order_id.startswith("__ng_fallback_"):
+    if order_id.startswith(FALLBACK_ID_PREFIX):
         # Fallback ID - no valid client_order_id (only broker_order_id exists)
         logger.warning(
             "cancel_order_fallback_id_blocked",

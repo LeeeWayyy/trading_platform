@@ -11,6 +11,10 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
+# ID prefix constants - used for identifying synthetic/fallback IDs
+SYNTHETIC_ID_PREFIX = "unknown_"
+FALLBACK_ID_PREFIX = "__ng_fallback_"
+
 
 def normalize_num(val: object) -> str:
     """Normalize numeric value for fingerprint hashing.
@@ -174,7 +178,7 @@ def _find_orphan_suffix_or_create(
             suffix_key = f"{fingerprint}|_suffix_{suffix}"
 
     # Create new synthetic ID
-    synthetic_id = f"unknown_{base_hash}"
+    synthetic_id = f"{SYNTHETIC_ID_PREFIX}{base_hash}"
 
     # Check against both persistent map and current batch to avoid collisions
     existing_ids = batch_generated_ids.copy()
@@ -184,7 +188,7 @@ def _find_orphan_suffix_or_create(
     suffix = 0
     while synthetic_id in existing_ids:
         suffix += 1
-        synthetic_id = f"unknown_{base_hash}_{suffix}"
+        synthetic_id = f"{SYNTHETIC_ID_PREFIX}{base_hash}_{suffix}"
 
     if synthetic_id_map is not None:
         synthetic_id_map[fingerprint] = synthetic_id
@@ -193,6 +197,8 @@ def _find_orphan_suffix_or_create(
 
 
 __all__ = [
+    "SYNTHETIC_ID_PREFIX",
+    "FALLBACK_ID_PREFIX",
     "normalize_num",
     "compute_order_fingerprint",
     "SyntheticIdContext",

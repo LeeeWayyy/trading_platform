@@ -330,7 +330,7 @@ async def position_management_page(client: Client) -> None:
                         )
 
                         order_id = result.get("order_id", "")
-                        await audit_log(
+                        audit_log(
                             action="position_closed",
                             user_id=user_id,
                             details={
@@ -356,7 +356,7 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="close_position_failed",
                             user_id=user_id,
                             details={
@@ -376,7 +376,7 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="close_position_failed",
                             user_id=user_id,
                             details={
@@ -457,7 +457,7 @@ async def position_management_page(client: Client) -> None:
                         )
 
                         cancelled_count = result.get("cancelled_count", 0)
-                        await audit_log(
+                        audit_log(
                             action="cancel_all_orders",
                             user_id=user_id,
                             details={
@@ -481,7 +481,7 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="cancel_all_orders_failed",
                             user_id=user_id,
                             details={
@@ -501,7 +501,7 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="cancel_all_orders_failed",
                             user_id=user_id,
                             details={
@@ -637,7 +637,7 @@ async def position_management_page(client: Client) -> None:
                         )
 
                         positions_closed = result.get("positions_closed", 0)
-                        await audit_log(
+                        audit_log(
                             action="flatten_all_positions",
                             user_id=user_id,
                             details={
@@ -660,7 +660,7 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="flatten_all_failed",
                             user_id=user_id,
                             details={
@@ -679,7 +679,7 @@ async def position_management_page(client: Client) -> None:
                                 "requested_at": requested_at,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="flatten_all_failed",
                             user_id=user_id,
                             details={

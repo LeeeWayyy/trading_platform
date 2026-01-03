@@ -65,6 +65,7 @@
 - `components/orders_table.py` - AG Grid for open orders with cancel action.
 - `core/realtime.py` - WebSocket subscription management via Redis pub/sub.
 - `core/client_lifecycle.py` - Client connection lifecycle and cleanup.
+- `core/synthetic_id.py` - Deterministic synthetic ID generation for orders missing client_order_id.
 
 ### Kill Switch Management (P5T5)
 **Purpose:** Emergency trading halt with real-time status and safety confirmations.
@@ -215,6 +216,6 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`
 - **ADRs:** N/A
 - **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls)

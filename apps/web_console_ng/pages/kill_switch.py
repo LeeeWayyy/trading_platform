@@ -171,7 +171,7 @@ async def kill_switch_page(client: Client) -> None:
                             role=user_role,
                         )
 
-                        await audit_log(
+                        audit_log(
                             action="kill_switch_engaged",
                             user_id=user_id,
                             details={"reason": reason},
@@ -186,7 +186,7 @@ async def kill_switch_page(client: Client) -> None:
                             "kill_switch_engage_failed",
                             extra={"user_id": user_id, "status": exc.response.status_code},
                         )
-                        await audit_log(
+                        audit_log(
                             action="kill_switch_engage_failed",
                             user_id=user_id,
                             details={"error": f"HTTP {exc.response.status_code}"},
@@ -197,7 +197,7 @@ async def kill_switch_page(client: Client) -> None:
                             "kill_switch_engage_failed",
                             extra={"user_id": user_id, "error": type(exc).__name__},
                         )
-                        await audit_log(
+                        audit_log(
                             action="kill_switch_engage_failed",
                             user_id=user_id,
                             details={"error": type(exc).__name__},
@@ -293,7 +293,7 @@ async def kill_switch_page(client: Client) -> None:
                             notes=notes,
                         )
 
-                        await audit_log(
+                        audit_log(
                             action="kill_switch_disengaged",
                             user_id=user_id,
                             details={"notes": notes},
@@ -308,7 +308,7 @@ async def kill_switch_page(client: Client) -> None:
                             "kill_switch_disengage_failed",
                             extra={"user_id": user_id, "status": exc.response.status_code},
                         )
-                        await audit_log(
+                        audit_log(
                             action="kill_switch_disengage_failed",
                             user_id=user_id,
                             details={"error": f"HTTP {exc.response.status_code}"},
@@ -319,7 +319,7 @@ async def kill_switch_page(client: Client) -> None:
                             "kill_switch_disengage_failed",
                             extra={"user_id": user_id, "error": type(exc).__name__},
                         )
-                        await audit_log(
+                        audit_log(
                             action="kill_switch_disengage_failed",
                             user_id=user_id,
                             details={"error": type(exc).__name__},

@@ -268,7 +268,7 @@ async def manual_order_page(client: Client) -> None:
                         order_id = result.get("client_order_id", "")
                         display_id = order_id[:12] + "..." if len(order_id) > 12 else order_id
 
-                        await audit_log(
+                        audit_log(
                             action="manual_order_submitted",
                             user_id=user_id,
                             details={
@@ -303,7 +303,7 @@ async def manual_order_page(client: Client) -> None:
                                 "status": exc.response.status_code,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="manual_order_failed",
                             user_id=user_id,
                             details={
@@ -321,7 +321,7 @@ async def manual_order_page(client: Client) -> None:
                                 "error": type(exc).__name__,
                             },
                         )
-                        await audit_log(
+                        audit_log(
                             action="manual_order_failed",
                             user_id=user_id,
                             details={

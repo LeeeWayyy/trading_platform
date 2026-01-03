@@ -13,6 +13,7 @@ Exit codes (bitmask):
     8  - REPO_MAP stale (>7 days)
     16 - Spec files stale (>1 day)
     32 - Architecture config stale (>1 day)
+    64 - Source file structure changed (files added/deleted since spec update)
 """
 
 from __future__ import annotations
@@ -62,6 +63,8 @@ class FreshnessReport(TypedDict):
     last_doc_update: str
     last_source_change: str
     missing_specs: list[str]
+    files_added: list[str]
+    files_deleted: list[str]
 
 
 @dataclass(frozen=True)
@@ -322,6 +325,8 @@ def check_freshness(doc_path: str, source_dirs: list[str]) -> FreshnessReport:
         "last_doc_update": doc_ts.iso,
         "last_source_change": source_ts.iso,
         "missing_specs": [],
+        "files_added": [],
+        "files_deleted": [],
     }
 
 
@@ -374,6 +379,77 @@ def _spec_source_dir(spec_path: Path) -> str | None:
     if category == "strategies":
         return normalize_path(f"strategies/{name}")
     return None
+
+
+def _get_files_changed_since(source_dir: str, since_commit: str) -> tuple[list[str], list[str]]:
+    """Get files added and deleted in source_dir since a given commit.
+
+    Args:
+        source_dir: Source directory path (e.g., "apps/web_console_ng/")
+        since_commit: Git commit hash or ref to compare against
+
+    Returns:
+        Tuple of (added_files, deleted_files) relative to source_dir
+    """
+    added: list[str] = []
+    deleted: list[str] = []
+
+    # Get diff of files changed since the commit
+    result = subprocess.run(
+        ["git", "diff", "--name-status", since_commit, "HEAD", "--", source_dir],
+        capture_output=True,
+        text=True,
+        cwd=PROJECT_ROOT,
+    )
+
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            continue
+        status, filepath = parts
+        # Only track Python files for now
+        if not filepath.endswith(".py"):
+            continue
+        # Get path relative to source_dir
+        rel_path = filepath
+        if status == "A":
+            added.append(rel_path)
+        elif status == "D":
+            deleted.append(rel_path)
+
+    return added, deleted
+
+
+def _get_commit_at_doc_update(doc_path: str) -> str | None:
+    """Get the git commit hash when the doc was last updated."""
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", doc_path],
+        capture_output=True,
+        text=True,
+        cwd=PROJECT_ROOT,
+    )
+    commit = result.stdout.strip()
+    return commit if commit else None
+
+
+def check_file_structure_changes(spec_path: str, source_dir: str) -> tuple[list[str], list[str]]:
+    """Check if Python files were added/deleted since spec was last updated.
+
+    Args:
+        spec_path: Path to spec file (e.g., "docs/SPECS/services/web_console_ng.md")
+        source_dir: Source directory (e.g., "apps/web_console_ng/")
+
+    Returns:
+        Tuple of (added_files, deleted_files) since spec update
+    """
+    spec_commit = _get_commit_at_doc_update(spec_path)
+    if not spec_commit:
+        # Spec never committed - can't compare
+        return [], []
+
+    return _get_files_changed_since(source_dir, spec_commit)
 
 
 def _print_report(report: FreshnessReport, verbose: bool) -> None:
@@ -471,10 +547,23 @@ def main() -> int:
             source_dir = _spec_source_dir(spec_file)
             if not source_dir:
                 continue
-            report = check_freshness(str(spec_file.relative_to(PROJECT_ROOT)), [source_dir])
+            spec_rel_path = str(spec_file.relative_to(PROJECT_ROOT))
+            report = check_freshness(spec_rel_path, [source_dir])
             # Spec files do not participate in missing/orphan checks.
             report["missing"] = []
             report["orphaned"] = []
+
+            # Check for file structure changes (files added/deleted since spec update)
+            # Skip if spec has uncommitted changes (user is actively updating it)
+            if _is_path_dirty(spec_file):
+                report["files_added"] = []
+                report["files_deleted"] = []
+            else:
+                added, deleted = check_file_structure_changes(spec_rel_path, source_dir)
+                report["files_added"] = added
+                report["files_deleted"] = deleted
+                if added or deleted:
+                    exit_code |= 64
 
             # Check for blocking staleness (>1 day) unless spec has uncommitted changes
             if _is_path_dirty(spec_file):
@@ -528,6 +617,26 @@ def main() -> int:
         print(f"\nERROR: Stale spec files ({len(stale_specs)}) - update docs or source:")
         for spec in stale_specs:
             print(f"  - {spec}")
+
+    # Report file structure changes (files added/deleted since spec update)
+    specs_with_changes = [r for r in spec_reports if r["files_added"] or r["files_deleted"]]
+    if specs_with_changes:
+        print(f"\nERROR: Source file structure changed ({len(specs_with_changes)} specs affected):")
+        print("  Spec files need updating to document new/removed files.")
+        for report in specs_with_changes:
+            print(f"\n  {report['doc_path']}:")
+            if report["files_added"]:
+                print(f"    Files added ({len(report['files_added'])}):")
+                for f in report["files_added"][:10]:  # Limit output
+                    print(f"      + {f}")
+                if len(report["files_added"]) > 10:
+                    print(f"      ... and {len(report['files_added']) - 10} more")
+            if report["files_deleted"]:
+                print(f"    Files deleted ({len(report['files_deleted'])}):")
+                for f in report["files_deleted"][:10]:
+                    print(f"      - {f}")
+                if len(report["files_deleted"]) > 10:
+                    print(f"      ... and {len(report['files_deleted']) - 10} more")
 
     if spec_reports:
         # Show non-blocking spec reports (within grace period or dirty)

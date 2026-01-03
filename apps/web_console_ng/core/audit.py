@@ -14,7 +14,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-async def audit_log(
+def audit_log(
     action: str,
     user_id: str,
     details: dict[str, Any],
@@ -23,6 +23,9 @@ async def audit_log(
 
     This logs to the application logger. Backend already handles
     persistent audit logging to the database.
+
+    Note: This is a synchronous function since logger.info is synchronous.
+    Call sites should NOT use await.
 
     Args:
         action: Action name (e.g., "order_submitted", "position_closed").
