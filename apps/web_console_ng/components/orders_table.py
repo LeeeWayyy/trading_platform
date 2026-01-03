@@ -291,7 +291,8 @@ def create_orders_table() -> ui.aggrid:
         {
             "field": "limit_price",
             "headerName": "Price",
-            "valueFormatter": "x => (x.value !== null && x.value !== undefined) ? '$' + x.value.toFixed(2) : 'MKT'",
+            # Handle null/undefined and Decimal strings from API
+            "valueFormatter": "x => (x.value == null) ? 'MKT' : '$' + Number(x.value).toFixed(2)",
         },
         {
             "field": "status",

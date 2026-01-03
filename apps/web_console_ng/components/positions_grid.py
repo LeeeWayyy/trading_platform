@@ -38,21 +38,24 @@ def create_positions_grid() -> ui.aggrid:
             "field": "avg_entry_price",
             "headerName": "Avg Entry",
             "sortable": True,
-            "valueFormatter": "x => '$' + x.value.toFixed(2)",
+            # Handle null/undefined and Decimal strings from API
+            "valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
             "type": "numericColumn",
         },
         {
             "field": "current_price",
             "headerName": "Current",
             "sortable": True,
-            "valueFormatter": "x => '$' + x.value.toFixed(2)",
+            # Handle null/undefined and Decimal strings from API
+            "valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
             "type": "numericColumn",
         },
         {
             "field": "unrealized_pl",
             "headerName": "P&L ($)",
             "sortable": True,
-            "valueFormatter": "x => '$' + x.value.toFixed(2)",
+            # Handle null/undefined and Decimal strings from API
+            "valueFormatter": "x => (x.value == null) ? '$--.--' : '$' + Number(x.value).toFixed(2)",
             "cellStyle": {
                 "function": "params.value >= 0 ? {color: '#16a34a'} : {color: '#dc2626'}"
             },
@@ -62,7 +65,8 @@ def create_positions_grid() -> ui.aggrid:
             "field": "unrealized_plpc",
             "headerName": "P&L (%)",
             "sortable": True,
-            "valueFormatter": "x => (x.value * 100).toFixed(2) + '%'",
+            # Handle null/undefined and Decimal strings from API
+            "valueFormatter": "x => (x.value == null) ? '--.--' + '%' : (Number(x.value) * 100).toFixed(2) + '%'",
             "cellStyle": {
                 "function": "params.value >= 0 ? {color: '#16a34a'} : {color: '#dc2626'}"
             },

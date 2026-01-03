@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,6 +22,74 @@ from apps.web_console_ng.core.realtime import (
 from apps.web_console_ng.ui.layout import main_layout
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class KillSwitchCheckResult:
+    """Result of a kill switch safety check."""
+
+    safe_to_proceed: bool
+    kill_switch_engaged: bool
+    error_message: str | None = None
+
+
+async def check_kill_switch_safety(
+    trading_client: AsyncTradingClient,
+    user_id: str,
+    user_role: str,
+) -> KillSwitchCheckResult:
+    """Check kill switch status before a critical action.
+
+    Implements fail-closed behavior: blocks action on ENGAGED, unknown state, or API error.
+
+    Args:
+        trading_client: Client for API calls
+        user_id: User ID for the request
+        user_role: User role for authorization
+
+    Returns:
+        KillSwitchCheckResult with safe_to_proceed flag and state info
+    """
+    try:
+        ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
+        state = str(ks_status.get("state", "")).upper()
+
+        if state == "ENGAGED":
+            return KillSwitchCheckResult(
+                safe_to_proceed=False,
+                kill_switch_engaged=True,
+                error_message="BLOCKED: Kill Switch is ENGAGED",
+            )
+
+        if state != "DISENGAGED":
+            # Unknown state - fail closed for safety
+            logger.warning(
+                "kill_switch_unknown_state",
+                extra={"user_id": user_id, "state": state},
+            )
+            return KillSwitchCheckResult(
+                safe_to_proceed=False,
+                kill_switch_engaged=True,
+                error_message="Cannot verify kill switch: unknown state",
+            )
+
+        # State is DISENGAGED - safe to proceed
+        return KillSwitchCheckResult(
+            safe_to_proceed=True,
+            kill_switch_engaged=False,
+        )
+
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning(
+            "kill_switch_check_failed",
+            extra={"user_id": user_id, "error": type(exc).__name__},
+        )
+        # Fail-closed: treat API failure as unsafe
+        return KillSwitchCheckResult(
+            safe_to_proceed=False,
+            kill_switch_engaged=True,
+            error_message="Cannot verify kill switch status - action blocked",
+        )
 
 
 @ui.page("/position-management")
@@ -231,38 +300,18 @@ async def position_management_page(client: Client) -> None:
                         return
 
                     # Fresh kill switch check via API (fail closed on unknown state)
-                    try:
-                        ks_status = await trading_client.fetch_kill_switch_status(
-                            user_id, role=user_role
-                        )
-                        state = str(ks_status.get("state", "")).upper()
-                        if state == "ENGAGED":
-                            kill_switch_engaged = True
-                            ks_banner.classes(remove="hidden")
-                            ui.notify("BLOCKED: Kill Switch is ENGAGED", type="negative")
-                            dialog.close()
-                            return
-                        if state != "DISENGAGED":
-                            # Unknown state - fail closed for safety
-                            logger.warning(
-                                "kill_switch_unknown_state",
-                                extra={"user_id": user_id, "state": state},
-                            )
-                            ui.notify("Cannot verify kill switch: unknown state", type="negative")
-                            dialog.close()
-                            return
-                        # State is DISENGAGED - clear any stale engaged flag
-                        kill_switch_engaged = False
-                        ks_banner.classes(add="hidden")
-                    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-                        logger.warning(
-                            "kill_switch_check_failed",
-                            extra={"user_id": user_id, "error": type(exc).__name__},
-                        )
-                        # Fail-closed: treat API failure as unsafe
-                        kill_switch_engaged = True
+                    ks_result = await check_kill_switch_safety(
+                        trading_client, user_id, user_role
+                    )
+                    kill_switch_engaged = ks_result.kill_switch_engaged
+                    if ks_result.kill_switch_engaged:
                         ks_banner.classes(remove="hidden")
-                        ui.notify("Cannot verify kill switch status - action blocked", type="negative")
+                    else:
+                        ks_banner.classes(add="hidden")
+
+                    if not ks_result.safe_to_proceed:
+                        if ks_result.error_message:
+                            ui.notify(ks_result.error_message, type="negative")
                         dialog.close()
                         return
 
@@ -551,38 +600,18 @@ async def position_management_page(client: Client) -> None:
                         return
 
                     # Fresh kill switch check via API (fail closed on unknown state)
-                    try:
-                        ks_status = await trading_client.fetch_kill_switch_status(
-                            user_id, role=user_role
-                        )
-                        state = str(ks_status.get("state", "")).upper()
-                        if state == "ENGAGED":
-                            kill_switch_engaged = True
-                            ks_banner.classes(remove="hidden")
-                            ui.notify("BLOCKED: Kill Switch is ENGAGED", type="negative")
-                            dialog2.close()
-                            return
-                        if state != "DISENGAGED":
-                            # Unknown state - fail closed for safety
-                            logger.warning(
-                                "kill_switch_unknown_state",
-                                extra={"user_id": user_id, "state": state},
-                            )
-                            ui.notify("Cannot verify kill switch: unknown state", type="negative")
-                            dialog2.close()
-                            return
-                        # State is DISENGAGED - clear any stale engaged flag
-                        kill_switch_engaged = False
-                        ks_banner.classes(add="hidden")
-                    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-                        logger.warning(
-                            "kill_switch_check_failed",
-                            extra={"user_id": user_id, "error": type(exc).__name__},
-                        )
-                        # Fail-closed: treat API failure as unsafe
-                        kill_switch_engaged = True
+                    ks_result = await check_kill_switch_safety(
+                        trading_client, user_id, user_role
+                    )
+                    kill_switch_engaged = ks_result.kill_switch_engaged
+                    if ks_result.kill_switch_engaged:
                         ks_banner.classes(remove="hidden")
-                        ui.notify("Cannot verify kill switch status - action blocked", type="negative")
+                    else:
+                        ks_banner.classes(add="hidden")
+
+                    if not ks_result.safe_to_proceed:
+                        if ks_result.error_message:
+                            ui.notify(ks_result.error_message, type="negative")
                         dialog2.close()
                         return
 

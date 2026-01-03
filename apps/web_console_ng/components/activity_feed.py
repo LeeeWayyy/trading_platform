@@ -79,10 +79,13 @@ class ActivityFeed:
             symbol = str(event.get("symbol", "???"))
             qty = event.get("qty", 0)
             price = event.get("price", 0.0)
-        except Exception as exc:
+        except (TypeError, AttributeError, KeyError) as exc:
+            # TypeError: event is not dict-like (e.g., None, string)
+            # AttributeError: event lacks .get() method
+            # KeyError: shouldn't occur with .get() but guard against edge cases
             logger.warning(
                 "activity_feed_malformed_event",
-                extra={"error": str(exc), "event": str(event)[:100]},
+                extra={"error": type(exc).__name__, "detail": str(exc), "event": str(event)[:100]},
             )
             return None
 
