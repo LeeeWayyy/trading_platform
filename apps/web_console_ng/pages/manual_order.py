@@ -1,0 +1,321 @@
+"""Manual Order Entry page for NiceGUI web console."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import httpx
+from nicegui import Client, ui
+
+from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.core.audit import audit_log
+from apps.web_console_ng.core.client import AsyncTradingClient
+from apps.web_console_ng.ui.layout import main_layout
+
+logger = logging.getLogger(__name__)
+
+
+@ui.page("/manual-order")
+@requires_auth
+@main_layout
+async def manual_order_page(client: Client) -> None:
+    """Manual order entry page with kill switch safety checks."""
+    trading_client = AsyncTradingClient.get()
+    user = get_current_user()
+    user_id = str(user.get("user_id") or user.get("username") or "").strip()
+    user_role = str(user.get("role") or "viewer")
+
+    if not user_id:
+        logger.warning("manual_order_missing_user_id")
+        ui.notify("Session expired - please log in again", type="negative")
+        ui.navigate.to("/login")
+        return
+
+    # Check permission
+    if user_role == "viewer":
+        ui.notify("Viewers cannot submit orders", type="negative")
+        ui.navigate.to("/")
+        return
+
+    submitting = False
+
+    with ui.card().classes("w-full max-w-lg mx-auto"):
+        ui.label("Manual Order Entry").classes("text-2xl font-bold mb-4")
+
+        # Form fields
+        symbol_input = ui.input(
+            "Symbol",
+            placeholder="e.g. AAPL",
+            validation={"Required": lambda v: bool(v and v.strip())},
+        ).classes("w-full mb-2")
+
+        with ui.row().classes("w-full gap-4 mb-2"):
+            side_select = ui.select(
+                options=["buy", "sell"],
+                label="Side",
+                value="buy",
+            ).classes("flex-1")
+
+            qty_input = ui.number(
+                "Quantity",
+                value=0,
+                min=1,
+                step=1,
+                format="%d",
+                validation={"Min 1": lambda v: v is not None and v >= 1},
+            ).classes("flex-1")
+
+        with ui.row().classes("w-full gap-4 mb-2"):
+            order_type_select = ui.select(
+                options=["market", "limit"],
+                label="Order Type",
+                value="market",
+            ).classes("flex-1")
+
+            tif_select = ui.select(
+                options=["day", "gtc", "ioc", "fok"],
+                label="Time in Force",
+                value="day",
+            ).classes("flex-1")
+
+        # Limit price - only visible for limit orders
+        limit_price_container = ui.column().classes("w-full mb-2")
+        with limit_price_container:
+            limit_price_input = ui.number(
+                "Limit Price",
+                value=None,
+                min=0.01,
+                step=0.01,
+                format="%.2f",
+            ).classes("w-full")
+        limit_price_container.set_visibility(False)
+
+        def on_order_type_change(e: Any) -> None:
+            limit_price_container.set_visibility(e.value == "limit")
+
+        order_type_select.on("update:model-value", on_order_type_change)
+
+        reason_input = ui.textarea(
+            "Reason (required)",
+            placeholder="Why are you placing this order? (min 10 chars)",
+            validation={"Min 10 characters": lambda v: bool(v and len(v.strip()) >= 10)},
+        ).classes("w-full mb-4")
+
+        submit_btn = ui.button("Preview Order", color="primary").classes("w-full")
+
+    async def check_kill_switch() -> bool:
+        """Check if kill switch is engaged. Returns True if safe to proceed.
+
+        Fails closed: unknown/missing state blocks action (safety first).
+        """
+        try:
+            ks_status = await trading_client.fetch_kill_switch_status(
+                user_id, role=user_role
+            )
+            state = str(ks_status.get("state", "")).upper()
+            if state == "ENGAGED":
+                ui.notify("Cannot submit: Kill Switch is ENGAGED", type="negative")
+                return False
+            if state == "DISENGAGED":
+                return True
+            # Unknown state - fail closed for safety
+            logger.warning(
+                "kill_switch_unknown_state",
+                extra={"user_id": user_id, "state": state},
+            )
+            ui.notify("Cannot verify kill switch: unknown state", type="negative")
+            return False
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "kill_switch_check_failed",
+                extra={"user_id": user_id, "status": exc.response.status_code},
+            )
+            ui.notify(f"Cannot verify kill switch: HTTP {exc.response.status_code}", type="negative")
+            return False
+        except httpx.RequestError as exc:
+            logger.warning(
+                "kill_switch_check_failed",
+                extra={"user_id": user_id, "error": type(exc).__name__},
+            )
+            ui.notify("Cannot verify kill switch: network error", type="negative")
+            return False
+
+    def validate_form() -> dict[str, Any] | None:
+        """Validate form and return order data if valid."""
+        symbol = (symbol_input.value or "").strip().upper()
+        if not symbol:
+            ui.notify("Symbol is required", type="warning")
+            return None
+
+        qty = qty_input.value
+        if qty is None or qty < 1:
+            ui.notify("Quantity must be at least 1", type="warning")
+            return None
+        if qty != int(qty):
+            ui.notify("Quantity must be a whole number", type="warning")
+            return None
+
+        reason = (reason_input.value or "").strip()
+        if len(reason) < 10:
+            ui.notify("Reason must be at least 10 characters", type="warning")
+            return None
+
+        order_data: dict[str, Any] = {
+            "symbol": symbol,
+            "side": side_select.value,
+            "qty": int(qty),
+            "order_type": order_type_select.value,
+            "time_in_force": tif_select.value,
+        }
+
+        if order_type_select.value == "limit":
+            limit_price = limit_price_input.value
+            if limit_price is None or limit_price <= 0:
+                ui.notify("Limit price is required for limit orders", type="warning")
+                return None
+            order_data["limit_price"] = float(limit_price)
+
+        return order_data
+
+    async def show_preview() -> None:
+        nonlocal submitting
+        if submitting:
+            return
+
+        order_data = validate_form()
+        if order_data is None:
+            return
+
+        # Disable button to prevent double-click during kill switch check
+        submit_btn.disable()
+
+        # Check kill switch BEFORE showing preview
+        if not await check_kill_switch():
+            submit_btn.enable()
+            return
+
+        reason = (reason_input.value or "").strip()
+
+        with ui.dialog() as dialog, ui.card().classes("p-6 min-w-[400px]"):
+
+            def on_dialog_close() -> None:
+                if not submitting:
+                    submit_btn.enable()
+
+            dialog.on("close", on_dialog_close)
+            ui.label("Order Preview").classes("text-xl font-bold mb-4")
+
+            with ui.column().classes("gap-2 mb-4"):
+                ui.label(f"Symbol: {order_data['symbol']}").classes("font-mono")
+                side_color = "text-green-600" if order_data["side"] == "buy" else "text-red-600"
+                ui.label(f"Side: {order_data['side'].upper()}").classes(f"font-bold {side_color}")
+                ui.label(f"Quantity: {order_data['qty']:,}").classes("font-mono")
+                ui.label(f"Type: {order_data['order_type'].upper()}").classes("font-mono")
+                if "limit_price" in order_data:
+                    ui.label(f"Limit Price: ${order_data['limit_price']:.2f}").classes("font-mono")
+                ui.label(f"Time in Force: {order_data['time_in_force'].upper()}").classes("font-mono")
+                ui.label(f"Reason: {reason}").classes("text-gray-600 text-sm")
+
+            with ui.row().classes("gap-4 justify-end"):
+                async def confirm_order() -> None:
+                    nonlocal submitting
+                    if submitting:
+                        return
+
+                    submitting = True
+                    confirm_btn.disable()
+                    submit_btn.disable()
+
+                    try:
+                        # FRESH kill switch check at confirmation time
+                        if not await check_kill_switch():
+                            return
+
+                        # Submit order - backend generates deterministic client_order_id
+                        # for idempotency based on order params + date
+                        result = await trading_client.submit_order(
+                            order_data,
+                            user_id,
+                            role=user_role,
+                        )
+
+                        order_id = result.get("client_order_id", "")
+                        display_id = order_id[:12] + "..." if len(order_id) > 12 else order_id
+
+                        await audit_log(
+                            action="manual_order_submitted",
+                            user_id=user_id,
+                            details={
+                                "symbol": order_data["symbol"],
+                                "side": order_data["side"],
+                                "qty": order_data["qty"],
+                                "order_type": order_data["order_type"],
+                                "client_order_id": order_id,
+                                "reason": reason,
+                            },
+                        )
+
+                        ui.notify(f"Order submitted: {display_id}", type="positive")
+                        dialog.close()
+
+                        # Reset form
+                        symbol_input.value = ""
+                        qty_input.value = 0
+                        reason_input.value = ""
+                        order_type_select.value = "market"
+                        side_select.value = "buy"
+                        tif_select.value = "day"
+                        limit_price_input.value = None
+                        limit_price_container.set_visibility(False)
+
+                    except httpx.HTTPStatusError as exc:
+                        logger.warning(
+                            "manual_order_failed",
+                            extra={
+                                "user_id": user_id,
+                                "symbol": order_data["symbol"],
+                                "status": exc.response.status_code,
+                            },
+                        )
+                        await audit_log(
+                            action="manual_order_failed",
+                            user_id=user_id,
+                            details={
+                                "symbol": order_data["symbol"],
+                                "error": f"HTTP {exc.response.status_code}",
+                            },
+                        )
+                        ui.notify(f"Order failed: HTTP {exc.response.status_code}", type="negative")
+                    except httpx.RequestError as exc:
+                        logger.warning(
+                            "manual_order_failed",
+                            extra={
+                                "user_id": user_id,
+                                "symbol": order_data["symbol"],
+                                "error": type(exc).__name__,
+                            },
+                        )
+                        await audit_log(
+                            action="manual_order_failed",
+                            user_id=user_id,
+                            details={
+                                "symbol": order_data["symbol"],
+                                "error": type(exc).__name__,
+                            },
+                        )
+                        ui.notify("Order failed: network error", type="negative")
+                    finally:
+                        submitting = False
+                        confirm_btn.enable()
+                        submit_btn.enable()
+
+                confirm_btn = ui.button("Confirm", on_click=confirm_order, color="primary")
+                ui.button("Cancel", on_click=dialog.close)
+
+        dialog.open()
+
+    submit_btn.on("click", show_preview)
+
+
+__all__ = ["manual_order_page"]

@@ -42,7 +42,7 @@ async def test_retry_transport_error_post(trading_client: AsyncTradingClient) ->
         ]
     )
 
-    result = await trading_client.engage_kill_switch("user-1")
+    result = await trading_client.engage_kill_switch("user-1", reason="Test emergency halt")
 
     assert result == {"status": "ok"}
     assert route.call_count == 2
@@ -72,7 +72,7 @@ async def test_no_retry_on_5xx_for_post(trading_client: AsyncTradingClient) -> N
     )
 
     with pytest.raises(httpx.HTTPStatusError):
-        await trading_client.engage_kill_switch("user-1")
+        await trading_client.engage_kill_switch("user-1", reason="Test emergency halt")
 
     assert route.call_count == 1
 
