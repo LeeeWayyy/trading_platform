@@ -5,7 +5,7 @@ phase: B0
 task: T1
 priority: P0
 owner: "@development-team"
-state: IN_PROGRESS
+state: DONE
 created: 2025-12-20
 dependencies: []
 estimated_effort: "~30 days"
@@ -17,7 +17,7 @@ features: ["C1-startup-reconciliation", "C2-blocking-io", "C3-kill-switch", "C4-
 # B0T1: Codebase Issues Remediation
 
 **Phase:** B0 (Bug Fix Track)
-**Status:** IN_PROGRESS (C5-C7 Complete)
+**Status:** ✅ Complete (C5-C7 Complete)
 **Priority:** P0 (Critical)
 **Owner:** @development-team
 **Created:** 2025-12-20
