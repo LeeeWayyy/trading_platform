@@ -184,7 +184,7 @@ Replace notional P&L with comprehensive realized/unrealized breakdown for accura
 
 **Documentation:**
 - [P&L Calculation Concept](../../CONCEPTS/pnl-calculation.md) - Explains notional, realized, unrealized P&L
-- [P1 Planning](../../TASKS/P1_PLANNING.md) - Full P1 task breakdown
+- [P1 Planning](./P1_PLANNING_DONE.md) - Full P1 task breakdown
 
 **Tasks:**
 - Depends on: [P0T4: Execution Gateway](./P0T4_DONE.md) - Position tracking

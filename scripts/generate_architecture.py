@@ -199,6 +199,9 @@ def discover_components(config: Config) -> tuple[list[Component], list[str]]:
         root = CATEGORY_ROOTS[category]
         if not root.exists():
             continue
+        # TODO: Consider also discovering top-level .py modules (not just packages)
+        # for components like libs/duckdb_catalog.py. Currently only subdirectories
+        # are discovered. See PR #108 review comments (P2 enhancement).
         for child in sorted(root.iterdir()):
             if not child.is_dir():
                 continue

@@ -73,6 +73,11 @@ def check_markdown_files() -> dict[str, list[tuple[str, int, str]]]:
     broken_links: dict[str, list[tuple[str, int, str]]] = {}
 
     # Find all markdown files
+    # NOTE: ARCHIVE_DIR is excluded because archived documents may contain
+    # historical links that are no longer valid. Major broken links in the
+    # archive have been fixed (P1_PLANNING.md, P2_PLANNING.md, etc.) but some
+    # external or cross-reference links may still be stale. Consider re-enabling
+    # archive checking once all links are validated. See PR #108 review comments.
     md_files = sorted(
         md_file
         for md_file in DOCS_DIR.rglob("*.md")

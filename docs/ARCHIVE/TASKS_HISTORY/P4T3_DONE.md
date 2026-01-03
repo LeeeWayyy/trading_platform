@@ -1590,7 +1590,7 @@ def require_2fa_confirmation():
     # Trigger Auth0 step-up authentication
     # Sets prompt=login to force re-auth even if session valid
     auth_url = build_auth_url(prompt="login", max_age=0)
-    st.markdown(f"Re-authenticate to confirm: {auth_url}")
+    st.markdown(f"[Re-authenticate to confirm]({auth_url})")
 
     # After re-auth, check timestamp of last auth
     if not _was_recently_authenticated(max_age_seconds=60):
@@ -1890,7 +1890,7 @@ def flatten_all_section():
             # User needs to re-authenticate with MFA
             auth_url = build_auth_url(prompt="login", max_age=0)
             st.warning("This action requires 2FA verification.")
-            st.markdown(f"Click here to re-authenticate with MFA: {auth_url}")
+            st.markdown(f"[Click here to re-authenticate with MFA]({auth_url})")
             st.stop()
 
         # [FIXED v1.4] Use sync wrapper for execution

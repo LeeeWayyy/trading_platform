@@ -414,7 +414,7 @@ def logout() -> None:
             f'<meta http-equiv="refresh" content="0; url={logout_url}">',
             unsafe_allow_html=True,
         )
-        st.markdown(f"Click here if not redirected automatically: {logout_url}")
+        st.markdown(f"[Click here if not redirected automatically]({logout_url})")
         st.stop()
     else:
         # Other auth methods (mTLS, dev) - existing logic

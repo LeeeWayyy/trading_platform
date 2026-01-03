@@ -190,7 +190,7 @@ For detailed task information and completion summaries, see:
 **Phase Planning:**
 - [P0_TASKS_DONE.md](../ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) - Completed MVP tasks
 - [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - Completed P1 roadmap
-- [P2_PLANNING.md](../ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 roadmap and progress
+- [P2_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 roadmap and progress (archived)
 
 **Recent Completed Tasks:**
 - [P2T0_DONE.md](../ARCHIVE/TASKS_HISTORY/P2T0_DONE.md) - TWAP Order Slicer

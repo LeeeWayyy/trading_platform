@@ -65,10 +65,10 @@ validate-docs: ## Validate that all markdown files are indexed in docs/INDEX.md
 	@./scripts/validate_doc_index.sh
 
 check-doc-freshness: ## Validate documentation freshness and coverage
-	@python scripts/check_doc_freshness.py
+	@poetry run python scripts/check_doc_freshness.py
 
 check-architecture: ## Verify architecture map outputs are up to date
-	@python scripts/generate_architecture.py --check
+	@poetry run python scripts/generate_architecture.py --check
 
 test: ## Run tests
 	PYTHONPATH=. poetry run pytest
@@ -153,7 +153,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 1/7: Validating documentation index"
+	@echo "Step 1/8: Validating documentation index"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@./scripts/validate_doc_index.sh || { \
 		echo ""; \
@@ -167,9 +167,9 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 2/7: Checking documentation freshness"
+	@echo "Step 2/8: Checking documentation freshness"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@python scripts/check_doc_freshness.py || { \
+	@poetry run python scripts/check_doc_freshness.py || { \
 		echo ""; \
 		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		echo "❌ Documentation freshness check failed!"; \
@@ -180,7 +180,20 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 3/7: Checking markdown links (timeout: 1min)"
+	@echo "Step 3/8: Checking architecture map is up to date"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@poetry run python scripts/generate_architecture.py --check || { \
+		echo ""; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "❌ Architecture map is out of date!"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "Run 'make check-architecture' or 'python scripts/generate_architecture.py' to regenerate."; \
+		exit 1; \
+	}
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 4/8: Checking markdown links (timeout: 1min)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@command -v markdown-link-check >/dev/null 2>&1 || { \
 		echo "❌ markdown-link-check not found. Installing..."; \
@@ -211,17 +224,17 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 4/7: Type checking with mypy --strict"
+	@echo "Step 5/8: Type checking with mypy --strict"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run mypy libs/ apps/ strategies/ --strict
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 5/7: Linting with ruff"
+	@echo "Step 6/8: Linting with ruff"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run ruff check .
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 6/7: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"
+	@echo "Step 7/8: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	# TODO: restore --cov-fail-under back to 80% once flaky tests are fixed (GH-issue to track)
 	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=50 || { \
@@ -238,7 +251,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 7/7: Verifying workflow gate compliance (review approval markers)"
+	@echo "Step 8/8: Verifying workflow gate compliance (review approval markers)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@CI=true PYTHONPATH=. poetry run python scripts/verify_gate_compliance.py || { \
 		echo ""; \

@@ -1844,9 +1844,9 @@ All P4 tech-debt items TD-001 through TD-005 were addressed on 2025-12-09. No ou
 
 ## Related Documents
 
-- [P3_PLANNING.md](./P3_PLANNING.md) - Previous phase (Issue Remediation)
-- [P2_PLANNING.md](./P2_PLANNING.md) - Advanced Features (Complete)
-- [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - Production Hardening (Complete)
+- [P3_PLANNING_DONE.md](./P3_PLANNING_DONE.md) - Previous phase (Issue Remediation)
+- [P2_PLANNING_DONE.md](./P2_PLANNING_DONE.md) - Advanced Features (Complete)
+- [P1_PLANNING_DONE.md](./P1_PLANNING_DONE.md) - Production Hardening (Complete)
 - [docs/CONCEPTS/](../CONCEPTS/) - Trading concepts documentation
 - [docs/ADRs/](../ADRs/) - Architecture Decision Records
 

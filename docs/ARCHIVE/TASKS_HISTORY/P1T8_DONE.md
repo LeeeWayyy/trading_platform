@@ -385,7 +385,7 @@ Documents architectural decisions, provides educational foundation for monitorin
 
 ## Related Documentation
 
-- **Task Planning:** `docs/TASKS/P1_PLANNING.md` (T8: Monitoring and Alerting)
+- **Task Planning:** `docs/ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md` (T8: Monitoring and Alerting)
 - **ADR:** `docs/ADRs/0012-prometheus-grafana-monitoring.md`
 - **CONCEPTS:** `docs/CONCEPTS/monitoring-and-observability.md` (15-page educational guide)
 - **LESSONS_LEARNED:** `docs/LESSONS_LEARNED/p1.3t1-monitoring-alerting.md`

@@ -996,7 +996,7 @@ pip install fakeredis
 
 - [ADR-0009: Redis Integration](../../ADRs/0009-redis-integration.md) - Architecture decisions
 - [Redis Patterns Concept](../../CONCEPTS/redis-patterns.md) - Usage patterns and best practices
-- [P1 Planning](../../TASKS/P1_PLANNING.md) - T1.2 requirements
+- [P1 Planning](./P1_PLANNING_DONE.md) - T1.2 requirements
 - [Redis Documentation](https://redis.io/docs/) - Official Redis docs
 
 ---

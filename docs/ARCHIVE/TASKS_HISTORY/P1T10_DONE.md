@@ -220,7 +220,7 @@ Implement automated testing and deployment pipeline to enable rapid iteration wi
 - ADR (to be created): CI/CD Pipeline Architecture
 
 **Documentation:**
-- [P1_PLANNING.md](../../TASKS/P1_PLANNING.md#t10-cicd-pipeline) - Source planning document
+- [P1_PLANNING_DONE.md](./P1_PLANNING_DONE.md#t10-cicd-pipeline) - Source planning document
 
 **Tasks:**
 - Nice-to-have: [P1T9_DONE.md](./P1T9_DONE.md) - Centralized Logging (enables CI log aggregation)
@@ -254,7 +254,7 @@ Implement automated testing and deployment pipeline to enable rapid iteration wi
 - Smoke tests verify services healthy post-deployment
 - Rollback on smoke test failure
 
-**Reference:** See [P1_PLANNING.md](../../TASKS/P1_PLANNING.md#t10-cicd-pipeline) for original requirements.
+**Reference:** See [P1_PLANNING_DONE.md](./P1_PLANNING_DONE.md#t10-cicd-pipeline) for original requirements.
 
 ---
 

@@ -507,7 +507,7 @@ Implement production-grade session management with idle timeout warnings, automa
 
        if time_remaining.total_seconds() <= 0:
            st.error("⏰ Your session has expired due to inactivity. Please log in again.")
-           st.markdown("Login (/login)")
+           st.markdown("[Login](/login)")
            st.stop()
 
        minutes_remaining = int(time_remaining.total_seconds() / 60)

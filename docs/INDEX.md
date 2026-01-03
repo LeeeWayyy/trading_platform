@@ -412,7 +412,7 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2026-01-02, Planning] [D0_PLANNING.md](./TASKS/D0_PLANNING.md) - D0 Documentation Infrastructure Overhaul planning - 📋 0% (0/6 tasks)
 - [CURRENT, 2025-10-18, Planning] [P0_TASKS_DONE.md](./ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
 - [CURRENT, 2025-10-26, Planning] [P1_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
-- [CURRENT, 2025-10-26, Planning] [P2_PLANNING.md](./ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 advanced features planning - 📋 0% (0/6 tasks)
+- [CURRENT, 2025-10-26, Planning] [P2_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 advanced features planning (archived) - 📋 0% (0/6 tasks)
 - [CURRENT, 2025-12-31, Planning] [P5_PLANNING.md](./TASKS/P5_PLANNING.md) - P5 NiceGUI Migration phase planning
 - [CURRENT, 2025-10-18, Planning] [INDEX.md](./TASKS/INDEX.md) - Task index and status tracker
 - [CURRENT, 2025-10-18, Planning] [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) - Original master plan (reference)

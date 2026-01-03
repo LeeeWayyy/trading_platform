@@ -830,9 +830,9 @@ Examples:
 
 ## Related Documents
 
-- [P3_ISSUES.md](./P3_ISSUES.md) - Full issue list (47+ issues)
-- [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - Phase 1 (completed)
-- [P2_PLANNING.md](./P2_PLANNING.md) - Phase 2 (completed)
+- [P3_ISSUES_DONE.md](./P3_ISSUES_DONE.md) - Full issue list (47+ issues)
+- [P1_PLANNING_DONE.md](./P1_PLANNING_DONE.md) - Phase 1 (completed)
+- [P2_PLANNING_DONE.md](./P2_PLANNING_DONE.md) - Phase 2 (completed)
 
 ---
 

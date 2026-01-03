@@ -225,7 +225,7 @@ Implement centralized structured logging with aggregation and correlation to ena
 - ADR (to be created): Centralized Logging Architecture (ELK vs Loki decision)
 
 **Documentation:**
-- [P1_PLANNING.md](../../TASKS/P1_PLANNING.md#t9-centralized-logging) - Source planning document
+- [P1_PLANNING_DONE.md](./P1_PLANNING_DONE.md#t9-centralized-logging) - Source planning document
 
 **Tasks:**
 - Nice-to-have: [P1T8_DONE.md](./P1T8_DONE.md) - Monitoring & Alerting (enables log-based alerts)
@@ -252,7 +252,7 @@ Implement centralized structured logging with aggregation and correlation to ena
 - `message` (human-readable description)
 - `context` (dict of request-specific data: symbol, strategy, order_id, etc.)
 
-**Reference:** See [P1_PLANNING.md](../../TASKS/P1_PLANNING.md#t9-centralized-logging) for original requirements.
+**Reference:** See [P1_PLANNING_DONE.md](./P1_PLANNING_DONE.md#t9-centralized-logging) for original requirements.
 
 ---
 

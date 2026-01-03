@@ -708,7 +708,7 @@ def main() -> None:
 
         col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
-            st.markdown(f"**URL:** {session.url}")
+            st.markdown(f"**URL:** [{session.url}]({session.url})")
         with col2:
             st.caption(f"Started: {session.started_at.strftime('%H:%M')}")
         with col3:
@@ -738,7 +738,7 @@ def main() -> None:
             with st.spinner("Starting notebook server..."):
                 try:
                     session = run_async(service.start_session(user_id, template_choice))
-                    st.success(f"Notebook ready! Open Notebook: {session.url}")
+                    st.success(f"Notebook ready! [Open Notebook]({session.url})")
                     st.rerun()
                 except RuntimeError as e:
                     st.error(f"Failed to start notebook: {e}")
