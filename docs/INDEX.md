@@ -371,6 +371,7 @@ Current and future work items organized by phase:
 - [Template, 2025-11-15, Template] [00-PLANNING_WORKFLOW_TEMPLATE.md](./TASKS/00-PLANNING_WORKFLOW_TEMPLATE.md) - Template for planning workflow documentation
 
 **Phase Planning:**
+- [CURRENT, 2026-01-02, Planning] [D0_PLANNING.md](./TASKS/D0_PLANNING.md) - D0 Documentation Infrastructure Overhaul planning - 📋 0% (0/6 tasks)
 - [CURRENT, 2025-10-18, Planning] [P0_TASKS.md](./TASKS/P0_TASKS.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
 - [CURRENT, 2025-10-26, Planning] [P1_PLANNING.md](./TASKS/P1_PLANNING.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
 - [CURRENT, 2025-10-26, Planning] [P2_PLANNING.md](./TASKS/P2_PLANNING.md) - P2 advanced features planning - 📋 0% (0/6 tasks)
@@ -800,6 +801,6 @@ Example: `- [CURRENT, 2025-01-15, Standard] [CODING_STANDARDS.md](./STANDARDS/CO
 
 ---
 
-**Last Updated:** 2025-12-31
+**Last Updated:** 2026-01-02
 **Maintained By:** Development Team
 **Format Version:** 1.2 (Added metadata, Quick Links, Update Policy - P1T13)
