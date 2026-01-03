@@ -582,6 +582,7 @@ Operational procedures and troubleshooting:
 - [CURRENT, 2025-12-28, Runbook] [data-sync-ops.md](./RUNBOOKS/data-sync-ops.md) - Data sync operations and troubleshooting
 - [CURRENT, 2025-12-28, Runbook] [dataset-explorer-ops.md](./RUNBOOKS/dataset-explorer-ops.md) - Dataset explorer operational procedures
 - [CURRENT, 2025-12-21, Runbook] [circuit-breaker-ops.md](./RUNBOOKS/circuit-breaker-ops.md) - Circuit breaker operations, trip/reset procedures, and troubleshooting
+- [CURRENT, 2026-01-02, Runbook] [nicegui-performance.md](./RUNBOOKS/nicegui-performance.md) - NiceGUI performance tuning, connection pools, Redis optimization, and memory management
 
 **Priority:** 🟡 **HIGH** - Read when deploying or troubleshooting production issues
 

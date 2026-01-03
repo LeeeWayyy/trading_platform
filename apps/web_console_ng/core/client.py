@@ -197,3 +197,78 @@ class AsyncTradingClient:
         resp = await self._client.get("/api/v1/kill-switch/status", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_circuit_breaker_status(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch circuit breaker status (GET - idempotent)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/circuit-breaker/status", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_open_orders(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch open orders (GET - idempotent)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/orders", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_realtime_pnl(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch real-time P&L summary (GET - idempotent)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/realtime_pnl", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_market_prices(self) -> list[dict[str, Any]]:
+        """Fetch market prices (GET - idempotent, entitlement-neutral)."""
+        resp = await self._client.get("/api/v1/market_prices")
+        resp.raise_for_status()
+        payload = resp.json()
+        if not isinstance(payload, list):
+            raise ValueError("Expected JSON array response")
+        return cast(list[dict[str, Any]], payload)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def cancel_order(
+        self,
+        order_id: str,
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Cancel an order by client_order_id (POST)."""
+        headers = self._get_auth_headers(user_id, role, None)
+        resp = await self._client.post(f"/api/v1/orders/{order_id}/cancel", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def submit_order(
+        self,
+        order_data: dict[str, Any],
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a new order (POST)."""
+        headers = self._get_auth_headers(user_id, role, None)
+        resp = await self._client.post("/api/v1/orders", headers=headers, json=order_data)
+        resp.raise_for_status()
+        return self._json_dict(resp)
