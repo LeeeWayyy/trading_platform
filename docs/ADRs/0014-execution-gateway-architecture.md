@@ -661,5 +661,5 @@ def convert_signals_to_orders(signals: List[Signal], portfolio_value: float):
 - [Alpaca Webhooks Guide](https://docs.alpaca.markets/docs/webhooks)
 - [ADR 0003: Baseline Strategy with Qlib and MLflow](./0003-baseline-strategy-with-qlib-and-mlflow.md)
 - [ADR 0004: Signal Service Architecture](./0004-signal-service-architecture.md)
-- [P0 Tickets - T4 Requirements](../TASKS/P0_TASKS.md)
+- [P0 Tickets - T4 Requirements](../ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md)
 - [Trading Platform Realization Plan - Phase 6](../trading_platform_realization_plan.md)

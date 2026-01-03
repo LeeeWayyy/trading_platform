@@ -201,6 +201,6 @@ If critical issues discovered post-deployment:
 
 ## References
 
-- P4T5_TASK.md - Track 7 specification
+- [P4T5_DONE.md](../ARCHIVE/TASKS_HISTORY/P4T5_DONE.md) - Track 7 specification
 - libs/backtest/worker.py - RQ worker pattern reference
 - T7.5 Alert Delivery Service acceptance criteria

@@ -701,7 +701,7 @@ Before running any cleanup operation, verify:
 - **ADR-015:** OAuth2/OIDC Authentication Architecture (session design)
 - **session-key-rotation.md:** Session Secret Rotation Procedures (related to mass logout)
 - **auth0-idp-outage.md:** IdP Outage Response (mTLS fallback sessions)
-- **P2T3-Phase3_Component3_Plan.md:** Session Management Implementation Plan
+- **P2T3-Phase3_Component3_Plan_v2.md:** Session Management Implementation Plan ([archive](../ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component3_Plan_v2.md))
 
 ---
 

@@ -14,6 +14,7 @@ This index provides a structured guide to all documentation, organized by purpos
 - [AI/](./AI/) → All AI workflows, prompts, research, and examples
 - [AI/Workflows/](./AI/Workflows/) → Step-by-step development workflows
 - [STANDARDS/](./STANDARDS/) → Normative standards directory (MUST follow)
+- [SPECS/](./SPECS/) → Technical specifications (services, libraries, strategies)
 
 **By Task Type:**
 - **New Feature Implementation** → TASKS/ → ADRs/ → CONCEPTS/ → STANDARDS/
@@ -25,8 +26,11 @@ This index provides a structured guide to all documentation, organized by purpos
 **By Document Type:**
 - **Standards** (mandatory rules) → [STANDARDS](#1-normative-standards-must-follow)
 - **Architecture** (decisions and rationale) → [ADRs/](#3-architecture--decisions-adrs)
+- **Architecture Docs** (system overviews and diagrams) → [ARCHITECTURE/](#35-architecture-documentation)
+- **Specifications** (service/library behavior) → [SPECS/](#225-technical-specifications)
 - **Concepts** (domain knowledge) → [CONCEPTS/](#4-domain-concepts-trading--ml-knowledge)
 - **Tasks** (work tracking) → [TASKS/](#6-tasks--planning)
+- **Archive** (completed tasks + legacy plans) → [ARCHIVE/](#65-archive)
 - **Runbooks** (operations) → [RUNBOOKS/](#8-runbooks-operations)
 
 ---
@@ -37,7 +41,7 @@ This index provides a structured guide to all documentation, organized by purpos
 
 1. **[STANDARDS/](./STANDARDS/)** - Normative guidance (MUST follow)
 2. **[TASKS/](./TASKS/)** - Current work items
-3. **[Task Implementation Guides](./TASKS/)** - How-to references
+3. **[Task Implementation Guides](./ARCHIVE/TASKS_HISTORY/)** - Completed task how-to references
 4. **[ADRs/](./ADRs/)** - Architecture decisions
 5. **[CONCEPTS/](./CONCEPTS/)** - Domain knowledge
 
@@ -93,7 +97,7 @@ Onboarding and environment setup:
 
 ---
 
-## Technical Specifications
+### 2.25. Technical Specifications
 
 **Location:** `docs/SPECS/`
 
@@ -165,30 +169,30 @@ Comprehensive AI assistant resources, workflows, prompts, and research:
 - [CURRENT, 2025-11-17, Plan] [Implementation/P1T13-F5-phase1-implementation-plan.md](./AI/Implementation/P1T13-F5-phase1-implementation-plan.md) - P1T13-F5 Phase 1 implementation plan
 - [CURRENT, 2025-11-21, Plan] [Implementation/P2T3_PHASE2_PLAN.md](./AI/Implementation/P2T3_PHASE2_PLAN.md) - P2T3 Phase 2 Web Console mTLS + JWT authentication implementation plan
 - [CURRENT, 2025-11-21, Index] [Implementation/README.md](./AI/Implementation/README.md) - Implementation plan artifacts index
-- [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track1_T1.7_T1.8.md](./PLANS/P4T2_Track1_T1.7_T1.8.md) - P4T2 Track 1: Fama-French Integration (T1.7) and yfinance Integration (T1.8)
-- [CURRENT, 2025-12-07, Plan] [PLANS/P4T2_Track3_T3.1.md](./PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
-- [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1a_PLAN.md](./PLANS/P4T3_T6.1a_PLAN.md) - T6.1a Auth/RBAC Core implementation plan
-- [CURRENT, 2025-12-10, Plan] [PLANS/P4T3_T6.1b_PLAN.md](./PLANS/P4T3_T6.1b_PLAN.md) - T6.1b Admin User Management UI implementation plan
-- [CURRENT, 2025-12-14, Plan] [PLANS/P4T3_T6.5_PLAN.md](./PLANS/P4T3_T6.5_PLAN.md) - T6.5 Trade Journal & Analysis implementation plan
-- [CURRENT, 2025-12-07, Plan] [PLANS/P4T1.9-ETL-Pipeline.md](./PLANS/P4T1.9-ETL-Pipeline.md) - Data storage and ETL pipeline implementation plan
-- [CURRENT, 2025-12-07, Plan] [PLANS/T1.3-CRSP-Local-Provider.md](./PLANS/T1.3-CRSP-Local-Provider.md) - CRSP local data provider implementation plan
-- [CURRENT, 2025-12-07, Plan] [PLANS/T1.4-Compustat-Local-Provider.md](./PLANS/T1.4-Compustat-Local-Provider.md) - Compustat local data provider implementation plan
-- [CURRENT, 2025-12-07, Plan] [PLANS/T1.5-Fama-French-Local-Provider.md](./PLANS/T1.5-Fama-French-Local-Provider.md) - Fama-French local data provider implementation plan
-- [CURRENT, 2025-12-07, Plan] [PLANS/T1.6-dataset-versioning.md](./PLANS/T1.6-dataset-versioning.md) - Dataset versioning implementation plan
-- [CURRENT, 2025-12-10, Plan] [PLANS/T2.1-factor-model-plan.md](./PLANS/T2.1-factor-model-plan.md) - Multi-factor model construction implementation plan
-- [CURRENT, 2025-12-10, Plan] [PLANS/T2.2-plan.md](./PLANS/T2.2-plan.md) - Covariance estimation (v2) implementation plan
-- [CURRENT, 2025-12-10, Plan] [PLANS/T2.4-plan.md](./PLANS/T2.4-plan.md) - Portfolio optimizer and stress testing implementation plan
-- [CURRENT, 2025-12-10, Plan] [PLANS/T2.6-alpha-advanced-plan.md](./PLANS/T2.6-alpha-advanced-plan.md) - Alpha advanced analytics implementation plan
-- [CURRENT, 2025-12-10, Plan] [PLANS/T2.7-factor-attribution-plan.md](./PLANS/T2.7-factor-attribution-plan.md) - Factor attribution analysis implementation plan
-- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.2_execution_quality_plan.md](./TASKS/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
-- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T3.3_event_study_plan.md](./TASKS/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
-- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.5_PLAN.md](./TASKS/PLANS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
-- [CURRENT, 2025-12-08, Plan] [TASKS/PLANS/T2.8_PLAN.md](./TASKS/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
-- [CURRENT, 2025-12-11, Plan] [TASKS/PLANS/T6.2_Performance_Dashboard_Plan.md](./TASKS/PLANS/T6.2_Performance_Dashboard_Plan.md) - T6.2 Performance Dashboard implementation plan
-- [CURRENT, 2025-12-13, Plan] [PLANS/T6.3_RISK_DASHBOARD_PLAN.md](./PLANS/T6.3_RISK_DASHBOARD_PLAN.md) - T6.3 Risk Analytics Dashboard implementation plan
-- [CURRENT, 2025-12-13, Plan] [TASKS/PLANS/T6.4-implementation-plan.md](./TASKS/PLANS/T6.4-implementation-plan.md) - T6.4 Strategy Comparison Tool & Risk Dashboard DB integration plan
-- [CURRENT, 2025-12-15, Plan] [TASKS/PLANS/T6.6-Backend-API-Manual-Controls.md](./TASKS/PLANS/T6.6-Backend-API-Manual-Controls.md) - T6.6 Backend API Manual Trade Controls implementation plan
-- [CURRENT, 2025-12-15, Plan] [TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md](./TASKS/PLANS/T6.6-Web-Console-UI-Manual-Controls.md) - T6.6 Web Console UI Manual Trade Controls implementation plan
+- [CURRENT, 2025-12-07, Plan] [ARCHIVE/PLANS/P4T2_Track1_T1.7_T1.8.md](./ARCHIVE/PLANS/P4T2_Track1_T1.7_T1.8.md) - P4T2 Track 1: Fama-French Integration (T1.7) and yfinance Integration (T1.8)
+- [CURRENT, 2025-12-07, Plan] [ARCHIVE/PLANS/P4T2_Track3_T3.1.md](./ARCHIVE/PLANS/P4T2_Track3_T3.1.md) - P4T2 Track 3: T3.1 Microstructure Analytics implementation plan
+- [CURRENT, 2025-12-10, Plan] [ARCHIVE/PLANS/P4T3_T6.1a_PLAN.md](./ARCHIVE/PLANS/P4T3_T6.1a_PLAN.md) - T6.1a Auth/RBAC Core implementation plan
+- [CURRENT, 2025-12-10, Plan] [ARCHIVE/PLANS/P4T3_T6.1b_PLAN.md](./ARCHIVE/PLANS/P4T3_T6.1b_PLAN.md) - T6.1b Admin User Management UI implementation plan
+- [CURRENT, 2025-12-14, Plan] [ARCHIVE/PLANS/P4T3_T6.5_PLAN.md](./ARCHIVE/PLANS/P4T3_T6.5_PLAN.md) - T6.5 Trade Journal & Analysis implementation plan
+- [CURRENT, 2025-12-07, Plan] [ARCHIVE/PLANS/P4T1.9-ETL-Pipeline.md](./ARCHIVE/PLANS/P4T1.9-ETL-Pipeline.md) - Data storage and ETL pipeline implementation plan
+- [CURRENT, 2025-12-07, Plan] [ARCHIVE/PLANS/T1.3-CRSP-Local-Provider.md](./ARCHIVE/PLANS/T1.3-CRSP-Local-Provider.md) - CRSP local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [ARCHIVE/PLANS/T1.4-Compustat-Local-Provider.md](./ARCHIVE/PLANS/T1.4-Compustat-Local-Provider.md) - Compustat local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [ARCHIVE/PLANS/T1.5-Fama-French-Local-Provider.md](./ARCHIVE/PLANS/T1.5-Fama-French-Local-Provider.md) - Fama-French local data provider implementation plan
+- [CURRENT, 2025-12-07, Plan] [ARCHIVE/PLANS/T1.6-dataset-versioning.md](./ARCHIVE/PLANS/T1.6-dataset-versioning.md) - Dataset versioning implementation plan
+- [CURRENT, 2025-12-10, Plan] [ARCHIVE/PLANS/T2.1-factor-model-plan.md](./ARCHIVE/PLANS/T2.1-factor-model-plan.md) - Multi-factor model construction implementation plan
+- [CURRENT, 2025-12-10, Plan] [ARCHIVE/PLANS/T2.2-plan.md](./ARCHIVE/PLANS/T2.2-plan.md) - Covariance estimation (v2) implementation plan
+- [CURRENT, 2025-12-10, Plan] [ARCHIVE/PLANS/T2.4-plan.md](./ARCHIVE/PLANS/T2.4-plan.md) - Portfolio optimizer and stress testing implementation plan
+- [CURRENT, 2025-12-10, Plan] [ARCHIVE/PLANS/T2.6-alpha-advanced-plan.md](./ARCHIVE/PLANS/T2.6-alpha-advanced-plan.md) - Alpha advanced analytics implementation plan
+- [CURRENT, 2025-12-10, Plan] [ARCHIVE/PLANS/T2.7-factor-attribution-plan.md](./ARCHIVE/PLANS/T2.7-factor-attribution-plan.md) - Factor attribution analysis implementation plan
+- [CURRENT, 2025-12-08, Plan] [ARCHIVE/PLANS/T3.2_execution_quality_plan.md](./ARCHIVE/PLANS/T3.2_execution_quality_plan.md) - T3.2 Execution Quality Analysis implementation plan
+- [CURRENT, 2025-12-08, Plan] [ARCHIVE/PLANS/T3.3_event_study_plan.md](./ARCHIVE/PLANS/T3.3_event_study_plan.md) - T3.3 Event Study Framework implementation plan
+- [CURRENT, 2025-12-08, Plan] [ARCHIVE/PLANS/T2.5_PLAN.md](./ARCHIVE/PLANS/T2.5_PLAN.md) - T2.5 Alpha Research Framework implementation plan
+- [CURRENT, 2025-12-08, Plan] [ARCHIVE/PLANS/T2.8_PLAN.md](./ARCHIVE/PLANS/T2.8_PLAN.md) - T2.8 Model Registry implementation plan
+- [CURRENT, 2025-12-11, Plan] [ARCHIVE/PLANS/T6.2_Performance_Dashboard_Plan.md](./ARCHIVE/PLANS/T6.2_Performance_Dashboard_Plan.md) - T6.2 Performance Dashboard implementation plan
+- [CURRENT, 2025-12-13, Plan] [ARCHIVE/PLANS/T6.3_RISK_DASHBOARD_PLAN.md](./ARCHIVE/PLANS/T6.3_RISK_DASHBOARD_PLAN.md) - T6.3 Risk Analytics Dashboard implementation plan
+- [CURRENT, 2025-12-13, Plan] [ARCHIVE/PLANS/T6.4-implementation-plan.md](./ARCHIVE/PLANS/T6.4-implementation-plan.md) - T6.4 Strategy Comparison Tool & Risk Dashboard DB integration plan
+- [CURRENT, 2025-12-15, Plan] [ARCHIVE/PLANS/T6.6-Backend-API-Manual-Controls.md](./ARCHIVE/PLANS/T6.6-Backend-API-Manual-Controls.md) - T6.6 Backend API Manual Trade Controls implementation plan
+- [CURRENT, 2025-12-15, Plan] [ARCHIVE/PLANS/T6.6-Web-Console-UI-Manual-Controls.md](./ARCHIVE/PLANS/T6.6-Web-Console-UI-Manual-Controls.md) - T6.6 Web Console UI Manual Trade Controls implementation plan
 - [CURRENT, 2025-12-14, Plan] [TASKS/FORMATTING_ENHANCEMENT_PLAN.md](./TASKS/FORMATTING_ENHANCEMENT_PLAN.md) - Code formatting enhancement plan (ruff config, Makefile improvements)
 - [CURRENT, 2025-12-17, Task] [TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md](./TASKS/BUGFIX_RELIABILITY_SAFETY_IMPROVEMENTS.md) - Reliability and safety bugfixes (reconciliation, hydration, shadow mode)
 - [CURRENT, 2025-12-18, Task] [TASKS/BUGFIX_CODE_REVIEW_CONCERNS.md](./TASKS/BUGFIX_CODE_REVIEW_CONCERNS.md) - Address code review concerns (stale slice expiry, auth, recovery manager)
@@ -268,15 +272,27 @@ Architectural Decision Records documenting **why** technical choices were made:
 | [ADR-0030](./ADRs/ADR-0030-reporting-architecture.md) | Reporting architecture for scheduled reports and PDF generation | 🚧 Proposed |
 | [ADR-0031](./ADRs/ADR-0031-nicegui-migration.md) | NiceGUI migration from Streamlit for web console | ✅ Accepted |
 
-**Architecture Documentation:**
-- [CURRENT, 2025-11-23, Architecture] [ARCHITECTURE/redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
-
 **How to use ADRs:**
 - **Before modifying architecture:** Check if ADR exists, follow its decisions
 - **When making new architectural choice:** Write new ADR (see [ADR_GUIDE.md](./STANDARDS/ADR_GUIDE.md))
 - **When questioning a decision:** Read the ADR to understand rationale and alternatives
 
 **Priority:** 🟠 **MEDIUM** - Read relevant ADRs before modifying related systems
+
+---
+
+### 3.5. Architecture Documentation
+
+**Location:** `docs/ARCHITECTURE/`
+
+System-level architecture references, diagrams, and data schemas:
+
+- [CURRENT, 2025-11-23, Architecture] [README.md](./ARCHITECTURE/README.md) - Architecture documentation index and overview
+- [CURRENT, 2025-11-23, Architecture] [system_map.md](./ARCHITECTURE/system_map.md) - System map with services, data flows, and integrations
+- [CURRENT, 2025-11-23, Architecture] [system_map.canvas](./ARCHITECTURE/system_map.canvas) - Source diagram for the system map
+- [CURRENT, 2025-11-23, Architecture] [redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
+
+**Priority:** 🟠 **MEDIUM** - Read before making cross-service or topology changes
 
 ---
 
@@ -351,22 +367,22 @@ Educational explanations of trading and ML concepts:
 
 ### 5. Implementation Guides (How-To)
 
-**Location:** `docs/IMPLEMENTATION_GUIDES/`
+**Location:** `docs/ARCHIVE/TASKS_HISTORY/` (completed task guides)
 
 Step-by-step implementation instructions for each major task:
 
 | Guide | Task | Lines | Test Coverage |
 |-------|------|-------|---------------|
-| [P0T1: Data ETL Pipeline](./TASKS/P0T1_DONE.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
-| [P1T1: Redis Integration](./TASKS/P1T1_DONE.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
-| [P0T2: Baseline Qlib Strategy](./TASKS/P0T2_DONE.md) | Baseline ML strategy | 700+ | Unit tests |
-| [P0T3: Signal Service](./TASKS/P0T3_DONE.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
-| [P0T3-F4: FastAPI Application](./TASKS/P0T3-F4_DONE.md) | FastAPI implementation | 600+ | Phase 4 tests |
-| [P0T3-F5: Model Hot Reload](./TASKS/P0T3-F5_DONE.md) | Hot reload mechanism | 500+ | Phase 5 tests |
-| [P0T3-F6: Integration Tests](./TASKS/P0T3-F6_DONE.md) | Integration testing | 400+ | Phase 6 tests |
-| [P0T4: Execution Gateway](./TASKS/P0T4_DONE.md) | Execution gateway | 827+ | 56 tests, 100% |
-| [P0T5: Trade Orchestrator](./TASKS/P0T5_DONE.md) | Orchestrator service | 754+ | 13 tests, 100% |
-| [P0T6: Paper Trading Runner](./TASKS/P0T6_DONE.md) | Paper run automation | 1,059+ | 26 tests, 100% |
+| [P0T1: Data ETL Pipeline](ARCHIVE/TASKS_HISTORY/P0T1_DONE.md) | Data ETL pipeline | 800+ | 53 tests, 100% |
+| [P1T1: Redis Integration](ARCHIVE/TASKS_HISTORY/P1T1_DONE.md) | Redis feature cache & event bus | 850+ | 85 tests, 100% |
+| [P0T2: Baseline Qlib Strategy](ARCHIVE/TASKS_HISTORY/P0T2_DONE.md) | Baseline ML strategy | 700+ | Unit tests |
+| [P0T3: Signal Service](ARCHIVE/TASKS_HISTORY/P0T3_DONE.md) | Signal service (main guide) | 1,940+ | 57 tests, 95% |
+| [P0T3-F4: FastAPI Application](ARCHIVE/TASKS_HISTORY/P0T3-F4_DONE.md) | FastAPI implementation | 600+ | Phase 4 tests |
+| [P0T3-F5: Model Hot Reload](ARCHIVE/TASKS_HISTORY/P0T3-F5_DONE.md) | Hot reload mechanism | 500+ | Phase 5 tests |
+| [P0T3-F6: Integration Tests](ARCHIVE/TASKS_HISTORY/P0T3-F6_DONE.md) | Integration testing | 400+ | Phase 6 tests |
+| [P0T4: Execution Gateway](ARCHIVE/TASKS_HISTORY/P0T4_DONE.md) | Execution gateway | 827+ | 56 tests, 100% |
+| [P0T5: Trade Orchestrator](ARCHIVE/TASKS_HISTORY/P0T5_DONE.md) | Orchestrator service | 754+ | 13 tests, 100% |
+| [P0T6: Paper Trading Runner](ARCHIVE/TASKS_HISTORY/P0T6_DONE.md) | Paper run automation | 1,059+ | 26 tests, 100% |
 
 **Priority:** 🟡 **HIGH** - Read the relevant guide when implementing or modifying a task
 
@@ -376,10 +392,10 @@ Step-by-step implementation instructions for each major task:
 
 **Location:** `docs/TASKS/`
 
-Current and future work items organized by phase:
+Current and future work items organized by phase. Completed tasks are archived in `docs/ARCHIVE/TASKS_HISTORY/`.
 
 **Templates:**
-- [Template, 2025-10-18, Template] [00-TEMPLATE_DONE.md](./TASKS/00-TEMPLATE_DONE.md) - Template for completed task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_DONE.md](ARCHIVE/TASKS_HISTORY/00-TEMPLATE_DONE.md) - Template for completed task documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_FEATURE.md](./TASKS/00-TEMPLATE_FEATURE.md) - Template for feature-level task documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_PHASE_PLANNING.md](./TASKS/00-TEMPLATE_PHASE_PLANNING.md) - Template for phase planning documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_PROGRESS.md](./TASKS/00-TEMPLATE_PROGRESS.md) - Template for in-progress task documents
@@ -388,86 +404,86 @@ Current and future work items organized by phase:
 
 **Phase Planning:**
 - [CURRENT, 2026-01-02, Planning] [D0_PLANNING.md](./TASKS/D0_PLANNING.md) - D0 Documentation Infrastructure Overhaul planning - 📋 0% (0/6 tasks)
-- [CURRENT, 2025-10-18, Planning] [P0_TASKS.md](./TASKS/P0_TASKS.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
-- [CURRENT, 2025-10-26, Planning] [P1_PLANNING.md](./TASKS/P1_PLANNING.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
-- [CURRENT, 2025-10-26, Planning] [P2_PLANNING.md](./TASKS/P2_PLANNING.md) - P2 advanced features planning - 📋 0% (0/6 tasks)
+- [CURRENT, 2025-10-18, Planning] [P0_TASKS_DONE.md](./ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) - MVP core tasks (P0T1-P0T6) - ✅ 100% Complete
+- [CURRENT, 2025-10-26, Planning] [P1_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - P1 roadmap and priorities - 🔄 73% Complete (8/11 tasks)
+- [CURRENT, 2025-10-26, Planning] [P2_PLANNING.md](./ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 advanced features planning - 📋 0% (0/6 tasks)
 - [CURRENT, 2025-12-31, Planning] [P5_PLANNING.md](./TASKS/P5_PLANNING.md) - P5 NiceGUI Migration phase planning
 - [CURRENT, 2025-10-18, Planning] [INDEX.md](./TASKS/INDEX.md) - Task index and status tracker
 - [CURRENT, 2025-10-18, Planning] [trading_platform_realization_plan.md](./trading_platform_realization_plan.md) - Original master plan (reference)
 
 **Phase 1 Tasks:**
-- [CURRENT, 2025-10-18, Task] [P1T0_DONE.md](./TASKS/P1T0_DONE.md) - Phase 1 initialization and planning
-- [CURRENT, 2025-10-18, Task] [P1T2_DONE.md](./TASKS/P1T2_DONE.md) - Task tracking and CLI tools
-- [CURRENT, 2025-10-18, Task] [P1T3_DONE.md](./TASKS/P1T3_DONE.md) - DuckDB analytics layer
-- [CURRENT, 2025-10-19, Task] [P1T4_DONE.md](./TASKS/P1T4_DONE.md) - Multi-model code review system
-- [CURRENT, 2025-10-20, Task] [P1T5-F1_DONE.md](./TASKS/P1T5-F1_DONE.md) - Real-time market data subfeature 1
-- [CURRENT, 2025-10-20, Task] [P1T5-F3_DONE.md](./TASKS/P1T5-F3_DONE.md) - Real-time market data subfeature 3
-- [CURRENT, 2025-10-20, Task] [P1T6_DONE.md](./TASKS/P1T6_DONE.md) - Risk management implementation
-- [CURRENT, 2025-10-20, Task] [P1T7_DONE.md](./TASKS/P1T7_DONE.md) - Reconciliation system hardening
-- [CURRENT, 2025-10-21, Task] [P1T8_DONE.md](./TASKS/P1T8_DONE.md) - Monitoring and alerting
-- [CURRENT, 2025-10-21, Task] [P1T9_DONE.md](./TASKS/P1T9_DONE.md) - Centralized logging infrastructure
-- [CURRENT, 2025-10-25, Task] [P1T10_DONE.md](./TASKS/P1T10_DONE.md) - Multi-alpha capital allocation system
-- [CURRENT, 2025-10-27, Task] [P1T11_DONE.md](./TASKS/P1T11_DONE.md) - Workflow automation and testing gates
-- [CURRENT, 2025-10-29, Task] [P1T12_DONE.md](./TASKS/P1T12_DONE.md) - Auto-resume task state tracking
-- [CURRENT, 2025-10-31, Task] [P1T13_DONE.md](./TASKS/P1T13_DONE.md) - Documentation and workflow optimization (completed)
-- [CURRENT, 2025-11-15, Task] [P1T13_F3_DONE.md](./TASKS/P1T13_F3_DONE.md) - P1T13 Feature 3: Systematic PR review comment addressing workflow
-- [CURRENT, 2025-11-15, Task] [P1T13_F4_DONE.md](./TASKS/P1T13_F4_DONE.md) - P1T13 Feature 4: Dependency validation and auto-update system (completed)
-- [CURRENT, 2025-11-15, Task] [P1T13-F5_DONE.md](./TASKS/P1T13-F5_DONE.md) - P1T13 Feature 5: Workflow refinement phase 1 (completed)
+- [CURRENT, 2025-10-18, Task] [P1T0_DONE.md](ARCHIVE/TASKS_HISTORY/P1T0_DONE.md) - Phase 1 initialization and planning
+- [CURRENT, 2025-10-18, Task] [P1T2_DONE.md](ARCHIVE/TASKS_HISTORY/P1T2_DONE.md) - Task tracking and CLI tools
+- [CURRENT, 2025-10-18, Task] [P1T3_DONE.md](ARCHIVE/TASKS_HISTORY/P1T3_DONE.md) - DuckDB analytics layer
+- [CURRENT, 2025-10-19, Task] [P1T4_DONE.md](ARCHIVE/TASKS_HISTORY/P1T4_DONE.md) - Multi-model code review system
+- [CURRENT, 2025-10-20, Task] [P1T5-F1_DONE.md](ARCHIVE/TASKS_HISTORY/P1T5-F1_DONE.md) - Real-time market data subfeature 1
+- [CURRENT, 2025-10-20, Task] [P1T5-F3_DONE.md](ARCHIVE/TASKS_HISTORY/P1T5-F3_DONE.md) - Real-time market data subfeature 3
+- [CURRENT, 2025-10-20, Task] [P1T6_DONE.md](ARCHIVE/TASKS_HISTORY/P1T6_DONE.md) - Risk management implementation
+- [CURRENT, 2025-10-20, Task] [P1T7_DONE.md](ARCHIVE/TASKS_HISTORY/P1T7_DONE.md) - Reconciliation system hardening
+- [CURRENT, 2025-10-21, Task] [P1T8_DONE.md](ARCHIVE/TASKS_HISTORY/P1T8_DONE.md) - Monitoring and alerting
+- [CURRENT, 2025-10-21, Task] [P1T9_DONE.md](ARCHIVE/TASKS_HISTORY/P1T9_DONE.md) - Centralized logging infrastructure
+- [CURRENT, 2025-10-25, Task] [P1T10_DONE.md](ARCHIVE/TASKS_HISTORY/P1T10_DONE.md) - Multi-alpha capital allocation system
+- [CURRENT, 2025-10-27, Task] [P1T11_DONE.md](ARCHIVE/TASKS_HISTORY/P1T11_DONE.md) - Workflow automation and testing gates
+- [CURRENT, 2025-10-29, Task] [P1T12_DONE.md](ARCHIVE/TASKS_HISTORY/P1T12_DONE.md) - Auto-resume task state tracking
+- [CURRENT, 2025-10-31, Task] [P1T13_DONE.md](ARCHIVE/TASKS_HISTORY/P1T13_DONE.md) - Documentation and workflow optimization (completed)
+- [CURRENT, 2025-11-15, Task] [P1T13_F3_DONE.md](ARCHIVE/TASKS_HISTORY/P1T13_F3_DONE.md) - P1T13 Feature 3: Systematic PR review comment addressing workflow
+- [CURRENT, 2025-11-15, Task] [P1T13_F4_DONE.md](ARCHIVE/TASKS_HISTORY/P1T13_F4_DONE.md) - P1T13 Feature 4: Dependency validation and auto-update system (completed)
+- [CURRENT, 2025-11-15, Task] [P1T13-F5_DONE.md](ARCHIVE/TASKS_HISTORY/P1T13-F5_DONE.md) - P1T13 Feature 5: Workflow refinement phase 1 (completed)
 
 **Phase 2 Tasks:**
-- [CURRENT, 2025-10-26, Task] [P2T0_DONE.md](./TASKS/P2T0_DONE.md) - TWAP order slicer implementation
-- [CURRENT, 2025-10-26, Task] [P2T1_DONE.md](./TASKS/P2T1_DONE.md) - Advanced order types and execution
-- [CURRENT, 2025-11-15, Task] [P2T2_DONE.md](./TASKS/P2T2_DONE.md) - Secrets management with Google Cloud Secret Manager (completed)
-- [CURRENT, 2025-11-17, Task] [P2T3_TASK.md](./TASKS/P2T3_TASK.md) - Web console for operational oversight and manual intervention
-- [CURRENT, 2025-11-22, Plan] [P2T3_Component2_Plan.md](./TASKS/P2T3_Component2_Plan.md) - Component 2: JWT token generation and validation implementation plan
-- [CURRENT, 2025-11-23, Task] [P2T3-Phase3_TASK.md](./TASKS/P2T3-Phase3_TASK.md) - P2T3 Phase 3: OAuth2/OIDC Authentication for Production (in progress)
-- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component1_Plan.md](./TASKS/P2T3-Phase3_Component1_Plan.md) - Component 1: OAuth2 Config & IdP Setup detailed implementation plan
-- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component2_Plan_v3.md](./TASKS/P2T3-Phase3_Component2_Plan_v3.md) - Component 2: OAuth2 Authorization Flow with PKCE (v3 FINAL - FastAPI sidecar architecture)
-- [CURRENT, 2025-11-23, Errata] [P2T3-Phase3_Component2_Plan_v3_ERRATA.md](./TASKS/P2T3-Phase3_Component2_Plan_v3_ERRATA.md) - Component 2 Plan v3 errata and clarifications
-- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component3_Plan_v2.md](./TASKS/P2T3-Phase3_Component3_Plan_v2.md) - Component 3: Session Management & Token Refresh (v2 FINAL - Security fixes for production)
-- [CURRENT, 2025-11-25, Plan] [P2T3_Phase3_PLANNING_SUMMARY.md](./TASKS/P2T3_Phase3_PLANNING_SUMMARY.md) - P2T3 Phase 3 planning summary with all 4 components
-- [CURRENT, 2025-11-25, Plan] [P2T3-Phase3_Component4_Plan.md](./TASKS/P2T3-Phase3_Component4_Plan.md) - Component 4: Streamlit UI Integration detailed implementation plan
-- [CURRENT, 2025-11-26, Plan] [P2T3-Phase3_Component5_Plan.md](./TASKS/P2T3-Phase3_Component5_Plan.md) - Component 5: CSP Hardening + Nginx Integration detailed implementation plan
-- [CURRENT, 2025-11-27, Plan] [P2T3-Phase3_Component6-7_Plan.md](./TASKS/P2T3-Phase3_Component6-7_Plan.md) - Components 6+7: mTLS Fallback + Operational Monitoring detailed implementation plan
+- [CURRENT, 2025-10-26, Task] [P2T0_DONE.md](ARCHIVE/TASKS_HISTORY/P2T0_DONE.md) - TWAP order slicer implementation
+- [CURRENT, 2025-10-26, Task] [P2T1_DONE.md](ARCHIVE/TASKS_HISTORY/P2T1_DONE.md) - Advanced order types and execution
+- [CURRENT, 2025-11-15, Task] [P2T2_DONE.md](ARCHIVE/TASKS_HISTORY/P2T2_DONE.md) - Secrets management with Google Cloud Secret Manager (completed)
+- [CURRENT, 2025-11-17, Task] [P2T3_DONE.md](ARCHIVE/TASKS_HISTORY/P2T3_DONE.md) - Web console for operational oversight and manual intervention
+- [CURRENT, 2025-11-22, Plan] [P2T3_Component2_Plan.md](./ARCHIVE/TASKS_HISTORY/P2T3_Component2_Plan.md) - Component 2: JWT token generation and validation implementation plan
+- [CURRENT, 2025-11-23, Task] [P2T3-Phase3_DONE.md](ARCHIVE/TASKS_HISTORY/P2T3-Phase3_DONE.md) - P2T3 Phase 3: OAuth2/OIDC Authentication for Production (in progress)
+- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component1_Plan.md](./ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component1_Plan.md) - Component 1: OAuth2 Config & IdP Setup detailed implementation plan
+- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component2_Plan_v3.md](./ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component2_Plan_v3.md) - Component 2: OAuth2 Authorization Flow with PKCE (v3 FINAL - FastAPI sidecar architecture)
+- [CURRENT, 2025-11-23, Errata] [P2T3-Phase3_Component2_Plan_v3_ERRATA.md](./ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component2_Plan_v3_ERRATA.md) - Component 2 Plan v3 errata and clarifications
+- [CURRENT, 2025-11-23, Plan] [P2T3-Phase3_Component3_Plan_v2.md](./ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component3_Plan_v2.md) - Component 3: Session Management & Token Refresh (v2 FINAL - Security fixes for production)
+- [CURRENT, 2025-11-25, Plan] [P2T3_Phase3_PLANNING_SUMMARY.md](./ARCHIVE/TASKS_HISTORY/P2T3_Phase3_PLANNING_SUMMARY.md) - P2T3 Phase 3 planning summary with all 4 components
+- [CURRENT, 2025-11-25, Plan] [P2T3-Phase3_Component4_Plan.md](./ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component4_Plan.md) - Component 4: Streamlit UI Integration detailed implementation plan
+- [CURRENT, 2025-11-26, Plan] [P2T3-Phase3_Component5_Plan.md](./ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component5_Plan.md) - Component 5: CSP Hardening + Nginx Integration detailed implementation plan
+- [CURRENT, 2025-11-27, Plan] [P2T3-Phase3_Component6-7_Plan.md](./ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md) - Components 6+7: mTLS Fallback + Operational Monitoring detailed implementation plan
 
 **Phase 3 Tasks:**
-- [CURRENT, 2025-11-30, Planning] [P3_PLANNING.md](./TASKS/P3_PLANNING.md) - P3 Review, Remediation & Modernization phase planning
-- [CURRENT, 2025-11-30, Planning] [P3_ISSUES.md](./TASKS/P3_ISSUES.md) - P3 prioritized issues from triple-reviewer analysis (Claude, Gemini, Codex)
-- [CURRENT, 2025-11-30, Task] [P3T1_TASK.md](./TASKS/P3T1_TASK.md) - P3T1: Workflow Modernization - ai_workflow package ✅ Complete
-- [CURRENT, 2025-11-30, Task] [P3T2_TASK.md](./TASKS/P3T2_TASK.md) - P3T2: Critical Fixes (P0) - Security, Trading Safety, Data Integrity ✅ Complete
-- [CURRENT, 2025-11-30, Task] [P3T3_TASK.md](./TASKS/P3T3_TASK.md) - P3T3: High Priority Fixes (P1) - Performance, Reliability, Code Quality
-- [CURRENT, 2025-11-30, Task] [P3T4_TASK.md](./TASKS/P3T4_TASK.md) - P3T4: Medium Priority Fixes (P2) - Type Safety, Lifecycle, Performance, Cleanup
-- [CURRENT, 2025-12-01, Task] [P3T5_TASK.md](./TASKS/P3T5_TASK.md) - P3T5: External Review Findings - Risk Management Fixes (Kill Switch, Position Limits, Circuit Breaker)
-- [CURRENT, 2025-12-02, Task] [P3T6_TASK.md](./TASKS/P3T6_TASK.md) - P3T6: Docker Infrastructure and Runbook Fixes
+- [CURRENT, 2025-11-30, Planning] [P3_PLANNING.md](./ARCHIVE/TASKS_HISTORY/P3_PLANNING_DONE.md) - P3 Review, Remediation & Modernization phase planning
+- [CURRENT, 2025-11-30, Planning] [P3_ISSUES.md](./ARCHIVE/TASKS_HISTORY/P3_ISSUES_DONE.md) - P3 prioritized issues from triple-reviewer analysis (Claude, Gemini, Codex)
+- [CURRENT, 2025-11-30, Task] [P3T1_DONE.md](ARCHIVE/TASKS_HISTORY/P3T1_DONE.md) - P3T1: Workflow Modernization - ai_workflow package ✅ Complete
+- [CURRENT, 2025-11-30, Task] [P3T2_DONE.md](ARCHIVE/TASKS_HISTORY/P3T2_DONE.md) - P3T2: Critical Fixes (P0) - Security, Trading Safety, Data Integrity ✅ Complete
+- [CURRENT, 2025-11-30, Task] [P3T3_DONE.md](ARCHIVE/TASKS_HISTORY/P3T3_DONE.md) - P3T3: High Priority Fixes (P1) - Performance, Reliability, Code Quality
+- [CURRENT, 2025-11-30, Task] [P3T4_DONE.md](ARCHIVE/TASKS_HISTORY/P3T4_DONE.md) - P3T4: Medium Priority Fixes (P2) - Type Safety, Lifecycle, Performance, Cleanup
+- [CURRENT, 2025-12-01, Task] [P3T5_DONE.md](ARCHIVE/TASKS_HISTORY/P3T5_DONE.md) - P3T5: External Review Findings - Risk Management Fixes (Kill Switch, Position Limits, Circuit Breaker)
+- [CURRENT, 2025-12-02, Task] [P3T6_DONE.md](ARCHIVE/TASKS_HISTORY/P3T6_DONE.md) - P3T6: Docker Infrastructure and Runbook Fixes
 
 **Phase 4 Tasks:**
-- [CURRENT, 2025-12-03, Planning] [P4_PLANNING.md](./TASKS/P4_PLANNING.md) - P4 Data Infrastructure phase planning
-- [CURRENT, 2025-12-03, Task] [P4T1_TASK.md](./TASKS/P4T1_TASK.md) - P4T1: Data Infrastructure - Local Data Warehouse with WRDS Data Sources
-- [CURRENT, 2025-12-07, Task] [P4T2_TASK.md](./TASKS/P4T2_TASK.md) - P4T2: Analytics Infrastructure - Multi-Factor Model Construction
-- [CURRENT, 2025-12-09, Task] [P4T3_TASK.md](./TASKS/P4T3_TASK.md) - P4T3: Web Console - Core Analytics with RBAC
-- [CURRENT, 2025-12-10, Task] [P4T4_TASK.md](./TASKS/P4T4_TASK.md) - P4T4: Execution Quality & Trade Journal enhancements
-- [CURRENT, 2025-12-12, Task] [P4T4_5.1_TASK.md](./TASKS/P4T4_5.1_TASK.md) - P4T4-T5.1: Backtest Job Queue Infrastructure (PITBacktester callbacks, RQ workers)
-- [CURRENT, 2025-12-12, Task] [P4T4_5.2_TASK.md](./TASKS/P4T4_5.2_TASK.md) - P4T4-T5.2: Web Console Job Management API endpoints
-- [CURRENT, 2025-12-12, Task] [P4T4_5.3_TASK.md](./TASKS/P4T4_5.3_TASK.md) - P4T4-T5.3: Streamlit Backtest Dashboard with progress tracking
-- [CURRENT, 2025-12-12, Task] [P4T4_5.4_TASK.md](./TASKS/P4T4_5.4_TASK.md) - P4T4-T5.4: Scheduled Backtest Automation
-- [CURRENT, 2025-12-12, Task] [P4T4_5.5_TASK.md](./TASKS/P4T4_5.5_TASK.md) - P4T4-T5.5: Integration Tests & Monitoring
-- [CURRENT, 2025-12-12, Task] [P4T4_5.6_TASK.md](./TASKS/P4T4_5.6_TASK.md) - P4T4-T5.6: Documentation & Runbooks
-- [CURRENT, 2025-12-18, Task] [P4T5_TASK.md](./TASKS/P4T5_TASK.md) - P4T5: Track 7 Web Console Operations (Circuit Breaker, Health Monitor, Alerts, Admin)
-- [CURRENT, 2025-12-18, Plan] [P4T5_C0_PLAN.md](./TASKS/P4T5_C0_PLAN.md) - P4T5 C0: Prep & Validation component plan (auth stub, governance tests, ADR-0029)
-- [CURRENT, 2025-12-18, Plan] [P4T5_C1_PLAN.md](./TASKS/P4T5_C1_PLAN.md) - P4T5 C1: Circuit Breaker Dashboard implementation plan (service, metrics, RBAC, UI)
-- [CURRENT, 2025-12-19, Plan] [P4T5_C2_PLAN.md](./TASKS/P4T5_C2_PLAN.md) - P4T5 C2: System Health Monitor implementation plan (service grid, latency, connectivity)
-- [CURRENT, 2025-12-20, Plan] [P4T5_C3C4_PLAN.md](./TASKS/P4T5_C3C4_PLAN.md) - P4T5 C3/C4: Alert Delivery Service and Configuration UI implementation plan
-- [CURRENT, 2025-12-20, Plan] [P4T5_C5_PLAN.md](./TASKS/P4T5_C5_PLAN.md) - P4T5 C5: Admin Dashboard implementation plan (CB control, user management, system config)
-- [CURRENT, 2025-12-21, Plan] [P4T5_C6_PLAN.md](./TASKS/P4T5_C6_PLAN.md) - P4T5 C6: Integration & Documentation (metrics, navigation, runbooks, SLA infrastructure)
-- [CURRENT, 2025-12-03, Component] [PLANS/P4T1.1-data-quality-plan.md](./TASKS/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
-- [CURRENT, 2025-12-04, Component] [PLANS/P4T1.2-wrds-sync-manager-plan.md](./TASKS/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
-- [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./TASKS/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
-- [CURRENT, 2025-12-05, Plan] [P4T1.8_PLAN.md](./TASKS/P4T1.8_PLAN.md) - P4T1.8: Unified Data Fetcher Protocol Implementation Plan
+- [CURRENT, 2025-12-03, Planning] [P4_PLANNING.md](./ARCHIVE/TASKS_HISTORY/P4_PLANNING_DONE.md) - P4 Data Infrastructure phase planning
+- [CURRENT, 2025-12-03, Task] [P4T1_DONE.md](ARCHIVE/TASKS_HISTORY/P4T1_DONE.md) - P4T1: Data Infrastructure - Local Data Warehouse with WRDS Data Sources
+- [CURRENT, 2025-12-07, Task] [P4T2_DONE.md](ARCHIVE/TASKS_HISTORY/P4T2_DONE.md) - P4T2: Analytics Infrastructure - Multi-Factor Model Construction
+- [CURRENT, 2025-12-09, Task] [P4T3_DONE.md](ARCHIVE/TASKS_HISTORY/P4T3_DONE.md) - P4T3: Web Console - Core Analytics with RBAC
+- [CURRENT, 2025-12-10, Task] [P4T4_DONE.md](ARCHIVE/TASKS_HISTORY/P4T4_DONE.md) - P4T4: Execution Quality & Trade Journal enhancements
+- [CURRENT, 2025-12-12, Task] [P4T4_5.1_DONE.md](ARCHIVE/TASKS_HISTORY/P4T4_5.1_DONE.md) - P4T4-T5.1: Backtest Job Queue Infrastructure (PITBacktester callbacks, RQ workers)
+- [CURRENT, 2025-12-12, Task] [P4T4_5.2_DONE.md](ARCHIVE/TASKS_HISTORY/P4T4_5.2_DONE.md) - P4T4-T5.2: Web Console Job Management API endpoints
+- [CURRENT, 2025-12-12, Task] [P4T4_5.3_DONE.md](ARCHIVE/TASKS_HISTORY/P4T4_5.3_DONE.md) - P4T4-T5.3: Streamlit Backtest Dashboard with progress tracking
+- [CURRENT, 2025-12-12, Task] [P4T4_5.4_DONE.md](ARCHIVE/TASKS_HISTORY/P4T4_5.4_DONE.md) - P4T4-T5.4: Scheduled Backtest Automation
+- [CURRENT, 2025-12-12, Task] [P4T4_5.5_DONE.md](ARCHIVE/TASKS_HISTORY/P4T4_5.5_DONE.md) - P4T4-T5.5: Integration Tests & Monitoring
+- [CURRENT, 2025-12-12, Task] [P4T4_5.6_DONE.md](ARCHIVE/TASKS_HISTORY/P4T4_5.6_DONE.md) - P4T4-T5.6: Documentation & Runbooks
+- [CURRENT, 2025-12-18, Task] [P4T5_DONE.md](./ARCHIVE/TASKS_HISTORY/P4T5_DONE.md) - P4T5: Track 7 Web Console Operations (Circuit Breaker, Health Monitor, Alerts, Admin)
+- [CURRENT, 2025-12-18, Plan] [P4T5_C0_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T5_C0_PLAN.md) - P4T5 C0: Prep & Validation component plan (auth stub, governance tests, ADR-0029)
+- [CURRENT, 2025-12-18, Plan] [P4T5_C1_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T5_C1_PLAN.md) - P4T5 C1: Circuit Breaker Dashboard implementation plan (service, metrics, RBAC, UI)
+- [CURRENT, 2025-12-19, Plan] [P4T5_C2_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T5_C2_PLAN.md) - P4T5 C2: System Health Monitor implementation plan (service grid, latency, connectivity)
+- [CURRENT, 2025-12-20, Plan] [P4T5_C3C4_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T5_C3C4_PLAN.md) - P4T5 C3/C4: Alert Delivery Service and Configuration UI implementation plan
+- [CURRENT, 2025-12-20, Plan] [P4T5_C5_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T5_C5_PLAN.md) - P4T5 C5: Admin Dashboard implementation plan (CB control, user management, system config)
+- [CURRENT, 2025-12-21, Plan] [P4T5_C6_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T5_C6_PLAN.md) - P4T5 C6: Integration & Documentation (metrics, navigation, runbooks, SLA infrastructure)
+- [CURRENT, 2025-12-03, Component] [ARCHIVE/PLANS/P4T1.1-data-quality-plan.md](./ARCHIVE/PLANS/P4T1.1-data-quality-plan.md) - T1.1: Data Quality & Validation Framework Implementation Plan
+- [CURRENT, 2025-12-04, Component] [ARCHIVE/PLANS/P4T1.2-wrds-sync-manager-plan.md](./ARCHIVE/PLANS/P4T1.2-wrds-sync-manager-plan.md) - T1.2: WRDS Connection & Bulk Sync Manager Implementation Plan
+- [CURRENT, 2025-12-05, Plan] [P4T1_T4.1_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T1_T4.1_PLAN.md) - T4.1: yfinance Integration Implementation Plan
+- [CURRENT, 2025-12-05, Plan] [P4T1.8_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T1.8_PLAN.md) - P4T1.8: Unified Data Fetcher Protocol Implementation Plan
 
 **Phase 5 Tasks (NiceGUI Migration):**
-- [CURRENT, 2025-12-31, Task] [P5T1_TASK.md](./TASKS/P5T1_TASK.md) - P5T1: NiceGUI Migration Foundation (session, auth, client)
-- [CURRENT, 2025-12-31, Task] [P5T2_TASK.md](./TASKS/P5T2_TASK.md) - P5T2: Page Shell & Navigation (layout, routing, theming)
-- [CURRENT, 2025-12-31, Task] [P5T3_TASK.md](./TASKS/P5T3_TASK.md) - P5T3: Dashboard Migration (cards, charts, live data)
+- [CURRENT, 2025-12-31, Task] [P5T1_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T1_DONE.md) - P5T1: NiceGUI Migration Foundation (session, auth, client)
+- [CURRENT, 2025-12-31, Task] [P5T2_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T2_DONE.md) - P5T2: Page Shell & Navigation (layout, routing, theming)
+- [CURRENT, 2025-12-31, Task] [P5T3_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T3_DONE.md) - P5T3: Dashboard Migration (cards, charts, live data)
 - [CURRENT, 2025-12-31, Task] [P5T4_TASK.md](./TASKS/P5T4_TASK.md) - P5T4: Strategy Analytics Migration (tables, parameters)
 - [CURRENT, 2025-12-31, Task] [P5T5_TASK.md](./TASKS/P5T5_TASK.md) - P5T5: Risk & Trade Controls (circuit breaker, kill switch)
 - [CURRENT, 2025-12-31, Task] [P5T6_TASK.md](./TASKS/P5T6_TASK.md) - P5T6: Data Management Migration (sync, quality, explorer)
@@ -475,16 +491,16 @@ Current and future work items organized by phase:
 - [CURRENT, 2025-12-31, Task] [P5T8_TASK.md](./TASKS/P5T8_TASK.md) - P5T8: Integration & Cutover (testing, deployment)
 
 **Backlog Tasks (B0):**
-- [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./TASKS/B0T1_TASK.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis
-- [CURRENT, 2025-12-28, Task] [P4T6_TASK.md](./TASKS/P4T6_TASK.md) - P4T6: Data Management module for web console
-- [CURRENT, 2025-12-28, Task] [P4T7_TASK.md](./TASKS/P4T7_TASK.md) - P4T7: Web Console Research & Reporting module
-- [CURRENT, 2025-12-28, Plan] [P4T7_C0_PLAN.md](./TASKS/P4T7_C0_PLAN.md) - P4T7 C0: Prep & Validation (RBAC, migrations, dependencies)
-- [CURRENT, 2025-12-28, Plan] [P4T7_C1_PLAN.md](./TASKS/P4T7_C1_PLAN.md) - P4T7 C1: Alpha Signal Explorer (IC/ICIR visualization)
-- [CURRENT, 2025-12-28, Plan] [P4T7_C2_PLAN.md](./TASKS/P4T7_C2_PLAN.md) - P4T7 C2: Factor Exposure Heatmap (portfolio analytics)
-- [CURRENT, 2025-12-28, Plan] [P4T7_C3_PLAN.md](./TASKS/P4T7_C3_PLAN.md) - P4T7 C3: Research Notebook Launcher (Docker sessions)
-- [CURRENT, 2025-12-28, Plan] [P4T7_C4_PLAN.md](./TASKS/P4T7_C4_PLAN.md) - P4T7 C4: Scheduled Reports (PDF generation, email)
-- [CURRENT, 2025-12-28, Plan] [P4T7_C5_PLAN.md](./TASKS/P4T7_C5_PLAN.md) - P4T7 C5: Tax Lot Core (FIFO/LIFO/SpecID)
-- [CURRENT, 2025-12-28, Plan] [P4T7_C6_PLAN.md](./TASKS/P4T7_C6_PLAN.md) - P4T7 C6: Tax Lot Advanced (wash sales, 8949)
+- [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./ARCHIVE/TASKS_HISTORY/B0T1_DONE.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis
+- [CURRENT, 2025-12-28, Task] [P4T6_DONE.md](ARCHIVE/TASKS_HISTORY/P4T6_DONE.md) - P4T6: Data Management module for web console
+- [CURRENT, 2025-12-28, Task] [P4T7_DONE.md](ARCHIVE/TASKS_HISTORY/P4T7_DONE.md) - P4T7: Web Console Research & Reporting module
+- [CURRENT, 2025-12-28, Plan] [P4T7_C0_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C0_PLAN.md) - P4T7 C0: Prep & Validation (RBAC, migrations, dependencies)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C1_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C1_PLAN.md) - P4T7 C1: Alpha Signal Explorer (IC/ICIR visualization)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C2_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C2_PLAN.md) - P4T7 C2: Factor Exposure Heatmap (portfolio analytics)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C3_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C3_PLAN.md) - P4T7 C3: Research Notebook Launcher (Docker sessions)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C4_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C4_PLAN.md) - P4T7 C4: Scheduled Reports (PDF generation, email)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C5_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C5_PLAN.md) - P4T7 C5: Tax Lot Core (FIFO/LIFO/SpecID)
+- [CURRENT, 2025-12-28, Plan] [P4T7_C6_PLAN.md](./ARCHIVE/TASKS_HISTORY/P4T7_C6_PLAN.md) - P4T7 C6: Tax Lot Advanced (wash sales, 8949)
 
 **Checking Current/Next Task:**
 ```bash
@@ -496,6 +512,19 @@ Current and future work items organized by phase:
 ```
 
 **Priority:** 🔴 **CRITICAL** - Check before starting any new task to understand scope and priorities
+
+---
+
+### 6.5. Archive
+
+**Location:** `docs/ARCHIVE/`
+
+Completed and legacy planning artifacts preserved for reference:
+
+- [TASKS_HISTORY/](./ARCHIVE/TASKS_HISTORY/) - Completed task documents and historical implementation guides
+- [PLANS/](./ARCHIVE/PLANS/) - Archived implementation plans (historical reference)
+
+**Priority:** 🟢 **LOW** - Reference when you need historical context
 
 ---
 
@@ -662,8 +691,8 @@ Special guidance for AI coding assistants:
 3. docs/STANDARDS/CODING_STANDARDS.md                  [MUST read]
 4. docs/STANDARDS/DOCUMENTATION_STANDARDS.md           [MUST read]
 5. docs/STANDARDS/GIT_WORKFLOW.md                      [MUST read]
-6. docs/TASKS/P0_TASKS.md or P1_PLANNING.md            [Understand current task]
-7. docs/IMPLEMENTATION_GUIDES/p{phase}t{N}-{task}.md   [Relevant guide]
+6. docs/ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md or docs/ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md            [Understand current task]
+7. docs/ARCHIVE/TASKS_HISTORY/p{phase}t{N}-{task}.md   [Relevant guide]
 8. docs/ADRs/000{N}-{related}.md                       [Related decisions]
 9. docs/CONCEPTS/{relevant}.md                         [As needed for domain knowledge]
 ```
@@ -728,8 +757,8 @@ Documents can have one of these statuses:
 | Commit code | [GIT_WORKFLOW.md](./STANDARDS/GIT_WORKFLOW.md) |
 | Write tests | [TESTING.md](./STANDARDS/TESTING.md) |
 | Understand P&L | [pnl-calculation.md](./CONCEPTS/pnl-calculation.md) |
-| Implement P0T6 | [p0t6-paper-run.md](./TASKS/P0T6_DONE.md) |
-| Plan P1 work | [P1_PLANNING.md](./TASKS/P1_PLANNING.md) |
+| Implement P0T6 | [p0t6-paper-run.md](ARCHIVE/TASKS_HISTORY/P0T6_DONE.md) |
+| Plan P1 work | [P1_PLANNING_DONE.md](./ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) |
 | Deploy to prod | [ops.md](./RUNBOOKS/ops.md) |
 
 ### By Document Type
@@ -738,9 +767,11 @@ Documents can have one of these statuses:
 |------|---------|----------|
 | **Standards** | Normative rules (MUST follow) | `docs/STANDARDS/` |
 | **ADRs** | Architecture decisions (WHY) | `docs/ADRs/` |
+| **Specifications** | Service/library behavior and contracts | `docs/SPECS/` |
 | **Concepts** | Domain knowledge (WHAT) | `docs/CONCEPTS/` |
-| **Guides** | Implementation steps (HOW) | `docs/IMPLEMENTATION_GUIDES/` |
+| **Guides** | Implementation steps (HOW) | `docs/ARCHIVE/TASKS_HISTORY/` |
 | **Tasks** | Work items (TODO) | `docs/TASKS/` |
+| **Archive** | Completed tasks + legacy plans | `docs/ARCHIVE/` |
 | **Retrospectives** | Learnings (LEARNED) | `docs/LESSONS_LEARNED/` |
 | **Runbooks** | Operations (OPS) | `docs/RUNBOOKS/` |
 

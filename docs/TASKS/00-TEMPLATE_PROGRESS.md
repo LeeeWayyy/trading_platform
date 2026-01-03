@@ -180,8 +180,8 @@ features: []
 - [ADR-XXX: Title](../ADRs/0001-data-pipeline-architecture.md)
 
 **Tasks:**
-- Depends on: [P0T1_DONE](./P0T1_DONE.md)
-- Blocks: [P0T1_DONE](./P0T1_DONE.md)
+- Depends on: [P0T1_DONE](../ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)
+- Blocks: [P0T1_DONE](../ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)
 
 **PRs:**
 - [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/123) - Description

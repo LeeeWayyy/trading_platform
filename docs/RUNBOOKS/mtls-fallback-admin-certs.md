@@ -6,7 +6,7 @@
 
 **Last Updated:** 2025-11-26
 
-**Related:** ADR-015, auth0-idp-outage.md, web-console-cert-rotation.md, P2T3-Phase3_Component6-7_Plan.md
+**Related:** ADR-015, auth0-idp-outage.md, web-console-cert-rotation.md, [P2T3-Phase3_Component6-7_Plan.md](../ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md)
 
 ---
 
@@ -730,7 +730,7 @@ grep "Revocation" /var/log/mtls-admin-cert-audit.log
 - **ADR-015:** OAuth2/OIDC Authentication Architecture (fallback design)
 - **auth0-idp-outage.md:** IdP Outage Response (when fallback activates)
 - **web-console-cert-rotation.md:** General Certificate Rotation (server TLS certs)
-- **P2T3-Phase3_Component6-7_Plan.md:** mTLS Fallback Implementation Plan
+- **P2T3-Phase3_Component6-7_Plan.md:** mTLS Fallback Implementation Plan ([archive](../ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md))
 
 ---
 

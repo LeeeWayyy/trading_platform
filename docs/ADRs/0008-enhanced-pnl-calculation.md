@@ -28,7 +28,7 @@ P1 Task T1.1 aims to implement **enhanced P&L calculation** with:
 - Does NOT calculate actual profit/loss
 - Does NOT track realized vs unrealized separately
 
-### Requirements (from P1_PLANNING.md)
+### Requirements (from P1_PLANNING_DONE.md)
 
 ```python
 # Target P&L structure
@@ -409,7 +409,7 @@ for position in positions:
 
 ## Related Documents
 
-- [P1_PLANNING.md](../TASKS/P1_PLANNING.md) - T1.1 requirements
+- [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - T1.1 requirements
 - [T6 Retrospective](../LESSONS_LEARNED/t6-paper-run-retrospective.md) - Why notional P&L in P0
 - [pnl-calculation.md](../CONCEPTS/pnl-calculation.md) - P&L concepts and formulas
 - [ADR-0007](./0007-paper-run-automation.md) - Paper run automation architecture

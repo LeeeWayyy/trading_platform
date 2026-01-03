@@ -82,6 +82,6 @@ We will implement a **Single-Writer, Multi-Reader** local data warehouse with:
 
 ## References
 
-- [P4T1_TASK.md](../TASKS/P4T1_TASK.md) - Task specification
+- [P4T1_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T1_DONE.md) - Task specification
 - [DuckDB Concurrency](https://duckdb.org/docs/connect/concurrency) - DuckDB docs
 - [Parquet Format](https://parquet.apache.org/) - Apache Parquet

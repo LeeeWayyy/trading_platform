@@ -191,6 +191,6 @@ See `P4T2_TASK.md` for detailed schema definitions.
 
 ## Related Documentation
 
-- [P4T2_TASK.md](../TASKS/P4T2_TASK.md): Task specification and schemas
+- [P4T2_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T2_DONE.md): Task specification and schemas
 - [covariance-estimation.md](./covariance-estimation.md): Factor covariance methodology
 - [ADR-0021-risk-model-implementation.md](../ADRs/ADR-0021-risk-model-implementation.md): Architecture decisions (T2.4)

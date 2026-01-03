@@ -440,7 +440,7 @@ docker logs trading_platform_web_console_dev | grep AUDIT
 ## Getting Help
 
 **Documentation:**
-- Task document: `docs/TASKS/P2T3_TASK.md`
+- Task document: `docs/ARCHIVE/TASKS_HISTORY/P2T3_DONE.md`
 - API documentation: `docs/API/execution_gateway.openapi.yaml`
 - Development standards: `docs/STANDARDS/`
 

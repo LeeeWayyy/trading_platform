@@ -482,7 +482,7 @@ Comprehensive project documentation organized by purpose.
 **Purpose:** Task planning and completion tracking
 **Files:**
 - `INDEX.md` - Task index and status
-- `P0_TASKS.md`, `P1_PLANNING.md`, `P2_PLANNING.md` - Phase planning
+- `ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md`, `ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md`, `P2_PLANNING.md` - Phase planning (P0/P1 archived)
 - `PxTy_DONE.md` - Completed task documentation (30+ files)
 - `PxTy_TASK.md` - Active/future tasks
 

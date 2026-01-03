@@ -6,7 +6,7 @@
 
 **Last Updated:** 2025-11-26
 
-**Related:** ADR-015, P2T3-Phase3_Component6-7_Plan.md, mtls-certificate-management.md
+**Related:** ADR-015, [P2T3-Phase3_Component6-7_Plan.md](../ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md), mtls-certificate-management.md
 
 ---
 
@@ -642,7 +642,7 @@ cat logs/mtls_fallback_audit.log | tail -1
 ## Related Documentation
 
 - **ADR-015:** OAuth2/OIDC Authentication Architecture
-- **P2T3-Phase3_Component6-7_Plan.md:** mTLS Fallback Implementation Plan
+- **P2T3-Phase3_Component6-7_Plan.md:** mTLS Fallback Implementation Plan ([archive](../ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component6-7_Plan.md))
 - **mtls-certificate-management.md:** Certificate Issuance & Rotation Procedures
 - **session-key-rotation.md:** Session Secret Rotation (related to OAuth2 sessions)
 - **oauth2-session-cleanup.md:** Session Cleanup Procedures

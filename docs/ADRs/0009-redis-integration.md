@@ -57,7 +57,7 @@ async def run(symbols, strategy_id, as_of_date):
 
 ### P1 T1.2 Requirements
 
-From `docs/TASKS/P1_PLANNING.md`:
+From `docs/ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md`:
 
 **Use Case 1: Online Feature Store**
 - Cache generated features in Redis with TTL
@@ -898,7 +898,7 @@ redis-cli info stats | grep keyspace_misses
 
 ## Related Documents
 
-- [P1_PLANNING.md](../TASKS/P1_PLANNING.md) - T1.2 requirements
+- [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - T1.2 requirements
 - [ADR-0004](./0004-signal-service-architecture.md) - Signal Service architecture
 - [ADR-0006](./0006-orchestrator-service.md) - Orchestrator architecture
 - [Redis Best Practices](https://redis.io/docs/management/optimization/)

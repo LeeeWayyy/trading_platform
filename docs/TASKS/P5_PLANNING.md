@@ -1869,7 +1869,7 @@ This migration requires **ADR-0031: Web Console Migration to NiceGUI** covering:
 
 ## Related Documents
 
-- [P4_PLANNING.md](./P4_PLANNING.md) - Current web console features
+- [P4_PLANNING.md](../ARCHIVE/TASKS_HISTORY/P4_PLANNING_DONE.md) - Current web console features
 - [ADR-0018-web-console-mtls-authentication.md](../ADRs/0018-web-console-mtls-authentication.md) - Auth architecture
 - [ADR-015-auth0-idp-selection.md](../ADRs/ADR-015-auth0-idp-selection.md) - OAuth2 provider
 - [docs/RUNBOOKS/ops.md](../RUNBOOKS/ops.md) - Operational procedures

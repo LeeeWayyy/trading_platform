@@ -519,8 +519,8 @@ See [/../GETTING_STARTED/GLOSSARY.md](../GETTING_STARTED/GLOSSARY.md) for full d
 - [/../GETTING_STARTED/GLOSSARY.md](../GETTING_STARTED/GLOSSARY.md) — Trading and ML terminology
 
 **Implementation:**
-- [/../TASKS/P1_PLANNING.md](../TASKS/P1_PLANNING.md) — Phase 1 planning
-- [/../TASKS/P2_PLANNING.md](../TASKS/P2_PLANNING.md) — Phase 2 planning
+- [/../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) — Phase 1 planning
+- [/../ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) — Phase 2 planning
 - [Prompts/](./Prompts/) — Reusable AI prompts
 
 **Retrospectives:**
