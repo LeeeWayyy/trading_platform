@@ -157,8 +157,8 @@ Break this task into components, each following the 4-step pattern:
 - [Related concept](../CONCEPTS/corporate-actions.md)
 
 **Tasks:**
-- Depends on: [P0T1](./P0T1_DONE.md)
-- Blocks: [P0T2](./P0T2_DONE.md)
+- Depends on: [P0T1](../ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)
+- Blocks: [P0T2](../ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)
 
 ---
 

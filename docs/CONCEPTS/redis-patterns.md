@@ -1,6 +1,6 @@
 # Redis Integration Patterns
 
-**Related**: [ADR-0009](../ADRs/0009-redis-integration.md), [P1.1T2 Implementation Guide](../TASKS/P1T1_DONE.md)
+**Related**: [ADR-0009](../ADRs/0009-redis-integration.md), [P1.1T2 Implementation Guide](../ARCHIVE/TASKS_HISTORY/P1T1_DONE.md)
 
 ---
 
@@ -686,7 +686,7 @@ requirepass <strong-password>  # Set password
 ## References
 
 - [ADR-0009: Redis Integration](../ADRs/0009-redis-integration.md) - Architecture decisions
-- [P1.1T2 Implementation Guide](../TASKS/P1T1_DONE.md) - Step-by-step integration
+- [P1.1T2 Implementation Guide](../ARCHIVE/TASKS_HISTORY/P1T1_DONE.md) - Step-by-step integration
 - [Redis Documentation](https://redis.io/docs/) - Official Redis docs
 - [Redis Best Practices](https://redis.io/docs/management/optimization/) - Performance tuning
 

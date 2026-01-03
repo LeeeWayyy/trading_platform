@@ -43,7 +43,7 @@ def generate_signals(symbols, as_of_date):
 
 ### P1.2T1 Requirements
 
-From `docs/TASKS/P1_PLANNING.md` and `docs/NEXT_TASK.md`:
+From `docs/ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md` and `docs/NEXT_TASK.md`:
 
 **Use Case 1: Real-Time Price Streaming**
 - Subscribe to live market data from Alpaca via WebSocket
@@ -1045,7 +1045,7 @@ curl http://localhost:8002/api/v1/positions/pnl/realtime | jq
 
 ## Related Documents
 
-- [P1_PLANNING.md](../TASKS/P1_PLANNING.md) - P1.2T1 requirements
+- [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - P1.2T1 requirements
 - [ADR-0009](./0009-redis-integration.md) - Redis integration patterns
 - [Alpaca WebSocket Docs](https://alpaca.markets/docs/market-data/streaming/)
 

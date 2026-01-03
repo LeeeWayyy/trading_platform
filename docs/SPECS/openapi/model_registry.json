@@ -1,0 +1,825 @@
+{
+  "components": {
+    "schemas": {
+      "CurrentModelResponse": {
+        "description": "Response for GET /{model_type}/current endpoint.",
+        "example": {
+          "checksum": "abc123def456...",
+          "dataset_version_ids": {
+            "compustat": "v1.0.1",
+            "crsp": "v1.2.3"
+          },
+          "model_type": "risk_model",
+          "version": "v1.0.0"
+        },
+        "properties": {
+          "checksum": {
+            "description": "SHA-256 checksum",
+            "title": "Checksum",
+            "type": "string"
+          },
+          "dataset_version_ids": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Dataset versions used for training",
+            "title": "Dataset Version Ids",
+            "type": "object"
+          },
+          "model_type": {
+            "description": "Type of model artifact",
+            "title": "Model Type",
+            "type": "string"
+          },
+          "version": {
+            "description": "Semantic version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_type",
+          "version",
+          "checksum",
+          "dataset_version_ids"
+        ],
+        "title": "CurrentModelResponse",
+        "type": "object"
+      },
+      "EnvironmentMetadataResponse": {
+        "description": "Environment metadata in API response.",
+        "properties": {
+          "created_by": {
+            "description": "Creator identifier",
+            "title": "Created By",
+            "type": "string"
+          },
+          "cvxpy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CVXPY version",
+            "title": "Cvxpy Version"
+          },
+          "dependencies_hash": {
+            "description": "Hash of dependencies",
+            "title": "Dependencies Hash",
+            "type": "string"
+          },
+          "numpy_version": {
+            "description": "NumPy version",
+            "title": "Numpy Version",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Platform identifier",
+            "title": "Platform",
+            "type": "string"
+          },
+          "polars_version": {
+            "description": "Polars version",
+            "title": "Polars Version",
+            "type": "string"
+          },
+          "python_version": {
+            "description": "Python version",
+            "title": "Python Version",
+            "type": "string"
+          },
+          "sklearn_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "scikit-learn version",
+            "title": "Sklearn Version"
+          }
+        },
+        "required": [
+          "python_version",
+          "dependencies_hash",
+          "platform",
+          "created_by",
+          "numpy_version",
+          "polars_version"
+        ],
+        "title": "EnvironmentMetadataResponse",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "Standard error response.",
+        "example": {
+          "code": "MODEL_NOT_FOUND",
+          "detail": "Model risk_model/v1.0.0 not found"
+        },
+        "properties": {
+          "code": {
+            "description": "Error code",
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "description": "Error message",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail",
+          "code"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ModelListResponse": {
+        "description": "Response for listing models.",
+        "properties": {
+          "models": {
+            "description": "List of models",
+            "items": {
+              "$ref": "#/components/schemas/ModelMetadataResponse"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "total": {
+            "description": "Total count",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "models",
+          "total"
+        ],
+        "title": "ModelListResponse",
+        "type": "object"
+      },
+      "ModelMetadataResponse": {
+        "description": "Response for GET /{model_type}/{version} endpoint.",
+        "properties": {
+          "artifact_path": {
+            "description": "Path to artifact directory",
+            "title": "Artifact Path",
+            "type": "string"
+          },
+          "checksum_sha256": {
+            "description": "SHA-256 checksum",
+            "title": "Checksum Sha256",
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Training configuration",
+            "title": "Config",
+            "type": "object"
+          },
+          "config_hash": {
+            "description": "Hash of config",
+            "title": "Config Hash",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dataset URI",
+            "title": "Dataset Uri"
+          },
+          "dataset_version_ids": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Dataset versions used for training",
+            "title": "Dataset Version Ids",
+            "type": "object"
+          },
+          "env": {
+            "$ref": "#/components/schemas/EnvironmentMetadataResponse",
+            "description": "Environment metadata"
+          },
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Experiment ID (Qlib)",
+            "title": "Experiment Id"
+          },
+          "factor_list": {
+            "description": "Factors used in model",
+            "items": {
+              "type": "string"
+            },
+            "title": "Factor List",
+            "type": "array"
+          },
+          "feature_formulas": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Feature formulas",
+            "title": "Feature Formulas"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Performance metrics",
+            "title": "Metrics",
+            "type": "object"
+          },
+          "model_id": {
+            "description": "Unique model identifier",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "model_type": {
+            "description": "Type of model artifact",
+            "title": "Model Type",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "description": "Model parameters",
+            "title": "Parameters",
+            "type": "object"
+          },
+          "promoted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Promotion timestamp",
+            "title": "Promoted At"
+          },
+          "qlib_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Qlib version",
+            "title": "Qlib Version"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Run ID (Qlib)",
+            "title": "Run Id"
+          },
+          "snapshot_id": {
+            "description": "Snapshot identifier",
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Model status (staged/production/archived)",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "description": "Semantic version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "model_type",
+          "version",
+          "status",
+          "artifact_path",
+          "checksum_sha256",
+          "dataset_version_ids",
+          "snapshot_id",
+          "factor_list",
+          "parameters",
+          "metrics",
+          "config",
+          "config_hash",
+          "env",
+          "created_at"
+        ],
+        "title": "ModelMetadataResponse",
+        "type": "object"
+      },
+      "ModelStatus": {
+        "description": "Model lifecycle states.\n\nState transitions:\n- staged -> production (promote)\n- production -> archived (new promotion)\n- staged -> failed (validation failure)\n- production -> staged (rollback)",
+        "enum": [
+          "staged",
+          "production",
+          "archived",
+          "failed"
+        ],
+        "title": "ModelStatus",
+        "type": "string"
+      },
+      "ModelType": {
+        "description": "Supported model artifact types.\n\nEach type has specific required metadata fields.",
+        "enum": [
+          "risk_model",
+          "alpha_weights",
+          "factor_definitions",
+          "feature_transforms"
+        ],
+        "title": "ModelType",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "ValidationResultResponse": {
+        "description": "Response for POST /{model_type}/{version}/validate endpoint.",
+        "example": {
+          "checksum_verified": true,
+          "errors": [],
+          "load_successful": true,
+          "model_id": "uuid-1234",
+          "valid": true
+        },
+        "properties": {
+          "checksum_verified": {
+            "description": "Checksum verification passed",
+            "title": "Checksum Verified",
+            "type": "boolean"
+          },
+          "errors": {
+            "description": "Validation errors",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "load_successful": {
+            "description": "Model loaded successfully",
+            "title": "Load Successful",
+            "type": "boolean"
+          },
+          "model_id": {
+            "description": "Model identifier",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "valid": {
+            "description": "Whether model is valid",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "model_id",
+          "checksum_verified",
+          "load_successful"
+        ],
+        "title": "ValidationResultResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "REST API for model metadata retrieval and validation",
+    "title": "Model Registry API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Root endpoint with service information.",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Root  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root",
+        "tags": [
+          "Root"
+        ]
+      }
+    },
+    "/api/v1/models/{model_type}": {
+      "get": {
+        "description": "List models of a specific type.\n\nArgs:\n    model_type: Type of model to list.\n    auth: Verified service token with model:read scope.\n    registry: Model registry instance.\n    status_filter: Optional status filter (staged/production/archived).\n\nReturns:\n    ModelListResponse with list of models.\n\nRaises:\n    HTTPException 503: If registry is unavailable.",
+        "operationId": "list_models_api_v1_models__model_type__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_type",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ModelType"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status_filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ModelStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Filter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Registry unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Models",
+        "tags": [
+          "Models"
+        ]
+      }
+    },
+    "/api/v1/models/{model_type}/current": {
+      "get": {
+        "description": "Get current production model for a type.\n\nArgs:\n    model_type: Type of model (risk_model, alpha_weights, etc.).\n    auth: Verified service token with model:read scope.\n    registry: Model registry instance.\n\nReturns:\n    CurrentModelResponse with version, checksum, and dataset versions.\n\nRaises:\n    HTTPException 404: If no production model exists.\n    HTTPException 503: If registry is unavailable.",
+        "operationId": "get_current_model_api_v1_models__model_type__current_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_type",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ModelType"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentModelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No production model found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Registry unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Current Model",
+        "tags": [
+          "Models"
+        ]
+      }
+    },
+    "/api/v1/models/{model_type}/{version}": {
+      "get": {
+        "description": "Get full metadata for a specific model version.\n\nArgs:\n    model_type: Type of model.\n    version: Semantic version (e.g., v1.0.0).\n    auth: Verified service token with model:read scope.\n    registry: Model registry instance.\n\nReturns:\n    ModelMetadataResponse with full metadata.\n\nRaises:\n    HTTPException 404: If model/version not found.\n    HTTPException 503: If registry is unavailable.",
+        "operationId": "get_model_metadata_api_v1_models__model_type___version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_type",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ModelType"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelMetadataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Model not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Registry unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Model Metadata",
+        "tags": [
+          "Models"
+        ]
+      }
+    },
+    "/api/v1/models/{model_type}/{version}/validate": {
+      "post": {
+        "description": "Validate model artifact integrity and loadability.\n\nPerforms:\n1. Checksum verification (SHA-256)\n2. Test load of model artifact\n\nArgs:\n    model_type: Type of model.\n    version: Semantic version.\n    auth: Verified service token with model:write scope.\n    registry: Model registry instance.\n\nReturns:\n    ValidationResultResponse with validation status.\n\nRaises:\n    HTTPException 404: If model/version not found.\n    HTTPException 422: If validation fails (checksum mismatch, load error).\n    HTTPException 503: If registry is unavailable.",
+        "operationId": "validate_model_api_v1_models__model_type___version__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_type",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ModelType"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Model not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Registry unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Validate Model",
+        "tags": [
+          "Models"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Health check endpoint.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Check Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  }
+}

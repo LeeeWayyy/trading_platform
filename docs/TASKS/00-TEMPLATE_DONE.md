@@ -144,7 +144,7 @@ features: []
 ### Decision 1: [Title]
 **Rationale:** [Why this approach was chosen]
 **Impact:** [What changed as a result]
-**ADR:** [ADR-XXX](../ADRs/0001-data-pipeline-architecture.md) (if architectural)
+**ADR:** `ADR-XXX` at `docs/ADRs/<adr-file>.md` (if architectural)
 
 ### Decision 2: [Title]
 **Rationale:** [Why this approach was chosen]
@@ -210,13 +210,13 @@ features: []
 ## Related
 
 **ADRs:**
-- [ADR-XXX: Decision Title](../ADRs/0001-data-pipeline-architecture.md)
-- [ADR-YYY: Another Decision](../ADRs/0002-exception-hierarchy.md)
+- `ADR-XXX: Decision Title` at `docs/ADRs/<adr-file>.md`
+- `ADR-YYY: Another Decision` at `docs/ADRs/<adr-file>.md`
 
 **Tasks:**
-- Depends on: [P0T1_DONE](./P0T1_DONE.md) ✅
-- Blocks: [P0T1_DONE](./P0T1_DONE.md) (now unblocked)
-- Related: [P0T2_DONE](./P0T2_DONE.md)
+- Depends on: `P0Tx_DONE` at `docs/ARCHIVE/TASKS_HISTORY/<task>_DONE.md` ✅
+- Blocks: `P0Tx_DONE` (now unblocked)
+- Related: `P0Ty_DONE` at `docs/ARCHIVE/TASKS_HISTORY/<task>_DONE.md`
 
 **PRs:**
 - [PR #123](https://github.com/LeeeWayyy/trading_platform/pull/123) - Main implementation PR
@@ -254,7 +254,7 @@ features: []
 ## Follow-Up Tasks
 
 **Immediate Next Steps:**
-- [ ] [P0T1](./P0T1_DONE.md) - Now unblocked
+- [ ] `P0Tx` - Now unblocked (link to `docs/TASKS/<task>.md`)
 
 **Future Enhancements:**
 - [ ] [Improvement idea 1] - Deferred to P2
@@ -328,9 +328,9 @@ curl -X POST http://localhost:8000/api/endpoint \
 ## References
 
 **Documentation:**
-- [Trading Concept](../CONCEPTS/corporate-actions.md)
-- [API Reference](../API/execution_gateway.openapi.yaml)
-- [Database Schema](../DB/minimal_p0_schema.sql)
+- Trading Concept: `docs/CONCEPTS/<concept>.md`
+- API Reference: `docs/SPECS/openapi/<service>.json`
+- Database Schema: `db/migrations/<schema>.sql`
 
 **External:**
 - [Alpaca API Docs](https://alpaca.markets/docs/)

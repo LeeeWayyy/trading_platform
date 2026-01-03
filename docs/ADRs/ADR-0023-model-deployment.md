@@ -261,6 +261,6 @@ scripts/
 
 ## Related Documentation
 
-- [T2.8 Task](../TASKS/P4T2_TASK.md): Task specification
+- [T2.8 Task](../ARCHIVE/TASKS_HISTORY/P4T2_DONE.md): Task specification
 - [model-registry.md](../CONCEPTS/model-registry.md): User guide
 - [model-registry-dr.md](../RUNBOOKS/model-registry-dr.md): DR procedures

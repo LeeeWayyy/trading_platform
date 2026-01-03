@@ -152,7 +152,7 @@ Spike C0.1 findings are captured below. Runtime validations require running the 
 ## References
 
 - P5_PLANNING.md: Overall migration planning
-- P5T1_TASK.md: Phase 1 implementation details
+- [P5T1_DONE.md](../ARCHIVE/TASKS_HISTORY/P5T1_DONE.md): Phase 1 implementation details
 - libs/web_console_auth: Existing JWT/session utilities
 
 ## Compliance

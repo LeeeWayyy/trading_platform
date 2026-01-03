@@ -19,6 +19,9 @@ set -e
 #   ./FILE.md (project root) → ../FILE.md
 
 # Find all markdown files, excluding generated/cache directories and gitignored paths
+# Also exclude bulk directories where individual file indexing doesn't add value:
+#   - docs/SPECS/* (individual specs; indexed via SPECS/README.md)
+#   - docs/ARCHIVE/TASKS_HISTORY/* (completed tasks; bulk archive)
 ALL_FILES=$(find . -name "*.md" -type f \
     -not -path "./.venv/*" \
     -not -path "./node_modules/*" \
@@ -28,6 +31,11 @@ ALL_FILES=$(find . -name "*.md" -type f \
     -not -path "./.claude/plans/*" \
     -not -path "./.ai_workflow/*" \
     -not -path "./qlib/*" \
+    -not -path "./docs/SPECS/services/*" \
+    -not -path "./docs/SPECS/libs/*" \
+    -not -path "./docs/SPECS/strategies/*" \
+    -not -path "./docs/SPECS/infrastructure/*" \
+    -not -path "./docs/ARCHIVE/TASKS_HISTORY/*" \
     2>/dev/null)
 
 # Transform paths to be relative to docs/INDEX.md

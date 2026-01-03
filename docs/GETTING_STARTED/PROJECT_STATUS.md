@@ -188,16 +188,16 @@ The trading platform has successfully completed both P0 MVP (100%) and P1 Harden
 For detailed task information and completion summaries, see:
 
 **Phase Planning:**
-- [P0_TASKS.md](../TASKS/P0_TASKS.md) - Completed MVP tasks
-- [P1_PLANNING.md](../TASKS/P1_PLANNING.md) - Completed P1 roadmap
-- [P2_PLANNING.md](../TASKS/P2_PLANNING.md) - P2 roadmap and progress
+- [P0_TASKS_DONE.md](../ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) - Completed MVP tasks
+- [P1_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P1_PLANNING_DONE.md) - Completed P1 roadmap
+- [P2_PLANNING_DONE.md](../ARCHIVE/TASKS_HISTORY/P2_PLANNING_DONE.md) - P2 roadmap and progress (archived)
 
 **Recent Completed Tasks:**
-- [P2T0_DONE.md](../TASKS/P2T0_DONE.md) - TWAP Order Slicer
-- [P2T1_DONE.md](../TASKS/P2T1_DONE.md) - Web Console
-- [P2T2_DONE.md](../TASKS/P2T2_DONE.md) - Secrets Management
-- [P1T13_DONE.md](../TASKS/P1T13_DONE.md) - AI Workflow Intelligence
-- [P1T13-F5_DONE.md](../TASKS/P1T13-F5_DONE.md) - Workflow Meta-Optimization
+- [P2T0_DONE.md](../ARCHIVE/TASKS_HISTORY/P2T0_DONE.md) - TWAP Order Slicer
+- [P2T1_DONE.md](../ARCHIVE/TASKS_HISTORY/P2T1_DONE.md) - Web Console
+- [P2T2_DONE.md](../ARCHIVE/TASKS_HISTORY/P2T2_DONE.md) - Secrets Management
+- [P1T13_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T13_DONE.md) - AI Workflow Intelligence
+- [P1T13-F5_DONE.md](../ARCHIVE/TASKS_HISTORY/P1T13-F5_DONE.md) - Workflow Meta-Optimization
 
 **Architecture Decisions:**
 - [ADRs/](../ADRs/) - 17+ architecture decision records

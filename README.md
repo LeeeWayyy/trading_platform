@@ -117,15 +117,15 @@ trading_platform/
 ### Implementation Guides
 
 **Phase 0 (Core MVP):**
-- **[docs/TASKS/P0T1_DONE.md](./docs/TASKS/P0T1_DONE.md)** - T1: Data ETL implementation
-- **[docs/TASKS/P0T2_DONE.md](./docs/TASKS/P0T2_DONE.md)** - T2: Baseline strategy
-- **[docs/TASKS/P0T3_DONE.md](./docs/TASKS/P0T3_DONE.md)** - T3: Signal service (complete guide with all phases)
-- **[docs/TASKS/P0T4_DONE.md](./docs/TASKS/P0T4_DONE.md)** - T4: Execution gateway
-- **[docs/TASKS/P0T5_DONE.md](./docs/TASKS/P0T5_DONE.md)** - T5: Orchestrator service
+- **[P0T1_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)** - T1: Data ETL implementation
+- **[P0T2_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)** - T2: Baseline strategy
+- **[P0T3_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T3_DONE.md)** - T3: Signal service (complete guide with all phases)
+- **[P0T4_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T4_DONE.md)** - T4: Execution gateway
+- **[P0T5_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T5_DONE.md)** - T5: Orchestrator service
 
 **Phase 1 (Advanced Features):**
-- **[docs/TASKS/P1T9_DONE.md](./docs/TASKS/P1T9_DONE.md)** - T9: Centralized Logging with Loki/Promtail/Grafana
-- **[docs/TASKS/P1T10_DONE.md](./docs/TASKS/P1T10_DONE.md)** - T10: CI/CD Pipeline with Docker & Staging Automation
+- **[P1T9_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P1T9_DONE.md)** - T9: Centralized Logging with Loki/Promtail/Grafana
+- **[P1T10_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P1T10_DONE.md)** - T10: CI/CD Pipeline with Docker & Staging Automation
 
 ### Architecture Decisions
 - [docs/ADRs/0001-data-pipeline-architecture.md](./docs/ADRs/0001-data-pipeline-architecture.md) - T1: Data pipeline decisions
@@ -177,7 +177,7 @@ trading_platform/
 - `libs/data_pipeline/quality_gate.py` - Outlier detection
 
 **Tests:** 53 tests, 100% passing
-**Documentation:** [docs/TASKS/P0T1_DONE.md](./docs/TASKS/P0T1_DONE.md)
+**Documentation:** [P0T1_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T1_DONE.md)
 
 ---
 
@@ -197,7 +197,7 @@ trading_platform/
 - `strategies/alpha_baseline/mock_features.py` - Mock features for testing
 
 **Tests:** Unit tests for all components
-**Documentation:** [docs/TASKS/P0T2_DONE.md](./docs/TASKS/P0T2_DONE.md)
+**Documentation:** [P0T2_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md)
 
 ---
 
@@ -241,7 +241,7 @@ trading_platform/
 - Zero downtime during updates ✅
 
 **Documentation:**
-- [docs/TASKS/P0T3_DONE.md](./docs/TASKS/P0T3_DONE.md) - Complete implementation guide (includes FastAPI, hot reload, and testing)
+- [P0T3_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T3_DONE.md) - Complete implementation guide (includes FastAPI, hot reload, and testing)
 - [docs/ADRs/0004-signal-service-architecture.md](./docs/ADRs/0004-signal-service-architecture.md) - Architecture decisions
 
 **Deployment Scripts:**
@@ -300,7 +300,7 @@ trading_platform/
 - Health check: < 10ms ✅
 
 **Documentation:**
-- [docs/TASKS/P0T4_DONE.md](./docs/TASKS/P0T4_DONE.md) - Complete implementation guide
+- [P0T4_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T4_DONE.md) - Complete implementation guide
 - [docs/ADRs/0014-execution-gateway-architecture.md](./docs/ADRs/0014-execution-gateway-architecture.md) - Architecture decisions (690 lines)
 
 **Deployment Scripts:**
@@ -360,7 +360,7 @@ trading_platform/
 - Partial failure support (some orders succeed, some fail) ✅
 
 **Documentation:**
-- [docs/TASKS/P0T5_DONE.md](./docs/TASKS/P0T5_DONE.md) - Complete implementation guide
+- [P0T5_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T5_DONE.md) - Complete implementation guide
 - [docs/ADRs/0006-orchestrator-service.md](./docs/ADRs/0006-orchestrator-service.md) - Architecture decisions (900+ lines)
 
 **Deployment Scripts:**
@@ -416,7 +416,7 @@ python scripts/paper_run.py --verbose
 **Key files:**
 - `scripts/paper_run.py` (872 lines) - Main CLI automation script
 - `scripts/test_paper_run.py` (605 lines) - Comprehensive test suite
-- `docs/TASKS/P0T6_DONE.md` - Implementation guide
+- `docs/ARCHIVE/TASKS_HISTORY/P0T6_DONE.md` - Implementation guide
 - `docs/CONCEPTS/pnl-calculation.md` (407 lines) - P&L explanation
 - `docs/ADRs/0007-paper-run-automation.md` (451 lines) - Architecture decisions
 
@@ -436,7 +436,7 @@ python scripts/paper_run.py --verbose
 - P&L calculation: < 1ms ✅
 
 **Documentation:**
-- [docs/TASKS/P0T6_DONE.md](./docs/TASKS/P0T6_DONE.md) - Complete implementation guide
+- [docs/ARCHIVE/TASKS_HISTORY/P0T6_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0T6_DONE.md) - Complete implementation guide
 - [docs/ADRs/0007-paper-run-automation.md](./docs/ADRs/0007-paper-run-automation.md) - Architecture decisions (CLI script vs microservice)
 - [docs/CONCEPTS/pnl-calculation.md](./docs/CONCEPTS/pnl-calculation.md) - P&L types and calculation methods
 
@@ -673,14 +673,14 @@ All 6 tasks (T1-T6) successfully delivered:
 ### P1: Advanced Features (In Progress - 83% Complete)
 
 **Completed:**
-- ✅ **P1T9:** [Centralized Logging](./docs/TASKS/P1T9_DONE.md) - Loki/Promtail/Grafana observability stack
-- ✅ **P1T10:** [CI/CD Pipeline](./docs/TASKS/P1T10_DONE.md) - Docker builds, integration tests, staging deployment
+- ✅ **P1T9:** [Centralized Logging](./docs/ARCHIVE/TASKS_HISTORY/P1T9_DONE.md) - Loki/Promtail/Grafana observability stack
+- ✅ **P1T10:** [CI/CD Pipeline](./docs/ARCHIVE/TASKS_HISTORY/P1T10_DONE.md) - Docker builds, integration tests, staging deployment
 
 **In Progress:**
 - 🔄 **P1T11:** Production deployment automation
 - 🔄 **P1T12:** Enhanced monitoring and alerting
 
-**See:** [docs/TASKS/P0_TASKS.md](./docs/TASKS/P0_TASKS.md) for complete roadmap
+**See:** [P0_TASKS_DONE.md](./docs/ARCHIVE/TASKS_HISTORY/P0_TASKS_DONE.md) for complete roadmap
 
 ---
 

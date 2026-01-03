@@ -1,0 +1,5050 @@
+{
+  "components": {
+    "schemas": {
+      "AdjustPositionRequest": {
+        "properties": {
+          "limit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Price"
+          },
+          "order_type": {
+            "default": "market",
+            "enum": [
+              "market",
+              "limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          },
+          "target_qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Target Qty"
+          }
+        },
+        "required": [
+          "target_qty",
+          "reason",
+          "requested_by",
+          "requested_at"
+        ],
+        "title": "AdjustPositionRequest",
+        "type": "object"
+      },
+      "AdjustPositionResponse": {
+        "properties": {
+          "current_qty": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Current Qty",
+            "type": "string"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "status": {
+            "const": "adjusting",
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target_qty": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Target Qty",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "symbol",
+          "current_qty",
+          "target_qty"
+        ],
+        "title": "AdjustPositionResponse",
+        "type": "object"
+      },
+      "CancelAllOrdersRequest": {
+        "properties": {
+          "reason": {
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Symbol to cancel orders for",
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "reason",
+          "requested_by",
+          "requested_at"
+        ],
+        "title": "CancelAllOrdersRequest",
+        "type": "object"
+      },
+      "CancelAllOrdersResponse": {
+        "properties": {
+          "cancelled_count": {
+            "title": "Cancelled Count",
+            "type": "integer"
+          },
+          "order_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Order Ids",
+            "type": "array"
+          },
+          "status": {
+            "const": "cancelled",
+            "title": "Status",
+            "type": "string"
+          },
+          "strategies_affected": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Strategies Affected",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "symbol",
+          "cancelled_count",
+          "order_ids",
+          "strategies_affected"
+        ],
+        "title": "CancelAllOrdersResponse",
+        "type": "object"
+      },
+      "CancelOrderRequest": {
+        "properties": {
+          "reason": {
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "requested_by",
+          "requested_at"
+        ],
+        "title": "CancelOrderRequest",
+        "type": "object"
+      },
+      "CancelOrderResponse": {
+        "properties": {
+          "cancelled_at": {
+            "format": "date-time",
+            "title": "Cancelled At",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "cancelled",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "order_id",
+          "cancelled_at"
+        ],
+        "title": "CancelOrderResponse",
+        "type": "object"
+      },
+      "ClosePositionRequest": {
+        "properties": {
+          "qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional partial close quantity (positive number)",
+            "title": "Qty"
+          },
+          "reason": {
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "requested_by",
+          "requested_at"
+        ],
+        "title": "ClosePositionRequest",
+        "type": "object"
+      },
+      "ClosePositionResponse": {
+        "properties": {
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "qty_to_close": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Qty To Close",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "closing",
+              "already_flat"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "symbol",
+          "qty_to_close"
+        ],
+        "title": "ClosePositionResponse",
+        "type": "object"
+      },
+      "ConfigResponse": {
+        "description": "Configuration verification response.\n\nExposes critical safety flags and environment settings for automated\nverification in smoke tests and monitoring. Used to ensure paper trading\nmode is active in staging/CI environments.\n\nExamples:\n    >>> config = ConfigResponse(\n    ...     service=\"execution_gateway\",\n    ...     version=\"0.1.0\",\n    ...     environment=\"staging\",\n    ...     dry_run=True,\n    ...     alpaca_paper=True,\n    ...     circuit_breaker_enabled=True,\n    ...     timestamp=datetime.now(UTC)\n    ... )\n    >>> assert config.dry_run is True  # Staging safety check\n    >>> assert config.alpaca_paper is True",
+        "examples": [
+          {
+            "alpaca_paper": true,
+            "circuit_breaker_enabled": true,
+            "dry_run": true,
+            "environment": "staging",
+            "liquidity_check_enabled": true,
+            "max_slice_pct_of_adv": 0.01,
+            "service": "execution_gateway",
+            "timestamp": "2025-10-22T10:30:00Z",
+            "version": "0.1.0"
+          }
+        ],
+        "properties": {
+          "alpaca_paper": {
+            "description": "Alpaca paper trading mode",
+            "title": "Alpaca Paper",
+            "type": "boolean"
+          },
+          "circuit_breaker_enabled": {
+            "description": "Circuit breaker feature enabled",
+            "title": "Circuit Breaker Enabled",
+            "type": "boolean"
+          },
+          "dry_run": {
+            "description": "Dry-run mode enabled (no real orders)",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "Environment (dev, staging, production)",
+            "title": "Environment",
+            "type": "string"
+          },
+          "liquidity_check_enabled": {
+            "description": "Liquidity-aware slicing enabled (ADV-based limits)",
+            "title": "Liquidity Check Enabled",
+            "type": "boolean"
+          },
+          "max_slice_pct_of_adv": {
+            "description": "Max slice size as pct of ADV when liquidity checks enabled",
+            "title": "Max Slice Pct Of Adv",
+            "type": "number"
+          },
+          "service": {
+            "description": "Service name",
+            "title": "Service",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Response timestamp (UTC)",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "version": {
+            "description": "Service version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "version",
+          "environment",
+          "dry_run",
+          "alpaca_paper",
+          "circuit_breaker_enabled",
+          "liquidity_check_enabled",
+          "max_slice_pct_of_adv",
+          "timestamp"
+        ],
+        "title": "ConfigResponse",
+        "type": "object"
+      },
+      "DailyPerformanceResponse": {
+        "description": "Response payload for /api/v1/performance/daily.",
+        "properties": {
+          "daily_pnl": {
+            "items": {
+              "$ref": "#/components/schemas/DailyPnL"
+            },
+            "title": "Daily Pnl",
+            "type": "array"
+          },
+          "data_available_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Available From"
+          },
+          "data_source": {
+            "default": "realized_only",
+            "title": "Data Source",
+            "type": "string"
+          },
+          "end_date": {
+            "format": "date",
+            "title": "End Date",
+            "type": "string"
+          },
+          "last_updated": {
+            "format": "date-time",
+            "title": "Last Updated",
+            "type": "string"
+          },
+          "max_drawdown_pct": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Max Drawdown Pct",
+            "type": "string"
+          },
+          "note": {
+            "default": "Shows realized P&L from closed positions. Unrealized P&L is not included.",
+            "title": "Note",
+            "type": "string"
+          },
+          "start_date": {
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "total_realized_pl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Realized Pl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "daily_pnl",
+          "total_realized_pl",
+          "max_drawdown_pct",
+          "start_date",
+          "end_date",
+          "data_available_from",
+          "last_updated"
+        ],
+        "title": "DailyPerformanceResponse",
+        "type": "object"
+      },
+      "DailyPnL": {
+        "description": "Daily realized P&L data point for equity/drawdown charts.",
+        "properties": {
+          "closing_trade_count": {
+            "title": "Closing Trade Count",
+            "type": "integer"
+          },
+          "cumulative_realized_pl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cumulative Realized Pl",
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "drawdown_pct": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Drawdown Pct",
+            "type": "string"
+          },
+          "peak_equity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Peak Equity",
+            "type": "string"
+          },
+          "realized_pl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Realized Pl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "realized_pl",
+          "cumulative_realized_pl",
+          "peak_equity",
+          "drawdown_pct",
+          "closing_trade_count"
+        ],
+        "title": "DailyPnL",
+        "type": "object"
+      },
+      "FatFingerThresholds-Input": {
+        "description": "Fat-finger thresholds for order validation.",
+        "examples": [
+          {
+            "max_adv_pct": "0.05",
+            "max_notional": "100000",
+            "max_qty": 10000
+          }
+        ],
+        "properties": {
+          "max_adv_pct": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max order size as fraction of ADV (0-1)",
+            "title": "Max Adv Pct"
+          },
+          "max_notional": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max order notional (in USD)",
+            "title": "Max Notional"
+          },
+          "max_qty": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max order quantity (shares)",
+            "title": "Max Qty"
+          }
+        },
+        "title": "FatFingerThresholds",
+        "type": "object"
+      },
+      "FatFingerThresholds-Output": {
+        "description": "Fat-finger thresholds for order validation.",
+        "examples": [
+          {
+            "max_adv_pct": "0.05",
+            "max_notional": "100000",
+            "max_qty": 10000
+          }
+        ],
+        "properties": {
+          "max_adv_pct": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max order size as fraction of ADV (0-1)",
+            "title": "Max Adv Pct"
+          },
+          "max_notional": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max order notional (in USD)",
+            "title": "Max Notional"
+          },
+          "max_qty": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Max order quantity (shares)",
+            "title": "Max Qty"
+          }
+        },
+        "title": "FatFingerThresholds",
+        "type": "object"
+      },
+      "FatFingerThresholdsResponse": {
+        "description": "Current fat-finger threshold configuration.",
+        "properties": {
+          "default_thresholds": {
+            "$ref": "#/components/schemas/FatFingerThresholds-Output"
+          },
+          "symbol_overrides": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FatFingerThresholds-Output"
+            },
+            "title": "Symbol Overrides",
+            "type": "object"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_thresholds",
+          "symbol_overrides",
+          "updated_at"
+        ],
+        "title": "FatFingerThresholdsResponse",
+        "type": "object"
+      },
+      "FatFingerThresholdsUpdateRequest": {
+        "description": "Update fat-finger thresholds (defaults + per-symbol overrides).",
+        "examples": [
+          {
+            "default_thresholds": {
+              "max_adv_pct": "0.06",
+              "max_notional": "150000",
+              "max_qty": 12000
+            },
+            "symbol_overrides": {
+              "AAPL": {
+                "max_qty": 5000
+              },
+              "TSLA": {
+                "max_adv_pct": "0.03",
+                "max_notional": "200000"
+              }
+            }
+          }
+        ],
+        "properties": {
+          "default_thresholds": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FatFingerThresholds-Input"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default thresholds applied when no override exists"
+          },
+          "symbol_overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/FatFingerThresholds-Input"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-symbol overrides; set value to null to remove override",
+            "title": "Symbol Overrides"
+          }
+        },
+        "title": "FatFingerThresholdsUpdateRequest",
+        "type": "object"
+      },
+      "FlattenAllRequest": {
+        "properties": {
+          "id_token": {
+            "description": "ID token proving MFA",
+            "title": "Id Token",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 20,
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "requested_by",
+          "requested_at",
+          "id_token"
+        ],
+        "title": "FlattenAllRequest",
+        "type": "object"
+      },
+      "FlattenAllResponse": {
+        "properties": {
+          "orders_created": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Orders Created",
+            "type": "array"
+          },
+          "positions_closed": {
+            "title": "Positions Closed",
+            "type": "integer"
+          },
+          "status": {
+            "const": "flattening",
+            "title": "Status",
+            "type": "string"
+          },
+          "strategies_affected": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Strategies Affected",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "positions_closed",
+          "orders_created",
+          "strategies_affected"
+        ],
+        "title": "FlattenAllResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Health check response.",
+        "examples": [
+          {
+            "alpaca_connected": true,
+            "database_connected": true,
+            "details": {},
+            "dry_run": true,
+            "service": "execution_gateway",
+            "status": "healthy",
+            "timestamp": "2024-10-17T16:30:00Z",
+            "version": "0.1.0"
+          }
+        ],
+        "properties": {
+          "alpaca_connected": {
+            "title": "Alpaca Connected",
+            "type": "boolean"
+          },
+          "database_connected": {
+            "title": "Database Connected",
+            "type": "boolean"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "service": {
+            "default": "execution_gateway",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "healthy",
+              "degraded",
+              "unhealthy"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "dry_run",
+          "database_connected",
+          "alpaca_connected",
+          "timestamp"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "KillSwitchDisengageRequest": {
+        "description": "Request to disengage kill-switch (resume trading).",
+        "examples": [
+          {
+            "notes": "Market conditions normalized, all systems operational",
+            "operator": "ops_team"
+          }
+        ],
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional notes about resolution",
+            "title": "Notes"
+          },
+          "operator": {
+            "description": "Operator ID/name (for audit trail)",
+            "title": "Operator",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operator"
+        ],
+        "title": "KillSwitchDisengageRequest",
+        "type": "object"
+      },
+      "KillSwitchEngageRequest": {
+        "description": "Request to engage kill-switch (emergency halt).",
+        "examples": [
+          {
+            "details": {
+              "anomaly_type": "flash_crash",
+              "severity": "high"
+            },
+            "operator": "ops_team",
+            "reason": "Market anomaly detected"
+          }
+        ],
+        "properties": {
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional additional context",
+            "title": "Details"
+          },
+          "operator": {
+            "description": "Operator ID/name (for audit trail)",
+            "title": "Operator",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Human-readable reason for engagement",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "operator"
+        ],
+        "title": "KillSwitchEngageRequest",
+        "type": "object"
+      },
+      "OrderDetail": {
+        "description": "Detailed order information including fill details and timestamps.\n\nUsed for GET /api/v1/orders/{client_order_id} endpoint.\n\nSlicing Fields (P2T0 - TWAP Order Slicing):\n    parent_order_id: Links child slice to parent (NULL for parent orders)\n    slice_num: Sequential slice number 0..N-1 (NULL for parent orders)\n    total_slices: Total number of slices planned (set on parent, NULL on children)\n    scheduled_time: UTC timestamp for slice execution (NULL for parent, set on children)",
+        "properties": {
+          "broker_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broker Order Id"
+          },
+          "client_order_id": {
+            "title": "Client Order Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "filled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filled At"
+          },
+          "filled_avg_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filled Avg Price"
+          },
+          "filled_qty": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Filled Qty",
+            "type": "string"
+          },
+          "limit_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Price"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "order_type": {
+            "enum": [
+              "market",
+              "limit",
+              "stop",
+              "stop_limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "parent_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Order Id"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          },
+          "retry_count": {
+            "title": "Retry Count",
+            "type": "integer"
+          },
+          "scheduled_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Time"
+          },
+          "side": {
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "slice_num": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slice Num"
+          },
+          "status": {
+            "enum": [
+              "pending_new",
+              "new",
+              "accepted",
+              "partially_filled",
+              "filled",
+              "canceled",
+              "rejected",
+              "expired",
+              "replaced",
+              "done_for_day",
+              "stopped",
+              "suspended",
+              "pending_cancel",
+              "pending_replace",
+              "calculated",
+              "submitted",
+              "submitted_unconfirmed",
+              "dry_run",
+              "failed",
+              "blocked_kill_switch",
+              "blocked_circuit_breaker"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "time_in_force": {
+            "enum": [
+              "day",
+              "gtc",
+              "ioc",
+              "fok"
+            ],
+            "title": "Time In Force",
+            "type": "string"
+          },
+          "total_slices": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Slices"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_order_id",
+          "strategy_id",
+          "symbol",
+          "side",
+          "qty",
+          "order_type",
+          "time_in_force",
+          "status",
+          "retry_count",
+          "created_at",
+          "updated_at",
+          "filled_qty"
+        ],
+        "title": "OrderDetail",
+        "type": "object"
+      },
+      "OrderRequest": {
+        "description": "Request to submit a new order.\n\nThe order will be assigned a deterministic client_order_id based on\nthe order parameters and current date. This ensures idempotency - the\nsame order submitted multiple times will have the same ID.\n\nExamples:\n    Market buy order:\n    >>> order = OrderRequest(\n    ...     symbol=\"AAPL\",\n    ...     side=\"buy\",\n    ...     qty=10,\n    ...     order_type=\"market\"\n    ... )\n\n    Limit sell order:\n    >>> order = OrderRequest(\n    ...     symbol=\"MSFT\",\n    ...     side=\"sell\",\n    ...     qty=5,\n    ...     order_type=\"limit\",\n    ...     limit_price=300.50\n    ... )",
+        "examples": [
+          {
+            "order_type": "market",
+            "qty": 10,
+            "side": "buy",
+            "symbol": "AAPL",
+            "time_in_force": "day"
+          },
+          {
+            "limit_price": "300.50",
+            "order_type": "limit",
+            "qty": 5,
+            "side": "sell",
+            "symbol": "MSFT",
+            "time_in_force": "day"
+          }
+        ],
+        "properties": {
+          "limit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Limit price (required for limit orders)",
+            "title": "Limit Price"
+          },
+          "order_type": {
+            "default": "market",
+            "description": "Order type",
+            "enum": [
+              "market",
+              "limit",
+              "stop",
+              "stop_limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "qty": {
+            "description": "Order quantity (must be positive)",
+            "exclusiveMinimum": 0.0,
+            "title": "Qty",
+            "type": "integer"
+          },
+          "side": {
+            "description": "Order side",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stop price (required for stop orders)",
+            "title": "Stop Price"
+          },
+          "symbol": {
+            "description": "Stock symbol (e.g., 'AAPL')",
+            "title": "Symbol",
+            "type": "string"
+          },
+          "time_in_force": {
+            "default": "day",
+            "description": "Time in force",
+            "enum": [
+              "day",
+              "gtc",
+              "ioc",
+              "fok"
+            ],
+            "title": "Time In Force",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "side",
+          "qty"
+        ],
+        "title": "OrderRequest",
+        "type": "object"
+      },
+      "OrderResponse": {
+        "description": "Response after submitting an order.\n\nContains the deterministic client_order_id, current status, and\nbroker_order_id (if submitted to broker).\n\nAttributes:\n    client_order_id: Deterministic ID for idempotency\n    status: Current order status\n    broker_order_id: Alpaca's order ID (null for dry_run)\n    symbol: Stock symbol\n    side: Order side\n    qty: Order quantity\n    order_type: Order type\n    limit_price: Limit price (if applicable)\n    created_at: Order creation timestamp\n    message: Human-readable status message",
+        "examples": [
+          {
+            "broker_order_id": "f7e6d5c4-b3a2-1098-7654-3210fedcba98",
+            "client_order_id": "a1b2c3d4e5f6g7h8i9j0k1l2",
+            "created_at": "2024-10-17T16:30:00Z",
+            "message": "Order submitted to broker",
+            "order_type": "market",
+            "qty": 10,
+            "side": "buy",
+            "status": "pending_new",
+            "symbol": "AAPL"
+          },
+          {
+            "client_order_id": "z9y8x7w6v5u4t3s2r1q0p9o8",
+            "created_at": "2024-10-17T16:31:00Z",
+            "limit_price": "300.50",
+            "message": "Order logged (DRY_RUN mode)",
+            "order_type": "limit",
+            "qty": 5,
+            "side": "sell",
+            "status": "dry_run",
+            "symbol": "MSFT"
+          }
+        ],
+        "properties": {
+          "broker_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broker Order Id"
+          },
+          "client_order_id": {
+            "title": "Client Order Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "limit_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Price"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "order_type": {
+            "enum": [
+              "market",
+              "limit",
+              "stop",
+              "stop_limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          },
+          "side": {
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending_new",
+              "new",
+              "accepted",
+              "partially_filled",
+              "filled",
+              "canceled",
+              "rejected",
+              "expired",
+              "replaced",
+              "done_for_day",
+              "stopped",
+              "suspended",
+              "pending_cancel",
+              "pending_replace",
+              "calculated",
+              "submitted",
+              "submitted_unconfirmed",
+              "dry_run",
+              "failed",
+              "blocked_kill_switch",
+              "blocked_circuit_breaker"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_order_id",
+          "status",
+          "symbol",
+          "side",
+          "qty",
+          "order_type",
+          "created_at",
+          "message"
+        ],
+        "title": "OrderResponse",
+        "type": "object"
+      },
+      "PendingOrdersResponse": {
+        "properties": {
+          "filtered_by_strategy": {
+            "title": "Filtered By Strategy",
+            "type": "boolean"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/OrderDetail"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "user_strategies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "User Strategies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "orders",
+          "total",
+          "limit",
+          "offset",
+          "filtered_by_strategy",
+          "user_strategies"
+        ],
+        "title": "PendingOrdersResponse",
+        "type": "object"
+      },
+      "Position": {
+        "description": "Current position for a symbol.\n\nAttributes:\n    symbol: Stock symbol\n    qty: Position quantity (positive=long, negative=short, zero=flat)\n    avg_entry_price: Average entry price\n    current_price: Current market price (if available)\n    unrealized_pl: Unrealized P&L\n    realized_pl: Realized P&L from closed positions\n    updated_at: Last update timestamp\n    last_trade_at: Last trade timestamp",
+        "examples": [
+          {
+            "avg_entry_price": "150.25",
+            "current_price": "152.75",
+            "last_trade_at": "2024-10-17T16:30:00Z",
+            "qty": "10",
+            "realized_pl": "0.00",
+            "symbol": "AAPL",
+            "unrealized_pl": "25.00",
+            "updated_at": "2024-10-17T16:30:00Z"
+          }
+        ],
+        "properties": {
+          "avg_entry_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Avg Entry Price",
+            "type": "string"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "last_trade_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trade At"
+          },
+          "qty": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Qty",
+            "type": "string"
+          },
+          "realized_pl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Realized Pl",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unrealized_pl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrealized Pl"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "qty",
+          "avg_entry_price",
+          "realized_pl",
+          "updated_at"
+        ],
+        "title": "Position",
+        "type": "object"
+      },
+      "PositionsResponse": {
+        "description": "Response containing list of current positions.",
+        "examples": [
+          {
+            "positions": [
+              {
+                "avg_entry_price": "150.25",
+                "current_price": "152.75",
+                "qty": "10",
+                "realized_pl": "0.00",
+                "symbol": "AAPL",
+                "unrealized_pl": "25.00",
+                "updated_at": "2024-10-17T16:30:00Z"
+              }
+            ],
+            "total_positions": 1,
+            "total_realized_pl": "0.00",
+            "total_unrealized_pl": "25.00"
+          }
+        ],
+        "properties": {
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/Position"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "total_positions": {
+            "title": "Total Positions",
+            "type": "integer"
+          },
+          "total_realized_pl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Realized Pl",
+            "type": "string"
+          },
+          "total_unrealized_pl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Unrealized Pl"
+          }
+        },
+        "required": [
+          "positions",
+          "total_positions",
+          "total_realized_pl"
+        ],
+        "title": "PositionsResponse",
+        "type": "object"
+      },
+      "RealtimePnLResponse": {
+        "description": "Response with real-time P&L for all positions.\n\nFetches latest prices from Redis (populated by Market Data Service).\nFalls back to database prices if real-time data unavailable.",
+        "examples": [
+          {
+            "positions": [
+              {
+                "avg_entry_price": "150.00",
+                "current_price": "152.50",
+                "last_price_update": "2024-10-19T14:30:15Z",
+                "price_source": "real-time",
+                "qty": "10",
+                "symbol": "AAPL",
+                "unrealized_pl": "25.00",
+                "unrealized_pl_pct": "1.67"
+              }
+            ],
+            "realtime_prices_available": 1,
+            "timestamp": "2024-10-19T14:30:20Z",
+            "total_positions": 1,
+            "total_unrealized_pl": "25.00",
+            "total_unrealized_pl_pct": "1.67"
+          }
+        ],
+        "properties": {
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/RealtimePositionPnL"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "realtime_prices_available": {
+            "description": "Number of positions with real-time prices",
+            "title": "Realtime Prices Available",
+            "type": "integer"
+          },
+          "timestamp": {
+            "description": "Response generation timestamp",
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "total_positions": {
+            "title": "Total Positions",
+            "type": "integer"
+          },
+          "total_unrealized_pl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Unrealized Pl",
+            "type": "string"
+          },
+          "total_unrealized_pl_pct": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total unrealized P&L as percentage of total investment",
+            "title": "Total Unrealized Pl Pct"
+          }
+        },
+        "required": [
+          "positions",
+          "total_positions",
+          "total_unrealized_pl",
+          "realtime_prices_available",
+          "timestamp"
+        ],
+        "title": "RealtimePnLResponse",
+        "type": "object"
+      },
+      "RealtimePositionPnL": {
+        "description": "Real-time P&L for a single position.\n\nUses latest prices from Redis cache (market data service).\nFalls back to database price if real-time data unavailable.",
+        "examples": [
+          {
+            "avg_entry_price": "150.00",
+            "current_price": "152.50",
+            "last_price_update": "2024-10-19T14:30:15Z",
+            "price_source": "real-time",
+            "qty": "10",
+            "symbol": "AAPL",
+            "unrealized_pl": "25.00",
+            "unrealized_pl_pct": "1.67"
+          }
+        ],
+        "properties": {
+          "avg_entry_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Avg Entry Price",
+            "type": "string"
+          },
+          "current_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Current Price",
+            "type": "string"
+          },
+          "last_price_update": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp of last price update from market data",
+            "title": "Last Price Update"
+          },
+          "price_source": {
+            "description": "Source of current price (real-time=Redis, database=last known, fallback=entry price)",
+            "enum": [
+              "real-time",
+              "database",
+              "fallback"
+            ],
+            "title": "Price Source",
+            "type": "string"
+          },
+          "qty": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Qty",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unrealized_pl": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unrealized Pl",
+            "type": "string"
+          },
+          "unrealized_pl_pct": {
+            "description": "Unrealized P&L as percentage",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unrealized Pl Pct",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "qty",
+          "avg_entry_price",
+          "current_price",
+          "price_source",
+          "unrealized_pl",
+          "unrealized_pl_pct"
+        ],
+        "title": "RealtimePositionPnL",
+        "type": "object"
+      },
+      "ReconciliationForceCompleteRequest": {
+        "description": "Request to force-complete startup reconciliation.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Operator-provided reason for forcing reconciliation completion",
+            "title": "Reason"
+          }
+        },
+        "title": "ReconciliationForceCompleteRequest",
+        "type": "object"
+      },
+      "SliceDetail": {
+        "description": "Details for a single TWAP child slice.\n\nAttributes:\n    slice_num: Sequential slice number (0-indexed)\n    qty: Slice quantity\n    scheduled_time: UTC timestamp for scheduled execution\n    client_order_id: Deterministic ID for this slice\n    strategy_id: Strategy identifier used for this slice's order ID generation\n    status: Slice status (uses order status vocabulary from orders table)",
+        "examples": [
+          {
+            "client_order_id": "abc123def456...",
+            "qty": 20,
+            "scheduled_time": "2025-10-26T14:00:00Z",
+            "slice_num": 0,
+            "status": "pending_new",
+            "strategy_id": "twap_slice_abc123_0"
+          }
+        ],
+        "properties": {
+          "client_order_id": {
+            "description": "Deterministic slice order ID",
+            "title": "Client Order Id",
+            "type": "string"
+          },
+          "qty": {
+            "description": "Slice quantity",
+            "exclusiveMinimum": 0.0,
+            "title": "Qty",
+            "type": "integer"
+          },
+          "scheduled_time": {
+            "description": "Scheduled execution time (UTC)",
+            "format": "date-time",
+            "title": "Scheduled Time",
+            "type": "string"
+          },
+          "slice_num": {
+            "description": "Slice number (0-indexed)",
+            "minimum": 0.0,
+            "title": "Slice Num",
+            "type": "integer"
+          },
+          "status": {
+            "default": "pending_new",
+            "description": "Current slice status",
+            "enum": [
+              "pending_new",
+              "new",
+              "accepted",
+              "partially_filled",
+              "filled",
+              "canceled",
+              "rejected",
+              "expired",
+              "replaced",
+              "done_for_day",
+              "stopped",
+              "suspended",
+              "pending_cancel",
+              "pending_replace",
+              "calculated",
+              "submitted",
+              "submitted_unconfirmed",
+              "dry_run",
+              "failed",
+              "blocked_kill_switch",
+              "blocked_circuit_breaker"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "strategy_id": {
+            "description": "Strategy ID for this slice (e.g., 'twap_slice_parent123_0')",
+            "title": "Strategy Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slice_num",
+          "qty",
+          "scheduled_time",
+          "client_order_id",
+          "strategy_id"
+        ],
+        "title": "SliceDetail",
+        "type": "object"
+      },
+      "SlicingPlan": {
+        "description": "Complete TWAP slicing plan with parent order and all child slices.\n\nThe plan includes the parent order metadata and a list of child slices\nscheduled for execution at regular intervals determined by interval_seconds.\n\nAttributes:\n    parent_order_id: Deterministic ID for the parent order\n    parent_strategy_id: Strategy identifier used for parent order ID generation\n    symbol: Stock symbol\n    side: Order side\n    total_qty: Total quantity across all slices\n    total_slices: Number of child slices\n    duration_minutes: Slicing duration\n    interval_seconds: Interval between slices in seconds\n    slices: List of child slice details (ordered by slice_num)",
+        "examples": [
+          {
+            "duration_minutes": 5,
+            "interval_seconds": 60,
+            "parent_order_id": "parent_xyz789...",
+            "parent_strategy_id": "twap_parent_5m_60s",
+            "side": "buy",
+            "slices": [
+              {
+                "client_order_id": "slice_0_abc...",
+                "qty": 20,
+                "scheduled_time": "2025-10-26T14:00:00Z",
+                "slice_num": 0,
+                "status": "pending_new",
+                "strategy_id": "twap_slice_parent_xyz789_0"
+              },
+              {
+                "client_order_id": "slice_1_def...",
+                "qty": 20,
+                "scheduled_time": "2025-10-26T14:01:00Z",
+                "slice_num": 1,
+                "status": "pending_new",
+                "strategy_id": "twap_slice_parent_xyz789_1"
+              }
+            ],
+            "symbol": "AAPL",
+            "total_qty": 100,
+            "total_slices": 5
+          }
+        ],
+        "properties": {
+          "duration_minutes": {
+            "description": "Slicing duration in minutes",
+            "exclusiveMinimum": 0.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "interval_seconds": {
+            "description": "Interval between slices in seconds",
+            "exclusiveMinimum": 0.0,
+            "title": "Interval Seconds",
+            "type": "integer"
+          },
+          "parent_order_id": {
+            "description": "Parent order deterministic ID",
+            "title": "Parent Order Id",
+            "type": "string"
+          },
+          "parent_strategy_id": {
+            "description": "Strategy ID for parent order (e.g., 'twap_parent_5m_60s')",
+            "title": "Parent Strategy Id",
+            "type": "string"
+          },
+          "side": {
+            "description": "Order side",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "slices": {
+            "description": "Child slice details (ordered by slice_num)",
+            "items": {
+              "$ref": "#/components/schemas/SliceDetail"
+            },
+            "title": "Slices",
+            "type": "array"
+          },
+          "symbol": {
+            "description": "Stock symbol",
+            "title": "Symbol",
+            "type": "string"
+          },
+          "total_qty": {
+            "description": "Total quantity",
+            "exclusiveMinimum": 0.0,
+            "title": "Total Qty",
+            "type": "integer"
+          },
+          "total_slices": {
+            "description": "Number of slices",
+            "exclusiveMinimum": 0.0,
+            "title": "Total Slices",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parent_order_id",
+          "parent_strategy_id",
+          "symbol",
+          "side",
+          "total_qty",
+          "total_slices",
+          "duration_minutes",
+          "interval_seconds",
+          "slices"
+        ],
+        "title": "SlicingPlan",
+        "type": "object"
+      },
+      "SlicingRequest": {
+        "description": "Request to create a TWAP (Time-Weighted Average Price) order slicing plan.\n\nLarge parent orders are split into smaller child slices distributed evenly\nover a time period to minimize market impact.\n\nExamples:\n    Market order slicing:\n    >>> request = SlicingRequest(\n    ...     symbol=\"AAPL\",\n    ...     side=\"buy\",\n    ...     qty=100,\n    ...     duration_minutes=5,\n    ...     interval_seconds=60,\n    ...     order_type=\"market\"\n    ... )\n\n    Custom interval slicing:\n    >>> request = SlicingRequest(\n    ...     symbol=\"MSFT\",\n    ...     side=\"sell\",\n    ...     qty=600,\n    ...     duration_minutes=60,\n    ...     interval_seconds=300,\n    ...     order_type=\"limit\",\n    ...     limit_price=300.50\n    ... )",
+        "examples": [
+          {
+            "duration_minutes": 5,
+            "interval_seconds": 60,
+            "order_type": "market",
+            "qty": 100,
+            "side": "buy",
+            "symbol": "AAPL",
+            "time_in_force": "day"
+          },
+          {
+            "duration_minutes": 10,
+            "interval_seconds": 300,
+            "limit_price": "300.50",
+            "order_type": "limit",
+            "qty": 50,
+            "side": "sell",
+            "symbol": "MSFT",
+            "time_in_force": "day"
+          }
+        ],
+        "properties": {
+          "duration_minutes": {
+            "description": "Total slicing duration in minutes",
+            "exclusiveMinimum": 0.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "interval_seconds": {
+            "default": 60,
+            "description": "Interval between slices in seconds (default: 60 = 1 minute)",
+            "exclusiveMinimum": 0.0,
+            "title": "Interval Seconds",
+            "type": "integer"
+          },
+          "limit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Limit price (required for limit orders)",
+            "title": "Limit Price"
+          },
+          "order_type": {
+            "default": "market",
+            "description": "Order type for each slice",
+            "enum": [
+              "market",
+              "limit",
+              "stop",
+              "stop_limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "qty": {
+            "description": "Total order quantity (must be positive)",
+            "exclusiveMinimum": 0.0,
+            "title": "Qty",
+            "type": "integer"
+          },
+          "side": {
+            "description": "Order side",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stop price (required for stop orders)",
+            "title": "Stop Price"
+          },
+          "symbol": {
+            "description": "Stock symbol (e.g., 'AAPL')",
+            "title": "Symbol",
+            "type": "string"
+          },
+          "time_in_force": {
+            "default": "day",
+            "description": "Time in force for each slice",
+            "enum": [
+              "day",
+              "gtc",
+              "ioc",
+              "fok"
+            ],
+            "title": "Time In Force",
+            "type": "string"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Trading date for order ID generation (defaults to today UTC). CRITICAL for idempotency: retries after midnight must pass same trade_date to avoid creating duplicate orders.",
+            "title": "Trade Date"
+          }
+        },
+        "required": [
+          "symbol",
+          "side",
+          "qty",
+          "duration_minutes"
+        ],
+        "title": "SlicingRequest",
+        "type": "object"
+      },
+      "StrategiesListResponse": {
+        "description": "Response for listing all strategies with their status.",
+        "properties": {
+          "strategies": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyStatusResponse"
+            },
+            "title": "Strategies",
+            "type": "array"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "strategies",
+          "total_count",
+          "timestamp"
+        ],
+        "title": "StrategiesListResponse",
+        "type": "object"
+      },
+      "StrategyStatusResponse": {
+        "description": "Strategy status information for monitoring.\n\nProvides consolidated view of strategy state including:\n- Basic strategy info (id, name, status)\n- Model version and status\n- Activity indicators (last signal, errors)\n- Position and order counts\n- Today's P&L",
+        "examples": [
+          {
+            "last_signal_at": "2024-10-17T16:30:00Z",
+            "model_status": "active",
+            "model_version": "v1.2.0",
+            "name": "Alpha Baseline Strategy",
+            "open_orders_count": 3,
+            "positions_count": 15,
+            "status": "active",
+            "strategy_id": "alpha_baseline",
+            "timestamp": "2024-10-17T16:35:00Z",
+            "today_pnl": "1234.56"
+          }
+        ],
+        "properties": {
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_signal_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Signal At"
+          },
+          "model_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "inactive",
+                  "testing",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Status"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "open_orders_count": {
+            "default": 0,
+            "title": "Open Orders Count",
+            "type": "integer"
+          },
+          "positions_count": {
+            "default": 0,
+            "title": "Positions Count",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "paused",
+              "error",
+              "inactive"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "today_pnl": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Today Pnl"
+          }
+        },
+        "required": [
+          "strategy_id",
+          "name",
+          "status",
+          "timestamp"
+        ],
+        "title": "StrategyStatusResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Order execution service with idempotent submission and DRY_RUN mode",
+    "title": "Execution Gateway",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Root endpoint.",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Root  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/config": {
+      "get": {
+        "description": "Get service configuration for verification.\n\nReturns safety flags and environment settings for automated verification\nin smoke tests and monitoring. Critical for ensuring paper trading mode\nin staging and detecting configuration drift.\n\nThis endpoint is used by:\n- CI/CD smoke tests to verify paper trading mode active\n- Monitoring systems to detect configuration drift\n- Debugging to verify environment settings\n\nReturns:\n    ConfigResponse with service configuration details\n\nExamples:\n    >>> import requests\n    >>> response = requests.get(\"http://localhost:8002/api/v1/config\")\n    >>> config = response.json()\n    >>> assert config[\"dry_run\"] is True  # Staging safety check\n    >>> assert config[\"alpaca_paper\"] is True\n    >>> assert config[\"environment\"] == \"staging\"",
+        "operationId": "get_config_api_v1_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Config",
+        "tags": [
+          "Configuration"
+        ]
+      }
+    },
+    "/api/v1/fat-finger/thresholds": {
+      "get": {
+        "description": "Get current fat-finger threshold configuration.",
+        "operationId": "get_fat_finger_thresholds_api_v1_fat_finger_thresholds_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FatFingerThresholdsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Fat Finger Thresholds",
+        "tags": [
+          "Configuration"
+        ]
+      },
+      "put": {
+        "description": "Update fat-finger thresholds (defaults and per-symbol overrides).",
+        "operationId": "update_fat_finger_thresholds_api_v1_fat_finger_thresholds_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FatFingerThresholdsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FatFingerThresholdsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Fat Finger Thresholds",
+        "tags": [
+          "Configuration"
+        ]
+      }
+    },
+    "/api/v1/kill-switch/disengage": {
+      "post": {
+        "description": "Disengage kill-switch (resume trading).\n\nThis operator action re-enables trading after kill-switch was engaged.\n\nArgs:\n    request: KillSwitchDisengageRequest with operator and optional notes\n\nReturns:\n    Kill-switch status after disengagement\n\nRaises:\n    HTTPException 503: Redis unavailable\n    HTTPException 400: Kill-switch not currently engaged\n\nExamples:\n    >>> import requests\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/kill-switch/disengage\",\n    ...     json={\n    ...         \"operator\": \"ops_team\",\n    ...         \"notes\": \"Market conditions normalized\"\n    ...     }\n    ... )\n    >>> response.json()\n    {\"state\": \"ACTIVE\", \"disengaged_by\": \"ops_team\", ...}",
+        "operationId": "disengage_kill_switch_api_v1_kill_switch_disengage_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KillSwitchDisengageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Disengage Kill Switch Api V1 Kill Switch Disengage Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disengage Kill Switch",
+        "tags": [
+          "Kill-Switch"
+        ]
+      }
+    },
+    "/api/v1/kill-switch/engage": {
+      "post": {
+        "description": "Engage kill-switch (emergency trading halt).\n\nCRITICAL: This operator-controlled action immediately blocks ALL trading\nactivities across all services until manually disengaged.\n\nArgs:\n    request: KillSwitchEngageRequest with reason, operator, and optional details\n\nReturns:\n    Kill-switch status after engagement\n\nRaises:\n    HTTPException 503: Redis unavailable\n    HTTPException 400: Kill-switch already engaged\n\nExamples:\n    >>> import requests\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/kill-switch/engage\",\n    ...     json={\n    ...         \"reason\": \"Market anomaly detected\",\n    ...         \"operator\": \"ops_team\",\n    ...         \"details\": {\"anomaly_type\": \"flash_crash\"}\n    ...     }\n    ... )\n    >>> response.json()\n    {\"state\": \"ENGAGED\", \"engaged_by\": \"ops_team\", ...}",
+        "operationId": "engage_kill_switch_api_v1_kill_switch_engage_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KillSwitchEngageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Engage Kill Switch Api V1 Kill Switch Engage Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Engage Kill Switch",
+        "tags": [
+          "Kill-Switch"
+        ]
+      }
+    },
+    "/api/v1/kill-switch/status": {
+      "get": {
+        "description": "Get kill-switch status.\n\nReturns current state, last engagement/disengagement details, and history.\n\nReturns:\n    Kill-switch status with state, timestamps, and operator info\n\nRaises:\n    HTTPException 503: Redis unavailable\n\nExamples:\n    >>> import requests\n    >>> response = requests.get(\"http://localhost:8002/api/v1/kill-switch/status\")\n    >>> status = response.json()\n    >>> print(status[\"state\"])\n    'ACTIVE'",
+        "operationId": "get_kill_switch_status_api_v1_kill_switch_status_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Kill Switch Status Api V1 Kill Switch Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Kill Switch Status",
+        "tags": [
+          "Kill-Switch"
+        ]
+      }
+    },
+    "/api/v1/orders": {
+      "post": {
+        "description": "Submit order with idempotent retry semantics.\n\nThe order is assigned a deterministic client_order_id based on the order\nparameters and current date. This ensures that the same order submitted\nmultiple times will have the same ID and won't create duplicates.\n\nIn DRY_RUN mode (default), orders are logged to database but NOT submitted\nto Alpaca. Set DRY_RUN=false to enable actual paper trading.\n\nArgs:\n    order: Order request (symbol, side, qty, order_type, etc.)\n\nReturns:\n    OrderResponse with client_order_id, status, and broker_order_id\n\nRaises:\n    HTTPException 400: Invalid order parameters\n    HTTPException 422: Order rejected by broker\n    HTTPException 503: Broker connection error\n\nExamples:\n    Market buy order:\n    >>> import requests\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/orders\",\n    ...     json={\n    ...         \"symbol\": \"AAPL\",\n    ...         \"side\": \"buy\",\n    ...         \"qty\": 10,\n    ...         \"order_type\": \"market\"\n    ...     }\n    ... )\n    >>> response.json()\n    {\n        \"client_order_id\": \"a1b2c3d4e5f6...\",\n        \"status\": \"dry_run\",  # or \"pending_new\" if DRY_RUN=false\n        \"broker_order_id\": null,\n        \"symbol\": \"AAPL\",\n        \"side\": \"buy\",\n        \"qty\": 10,\n        \"order_type\": \"market\",\n        \"limit_price\": null,\n        \"created_at\": \"2024-10-17T16:30:00Z\",\n        \"message\": \"Order logged (DRY_RUN mode)\"\n    }\n\n    Limit sell order:\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/orders\",\n    ...     json={\n    ...         \"symbol\": \"MSFT\",\n    ...         \"side\": \"sell\",\n    ...         \"qty\": 5,\n    ...         \"order_type\": \"limit\",\n    ...         \"limit_price\": \"300.50\"\n    ...     }\n    ... )",
+        "operationId": "submit_order_api_v1_orders_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Order",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/v1/orders/cancel-all": {
+      "post": {
+        "description": "Cancel all pending orders for a symbol within authorized strategies.",
+        "operationId": "cancel_all_orders_api_v1_orders_cancel_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAllOrdersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelAllOrdersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel All Orders",
+        "tags": [
+          "Manual Controls"
+        ]
+      }
+    },
+    "/api/v1/orders/pending": {
+      "get": {
+        "description": "List pending orders scoped to authorized strategies.",
+        "operationId": "list_pending_orders_api_v1_orders_pending_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "strategy_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "symbol",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Symbol"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "title": "Sort By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Sort Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingOrdersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Pending Orders",
+        "tags": [
+          "Manual Controls"
+        ]
+      }
+    },
+    "/api/v1/orders/slice": {
+      "post": {
+        "description": "Submit TWAP order with automatic slicing and scheduled execution.\n\nCreates a parent order and multiple child slice orders distributed evenly\nover the specified duration. Each slice is scheduled for execution at the\nrequested interval spacing with mandatory safety guards (kill switch,\ncircuit breaker checks).\n\nArgs:\n    request: TWAP slicing request (symbol, side, qty, duration, etc.)\n\nReturns:\n    SlicingPlan with parent_order_id and list of scheduled slices\n\nRaises:\n    HTTPException 400: Invalid request parameters\n    HTTPException 503: Required services unavailable (scheduler, kill-switch, etc.)\n    HTTPException 500: Database or scheduling error\n\nExamples:\n    Market order TWAP:\n    >>> import requests\n    >>> response = requests.post(\n    ...     \"http://localhost:8002/api/v1/orders/slice\",\n    ...     json={\n    ...         \"symbol\": \"AAPL\",\n    ...         \"side\": \"buy\",\n    ...         \"qty\": 100,\n    ...         \"duration_minutes\": 5,\n    ...         \"order_type\": \"market\"\n    ...     }\n    ... )\n    >>> response.json()\n    {\n        \"parent_order_id\": \"abc123...\",\n        \"symbol\": \"AAPL\",\n        \"side\": \"buy\",\n        \"total_qty\": 100,\n        \"total_slices\": 5,\n        \"duration_minutes\": 5,\n        \"slices\": [\n            {\"slice_num\": 0, \"qty\": 20, \"scheduled_time\": \"...\", ...},\n            {\"slice_num\": 1, \"qty\": 20, \"scheduled_time\": \"...\", ...},\n            ...\n        ]\n    }",
+        "operationId": "submit_sliced_order_api_v1_orders_slice_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlicingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlicingPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Sliced Order",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/v1/orders/{client_order_id}": {
+      "get": {
+        "description": "Get order details by client_order_id.\n\nArgs:\n    client_order_id: Deterministic client order ID\n\nReturns:\n    OrderDetail with full order information\n\nRaises:\n    HTTPException 404: Order not found\n\nExamples:\n    >>> import requests\n    >>> response = requests.get(\n    ...     \"http://localhost:8002/api/v1/orders/a1b2c3d4e5f6...\"\n    ... )\n    >>> response.json()\n    {\n        \"client_order_id\": \"a1b2c3d4e5f6...\",\n        \"strategy_id\": \"alpha_baseline\",\n        \"symbol\": \"AAPL\",\n        \"side\": \"buy\",\n        \"qty\": 10,\n        \"order_type\": \"market\",\n        \"status\": \"filled\",\n        \"broker_order_id\": \"broker123...\",\n        \"filled_qty\": \"10\",\n        \"filled_avg_price\": \"150.25\",\n        \"created_at\": \"2024-10-17T16:30:00Z\",\n        \"filled_at\": \"2024-10-17T16:30:05Z\"\n    }",
+        "operationId": "get_order_api_v1_orders__client_order_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_order_id",
+            "required": true,
+            "schema": {
+              "title": "Client Order Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Order",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/v1/orders/{client_order_id}/cancel": {
+      "post": {
+        "description": "Cancel a single order by client_order_id.",
+        "operationId": "cancel_order_api_v1_orders__client_order_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_order_id",
+            "required": true,
+            "schema": {
+              "title": "Client Order Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Order Api V1 Orders  Client Order Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Order",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/v1/orders/{order_id}/cancel": {
+      "post": {
+        "description": "Cancel a single order with permission, strategy, and rate-limit enforcement.",
+        "operationId": "cancel_order_api_v1_orders__order_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelOrderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Order",
+        "tags": [
+          "Manual Controls"
+        ]
+      }
+    },
+    "/api/v1/orders/{parent_id}/slices": {
+      "delete": {
+        "description": "Cancel all pending child slices for a parent TWAP order.\n\nRemoves scheduled jobs from the scheduler and updates database to mark\nall pending_new slices as canceled. Already-executed slices are not affected.\n\nArgs:\n    parent_id: Parent order's client_order_id\n\nReturns:\n    Dictionary with cancellation counts\n\nRaises:\n    HTTPException 404: Parent order not found\n    HTTPException 503: Scheduler unavailable\n    HTTPException 500: Cancellation error\n\nExamples:\n    >>> import requests\n    >>> response = requests.delete(\n    ...     \"http://localhost:8002/api/v1/orders/parent123/slices\"\n    ... )\n    >>> response.json()\n    {\n        \"parent_order_id\": \"parent123\",\n        \"scheduler_canceled\": 3,\n        \"db_canceled\": 3,\n        \"message\": \"Canceled 3 pending slices\"\n    }",
+        "operationId": "cancel_slices_api_v1_orders__parent_id__slices_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "parent_id",
+            "required": true,
+            "schema": {
+              "title": "Parent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Slices Api V1 Orders  Parent Id  Slices Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Slices",
+        "tags": [
+          "Orders"
+        ]
+      },
+      "get": {
+        "description": "Get all child slices for a parent TWAP order.\n\nRetrieves all child slice orders (both pending and executed) for a given\nparent order ID, ordered by slice number.\n\nArgs:\n    parent_id: Parent order's client_order_id\n\nReturns:\n    List of OrderDetail for all child slices (ordered by slice_num)\n\nRaises:\n    HTTPException 404: Parent order not found\n    HTTPException 500: Database error\n\nExamples:\n    >>> import requests\n    >>> response = requests.get(\n    ...     \"http://localhost:8002/api/v1/orders/parent123/slices\"\n    ... )\n    >>> response.json()\n    [\n        {\"client_order_id\": \"slice0_abc...\", \"slice_num\": 0, \"status\": \"filled\", ...},\n        {\"client_order_id\": \"slice1_def...\", \"slice_num\": 1, \"status\": \"pending_new\", ...},\n        ...\n    ]",
+        "operationId": "get_slices_by_parent_api_v1_orders__parent_id__slices_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "parent_id",
+            "required": true,
+            "schema": {
+              "title": "Parent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrderDetail"
+                  },
+                  "title": "Response Get Slices By Parent Api V1 Orders  Parent Id  Slices Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Slices By Parent",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/v1/performance/daily": {
+      "get": {
+        "description": "Daily realized P&L (equity & drawdown) for performance dashboard.",
+        "operationId": "get_daily_performance_api_v1_performance_daily_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start_date",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "title": "Start Date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_date",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "title": "End Date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyPerformanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Daily Performance",
+        "tags": [
+          "Performance"
+        ]
+      }
+    },
+    "/api/v1/positions": {
+      "get": {
+        "description": "Get all current positions.\n\nReturns list of positions with P&L calculations.\n\nReturns:\n    PositionsResponse with list of positions\n\nExamples:\n    >>> import requests\n    >>> response = requests.get(\"http://localhost:8002/api/v1/positions\")\n    >>> response.json()\n    {\n        \"positions\": [\n            {\n                \"symbol\": \"AAPL\",\n                \"qty\": \"10\",\n                \"avg_entry_price\": \"150.25\",\n                \"current_price\": \"152.75\",\n                \"unrealized_pl\": \"25.00\",\n                \"realized_pl\": \"0.00\",\n                \"updated_at\": \"2024-10-17T16:30:00Z\"\n            }\n        ],\n        \"total_positions\": 1,\n        \"total_unrealized_pl\": \"25.00\",\n        \"total_realized_pl\": \"0.00\"\n    }",
+        "operationId": "get_positions_api_v1_positions_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Positions",
+        "tags": [
+          "Positions"
+        ]
+      }
+    },
+    "/api/v1/positions/flatten-all": {
+      "post": {
+        "description": "Flatten all positions across authorized strategies with MFA.",
+        "operationId": "flatten_all_positions_api_v1_positions_flatten_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlattenAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlattenAllResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Flatten All Positions",
+        "tags": [
+          "Manual Controls"
+        ]
+      }
+    },
+    "/api/v1/positions/pnl/realtime": {
+      "get": {
+        "description": "Get real-time P&L with latest market prices.\n\nFetches latest prices from Redis cache (populated by Market Data Service).\nFalls back to database prices if real-time data is unavailable.\n\nPrice source priority:\n1. real-time: Latest price from Redis (Market Data Service via WebSocket)\n2. database: Last known price from database (closing price or last fill)\n3. fallback: Entry price (if no other price available)\n\nReturns:\n    RealtimePnLResponse with real-time P&L for all positions\n\nExamples:\n    >>> import requests\n    >>> response = requests.get(\"http://localhost:8002/api/v1/positions/pnl/realtime\")\n    >>> response.json()\n    {\n        \"positions\": [\n            {\n                \"symbol\": \"AAPL\",\n                \"qty\": \"10\",\n                \"avg_entry_price\": \"150.00\",\n                \"current_price\": \"152.50\",\n                \"price_source\": \"real-time\",\n                \"unrealized_pl\": \"25.00\",\n                \"unrealized_pl_pct\": \"1.67\",\n                \"last_price_update\": \"2024-10-19T14:30:15Z\"\n            }\n        ],\n        \"total_positions\": 1,\n        \"total_unrealized_pl\": \"25.00\",\n        \"total_unrealized_pl_pct\": \"1.67\",\n        \"realtime_prices_available\": 1,\n        \"timestamp\": \"2024-10-19T14:30:20Z\"\n    }",
+        "operationId": "get_realtime_pnl_api_v1_positions_pnl_realtime_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimePnLResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Realtime Pnl",
+        "tags": [
+          "Positions"
+        ]
+      }
+    },
+    "/api/v1/positions/{symbol}/adjust": {
+      "post": {
+        "description": "Force position adjustment to a target quantity.",
+        "operationId": "adjust_position_api_v1_positions__symbol__adjust_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustPositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdjustPositionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Adjust Position",
+        "tags": [
+          "Manual Controls"
+        ]
+      }
+    },
+    "/api/v1/positions/{symbol}/close": {
+      "post": {
+        "description": "Close (fully or partially) a position.",
+        "operationId": "close_position_api_v1_positions__symbol__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClosePositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosePositionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Close Position",
+        "tags": [
+          "Manual Controls"
+        ]
+      }
+    },
+    "/api/v1/reconciliation/force-complete": {
+      "post": {
+        "description": "Force-complete reconciliation (operator override).",
+        "operationId": "force_complete_reconciliation_api_v1_reconciliation_force_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconciliationForceCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Force Complete Reconciliation Api V1 Reconciliation Force Complete Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Force Complete Reconciliation",
+        "tags": [
+          "Reconciliation"
+        ]
+      }
+    },
+    "/api/v1/reconciliation/run": {
+      "post": {
+        "description": "Manually trigger reconciliation.",
+        "operationId": "run_reconciliation_api_v1_reconciliation_run_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Reconciliation Api V1 Reconciliation Run Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Run Reconciliation",
+        "tags": [
+          "Reconciliation"
+        ]
+      }
+    },
+    "/api/v1/reconciliation/status": {
+      "get": {
+        "description": "Return reconciliation gating status and override state.",
+        "operationId": "get_reconciliation_status_api_v1_reconciliation_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Reconciliation Status Api V1 Reconciliation Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Reconciliation Status",
+        "tags": [
+          "Reconciliation"
+        ]
+      }
+    },
+    "/api/v1/strategies": {
+      "get": {
+        "description": "List all strategies with their current status.\n\nReturns consolidated view of each strategy including:\n- Basic info (id, name, status)\n- Position and open order counts\n- Today's realized P&L\n- Last signal time\n\nOnly returns strategies the user is authorized to view.\n\nExample response:\n    {\n        \"strategies\": [\n            {\n                \"strategy_id\": \"alpha_baseline\",\n                \"name\": \"Alpha Baseline\",\n                \"status\": \"active\",\n                ...\n            }\n        ],\n        \"total_count\": 1,\n        \"timestamp\": \"2024-10-17T16:35:00Z\"\n    }",
+        "operationId": "list_strategies_api_v1_strategies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategiesListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Strategies",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/api/v1/strategies/{strategy_id}": {
+      "get": {
+        "description": "Get status for a specific strategy.\n\nArgs:\n    strategy_id: The strategy identifier\n\nReturns:\n    StrategyStatusResponse with consolidated strategy state\n\nRaises:\n    HTTPException 403 if user not authorized for this strategy\n    HTTPException 404 if strategy not found",
+        "operationId": "get_strategy_status_api_v1_strategies__strategy_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "strategy_id",
+            "required": true,
+            "schema": {
+              "title": "Strategy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Strategy Status",
+        "tags": [
+          "Strategies"
+        ]
+      }
+    },
+    "/api/v1/webhooks/orders": {
+      "post": {
+        "description": "Webhook for Alpaca order updates with per-fill P&L and row locking.",
+        "operationId": "order_webhook_api_v1_webhooks_orders_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Order Webhook Api V1 Webhooks Orders Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Order Webhook",
+        "tags": [
+          "Webhooks"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Health check endpoint.\n\nReturns service health status including:\n- Overall status (healthy, degraded, unhealthy)\n- Database connection status\n- Alpaca connection status (if not DRY_RUN)\n- Service version and configuration\n\nReturns:\n    HealthResponse with service health details\n\nExamples:\n    >>> import requests\n    >>> response = requests.get(\"http://localhost:8002/health\")\n    >>> response.json()\n    {\n        \"status\": \"healthy\",\n        \"service\": \"execution_gateway\",\n        \"version\": \"0.1.0\",\n        \"dry_run\": true,\n        \"database_connected\": true,\n        \"alpaca_connected\": true,\n        \"timestamp\": \"2024-10-17T16:30:00Z\"\n    }",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  }
+}

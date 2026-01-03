@@ -141,7 +141,7 @@ A metric changed more than 0.1% from golden value. Steps:
 
 ## Related Documents
 
-- [P4T4_TASK.md](../TASKS/P4T4_TASK.md) - Parent task specification
-- [P4T4_5.6_TASK.md](../TASKS/P4T4_5.6_TASK.md) - Detailed subtask
+- [P4T4_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T4_DONE.md) - Parent task specification
+- [P4T4_5.6_TASK.md](../ARCHIVE/TASKS_HISTORY/P4T4_5.6_DONE.md) - Detailed subtask
 - [walk-forward-optimization.md](./walk-forward-optimization.md) - Walk-forward analysis
 - [monte-carlo-backtesting.md](./monte-carlo-backtesting.md) - Monte Carlo methods

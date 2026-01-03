@@ -78,5 +78,5 @@ Use **Auth0** as the production IdP for OAuth2/OIDC authentication.
 
 - Auth0 Pricing: https://auth0.com/pricing
 - Auth0 Documentation: https://auth0.com/docs
-- P2T3 Phase 3 Final Plan: `docs/TASKS/P2T3_Phase3_FINAL_PLAN.md`
+- P2T3 Phase 3 Plan Summary: `docs/ARCHIVE/TASKS_HISTORY/P2T3_Phase3_PLANNING_SUMMARY.md`
 - mTLS fallback runbook: (to be created in Component 5)

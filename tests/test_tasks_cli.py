@@ -48,9 +48,19 @@ def test_create_phase_requires_valid_phase():
 
 def test_generate_tasks_dry_run():
     """Test generate-tasks-from-phase with --dry-run flag."""
-    # This test assumes P1_PLANNING.md exists
+    # Find an existing planning file (P0, P1, or P2)
+    tasks_dir = Path(__file__).parent.parent / "docs" / "TASKS"
+    existing_phase = None
+    for phase in ["P0", "P1", "P2"]:
+        if (tasks_dir / f"{phase}_PLANNING.md").exists():
+            existing_phase = phase
+            break
+
+    if existing_phase is None:
+        pytest.skip("No planning file exists for P0, P1, or P2 (all archived)")
+
     result = subprocess.run(
-        ["python", "scripts/tasks.py", "generate-tasks-from-phase", "P1", "--dry-run"],
+        ["python", "scripts/tasks.py", "generate-tasks-from-phase", existing_phase, "--dry-run"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,

@@ -434,8 +434,11 @@ docker-compose --profile mtls up -d
 
 ## References
 
-- **Task Document**: `docs/TASKS/P2T3_TASK.md`
-- **Implementation Plan**: `docs/TASKS/P2T3_Component{1,2,3}_Plan.md`
+- **Task Document**: `docs/ARCHIVE/TASKS_HISTORY/P2T3_DONE.md`
+- **Implementation Plans**:
+  - `docs/ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component1_Plan.md`
+  - `docs/ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component2_Plan_v3.md`
+  - `docs/ARCHIVE/TASKS_HISTORY/P2T3-Phase3_Component3_Plan_v2.md`
 - **Runbooks**:
   - `docs/RUNBOOKS/web-console-mtls-setup.md` - Initial setup
   - `docs/RUNBOOKS/web-console-cert-rotation.md` - Certificate rotation
