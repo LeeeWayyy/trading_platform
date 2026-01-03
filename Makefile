@@ -137,7 +137,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	echo "If this passes, CI should pass too."; \
 	echo ""; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "Step 0/6: Validating local environment matches pyproject.toml"; \
+	echo "Step 0/8: Validating local environment matches pyproject.toml"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@poetry run python scripts/validate_env.py || { \
 		echo ""; \
