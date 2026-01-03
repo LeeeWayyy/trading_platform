@@ -172,6 +172,6 @@ Integration tests require:
 
 ## Questions or Issues?
 
-- Review [/docs/TASKS/P0T2_DONE.md](../../../docs/TASKS/P0T2_DONE.md) for implementation guide
+- Review [/docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md](../../../docs/ARCHIVE/TASKS_HISTORY/P0T2_DONE.md) for implementation guide
 - Check `/docs/CONCEPTS/` for conceptual explanations
 - File issues in GitHub issue tracker

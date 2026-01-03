@@ -39,7 +39,7 @@
 
 ### Step 0: Pack Context for Review
 
-**MANDATORY:** Pack changed directories before requesting review.
+**MANDATORY:** ALWAYS Pack changed directories before requesting review.
 
 ```bash
 # Pack the directories you modified
@@ -159,7 +159,7 @@ If issues found:
 1. Collect ALL issues from ALL reviewers
 2. Fix ALL issues
 3. Re-review using **SAME continuation_id**
-4. Repeat until all reviewers approve
+4. Repeat until all reviewers approve (NOTE: iteration ALWAYS ends with all approval, DO NOT start new iteration without approval)
 
 #### Between Iterations (Fresh Gate)
 
