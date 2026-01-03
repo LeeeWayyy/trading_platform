@@ -13,7 +13,7 @@ import pytest
 import scripts.generate_architecture as architecture
 
 
-@pytest.fixture
+@pytest.fixture()
 def tmp_repo_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Provide a temporary repo root and patch module constants."""
     monkeypatch.setattr(architecture, "REPO_ROOT", tmp_path)
@@ -21,7 +21,7 @@ def tmp_repo_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-@pytest.fixture
+@pytest.fixture()
 def minimal_config() -> architecture.Config:
     """Provide a minimal config for testing."""
     return architecture.Config(

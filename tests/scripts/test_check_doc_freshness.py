@@ -14,7 +14,7 @@ import pytest
 import scripts.check_doc_freshness as freshness
 
 
-@pytest.fixture
+@pytest.fixture()
 def tmp_repo_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Provide a temporary repo root and patch module constants."""
     monkeypatch.setattr(freshness, "PROJECT_ROOT", tmp_path)

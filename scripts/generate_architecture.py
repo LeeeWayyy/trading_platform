@@ -23,9 +23,10 @@ import argparse
 import ast
 import json
 import sys
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARCH_DIR = REPO_ROOT / "docs" / "ARCHITECTURE"
@@ -374,8 +375,6 @@ def render_mermaid_flow(
     lines = ["# System Architecture - Data Flow", "", "```mermaid", "flowchart TB"]
 
     # Group components by layer
-    layer_order = config.layer_order
-    layer_labels = config.layer_labels
     components_by_layer: dict[str, list[Component]] = {layer["id"]: [] for layer in config.layers}
 
     for comp in components:
@@ -411,7 +410,7 @@ def render_mermaid_flow(
 
     # Add virtual edges with styling
     lines.append("")
-    for idx, edge in enumerate(config.virtual_edges):
+    for edge in config.virtual_edges:
         from_id = resolve_virtual_edge_id(edge.from_id, components, config.external_nodes)
         to_id = resolve_virtual_edge_id(edge.to_id, components, config.external_nodes)
 

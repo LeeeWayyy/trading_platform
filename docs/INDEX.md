@@ -103,11 +103,15 @@ Onboarding and environment setup:
 
 Centralized, code-adjacent specifications for services, libraries, strategies, and infrastructure:
 
-- [SPECS/README.md](./SPECS/README.md) - Spec overview, template reference, and coverage index
-- [Services](./SPECS/README.md#services-apps)
-- [Libraries](./SPECS/README.md#libraries-libs)
-- [Strategies](./SPECS/README.md#strategies-strategies)
-- [Infrastructure](./SPECS/README.md#infrastructure)
+- [CURRENT, 2026-01-02, Spec] [SPECS/README.md](./SPECS/README.md) - Spec overview, template reference, and coverage index
+- [CURRENT, 2026-01-02, Spec] [SPECS/DATA_MODELS.md](./SPECS/DATA_MODELS.md) - Pydantic models, database schemas, and TypedDicts catalog
+- [CURRENT, 2026-01-02, Spec] [SPECS/EVENTS.md](./SPECS/EVENTS.md) - Redis pub/sub channels, streams, and event payloads
+- [CURRENT, 2026-01-02, Spec] [SPECS/SCHEMAS.md](./SPECS/SCHEMAS.md) - OpenAPI/FastAPI endpoint schemas and contracts
+- [CURRENT, 2026-01-02, Spec] [SPECS/SYSTEM_MECHANISMS.md](./SPECS/SYSTEM_MECHANISMS.md) - Critical process walkthroughs with sequence diagrams
+- [Services](./SPECS/README.md#services-apps) - Individual service specs (indexed in README)
+- [Libraries](./SPECS/README.md#libraries-libs) - Individual library specs (indexed in README)
+- [Strategies](./SPECS/README.md#strategies-strategies) - Individual strategy specs (indexed in README)
+- [Infrastructure](./SPECS/README.md#infrastructure) - Infrastructure specs (indexed in README)
 
 **Priority:** 🟡 **HIGH** - Use when implementing or reviewing component behavior
 
@@ -287,9 +291,11 @@ Architectural Decision Records documenting **why** technical choices were made:
 
 System-level architecture references, diagrams, and data schemas:
 
-- [CURRENT, 2025-11-23, Architecture] [README.md](./ARCHITECTURE/README.md) - Architecture documentation index and overview
-- [CURRENT, 2025-11-23, Architecture] [system_map.md](./ARCHITECTURE/system_map.md) - System map with services, data flows, and integrations
-- [CURRENT, 2025-11-23, Architecture] [system_map.canvas](./ARCHITECTURE/system_map.canvas) - Source diagram for the system map
+- [CURRENT, 2026-01-02, Architecture] [README.md](./ARCHITECTURE/README.md) - Architecture documentation index and overview
+- [CURRENT, 2026-01-02, Architecture] [system_map_flow.md](./ARCHITECTURE/system_map_flow.md) - High-level data flow diagram with virtual edges
+- [CURRENT, 2026-01-02, Architecture] [system_map_deps.md](./ARCHITECTURE/system_map_deps.md) - Filtered dependency diagram from code imports
+- [CURRENT, 2026-01-02, Architecture] [system_map.canvas](./ARCHITECTURE/system_map.canvas) - Obsidian Canvas with layered layout and subgroups
+- [CURRENT, 2026-01-02, Architecture] [system_map.config.json](./ARCHITECTURE/system_map.config.json) - Configuration for architecture visualization
 - [CURRENT, 2025-11-23, Architecture] [redis-session-schema.md](./ARCHITECTURE/redis-session-schema.md) - Redis session store schema for OAuth2 tokens with AES-256-GCM encryption
 
 **Priority:** 🟠 **MEDIUM** - Read before making cross-service or topology changes
@@ -395,7 +401,7 @@ Step-by-step implementation instructions for each major task:
 Current and future work items organized by phase. Completed tasks are archived in `docs/ARCHIVE/TASKS_HISTORY/`.
 
 **Templates:**
-- [Template, 2025-10-18, Template] [00-TEMPLATE_DONE.md](ARCHIVE/TASKS_HISTORY/00-TEMPLATE_DONE.md) - Template for completed task documents
+- [Template, 2025-10-18, Template] [00-TEMPLATE_DONE.md](./TASKS/00-TEMPLATE_DONE.md) - Template for completed task documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_FEATURE.md](./TASKS/00-TEMPLATE_FEATURE.md) - Template for feature-level task documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_PHASE_PLANNING.md](./TASKS/00-TEMPLATE_PHASE_PLANNING.md) - Template for phase planning documents
 - [Template, 2025-10-18, Template] [00-TEMPLATE_PROGRESS.md](./TASKS/00-TEMPLATE_PROGRESS.md) - Template for in-progress task documents

@@ -13,10 +13,11 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, TypedDict
+from typing import TypedDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = PROJECT_ROOT / "docs"
@@ -93,17 +94,17 @@ def _run_git_log_timestamp(path: str, fmt: str = "%cI") -> GitTimestamp:
     )
     stamp = result.stdout.strip()
     if not stamp:
-        return GitTimestamp("1970-01-01T00:00:00Z", datetime(1970, 1, 1, tzinfo=timezone.utc))
+        return GitTimestamp("1970-01-01T00:00:00Z", datetime(1970, 1, 1, tzinfo=UTC))
 
     if stamp.endswith("Z"):
         stamp = stamp[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(stamp)
     except ValueError:
-        parsed = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        parsed = datetime(1970, 1, 1, tzinfo=UTC)
         stamp = "1970-01-01T00:00:00Z"
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     iso = parsed.isoformat()
     return GitTimestamp(iso, parsed)
 
@@ -253,7 +254,7 @@ def _filter_doc_entries_to_scope(entries: set[str], source_dirs: Iterable[str]) 
 def _max_git_timestamp(paths: Iterable[str]) -> GitTimestamp:
     """Return the most recent git timestamp among paths."""
 
-    most_recent = GitTimestamp("1970-01-01T00:00:00Z", datetime(1970, 1, 1, tzinfo=timezone.utc))
+    most_recent = GitTimestamp("1970-01-01T00:00:00Z", datetime(1970, 1, 1, tzinfo=UTC))
     for path in paths:
         stamp = _run_git_log_timestamp(path)
         if stamp.dt > most_recent.dt:

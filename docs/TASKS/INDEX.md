@@ -360,7 +360,7 @@ grep -l "owner: \"@alice\"" P*_*.md
 
 - [TASK Template](./00-TEMPLATE_TASK.md) - Planning phase
 - [PROGRESS Template](./00-TEMPLATE_PROGRESS.md) - Active development
-- [DONE Template](../ARCHIVE/TASKS_HISTORY/00-TEMPLATE_DONE.md) - Completion documentation
+- [DONE Template](./00-TEMPLATE_DONE.md) - Completion documentation
 - [FEATURE Template](./00-TEMPLATE_FEATURE.md) - Sub-component tracking
 
 ---
