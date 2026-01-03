@@ -93,6 +93,22 @@ Onboarding and environment setup:
 
 ---
 
+## Technical Specifications
+
+**Location:** `docs/SPECS/`
+
+Centralized, code-adjacent specifications for services, libraries, strategies, and infrastructure:
+
+- [SPECS/README.md](./SPECS/README.md) - Spec overview, template reference, and coverage index
+- [Services](./SPECS/README.md#services-apps)
+- [Libraries](./SPECS/README.md#libraries-libs)
+- [Strategies](./SPECS/README.md#strategies-strategies)
+- [Infrastructure](./SPECS/README.md#infrastructure)
+
+**Priority:** 🟡 **HIGH** - Use when implementing or reviewing component behavior
+
+---
+
 ### 2.5. Workflow Guides (Development Process)
 
 **Location:** `docs/AI/Workflows/`
