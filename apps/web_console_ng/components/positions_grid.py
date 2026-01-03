@@ -178,7 +178,12 @@ async def update_positions_grid(
 
 
 async def on_close_position(
-    symbol: str, qty: int | float | str, user_id: str, user_role: str
+    symbol: str,
+    qty: int | float | str,
+    user_id: str,
+    user_role: str,
+    *,
+    kill_switch_engaged: bool | None = None,
 ) -> None:
     """Handle close position button click.
 
@@ -189,6 +194,16 @@ async def on_close_position(
 
     Note: Closing positions is risk-reducing, so we fail-open on network errors.
     The Execution Gateway performs final validation.
+
+    Args:
+        symbol: The symbol to close
+        qty: Position quantity
+        user_id: User ID for the request
+        user_role: User role for authorization
+        kill_switch_engaged: Optional real-time cached kill switch state.
+            If True, skips blocking API call (instant UI response).
+            If False, skips pre-check (safe to show dialog).
+            If None (default), performs blocking API check (fail-open).
     """
     client = AsyncTradingClient.get()
     requested_at = datetime.now(UTC).isoformat()
@@ -248,68 +263,90 @@ async def on_close_position(
         ui.notify("Viewers cannot execute trades", type="warning")
         return
 
-    try:
-        ks_status = await client.fetch_kill_switch_status(user_id, role=user_role)
-        if ks_status.get("state") == "ENGAGED":
-            logger.info(
-                "close_blocked_kill_switch",
-                extra={
-                    "user_id": user_id,
-                    "symbol": symbol,
-                    "qty": qty,
-                    "requested_at": requested_at,
-                    "strategy_id": "manual",
-                },
-            )
-            ui.notify("Cannot close position: Kill Switch is ENGAGED", type="negative")
-            return
-    except httpx.HTTPStatusError as exc:
-        # Fail-open for 5xx (server errors), fail-closed for 4xx (client errors)
-        # Risk-reducing actions should proceed when safety service has transient issues
-        if exc.response.status_code >= 500:
-            logger.warning(
-                "close_position_safety_check_5xx_proceeding",
-                extra={
-                    "user_id": user_id,
-                    "symbol": symbol,
-                    "qty": qty,
-                    "status": exc.response.status_code,
-                    "requested_at": requested_at,
-                    "strategy_id": "manual",
-                },
-            )
-            ui.notify(f"Safety service error (HTTP {exc.response.status_code}) - proceeding with close", type="warning")
-            # Do NOT return - proceed to show confirmation dialog
-        else:
-            logger.warning(
-                "close_position_safety_check_failed",
-                extra={
-                    "user_id": user_id,
-                    "symbol": symbol,
-                    "qty": qty,
-                    "status": exc.response.status_code,
-                    "requested_at": requested_at,
-                    "strategy_id": "manual",
-                },
-            )
-            ui.notify(f"Safety check failed: HTTP {exc.response.status_code}", type="negative")
-            return
-    except httpx.RequestError as exc:
-        # Fail-open: closing positions reduces risk, so proceed with warning
-        # Execution Gateway will perform final validation
-        logger.warning(
-            "close_position_safety_check_unreachable_proceeding",
+    # Pre-check kill switch state using real-time cached value if available
+    # This provides instant UI response while preserving safety at confirmation time
+    if kill_switch_engaged is True:
+        # Use cached state - instant response, no API delay
+        logger.info(
+            "close_blocked_kill_switch_cached",
             extra={
                 "user_id": user_id,
                 "symbol": symbol,
                 "qty": qty,
-                "error": type(exc).__name__,
                 "requested_at": requested_at,
                 "strategy_id": "manual",
             },
         )
-        ui.notify("Safety service unreachable - proceeding with close", type="warning")
-        # Do NOT return - proceed to show confirmation dialog
+        ui.notify("Cannot close position: Kill Switch is ENGAGED", type="negative")
+        return
+    elif kill_switch_engaged is False:
+        # Cached state says safe - skip pre-check, proceed to dialog
+        # Fresh check will still happen at confirmation time
+        pass
+    else:
+        # No cached state (None) - fall back to blocking API check
+        try:
+            ks_status = await client.fetch_kill_switch_status(user_id, role=user_role)
+            if ks_status.get("state") == "ENGAGED":
+                logger.info(
+                    "close_blocked_kill_switch",
+                    extra={
+                        "user_id": user_id,
+                        "symbol": symbol,
+                        "qty": qty,
+                        "requested_at": requested_at,
+                        "strategy_id": "manual",
+                    },
+                )
+                ui.notify("Cannot close position: Kill Switch is ENGAGED", type="negative")
+                return
+        except httpx.HTTPStatusError as exc:
+            # Fail-open for 5xx (server errors), fail-closed for 4xx (client errors)
+            # Risk-reducing actions should proceed when safety service has transient issues
+            if exc.response.status_code >= 500:
+                logger.warning(
+                    "close_position_safety_check_5xx_proceeding",
+                    extra={
+                        "user_id": user_id,
+                        "symbol": symbol,
+                        "qty": qty,
+                        "status": exc.response.status_code,
+                        "requested_at": requested_at,
+                        "strategy_id": "manual",
+                    },
+                )
+                ui.notify(f"Safety service error (HTTP {exc.response.status_code}) - proceeding with close", type="warning")
+                # Do NOT return - proceed to show confirmation dialog
+            else:
+                logger.warning(
+                    "close_position_safety_check_failed",
+                    extra={
+                        "user_id": user_id,
+                        "symbol": symbol,
+                        "qty": qty,
+                        "status": exc.response.status_code,
+                        "requested_at": requested_at,
+                        "strategy_id": "manual",
+                    },
+                )
+                ui.notify(f"Safety check failed: HTTP {exc.response.status_code}", type="negative")
+                return
+        except httpx.RequestError as exc:
+            # Fail-open: closing positions reduces risk, so proceed with warning
+            # Execution Gateway will perform final validation
+            logger.warning(
+                "close_position_safety_check_unreachable_proceeding",
+                extra={
+                    "user_id": user_id,
+                    "symbol": symbol,
+                    "qty": qty,
+                    "error": type(exc).__name__,
+                    "requested_at": requested_at,
+                    "strategy_id": "manual",
+                },
+            )
+            ui.notify("Safety service unreachable - proceeding with close", type="warning")
+            # Do NOT return - proceed to show confirmation dialog
 
     try:
         cb_status = await client.fetch_circuit_breaker_status(user_id, role=user_role)

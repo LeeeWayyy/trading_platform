@@ -11,6 +11,8 @@ from nicegui import Client, ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.audit import audit_log
 from apps.web_console_ng.core.client import AsyncTradingClient
+from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.core.realtime import RealtimeUpdater, kill_switch_channel
 from apps.web_console_ng.ui.layout import main_layout
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,15 @@ async def manual_order_page(client: Client) -> None:
         ui.navigate.to("/")
         return
 
+    client_id = client.storage.get("client_id")
+    if not isinstance(client_id, str) or not client_id:
+        ui.notify("Session error - please refresh", type="negative")
+        return
+
+    realtime = RealtimeUpdater(client_id, client)
+    lifecycle = ClientLifecycleManager.get()
     submitting = False
+    kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
 
     with ui.card().classes("w-full max-w-lg mx-auto"):
         ui.label("Manual Order Entry").classes("text-2xl font-bold mb-4")
@@ -104,11 +114,25 @@ async def manual_order_page(client: Client) -> None:
 
         submit_btn = ui.button("Preview Order", color="primary").classes("w-full")
 
-    async def check_kill_switch() -> bool:
+    async def check_kill_switch(*, use_cache: bool = False) -> bool:
         """Check if kill switch is engaged. Returns True if safe to proceed.
+
+        Args:
+            use_cache: If True, use cached real-time state for instant response.
+                       If False (default), perform blocking API check.
 
         Fails closed: unknown/missing state blocks action (safety first).
         """
+        # Use cached state for instant pre-check (e.g., before showing dialog)
+        if use_cache:
+            if kill_switch_engaged is True:
+                ui.notify("Cannot submit: Kill Switch is ENGAGED", type="negative")
+                return False
+            elif kill_switch_engaged is False:
+                return True
+            # Fall through to API check if cache is None (not yet initialized)
+
+        # Blocking API check for confirmation or when cache unavailable
         try:
             ks_status = await trading_client.fetch_kill_switch_status(
                 user_id, role=user_role
@@ -187,11 +211,12 @@ async def manual_order_page(client: Client) -> None:
         if order_data is None:
             return
 
-        # Disable button to prevent double-click during kill switch check
+        # Disable button to prevent double-click
         submit_btn.disable()
 
-        # Check kill switch BEFORE showing preview
-        if not await check_kill_switch():
+        # Check kill switch BEFORE showing preview using cached real-time state
+        # This provides instant UI response; fresh check happens at confirmation
+        if not await check_kill_switch(use_cache=True):
             submit_btn.enable()
             return
 
@@ -316,6 +341,35 @@ async def manual_order_page(client: Client) -> None:
         dialog.open()
 
     submit_btn.on("click", show_preview)
+
+    # Subscribe to real-time kill switch updates for instant UI responses
+    async def on_kill_switch_update(data: dict[str, Any]) -> None:
+        nonlocal kill_switch_engaged
+        state = str(data.get("state", "")).upper()
+        # Fail-closed: only mark as safe if explicitly DISENGAGED
+        kill_switch_engaged = state != "DISENGAGED"
+
+    await realtime.subscribe(kill_switch_channel(), on_kill_switch_update)
+
+    # Fetch initial kill switch status
+    async def check_initial_kill_switch() -> None:
+        nonlocal kill_switch_engaged
+        try:
+            ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
+            state = str(ks_status.get("state", "")).upper()
+            kill_switch_engaged = state != "DISENGAGED"
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            logger.warning(
+                "kill_switch_initial_check_failed",
+                extra={"user_id": user_id, "error": type(exc).__name__},
+            )
+            # Fail-closed: treat API failure as engaged
+            kill_switch_engaged = True
+
+    await check_initial_kill_switch()
+
+    # Register cleanup for realtime subscriptions
+    await lifecycle.register_cleanup_callback(client_id, realtime.cleanup)
 
 
 __all__ = ["manual_order_page"]

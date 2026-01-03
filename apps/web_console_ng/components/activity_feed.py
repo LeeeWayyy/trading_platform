@@ -98,7 +98,7 @@ class ActivityFeed:
 
         row_classes = "w-full items-center gap-2 p-2 hover:bg-gray-50 rounded"
         if highlight:
-            row_classes += " bg-blue-100 animate-[fadeHighlight_2s_ease-out_forwards]"
+            row_classes += f" bg-blue-100 animate-[fadeHighlight_{self.NEW_ITEM_HIGHLIGHT_DURATION}s_ease-out_forwards]"
 
         with ui.row().classes(row_classes) as row:
             time_display = (

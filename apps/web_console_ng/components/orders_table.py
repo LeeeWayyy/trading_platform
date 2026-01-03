@@ -21,7 +21,7 @@ def _normalize_num(val: object) -> str:
     Uses repr() for full precision to avoid fingerprint collisions
     (e.g., crypto with >6 decimal precision).
     """
-    if isinstance(val, (int, float)):  # noqa: UP038
+    if isinstance(val, int | float):
         return repr(float(val))
     return str(val) if val is not None else ""
 

@@ -91,6 +91,18 @@ class MarketPriceCache:
                 if cls._in_flight is task:
                     cls._in_flight = None
                 return [dict(p) for p in cls._prices]
+        except Exception as exc:
+            # Catch non-HTTP exceptions (e.g., ValueError from malformed payload)
+            # to reset _in_flight and allow recovery on next call
+            logger.warning(
+                "market_price_cache_fetch_unexpected_error",
+                extra={"error": type(exc).__name__, "detail": str(exc)[:100]},
+            )
+            async with cls._lock:
+                cls._last_error = time.time()
+                if cls._in_flight is task:
+                    cls._in_flight = None
+                return [dict(p) for p in cls._prices]
 
         async with cls._lock:
             if cls._in_flight is task:
@@ -173,6 +185,7 @@ async def dashboard(client: Client) -> None:
     synthetic_id_map: dict[str, str] = {}
     synthetic_id_miss_counts: dict[str, int] = {}  # Prevent churn from transient snapshot gaps
     grid_update_lock = asyncio.Lock()
+    kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
 
     async def load_initial_data() -> None:
         nonlocal position_symbols, order_ids
@@ -233,6 +246,24 @@ async def dashboard(client: Client) -> None:
 
     await load_initial_data()
 
+    async def check_initial_kill_switch() -> None:
+        """Fetch initial kill switch status on page load."""
+        nonlocal kill_switch_engaged
+        try:
+            ks_status = await trading_client.fetch_kill_switch_status(user_id, role=user_role)
+            state = str(ks_status.get("state", "")).upper()
+            # Fail-closed: only mark as safe if explicitly DISENGAGED
+            kill_switch_engaged = state != "DISENGAGED"
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            logger.warning(
+                "kill_switch_initial_check_failed",
+                extra={"user_id": user_id, "error": type(exc).__name__},
+            )
+            # Fail-closed: treat API failure as engaged
+            kill_switch_engaged = True
+
+    await check_initial_kill_switch()
+
     async def on_position_update(data: dict[str, Any]) -> None:
         nonlocal position_symbols
         if "total_unrealized_pl" in data:
@@ -268,8 +299,11 @@ async def dashboard(client: Client) -> None:
         return {}
 
     async def on_kill_switch_update(data: dict[str, Any]) -> None:
+        nonlocal kill_switch_engaged
         logger.info("kill_switch_update", extra={"client_id": client_id, "data": data})
         state = str(data.get("state", "")).upper()
+        # Update cached state for instant UI responses (fail-closed: treat unknown as engaged)
+        kill_switch_engaged = state != "DISENGAGED"
         await _dispatch_trading_state({"killSwitch": state == "ENGAGED"})
 
     async def on_circuit_breaker_update(data: dict[str, Any]) -> None:
@@ -303,7 +337,10 @@ async def dashboard(client: Client) -> None:
         if not symbol:
             ui.notify("Cannot close position: missing symbol", type="negative")
             return
-        await on_close_position(symbol, qty, user_id, user_role)
+        # Pass cached kill switch state for instant UI response
+        await on_close_position(
+            symbol, qty, user_id, user_role, kill_switch_engaged=kill_switch_engaged
+        )
 
     async def handle_cancel_order(event: events.GenericEventArguments) -> None:
         detail = _extract_event_detail(event.args)
