@@ -1,5 +1,27 @@
 .PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs check-doc-freshness check-architecture test test-cov test-watch clean install requirements install-hooks ci-local pre-push
 
+# CI step formatting - reduces duplication in ci-local target
+SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Usage: $(call ci_step_header,Step X/Y,Description)
+define ci_step_header
+	@echo ""
+	@echo "$(SEPARATOR)"
+	@echo "$(1): $(2)"
+	@echo "$(SEPARATOR)"
+endef
+
+# Usage: $(call ci_error,Title,Fix instructions)
+define ci_error
+	echo ""; \
+	echo "$(SEPARATOR)"; \
+	echo "❌ $(1)"; \
+	echo "$(SEPARATOR)"; \
+	echo ""; \
+	echo "$(2)"; \
+	exit 1
+endef
+
 help: ## Show this help message
 	@echo 'Usage: make [target]'
 	@echo ''
@@ -113,17 +135,13 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	@if [ -f .ci-local.lock ]; then \
 		LOCK_PID=$$(cat .ci-local.lock 2>/dev/null); \
 		if kill -0 $$LOCK_PID 2>/dev/null; then \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo ""; echo "$(SEPARATOR)"; \
 			echo "⚠️  CI-LOCAL ALREADY RUNNING (PID: $$LOCK_PID)"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo ""; \
+			echo "$(SEPARATOR)"; echo ""; \
 			echo "Only ONE ci-local instance is allowed at a time."; \
 			echo "Wait for the current run to complete or kill it:"; \
-			echo "  kill $$LOCK_PID"; \
-			echo "  rm -f .ci-local.lock"; \
-			echo ""; \
-			exit 1; \
+			echo "  kill $$LOCK_PID && rm -f .ci-local.lock"; \
+			echo ""; exit 1; \
 		else \
 			rm -f .ci-local.lock; \
 		fi; \
@@ -136,141 +154,49 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	echo "Note: CI also runs DB migrations - run those separately if needed."; \
 	echo "If this passes, CI should pass too."; \
 	echo ""; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "$(SEPARATOR)"; \
 	echo "Step 0/8: Validating local environment matches pyproject.toml"; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@poetry run python scripts/validate_env.py || { \
-		echo ""; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo "❌ Environment validation failed!"; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo ""; \
-		echo "Your local environment is missing packages from pyproject.toml."; \
-		echo "This can cause different behavior between local and CI."; \
-		echo ""; \
-		echo "To fix: poetry install"; \
-		exit 1; \
-	}
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 1/8: Validating documentation index"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@./scripts/validate_doc_index.sh || { \
-		echo ""; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo "❌ Documentation index validation failed!"; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo ""; \
-		echo "All markdown files must be indexed in docs/INDEX.md"; \
-		echo "See error output above for missing files"; \
-		exit 1; \
-	}
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 2/8: Checking documentation freshness"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@poetry run python scripts/check_doc_freshness.py || { \
-		echo ""; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo "❌ Documentation freshness check failed!"; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo ""; \
-		echo "Update docs/GETTING_STARTED/REPO_MAP.md and/or specs to match current source directories."; \
-		exit 1; \
-	}
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 3/8: Checking architecture map is up to date"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@poetry run python scripts/generate_architecture.py --check || { \
-		echo ""; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo "❌ Architecture map is out of date!"; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo ""; \
-		echo "Run 'make check-architecture' or 'python scripts/generate_architecture.py' to regenerate."; \
-		exit 1; \
-	}
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 4/8: Checking markdown links (timeout: 1min)"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@command -v markdown-link-check >/dev/null 2>&1 || { \
-		echo "❌ markdown-link-check not found. Installing..."; \
-		npm install -g markdown-link-check; \
-	}
+	echo "$(SEPARATOR)"
+	@poetry run python scripts/validate_env.py || { $(call ci_error,Environment validation failed!,Your local environment is missing packages. Run: poetry install); }
+	$(call ci_step_header,Step 1/8,Validating documentation index)
+	@./scripts/validate_doc_index.sh || { $(call ci_error,Documentation index validation failed!,All markdown files must be indexed in docs/INDEX.md. See error output above for missing files.); }
+	$(call ci_step_header,Step 2/8,Checking documentation freshness)
+	@poetry run python scripts/check_doc_freshness.py || { $(call ci_error,Documentation freshness check failed!,Update docs/GETTING_STARTED/REPO_MAP.md and/or specs to match current source directories.); }
+	$(call ci_step_header,Step 3/8,Checking architecture map is up to date)
+	@poetry run python scripts/generate_architecture.py --check || { $(call ci_error,Architecture map is out of date!,Run 'make check-architecture' or 'python scripts/generate_architecture.py' to regenerate.); }
+	$(call ci_step_header,Step 4/8,Checking markdown links (timeout: 1min))
+	@command -v markdown-link-check >/dev/null 2>&1 || { echo "❌ markdown-link-check not found. Installing..."; npm install -g markdown-link-check; }
 	@HANG_TIMEOUT=60 ./scripts/ci_with_timeout.sh bash -c 'find . -type f -name "*.md" ! -path "./CLAUDE.md" ! -path "./AGENTS.md" ! -path "./.venv/*" ! -path "./node_modules/*" ! -path "./qlib/*" -print0 | xargs -0 markdown-link-check --config .github/markdown-link-check-config.json' || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "❌ Markdown link check TIMED OUT!"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo ""; echo "$(SEPARATOR)"; echo "❌ Markdown link check TIMED OUT!"; echo "$(SEPARATOR)"; \
 		else \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "❌ Markdown link check failed!"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo ""; \
-			echo "Common issues:"; \
-			echo "  • Broken internal links (wrong path depth)"; \
-			echo "  • Missing anchor links (heading text changed)"; \
-			echo "  • Files moved/renamed without updating references"; \
-			echo "  • External URLs changed or removed"; \
-			echo ""; \
-			echo "See error output above for specific broken links"; \
+			echo ""; echo "$(SEPARATOR)"; echo "❌ Markdown link check failed!"; echo "$(SEPARATOR)"; echo ""; \
+			echo "Common issues: broken internal links, missing anchors, moved files, changed external URLs."; \
+			echo "See error output above for specific broken links."; \
 		fi; \
 		exit 1; \
 	}
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 5/8: Type checking with mypy --strict"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	$(call ci_step_header,Step 5/8,Type checking with mypy --strict)
 	poetry run mypy libs/ apps/ strategies/ --strict
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 6/8: Linting with ruff"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	$(call ci_step_header,Step 6/8,Linting with ruff)
 	poetry run ruff check .
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 7/8: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	$(call ci_step_header,Step 7/8,Running tests (integration and e2e tests skipped; timeout: 2 min per stall))
 	# TODO: restore --cov-fail-under back to 80% once flaky tests are fixed (GH-issue to track)
 	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=50 || { \
 		EXIT_CODE=$$?; \
 		if [ $$EXIT_CODE -eq 124 ]; then \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "❌ Tests TIMED OUT (no progress for 2 minutes)!"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo ""; \
+			echo ""; echo "$(SEPARATOR)"; echo "❌ Tests TIMED OUT (no progress for 2 minutes)!"; echo "$(SEPARATOR)"; echo ""; \
 			echo "A test is likely hanging. Check the last test output above."; \
 		fi; \
 		exit $$EXIT_CODE; \
 	}
+	$(call ci_step_header,Step 8/8,Verifying workflow gate compliance (review approval markers))
+	@CI=true PYTHONPATH=. poetry run python scripts/verify_gate_compliance.py || { $(call ci_error,Workflow gate compliance failed!,Commits need zen-mcp-review: approved marker and continuation-id trailers. Request a zen-mcp review before committing.); }
 	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 8/8: Verifying workflow gate compliance (review approval markers)"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@CI=true PYTHONPATH=. poetry run python scripts/verify_gate_compliance.py || { \
-		echo ""; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo "❌ Workflow gate compliance failed!"; \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-		echo ""; \
-		echo "This check validates that all commits have:"; \
-		echo "  • zen-mcp-review: approved marker"; \
-		echo "  • gemini-continuation-id: <uuid> trailer"; \
-		echo "  • codex-continuation-id: <uuid> trailer"; \
-		echo ""; \
-		echo "To fix missing markers, request a zen-mcp review before committing."; \
-		exit 1; \
-	}
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "$(SEPARATOR)"
 	@echo "✓ All CI checks passed!"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "$(SEPARATOR)"
 	@echo ""
 	@echo "✓ Your code should pass GitHub Actions CI"
 
