@@ -18,7 +18,7 @@ docs/SPECS/
 ## apps/ -> services/ Mapping
 The codebase uses `apps/` for microservices. In this documentation, those map to `docs/SPECS/services/`
 per architecture terminology ("service catalog"). Example:
-- `apps/signal_service/` -> `docs/SPECS/services/signal_service.md`
+- [`apps/signal_service/`](../../apps/signal_service/) -> [`docs/SPECS/services/signal_service.md`](./services/signal_service.md)
 
 ## Spec Template (Reference)
 Use the template below as the baseline. Include only relevant sections for the component type and

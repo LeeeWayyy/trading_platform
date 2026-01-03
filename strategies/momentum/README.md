@@ -270,7 +270,7 @@ if (
 
 ## Related Documentation
 
-- [P1T6 Done](../../docs/TASKS/P1T6_DONE.md) - Implementation complete
+- [P1T6 Done](../../docs/ARCHIVE/TASKS_HISTORY/P1T6_DONE.md) - Implementation complete
 - [Mean Reversion Strategy](../mean_reversion/README.md) - Complementary strategy
 - [Coding Standards](../../docs/STANDARDS/CODING_STANDARDS.md)
 

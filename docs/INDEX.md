@@ -771,15 +771,15 @@ Documents can have one of these statuses:
 
 | Type | Purpose | Location |
 |------|---------|----------|
-| **Standards** | Normative rules (MUST follow) | `docs/STANDARDS/` |
-| **ADRs** | Architecture decisions (WHY) | `docs/ADRs/` |
-| **Specifications** | Service/library behavior and contracts | `docs/SPECS/` |
-| **Concepts** | Domain knowledge (WHAT) | `docs/CONCEPTS/` |
-| **Guides** | Implementation steps (HOW) | `docs/ARCHIVE/TASKS_HISTORY/` |
-| **Tasks** | Work items (TODO) | `docs/TASKS/` |
-| **Archive** | Completed tasks + legacy plans | `docs/ARCHIVE/` |
-| **Retrospectives** | Learnings (LEARNED) | `docs/LESSONS_LEARNED/` |
-| **Runbooks** | Operations (OPS) | `docs/RUNBOOKS/` |
+| **Standards** | Normative rules (MUST follow) | [`docs/STANDARDS/`](./STANDARDS/) |
+| **ADRs** | Architecture decisions (WHY) | [`docs/ADRs/`](./ADRs/) |
+| **Specifications** | Service/library behavior and contracts | [`docs/SPECS/`](./SPECS/) |
+| **Concepts** | Domain knowledge (WHAT) | [`docs/CONCEPTS/`](./CONCEPTS/) |
+| **Guides** | Implementation steps (HOW) | [`docs/ARCHIVE/TASKS_HISTORY/`](./ARCHIVE/TASKS_HISTORY/) |
+| **Tasks** | Work items (TODO) | [`docs/TASKS/`](./TASKS/) |
+| **Archive** | Completed tasks + legacy plans | [`docs/ARCHIVE/`](./ARCHIVE/) |
+| **Retrospectives** | Learnings (LEARNED) | [`docs/LESSONS_LEARNED/`](./LESSONS_LEARNED/) |
+| **Runbooks** | Operations (OPS) | [`docs/RUNBOOKS/`](./RUNBOOKS/) |
 
 ---
 

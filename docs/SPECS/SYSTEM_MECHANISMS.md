@@ -69,12 +69,12 @@ sequenceDiagram
 
 ### Related Specs / ADRs
 
-- `docs/ADRs/0006-orchestrator-service.md`
-- `docs/ADRs/0014-execution-gateway-architecture.md`
-- `docs/ADRs/0015-twap-order-slicer.md`
-- `docs/SPECS/services/orchestrator.md`
-- `docs/SPECS/services/execution_gateway.md`
-- `docs/SPECS/openapi/execution_gateway.json`
+- [`ADR-0006`](../ADRs/0006-orchestrator-service.md)
+- [`ADR-0014`](../ADRs/0014-execution-gateway-architecture.md)
+- [`ADR-0015`](../ADRs/0015-twap-order-slicer.md)
+- [`orchestrator.md`](./services/orchestrator.md)
+- [`execution_gateway.md`](./services/execution_gateway.md)
+- [`execution_gateway.json`](./openapi/execution_gateway.json)
 
 ---
 
