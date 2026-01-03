@@ -70,6 +70,7 @@ async def update_orders_table(
     previous_order_ids: set[str] | None = None,
     notified_missing_ids: set[str] | None = None,
     synthetic_id_map: dict[str, str] | None = None,
+    synthetic_id_miss_counts: dict[str, int] | None = None,
     user_id: str | None = None,
     client_id: str | None = None,
 ) -> set[str]:
@@ -81,13 +82,20 @@ async def update_orders_table(
     - Updates existing orders (status changes, partial fills)
     - Removes filled/cancelled orders no longer in snapshot
     - Preserves scroll position and row selection
+    - Cleans up stale entries from synthetic_id_map (prevents memory leak)
+
+    Note: Uses dict[str, Any] for orders because AG Grid's JavaScript API requires
+    raw dict objects. Type safety is enforced at the API boundary (backend schemas).
 
     Args:
         grid: The AG Grid instance
-        orders: Current open orders snapshot from backend
+        orders: Current open orders snapshot from backend (raw dicts for AG Grid API)
         previous_order_ids: Set of order IDs from previous update (for add/remove detection)
         notified_missing_ids: Set of synthetic IDs already notified (mutated in place to dedupe)
-        synthetic_id_map: Dict mapping order fingerprints to stable synthetic IDs (mutated in place)
+        synthetic_id_map: Dict mapping order fingerprints to stable synthetic IDs
+            (mutated in place; stale entries cleaned up automatically after 3 consecutive misses)
+        synthetic_id_miss_counts: Dict tracking consecutive misses per fingerprint
+            (mutated in place; prevents churn from transient snapshot gaps)
         user_id: Optional user ID for audit context
         client_id: Optional client ID for audit context
 
@@ -99,7 +107,10 @@ async def update_orders_table(
     log_context = {
         "user_id": user_id,
         "client_id": client_id,
+        "strategy_id": "manual",  # Dashboard operations are manual
     }
+    # Track IDs generated in this batch to prevent same-batch collisions
+    batch_generated_ids: set[str] = set()
     for order in orders:
         broker_id = order.get("id") or order.get("order_id")
         if broker_id:
@@ -118,26 +129,96 @@ async def update_orders_table(
                     },
                 )
             else:
+                # Include more fields to reduce collision risk for distinct orders
+                # Normalize numeric values to avoid fingerprint fragility (10 vs 10.0)
+                def _normalize_num(val: object) -> str:
+                    if isinstance(val, (int, float)):  # noqa: UP038
+                        # Use repr for full precision to avoid fingerprint collisions
+                        # (e.g., crypto with >6 decimal precision)
+                        return repr(float(val))
+                    return str(val) if val is not None else ""
+
                 fingerprint_fields = [
                     order.get("symbol", ""),
                     order.get("side", ""),
                     order.get("created_at", ""),
                     order.get("account_id", ""),
+                    _normalize_num(order.get("qty")),
+                    order.get("type", ""),
+                    _normalize_num(order.get("limit_price")),
+                    order.get("time_in_force", ""),
                 ]
                 fingerprint = "|".join(fingerprint_fields)
-                if synthetic_id_map is not None and fingerprint in synthetic_id_map:
-                    synthetic_id = synthetic_id_map[fingerprint]
-                else:
-                    base_hash = hashlib.sha256(fingerprint.encode()).hexdigest()[:12]
-                    synthetic_id = f"unknown_{base_hash}"
+                base_hash = hashlib.sha256(fingerprint.encode()).hexdigest()[:12]
 
+                if synthetic_id_map is not None and fingerprint in synthetic_id_map:
+                    # Fingerprint already mapped - but check if base ID is still valid
+                    # If base ID was removed but suffix exists, prefer suffix (row stability)
+                    base_id = synthetic_id_map[fingerprint]
+                    synthetic_id = base_id
+
+                    # If base ID is NOT in previous snapshot but a suffix IS, use the suffix
+                    # This prevents row churn when base order fills and suffix remains
+                    if previous_order_ids is not None and base_id not in previous_order_ids:
+                        suffix = 1
+                        suffix_key = f"{fingerprint}|_suffix_{suffix}"
+                        while suffix_key in synthetic_id_map:
+                            suffix_id = synthetic_id_map[suffix_key]
+                            if suffix_id in previous_order_ids:
+                                # This suffix was in previous snapshot - use it
+                                synthetic_id = suffix_id
+                                break
+                            suffix += 1
+                            suffix_key = f"{fingerprint}|_suffix_{suffix}"
+
+                    if synthetic_id in batch_generated_ids:
+                        # Same-batch collision - check for existing suffix or generate new one
+                        suffix = 1
+                        suffix_key = f"{fingerprint}|_suffix_{suffix}"
+                        # First try to find an existing suffix key not yet used in this batch
+                        while suffix_key in synthetic_id_map:
+                            existing_suffix_id = synthetic_id_map[suffix_key]
+                            if existing_suffix_id not in batch_generated_ids:
+                                synthetic_id = existing_suffix_id
+                                break
+                            suffix += 1
+                            suffix_key = f"{fingerprint}|_suffix_{suffix}"
+                        else:
+                            # No existing suffix found - generate new one
+                            synthetic_id = f"{synthetic_id}_{suffix}"
+                            # Persist suffix ID to prevent churn if only this order remains
+                            synthetic_id_map[suffix_key] = synthetic_id
+                else:
+                    # Base fingerprint not in map - check for orphaned suffix entries first
+                    # (can happen when base order fills but suffix order remains)
+                    found_orphan_suffix = False
                     if synthetic_id_map is not None:
-                        existing_ids = set(synthetic_id_map.values())
+                        suffix = 1
+                        suffix_key = f"{fingerprint}|_suffix_{suffix}"
+                        while suffix_key in synthetic_id_map:
+                            orphan_id = synthetic_id_map[suffix_key]
+                            if orphan_id not in batch_generated_ids:
+                                synthetic_id = orphan_id
+                                found_orphan_suffix = True
+                                break
+                            suffix += 1
+                            suffix_key = f"{fingerprint}|_suffix_{suffix}"
+
+                    if not found_orphan_suffix:
+                        synthetic_id = f"unknown_{base_hash}"
+
+                        # Check against both persistent map and current batch to avoid collisions
+                        existing_ids = batch_generated_ids.copy()
+                        if synthetic_id_map is not None:
+                            existing_ids.update(synthetic_id_map.values())
                         suffix = 0
                         while synthetic_id in existing_ids:
                             suffix += 1
                             synthetic_id = f"unknown_{base_hash}_{suffix}"
-                        synthetic_id_map[fingerprint] = synthetic_id
+                        if synthetic_id_map is not None:
+                            synthetic_id_map[fingerprint] = synthetic_id
+
+                batch_generated_ids.add(synthetic_id)
 
                 order["client_order_id"] = synthetic_id
                 order["_missing_all_ids"] = True
@@ -189,55 +270,131 @@ async def update_orders_table(
         {"add": added_orders, "update": updated_orders, "remove": removed_orders},
     )
 
+    # Cleanup synthetic_id_map to prevent unbounded growth in long-running sessions
+    # Use miss counts to avoid churn from transient snapshot gaps (delete after 3 misses)
+    # Promote suffix IDs when base ID disappears to preserve row stability
+    if synthetic_id_map is not None:
+        miss_threshold = 3
+
+        # First pass: promote suffix IDs if base ID is gone but suffix ID is present
+        # This prevents row ID churn when one of multiple duplicate orders fills
+        for fp, sid in list(synthetic_id_map.items()):
+            if "|_suffix_" in fp:
+                continue  # Skip suffix entries - they're handled below
+            if sid not in current_ids:
+                # Base ID is gone - check if any suffix ID is still present
+                suffix = 1
+                suffix_key = f"{fp}|_suffix_{suffix}"
+                while suffix_key in synthetic_id_map:
+                    suffix_sid = synthetic_id_map[suffix_key]
+                    if suffix_sid in current_ids:
+                        # Promote this suffix ID to be the base ID
+                        synthetic_id_map[fp] = suffix_sid
+                        del synthetic_id_map[suffix_key]
+                        if synthetic_id_miss_counts is not None:
+                            synthetic_id_miss_counts.pop(fp, None)
+                            synthetic_id_miss_counts.pop(suffix_key, None)
+                        break
+                    suffix += 1
+                    suffix_key = f"{fp}|_suffix_{suffix}"
+
+        # Second pass: apply miss count logic for cleanup
+        for fp, sid in list(synthetic_id_map.items()):
+            if sid not in current_ids:
+                if synthetic_id_miss_counts is not None:
+                    synthetic_id_miss_counts[fp] = synthetic_id_miss_counts.get(fp, 0) + 1
+                    if synthetic_id_miss_counts[fp] >= miss_threshold:
+                        del synthetic_id_map[fp]
+                        del synthetic_id_miss_counts[fp]
+                else:
+                    # No miss tracking - delete immediately (legacy behavior)
+                    del synthetic_id_map[fp]
+            elif synthetic_id_miss_counts is not None and fp in synthetic_id_miss_counts:
+                # Order reappeared - reset miss count
+                del synthetic_id_miss_counts[fp]
+
     return current_ids
 
 
 async def on_cancel_order(
-    order_id: str,
+    order_id: str | None,
     symbol: str,
     user_id: str,
     user_role: str,
     broker_order_id: str | None = None,
 ) -> None:
-    """Handle cancel order button click (always allowed for risk reduction)."""
-    if not order_id and not broker_order_id:
+    """Handle cancel order button click.
+
+    Policy: Cancelling orders is ALWAYS allowed (no kill switch/circuit breaker checks)
+    because it reduces risk by removing pending orders. This is intentional - even when
+    trading is halted, users should be able to cancel outstanding orders.
+
+    Note: Backend cancel endpoint requires client_order_id. Broker_order_id cannot be used
+    as a fallback because the endpoint is keyed by client_order_id.
+    """
+    if not order_id:
         logger.warning(
             "cancel_order_missing_id",
-            extra={"user_id": user_id, "symbol": symbol, "strategy_id": "manual"},
+            extra={
+                "user_id": user_id,
+                "symbol": symbol,
+                "broker_order_id": broker_order_id,
+                "strategy_id": "manual",
+            },
         )
-        ui.notify("Cannot cancel order: missing order ID", type="negative")
+        ui.notify("Cannot cancel order: missing client order ID", type="negative")
         return
 
     if user_role == "viewer":
         ui.notify("Viewers cannot cancel orders", type="warning")
         return
 
-    effective_order_id = order_id
-    if order_id.startswith("__ng_fallback_") and broker_order_id:
-        effective_order_id = broker_order_id
-    elif order_id.startswith("__ng_fallback_") and not broker_order_id:
+    # Backend cancel endpoint requires client_order_id - reject invalid IDs
+    if order_id.startswith("unknown_"):
+        # Synthetic ID - no valid client_order_id
         logger.warning(
-            "cancel_order_missing_client_id",
+            "cancel_order_synthetic_id_blocked",
             extra={
                 "user_id": user_id,
                 "symbol": symbol,
-                "client_order_id": order_id,
+                "synthetic_id": order_id,
+                "broker_order_id": broker_order_id,
                 "strategy_id": "manual",
             },
         )
-        ui.notify("Cannot cancel order: missing client_order_id", type="negative")
+        ui.notify(
+            "Cannot cancel: order has no client ID - contact support",
+            type="negative",
+        )
+        return
+
+    if order_id.startswith("__ng_fallback_"):
+        # Fallback ID - no valid client_order_id (only broker_order_id exists)
+        logger.warning(
+            "cancel_order_fallback_id_blocked",
+            extra={
+                "user_id": user_id,
+                "symbol": symbol,
+                "fallback_id": order_id,
+                "broker_order_id": broker_order_id,
+                "strategy_id": "manual",
+            },
+        )
+        ui.notify(
+            "Cannot cancel: order has no client ID - use broker interface",
+            type="negative",
+        )
         return
 
     client = AsyncTradingClient.get()
     try:
-        await client.cancel_order(effective_order_id, user_id, role=user_role)
+        await client.cancel_order(order_id, user_id, role=user_role)
         logger.info(
             "cancel_order_submitted",
             extra={
                 "user_id": user_id,
                 "symbol": symbol,
                 "client_order_id": order_id,
-                "broker_order_id": broker_order_id,
                 "strategy_id": "manual",
             },
         )

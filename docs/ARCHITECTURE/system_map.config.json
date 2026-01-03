@@ -91,6 +91,9 @@
     {"from": "apps/market_data_service", "to": "ext_redis", "type": "data_flow", "label": "publish quotes"},
     {"from": "ext_redis", "to": "apps/signal_service", "type": "data_flow", "label": "subscribe quotes"},
     {"from": "apps/web_console", "to": "apps/orchestrator", "type": "control", "label": "manual control"},
+    {"from": "apps/web_console_ng", "to": "apps/execution_gateway", "type": "control", "label": "manual trading"},
+    {"from": "apps/web_console_ng", "to": "ext_redis", "type": "data_flow", "label": "realtime updates"},
+    {"from": "ext_redis", "to": "apps/web_console_ng", "type": "event", "label": "positions/orders"},
     {"from": "apps/alert_worker", "to": "ext_redis", "type": "data_flow", "label": "alert events"},
     {"from": "libs/risk_management", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"}
   ],

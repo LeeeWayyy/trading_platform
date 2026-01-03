@@ -269,12 +269,13 @@ async def position_management_page(client: Client) -> None:
                     action_in_progress = True
                     close_confirm_btn.disable()
 
+                    requested_at = datetime.now(UTC).isoformat()
                     try:
                         result = await trading_client.close_position(
                             symbol=symbol,
                             reason=reason,
                             requested_by=user_id,
-                            requested_at=datetime.now(UTC).isoformat(),
+                            requested_at=requested_at,
                             user_id=user_id,
                             role=user_role,
                         )
@@ -288,6 +289,7 @@ async def position_management_page(client: Client) -> None:
                                 "qty": qty,
                                 "order_id": order_id,
                                 "reason": reason,
+                                "requested_at": requested_at,
                             },
                         )
 
@@ -298,23 +300,41 @@ async def position_management_page(client: Client) -> None:
                     except httpx.HTTPStatusError as exc:
                         logger.warning(
                             "close_position_failed",
-                            extra={"user_id": user_id, "symbol": symbol, "status": exc.response.status_code},
+                            extra={
+                                "user_id": user_id,
+                                "symbol": symbol,
+                                "status": exc.response.status_code,
+                                "requested_at": requested_at,
+                            },
                         )
                         await audit_log(
                             action="close_position_failed",
                             user_id=user_id,
-                            details={"symbol": symbol, "error": f"HTTP {exc.response.status_code}"},
+                            details={
+                                "symbol": symbol,
+                                "error": f"HTTP {exc.response.status_code}",
+                                "requested_at": requested_at,
+                            },
                         )
                         ui.notify(f"Failed to close: HTTP {exc.response.status_code}", type="negative")
                     except httpx.RequestError as exc:
                         logger.warning(
                             "close_position_failed",
-                            extra={"user_id": user_id, "symbol": symbol, "error": type(exc).__name__},
+                            extra={
+                                "user_id": user_id,
+                                "symbol": symbol,
+                                "error": type(exc).__name__,
+                                "requested_at": requested_at,
+                            },
                         )
                         await audit_log(
                             action="close_position_failed",
                             user_id=user_id,
-                            details={"symbol": symbol, "error": type(exc).__name__},
+                            details={
+                                "symbol": symbol,
+                                "error": type(exc).__name__,
+                                "requested_at": requested_at,
+                            },
                         )
                         ui.notify("Failed to close: network error", type="negative")
                     finally:
@@ -376,12 +396,13 @@ async def position_management_page(client: Client) -> None:
                     cancel_confirm_btn.disable()
                     cancel_all_btn.disable()
 
+                    requested_at = datetime.now(UTC).isoformat()
                     try:
                         result = await trading_client.cancel_all_orders(
                             symbol=symbol,
                             reason=reason,
                             requested_by=user_id,
-                            requested_at=datetime.now(UTC).isoformat(),
+                            requested_at=requested_at,
                             user_id=user_id,
                             role=user_role,
                         )
@@ -394,6 +415,7 @@ async def position_management_page(client: Client) -> None:
                                 "symbol": symbol,
                                 "cancelled_count": cancelled_count,
                                 "reason": reason,
+                                "requested_at": requested_at,
                             },
                         )
 
@@ -403,23 +425,41 @@ async def position_management_page(client: Client) -> None:
                     except httpx.HTTPStatusError as exc:
                         logger.warning(
                             "cancel_all_orders_failed",
-                            extra={"user_id": user_id, "symbol": symbol, "status": exc.response.status_code},
+                            extra={
+                                "user_id": user_id,
+                                "symbol": symbol,
+                                "status": exc.response.status_code,
+                                "requested_at": requested_at,
+                            },
                         )
                         await audit_log(
                             action="cancel_all_orders_failed",
                             user_id=user_id,
-                            details={"symbol": symbol, "error": f"HTTP {exc.response.status_code}"},
+                            details={
+                                "symbol": symbol,
+                                "error": f"HTTP {exc.response.status_code}",
+                                "requested_at": requested_at,
+                            },
                         )
                         ui.notify(f"Failed to cancel: HTTP {exc.response.status_code}", type="negative")
                     except httpx.RequestError as exc:
                         logger.warning(
                             "cancel_all_orders_failed",
-                            extra={"user_id": user_id, "symbol": symbol, "error": type(exc).__name__},
+                            extra={
+                                "user_id": user_id,
+                                "symbol": symbol,
+                                "error": type(exc).__name__,
+                                "requested_at": requested_at,
+                            },
                         )
                         await audit_log(
                             action="cancel_all_orders_failed",
                             user_id=user_id,
-                            details={"symbol": symbol, "error": type(exc).__name__},
+                            details={
+                                "symbol": symbol,
+                                "error": type(exc).__name__,
+                                "requested_at": requested_at,
+                            },
                         )
                         ui.notify("Failed to cancel: network error", type="negative")
                     finally:
@@ -556,11 +596,12 @@ async def position_management_page(client: Client) -> None:
                     action_in_progress = True
                     flatten_confirm_btn.disable()
 
+                    requested_at = datetime.now(UTC).isoformat()
                     try:
                         result = await trading_client.flatten_all_positions(
                             reason=reason,
                             requested_by=user_id,
-                            requested_at=datetime.now(UTC).isoformat(),
+                            requested_at=requested_at,
                             id_token=id_token,
                             user_id=user_id,
                             role=user_role,
@@ -573,6 +614,7 @@ async def position_management_page(client: Client) -> None:
                             details={
                                 "positions_closed": positions_closed,
                                 "reason": reason,
+                                "requested_at": requested_at,
                             },
                         )
 
@@ -583,23 +625,39 @@ async def position_management_page(client: Client) -> None:
                     except httpx.HTTPStatusError as exc:
                         logger.warning(
                             "flatten_all_failed",
-                            extra={"user_id": user_id, "status": exc.response.status_code},
+                            extra={
+                                "user_id": user_id,
+                                "status": exc.response.status_code,
+                                "requested_at": requested_at,
+                            },
                         )
                         await audit_log(
                             action="flatten_all_failed",
                             user_id=user_id,
-                            details={"error": f"HTTP {exc.response.status_code}", "reason": reason},
+                            details={
+                                "error": f"HTTP {exc.response.status_code}",
+                                "reason": reason,
+                                "requested_at": requested_at,
+                            },
                         )
                         ui.notify(f"Failed to flatten: HTTP {exc.response.status_code}", type="negative")
                     except httpx.RequestError as exc:
                         logger.warning(
                             "flatten_all_failed",
-                            extra={"user_id": user_id, "error": type(exc).__name__},
+                            extra={
+                                "user_id": user_id,
+                                "error": type(exc).__name__,
+                                "requested_at": requested_at,
+                            },
                         )
                         await audit_log(
                             action="flatten_all_failed",
                             user_id=user_id,
-                            details={"error": type(exc).__name__, "reason": reason},
+                            details={
+                                "error": type(exc).__name__,
+                                "reason": reason,
+                                "requested_at": requested_at,
+                            },
                         )
                         ui.notify("Failed to flatten: network error", type="negative")
                     finally:

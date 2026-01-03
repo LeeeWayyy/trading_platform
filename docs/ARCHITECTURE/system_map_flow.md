@@ -61,6 +61,9 @@ flowchart TB
   svc_market_data_service -->|publish quotes| ext_redis
   ext_redis -->|subscribe quotes| svc_signal_service
   svc_web_console -->|manual control| svc_orchestrator
+  svc_web_console_ng -->|manual trading| svc_execution_gateway
+  svc_web_console_ng -->|realtime updates| ext_redis
+  ext_redis -->|positions/orders| svc_web_console_ng
   svc_alert_worker -->|alert events| ext_redis
   lib_risk_management -->|circuit breaker state| ext_redis
 

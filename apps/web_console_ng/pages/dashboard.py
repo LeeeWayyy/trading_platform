@@ -165,7 +165,9 @@ async def dashboard(client: Client) -> None:
     position_symbols: set[str] | None = None
     order_ids: set[str] | None = None
     notified_missing_ids: set[str] = set()
+    notified_malformed: set[int] = set()  # Dedupe malformed position notifications
     synthetic_id_map: dict[str, str] = {}
+    synthetic_id_miss_counts: dict[str, int] = {}  # Prevent churn from transient snapshot gaps
     grid_update_lock = asyncio.Lock()
 
     async def load_initial_data() -> None:
@@ -212,6 +214,7 @@ async def dashboard(client: Client) -> None:
                 positions_grid,
                 positions.get("positions", []),
                 position_symbols,
+                notified_malformed=notified_malformed,
             )
             order_ids = await update_orders_table(
                 orders_table,
@@ -219,6 +222,7 @@ async def dashboard(client: Client) -> None:
                 order_ids,
                 notified_missing_ids=notified_missing_ids,
                 synthetic_id_map=synthetic_id_map,
+                synthetic_id_miss_counts=synthetic_id_miss_counts,
                 user_id=user_id,
                 client_id=client_id,
             )
@@ -241,6 +245,7 @@ async def dashboard(client: Client) -> None:
                     positions_grid,
                     data["positions"],
                     position_symbols,
+                    notified_malformed=notified_malformed,
                 )
         if "event" in data:
             await activity_feed.add_item(data["event"])
@@ -279,6 +284,7 @@ async def dashboard(client: Client) -> None:
                     order_ids,
                     notified_missing_ids=notified_missing_ids,
                     synthetic_id_map=synthetic_id_map,
+                    synthetic_id_miss_counts=synthetic_id_miss_counts,
                     user_id=user_id,
                     client_id=client_id,
                 )
@@ -298,7 +304,7 @@ async def dashboard(client: Client) -> None:
     async def handle_cancel_order(event: events.GenericEventArguments) -> None:
         detail = _extract_event_detail(event.args)
         order_id = str(detail.get("client_order_id", "")).strip()
-        symbol = str(detail.get("symbol", "")).strip()
+        symbol = str(detail.get("symbol", "")).strip() or "unknown"
         broker_order_id = str(detail.get("broker_order_id", "")).strip() or None
         await on_cancel_order(order_id, symbol, user_id, user_role, broker_order_id=broker_order_id)
 

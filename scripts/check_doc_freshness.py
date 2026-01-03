@@ -4,6 +4,15 @@ Check documentation freshness and spec coverage.
 
 Uses git commit timestamps (not filesystem mtimes) to detect when
 source directories have changed without corresponding doc updates.
+
+Exit codes (bitmask):
+    0  - All checks passed
+    1  - Missing entries in REPO_MAP
+    2  - Orphaned entries in REPO_MAP
+    4  - Missing spec files
+    8  - REPO_MAP stale (>7 days)
+    16 - Spec files stale (>1 day)
+    32 - Architecture config stale (>1 day)
 """
 
 from __future__ import annotations
@@ -124,6 +133,9 @@ def _list_immediate_subdirs(path: Path) -> list[str]:
     return subdirs
 
 
+ARCH_CONFIG_PATH = Path("docs/ARCHITECTURE/system_map.config.json")
+
+
 def get_source_directories() -> dict[str, list[str]]:
     """
     Returns mapping of documentation files to source directories they document.
@@ -146,7 +158,13 @@ def get_source_directories() -> dict[str, list[str]]:
             "migrations/",
             ".ai_workflow/",
             ".github/",
-        ]
+        ],
+        # Architecture config tracks component additions/changes
+        str(ARCH_CONFIG_PATH): [
+            "apps/*/",
+            "libs/*/",
+            "strategies/*/",
+        ],
     }
 
     if not SPECS_DIR.exists():
@@ -417,16 +435,38 @@ def main() -> int:
 
     reports.append(repo_report)
 
+    # Architecture config check (blocking staleness >1 day)
+    arch_report: FreshnessReport | None = None
+    if ARCH_CONFIG_PATH.exists() and str(ARCH_CONFIG_PATH) in mapping:
+        arch_report = check_freshness(str(ARCH_CONFIG_PATH), mapping[str(ARCH_CONFIG_PATH)])
+        # Architecture config doesn't have missing/orphaned concept
+        arch_report["missing"] = []
+        arch_report["orphaned"] = []
+
+        if _is_path_dirty(ARCH_CONFIG_PATH):
+            arch_report["stale"] = False
+        elif arch_report["stale"]:
+            arch_doc_ts = datetime.fromisoformat(arch_report["last_doc_update"].replace("Z", "+00:00"))
+            arch_source_ts = datetime.fromisoformat(arch_report["last_source_change"].replace("Z", "+00:00"))
+            arch_stale_days = _days_between(arch_doc_ts, arch_source_ts)
+            if arch_stale_days > 1:
+                exit_code |= 32
+            else:
+                arch_report["stale"] = False
+
+        reports.append(arch_report)
+
     # Spec checks
     missing_specs: list[str] = []
     spec_reports: list[FreshnessReport] = []
+    stale_specs: list[str] = []
 
     if SPECS_DIR.exists():
         _, missing_specs = _expected_spec_files()
         if missing_specs:
             exit_code |= 4
 
-        # Per-spec freshness (warning only)
+        # Per-spec freshness (now blocking if stale >1 day)
         for spec_file in sorted(SPECS_DIR.rglob("*.md")):
             source_dir = _spec_source_dir(spec_file)
             if not source_dir:
@@ -435,11 +475,27 @@ def main() -> int:
             # Spec files do not participate in missing/orphan checks.
             report["missing"] = []
             report["orphaned"] = []
+
+            # Check for blocking staleness (>1 day) unless spec has uncommitted changes
+            if _is_path_dirty(spec_file):
+                report["stale"] = False
+            elif report["stale"]:
+                spec_doc_ts = datetime.fromisoformat(report["last_doc_update"].replace("Z", "+00:00"))
+                spec_source_ts = datetime.fromisoformat(report["last_source_change"].replace("Z", "+00:00"))
+                spec_stale_days = _days_between(spec_doc_ts, spec_source_ts)
+                if spec_stale_days > 1:
+                    stale_specs.append(report["doc_path"])
+                    exit_code |= 16
+                else:
+                    # Stale but within 1-day grace period
+                    report["stale"] = False
+
             spec_reports.append(report)
 
     # Attach missing specs to REPO_MAP report for summary
     repo_report["missing_specs"] = sorted(missing_specs)
-    reports = [repo_report] + spec_reports
+    # Build final reports list including arch_report if present
+    reports = [repo_report] + ([arch_report] if arch_report else []) + spec_reports
 
     if args.json:
         payload = {
@@ -452,17 +508,35 @@ def main() -> int:
     print("\nDocumentation Freshness Report")
     _print_report(repo_report, args.verbose)
 
+    # Architecture config staleness check
+    if arch_report is not None:
+        if arch_report["stale"]:
+            print(f"\nERROR: Architecture config stale - update {ARCH_CONFIG_PATH}")
+            _print_report(arch_report, args.verbose)
+        elif args.verbose:
+            print(f"\nArchitecture Config: {ARCH_CONFIG_PATH}")
+            print(f"  Last config update: {arch_report['last_doc_update']}")
+            print(f"  Last source change: {arch_report['last_source_change']}")
+
     if repo_report["missing_specs"]:
         print(f"\nWarning: Missing spec files ({len(repo_report['missing_specs'])}):")
         if args.verbose:
             for spec in repo_report["missing_specs"]:
                 print(f"  - {spec}")
 
+    if stale_specs:
+        print(f"\nERROR: Stale spec files ({len(stale_specs)}) - update docs or source:")
+        for spec in stale_specs:
+            print(f"  - {spec}")
+
     if spec_reports:
-        print("\nSpec Freshness (warnings only)")
-        for report in spec_reports:
-            if report["stale"] or report["missing"] or report["orphaned"]:
-                _print_report(report, args.verbose)
+        # Show non-blocking spec reports (within grace period or dirty)
+        non_stale_reports = [r for r in spec_reports if r["doc_path"] not in stale_specs]
+        if any(r["stale"] for r in non_stale_reports):
+            print("\nSpec Freshness (within 1-day grace period)")
+            for report in non_stale_reports:
+                if report["stale"]:
+                    _print_report(report, args.verbose)
 
     if exit_code == 0:
         print("\nOK: All documentation checks passed")
