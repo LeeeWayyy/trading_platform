@@ -81,7 +81,11 @@ class MarketPriceCache:
 
         try:
             prices = await task
-        except Exception:
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            logger.warning(
+                "market_price_cache_fetch_failed",
+                extra={"error": type(exc).__name__, "detail": str(exc)[:100]},
+            )
             async with cls._lock:
                 cls._last_error = time.time()
                 if cls._in_flight is task:

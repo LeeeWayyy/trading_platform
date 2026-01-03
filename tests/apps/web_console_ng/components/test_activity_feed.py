@@ -12,6 +12,7 @@ class DummyElement:
         self._classes: set[str] = set()
         self._children: list[DummyElement] = []
         self.calls: list[tuple[str, object]] = []
+        self._deleted: bool = False
 
     def classes(self, add: str | None = None, remove: str | None = None):
         if remove:
@@ -24,6 +25,14 @@ class DummyElement:
 
     def clear(self) -> None:
         self._children.clear()
+
+    def move(self, target_index: int = 0) -> None:
+        """Mock move method for NiceGUI element repositioning."""
+        pass
+
+    def delete(self) -> None:
+        """Mock delete method for NiceGUI element removal."""
+        self._deleted = True
 
     async def run_method(self, method: str, payload: object) -> None:
         self.calls.append((method, payload))

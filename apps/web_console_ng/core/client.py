@@ -249,9 +249,13 @@ class AsyncTradingClient:
         role: str | None = None,
         strategies: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Fetch open orders (GET - idempotent)."""
+        """Fetch open/pending orders (GET - idempotent).
+
+        Uses /api/v1/orders/pending endpoint from manual_controls router.
+        Returns dict with 'orders' list and 'total' count.
+        """
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.get("/api/v1/orders", headers=headers)
+        resp = await self._client.get("/api/v1/orders/pending", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -262,9 +266,13 @@ class AsyncTradingClient:
         role: str | None = None,
         strategies: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Fetch real-time P&L summary (GET - idempotent)."""
+        """Fetch real-time P&L summary (GET - idempotent).
+
+        Uses /api/v1/positions/pnl/realtime endpoint.
+        Returns RealtimePnLResponse with total_unrealized_pl, realized_pl_today, etc.
+        """
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.get("/api/v1/realtime_pnl", headers=headers)
+        resp = await self._client.get("/api/v1/positions/pnl/realtime", headers=headers)
         resp.raise_for_status()
         return self._json_dict(resp)
 

@@ -19,8 +19,9 @@ class ActivityFeed:
 
     def __init__(self) -> None:
         self.items: deque[dict[str, Any]] = deque(maxlen=self.MAX_ITEMS)
-        self._container = None
-        self._items_column = None
+        self._container: ui.card | None = None
+        self._items_column: ui.column | None = None
+        self._item_elements: deque[ui.row] = deque(maxlen=self.MAX_ITEMS)
 
         with ui.card().classes("w-full h-64 overflow-y-auto") as card:
             self._container = card
@@ -28,9 +29,13 @@ class ActivityFeed:
             self._items_column = ui.column().classes("w-full gap-1")
 
     async def add_item(self, event: dict[str, Any]) -> None:
-        """Add new item to feed (appears at top with animation)."""
+        """Add new item to feed (appears at top with animation).
+
+        Efficient incremental rendering: inserts new element at top,
+        removes oldest if MAX_ITEMS exceeded. Avoids re-rendering entire list.
+        """
         self.items.appendleft(event)
-        self._render_items(highlight_first=True)
+        self._insert_item_at_top(event, highlight=True)
         await self._scroll_to_top()
 
     async def _scroll_to_top(self) -> None:
@@ -39,18 +44,34 @@ class ActivityFeed:
             return
         await self._container.run_method("scrollTo", {"top": 0, "behavior": "smooth"})
 
-    def _render_items(self, highlight_first: bool = False) -> None:
-        """Re-render all items (newest first)."""
+    def _insert_item_at_top(self, event: dict[str, Any], highlight: bool = False) -> None:
+        """Insert new item at top of feed (efficient incremental update).
+
+        Only creates one new UI element and removes the oldest if needed,
+        instead of re-rendering the entire list.
+        """
         if self._items_column is None:
             return
-        self._items_column.clear()
-        with self._items_column:
-            for idx, item in enumerate(self.items):
-                is_new = highlight_first and idx == 0
-                self._render_item(item, highlight=is_new)
 
-    def _render_item(self, event: dict[str, Any], highlight: bool = False) -> None:
-        """Render single activity item."""
+        # Remove oldest element if at capacity
+        if len(self._item_elements) >= self.MAX_ITEMS:
+            oldest = self._item_elements.pop()
+            oldest.delete()
+
+        # Create new element and insert at top
+        with self._items_column:
+            row = self._render_item(event, highlight=highlight)
+            if row is not None:
+                # Move to top of column (NiceGUI renders in DOM order)
+                row.move(target_index=0)
+                self._item_elements.appendleft(row)
+
+    def _render_item(self, event: dict[str, Any], highlight: bool = False) -> ui.row | None:
+        """Render single activity item.
+
+        Returns:
+            The created row element, or None if event was malformed.
+        """
         try:
             side = str(event.get("side", "unknown")).lower()
             status = str(event.get("status", "unknown")).lower()
@@ -63,7 +84,7 @@ class ActivityFeed:
                 "activity_feed_malformed_event",
                 extra={"error": str(exc), "event": str(event)[:100]},
             )
-            return
+            return None
 
         side_color = "text-green-600" if side == "buy" else "text-red-600"
         status_color = {
@@ -76,7 +97,7 @@ class ActivityFeed:
         if highlight:
             row_classes += " bg-blue-100 animate-[fadeHighlight_2s_ease-out_forwards]"
 
-        with ui.row().classes(row_classes):
+        with ui.row().classes(row_classes) as row:
             time_display = (
                 f"{time_str} UTC"
                 if time_str and not time_str.endswith("UTC")
@@ -92,6 +113,8 @@ class ActivityFeed:
                 price_display = "$?.??"
             ui.label(price_display).classes("w-20 text-right")
             ui.label(status).classes(f"px-2 py-0.5 rounded text-xs {status_color}")
+
+        return row
 
 
 __all__ = ["ActivityFeed"]
