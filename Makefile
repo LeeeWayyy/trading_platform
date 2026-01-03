@@ -1,4 +1,4 @@
-.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs test test-cov test-watch clean install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs check-doc-freshness test test-cov test-watch clean install requirements install-hooks ci-local pre-push
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -63,6 +63,9 @@ lint: ## Run linters (black, ruff, mypy --strict)
 
 validate-docs: ## Validate that all markdown files are indexed in docs/INDEX.md
 	@./scripts/validate_doc_index.sh
+
+check-doc-freshness: ## Validate documentation freshness and coverage
+	@python scripts/check_doc_freshness.py
 
 test: ## Run tests
 	PYTHONPATH=. poetry run pytest
@@ -147,7 +150,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 1/6: Validating documentation index"
+	@echo "Step 1/7: Validating documentation index"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@./scripts/validate_doc_index.sh || { \
 		echo ""; \
@@ -161,7 +164,20 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 2/6: Checking markdown links (timeout: 1min)"
+	@echo "Step 2/7: Checking documentation freshness"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@python scripts/check_doc_freshness.py || { \
+		echo ""; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "❌ Documentation freshness check failed!"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "Update docs/GETTING_STARTED/REPO_MAP.md and/or specs to match current source directories."; \
+		exit 1; \
+	}
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 3/7: Checking markdown links (timeout: 1min)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@command -v markdown-link-check >/dev/null 2>&1 || { \
 		echo "❌ markdown-link-check not found. Installing..."; \
@@ -192,17 +208,17 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 3/6: Type checking with mypy --strict"
+	@echo "Step 4/7: Type checking with mypy --strict"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run mypy libs/ apps/ strategies/ --strict
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 4/6: Linting with ruff"
+	@echo "Step 5/7: Linting with ruff"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	poetry run ruff check .
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 5/6: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"
+	@echo "Step 6/7: Running tests (integration and e2e tests skipped, timeout: 2 min per stall)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	# TODO: restore --cov-fail-under back to 80% once flaky tests are fixed (GH-issue to track)
 	@HANG_TIMEOUT=120 PYTHONPATH=. ./scripts/ci_with_timeout.sh poetry run pytest -m "not integration and not e2e" --cov=libs --cov=apps --cov-report=term --cov-fail-under=50 || { \
@@ -219,7 +235,7 @@ ci-local: ## Run CI checks locally (mirrors GitHub Actions exactly)
 	}
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Step 6/6: Verifying workflow gate compliance (review approval markers)"
+	@echo "Step 7/7: Verifying workflow gate compliance (review approval markers)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@CI=true PYTHONPATH=. poetry run python scripts/verify_gate_compliance.py || { \
 		echo ""; \

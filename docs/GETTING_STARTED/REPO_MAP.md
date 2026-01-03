@@ -1,6 +1,6 @@
 # Repository Map
 
-**Last Updated:** 2025-11-21
+**Last Updated:** 2026-01-02
 
 This document provides a comprehensive map of the trading platform repository structure, explaining the purpose of each directory and key files.
 
@@ -20,13 +20,9 @@ trading_platform/
 ├── tests/             # Test suite (mirrors src structure)
 ├── docs/              # Comprehensive documentation
 ├── data/              # Market data storage (parquet files, DuckDB catalogs)
-├── artifacts/         # ML models, backtests, reports
 ├── config/            # Configuration files
-├── notebooks/         # Jupyter notebooks for research and analysis
-├── prompts/           # AI prompts and templates
-├── logs/              # Application logs (gitignored)
-├── htmlcov/           # Test coverage reports (gitignored)
-└── .claude/           # AI workflow state and audit logs
+├── .github/           # GitHub configuration (workflows, actions)
+└── .ai_workflow/      # AI workflow state and audit logs
 ```
 
 ---
@@ -35,19 +31,23 @@ trading_platform/
 
 FastAPI-based microservices implementing the trading platform's core functionality.
 
-### apps/signal_service/
-**Purpose:** Generates trading signals using ML models
-**Key Features:**
-- Model hot-reload from model registry
-- Redis caching for feature data
-- Multi-strategy signal generation
-- Model version management
+### apps/alert_worker/
+**Purpose:** RQ worker that delivers alert notifications (email, Slack, SMS) with retry scheduling and rate limiting.
 
 **Key Files:**
-- `main.py` - FastAPI application entry point
-- `signal_generator.py` - Signal generation logic
-- `model_loader.py` - Model registry integration
-- `config.py` - Service configuration
+- `entrypoint.py` - RQ worker entrypoint and delivery execution
+
+### apps/auth_service/
+**Purpose:** FastAPI OAuth2 service handling login, callback, refresh, and logout flows with PKCE and CSP protections.
+
+**Key Files:**
+- `main.py` - FastAPI app and OAuth2 endpoints
+
+### apps/backtest_worker/
+**Purpose:** RQ worker entrypoint that validates environment/Redis and processes prioritized backtest queues with retry tracking.
+
+**Key Files:**
+- `entrypoint.py` - Worker startup and queue processing
 
 ### apps/execution_gateway/
 **Purpose:** Executes trades via Alpaca API with idempotency guarantees
@@ -78,6 +78,12 @@ FastAPI-based microservices implementing the trading platform's core functionali
 - `websocket_client.py` - Alpaca WebSocket client
 - `subscription_manager.py` - Symbol subscription logic
 
+### apps/model_registry/
+**Purpose:** FastAPI read-only model registry API for model metadata retrieval, listing, and validation with auth enforced.
+
+**Key Files:**
+- `main.py` - FastAPI application and registry bootstrap
+
 ### apps/orchestrator/
 **Purpose:** Coordinates end-to-end paper trading workflow
 **Key Features:**
@@ -88,6 +94,20 @@ FastAPI-based microservices implementing the trading platform's core functionali
 **Key Files:**
 - `main.py` - Orchestrator service
 - `workflow.py` - Workflow orchestration logic
+
+### apps/signal_service/
+**Purpose:** Generates trading signals using ML models
+**Key Features:**
+- Model hot-reload from model registry
+- Redis caching for feature data
+- Multi-strategy signal generation
+- Model version management
+
+**Key Files:**
+- `main.py` - FastAPI application entry point
+- `signal_generator.py` - Signal generation logic
+- `model_loader.py` - Model registry integration
+- `config.py` - Service configuration
 
 ### apps/web_console/
 **Purpose:** Web-based operational dashboard (Streamlit)
@@ -102,6 +122,12 @@ FastAPI-based microservices implementing the trading platform's core functionali
 - `app.py` - Streamlit application
 - `auth.py` - Authentication logic
 - `Dockerfile` - Container configuration
+
+### apps/web_console_ng/
+**Purpose:** NiceGUI-based web console with auth/session middleware, admission control, and health endpoints.
+
+**Key Files:**
+- `main.py` - NiceGUI app entrypoint and middleware setup
 
 ---
 
@@ -119,11 +145,61 @@ Trading strategy implementations following the Qlib framework.
 - `pipeline.py` - End-to-end training pipeline
 - `backtest.py` - Backtesting logic
 
+### strategies/backtest/
+**Purpose:** Signal-based backtesting framework for evaluating strategy performance on historical data.
+
+**Key Files:**
+- `__init__.py` - Backtest evaluator, metrics, and configuration exports
+
+### strategies/ensemble/
+**Purpose:** Framework for combining multiple strategy signals via weighted or voting ensembles.
+
+**Key Files:**
+- `__init__.py` - Ensemble combiner, configuration, and weighting helpers
+
+### strategies/mean_reversion/
+**Purpose:** Mean reversion strategy using oversold/overbought indicators for entry and exit signals.
+
+**Key Files:**
+- `README.md` - Strategy overview and indicator definitions
+
+### strategies/momentum/
+**Purpose:** Momentum strategy that trades persistent trends using MA/MACD/ADX/ROC signals.
+
+**Key Files:**
+- `README.md` - Strategy overview and indicator definitions
+
 ---
 
 ## libs/ - Shared Libraries
 
 Reusable libraries shared across services.
+
+### libs/admin/
+**Purpose:** Admin utilities for API key generation, hashing, validation, and revocation tracking.
+
+### libs/alerts/
+**Purpose:** Alert rules, delivery models, and PII masking helpers for notification workflows.
+
+### libs/allocation/
+**Purpose:** Portfolio allocation and rebalancing
+**Key Features:**
+- Multi-strategy capital allocation
+- Portfolio optimization
+- Rebalancing logic
+
+**Key Files:**
+- `allocator.py` - Capital allocation logic
+- `optimizer.py` - Portfolio optimization
+
+### libs/alpha/
+**Purpose:** Alpha research framework with PIT-correct backtesting, canonical alphas, and metrics adapters.
+
+### libs/analytics/
+**Purpose:** Analytics tools for microstructure, event studies, volatility modeling, and factor attribution.
+
+### libs/backtest/
+**Purpose:** Backtest jobs, Monte Carlo analysis, walk-forward optimization, and RQ queue/worker utilities.
 
 ### libs/common/
 **Purpose:** Common utilities, exceptions, and helpers
@@ -146,6 +222,32 @@ Reusable libraries shared across services.
 - `quality_gate.py` - Data quality validation
 - `freshness.py` - Staleness detection
 
+### libs/data_providers/
+**Purpose:** WRDS/CRSP/Compustat/Fama-French/yfinance providers with unified fetcher and sync tooling.
+
+### libs/data_quality/
+**Purpose:** Data quality framework for sync manifests, validation, schema drift, and dataset versioning.
+
+### libs/factors/
+**Purpose:** Factor construction and analytics framework with PIT correctness and canonical factor definitions.
+
+### libs/health/
+**Purpose:** Health check and Prometheus latency clients with cached, staleness-aware responses.
+
+### libs/market_data/
+**Purpose:** Market data fetching and caching
+**Key Features:**
+- Historical data retrieval
+- Real-time quote caching
+- Symbol universe management
+
+**Key Files:**
+- `provider.py` - Market data provider interface
+- `cache.py` - Data caching layer
+
+### libs/models/
+**Purpose:** Model registry for versioned artifacts with metadata, manifests, and promotion gates.
+
 ### libs/redis_client/
 **Purpose:** Redis connection pool and utilities
 **Key Features:**
@@ -156,6 +258,9 @@ Reusable libraries shared across services.
 **Key Files:**
 - `client.py` - Redis client with connection pooling
 - `cache.py` - Caching utilities
+
+### libs/risk/
+**Purpose:** Risk analytics for factor covariance, specific risk, portfolio optimization, and stress testing.
 
 ### libs/risk_management/
 **Purpose:** Pre-trade and post-trade risk checks
@@ -184,33 +289,22 @@ Reusable libraries shared across services.
 - `aws_backend.py` - AWS Secrets Manager integration
 - `env_backend.py` - Environment variable backend
 
-### libs/allocation/
-**Purpose:** Portfolio allocation and rebalancing
-**Key Features:**
-- Multi-strategy capital allocation
-- Portfolio optimization
-- Rebalancing logic
+### libs/tax/
+**Purpose:** Tax lot tracking, wash sale detection, and Form 8949 export utilities.
 
-**Key Files:**
-- `allocator.py` - Capital allocation logic
-- `optimizer.py` - Portfolio optimization
-
-### libs/market_data/
-**Purpose:** Market data fetching and caching
-**Key Features:**
-- Historical data retrieval
-- Real-time quote caching
-- Symbol universe management
-
-**Key Files:**
-- `provider.py` - Market data provider interface
-- `cache.py` - Data caching layer
+### libs/web_console_auth/
+**Purpose:** JWT/mTLS auth library for web console sessions, roles, and rate limiting.
 
 ---
 
 ## infra/ - Infrastructure
 
 Infrastructure configuration for local development and deployment.
+
+### infra/alertmanager/
+**Purpose:** Alertmanager routing and notification configuration.
+**Files:**
+- `config.yml` - Alertmanager routing and receiver settings
 
 ### infra/docker-compose.yml
 **Purpose:** Local development stack
@@ -222,12 +316,6 @@ Infrastructure configuration for local development and deployment.
 - Loki (port 3100)
 - Promtail (log collector)
 - All microservices (ports 8000-8003, 8501)
-
-### infra/prometheus/
-**Purpose:** Metrics collection configuration
-**Files:**
-- `prometheus.yml` - Prometheus scrape configuration
-- `alerts.yml` - Alert rules (30+ alerts)
 
 ### infra/grafana/
 **Purpose:** Visualization and dashboards
@@ -243,6 +331,23 @@ Infrastructure configuration for local development and deployment.
 **Files:**
 - `loki-config.yml` - Loki configuration
 - `promtail-config.yml` - Log scraping configuration
+
+### infra/nginx/
+**Purpose:** Nginx reverse proxy configuration for the web console.
+**Files:**
+- `nicegui-cluster.conf` - Upstream cluster configuration
+- `nicegui-location.conf` - Route/location configuration
+
+### infra/prometheus/
+**Purpose:** Metrics collection configuration
+**Files:**
+- `prometheus.yml` - Prometheus scrape configuration
+- `alerts.yml` - Alert rules (30+ alerts)
+
+### infra/promtail/
+**Purpose:** Promtail log shipping configuration for Loki.
+**Files:**
+- `promtail-config.yml` - Promtail scrape configuration
 
 ---
 
@@ -428,23 +533,7 @@ data/
 └── catalog.duckdb         # DuckDB catalog for fast queries
 ```
 
----
-
-## artifacts/ - ML Artifacts
-
-ML models, backtests, and analysis reports.
-
-**Structure:**
-```
-artifacts/
-├── models/
-│   ├── alpha_baseline.txt      # LightGBM model (Qlib format)
-│   └── alpha_baseline_v2.txt
-├── backtests/
-│   └── YYYY-MM-DD_alpha_baseline.json
-└── reports/
-    └── performance_analysis.html
-```
+Note: Generated output directories (artifacts, notebooks, logs, htmlcov) are created on demand and may be absent in a clean checkout.
 
 ---
 
@@ -459,38 +548,26 @@ Application configuration files (not secrets).
 
 ---
 
-## notebooks/ - Jupyter Notebooks
+## .github/ - GitHub Configuration
 
-Research and analysis notebooks.
+GitHub Actions workflows and shared action definitions.
 
-**Typical Contents:**
-- Feature engineering experiments
-- Model performance analysis
-- Backtest visualization
-- Data quality checks
+**Subdirectories:**
+- `workflows/` - CI and automation workflows
+- `actions/` - Shared action implementations (includes `wait-for-services`)
 
 ---
 
-## prompts/ - AI Prompts
-
-AI prompt templates for common tasks.
-
-**Files:**
-- `assistant_rules.md` - AI assistant guidelines (legacy, moved to docs/AI/)
-- `implement_ticket.md` - Task implementation prompt (legacy, moved to docs/AI/)
-
----
-
-## .claude/ - AI Workflow State (gitignored)
+## .ai_workflow/ - AI Workflow State (gitignored)
 
 AI workflow automation state and audit logs.
 
 **Files:**
-- `task-state.json` - Current task state and context
+- `config.json` - Workflow configuration
+- `.workflow-state.lock` - Workflow state lock file
 - `workflow-state.json` - Workflow gate state
 - `workflow-audit.log` - Review audit trail (JSON lines)
-- `subtasks/` - Hierarchical subtask state
-- `checkpoints/` - Context checkpoints for delegation
+- `plans/` - Plan artifacts
 
 ---
 
@@ -563,5 +640,5 @@ make kill-switch # Emergency stop
 ---
 
 **Document Version:** 2.0 (Comprehensive Restructure)
-**Last Updated:** 2025-11-21
+**Last Updated:** 2026-01-02
 **Maintained By:** Development Team

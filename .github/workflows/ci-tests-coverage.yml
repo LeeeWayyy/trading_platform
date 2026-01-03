@@ -83,6 +83,12 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --with dev
 
+      - name: Check documentation freshness
+        run: |
+          echo "::group::Checking documentation freshness"
+          python scripts/check_doc_freshness.py
+          echo "::endgroup::"
+
       - name: Verify workflow gate compliance
         run: |
           echo "::group::Verifying commits followed workflow gates"
