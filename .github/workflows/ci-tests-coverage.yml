@@ -89,6 +89,12 @@ jobs:
           python scripts/check_doc_freshness.py
           echo "::endgroup::"
 
+      - name: Check architecture map drift
+        run: |
+          echo "::group::Checking architecture map drift"
+          python scripts/generate_architecture.py --check
+          echo "::endgroup::"
+
       - name: Verify workflow gate compliance
         run: |
           echo "::group::Verifying commits followed workflow gates"

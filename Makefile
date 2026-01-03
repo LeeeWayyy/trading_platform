@@ -1,4 +1,4 @@
-.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs check-doc-freshness test test-cov test-watch clean install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev down down-dev logs fmt fmt-check lint validate-docs check-doc-freshness check-architecture test test-cov test-watch clean install requirements install-hooks ci-local pre-push
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -66,6 +66,9 @@ validate-docs: ## Validate that all markdown files are indexed in docs/INDEX.md
 
 check-doc-freshness: ## Validate documentation freshness and coverage
 	@python scripts/check_doc_freshness.py
+
+check-architecture: ## Verify architecture map outputs are up to date
+	@python scripts/generate_architecture.py --check
 
 test: ## Run tests
 	PYTHONPATH=. poetry run pytest

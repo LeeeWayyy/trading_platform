@@ -1,0 +1,115 @@
+{
+  "$schema": "./system_map.schema.json",
+  "version": "1.1.0",
+  "description": "Configuration for architecture visualization generation",
+
+  "layers": [
+    {"id": "presentation", "label": "Presentation Layer", "order": 1},
+    {"id": "orchestration", "label": "Orchestration", "order": 2},
+    {"id": "core", "label": "Core Services", "order": 3},
+    {"id": "domain", "label": "Domain Logic", "order": 4},
+    {"id": "infra", "label": "Infrastructure", "order": 5}
+  ],
+
+  "subgroups": {
+    "core": [
+      {"id": "trading", "label": "Trading", "members": ["apps/signal_service", "apps/execution_gateway", "apps/market_data_service"]},
+      {"id": "support", "label": "Support", "members": ["apps/model_registry", "apps/alert_worker", "apps/backtest_worker"]}
+    ],
+    "domain": [
+      {"id": "data", "label": "Data", "members": ["libs/data_pipeline", "libs/data_providers", "libs/data_quality", "libs/market_data", "libs/duckdb_catalog"]},
+      {"id": "ml", "label": "ML & Analytics", "members": ["libs/alpha", "libs/factors", "libs/models", "libs/analytics", "libs/backtest"]},
+      {"id": "risk", "label": "Risk & Allocation", "members": ["libs/risk", "libs/risk_management", "libs/allocation", "libs/tax"]},
+      {"id": "strategies", "label": "Strategies", "members": ["strategies/alpha_baseline", "strategies/backtest", "strategies/ensemble", "strategies/mean_reversion", "strategies/momentum"]}
+    ],
+    "infra": [
+      {"id": "auth", "label": "Auth", "members": ["libs/admin", "libs/web_console_auth"]},
+      {"id": "core_libs", "label": "Core Libs", "members": ["libs/common", "libs/secrets", "libs/health", "libs/redis_client", "libs/alerts"]},
+      {"id": "external", "label": "External Systems", "members": ["ext_alpaca", "ext_redis", "ext_postgres", "ext_prometheus", "ext_grafana"]}
+    ]
+  },
+
+  "external_nodes": [
+    {"id": "ext_alpaca", "label": "Alpaca API", "layer": "infra", "type": "api"},
+    {"id": "ext_redis", "label": "Redis", "layer": "infra", "type": "database", "spec": "../SPECS/infrastructure/redis.md"},
+    {"id": "ext_postgres", "label": "PostgreSQL", "layer": "infra", "type": "database", "spec": "../SPECS/infrastructure/postgres.md"},
+    {"id": "ext_prometheus", "label": "Prometheus", "layer": "infra", "type": "monitoring", "spec": "../SPECS/infrastructure/prometheus.md"},
+    {"id": "ext_grafana", "label": "Grafana", "layer": "infra", "type": "monitoring", "spec": "../SPECS/infrastructure/grafana.md"}
+  ],
+
+  "components": {
+    "apps/web_console": {"layer": "presentation", "spec": "../SPECS/services/web_console.md"},
+    "apps/web_console_ng": {"layer": "presentation", "spec": "../SPECS/services/web_console_ng.md"},
+    "apps/auth_service": {"layer": "presentation", "spec": "../SPECS/services/auth_service.md"},
+
+    "apps/orchestrator": {"layer": "orchestration", "spec": "../SPECS/services/orchestrator.md"},
+
+    "apps/signal_service": {"layer": "core", "spec": "../SPECS/services/signal_service.md"},
+    "apps/execution_gateway": {"layer": "core", "spec": "../SPECS/services/execution_gateway.md"},
+    "apps/market_data_service": {"layer": "core", "spec": "../SPECS/services/market_data_service.md"},
+    "apps/model_registry": {"layer": "core", "spec": "../SPECS/services/model_registry.md"},
+    "apps/alert_worker": {"layer": "core", "spec": "../SPECS/services/alert_worker.md"},
+    "apps/backtest_worker": {"layer": "core", "spec": "../SPECS/services/backtest_worker.md"},
+
+    "libs/allocation": {"layer": "domain", "spec": "../SPECS/libs/allocation.md"},
+    "libs/alpha": {"layer": "domain", "spec": "../SPECS/libs/alpha.md"},
+    "libs/analytics": {"layer": "domain", "spec": "../SPECS/libs/analytics.md"},
+    "libs/backtest": {"layer": "domain", "spec": "../SPECS/libs/backtest.md"},
+    "libs/factors": {"layer": "domain", "spec": "../SPECS/libs/factors.md"},
+    "libs/models": {"layer": "domain", "spec": "../SPECS/libs/models.md"},
+    "libs/risk": {"layer": "domain", "spec": "../SPECS/libs/risk.md"},
+    "libs/risk_management": {"layer": "domain", "spec": "../SPECS/libs/risk_management.md"},
+    "libs/tax": {"layer": "domain", "spec": "../SPECS/libs/tax.md"},
+
+    "libs/data_pipeline": {"layer": "domain", "spec": "../SPECS/libs/data_pipeline.md"},
+    "libs/data_providers": {"layer": "domain", "spec": "../SPECS/libs/data_providers.md"},
+    "libs/data_quality": {"layer": "domain", "spec": "../SPECS/libs/data_quality.md"},
+    "libs/market_data": {"layer": "domain", "spec": "../SPECS/libs/market_data.md"},
+    "libs/duckdb_catalog": {"layer": "domain", "spec": "../SPECS/libs/duckdb_catalog.md"},
+
+    "libs/common": {"layer": "infra", "spec": "../SPECS/libs/common.md"},
+    "libs/redis_client": {"layer": "infra", "spec": "../SPECS/libs/redis_client.md"},
+    "libs/secrets": {"layer": "infra", "spec": "../SPECS/libs/secrets.md"},
+    "libs/health": {"layer": "infra", "spec": "../SPECS/libs/health.md"},
+    "libs/alerts": {"layer": "infra", "spec": "../SPECS/libs/alerts.md"},
+    "libs/admin": {"layer": "infra", "spec": "../SPECS/libs/admin.md"},
+    "libs/web_console_auth": {"layer": "infra", "spec": "../SPECS/libs/web_console_auth.md"},
+
+    "strategies/alpha_baseline": {"layer": "domain", "spec": "../SPECS/strategies/alpha_baseline.md"},
+    "strategies/backtest": {"layer": "domain", "spec": "../SPECS/strategies/backtest.md"},
+    "strategies/ensemble": {"layer": "domain", "spec": "../SPECS/strategies/ensemble.md"},
+    "strategies/mean_reversion": {"layer": "domain", "spec": "../SPECS/strategies/mean_reversion.md"},
+    "strategies/momentum": {"layer": "domain", "spec": "../SPECS/strategies/momentum.md"}
+  },
+
+  "virtual_edges": [
+    {"from": "apps/orchestrator", "to": "apps/signal_service", "type": "data_flow", "label": "request signals"},
+    {"from": "apps/signal_service", "to": "strategies/alpha_baseline", "type": "data_flow", "label": "compute alpha"},
+    {"from": "apps/orchestrator", "to": "apps/execution_gateway", "type": "data_flow", "label": "execute orders"},
+    {"from": "apps/execution_gateway", "to": "ext_alpaca", "type": "data_flow", "label": "submit orders"},
+    {"from": "ext_alpaca", "to": "apps/execution_gateway", "type": "data_flow", "label": "order updates"},
+    {"from": "apps/market_data_service", "to": "ext_redis", "type": "data_flow", "label": "publish quotes"},
+    {"from": "ext_redis", "to": "apps/signal_service", "type": "data_flow", "label": "subscribe quotes"},
+    {"from": "apps/web_console", "to": "apps/orchestrator", "type": "control", "label": "manual control"},
+    {"from": "apps/alert_worker", "to": "ext_redis", "type": "data_flow", "label": "alert events"},
+    {"from": "libs/risk_management", "to": "ext_redis", "type": "data_flow", "label": "circuit breaker state"}
+  ],
+
+  "filtering": {
+    "hide_to_common_libs": true,
+    "common_libs": ["libs/common", "libs/secrets", "libs/health"],
+    "allowlist": [
+      "apps/execution_gateway",
+      "apps/signal_service",
+      "apps/orchestrator",
+      "libs/risk_management",
+      "libs/redis_client"
+    ]
+  },
+
+  "rendering": {
+    "flow_diagram": {"output": "system_map_flow.md"},
+    "deps_diagram": {"output": "system_map_deps.md"},
+    "canvas": {"output": "system_map.canvas"}
+  }
+}
