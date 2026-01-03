@@ -1,0 +1,50 @@
+{
+  "info": {
+    "description": "Prometheus metrics endpoint for OAuth2/mTLS authentication system",
+    "title": "Web Console Metrics",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "description": "Health check endpoint for Docker/k8s readiness/liveness probes.\n\nReturns:\n    Dict with status",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "Prometheus metrics endpoint with multiprocess support.\n\nCollects metrics from all Streamlit worker processes via shared\nprometheus_multiproc_data volume (production), or from default\nREGISTRY in single-process/dev mode.\n\nUpdates CB staleness metric before each collection.\n\nReturns:\n    Response with Prometheus text format metrics",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics"
+      }
+    }
+  }
+}

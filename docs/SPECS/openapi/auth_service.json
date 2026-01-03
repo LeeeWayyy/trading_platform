@@ -1,0 +1,311 @@
+{
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "OAuth2 authentication endpoints with PKCE",
+    "title": "Auth Service",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/callback": {
+      "get": {
+        "description": "Handle OAuth2 callback from Auth0.\n\nValidates state, exchanges code for tokens, creates session,\nsets HttpOnly cookie, redirects to dashboard.\n\nArgs:\n    code: Authorization code from Auth0\n    state: State parameter for CSRF protection\n\nReturns:\n    RedirectResponse with Set-Cookie header",
+        "operationId": "callback_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Callback Callback Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/csp-report": {
+      "post": {
+        "description": "Handle CSP violation reports.\n\nLogs CSP violations for security monitoring.\nThis endpoint is public (no auth required) to allow browser CSP reports.\n\nSecurity measures (defense-in-depth):\n- Primary: Nginx client_max_body_size 10k (blocks large bodies BEFORE FastAPI parse)\n- Secondary: Pre-Pydantic size validation (Codex Fresh Review: HIGH - check before parsing)\n- Rate limiting: 10 requests/min per IP (enforced by Nginx)\n\nArgs:\n    request: FastAPI request object (for IP logging and body access)\n\nReturns:\n    JSON response acknowledging receipt\n\nRaises:\n    HTTPException: 413 if payload exceeds 10KB limit\n    HTTPException: 400 if Content-Length malformed or body read error\n    HTTPException: 422 if Pydantic validation fails (invalid CSP report format)",
+        "operationId": "csp_report_csp_report_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Csp Report Csp Report Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Csp Report",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/example-page": {
+      "get": {
+        "description": "Example page demonstrating nonce injection into templates.\n\nSecurity: Feature-flagged via ENABLE_TEST_ENDPOINTS (Codex Code Review Iteration 3).\nOnly enabled in test/dev environments to prevent information disclosure.\n\nReturns:\n    HTML response with CSP nonce demonstration\n\nRaises:\n    HTTPException: 404 if test endpoints are disabled",
+        "operationId": "example_page_example_page_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Example Page",
+        "tags": [
+          "example"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Health check endpoint.\n\nReturns:\n    JSON response with service status",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/login": {
+      "get": {
+        "description": "Initiate OAuth2 login flow.\n\nGenerates PKCE challenge, stores state in Redis, redirects to Auth0\nauthorization endpoint with proper parameters.\n\nReturns:\n    RedirectResponse to Auth0 authorization endpoint",
+        "operationId": "login_login_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Login Login Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Login"
+      }
+    },
+    "/logout": {
+      "get": {
+        "description": "Handle logout with binding validation.\n\nValidates session binding, deletes session, revokes refresh token at Auth0,\nclears cookie, redirects to Auth0 logout.\n\nFIX (Component 3 - Codex Medium #5): Validates binding before token revocation\nto prevent attacker with stolen cookie from revoking real user's refresh token.\n\nArgs:\n    session_id: Session ID from HttpOnly cookie\n\nReturns:\n    RedirectResponse to Auth0 logout with cleared cookie",
+        "operationId": "logout_logout_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Logout Logout Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/refresh": {
+      "post": {
+        "description": "Refresh access token with binding validation and guarded internal bypass.\n\nRefreshes tokens and rotates refresh token, preserving absolute timeout.\n\nSECURITY:\n- Default: Enforce IP/UA binding for all requests.\n- Controlled bypass: If `INTERNAL_REFRESH_SECRET` is configured **and** the\n  caller presents matching `X-Internal-Auth` header, binding checks are\n  skipped to support background refreshers that lack client context.\n- Bypass is rejected if the header is missing/invalid while the secret is set.\n\nArgs:\n    request: FastAPI request object (for IP/UA extraction)\n    session_id: Session ID from HttpOnly cookie\n\nReturns:\n    JSON response with success status\n\nRaises:\n    HTTPException: 401 if session invalid or binding validation fails\n    HTTPException: 429 if rate limit exceeded",
+        "operationId": "refresh_token_refresh_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Refresh Token Refresh Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/test/echo-ip": {
+      "get": {
+        "description": "Echo client IP for integration testing.\n\nReturns client_ip, X-Forwarded-For, and X-Real-IP headers.\nUsed by integration tests to verify Nginx real_ip directive.\n\nSecurity: Feature-flagged via ENABLE_TEST_ENDPOINTS (Codex Code Review Iteration 1).\nOnly enabled in test/dev environments.\n\nReturns:\n    JSON response with client IP and forwarded headers\n\nRaises:\n    HTTPException: 404 if test endpoints are disabled",
+        "operationId": "echo_ip_test_echo_ip_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Echo Ip Test Echo Ip Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Echo Ip"
+      }
+    }
+  }
+}

@@ -1,0 +1,142 @@
+# API Schemas (OpenAPI)
+
+This document summarizes FastAPI service contracts and points to the generated OpenAPI JSON artifacts in `docs/SPECS/openapi/`.
+
+## Service Index
+
+| Service | Entry Point | Default Port | Base URL (dev/local) | OpenAPI JSON |
+| --- | --- | --- | --- | --- |
+| signal_service | `apps/signal_service/main.py` | 8001 | `http://localhost:8001` | `docs/SPECS/openapi/signal_service.json` |
+| execution_gateway | `apps/execution_gateway/main.py` | 8002 | `http://localhost:8002` | `docs/SPECS/openapi/execution_gateway.json` |
+| orchestrator | `apps/orchestrator/main.py` | 8003 | `http://localhost:8003` | `docs/SPECS/openapi/orchestrator.json` |
+| market_data_service | `apps/market_data_service/main.py` | 8004 | `http://localhost:8004` | `docs/SPECS/openapi/market_data_service.json` |
+| model_registry | `apps/model_registry/main.py` | 8003 | `http://localhost:8003` (default) | `docs/SPECS/openapi/model_registry.json` |
+| auth_service | `apps/auth_service/main.py` | 8001 | internal-only (Docker network) | `docs/SPECS/openapi/auth_service.json` |
+| web_console (metrics sidecar) | `apps/web_console/metrics_server.py` | (not fixed) | sidecar-only | `docs/SPECS/openapi/web_console_metrics.json` |
+| web_console_ng (NiceGUI) | `apps/web_console_ng/main.py` | 8080 | `http://localhost:8080` | `docs/SPECS/openapi/web_console_ng.json` |
+
+Notes:
+- Ports/URLs are derived from `docker-compose.yml` and service configs (`apps/*/main.py`, `apps/*/config.py`).
+- `model_registry` defaults to port 8003, which conflicts with `orchestrator` in dev; override `MODEL_REGISTRY_PORT` if running both.
+- `auth_service` is not exposed on the host in `docker-compose.yml`; access via nginx routes (e.g., `/login`, `/callback`).
+- `web_console` is Streamlit; only the metrics sidecar is FastAPI.
+
+## Key Schemas by Service
+
+### signal_service
+Key endpoints:
+- `POST /api/v1/signals/generate`
+- `POST /api/v1/features/precompute`
+- `GET /api/v1/model/info`, `POST /api/v1/model/reload`
+
+Key request/response schemas:
+- `SignalRequest` → `SignalResponse`
+- `PrecomputeRequest` → `PrecomputeResponse`
+- `HealthResponse`
+
+OpenAPI: `docs/SPECS/openapi/signal_service.json`
+
+### execution_gateway
+Key endpoints:
+- `POST /api/v1/orders` (idempotent submission)
+- `POST /api/v1/orders/slice` (TWAP slicing)
+- `GET /api/v1/orders/{client_order_id}`
+- `GET /api/v1/positions`, `POST /api/v1/positions/{symbol}/adjust`
+- `POST /api/v1/kill-switch/engage` / `disengage`
+
+Key request/response schemas:
+- `OrderRequest` → `OrderResponse`
+- `SlicingRequest` → `SlicingPlan`
+- `PositionsResponse`
+- `RealtimePnLResponse`
+- `KillSwitchEngageRequest` / `KillSwitchDisengageRequest`
+- `FatFingerThresholdsUpdateRequest` → `FatFingerThresholdsResponse`
+
+OpenAPI: `docs/SPECS/openapi/execution_gateway.json`
+
+### orchestrator
+Key endpoints:
+- `POST /api/v1/orchestration/run`
+- `GET /api/v1/orchestration/runs`
+- `GET /api/v1/orchestration/runs/{run_id}`
+- `POST /api/v1/kill-switch/engage` / `disengage`
+
+Key request/response schemas:
+- `OrchestrationRequest` → `OrchestrationResult`
+- `OrchestrationRunsResponse`
+- `KillSwitchEngageRequest` / `KillSwitchDisengageRequest`
+- `HealthResponse`
+
+OpenAPI: `docs/SPECS/openapi/orchestrator.json`
+
+### market_data_service
+Key endpoints:
+- `POST /api/v1/subscribe`
+- `DELETE /api/v1/subscribe/{symbol}`
+- `GET /api/v1/subscriptions`
+- `GET /api/v1/subscriptions/stats`
+
+Key request/response schemas:
+- `SubscribeRequest` → `SubscribeResponse`
+- `SubscriptionsResponse`
+- `UnsubscribeResponse`
+- `HealthResponse`
+
+OpenAPI: `docs/SPECS/openapi/market_data_service.json`
+
+### model_registry
+Key endpoints:
+- `GET /api/v1/models/{model_type}`
+- `GET /api/v1/models/{model_type}/current`
+- `GET /api/v1/models/{model_type}/{version}`
+- `POST /api/v1/models/{model_type}/{version}/validate`
+
+Key request/response schemas:
+- `ModelListResponse`
+- `CurrentModelResponse`
+- `ModelMetadataResponse`
+- `ValidationResultResponse`
+- `ErrorResponse`
+
+OpenAPI: `docs/SPECS/openapi/model_registry.json`
+
+### auth_service
+Key endpoints:
+- `/login`, `/callback`, `/refresh`, `/logout`
+- `/csp-report`, `/health`, `/test/echo-ip`, `/example-page`
+
+Key request/response schemas:
+- No domain-specific schemas defined in OpenAPI (only validation error schemas).
+
+OpenAPI: `docs/SPECS/openapi/auth_service.json`
+
+### web_console (metrics sidecar)
+Key endpoints:
+- `GET /metrics`
+- `GET /health`
+
+Key request/response schemas:
+- None (plain text metrics response).
+
+OpenAPI: `docs/SPECS/openapi/web_console_metrics.json`
+
+### web_console_ng (NiceGUI)
+Key endpoints:
+- `/_nicegui/{version}/components/{key}`
+- `/_nicegui/{version}/libraries/{key}`
+- `/_nicegui/{version}/resources/{key}/{path}`
+- `/healthz`, `/readyz`
+
+Key request/response schemas:
+- None beyond validation error schemas (NiceGUI endpoints are primarily static/stream resources).
+
+OpenAPI: `docs/SPECS/openapi/web_console_ng.json`
+
+## OpenAPI Extraction Notes
+
+OpenAPI JSON files were generated by importing each service module and calling `app.openapi()` in a local environment with safe defaults. Some services require environment variables to import cleanly:
+- `market_data_service`: `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` were set to dummy values.
+- `model_registry`: `ENVIRONMENT=dev` to avoid production CORS enforcement.
+- `web_console_ng`: `WEB_CONSOLE_NG_DEBUG=true`, `WEB_CONSOLE_AUTH_TYPE=dev`, and placeholder session/HMAC keys to satisfy config validation.
+
+If you need production-accurate schemas (e.g., auth-related middleware behavior), re-run extraction under a fully configured environment.

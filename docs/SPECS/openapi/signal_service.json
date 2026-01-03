@@ -1,0 +1,669 @@
+{
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Response body for health check.\n\nAttributes:\n    status: Service health status (\"healthy\", \"degraded\", or \"unhealthy\")\n    model_loaded: Whether ML model is loaded\n    model_info: Information about loaded model\n    redis_status: Redis connection status (T1.2)\n    feature_cache_enabled: Whether feature caching is active (T1.2)\n    timestamp: Current server timestamp\n\nExample:\n    {\n        \"status\": \"healthy\",\n        \"model_loaded\": true,\n        \"model_info\": {\n            \"strategy\": \"alpha_baseline\",\n            \"version\": \"v1.0.0\",\n            \"activated_at\": \"2024-12-31T00:00:00Z\"\n        },\n        \"redis_status\": \"connected\",\n        \"feature_cache_enabled\": true,\n        \"timestamp\": \"2024-12-31T10:30:00Z\"\n    }",
+        "properties": {
+          "feature_cache_enabled": {
+            "description": "Whether feature caching is active",
+            "title": "Feature Cache Enabled",
+            "type": "boolean"
+          },
+          "model_info": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model metadata",
+            "title": "Model Info"
+          },
+          "model_loaded": {
+            "description": "Whether model is loaded",
+            "title": "Model Loaded",
+            "type": "boolean"
+          },
+          "redis_status": {
+            "description": "Redis connection status (connected/disconnected/disabled)",
+            "title": "Redis Status",
+            "type": "string"
+          },
+          "service": {
+            "default": "signal_service",
+            "description": "Service name",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "description": "Service health status",
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Current timestamp",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "model_loaded",
+          "redis_status",
+          "feature_cache_enabled",
+          "timestamp"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "PrecomputeRequest": {
+        "description": "Request body for feature pre-computation.\n\nM5 Fix: Allows cache warming at day start to reduce signal generation latency.\n\nAttributes:\n    symbols: List of stock symbols to pre-compute features for\n    as_of_date: Optional date for feature computation (ISO format, default: today)",
+        "properties": {
+          "as_of_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date for feature computation (ISO format: YYYY-MM-DD). Defaults to today.",
+            "examples": [
+              "2024-12-31"
+            ],
+            "title": "As Of Date"
+          },
+          "symbols": {
+            "description": "List of stock symbols to pre-compute features for",
+            "examples": [
+              [
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+                "AMZN",
+                "TSLA"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "title": "PrecomputeRequest",
+        "type": "object"
+      },
+      "PrecomputeResponse": {
+        "description": "Response body for feature pre-computation.",
+        "properties": {
+          "as_of_date": {
+            "description": "Date features were computed for",
+            "title": "As Of Date",
+            "type": "string"
+          },
+          "cached_count": {
+            "description": "Number of symbols successfully cached",
+            "title": "Cached Count",
+            "type": "integer"
+          },
+          "skipped_count": {
+            "description": "Number of symbols skipped (already cached or error)",
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "symbols_cached": {
+            "description": "List of newly cached symbols",
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols Cached",
+            "type": "array"
+          },
+          "symbols_skipped": {
+            "description": "List of skipped symbols",
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cached_count",
+          "skipped_count",
+          "symbols_cached",
+          "symbols_skipped",
+          "as_of_date"
+        ],
+        "title": "PrecomputeResponse",
+        "type": "object"
+      },
+      "SignalRequest": {
+        "description": "Request body for signal generation.\n\nAttributes:\n    symbols: List of stock symbols to generate signals for.\n        Must be symbols the model was trained on.\n        Example: [\"AAPL\", \"MSFT\", \"GOOGL\", \"AMZN\", \"TSLA\"]\n\n    as_of_date: Optional date for signal generation (ISO format).\n        Defaults to current date if not provided.\n        Example: \"2024-12-31\"\n\n    top_n: Optional override for number of long positions.\n        If not provided, uses service default from config.\n\n    bottom_n: Optional override for number of short positions.\n        If not provided, uses service default from config.\n\nExample:\n    {\n        \"symbols\": [\"AAPL\", \"MSFT\", \"GOOGL\"],\n        \"as_of_date\": \"2024-12-31\",\n        \"top_n\": 1,\n        \"bottom_n\": 1\n    }\n\nValidation:\n    - symbols: Must be non-empty list\n    - as_of_date: Must be valid ISO date string\n    - top_n, bottom_n: Must be >= 0",
+        "properties": {
+          "as_of_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date for signal generation (ISO format: YYYY-MM-DD). Defaults to today.",
+            "examples": [
+              "2024-12-31"
+            ],
+            "title": "As Of Date"
+          },
+          "bottom_n": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of short positions (overrides default)",
+            "examples": [
+              3
+            ],
+            "title": "Bottom N"
+          },
+          "symbols": {
+            "description": "List of stock symbols to generate signals for",
+            "examples": [
+              [
+                "AAPL",
+                "MSFT",
+                "GOOGL",
+                "AMZN",
+                "TSLA"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Symbols",
+            "type": "array"
+          },
+          "top_n": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of long positions (overrides default)",
+            "examples": [
+              3
+            ],
+            "title": "Top N"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "title": "SignalRequest",
+        "type": "object"
+      },
+      "SignalResponse": {
+        "description": "Response body for signal generation.\n\nAttributes:\n    signals: List of generated signals (one per symbol)\n    metadata: Metadata about the request and model\n\nExample:\n    {\n        \"signals\": [\n            {\n                \"symbol\": \"AAPL\",\n                \"predicted_return\": 0.0234,\n                \"rank\": 1,\n                \"target_weight\": 0.5\n            },\n            {\n                \"symbol\": \"MSFT\",\n                \"predicted_return\": 0.0187,\n                \"rank\": 2,\n                \"target_weight\": 0.5\n            }\n        ],\n        \"metadata\": {\n            \"as_of_date\": \"2024-12-31\",\n            \"model_version\": \"v1.0.0\",\n            \"strategy\": \"alpha_baseline\",\n            \"num_signals\": 2,\n            \"generated_at\": \"2024-12-31T10:30:00Z\"\n        }\n    }",
+        "properties": {
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Request and model metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "signals": {
+            "description": "List of trading signals",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Signals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "signals",
+          "metadata"
+        ],
+        "title": "SignalResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "ML-powered trading signal generation service",
+    "title": "Signal Service",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Root endpoint with service information.\n\nReturns:\n    Service name, version, and links to documentation\n\nExample:\n    GET /\n    {\n        \"service\": \"Signal Service\",\n        \"version\": \"1.0.0\",\n        \"docs\": \"/docs\",\n        \"health\": \"/health\"\n    }",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Root  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root",
+        "tags": [
+          "Root"
+        ]
+      }
+    },
+    "/api/v1/features/precompute": {
+      "post": {
+        "description": "Pre-compute and cache features without generating signals.\n\nM5 Fix: Call this endpoint before market open (via cron/scheduler) to warm\nthe feature cache. This reduces signal generation latency by avoiding\ndisk I/O during request handling.\n\nArgs:\n    request: PrecomputeRequest with symbols and optional date\n\nReturns:\n    PrecomputeResponse with cache statistics\n\nStatus Codes:\n    - 200: Pre-computation completed (even if some symbols failed)\n    - 400: Invalid request (bad date format)\n    - 503: Service unavailable (signal generator not initialized)\n\nExample:\n    POST /api/v1/features/precompute\n    {\n        \"symbols\": [\"AAPL\", \"MSFT\", \"GOOGL\"],\n        \"as_of_date\": \"2024-12-31\"\n    }\n\n    Response (200 OK):\n    {\n        \"cached_count\": 3,\n        \"skipped_count\": 0,\n        \"symbols_cached\": [\"AAPL\", \"MSFT\", \"GOOGL\"],\n        \"symbols_skipped\": [],\n        \"as_of_date\": \"2024-12-31\"\n    }\n\nNotes:\n    - Does NOT require model to be loaded (features only)\n    - Idempotent: calling multiple times is safe (skips already cached)\n    - Gracefully handles per-symbol errors (continues with others)",
+        "operationId": "precompute_features_api_v1_features_precompute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrecomputeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrecomputeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Precompute Features",
+        "tags": [
+          "Features"
+        ]
+      }
+    },
+    "/api/v1/model/info": {
+      "get": {
+        "description": "Get information about the currently loaded model.\n\nReturns model metadata including:\n    - Strategy name\n    - Version\n    - Performance metrics\n    - Configuration\n    - Activation timestamp\n\nReturns:\n    Model metadata dictionary\n\nStatus Codes:\n    - 200: Model info retrieved\n    - 503: Model not loaded\n\nExample:\n    GET /api/v1/model/info\n\n    Response (200 OK):\n    {\n        \"strategy_name\": \"alpha_baseline\",\n        \"version\": \"v1.0.0\",\n        \"status\": \"active\",\n        \"activated_at\": \"2024-12-31T00:00:00Z\",\n        \"performance_metrics\": {\n            \"ic\": 0.082,\n            \"sharpe\": 1.45,\n            \"max_drawdown\": -0.12\n        },\n        \"config\": {\n            \"learning_rate\": 0.05,\n            \"max_depth\": 6,\n            \"num_boost_round\": 100\n        }\n    }",
+        "operationId": "get_model_info_api_v1_model_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Model Info Api V1 Model Info Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Model Info",
+        "tags": [
+          "Model"
+        ]
+      }
+    },
+    "/api/v1/model/reload": {
+      "post": {
+        "description": "Manually trigger model reload from database registry.\n\nThis endpoint forces an immediate check for model version changes,\nbypassing the automatic polling interval. Useful for:\n    - Testing model deployments\n    - Urgent model updates\n    - CI/CD pipelines\n    - Debugging reload issues\n\nBehavior:\n    1. Queries database for active model version\n    2. Compares with currently loaded version\n    3. Reloads model if version changed\n    4. Returns reload status\n\nReturns:\n    Dictionary with reload status and current version\n\nStatus Codes:\n    - 200: Reload check completed successfully\n    - 500: Reload failed (database error, file not found, etc.)\n    - 503: Model registry not initialized\n\nExample:\n    POST /api/v1/model/reload\n\n    Response (200 OK) - No change:\n    {\n        \"reloaded\": false,\n        \"version\": \"v1.0.0\",\n        \"message\": \"Model already up to date\"\n    }\n\n    Response (200 OK) - Reloaded:\n    {\n        \"reloaded\": true,\n        \"version\": \"v1.0.1\",\n        \"previous_version\": \"v1.0.0\",\n        \"message\": \"Model reloaded successfully\"\n    }\n\nNotes:\n    - Safe to call multiple times (idempotent)\n    - Zero-downtime: requests during reload use old model\n    - Background task continues polling after manual reload\n\nUsage Example:\n    # Shell script for CI/CD\n    curl -X POST http://localhost:8001/api/v1/model/reload | jq\n\n    # Python\n    import requests\n    response = requests.post(\"http://localhost:8001/api/v1/model/reload\")\n    print(response.json())",
+        "operationId": "reload_model_api_v1_model_reload_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reload Model Api V1 Model Reload Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reload Model",
+        "tags": [
+          "Model"
+        ]
+      }
+    },
+    "/api/v1/signals/generate": {
+      "post": {
+        "description": "Generate trading signals for given symbols.\n\nThis endpoint:\n1. Validates input (symbols, date, parameters)\n2. Generates Alpha158 features from T1 data\n3. Gets model predictions (expected returns)\n4. Computes target portfolio weights (Top-N Long/Short)\n5. Returns signals with metadata\n\nArgs:\n    request: SignalRequest with symbols and optional parameters\n\nReturns:\n    SignalResponse with signals and metadata\n\nRaises:\n    HTTPException 400: Invalid request (bad symbols, date, etc.)\n    HTTPException 404: Data not found for requested date\n    HTTPException 500: Internal error (model prediction failed)\n    HTTPException 503: Service unavailable (model not loaded)\n\nExample:\n    POST /api/v1/signals/generate\n    {\n        \"symbols\": [\"AAPL\", \"MSFT\", \"GOOGL\"],\n        \"as_of_date\": \"2024-12-31\"\n    }\n\n    Response (200 OK):\n    {\n        \"signals\": [\n            {\n                \"symbol\": \"AAPL\",\n                \"predicted_return\": 0.0234,\n                \"rank\": 1,\n                \"target_weight\": 0.3333\n            },\n            {\n                \"symbol\": \"MSFT\",\n                \"predicted_return\": 0.0187,\n                \"rank\": 2,\n                \"target_weight\": 0.3333\n            },\n            {\n                \"symbol\": \"GOOGL\",\n                \"predicted_return\": 0.0156,\n                \"rank\": 3,\n                \"target_weight\": 0.3333\n            }\n        ],\n        \"metadata\": {\n            \"as_of_date\": \"2024-12-31\",\n            \"model_version\": \"v1.0.0\",\n            \"strategy\": \"alpha_baseline\",\n            \"num_signals\": 3,\n            \"generated_at\": \"2024-12-31T10:30:00.123456Z\",\n            \"top_n\": 3,\n            \"bottom_n\": 0\n        }\n    }\n\nNotes:\n    - Uses same feature generation code as research (feature parity)\n    - Predictions are for next trading day (T+1)\n    - Weights sum to 1.0 for longs, -1.0 for shorts\n    - Execution time: typically < 100ms for 5-10 symbols\n\nPerformance:\n    - Feature generation: 10-50ms\n    - Model prediction: 1-5ms\n    - Total: < 100ms for typical request",
+        "operationId": "generate_signals_api_v1_signals_generate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Timestamp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Timestamp"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Nonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Nonce"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Service-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Strategy-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Strategy-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Body-Hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Body-Hash"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Signals",
+        "tags": [
+          "Signals"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Health check endpoint.\n\nChecks:\n    - Service is running\n    - Model is loaded\n    - Model metadata is accessible\n    - Redis connection status (T1.2)\n\nReturns:\n    HealthResponse with service, model, and Redis status\n\nStatus Codes:\n    - 200: Service is healthy or degraded (warming)\n    - 503: Service is unhealthy (model not loaded)\n\nExample:\n    GET /health\n\n    Response (200 OK) with Redis enabled:\n    {\n        \"status\": \"healthy\",\n        \"model_loaded\": true,\n        \"model_info\": {\n            \"strategy\": \"alpha_baseline\",\n            \"version\": \"v1.0.0\",\n            \"activated_at\": \"2024-12-31T00:00:00Z\"\n        },\n        \"redis_status\": \"connected\",\n        \"feature_cache_enabled\": true,\n        \"timestamp\": \"2024-12-31T10:30:00Z\"\n    }\n\n    Response (200 OK) with Redis disabled:\n    {\n        \"status\": \"healthy\",\n        \"model_loaded\": true,\n        \"model_info\": {...},\n        \"redis_status\": \"disabled\",\n        \"feature_cache_enabled\": false,\n        \"timestamp\": \"2024-12-31T10:30:00Z\"\n    }",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/ready": {
+      "get": {
+        "description": "Readiness check endpoint.\n\nReturns 200 only when the service is fully healthy (including hydration).\nReturns 503 if service is degraded or unhealthy.",
+        "operationId": "readiness_check_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readiness Check",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  }
+}
