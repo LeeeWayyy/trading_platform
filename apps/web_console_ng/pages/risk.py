@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 from typing import Any
 
 from nicegui import Client, ui
@@ -35,6 +34,7 @@ from apps.web_console_ng.config import (
 )
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.utils.formatters import safe_float
 from libs.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
 
 logger = logging.getLogger(__name__)
@@ -196,19 +196,6 @@ async def risk_dashboard(client: Client) -> None:
         error_banner()
 
         # === RISK OVERVIEW ===
-        # Safe float conversion helper for risk metrics
-        def _safe_float(value: Any, default: float | None = None) -> float | None:
-            """Safely convert value to float, returning default on failure or NaN/inf."""
-            if value is None:
-                return default
-            try:
-                result = float(value)
-                if not math.isfinite(result):
-                    return default  # Reject NaN/inf
-                return result
-            except (ValueError, TypeError):
-                return default
-
         @ui.refreshable
         def risk_overview_section() -> None:
             metrics = risk_data.get("risk_metrics", {})
@@ -227,21 +214,21 @@ async def risk_dashboard(client: Client) -> None:
             with ui.row().classes("gap-8 mb-6"):
                 # M-2: N/A for None/invalid values, formatted value for valid values
                 # Safe float conversion to handle non-numeric data gracefully
-                total_risk = _safe_float(metrics.get("total_risk"))
+                total_risk = safe_float(metrics.get("total_risk"))
                 _render_risk_metric(
                     "Total Risk (Ann.)",
                     f"{total_risk:.2%}" if total_risk is not None else "N/A",
                     "Annualized portfolio volatility",
                 )
 
-                factor_risk = _safe_float(metrics.get("factor_risk"))
+                factor_risk = safe_float(metrics.get("factor_risk"))
                 _render_risk_metric(
                     "Factor Risk",
                     f"{factor_risk:.2%}" if factor_risk is not None else "N/A",
                     "Systematic risk from factor exposures",
                 )
 
-                specific_risk = _safe_float(metrics.get("specific_risk"))
+                specific_risk = safe_float(metrics.get("specific_risk"))
                 _render_risk_metric(
                     "Specific Risk",
                     f"{specific_risk:.2%}" if specific_risk is not None else "N/A",

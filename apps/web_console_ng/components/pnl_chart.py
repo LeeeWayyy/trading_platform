@@ -8,39 +8,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
 from typing import Any, cast
 
 import plotly.graph_objects as go
 from nicegui import ui
 
-
-def _parse_date_for_sort(date_str: str) -> datetime:
-    """Parse date string to datetime for proper chronological sorting.
-
-    Handles ISO format dates (YYYY-MM-DD) and datetime strings.
-    Converts timezone-aware datetimes to UTC before stripping tzinfo to
-    ensure correct ordering across different timezones.
-    Falls back to datetime.min if parsing fails, placing invalid dates first.
-    """
-
-    try:
-        # Try ISO date format first (most common)
-        if len(date_str) == 10 and date_str[4] == "-" and date_str[7] == "-":
-            return datetime.strptime(date_str, "%Y-%m-%d")
-        # Try ISO datetime format (may be timezone-aware)
-        if "T" in date_str:
-            parsed = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            # Convert to UTC then strip tzinfo for consistent naive comparison
-            if parsed.tzinfo is not None:
-                parsed = parsed.astimezone(UTC).replace(tzinfo=None)
-            return parsed
-        # Fallback: try parsing as date
-        parsed = datetime.strptime(date_str[:10], "%Y-%m-%d")
-        return parsed
-    except (ValueError, TypeError):
-        # If parsing fails, use epoch to place invalid dates first
-        return datetime.min
+from apps.web_console_ng.utils.formatters import parse_date_for_sort
 
 # Type alias for P&L data - supports both dict and dataclass-like objects
 DailyPnLLike = Mapping[str, Any] | Any
@@ -122,7 +95,7 @@ def _prepare_series(
     if dates:
         sorted_data = sorted(
             zip(dates, cumulative, drawdowns, strict=False),
-            key=lambda x: _parse_date_for_sort(x[0]),
+            key=lambda x: parse_date_for_sort(x[0]),
         )
         dates = [d for d, _, _ in sorted_data]
         cumulative = [c for _, c, _ in sorted_data]

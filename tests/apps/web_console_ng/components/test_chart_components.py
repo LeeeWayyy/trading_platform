@@ -206,37 +206,37 @@ class TestStressTestWorstScenarioSelection:
         assert len(valid_pnl_scenarios) == 0
 
 
-# === VaR Chart Tests ===
+# === VaR Chart / Shared Utils Tests ===
 
 
-class TestVarChartSafeFloat:
-    """Test safe float conversion in VaR chart."""
+class TestSafeFloat:
+    """Test safe float conversion from shared formatters utility."""
 
     def test_safe_float_valid(self) -> None:
         """Valid values should convert correctly."""
-        from apps.web_console_ng.components.var_chart import _safe_float
+        from apps.web_console_ng.utils.formatters import safe_float
 
-        assert _safe_float(0.05) == pytest.approx(0.05)
-        assert _safe_float("0.03") == pytest.approx(0.03)
-        assert _safe_float(0) == 0.0
+        assert safe_float(0.05) == pytest.approx(0.05)
+        assert safe_float("0.03") == pytest.approx(0.03)
+        assert safe_float(0) == 0.0
 
     def test_safe_float_invalid(self) -> None:
         """Invalid values should return default."""
-        from apps.web_console_ng.components.var_chart import _safe_float
+        from apps.web_console_ng.utils.formatters import safe_float
 
-        assert _safe_float(None) is None
-        assert _safe_float("invalid") is None
-        assert _safe_float(None, default=0.0) == 0.0
-        assert _safe_float({}) is None
+        assert safe_float(None) is None
+        assert safe_float("invalid") is None
+        assert safe_float(None, default=0.0) == 0.0
+        assert safe_float({}) is None
 
     def test_safe_float_non_finite(self) -> None:
         """NaN and inf should return default."""
-        from apps.web_console_ng.components.var_chart import _safe_float
+        from apps.web_console_ng.utils.formatters import safe_float
 
-        assert _safe_float(float("nan")) is None
-        assert _safe_float(float("inf")) is None
-        assert _safe_float(float("-inf")) is None
-        assert _safe_float(float("nan"), default=0.0) == 0.0
+        assert safe_float(float("nan")) is None
+        assert safe_float(float("inf")) is None
+        assert safe_float(float("-inf")) is None
+        assert safe_float(float("nan"), default=0.0) == 0.0
 
 
 # === Factor Exposure Chart Tests ===

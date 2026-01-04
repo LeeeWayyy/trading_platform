@@ -21,6 +21,21 @@ VAR_METRICS_REQUIRED_KEYS = frozenset({"var_95", "var_99", "cvar_95"})
 # Required keys for factor exposure entries
 EXPOSURE_REQUIRED_KEYS = frozenset({"factor_name", "exposure"})
 
+
+def _validate_metrics_keys(data: dict[str, Any] | None, required_keys: frozenset[str]) -> bool:
+    """Generic validator for required, non-None keys in a metrics dictionary.
+
+    Args:
+        data: Dictionary to validate
+        required_keys: Set of keys that must be present and non-None
+
+    Returns:
+        True if all required keys are present and non-None, False otherwise
+    """
+    if not data:
+        return False
+    return all(key in data and data[key] is not None for key in required_keys)
+
 # Required keys for stress test results
 STRESS_TEST_REQUIRED_KEYS = frozenset({"scenario_name", "portfolio_pnl"})
 
@@ -41,9 +56,7 @@ def validate_risk_metrics(data: dict[str, Any] | None) -> bool:
     Returns:
         True if all required keys present and non-None, False otherwise
     """
-    if not data:
-        return False
-    return all(key in data and data[key] is not None for key in RISK_METRICS_REQUIRED_KEYS)
+    return _validate_metrics_keys(data, RISK_METRICS_REQUIRED_KEYS)
 
 
 def validate_overview_metrics(data: dict[str, Any] | None) -> bool:
@@ -55,9 +68,7 @@ def validate_overview_metrics(data: dict[str, Any] | None) -> bool:
     Returns:
         True if total_risk key present and non-None, False otherwise
     """
-    if not data:
-        return False
-    return all(key in data and data[key] is not None for key in RISK_OVERVIEW_REQUIRED_KEYS)
+    return _validate_metrics_keys(data, RISK_OVERVIEW_REQUIRED_KEYS)
 
 
 def validate_var_metrics(data: dict[str, Any] | None) -> bool:
@@ -69,9 +80,7 @@ def validate_var_metrics(data: dict[str, Any] | None) -> bool:
     Returns:
         True if all VaR keys present and non-None, False otherwise
     """
-    if not data:
-        return False
-    return all(key in data and data[key] is not None for key in VAR_METRICS_REQUIRED_KEYS)
+    return _validate_metrics_keys(data, VAR_METRICS_REQUIRED_KEYS)
 
 
 def validate_exposure_list(exposures: list[dict[str, Any]] | None) -> bool:

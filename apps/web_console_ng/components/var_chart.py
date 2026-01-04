@@ -7,41 +7,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import Any
 
 import plotly.graph_objects as go
 from nicegui import ui
 
 from apps.web_console.utils.validators import validate_var_history, validate_var_metrics
-
-
-def _parse_date_for_sort(date_str: str) -> datetime:
-    """Parse date string to datetime for proper chronological sorting.
-
-    Handles ISO format dates (YYYY-MM-DD) and datetime strings.
-    Converts timezone-aware datetimes to UTC before stripping tzinfo to
-    ensure correct ordering across different timezones.
-    Falls back to datetime.min if parsing fails, placing invalid dates first.
-    """
-
-    try:
-        # Try ISO date format first (most common)
-        if len(date_str) == 10 and date_str[4] == "-" and date_str[7] == "-":
-            return datetime.strptime(date_str, "%Y-%m-%d")
-        # Try ISO datetime format (may be timezone-aware)
-        if "T" in date_str:
-            parsed = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            # Convert to UTC then strip tzinfo for consistent naive comparison
-            if parsed.tzinfo is not None:
-                parsed = parsed.astimezone(UTC).replace(tzinfo=None)
-            return parsed
-        # Fallback: try parsing as date
-        parsed = datetime.strptime(date_str[:10], "%Y-%m-%d")
-        return parsed
-    except (ValueError, TypeError):
-        # If parsing fails, use epoch to place invalid dates first
-        return datetime.min
+from apps.web_console_ng.utils.formatters import parse_date_for_sort, safe_float
 
 # Default risk budget values (parity with Streamlit: apps/web_console/config.py:87-89)
 DEFAULT_VAR_LIMIT = 0.05  # 5% daily VaR limit
@@ -52,23 +24,6 @@ COLOR_RED = "#E74C3C"  # Over limit / negative
 COLOR_ORANGE = "#F39C12"  # Warning threshold
 COLOR_GREEN = "#27AE60"  # Healthy / positive
 COLOR_BLUE = "#2E86DE"  # Neutral / data lines
-
-
-def _safe_float(value: Any, default: float | None = None) -> float | None:
-    """Safely convert value to float, returning default on failure.
-
-    Used for converting risk metrics from API responses that may contain
-    None, invalid strings, NaN/inf, or other non-numeric values.
-    """
-    if value is None:
-        return default
-    try:
-        result = float(value)
-        if not math.isfinite(result):
-            return default  # Reject NaN/inf as invalid
-        return result
-    except (ValueError, TypeError):
-        return default
 
 
 def _render_metric(label: str, value: str, help_text: str | None = None) -> None:
@@ -107,9 +62,9 @@ def render_var_metrics(
 
     # risk_data is validated non-None at this point - safe conversion for robustness
     # Default to None (not 0.0) to avoid masking invalid data with "healthy" metrics
-    var_95 = _safe_float(risk_data.get("var_95"))
-    var_99 = _safe_float(risk_data.get("var_99"))
-    cvar_95 = _safe_float(risk_data.get("cvar_95"))
+    var_95 = safe_float(risk_data.get("var_95"))
+    var_99 = safe_float(risk_data.get("var_99"))
+    cvar_95 = safe_float(risk_data.get("cvar_95"))
 
     # Display metrics in row (M-2: N/A for None, 0.00% for valid zero)
     with ui.row().classes("gap-8 mb-4"):
@@ -247,7 +202,7 @@ def render_var_history(
     # Sort by date for correct time-series ordering (DB may return out of order)
     # Use datetime parsing for proper sort order (handles non-ISO formats)
     sorted_pairs = sorted(
-        zip(dates, var_values, strict=False), key=lambda x: _parse_date_for_sort(x[0])
+        zip(dates, var_values, strict=False), key=lambda x: parse_date_for_sort(x[0])
     )
     dates = [d for d, _ in sorted_pairs]
     var_values = [v for _, v in sorted_pairs]
