@@ -43,8 +43,23 @@ Browser -> Streamlit UI
   -> Postgres (audit log writes)
 ```
 
+### Data Validators (`utils/validators.py`)
+**Purpose:** Validate API response data before rendering in UI components.
+
+**Functions:**
+- `validate_risk_metrics(data)` - Validates complete risk metrics (overview + VaR).
+- `validate_overview_metrics(data)` - Validates risk overview metrics (total_risk required).
+- `validate_var_metrics(data)` - Validates VaR-specific metrics (var_95, var_99, cvar_95 required).
+- `validate_var_history(data)` - Validates VaR history entries.
+- `validate_stress_tests(data)` - Validates stress test results.
+- `validate_factor_exposures(data)` - Validates factor exposure data.
+
+**Behavior:**
+- Returns `True` if all required fields are present and non-None.
+- Section-specific validators allow partial data display (e.g., show overview even if VaR is missing).
+
 ## Dependencies
-- **Internal:** `apps/web_console/auth/*`, `apps/web_console/services/*`, `libs.common.network_utils`, `libs.redis_client`
+- **Internal:** `apps/web_console/auth/*`, `apps/web_console/services/*`, `apps/web_console/utils/*`, `libs.common.network_utils`, `libs.redis_client`
 - **External:** Execution Gateway API, Postgres, Redis, Prometheus (metrics), Streamlit, Requests
 
 ## Configuration
@@ -107,5 +122,5 @@ uvicorn apps.web_console.metrics_server:app --host 0.0.0.0 --port 8502
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `apps/web_console/app.py`, `apps/web_console/metrics_server.py`, `apps/web_console/config.py`
+- **Source Files:** `apps/web_console/app.py`, `apps/web_console/metrics_server.py`, `apps/web_console/config.py`, `apps/web_console/utils/validators.py`
 - **ADRs:** N/A

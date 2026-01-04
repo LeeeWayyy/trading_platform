@@ -101,7 +101,9 @@ flowchart TB
   svc_web_console -.-> lib_risk_management
   svc_web_console -.-> lib_web_console_auth
   svc_web_console_ng -.-> lib_redis_client
+  svc_web_console_ng -.-> lib_risk
   svc_web_console_ng -.-> lib_web_console_auth
+  svc_web_console_ng -.-> svc_web_console
 
   %% Click links to documentation
   click svc_alert_worker "../SPECS/services/alert_worker.md"

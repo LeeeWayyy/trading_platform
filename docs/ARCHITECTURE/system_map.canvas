@@ -492,8 +492,22 @@
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_66",
+      "toNode": "lib_risk",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_67",
       "toNode": "lib_web_console_auth",
       "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "top",
+      "id": "edge_68",
+      "toNode": "svc_web_console",
+      "toSide": "bottom"
     }
   ],
   "nodes": [
