@@ -259,8 +259,9 @@ async def dashboard(client: Client) -> None:
                 "kill_switch_initial_check_failed",
                 extra={"user_id": user_id, "error": type(exc).__name__},
             )
-            # Fail-closed: treat API failure as engaged
-            kill_switch_engaged = True
+            # Use None (unknown) on API failure to preserve fail-open path in on_close_position
+            # This allows risk-reducing closes during kill switch service outages
+            kill_switch_engaged = None
 
     await check_initial_kill_switch()
 
