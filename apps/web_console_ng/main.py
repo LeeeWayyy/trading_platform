@@ -71,6 +71,11 @@ app.add_middleware(
 app.add_middleware(AdmissionControlMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 
+# Static assets for AG Grid renderers and custom CSS (CSP-compliant).
+app.add_static_files("/static", "apps/web_console_ng/static")
+ui.add_head_html('<script src="/static/js/aggrid_renderers.js"></script>')
+ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
+
 # Register lifespan handler BEFORE startup hooks run.
 # This ensures graceful-drain and single-worker checks are active when the app starts.
 setup_health_endpoint()

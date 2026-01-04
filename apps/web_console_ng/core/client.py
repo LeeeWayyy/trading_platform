@@ -160,12 +160,30 @@ class AsyncTradingClient:
     async def engage_kill_switch(
         self,
         user_id: str,
+        reason: str,
         role: str | None = None,
         strategies: list[str] | None = None,
+        details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Engage kill switch - emergency trading halt (POST)."""
+        """Engage kill switch - emergency trading halt (POST).
+
+        Args:
+            user_id: User performing the action (maps to 'operator').
+            reason: Human-readable reason for engagement.
+            role: User role for authorization.
+            strategies: User strategies.
+            details: Optional additional context.
+        """
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.post("/api/v1/kill-switch/engage", headers=headers)
+        payload: dict[str, Any] = {
+            "operator": user_id,
+            "reason": reason,
+        }
+        if details:
+            payload["details"] = details
+        resp = await self._client.post(
+            "/api/v1/kill-switch/engage", headers=headers, json=payload
+        )
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -175,10 +193,23 @@ class AsyncTradingClient:
         user_id: str,
         role: str | None = None,
         strategies: list[str] | None = None,
+        notes: str | None = None,
     ) -> dict[str, Any]:
-        """Disengage kill switch - resume trading (POST)."""
+        """Disengage kill switch - resume trading (POST).
+
+        Args:
+            user_id: User performing the action (maps to 'operator').
+            role: User role for authorization.
+            strategies: User strategies.
+            notes: Optional notes about resolution.
+        """
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.post("/api/v1/kill-switch/disengage", headers=headers)
+        payload: dict[str, Any] = {"operator": user_id}
+        if notes:
+            payload["notes"] = notes
+        resp = await self._client.post(
+            "/api/v1/kill-switch/disengage", headers=headers, json=payload
+        )
         resp.raise_for_status()
         return self._json_dict(resp)
 
@@ -195,5 +226,204 @@ class AsyncTradingClient:
         """
         headers = self._get_auth_headers(user_id, role, strategies)
         resp = await self._client.get("/api/v1/kill-switch/status", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_circuit_breaker_status(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch circuit breaker status (GET - idempotent)."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/circuit-breaker/status", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_open_orders(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch open/pending orders (GET - idempotent).
+
+        Uses /api/v1/orders/pending endpoint from manual_controls router.
+        Returns dict with 'orders' list and 'total' count.
+        """
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/orders/pending", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_realtime_pnl(
+        self,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch real-time P&L summary (GET - idempotent).
+
+        Uses /api/v1/positions/pnl/realtime endpoint.
+        Returns RealtimePnLResponse with total_unrealized_pl, realized_pl_today, etc.
+        """
+        headers = self._get_auth_headers(user_id, role, strategies)
+        resp = await self._client.get("/api/v1/positions/pnl/realtime", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_market_prices(self) -> list[dict[str, Any]]:
+        """Fetch market prices (GET - idempotent, entitlement-neutral)."""
+        resp = await self._client.get("/api/v1/market_prices")
+        resp.raise_for_status()
+        payload = resp.json()
+        if not isinstance(payload, list):
+            raise ValueError("Expected JSON array response")
+        return cast(list[dict[str, Any]], payload)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def cancel_order(
+        self,
+        order_id: str,
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Cancel an order by client_order_id (POST)."""
+        headers = self._get_auth_headers(user_id, role, None)
+        resp = await self._client.post(f"/api/v1/orders/{order_id}/cancel", headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def submit_order(
+        self,
+        order_data: dict[str, Any],
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a new order (POST)."""
+        headers = self._get_auth_headers(user_id, role, None)
+        resp = await self._client.post("/api/v1/orders", headers=headers, json=order_data)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    # ===== T5.3 Manual Controls Endpoints =====
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def close_position(
+        self,
+        symbol: str,
+        reason: str,
+        requested_by: str,
+        requested_at: str,
+        user_id: str,
+        role: str | None = None,
+        qty: int | None = None,
+    ) -> dict[str, Any]:
+        """Close a position for a symbol (POST).
+
+        Args:
+            symbol: Symbol to close position for.
+            reason: Reason for closing (min 10 chars).
+            requested_by: User ID who requested the action.
+            requested_at: ISO timestamp of request.
+            user_id: User ID for auth headers.
+            role: User role for authorization.
+            qty: Optional partial close quantity.
+
+        Returns:
+            ClosePositionResponse with status, order_id, qty_to_close.
+        """
+        headers = self._get_auth_headers(user_id, role, None)
+        payload: dict[str, Any] = {
+            "reason": reason,
+            "requested_by": requested_by,
+            "requested_at": requested_at,
+        }
+        if qty is not None:
+            payload["qty"] = qty
+        resp = await self._client.post(
+            f"/api/v1/positions/{symbol.upper()}/close", headers=headers, json=payload
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def cancel_all_orders(
+        self,
+        symbol: str,
+        reason: str,
+        requested_by: str,
+        requested_at: str,
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Cancel all orders for a symbol (POST).
+
+        Args:
+            symbol: Symbol to cancel orders for.
+            reason: Reason for cancellation (min 10 chars).
+            requested_by: User ID who requested the action.
+            requested_at: ISO timestamp of request.
+            user_id: User ID for auth headers.
+            role: User role for authorization.
+
+        Returns:
+            CancelAllOrdersResponse with cancelled_count, order_ids.
+        """
+        headers = self._get_auth_headers(user_id, role, None)
+        payload = {
+            "symbol": symbol.upper(),
+            "reason": reason,
+            "requested_by": requested_by,
+            "requested_at": requested_at,
+        }
+        resp = await self._client.post(
+            "/api/v1/orders/cancel-all", headers=headers, json=payload
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def flatten_all_positions(
+        self,
+        reason: str,
+        requested_by: str,
+        requested_at: str,
+        id_token: str,
+        user_id: str,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Flatten all positions (POST) - requires MFA.
+
+        CRITICAL: This endpoint requires MFA verification via id_token.
+        The id_token must be obtained from the OAuth2 session.
+
+        Args:
+            reason: Reason for flattening (min 20 chars).
+            requested_by: User ID who requested the action.
+            requested_at: ISO timestamp of request.
+            id_token: MFA token from auth session.
+            user_id: User ID for auth headers.
+            role: User role for authorization.
+
+        Returns:
+            FlattenAllResponse with positions_closed, orders_created.
+        """
+        headers = self._get_auth_headers(user_id, role, None)
+        payload = {
+            "reason": reason,
+            "requested_by": requested_by,
+            "requested_at": requested_at,
+            "id_token": id_token,
+        }
+        resp = await self._client.post(
+            "/api/v1/positions/flatten-all", headers=headers, json=payload
+        )
         resp.raise_for_status()
         return self._json_dict(resp)

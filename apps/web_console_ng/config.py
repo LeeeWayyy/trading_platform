@@ -71,6 +71,13 @@ WS_SESSION_VALIDATION_TIMEOUT = float(os.getenv("WS_SESSION_VALIDATION_TIMEOUT",
 EXECUTION_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
 
 # =============================================================================
+# Dashboard polling intervals (seconds)
+# =============================================================================
+
+DASHBOARD_MARKET_POLL_SECONDS = float(os.getenv("DASHBOARD_MARKET_POLL_SECONDS", "5.0"))
+DASHBOARD_STALE_CHECK_SECONDS = float(os.getenv("DASHBOARD_STALE_CHECK_SECONDS", "10.0"))
+
+# =============================================================================
 # Redis
 # =============================================================================
 

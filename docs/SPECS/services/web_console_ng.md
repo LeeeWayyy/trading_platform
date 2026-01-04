@@ -13,6 +13,10 @@
 | `/auth/callback` | GET | `code`, `state` | OAuth2 callback handler; sets auth cookies and redirects. |
 | `/mfa-verify` | GET/POST | Page params | MFA verification UI. |
 | `/forgot-password` | GET | None | Password recovery UI. |
+| `/dashboard` | GET | None | Real-time trading dashboard (P5T4). |
+| `/kill-switch` | GET | None | Kill switch management page (P5T5). |
+| `/manual-order` | GET | None | Manual order entry page (P5T5). |
+| `/position-management` | GET | None | Position management with bulk actions (P5T5). |
 | `/healthz` | GET | None | Liveness probe (always 200 unless process unhealthy). |
 | `/readyz` | GET | Internal probe headers optional | Readiness probe (checks Redis/backend). |
 | `/metrics` | GET | Internal probe headers optional | Prometheus metrics. |
@@ -45,19 +49,97 @@
 - `/readyz` returns 503 during drain or if Redis/backends are unavailable.
 - `/metrics` is protected by internal probe checks unless ingress is secured.
 
+### Real-Time Dashboard (P5T4)
+**Purpose:** Display live positions, orders, and account metrics with real-time updates.
+
+**Behavior:**
+- Positions grid uses AG Grid with `getRowId` for efficient delta updates via `applyTransaction`.
+- Orders table displays open orders with cancel functionality.
+- Account metrics (equity, buying power, P&L) update in real-time.
+- WebSocket connection with automatic reconnection and disconnect overlay.
+- `RealtimeUpdater` subscribes to Redis pub/sub channels for live data.
+- `ClientLifecycleManager` handles cleanup on disconnect.
+
+**Components:**
+- `components/positions_grid.py` - AG Grid for positions with close position action.
+- `components/orders_table.py` - AG Grid for open orders with cancel action.
+- `core/realtime.py` - WebSocket subscription management via Redis pub/sub.
+- `core/client_lifecycle.py` - Client connection lifecycle and cleanup.
+- `core/synthetic_id.py` - Deterministic synthetic ID generation for orders missing client_order_id.
+
+### Kill Switch Management (P5T5)
+**Purpose:** Emergency trading halt with real-time status and safety confirmations.
+
+**Behavior:**
+- Displays current kill switch state (ENGAGED/DISENGAGED/UNKNOWN).
+- Real-time status updates via Redis pub/sub subscription.
+- Engage requires reason (min 10 chars) and single confirmation.
+- Disengage requires admin role, resolution notes, and two-factor confirmation (type "CONFIRM").
+- Unknown state disables both buttons for safety (fail-closed).
+- All actions are audit-logged.
+
+**Safety Pattern:**
+- Double-check pattern: verify kill switch state at both preview and confirmation.
+- Fail-closed: unknown states block action until verified.
+
+### Manual Order Entry (P5T5)
+**Purpose:** Submit manual orders with safety checks and audit trail.
+
+**Behavior:**
+- Form validation: symbol required, qty >= 1 (whole numbers), reason >= 10 chars.
+- Supports market and limit orders with time-in-force options (day, gtc, ioc, fok).
+- Kill switch check at preview AND confirmation (double-check pattern).
+- Order preview dialog shows all order details before submission.
+- Backend generates deterministic `client_order_id` for idempotency.
+- All submissions are audit-logged with order details and reason.
+
+**Access Control:**
+- Viewers cannot submit orders (redirected to home).
+- Traders and admins can submit orders.
+
+### Position Management (P5T5)
+**Purpose:** Bulk position operations with safety confirmations.
+
+**Behavior:**
+- Close individual positions via positions grid (uses `close_position` endpoint).
+- Cancel All Orders: requires confirmation, uses `cancel_all_orders` endpoint.
+- Flatten All Positions: requires confirmation + type "FLATTEN", uses `flatten_all_positions`.
+- Kill switch blocks close-position but allows risk-reducing cancels.
+- Circuit breaker tripped state shows warning but allows risk-reducing closes.
+
+**Safety Checks:**
+- Kill switch state checked before close position dialog opens.
+- Fresh kill switch check at confirmation time (double-check pattern).
+- Synthetic order IDs (`unknown_*`) block cancel attempts with support message.
+
 ## Data Flow
 ```
 Browser
-  -> NiceGUI pages (/login, /mfa-verify, UI routes)
+  -> NiceGUI pages (/login, /mfa-verify, /dashboard, /kill-switch, /manual-order, /position-management)
   -> Session store (Redis)
   -> Execution Gateway (AsyncTradingClient)
   -> Audit log (Postgres, optional)
   -> Metrics/Health endpoints for probes
+
+Real-Time Updates (P5T4/P5T5):
+  Redis Pub/Sub channels
+    -> RealtimeUpdater (WebSocket)
+    -> NiceGUI UI updates (positions, orders, kill switch status)
+    -> ClientLifecycleManager (cleanup on disconnect)
+
+Trading Actions Flow:
+  User action (close position, cancel order, submit order)
+    -> Kill switch check (fail-closed)
+    -> Confirmation dialog (double-check pattern)
+    -> Fresh kill switch check at confirmation
+    -> AsyncTradingClient API call
+    -> Audit log
+    -> UI notification
 ```
 
 ## Dependencies
-- **Internal:** `apps/web_console_ng/auth/*`, `apps/web_console_ng/core/*`, `apps/web_console_ng/ui/*`
-- **External:** Redis, Postgres (optional), Execution Gateway API, NiceGUI, Prometheus
+- **Internal:** `apps/web_console_ng/auth/*`, `apps/web_console_ng/core/*`, `apps/web_console_ng/ui/*`, `apps/web_console_ng/components/*`, `apps/web_console_ng/pages/*`
+- **External:** Redis (session + pub/sub), Postgres (optional, audit), Execution Gateway API, NiceGUI, AG Grid, Prometheus
 
 ## Configuration
 | Variable | Required | Default | Description |
@@ -114,6 +196,13 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 | Missing probe token | `GET /readyz` without header | 401/403 or 503 (if internal check fails). |
 | Redis unavailable | Session store down | `/readyz` returns 503. |
 | Connection limit exceeded | Too many WS connections | Admission control rejects. |
+| Kill switch ENGAGED | Close position attempt | Action blocked with error notification. |
+| Kill switch UNKNOWN | Any trading action | Both engage/disengage disabled; action blocked. |
+| Viewer role | Access `/manual-order` | Redirected to home with warning. |
+| Synthetic order ID | Cancel `unknown_*` order | Cancel blocked; "contact support" message. |
+| Fractional quantity | Submit order with 1.5 qty | Validation error; whole numbers required. |
+| Circuit breaker TRIPPED | Close position | Warning shown; close allowed (risk reduction). |
+| Order missing IDs | Order without client_order_id or broker_id | Synthetic ID generated; user notified to contact support. |
 
 ## Known Issues & TODO
 | Issue | Severity | Description | Tracking |
@@ -127,5 +216,6 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/pages/*.py`
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`
 - **ADRs:** N/A
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls)

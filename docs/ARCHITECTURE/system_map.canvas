@@ -73,10 +73,37 @@
       "toSide": "top"
     },
     {
+      "color": "5",
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_8",
+      "label": "manual trading",
+      "toNode": "svc_execution_gateway",
+      "toSide": "top"
+    },
+    {
+      "color": "4",
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_9",
+      "label": "realtime updates",
+      "toNode": "ext_redis",
+      "toSide": "top"
+    },
+    {
+      "color": "6",
+      "fromNode": "ext_redis",
+      "fromSide": "top",
+      "id": "edge_10",
+      "label": "positions/orders",
+      "toNode": "svc_web_console_ng",
+      "toSide": "bottom"
+    },
+    {
       "color": "4",
       "fromNode": "svc_alert_worker",
       "fromSide": "bottom",
-      "id": "edge_8",
+      "id": "edge_11",
       "label": "alert events",
       "toNode": "ext_redis",
       "toSide": "top"
@@ -85,7 +112,7 @@
       "color": "4",
       "fromNode": "lib_risk_management",
       "fromSide": "bottom",
-      "id": "edge_9",
+      "id": "edge_12",
       "label": "circuit breaker state",
       "toNode": "ext_redis",
       "toSide": "top"
@@ -93,61 +120,40 @@
     {
       "fromNode": "lib_admin",
       "fromSide": "top",
-      "id": "edge_10",
+      "id": "edge_13",
       "toNode": "lib_web_console_auth",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_alerts",
       "fromSide": "top",
-      "id": "edge_11",
+      "id": "edge_14",
       "toNode": "svc_alert_worker",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_alpha",
       "fromSide": "top",
-      "id": "edge_12",
+      "id": "edge_15",
       "toNode": "lib_data_providers",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_alpha",
       "fromSide": "top",
-      "id": "edge_13",
-      "toNode": "lib_data_quality",
-      "toSide": "bottom"
-    },
-    {
-      "fromNode": "lib_analytics",
-      "fromSide": "top",
-      "id": "edge_14",
-      "toNode": "lib_data_providers",
-      "toSide": "bottom"
-    },
-    {
-      "fromNode": "lib_analytics",
-      "fromSide": "top",
-      "id": "edge_15",
-      "toNode": "lib_data_quality",
-      "toSide": "bottom"
-    },
-    {
-      "fromNode": "lib_backtest",
-      "fromSide": "top",
       "id": "edge_16",
-      "toNode": "lib_alpha",
+      "toNode": "lib_data_quality",
       "toSide": "bottom"
     },
     {
-      "fromNode": "lib_backtest",
+      "fromNode": "lib_analytics",
       "fromSide": "top",
       "id": "edge_17",
       "toNode": "lib_data_providers",
       "toSide": "bottom"
     },
     {
-      "fromNode": "lib_backtest",
+      "fromNode": "lib_analytics",
       "fromSide": "top",
       "id": "edge_18",
       "toNode": "lib_data_quality",
@@ -157,314 +163,335 @@
       "fromNode": "lib_backtest",
       "fromSide": "top",
       "id": "edge_19",
+      "toNode": "lib_alpha",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_backtest",
+      "fromSide": "top",
+      "id": "edge_20",
+      "toNode": "lib_data_providers",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_backtest",
+      "fromSide": "top",
+      "id": "edge_21",
+      "toNode": "lib_data_quality",
+      "toSide": "bottom"
+    },
+    {
+      "fromNode": "lib_backtest",
+      "fromSide": "top",
+      "id": "edge_22",
       "toNode": "lib_models",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_common",
       "fromSide": "top",
-      "id": "edge_20",
+      "id": "edge_23",
       "toNode": "lib_web_console_auth",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_common",
       "fromSide": "top",
-      "id": "edge_21",
+      "id": "edge_24",
       "toNode": "svc_execution_gateway",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_data_pipeline",
       "fromSide": "top",
-      "id": "edge_22",
+      "id": "edge_25",
       "toNode": "lib_data_providers",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_data_pipeline",
       "fromSide": "top",
-      "id": "edge_23",
+      "id": "edge_26",
       "toNode": "lib_data_quality",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_data_providers",
       "fromSide": "top",
-      "id": "edge_24",
+      "id": "edge_27",
       "toNode": "lib_data_quality",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_factors",
       "fromSide": "top",
-      "id": "edge_25",
+      "id": "edge_28",
       "toNode": "lib_data_providers",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_factors",
       "fromSide": "top",
-      "id": "edge_26",
+      "id": "edge_29",
       "toNode": "lib_data_quality",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_market_data",
       "fromSide": "bottom",
-      "id": "edge_27",
+      "id": "edge_30",
       "toNode": "lib_redis_client",
       "toSide": "top"
     },
     {
       "fromNode": "lib_models",
       "fromSide": "top",
-      "id": "edge_28",
+      "id": "edge_31",
       "toNode": "lib_data_quality",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_risk",
       "fromSide": "top",
-      "id": "edge_29",
+      "id": "edge_32",
       "toNode": "lib_factors",
       "toSide": "bottom"
     },
     {
       "fromNode": "lib_risk_management",
       "fromSide": "bottom",
-      "id": "edge_30",
+      "id": "edge_33",
       "toNode": "lib_redis_client",
       "toSide": "top"
     },
     {
       "fromNode": "svc_alert_worker",
       "fromSide": "bottom",
-      "id": "edge_31",
+      "id": "edge_34",
       "toNode": "lib_alerts",
       "toSide": "top"
     },
     {
       "fromNode": "svc_alert_worker",
       "fromSide": "bottom",
-      "id": "edge_32",
+      "id": "edge_35",
       "toNode": "lib_web_console_auth",
       "toSide": "top"
     },
     {
       "fromNode": "svc_auth_service",
       "fromSide": "top",
-      "id": "edge_33",
+      "id": "edge_36",
       "toNode": "svc_web_console",
       "toSide": "bottom"
     },
     {
       "fromNode": "svc_backtest_worker",
       "fromSide": "bottom",
-      "id": "edge_34",
-      "toNode": "lib_backtest",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_execution_gateway",
-      "fromSide": "bottom",
-      "id": "edge_35",
-      "toNode": "lib_common",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_execution_gateway",
-      "fromSide": "bottom",
-      "id": "edge_36",
-      "toNode": "lib_redis_client",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_execution_gateway",
-      "fromSide": "bottom",
       "id": "edge_37",
-      "toNode": "lib_risk_management",
+      "toNode": "lib_backtest",
       "toSide": "top"
     },
     {
       "fromNode": "svc_execution_gateway",
       "fromSide": "bottom",
       "id": "edge_38",
+      "toNode": "lib_common",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_execution_gateway",
+      "fromSide": "bottom",
+      "id": "edge_39",
+      "toNode": "lib_redis_client",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_execution_gateway",
+      "fromSide": "bottom",
+      "id": "edge_40",
+      "toNode": "lib_risk_management",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_execution_gateway",
+      "fromSide": "bottom",
+      "id": "edge_41",
       "toNode": "lib_web_console_auth",
       "toSide": "top"
     },
     {
       "fromNode": "svc_market_data_service",
       "fromSide": "bottom",
-      "id": "edge_39",
+      "id": "edge_42",
       "toNode": "lib_market_data",
       "toSide": "top"
     },
     {
       "fromNode": "svc_market_data_service",
       "fromSide": "bottom",
-      "id": "edge_40",
+      "id": "edge_43",
       "toNode": "lib_redis_client",
       "toSide": "top"
     },
     {
       "fromNode": "svc_model_registry",
       "fromSide": "bottom",
-      "id": "edge_41",
-      "toNode": "lib_models",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_orchestrator",
-      "fromSide": "bottom",
-      "id": "edge_42",
-      "toNode": "lib_allocation",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_orchestrator",
-      "fromSide": "bottom",
-      "id": "edge_43",
-      "toNode": "lib_common",
-      "toSide": "top"
-    },
-    {
-      "fromNode": "svc_orchestrator",
-      "fromSide": "bottom",
       "id": "edge_44",
-      "toNode": "lib_redis_client",
+      "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_orchestrator",
       "fromSide": "bottom",
       "id": "edge_45",
-      "toNode": "lib_risk_management",
+      "toNode": "lib_allocation",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_signal_service",
+      "fromNode": "svc_orchestrator",
       "fromSide": "bottom",
       "id": "edge_46",
       "toNode": "lib_common",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_signal_service",
+      "fromNode": "svc_orchestrator",
       "fromSide": "bottom",
       "id": "edge_47",
       "toNode": "lib_redis_client",
       "toSide": "top"
     },
     {
-      "fromNode": "svc_signal_service",
+      "fromNode": "svc_orchestrator",
       "fromSide": "bottom",
       "id": "edge_48",
-      "toNode": "lib_web_console_auth",
+      "toNode": "lib_risk_management",
       "toSide": "top"
     },
     {
       "fromNode": "svc_signal_service",
       "fromSide": "bottom",
       "id": "edge_49",
+      "toNode": "lib_common",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_signal_service",
+      "fromSide": "bottom",
+      "id": "edge_50",
+      "toNode": "lib_redis_client",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_signal_service",
+      "fromSide": "bottom",
+      "id": "edge_51",
+      "toNode": "lib_web_console_auth",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_signal_service",
+      "fromSide": "bottom",
+      "id": "edge_52",
       "toNode": "strat_alpha_baseline",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_50",
+      "id": "edge_53",
       "toNode": "lib_admin",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_51",
+      "id": "edge_54",
       "toNode": "lib_alerts",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_52",
+      "id": "edge_55",
       "toNode": "lib_alpha",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_53",
+      "id": "edge_56",
       "toNode": "lib_backtest",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_54",
+      "id": "edge_57",
       "toNode": "lib_data_providers",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_55",
+      "id": "edge_58",
       "toNode": "lib_data_quality",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_56",
+      "id": "edge_59",
       "toNode": "lib_factors",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_57",
+      "id": "edge_60",
       "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_58",
+      "id": "edge_61",
       "toNode": "lib_redis_client",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_59",
+      "id": "edge_62",
       "toNode": "lib_risk",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_60",
+      "id": "edge_63",
       "toNode": "lib_risk_management",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console",
       "fromSide": "bottom",
-      "id": "edge_61",
+      "id": "edge_64",
       "toNode": "lib_web_console_auth",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_62",
+      "id": "edge_65",
       "toNode": "lib_redis_client",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
-      "id": "edge_63",
+      "id": "edge_66",
       "toNode": "lib_web_console_auth",
       "toSide": "top"
     }
