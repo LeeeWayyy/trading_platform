@@ -10,6 +10,7 @@ import base64
 import binascii
 import ipaddress
 import logging
+import math
 import os
 from typing import Literal, cast
 
@@ -370,8 +371,6 @@ def _parse_float(env_var: str, default: float) -> float:
 
     Rejects NaN/inf values to prevent poison data in risk calculations.
     """
-    import math
-
     raw = os.getenv(env_var, "").strip()
     if not raw:
         return default

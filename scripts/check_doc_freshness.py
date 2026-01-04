@@ -404,15 +404,34 @@ def _get_uncommitted_changes(source_dir: str) -> tuple[list[str], list[str], lis
         cwd=PROJECT_ROOT,
     )
 
-    for line in result.stdout.strip().split("\n"):
+    # Use rstrip() not strip() to preserve leading spaces in status codes
+    # Git status format: "XY filepath" where X/Y can be ' ' (space)
+    for line in result.stdout.rstrip().split("\n"):
         if not line:
             continue
         # Status is first 2 chars: XY where X=staged, Y=unstaged
-        # A = added, D = deleted, M = modified, ? = untracked
+        # A = added, D = deleted, M = modified, R = renamed, ? = untracked
         status = line[:2]
         filepath = line[3:]  # Skip status and space
 
-        # Only track Python files
+        # Handle renamed files (R  old -> new)
+        # A rename is treated as deletion of old path + addition of new path
+        if "R" in status:
+            try:
+                old_path, new_path = filepath.split(" -> ")
+                # Git may quote paths with spaces, so strip them
+                old_path = old_path.strip('"')
+                new_path = new_path.strip('"')
+                if old_path.endswith(".py"):
+                    deleted.append(old_path)
+                if new_path.endswith(".py"):
+                    added.append(new_path)
+            except ValueError:
+                # Unparseable rename line, skip
+                pass
+            continue
+
+        # Only track Python files for other statuses
         if not filepath.endswith(".py"):
             continue
 
