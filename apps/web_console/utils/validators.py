@@ -11,11 +11,30 @@ from __future__ import annotations
 
 from typing import Any
 
-# Required keys for risk metrics data
+# Required keys for risk metrics data (original combined set for backwards compatibility)
 RISK_METRICS_REQUIRED_KEYS = frozenset({"total_risk", "var_95", "var_99", "cvar_95"})
+
+# Section-specific key sets for more granular validation
+RISK_OVERVIEW_REQUIRED_KEYS = frozenset({"total_risk"})  # factor_risk, specific_risk optional
+VAR_METRICS_REQUIRED_KEYS = frozenset({"var_95", "var_99", "cvar_95"})
 
 # Required keys for factor exposure entries
 EXPOSURE_REQUIRED_KEYS = frozenset({"factor_name", "exposure"})
+
+
+def _validate_metrics_keys(data: dict[str, Any] | None, required_keys: frozenset[str]) -> bool:
+    """Generic validator for required, non-None keys in a metrics dictionary.
+
+    Args:
+        data: Dictionary to validate
+        required_keys: Set of keys that must be present and non-None
+
+    Returns:
+        True if all required keys are present and non-None, False otherwise
+    """
+    if not data:
+        return False
+    return all(key in data and data[key] is not None for key in required_keys)
 
 # Required keys for stress test results
 STRESS_TEST_REQUIRED_KEYS = frozenset({"scenario_name", "portfolio_pnl"})
@@ -25,7 +44,11 @@ VAR_HISTORY_REQUIRED_KEYS = frozenset({"date", "var_95"})
 
 
 def validate_risk_metrics(data: dict[str, Any] | None) -> bool:
-    """Validate risk_metrics dict has required keys.
+    """Validate risk_metrics dict has required keys (legacy combined validator).
+
+    Note: Prefer section-specific validators (validate_overview_metrics,
+    validate_var_metrics) for NiceGUI components to avoid blocking one section
+    when only another is missing data.
 
     Args:
         data: Risk metrics dictionary from RiskService
@@ -33,9 +56,31 @@ def validate_risk_metrics(data: dict[str, Any] | None) -> bool:
     Returns:
         True if all required keys present and non-None, False otherwise
     """
-    if not data:
-        return False
-    return all(key in data and data[key] is not None for key in RISK_METRICS_REQUIRED_KEYS)
+    return _validate_metrics_keys(data, RISK_METRICS_REQUIRED_KEYS)
+
+
+def validate_overview_metrics(data: dict[str, Any] | None) -> bool:
+    """Validate metrics for risk overview section (total_risk display).
+
+    Args:
+        data: Risk metrics dictionary from RiskService
+
+    Returns:
+        True if total_risk key present and non-None, False otherwise
+    """
+    return _validate_metrics_keys(data, RISK_OVERVIEW_REQUIRED_KEYS)
+
+
+def validate_var_metrics(data: dict[str, Any] | None) -> bool:
+    """Validate metrics for VaR display section (var_95, var_99, cvar_95).
+
+    Args:
+        data: Risk metrics dictionary from RiskService
+
+    Returns:
+        True if all VaR keys present and non-None, False otherwise
+    """
+    return _validate_metrics_keys(data, VAR_METRICS_REQUIRED_KEYS)
 
 
 def validate_exposure_list(exposures: list[dict[str, Any]] | None) -> bool:
@@ -112,10 +157,14 @@ def validate_var_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 __all__ = [
     "RISK_METRICS_REQUIRED_KEYS",
+    "RISK_OVERVIEW_REQUIRED_KEYS",
+    "VAR_METRICS_REQUIRED_KEYS",
     "EXPOSURE_REQUIRED_KEYS",
     "STRESS_TEST_REQUIRED_KEYS",
     "VAR_HISTORY_REQUIRED_KEYS",
     "validate_risk_metrics",
+    "validate_overview_metrics",
+    "validate_var_metrics",
     "validate_exposure_list",
     "validate_exposures",
     "validate_stress_test_list",

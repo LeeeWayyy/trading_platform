@@ -5,6 +5,20 @@
 
 ---
 
+## ⚠️ CRITICAL: Two Mandatory Requirements
+
+> **1. ALWAYS pack with Repomix BEFORE every review request**
+> - Run `/repomix-commands:pack-local` on all changed directories
+> - This provides ~70% token reduction and enables thorough analysis
+> - **NEVER request a review without packing first**
+>
+> **2. ALWAYS get ALL reviewers' approval BEFORE starting a new iteration**
+> - Each iteration MUST end with explicit approval from ALL reviewers
+> - DO NOT start a new iteration until current iteration has all approvals
+> - If ANY reviewer has not approved, continue re-reviewing in the current iteration
+
+---
+
 ## Review System Overview
 
 | When | Duration | Scope |
@@ -37,9 +51,9 @@
 
 ## Review Process
 
-### Step 0: Pack Context for Review
+### Step 0: Pack Context for Review (⚠️ MANDATORY - NEVER SKIP)
 
-**MANDATORY:** ALWAYS Pack changed directories before requesting review.
+**🚨 CRITICAL: ALWAYS pack with Repomix BEFORE every review request. NO EXCEPTIONS.**
 
 ```bash
 # Pack the directories you modified
@@ -56,6 +70,8 @@
 - All directories with staged changes
 - Related test directories
 - Any dependencies that reviewers should understand
+
+**⚠️ AI agents MUST NOT proceed to Step 1 without completing Step 0.**
 
 **See [06-repomix.md](./06-repomix.md) for complete guide**
 
@@ -159,15 +175,25 @@ If issues found:
 1. Collect ALL issues from ALL reviewers
 2. Fix ALL issues
 3. Re-review using **SAME continuation_id**
-4. Repeat until all reviewers approve (NOTE: iteration ALWAYS ends with all approval, DO NOT start new iteration without approval)
+4. **🚨 CRITICAL: Continue re-reviewing until ALL reviewers explicitly approve**
+5. **DO NOT start a new iteration until you have approval from EVERY reviewer**
+
+**⚠️ MANDATORY: Each iteration MUST end with ALL reviewers approving:**
+- Get Reviewer 1 approval ✓
+- Get Reviewer 2 approval ✓
+- Get Reviewer N approval ✓
+- **ONLY THEN** can you consider starting a new iteration (if fixes were made)
 
 #### Between Iterations (Fresh Gate)
 
-If fixes were made in iteration N:
+**⚠️ PREREQUISITE: You MUST have ALL approvals from the current iteration before starting a new one.**
+
+If fixes were made in iteration N (and ALL reviewers approved):
 1. Start iteration N+1 **FRESH** (no continuation_id)
 2. First reviewer uses **EXACTLY THE SAME PROMPT as iteration 1** (no mention of previous iterations, no bias about what was fixed)
 3. Generates NEW continuation_id
 4. Follow within-iteration loop
+5. **Again, get ALL approvals before proceeding**
 
 **CRITICAL:** The prompt for iteration N must be identical to iteration 1. Do NOT say "review my fixes" or "check the changes I made". The reviewer must see the code with completely fresh eyes.
 
@@ -209,18 +235,27 @@ continuation-id: ae512f21-f9fe-4c3a-9e7e-bfaa8b07e5fd"
 
 ## Quick Reference
 
+### ⚠️ Two Critical Requirements (NEVER SKIP)
+
+1. **Pack with Repomix** → BEFORE every review request
+2. **Get ALL approvals** → BEFORE starting any new iteration
+
 ### Iteration Flow
 
 ```
+⚠️ STEP 0: Pack with Repomix (MANDATORY before any review)
+
 Iteration 1:
   Reviewer 1 (fresh) → generates continuation_id_1
   Reviewer 2 (uses continuation_id_1)
   Issues found? → Fix → Re-review with continuation_id_1
-  All approve? → But fixes were made → Start Iteration 2
+  ⚠️ WAIT: Get ALL approvals (Reviewer 1 ✓ + Reviewer 2 ✓)
+  All approved + fixes were made? → Start Iteration 2
 
 Iteration 2:
   Reviewer 1 (fresh) → generates continuation_id_2
   Reviewer 2 (uses continuation_id_2)
+  ⚠️ WAIT: Get ALL approvals (Reviewer 1 ✓ + Reviewer 2 ✓)
   All approve on first try? → APPROVED with continuation_id_2
 ```
 
@@ -229,15 +264,20 @@ Iteration 2:
 ```
 Start Review
     ↓
+⚠️ MANDATORY: Pack with Repomix first
+    ↓
 First reviewer starts FRESH (no continuation_id)
     ↓
 Subsequent reviewers use SAME continuation_id
     ↓
 Issues found?
-    YES → Fix all → Re-review with SAME continuation_id → Loop til all Approved in this iteration.
-    NO  → Were fixes made this iteration?
-              YES → Start NEW iteration (fresh)
-              NO  → APPROVED ✓
+    YES → Fix all → Re-review with SAME continuation_id
+              ↓
+          ⚠️ ALL reviewers approved?
+              NO  → Continue re-reviewing (DO NOT start new iteration)
+              YES → Were fixes made this iteration?
+                        YES → Start NEW iteration (fresh)
+                        NO  → APPROVED ✓
 ```
 
 ---
@@ -276,12 +316,15 @@ Look for:
 
 ## Validation Checklist
 
-- [ ] Packed relevant directories with repomix before review
+**🚨 MANDATORY - Verify BOTH critical requirements:**
+- [ ] **⚠️ REPOMIX: Packed ALL relevant directories with repomix BEFORE requesting review**
+- [ ] **⚠️ ALL APPROVALS: Got ALL reviewers' approval for EACH iteration before starting new iteration**
+
+**Standard checklist:**
 - [ ] First reviewer started FRESH (no continuation ID)
 - [ ] Subsequent reviewers used SAME continuation ID
 - [ ] ALL issues fixed (zero tolerance)
-- [ ] Each iteration need all reviewers' approval before start next iteration
-- [ ] If fixes made, started NEW iteration FRESH
+- [ ] If fixes made, started NEW iteration FRESH (only after ALL approved current iteration)
 - [ ] Final iteration: ALL reviewers approved on FIRST TRY
 - [ ] Continuation ID in commit message
 - [ ] All tests pass (`make ci-local`)

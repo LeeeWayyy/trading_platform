@@ -10,6 +10,7 @@ import base64
 import binascii
 import ipaddress
 import logging
+import math
 import os
 from typing import Literal, cast
 
@@ -357,3 +358,42 @@ def get_signing_keys() -> dict[str, bytes]:
         raise ValueError("HMAC_CURRENT_KEY_ID does not match any key id in HMAC_SIGNING_KEYS")
 
     return key_map
+
+
+# =============================================================================
+# Risk Dashboard Configuration (P5T6)
+# =============================================================================
+# PARITY: Defaults match apps/web_console/config.py:87-89 (Streamlit config)
+
+
+def _parse_float(env_var: str, default: float) -> float:
+    """Parse float from environment variable with fallback.
+
+    Rejects NaN/inf values to prevent poison data in risk calculations.
+    """
+    raw = os.getenv(env_var, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+        if not math.isfinite(value):
+            logger.warning(f"Non-finite {env_var} value '{raw}', using default {default}")
+            return default
+        return value
+    except ValueError:
+        logger.warning(f"Invalid {env_var} value '{raw}', using default {default}")
+        return default
+
+
+# Defaults from Streamlit: apps/web_console/config.py:87-89
+RISK_BUDGET_VAR_LIMIT = _parse_float("RISK_BUDGET_VAR_LIMIT", 0.05)  # 5% daily VaR limit (parity)
+RISK_BUDGET_WARNING_THRESHOLD = _parse_float(
+    "RISK_BUDGET_WARNING_THRESHOLD", 0.8
+)  # 80% warning (parity)
+
+FEATURE_RISK_DASHBOARD = os.getenv("FEATURE_RISK_DASHBOARD", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}

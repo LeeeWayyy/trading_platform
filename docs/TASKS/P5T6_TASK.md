@@ -5,8 +5,9 @@ phase: P5
 task: T6
 priority: P1
 owner: "@development-team"
-state: PLANNING
+state: IN_PROGRESS
 created: 2025-12-31
+started: 2026-01-03
 dependencies: [P5T1, P5T4]
 estimated_effort: "4-6 days"
 related_adrs: [ADR-0031-nicegui-migration]
@@ -17,7 +18,7 @@ features: [T6.1, T6.2]
 # P5T6: NiceGUI Migration - Charts & Analytics
 
 **Phase:** P5 (Web Console Modernization)
-**Status:** PLANNING
+**Status:** IN_PROGRESS
 **Priority:** P1 (Visual Features)
 **Owner:** @development-team
 **Created:** 2025-12-31
@@ -63,12 +64,21 @@ Port Plotly charts for P&L, risk, and performance visualization from Streamlit t
 
 **Data Source Clarification:**
 There are TWO types of P&L charts with different data schemas:
+
 1. **Returns-based charts** (`equity_curve_chart.py`, `drawdown_chart.py`):
    - Input: `pl.DataFrame` with columns `{date, return}`
    - Computes cumulative returns internally
+   - **Data Source:** `StrategyScopedDataAccess.get_performance_returns(start_date, end_date)` → Returns `list[dict]` with `{date, return}`
+   - **Conversion:** Convert list to `pl.DataFrame` before passing to chart functions
+   - **Schema Contract:** Each record MUST have `date` (date) and `return` (float, e.g. 0.01 = 1%)
+
 2. **P&L-based charts** (`pnl_chart.py`):
    - Input: `Sequence[DailyPnLLike]` with `{date, cumulative_realized_pl, drawdown_pct}`
    - Pre-computed cumulative values
+   - **Data Source:** `StrategyScopedDataAccess.get_pnl_summary(start_date, end_date)` → Returns `list[dict]`
+   - **Schema Contract:** Each record MUST have `date` (date), `cumulative_realized_pl` (float), `drawdown_pct` (float, negative for drawdowns)
+
+**NOTE:** For P5T6, the P&L charts (T6.1) are NOT used in the Risk Dashboard page. They are standalone components for future Performance page (P5T7). The Risk Dashboard (T6.2) uses RiskService exclusively.
 
 **Deliverables:**
 - [ ] Returns-based equity curve (from daily returns DataFrame)
@@ -80,6 +90,14 @@ There are TWO types of P&L charts with different data schemas:
 - [ ] Error handling for missing/empty data
 - [ ] Responsive chart sizing (`classes("w-full")`)
 - [ ] Loading states during data fetch
+
+**Validator → Component Mapping (T6.1):**
+| Validator | NiceGUI Component | Usage |
+|-----------|-------------------|-------|
+| Column validation (inline) | `render_equity_curve()`, `render_drawdown_chart()` | Validate `{date, return}` columns present |
+| Column validation (inline) | `render_pnl_equity_curve()`, `render_pnl_drawdown_chart()` | Validate `{date, cumulative_realized_pl, drawdown_pct}` present |
+
+**NOTE:** T6.1 charts use inline column validation (checking required columns exist) rather than dedicated validator functions because the data comes pre-validated from `StrategyScopedDataAccess`. T6.2 charts use dedicated validators because RiskService data requires more complex validation (NaN handling, range checks).
 
 **Port from existing:**
 - `apps/web_console/components/equity_curve_chart.py` - Returns-based
@@ -239,6 +257,139 @@ def render_drawdown_chart(
 
     except Exception as e:
         ui.notify(f"Failed to render drawdown chart: {e}", type="negative")
+
+
+# apps/web_console_ng/components/pnl_chart.py
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
+
+import plotly.graph_objects as go
+from nicegui import ui
+
+# Type alias for P&L data - supports both dict and dataclass-like objects
+DailyPnLLike = Mapping[str, Any] | Any
+
+
+def _get_value(item: DailyPnLLike, key: str) -> Any:
+    """Extract value from dict or object attribute."""
+    if isinstance(item, Mapping):
+        return item.get(key)
+    return getattr(item, key, None)
+
+
+def _as_float(value: Any) -> float:
+    """Convert to float with safe fallback for None/unknown types."""
+    if value is None:
+        return 0.0
+    try:
+        return float(cast(float, value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _prepare_series(
+    daily_pnl: Sequence[DailyPnLLike],
+) -> tuple[list[str], list[float], list[float]]:
+    """Extract date, cumulative P&L, and drawdown series from P&L data.
+
+    Args:
+        daily_pnl: Sequence of P&L records with:
+            - date: trade date
+            - cumulative_realized_pl: cumulative realized P&L
+            - drawdown_pct: drawdown percentage (negative for losses)
+
+    Returns:
+        Tuple of (dates, cumulative_values, drawdown_values)
+    """
+    dates: list[str] = []
+    cumulative: list[float] = []
+    drawdowns: list[float] = []
+
+    for entry in daily_pnl:
+        dates.append(str(_get_value(entry, "date")))
+        cumulative.append(_as_float(_get_value(entry, "cumulative_realized_pl")))
+        drawdowns.append(_as_float(_get_value(entry, "drawdown_pct")))
+
+    return dates, cumulative, drawdowns
+
+
+def render_pnl_equity_curve(daily_pnl: Sequence[DailyPnLLike]) -> None:
+    """Render cumulative realized P&L line chart.
+
+    Args:
+        daily_pnl: Sequence of P&L records from StrategyScopedDataAccess.get_pnl_summary()
+            Schema: {date, cumulative_realized_pl, drawdown_pct}
+    """
+    if not daily_pnl:
+        ui.label("No performance data available for the selected range.").classes(
+            "text-gray-500 text-center p-4"
+        )
+        return
+
+    dates, cumulative, _ = _prepare_series(daily_pnl)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=cumulative,
+            mode="lines+markers",
+            name="Cumulative Realized P&L",
+            line={"color": "#2E86DE", "width": 3},
+            marker={"size": 6},
+        )
+    )
+
+    fig.update_layout(
+        title="Equity Curve (Realized P&L Only)",
+        xaxis_title="Date",
+        yaxis_title="Cumulative Realized P&L",
+        hovermode="x unified",
+        margin={"l": 50, "r": 30, "t": 60, "b": 40},
+    )
+
+    ui.plotly(fig).classes("w-full")
+
+
+def render_pnl_drawdown_chart(daily_pnl: Sequence[DailyPnLLike]) -> None:
+    """Render drawdown area chart from pre-computed drawdown percentages.
+
+    Args:
+        daily_pnl: Sequence of P&L records from StrategyScopedDataAccess.get_pnl_summary()
+            Schema: {date, cumulative_realized_pl, drawdown_pct}
+    """
+    if not daily_pnl:
+        ui.label("No drawdown data available for the selected range.").classes(
+            "text-gray-500 text-center p-4"
+        )
+        return
+
+    dates, _, drawdowns = _prepare_series(daily_pnl)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=drawdowns,
+            mode="lines",
+            name="Drawdown %",
+            line={"color": "#C0392B", "width": 2},
+            fill="tozeroy",
+            fillcolor="rgba(192, 57, 43, 0.2)",
+        )
+    )
+
+    fig.update_layout(
+        title="Drawdown (Realized P&L Only)",
+        xaxis_title="Date",
+        yaxis_title="Drawdown %",
+        hovermode="x unified",
+        margin={"l": 50, "r": 30, "t": 60, "b": 40},
+    )
+
+    ui.plotly(fig).classes("w-full")
 ```
 
 **Testing:**
@@ -283,6 +434,16 @@ def render_drawdown_chart(
 - `apps/web_console/components/stress_test_results.py` (NEW - must port)
 - `apps/web_console/pages/risk.py`
 - `apps/web_console/utils/validators.py` (reuse validators)
+
+**Validator → Component Mapping (REQUIRED):**
+| Validator | NiceGUI Component | Usage |
+|-----------|-------------------|-------|
+| `validate_risk_metrics(data)` | `render_var_metrics()` | Validate before rendering VaR metrics |
+| `validate_var_history(history)` | `render_var_history()` | Filter invalid entries before chart |
+| `validate_exposures(exposures)` | `render_factor_exposure()` | Filter NaN/missing exposures |
+| `validate_stress_tests(results)` | `render_stress_tests()` | Filter invalid stress test entries |
+
+**Implementation Requirement:** Each NiceGUI chart function MUST call its corresponding validator before processing data. Tests MUST verify validator is called.
 
 **Implementation:**
 ```python
@@ -468,6 +629,8 @@ DEFAULT_FACTOR_ORDER = [
 ]
 
 # Merge canonical + default order (preserves new factors)
+# FALLBACK BEHAVIOR: If CANONICAL_FACTOR_ORDER is empty/None, use DEFAULT_FACTOR_ORDER only
+# This ensures UI never shows empty chart even if libs/risk not configured
 _chart_factor_order = list(dict.fromkeys((CANONICAL_FACTOR_ORDER or []) + DEFAULT_FACTOR_ORDER))
 
 
@@ -705,8 +868,36 @@ async def risk_dashboard(client: Client) -> None:
 
         stress_section()
 
-    # Auto-refresh every 60 seconds
-    ui.timer(60.0, refresh)
+    # === TIMER LIFECYCLE MANAGEMENT ===
+    # Register timer with ClientLifecycleManager for cleanup on disconnect
+    # (Same pattern as dashboard.py to prevent timer leaks and concurrent refreshes)
+    lifecycle = ClientLifecycleManager.get()
+    client_id = client.storage.get("client_id")
+
+    # Prevent concurrent refresh calls with a lock
+    refresh_lock = asyncio.Lock()
+
+    async def guarded_refresh() -> None:
+        """Refresh with lock to prevent overlapping RiskService calls."""
+        if refresh_lock.locked():
+            return  # Skip if already refreshing
+        async with refresh_lock:
+            await load_risk_data()
+            placeholder_warning.refresh()
+            risk_overview_section.refresh()
+            var_section.refresh()
+            var_history_section.refresh()
+            exposure_section.refresh()
+            stress_section.refresh()
+
+    # Auto-refresh every 60 seconds (guarded)
+    refresh_timer = ui.timer(60.0, guarded_refresh)
+
+    # Register cleanup callback to cancel timer on client disconnect
+    def cleanup_timer() -> None:
+        refresh_timer.cancel()
+
+    await lifecycle.register_cleanup_callback(client_id, cleanup_timer)
 
 
 def _render_metric(label: str, value: str) -> None:
@@ -740,19 +931,79 @@ def _render_metric(label: str, value: str) -> None:
 
 **Must verify before starting implementation:**
 
-- [ ] **P5T1 complete:** Foundation with async patterns
-- [ ] **P5T4 complete:** Real-Time Dashboard patterns
-- [ ] **RiskService available:**
-  - [ ] `RiskService.get_risk_dashboard_data()` - Returns RiskDashboardData
-  - [ ] `StrategyScopedDataAccess` - DB/Redis access layer
-  - [ ] Validators: `validate_risk_metrics`, `validate_var_history`, `validate_exposures`, `validate_stress_tests`
-- [ ] **Config available:**
-  - [ ] `FEATURE_RISK_DASHBOARD` feature flag
-  - [ ] `RISK_BUDGET_VAR_LIMIT` - VaR limit constant
-  - [ ] `RISK_BUDGET_WARNING_THRESHOLD` - Warning threshold
-- [ ] **Permissions available:**
-  - [ ] `Permission.VIEW_PNL` enum value
-  - [ ] `get_authorized_strategies()` helper
+- [x] **P5T1 complete:** Foundation with async patterns ✅ Verified
+- [x] **P5T4 complete:** Real-Time Dashboard patterns ✅ Verified
+- [x] **RiskService available:**
+  - [x] `RiskService.get_risk_dashboard_data()` - Returns RiskDashboardData ✅ `apps/web_console/services/risk_service.py:92`
+  - [x] `StrategyScopedDataAccess` - DB/Redis access layer ✅ `apps/web_console/data/strategy_scoped_queries.py`
+  - [x] Validators: `validate_risk_metrics`, `validate_var_history`, `validate_exposures`, `validate_stress_tests` ✅ `apps/web_console/utils/validators.py`
+- [ ] **Config available:** (NEEDS UPDATE - NiceGUI config.py missing these)
+  - [ ] `FEATURE_RISK_DASHBOARD` feature flag - ⚠️ Must add to `apps/web_console_ng/config.py`
+  - [ ] `RISK_BUDGET_VAR_LIMIT` - VaR limit constant - ⚠️ Must add to `apps/web_console_ng/config.py`
+  - [ ] `RISK_BUDGET_WARNING_THRESHOLD` - Warning threshold - ⚠️ Must add to `apps/web_console_ng/config.py`
+- [x] **Permissions available:**
+  - [x] `Permission.VIEW_PNL` enum value ✅ `libs/web_console_auth/permissions.py:32`
+  - [x] `get_authorized_strategies()` helper ✅ `libs/web_console_auth/permissions.py:328`
+
+---
+
+## Pre-Implementation Analysis Findings
+
+**Analysis Date:** 2026-01-03
+
+### Existing Streamlit Components to Port
+
+| Component | Source File | Key Patterns |
+|-----------|-------------|--------------|
+| Equity Curve (returns) | `apps/web_console/components/equity_curve_chart.py` | Polars DataFrame, cumulative returns |
+| Drawdown (returns) | `apps/web_console/components/drawdown_chart.py` | Max DD annotation |
+| P&L Charts | `apps/web_console/components/pnl_chart.py` | DailyPnLLike sequence |
+| VaR Charts | `apps/web_console/components/var_chart.py` | Gauge, metrics, history |
+| Factor Exposure | `apps/web_console/components/factor_exposure_chart.py` | Canonical ordering, validation |
+| Stress Tests | `apps/web_console/components/stress_test_results.py` | Table + waterfall |
+| Risk Page | `apps/web_console/pages/risk.py` | Feature flag, permissions, RiskService |
+
+### Config Updates Required
+
+```python
+# Must add to apps/web_console_ng/config.py:
+
+# Risk Dashboard Configuration
+# NOTE: Use explicit float() with try/except, NOT _safe_float (doesn't exist in NiceGUI config)
+# PARITY: Defaults match apps/web_console/config.py:87-89 (Streamlit config)
+def _parse_float(env_var: str, default: float) -> float:
+    """Parse float from environment variable with fallback."""
+    raw = os.getenv(env_var, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning(f"Invalid {env_var} value '{raw}', using default {default}")
+        return default
+
+# Defaults from Streamlit: apps/web_console/config.py:87-89
+RISK_BUDGET_VAR_LIMIT = _parse_float("RISK_BUDGET_VAR_LIMIT", 0.05)  # 5% daily VaR limit (parity)
+RISK_BUDGET_WARNING_THRESHOLD = _parse_float("RISK_BUDGET_WARNING_THRESHOLD", 0.8)  # 80% warning (parity)
+
+FEATURE_RISK_DASHBOARD = os.getenv("FEATURE_RISK_DASHBOARD", "false").lower() in {
+    "1", "true", "yes", "on"
+}
+```
+
+### Existing NiceGUI Patterns to Follow
+
+From `apps/web_console_ng/pages/dashboard.py`:
+- `@ui.page("/")` decorator for routing
+- `@requires_auth` decorator for auth
+- `@main_layout` decorator for layout wrapper
+- `Client` parameter for client context
+- `get_current_user()` for user data
+- `ClientLifecycleManager` for cleanup
+- `ui.timer()` for periodic updates
+
+From `apps/web_console_ng/components/metric_card.py`:
+- `MetricCard` class for metric display (can be reused or adapted)
 
 ---
 
@@ -814,6 +1065,7 @@ tests/apps/web_console_ng/
 - `test_pnl_charts.py`: Equity curve, drawdown rendering with various data
 - `test_risk_charts.py`: VaR metrics, gauge colors, factor ordering, validation
 - `test_stress_tests.py`: Scenario table ordering, waterfall rendering
+- `test_factor_unknown_name.py`: Verify unknown factor names fall back to raw name (L-2 fix)
 
 ### Integration Tests (CI - Docker)
 - `test_risk_page_integration.py`: Full risk page with RiskService
@@ -822,6 +1074,14 @@ tests/apps/web_console_ng/
 ### E2E Tests (CI - Playwright)
 - `test_charts_e2e.py`: Charts render and update on refresh
 - `test_risk_page_e2e.py`: Full risk dashboard flow
+
+**Playwright Setup Confirmation (H-3):**
+- Existing Playwright setup: `tests/e2e/conftest.py` provides NiceGUI test fixtures
+- Base URL: `http://localhost:8080` (NiceGUI dev server)
+- Selectors strategy: Use `data-testid` attributes for stable selectors
+- Chart selectors: `.plotly-graph-div` for Plotly charts, `[data-testid="risk-gauge"]` for gauge
+- Table selectors: `table[data-testid="stress-results-table"]` for stress test table
+- Implementation: Add `data-testid` attributes during component implementation
 
 ---
 
@@ -883,47 +1143,80 @@ tests/apps/web_console_ng/
    - Use consistent theme across all charts
    - Match existing Streamlit colors for familiarity
 
-6. **Metric Cards:**
+6. **Metric Cards (L-1 Decision):** ✅ ADDRESSED (Rev 4)
    - Streamlit has `st.metric()`, NiceGUI doesn't
-   - Create custom `_render_metric()` helper
-   - Style consistently with cards
+   - **Decision:** Create custom `_render_metric()` helper (inline function, NOT reusing `MetricCard` class)
+   - **Rationale:** `MetricCard` from `metric_card.py` is designed for dashboard tiles with icons and trends. VaR/risk metrics need simpler display. Using `_render_metric()` matches Streamlit's `st.metric()` behavior more closely.
+   - Style consistently with ui.card() + label classes
 
-7. **DataFrame Handling:**
+7. **Placeholder-Zero Metrics UX (M-2):** ✅ ADDRESSED (Rev 4)
+   - When `var_99` is None/missing: Display "N/A" (not "0.00%")
+   - When metric is 0.0 (valid zero): Display "0.00%"
+   - Pattern: `f"{float(value):.2%}" if value is not None else "N/A"`
+   - This follows Streamlit behavior from `apps/web_console/components/var_chart.py:45`
+
+8. **Auto-Refresh Timer Interval (M-3):** ✅ ADDRESSED (Rev 4)
+   - Interval: 60 seconds
+   - **Justification:**
+     - Matches `apps/web_console/pages/risk.py:178` Streamlit polling interval (parity)
+     - Risk metrics update infrequently (portfolio rebalances are rare events)
+     - 60s balances freshness vs RiskService load
+     - VaR calculation is compute-intensive; shorter intervals would waste resources
+   - Can be configured via `RISK_REFRESH_INTERVAL_SECONDS` if needed in future
+
+9. **DataFrame Handling:**
    - Accept `pl.DataFrame | None` for null safety
    - Convert to pandas for Plotly: `.to_pandas()`
    - Validate required columns before processing
 
-8. **Stress Test Rendering:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
+10. **Stress Test Rendering:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
    - Port `stress_test_results.py` with scenario table + waterfall chart
    - Use predefined scenario order (SCENARIO_DISPLAY_ORDER)
    - Show worst case waterfall automatically
+   - **Factor Label Mapping:** Waterfall chart uses `FACTOR_DISPLAY_NAMES` from `factor_exposure_chart.py` for human-readable factor labels. If a factor is not in the mapping, use the raw factor name as fallback (same as Streamlit behavior).
+   - **Unknown Factor Name Test (L-2):** Unit test MUST verify: when `exposures` contains `{"factor_name": "unknown_factor_xyz", "exposure": 0.05}`, the chart displays "unknown_factor_xyz" as the label (raw fallback).
 
-9. **Data Source Architecture:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
+11. **Data Source Architecture:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
    - Use RiskService directly (same as Streamlit), NOT REST endpoints
    - RiskService -> StrategyScopedDataAccess -> DB/Redis
    - Reuse existing validators for data validation
 
-10. **Page-Level Parity Gates:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
+12. **Page-Level Parity Gates:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
     - Feature flag check: `FEATURE_RISK_DASHBOARD`
     - Permission check: `VIEW_PNL` required
     - Strategy access: User must have authorized strategies
     - Placeholder warning: Red banner for demo data
     - Risk overview: 3 metrics (total_risk, factor_risk, specific_risk)
 
-11. **Factor Exposure Validation:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
+13. **Factor Exposure Validation:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
     - Reuse `validate_exposures()` from validators.py
     - Use canonical factor order from `libs/risk/factor_covariance.py`
     - Merge canonical + default order for new factor support
 
-12. **Refresh Logic Fix:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
+14. **Refresh Logic Fix:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
     - ALL refreshable sections must update on refresh
     - Include: placeholder_warning, risk_overview, var_section, var_history_section, exposure_section, stress_section
     - `var_history_section.refresh()` was missing in Rev 1
 
-13. **Info/Error Pattern Alignment:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
+15. **Info/Error Pattern Alignment:** ✅ ADDRESSED IN DOCUMENT (Rev 2)
     - `st.info()` -> `ui.label("msg").classes("text-gray-500 p-4")`
     - `st.error()` -> `ui.notify("msg", type="negative")`
     - Consistent with P5T4/P5T5 patterns
+
+16. **Timer Lifecycle Management:** ✅ ADDRESSED IN DOCUMENT (Rev 3)
+    - Register refresh timers with `ClientLifecycleManager` for cleanup on disconnect
+    - Use `asyncio.Lock()` to prevent overlapping RiskService calls during concurrent refreshes
+    - Same pattern as `dashboard.py` (P5T4)
+    - Tests MUST verify: timer cleanup on disconnect, no concurrent refresh execution
+
+17. **Config Helper Pattern:** ✅ ADDRESSED IN DOCUMENT (Rev 3)
+    - Use `_parse_float()` helper with try/except, NOT `_safe_float` (doesn't exist in NiceGUI config)
+    - Log warning on invalid values, use defaults
+
+18. **Validator Mapping:** ✅ ADDRESSED IN DOCUMENT (Rev 3)
+    - Each chart function MUST call its corresponding validator
+    - See "Validator → Component Mapping" tables in T6.1 and T6.2 sections
+    - Tests MUST verify validator is invoked
 
 ---
 
@@ -947,5 +1240,5 @@ tests/apps/web_console_ng/
 
 ---
 
-**Last Updated:** 2025-12-31 (Rev 2)
-**Status:** PLANNING
+**Last Updated:** 2026-01-03 (Rev 4)
+**Status:** PLANNING - Plan Review Iteration 2 (fixing issues)

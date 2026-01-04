@@ -17,6 +17,7 @@
 | `/kill-switch` | GET | None | Kill switch management page (P5T5). |
 | `/manual-order` | GET | None | Manual order entry page (P5T5). |
 | `/position-management` | GET | None | Position management with bulk actions (P5T5). |
+| `/risk` | GET | None | Risk analytics dashboard with VaR, factor exposures, stress tests (P5T6). |
 | `/healthz` | GET | None | Liveness probe (always 200 unless process unhealthy). |
 | `/readyz` | GET | Internal probe headers optional | Readiness probe (checks Redis/backend). |
 | `/metrics` | GET | Internal probe headers optional | Prometheus metrics. |
@@ -112,10 +113,42 @@
 - Fresh kill switch check at confirmation time (double-check pattern).
 - Synthetic order IDs (`unknown_*`) block cancel attempts with support message.
 
+### Risk Analytics Dashboard (P5T6)
+**Purpose:** Display portfolio risk analytics including VaR/CVaR, factor exposures, and stress test results.
+
+**Behavior:**
+- Displays risk overview metrics (total risk, factor risk, specific risk).
+- VaR/CVaR metrics with risk budget utilization gauge.
+- 30-day VaR history chart with risk limit threshold line.
+- Factor exposure bar chart with canonical factor ordering.
+- Stress test results table with factor contribution waterfall for worst-case scenario.
+- Auto-refresh every 60 seconds with refresh lock to prevent concurrent calls.
+- Placeholder warning banner when using demo data (risk model artifacts unavailable).
+- Error state banner with retry option when data load fails.
+
+**Data Handling:**
+- Safe float conversion for all numeric values (rejects NaN/inf as invalid).
+- Division by zero protection in drawdown calculations.
+- Proper date sorting using datetime parsing (handles ISO formats and timezone normalization).
+- Section-specific validators for VaR vs overview metrics.
+- Skip entries with invalid data rather than displaying misleading 0.0 values.
+
+**Components:**
+- `components/drawdown_chart.py` - Drawdown visualization with division-by-zero protection.
+- `components/equity_curve_chart.py` - Cumulative returns chart with non-finite filtering.
+- `components/pnl_chart.py` - P&L equity curve and drawdown charts with date sorting.
+- `components/var_chart.py` - VaR metrics, gauge, and history chart.
+- `components/factor_exposure_chart.py` - Factor exposure bar chart with display names.
+- `components/stress_test_results.py` - Stress test table and factor waterfall chart.
+
+**Access Control:**
+- Requires `VIEW_PNL` permission.
+- Requires at least one authorized strategy.
+
 ## Data Flow
 ```
 Browser
-  -> NiceGUI pages (/login, /mfa-verify, /dashboard, /kill-switch, /manual-order, /position-management)
+  -> NiceGUI pages (/login, /mfa-verify, /dashboard, /kill-switch, /manual-order, /position-management, /risk)
   -> Session store (Redis)
   -> Execution Gateway (AsyncTradingClient)
   -> Audit log (Postgres, optional)
@@ -135,11 +168,19 @@ Trading Actions Flow:
     -> AsyncTradingClient API call
     -> Audit log
     -> UI notification
+
+Risk Analytics Flow (P5T6):
+  /risk page load
+    -> RiskService.get_risk_dashboard_data()
+    -> StrategyScopedDataAccess (risk_metrics, factor_exposures, stress_tests, var_history)
+    -> Chart components (var_chart, factor_exposure_chart, stress_test_results, pnl_chart)
+    -> Plotly visualizations in NiceGUI
+    -> Auto-refresh timer (60s) with refresh lock
 ```
 
 ## Dependencies
-- **Internal:** `apps/web_console_ng/auth/*`, `apps/web_console_ng/core/*`, `apps/web_console_ng/ui/*`, `apps/web_console_ng/components/*`, `apps/web_console_ng/pages/*`
-- **External:** Redis (session + pub/sub), Postgres (optional, audit), Execution Gateway API, NiceGUI, AG Grid, Prometheus
+- **Internal:** `apps/web_console_ng/auth/*`, `apps/web_console_ng/core/*`, `apps/web_console_ng/ui/*`, `apps/web_console_ng/utils/*`, `apps/web_console_ng/components/*`, `apps/web_console_ng/pages/*`, `apps/web_console/services/risk_service.py`, `apps/web_console/data/strategy_scoped_queries.py`, `apps/web_console/utils/validators.py`
+- **External:** Redis (session + pub/sub), Postgres (optional, audit), Execution Gateway API, NiceGUI, AG Grid, Plotly, Prometheus
 
 ## Configuration
 | Variable | Required | Default | Description |
@@ -162,6 +203,9 @@ Trading Actions Flow:
 | `WS_MAX_CONNECTIONS_PER_SESSION` | No | `2` | Max connections per session.
 | `DB_POOL_MIN_SIZE` | No | `1` | Async DB pool min size.
 | `DB_POOL_MAX_SIZE` | No | `5` | Async DB pool max size.
+| `FEATURE_RISK_DASHBOARD` | No | `true` | Enable/disable risk analytics dashboard.
+| `RISK_BUDGET_VAR_LIMIT` | No | `0.05` | Maximum VaR limit for risk budget gauge (5%).
+| `RISK_BUDGET_WARNING_THRESHOLD` | No | `0.8` | Warning threshold for risk utilization (80%).
 
 ## Observability
 - **Health:** `GET /healthz` (liveness), `GET /readyz` (readiness).
@@ -216,6 +260,6 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 
 ## Metadata
 - **Last Updated:** 2026-01-03
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`
 - **ADRs:** N/A
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics)
