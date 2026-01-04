@@ -10,7 +10,7 @@ created: 2025-12-31
 dependencies: [P5T1, P5T4]
 estimated_effort: "4-6 days"
 related_adrs: [ADR-0031-nicegui-migration]
-related_docs: [P5_PLANNING.md, P5T1_DONE.md, P5T4_TASK.md]
+related_docs: [P5_PLANNING.md, P5T1_DONE.md, P5T4_DONE.md]
 features: [T6.1, T6.2]
 ---
 

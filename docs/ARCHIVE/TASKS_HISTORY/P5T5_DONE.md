@@ -5,19 +5,19 @@ phase: P5
 task: T5
 priority: P0
 owner: "@development-team"
-state: PLANNING
+state: DONE
 created: 2025-12-31
 dependencies: [P5T1, P5T2, P5T3, P5T4]
 estimated_effort: "5-7 days"
 related_adrs: [ADR-0031-nicegui-migration]
-related_docs: [P5_PLANNING.md, P5T1_DONE.md, P5T2_DONE.md, P5T3_DONE.md, P5T4_TASK.md]
+related_docs: [P5_PLANNING.md, P5T1_DONE.md, P5T2_DONE.md, P5T3_DONE.md, P5T4_DONE.md]
 features: [T5.1, T5.2, T5.3]
 ---
 
 # P5T5: NiceGUI Migration - Manual Trading Controls
 
 **Phase:** P5 (Web Console Modernization)
-**Status:** PLANNING
+**Status:** DONE
 **Priority:** P0 (Critical Safety)
 **Owner:** @development-team
 **Created:** 2025-12-31
@@ -614,7 +614,7 @@ tests/apps/web_console_ng/
 ---
 
 **Last Updated:** 2026-01-03 (Rev 6)
-**Status:** PLANNING
+**Status:** DONE
 
 **Rev 6 Changes (Third Planning Review Iteration):**
 - Removed all outdated detailed code snippets that contradicted Implementation Notes
