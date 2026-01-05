@@ -10,6 +10,8 @@ from nicegui import app, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user
 from apps.web_console_ng.core.client import AsyncTradingClient
+from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from libs.web_console_auth.permissions import Permission, has_permission
 
 AsyncPage = Callable[..., Awaitable[Any]]
 
@@ -45,15 +47,25 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                 nav_items = [
                     ("Dashboard", "/", "dashboard", None),
-                    ("Manual Controls", "/manual", "edit", None),
+                    ("Manual Controls", "/manual-order", "edit", None),
                     ("Kill Switch", "/kill-switch", "warning", None),
+                    ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
+                    ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
                     ("Backtest", "/backtest", "science", None),
-                    ("Admin", "/admin", "settings", "admin"),
+                    ("Admin", "/admin", "settings", None),  # Visibility controlled by permission check
                 ]
 
-                for label, path, icon, required_role in nav_items:
-                    if required_role and user_role != required_role:
+                for label, path, icon, _required_role in nav_items:
+                    # Admin link requires MANAGE_API_KEYS or MANAGE_SYSTEM_CONFIG or VIEW_AUDIT
+                    if path == "/admin" and not any(
+                        has_permission(user, p)
+                        for p in (
+                            Permission.MANAGE_API_KEYS,
+                            Permission.MANAGE_SYSTEM_CONFIG,
+                            Permission.VIEW_AUDIT,
+                        )
+                    ):
                         continue
 
                     is_active = current_path == path
@@ -151,11 +163,19 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     )
                     if last_kill_switch_state != "ENGAGED":
                         ui.notify("Kill switch engaged", type="negative")
-                else:
+                elif state == "DISENGAGED":
+                    # Only show "TRADING ACTIVE" for explicit DISENGAGED state
                     kill_switch_badge.set_text("TRADING ACTIVE")
                     kill_switch_badge.classes(
                         "bg-green-500 text-white",
                         remove="bg-red-500 bg-yellow-500 text-black",
+                    )
+                else:
+                    # Unknown/invalid state - show warning
+                    kill_switch_badge.set_text(f"STATE: {state}")
+                    kill_switch_badge.classes(
+                        "bg-yellow-500 text-black",
+                        remove="bg-red-500 bg-green-500 text-white",
                     )
 
                 connection_badge.set_text("Connected")
@@ -176,8 +196,15 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     remove="bg-green-500",
                 )
 
-        ui.timer(5.0, update_global_status)
+        # Create timer for global status polling
+        status_timer = ui.timer(5.0, update_global_status)
         await update_global_status()
+
+        # Register cleanup on client disconnect to prevent timer leaks
+        client_id = ui.context.client.storage.get("client_id")
+        if client_id:
+            lifecycle_mgr = ClientLifecycleManager.get()
+            await lifecycle_mgr.register_cleanup_callback(client_id, lambda: status_timer.cancel())
 
     return wrapper
 

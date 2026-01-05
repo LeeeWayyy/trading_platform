@@ -93,7 +93,7 @@ from apps.web_console_ng.auth import get_current_user
 **Implementation:**
 ```python
 # apps/web_console_ng/pages/circuit_breaker.py
-from nicegui import ui, app
+from nicegui import ui, app, run  # NOTE: 'run' provides run.io_bound for sync→async
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.auth.middleware import requires_auth
 from apps.web_console_ng.auth.permissions import Permission, has_permission
@@ -137,16 +137,18 @@ async def circuit_breaker_dashboard() -> None:
         return
 
     # Initialize service (reuse existing sync factory, no await needed)
-    # NOTE: _get_cb_service is sync and caches in session_state equivalent
+    # NOTE: _get_cb_service is sync and caches in app.storage equivalent
     cb_service = _get_cb_service()
 
     # State container
     status_data: dict = {}
 
     async def fetch_status() -> None:
+        """Fetch CB status using run.io_bound to avoid blocking event loop."""
         nonlocal status_data
         try:
-            status_data = cb_service.get_status()
+            # ⚠️ CRITICAL: Use run.io_bound for sync service calls (Rev 6)
+            status_data = await run.io_bound(cb_service.get_status)
         except RuntimeError as e:
             ui.notify(f"Cannot retrieve status: {e}", type="negative")
 
@@ -222,7 +224,8 @@ async def circuit_breaker_dashboard() -> None:
                             return
 
                         try:
-                            cb_service.trip(final_reason, user, acknowledged=True)
+                            # ⚠️ CRITICAL: Use run.io_bound for sync service calls (Rev 6)
+                            await run.io_bound(cb_service.trip, final_reason, user, True)
                             ui.notify("Circuit breaker TRIPPED", type="positive")
                             await fetch_status()
                             status_section.refresh()
@@ -277,7 +280,8 @@ async def circuit_breaker_dashboard() -> None:
                             return
 
                         try:
-                            cb_service.reset(reason, user, acknowledged=True)
+                            # ⚠️ CRITICAL: Use run.io_bound for sync service calls (Rev 6)
+                            await run.io_bound(cb_service.reset, reason, user, True)
                             ui.notify("Circuit breaker RESET - entering quiet period", type="positive")
                             reset_reason.value = ""
                             acknowledged.value = False
@@ -296,12 +300,24 @@ async def circuit_breaker_dashboard() -> None:
         ui.separator().classes("my-4")
 
         # === HISTORY SECTION ===
+        # ⚠️ CRITICAL (Rev 6): Pre-fetch history in async function, render in @ui.refreshable
+        history_data: list = []
+
+        async def fetch_history() -> None:
+            """Fetch history using run.io_bound to avoid blocking event loop."""
+            nonlocal history_data
+            try:
+                history_data = await run.io_bound(cb_service.get_history, 50)
+            except Exception:
+                history_data = []
+
+        await fetch_history()  # Initial fetch
+
         @ui.refreshable
         def history_section() -> None:
             ui.label("Trip/Reset History").classes("text-lg font-semibold mb-2")
 
-            history = cb_service.get_history(limit=50)
-            if not history:
+            if not history_data:
                 ui.label("No trip history recorded").classes("text-gray-500")
                 return
 
@@ -314,17 +330,24 @@ async def circuit_breaker_dashboard() -> None:
                 {"name": "reset_reason", "label": "Reset Reason", "field": "reset_reason"},
             ]
 
-            ui.table(columns=columns, rows=history).classes("w-full")
+            ui.table(columns=columns, rows=history_data).classes("w-full")
 
         history_section()
 
     # Auto-refresh every 5 seconds (FIX Rev 5: refresh both status and history)
     async def auto_refresh() -> None:
         await fetch_status()
+        await fetch_history()  # Also refresh history data (Rev 6)
         status_section.refresh()
-        history_section.refresh()  # Include history in case another operator trips/resets
+        history_section.refresh()
 
-    ui.timer(5.0, auto_refresh)
+    # ⚠️ Rev 19: Timer lifecycle cleanup (see Note #29)
+    timer = ui.timer(5.0, auto_refresh)
+
+    # Register cleanup on client disconnect to prevent timer leaks
+    from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+    lifecycle_mgr = ClientLifecycleManager.get()
+    lifecycle_mgr.register_cleanup(ui.context.client.id, lambda: timer.cancel())
 ```
 
 **Testing:**
@@ -416,7 +439,8 @@ async def health_monitor() -> None:
     async def fetch_health_data() -> None:
         nonlocal health_data
         try:
-            # Concurrent fetching
+            # ⚠️ Rev 14: HealthMonitorService is ASYNC - call methods directly (see Note #31)
+            # DO NOT use run.io_bound - it returns un-awaited coroutine
             statuses, connectivity, latencies = await asyncio.gather(
                 health_service.get_all_services_status(),
                 health_service.get_connectivity(),
@@ -634,7 +658,13 @@ async def health_monitor() -> None:
         connectivity_section.refresh()
         latency_section.refresh()
 
-    ui.timer(float(AUTO_REFRESH_INTERVAL), auto_refresh)
+    # ⚠️ Rev 19: Timer lifecycle cleanup (see Note #29)
+    timer = ui.timer(float(AUTO_REFRESH_INTERVAL), auto_refresh)
+
+    # Register cleanup on client disconnect to prevent timer leaks
+    from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+    lifecycle_mgr = ClientLifecycleManager.get()
+    lifecycle_mgr.register_cleanup(ui.context.client.id, lambda: timer.cancel())
 ```
 
 **Testing:**
@@ -681,14 +711,17 @@ async def health_monitor() -> None:
 **Implementation:**
 ```python
 # apps/web_console_ng/pages/backtest.py
-from nicegui import ui
+from nicegui import ui, run
 from apps.web_console_ng.ui.layout import main_layout
-from apps.web_console_ng.auth.middleware import requires_auth
+from apps.web_console_ng.auth.middleware import requires_auth, get_current_user
 from apps.web_console_ng.auth.permissions import Permission, has_permission
+# ⚠️ Rev 16: Import FEATURE_BACKTEST_MANAGER for gating (Note #40)
+from apps.web_console_ng.config import FEATURE_BACKTEST_MANAGER
 # Import PORTED NiceGUI components (not Streamlit originals)
 from apps.web_console_ng.components.backtest_form import render_backtest_form_ng
 from apps.web_console_ng.components.backtest_results import render_backtest_result_ng, render_comparison_table_ng
-from apps.web_console.utils.sync_db_pool import get_sync_db_pool
+# ⚠️ Rev 7: Use NiceGUI dependency provider, NOT Streamlit utils
+from apps.web_console_ng.core.dependencies import get_sync_db_pool
 from libs.backtest.job_queue import BacktestJobConfig, JobPriority
 from libs.backtest.result_storage import BacktestResultStorage
 
@@ -709,6 +742,13 @@ MAX_COMPARISON_SELECTIONS = 5
 async def backtest_manager() -> None:
     """Backtest configuration and results page."""
     user = get_current_user()
+
+    # ⚠️ Rev 16: Feature flag check (Note #40)
+    if not FEATURE_BACKTEST_MANAGER:
+        ui.label("Backtest Manager feature is disabled.").classes(
+            "text-gray-500 text-center p-8"
+        )
+        return
 
     # Permission check
     if not has_permission(user, Permission.VIEW_PNL):
@@ -774,9 +814,12 @@ async def render_running_jobs(user: dict) -> None:
 
     async def fetch_jobs() -> None:
         nonlocal jobs_data
-        jobs_data = await get_user_jobs(
-            created_by=user["username"],
-            status=["pending", "running"],
+        # ⚠️ Rev 14: get_user_jobs is SYNC - wrap with run.io_bound (see Note #32)
+        jobs_data = await run.io_bound(
+            lambda: get_user_jobs(
+                created_by=user["username"],
+                status=["pending", "running"],
+            )
         )
 
     await fetch_jobs()
@@ -809,7 +852,8 @@ async def render_running_jobs(user: dict) -> None:
 
                     # Cancel button
                     async def cancel(job_id: str = job["job_id"]) -> None:
-                        await cancel_job(job_id)
+                        # ⚠️ Rev 14: cancel_job is SYNC - wrap with run.io_bound
+                        await run.io_bound(lambda: cancel_job(job_id))
                         await fetch_jobs()
                         jobs_list.refresh()
 
@@ -847,7 +891,13 @@ async def render_running_jobs(user: dict) -> None:
         timer.interval = get_poll_interval()
 
     # Start with fast polling (2s)
+    # ⚠️ Rev 19: Timer lifecycle cleanup (see Note #29)
     timer = ui.timer(get_poll_interval(), poll)
+
+    # Register cleanup on client disconnect to prevent timer leaks
+    from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+    lifecycle_mgr = ClientLifecycleManager.get()
+    lifecycle_mgr.register_cleanup(ui.context.client.id, lambda: timer.cancel())
 
 
 async def render_backtest_results(user: dict) -> None:
@@ -868,9 +918,12 @@ async def render_backtest_results(user: dict) -> None:
 
     async def fetch_results() -> None:
         nonlocal results_data
-        results_data = await get_user_jobs(
-            created_by=user["username"],
-            status=["completed", "failed", "cancelled"],
+        # ⚠️ Rev 14: get_user_jobs is SYNC - wrap with run.io_bound (see Note #32)
+        results_data = await run.io_bound(
+            lambda: get_user_jobs(
+                created_by=user["username"],
+                status=["completed", "failed", "cancelled"],
+            )
         )
 
     await fetch_results()
@@ -1026,7 +1079,9 @@ from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.auth.middleware import requires_auth
 from apps.web_console_ng.auth.permissions import Permission, has_permission
 from apps.web_console.auth.audit_log import AuditLogger
-from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
+# ⚠️ Rev 12: Admin components are ASYNC - use async pool (see Note #39)
+from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.core.redis_ha import get_redis_store  # ⚠️ Rev 14: Async Redis
 from libs.common.log_sanitizer import sanitize_dict
 
 ADMIN_PERMISSIONS = {
@@ -1045,8 +1100,8 @@ MAX_EXPORT_RECORDS = 10000
 async def admin_dashboard() -> None:
     """Admin dashboard with API keys, config, and audit logs.
 
-    CRITICAL: Components require db_pool, redis_client, and audit_logger.
-    These must be wired correctly for audit logging and cache operations.
+    CRITICAL: Admin components (api_key_manager, config_editor, audit_log_viewer) are ASYNC.
+    They require async db_pool - do NOT use sync pool.
     """
     user = get_current_user()
 
@@ -1056,10 +1111,20 @@ async def admin_dashboard() -> None:
         ui.notify(f"Access denied: Requires one of: {perm_names}", type="negative")
         return
 
+    # ⚠️ Rev 12: DB pool guard - admin components need ASYNC pool
+    async_pool = get_db_pool()
+    if async_pool is None:
+        ui.notify("Database not configured. Contact administrator.", type="negative")
+        ui.label("This feature requires database configuration.").classes("text-red-500")
+        return
+
+    # ⚠️ Rev 14: Get async Redis client for admin components
+    redis_store = get_redis_store()
+    async_redis = await redis_store.get_master()
+
     # Initialize service dependencies (CRITICAL for component parity)
-    db_pool = get_db_pool()
-    redis_client = get_redis_client()
-    audit_logger = AuditLogger(db_pool)
+    # ⚠️ Rev 12: Use ASYNC pool - these components are async, not sync
+    audit_logger = AuditLogger(async_pool)  # AuditLogger is async
 
     with ui.card().classes("w-full max-w-6xl mx-auto p-6"):
         ui.label("Admin Dashboard").classes("text-2xl font-bold mb-4")
@@ -1071,16 +1136,16 @@ async def admin_dashboard() -> None:
 
         with ui.tab_panels(tabs, value=tab_api).classes("w-full"):
             with ui.tab_panel(tab_api):
-                # Pass all required dependencies for api_key_manager
-                await render_api_key_manager(user, db_pool, redis_client, audit_logger)
+                # ⚠️ Rev 14: Pass async_pool + async_redis (properly wired)
+                await render_api_key_manager(user, async_pool, async_redis, audit_logger)
 
             with ui.tab_panel(tab_config):
-                # Pass all required dependencies for config_editor
-                await render_config_editor(user, db_pool, redis_client, audit_logger)
+                # ⚠️ Rev 14: Pass async_pool + async_redis (properly wired)
+                await render_config_editor(user, async_pool, async_redis, audit_logger)
 
             with ui.tab_panel(tab_audit):
-                # Audit log only needs db_pool
-                await render_audit_log_viewer(user, db_pool)
+                # ⚠️ Rev 14: Audit log needs async_pool
+                await render_audit_log_viewer(user, async_pool)
 
 
 async def render_audit_log_viewer(user: dict, db_pool: Any) -> None:
@@ -1233,13 +1298,23 @@ async def render_audit_log_viewer(user: dict, db_pool: Any) -> None:
 
     pagination()
 
-    # Export
-    if total_count > 0:
+    # Export - ⚠️ Rev 16: EXPORT_DATA permission required (see Note #38)
+    if total_count > 0 and has_permission(user, Permission.EXPORT_DATA):
         async def export_csv() -> None:
-            all_logs, _ = await fetch_audit_logs(filters, MAX_EXPORT_RECORDS, 0)
-            csv_data = build_audit_csv(all_logs)
-            # Trigger download
-            ui.download(csv_data, "audit_logs.csv")
+            # ⚠️ Rev 16: Permission check + timeout (Note #38 + Note #33)
+            if not has_permission(user, Permission.EXPORT_DATA):
+                ui.notify("Permission denied: EXPORT_DATA required", type="negative")
+                return
+            try:
+                all_logs, _ = await asyncio.wait_for(
+                    fetch_audit_logs(filters, MAX_EXPORT_RECORDS, 0),
+                    timeout=30.0,
+                )
+                csv_data = build_audit_csv(all_logs)
+                # Trigger download
+                ui.download(csv_data, "audit_logs.csv")
+            except asyncio.TimeoutError:
+                ui.notify("Export timed out", type="negative")
 
         ui.button("Download CSV", on_click=export_csv, icon="download").classes("mt-4")
 ```
@@ -1278,13 +1353,29 @@ async def render_audit_log_viewer(user: dict, db_pool: Any) -> None:
 **Implementation:**
 ```python
 # apps/web_console_ng/pages/alerts.py
-from nicegui import ui
+from nicegui import ui, app
 from apps.web_console_ng.ui.layout import main_layout
-from apps.web_console_ng.auth.middleware import requires_auth
+from apps.web_console_ng.auth.middleware import requires_auth, get_current_user
 from apps.web_console_ng.auth.permissions import Permission, has_permission
 from apps.web_console_ng.config import FEATURE_ALERTS
+# ⚠️ Rev 16: Import async DB pool for AlertConfigService (Note #34)
+from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console.auth.audit_log import AuditLogger
 from apps.web_console.services.alert_service import AlertConfigService, AlertRuleCreate, AlertRuleUpdate
+from libs.alerts.models import ChannelConfig, ChannelType  # ⚠️ Rev 18: For channel config
 from libs.alerts.pii import mask_recipient
+
+
+# ⚠️ Rev 16: Service factory (Note #34) - AlertConfigService is ASYNC
+def _get_alert_service() -> AlertConfigService:
+    """Get AlertConfigService with async pool (it's an async service)."""
+    if not hasattr(app.storage, '_alert_service'):
+        async_pool = get_db_pool()
+        if async_pool is None:
+            raise RuntimeError("Database not configured")
+        audit_logger = AuditLogger(async_pool)  # AuditLogger is async
+        app.storage._alert_service = AlertConfigService(async_pool, audit_logger)
+    return app.storage._alert_service
 
 
 @ui.page("/alerts")
@@ -1304,7 +1395,13 @@ async def alerts_configuration() -> None:
         ui.notify("Permission denied: VIEW_ALERTS required", type="negative")
         return
 
-    alert_service = await get_alert_service()
+    # ⚠️ Rev 16: Use factory with DB guard (Note #34)
+    async_pool = get_db_pool()
+    if async_pool is None:
+        ui.notify("Database not configured. Contact administrator.", type="negative")
+        ui.label("This feature requires database configuration.").classes("text-red-500")
+        return
+    alert_service = _get_alert_service()
 
     with ui.card().classes("w-full max-w-6xl mx-auto p-6"):
         ui.label("Alert Configuration").classes("text-2xl font-bold mb-4")
@@ -1400,9 +1497,10 @@ async def render_alert_rules(user: dict, service: AlertConfigService) -> None:
             value=editing_rule.name if editing_rule else "",
         ).classes("w-full")
 
+        # ⚠️ Rev 16: Condition types MUST match Streamlit parity (Note #43)
         condition_type = ui.select(
-            ["drawdown_breach", "var_breach", "position_limit", "loss_threshold"],
-            value=editing_rule.condition_type if editing_rule else "drawdown_breach",
+            ["drawdown", "position_limit", "latency"],  # PARITY: Match Streamlit exactly
+            value=editing_rule.condition_type if editing_rule else "drawdown",
             label="Condition Type",
         ).classes("w-full")
 
@@ -1422,26 +1520,94 @@ async def render_alert_rules(user: dict, service: AlertConfigService) -> None:
             value=editing_rule.enabled if editing_rule else True,
         )
 
+        # ⚠️ Rev 18: Channels are ChannelConfig objects (not IDs)
+        # ARCHITECTURE: Channels defined inline in rule form (embedded, not standalone)
+        ui.label("Notification Channels").classes("text-sm font-semibold mt-4")
+
+        # ⚠️ Rev 18: Store ChannelConfig objects, not IDs
+        selected_channels: list[ChannelConfig] = []
+        if editing_rule:
+            selected_channels = list(editing_rule.channels)  # Copy existing channels
+
+        # Channel input form for adding new channels to this rule
+        with ui.card().classes("w-full p-4 bg-gray-50"):
+            ui.label("Add Channel").classes("text-xs font-semibold mb-2")
+
+            with ui.row().classes("gap-4 items-end"):
+                channel_type_input = ui.select(
+                    ["email", "slack", "webhook", "sms"],
+                    value="email",
+                    label="Type",
+                ).classes("w-32")
+                recipient_input = ui.input(
+                    "Recipient",
+                    placeholder="email@example.com",
+                ).classes("flex-1")
+                channel_enabled = ui.checkbox("Enabled", value=True)
+
+                def add_channel_to_rule() -> None:
+                    if not recipient_input.value:
+                        ui.notify("Recipient required", type="warning")
+                        return
+                    new_channel = ChannelConfig(
+                        type=ChannelType(channel_type_input.value),
+                        recipient=recipient_input.value,
+                        enabled=channel_enabled.value,
+                    )
+                    selected_channels.append(new_channel)
+                    recipient_input.set_value("")
+                    channels_display.refresh()
+
+                ui.button("+", on_click=add_channel_to_rule).props("round dense")
+
+        # Display currently selected channels
+        @ui.refreshable
+        def channels_display() -> None:
+            if not selected_channels:
+                ui.label("No channels added yet.").classes("text-gray-500 text-sm mt-2")
+            else:
+                ui.label(f"{len(selected_channels)} channel(s) configured:").classes("text-sm mt-2")
+                for i, ch in enumerate(selected_channels):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label(
+                            f"{ch.type.value}: {mask_recipient(ch.recipient, ch.type.value)}"
+                        ).classes("text-sm")
+                        ui.label("✓" if ch.enabled else "✗").classes(
+                            "text-green-600" if ch.enabled else "text-gray-400"
+                        )
+
+                        def remove_channel(idx: int = i) -> None:
+                            selected_channels.pop(idx)
+                            channels_display.refresh()
+
+                        ui.button("×", on_click=remove_channel).props("round dense flat color=red")
+
+        channels_display()
+
         async def save_rule() -> None:
             nonlocal rules, editing_rule
             try:
                 if editing_rule:
+                    # ⚠️ Rev 17: Include channels in update
                     update = AlertRuleUpdate(
                         name=name_input.value,
                         condition_type=condition_type.value,
                         threshold_value=threshold.value,
                         comparison=comparison.value,
                         enabled=enabled.value,
+                        channels=selected_channels,  # Rev 17: Update channels too
                     )
                     await service.update_rule(str(editing_rule.id), update, user)
                     ui.notify("Rule updated", type="positive")
                 else:
+                    # ⚠️ Rev 16: channels REQUIRED - validation fails without it
                     create = AlertRuleCreate(
                         name=name_input.value,
                         condition_type=condition_type.value,
                         threshold_value=threshold.value,
                         comparison=comparison.value,
                         enabled=enabled.value,
+                        channels=selected_channels,  # PARITY: Required for AlertRuleCreate
                     )
                     await service.create_rule(create, user)
                     ui.notify("Rule created", type="positive")
@@ -1502,6 +1668,78 @@ async def render_alert_history(user: dict, service: AlertConfigService) -> None:
                     ui.button("Acknowledge", on_click=acknowledge, color="green").props("flat")
                 elif event.acknowledged:
                     ui.label("Acknowledged").classes("text-green-600 text-sm")
+
+
+# ⚠️ Rev 18: Fixed render_channels to use actual AlertConfigService API
+# ARCHITECTURE: Channels are EMBEDDED in rules (JSONB), not standalone entities
+# API: get_rules() returns rules with channels, test_notification(ChannelConfig, user)
+async def render_channels(user: dict, service: AlertConfigService) -> None:
+    """Render notification channels overview with test functionality.
+
+    ARCHITECTURE NOTE: Channels are embedded in rules, not standalone.
+    - get_rules() returns rules with their channels
+    - test_notification(ChannelConfig, user) tests a specific channel config
+    - add_channel(rule_id, ChannelConfig, user) adds to a rule
+    - remove_channel(rule_id, channel_type, user) removes from a rule
+
+    The Channels tab shows an OVERVIEW of all channels across rules.
+    Actual channel add/remove is done in the rule editor.
+    """
+    ui.label("Notification Channels Overview").classes("text-lg font-semibold mb-2")
+    ui.label(
+        "Channels are configured per rule. Use the Alert Rules tab to add/remove channels."
+    ).classes("text-sm text-gray-500 mb-4")
+
+    can_test = has_permission(user, Permission.TEST_NOTIFICATION)
+
+    # ⚠️ Rev 18: State for refreshable - will be updated on refresh
+    all_channels: list[tuple[str, ChannelConfig]] = []
+
+    # ⚠️ Rev 19: NiceGUI supports @ui.refreshable with async def (see Note #53)
+    @ui.refreshable
+    async def channel_list() -> None:
+        nonlocal all_channels
+        # ⚠️ Rev 18: Move fetch INTO refreshable to reflect rule changes
+        rules = await service.get_rules()
+        all_channels = []
+        for rule in rules:
+            for channel in rule.channels:
+                all_channels.append((rule.name, channel))
+
+        if not all_channels:
+            ui.label("No notification channels configured in any rule.").classes("text-gray-500")
+            return
+
+        for rule_name, channel in all_channels:
+            with ui.card().classes("w-full p-4 mb-2"):
+                with ui.row().classes("items-center justify-between"):
+                    with ui.column():
+                        ui.label(f"{channel.type.value}").classes("font-semibold")
+                        ui.label(mask_recipient(channel.recipient, channel.type.value)).classes(
+                            "text-sm text-gray-600"
+                        )
+                        ui.label(f"Rule: {rule_name}").classes("text-xs text-gray-400")
+                        ui.label(
+                            f"{'Enabled' if channel.enabled else 'Disabled'}"
+                        ).classes(
+                            "text-xs " + ("text-green-600" if channel.enabled else "text-gray-400")
+                        )
+
+                    if can_test:
+                        # ⚠️ Rev 18: Use test_notification(ChannelConfig, user) - not test_channel
+                        async def test_channel(ch: ChannelConfig = channel) -> None:
+                            try:
+                                result = await service.test_notification(ch, user)
+                                if result.success:
+                                    ui.notify("Test notification sent", type="positive")
+                                else:
+                                    ui.notify(f"Test failed: {result.error}", type="negative")
+                            except Exception as e:
+                                ui.notify(f"Test failed: {e}", type="negative")
+
+                        ui.button("Test", on_click=test_channel, color="blue").props("flat")
+
+    await channel_list()  # ⚠️ Rev 18: Async refreshable
 ```
 
 **Testing:**
@@ -1784,6 +2022,67 @@ async def data_sync_dashboard() -> None:
 
 ## Component Breakdown
 
+### C-Shared: Infrastructure Prerequisites (Must Complete First)
+
+**⚠️ CRITICAL:** These files MUST be created BEFORE implementing any page components.
+
+**Files to Create:**
+```
+apps/web_console_ng/core/
+├── database.py           # Async DB pool accessor (see Note #36)
+└── dependencies.py       # Sync DB pool + Redis for legacy services (see Note #25)
+apps/web_console_ng/pages/
+└── __init__.py           # Page module registration (see Note #41)
+```
+
+**database.py Implementation (Rev 15):**
+```python
+# apps/web_console_ng/core/database.py
+# ⚠️ CRITICAL: Resolves circular import issue (Note #36)
+import os
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from psycopg_pool import AsyncConnectionPool
+
+_db_pool: "AsyncConnectionPool | None" = None
+
+def init_db_pool() -> "AsyncConnectionPool | None":
+    """Initialize async DB pool (call from main.py startup)."""
+    global _db_pool
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        return None
+    from psycopg_pool import AsyncConnectionPool
+    _db_pool = AsyncConnectionPool(dsn, min_size=1, max_size=5, open=False)
+    return _db_pool
+
+def get_db_pool() -> "AsyncConnectionPool | None":
+    """Get async DB pool (returns None if not configured)."""
+    return _db_pool
+```
+
+**main.py Route Registration (Rev 15):**
+```python
+# Add to apps/web_console_ng/main.py after existing imports
+# ⚠️ CRITICAL: Import page modules to trigger @ui.page decorator registration
+from apps.web_console_ng import pages  # noqa: F401
+```
+
+**pages/__init__.py (Rev 15):**
+```python
+# apps/web_console_ng/pages/__init__.py
+# Import all page modules to trigger @ui.page decorator registration
+# Add pages as they are implemented:
+# from apps.web_console_ng.pages import circuit_breaker  # noqa: F401
+# from apps.web_console_ng.pages import health  # noqa: F401
+# from apps.web_console_ng.pages import backtest  # noqa: F401
+# from apps.web_console_ng.pages import admin  # noqa: F401
+# from apps.web_console_ng.pages import alerts  # noqa: F401
+# from apps.web_console_ng.pages import data_sync  # noqa: F401
+# from apps.web_console_ng.pages import data_explorer  # noqa: F401
+# from apps.web_console_ng.pages import data_quality  # noqa: F401
+```
+
 ### C0: Circuit Breaker Dashboard
 
 **Files to Create:**
@@ -1978,14 +2277,461 @@ tests/apps/web_console_ng/
     - When truncating selections, must update `comparison_select.value` to reflect actual selections
     - Prevents UI showing more selections than enforced limit
 
-16. **Service Factory Patterns:** (Rev 5)
+16. **Service Factory Patterns:** (Rev 5, Updated Rev 19)
     - Reuse existing sync service factories (`_get_cb_service`, `_get_health_service`, etc.)
     - These are sync functions that cache in session_state equivalent - no `await` needed
-    - For NiceGUI, use `app.storage.user` instead of `st.session_state` for caching
+    - ⚠️ Rev 19: Use `app.storage` (global) for service singletons, NOT `app.storage.user`
+    - `app.storage.user` is only for per-user state (selections, form values, preferences)
+    - See Note #30 for cache scope guidance
 
 17. **Single Event Handler:** (Rev 5)
     - Register only ONE change handler per component
     - Combine selection logic and refresh in a single handler to avoid double-firing
+
+18. **⚠️ CRITICAL: Blocking Sync Service Calls:** (Rev 6)
+    - Existing Streamlit services are SYNCHRONOUS (not async)
+    - MUST use `await run.io_bound(service.method, *args)` for ALL service calls
+    - This offloads blocking I/O to thread pool, preventing event loop freeze
+    - Example: `status = await run.io_bound(cb_service.get_status)` NOT `cb_service.get_status()`
+    - For concurrent calls: `await asyncio.gather(run.io_bound(f1), run.io_bound(f2))`
+
+19. **⚠️ CRITICAL: Config Flags Required:** (Rev 6)
+    - MUST add missing config flags to `apps/web_console_ng/config.py`:
+      - `FEATURE_CIRCUIT_BREAKER` (bool, default False)
+      - `FEATURE_HEALTH_MONITOR` (bool, default False)
+      - `FEATURE_ALERTS` (bool, default False)
+      - `AUTO_REFRESH_INTERVAL` (float, default 5.0 seconds)
+      - `MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH` (int, default 10)
+    - Import pattern: `from apps.web_console_ng.config import FEATURE_CIRCUIT_BREAKER`
+
+20. **⚠️ CRITICAL: User Context for RBAC/Export:** (Rev 6)
+    - `get_current_user()` MUST return dict with: `user_id`, `username`, `role`, `strategies`
+    - Export permission check requires `role` and `strategies` fields
+    - Verify NiceGUI auth/session stack includes these fields
+    - Add test: export button visibility based on role/strategies
+
+21. **NiceGUI Service Factory Pattern:** (Rev 6, Updated Rev 7/8/9)
+    - Define explicit service factory functions with **global** caching (see Note #30):
+    - ⚠️ **Rev 9:** Complete implementation with sync dependencies for legacy services:
+    ```python
+    # In apps/web_console_ng/pages/circuit_breaker.py (or shared module)
+    from nicegui import app
+    from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
+    from apps.web_console.services.cb_service import CircuitBreakerService
+
+    def _get_cb_service() -> CircuitBreakerService:
+        """Get CircuitBreakerService with sync infrastructure (rate limiter, DB)."""
+        # ⚠️ Global cache - shared across all clients
+        if not hasattr(app.storage, '_cb_service'):
+            sync_pool = get_sync_db_pool()
+            sync_redis = get_sync_redis_client()
+            app.storage._cb_service = CircuitBreakerService(
+                db_pool=sync_pool,
+                redis_client=sync_redis,
+            )
+        return app.storage._cb_service
+    ```
+    - ⚠️ **Rev 7, Updated Rev 19:** Redis/DB clients created via NiceGUI providers (see Note #25):
+      - Async: `get_db_pool()` from `apps.web_console_ng.core.database`, `get_redis_store()` from `core.redis_ha`
+      - Sync (legacy services): `get_sync_db_pool()`, `get_sync_redis_client()` from `core.dependencies`
+    - Fallback behavior: graceful degradation with error message if service unavailable
+
+22. **Rate Limit/Timeout Enforcement:** (Rev 6)
+    - **Enforcement location:** Service layer (existing Streamlit services handle this)
+    - **Error handling UX:** Catch `RateLimitExceeded`/`TimeoutError` → `ui.notify("...", type="negative")`
+    - **Consistent pattern:**
+      ```python
+      try:
+          result = await asyncio.wait_for(run.io_bound(svc.query, ...), timeout=10.0)
+      except asyncio.TimeoutError:
+          ui.notify("Operation timed out", type="negative")
+      except RateLimitExceeded as e:
+          ui.notify(f"Rate limit exceeded: {e}", type="negative")
+      ```
+
+23. **Audit Log Standalone Reuse:** (Rev 6)
+    - T7.6 (Audit Log Viewer Standalone) MUST reuse `render_audit_log_viewer()` from T7.4
+    - No code duplication - shared component between Admin Dashboard and standalone `/audit` page
+    - Standalone page: `@ui.page("/audit")` → call `render_audit_log_viewer(user, db_pool)`
+
+24. **Timer/Polling Edge Case Tests:** (Rev 6)
+    - Add explicit tests for:
+      - Polling interval backoff (2s → 5s → 10s → 30s)
+      - Polling reset when job set changes
+      - Timer-driven refresh updates UI correctly
+      - Stale data indicator displays when data > threshold age
+      - Partial/error service responses handled gracefully
+
+25. **⚠️ CRITICAL: NiceGUI Dependency Providers (NO Streamlit Utils):** (Rev 7, Updated Rev 9, Updated Rev 19)
+    - **DO NOT** import from `apps.web_console.utils.*` (uses `@st.cache_resource`)
+    - **DO** use NiceGUI-native dependency providers:
+      - **Async DB Pool:** `from apps.web_console_ng.core.database import get_db_pool` (avoids circular imports - see Note #36)
+      - **Async Redis:** `from apps.web_console_ng.core.redis_ha import get_redis_store` → `await redis.get_master()`
+      - **Sync DB Pool + Sync Redis (legacy services):** Create `apps/web_console_ng/core/dependencies.py`:
+        ```python
+        # apps/web_console_ng/core/dependencies.py
+        # ⚠️ Rev 10: Mirror apps/web_console/utils/sync_db_pool.py for compatibility
+        import os
+        from psycopg_pool import ConnectionPool  # ⚠️ Use psycopg_pool, NOT psycopg2
+        from redis import Redis
+
+        _sync_db_pool: ConnectionPool | None = None
+        _sync_redis_client: Redis | None = None
+
+        def get_sync_db_pool() -> ConnectionPool:
+            """Get synchronous DB pool (psycopg_pool.ConnectionPool for backtest/legacy services).
+
+            NOTE: Uses psycopg_pool.ConnectionPool for compatibility with existing code
+            that uses `with pool.connection():` context manager syntax.
+            """
+            global _sync_db_pool
+            if _sync_db_pool is None:
+                dsn = os.getenv("DATABASE_URL")
+                if not dsn:
+                    raise RuntimeError("DATABASE_URL not set")
+                _sync_db_pool = ConnectionPool(dsn, min_size=1, max_size=5)
+            return _sync_db_pool
+
+        def get_sync_redis_client() -> Redis:
+            """Get synchronous Redis client for legacy services (CircuitBreaker, Backtest progress)."""
+            global _sync_redis_client
+            if _sync_redis_client is None:
+                from apps.web_console_ng import config
+                _sync_redis_client = Redis.from_url(config.REDIS_URL, decode_responses=True)
+            return _sync_redis_client
+
+        def close_sync_db_pool() -> None:
+            """Close sync DB pool on shutdown."""
+            global _sync_db_pool
+            if _sync_db_pool is not None:
+                _sync_db_pool.close()  # psycopg_pool uses close(), not closeall()
+                _sync_db_pool = None
+
+        def close_sync_redis_client() -> None:
+            """Close sync Redis client on shutdown."""
+            global _sync_redis_client
+            if _sync_redis_client is not None:
+                _sync_redis_client.close()
+                _sync_redis_client = None
+        ```
+    - **⚠️ DELIVERABLE:** Add `apps/web_console_ng/core/dependencies.py` to file creation list
+    - **Migration pattern for existing code:** (Updated Rev 19)
+      - `from apps.web_console.utils.db_pool import get_db_pool` → `from apps.web_console_ng.core.database import get_db_pool`
+      - `from apps.web_console.utils.db_pool import get_redis_client` → `from apps.web_console_ng.core.dependencies import get_sync_redis_client`
+      - `from apps.web_console.utils.sync_db_pool import get_sync_db_pool` → `from apps.web_console_ng.core.dependencies import get_sync_db_pool`
+
+26. **⚠️ HIGH: User Context Propagation for RBAC/Export:** (Rev 8)
+    - Current `get_current_user()` returns only `role` and `username`
+    - **MUST** propagate full user context from session into `app.storage.user`:
+      - `user_id` (required for audit attribution)
+      - `username` (display)
+      - `role` (RBAC checks)
+      - `strategies` (export permission check)
+    - Update middleware to persist these fields during session validation
+    - Add tests: export button visibility based on role/strategies, audit log attribution
+
+27. **⚠️ HIGH: DB Pool Presence Guards:** (Rev 8, Updated Rev 19)
+    - `get_db_pool()` returns `None` when `DATABASE_URL` unset
+    - Pages requiring DB (Admin, Alerts, Audit) **MUST** guard against `None`:
+      ```python
+      from apps.web_console_ng.core.database import get_db_pool
+
+      async_pool = get_db_pool()
+      if async_pool is None:
+          ui.notify("Database not configured. Contact administrator.", type="negative")
+          ui.label("This feature requires database configuration.").classes("text-red-500")
+          return
+      ```
+    - Add test for missing DATABASE_URL config scenario
+
+28. **⚠️ MEDIUM: Sync Resources Lifecycle (Shutdown Hook):** (Rev 8, Updated Rev 9)
+    - Shutdown helpers defined in `apps/web_console_ng/core/dependencies.py` (see Note #25)
+    - Wire into `apps/web_console_ng/main.py:shutdown()`:
+      ```python
+      from apps.web_console_ng.core.dependencies import close_sync_db_pool, close_sync_redis_client
+
+      async def shutdown() -> None:
+          # ... existing cleanup ...
+          close_sync_db_pool()
+          close_sync_redis_client()  # ⚠️ Rev 9: Also close sync Redis
+      ```
+    - Add test for pool/Redis closure on shutdown
+
+29. **⚠️ MEDIUM: Timer Lifecycle Cleanup:** (Rev 8)
+    - Timers created with `ui.timer()` must be cleaned up on client disconnect
+    - Use NiceGUI client lifecycle hooks or `ClientLifecycleManager`:
+      ```python
+      from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+
+      timer = ui.timer(5.0, update_callback)
+      lifecycle_mgr = ClientLifecycleManager.get()
+      lifecycle_mgr.register_cleanup(client.id, lambda: timer.cancel())
+      ```
+    - OR use `timer.active = False` in disconnect handler
+    - Add test for timer cleanup on disconnect (no leaked background tasks)
+
+30. **Service Factory Cache Scope (Global vs Per-User):** (Rev 8)
+    - **Use `app.storage` (global)** for service factories, NOT `app.storage.user`
+    - `app.storage.user` creates per-client instances → multiplies DB/Redis clients
+    - Correct pattern:
+      ```python
+      def _get_cb_service() -> CircuitBreakerService:
+          # Global cache - shared across all clients
+          if not hasattr(app.storage, '_cb_service'):
+              app.storage._cb_service = CircuitBreakerService(...)
+          return app.storage._cb_service
+      ```
+    - Exception: Only use `app.storage.user` for user-specific state (selections, form values)
+
+31. **⚠️ HIGH: HealthMonitorService is ASYNC (No run.io_bound):** (Rev 10)
+    - `HealthMonitorService` methods are already `async` - call them directly
+    - **DO NOT** wrap with `run.io_bound()` (returns un-awaited coroutine, causing stale data)
+    - Correct pattern for T7.2:
+      ```python
+      async def fetch_health_data() -> None:
+          # ⚠️ HealthMonitorService is async - call directly
+          statuses, connectivity, latencies = await asyncio.gather(
+              health_service.get_all_services_status(),
+              health_service.get_connectivity(),
+              health_service.get_latency_metrics(),
+              return_exceptions=True,
+          )
+      ```
+    - Reserve `run.io_bound()` ONLY for truly sync service calls
+
+32. **⚠️ HIGH: Backtest Sync Operations Need run.io_bound:** (Rev 10)
+    - Backtest manager uses sync functions: `get_user_jobs`, `submit_backtest_job`, `queue.cancel_job`
+    - These WILL BLOCK the NiceGUI event loop if called directly
+    - Wrap ALL sync backtest operations:
+      ```python
+      # In render_running_jobs:
+      jobs = await run.io_bound(get_user_jobs, user_id)
+
+      # In new backtest form:
+      job_id = await run.io_bound(submit_backtest_job, config)
+
+      # In cancel handler:
+      await run.io_bound(queue.cancel_job, job_id)
+      ```
+
+33. **⚠️ MEDIUM: Audit Log Viewer Parity (Timeouts + Export Caching):** (Rev 10)
+    - Port Streamlit timeout behavior:
+      ```python
+      # Fetch with 10s timeout
+      logs = await asyncio.wait_for(
+          run.io_bound(audit_logger.fetch_logs, filters, page, PAGE_SIZE),
+          timeout=10.0
+      )
+
+      # Export with 30s timeout
+      export_data = await asyncio.wait_for(
+          run.io_bound(audit_logger.fetch_all_for_export, filters, MAX_EXPORT_RECORDS),
+          timeout=30.0
+      )
+      ```
+    - Add export caching keyed by filters (store in `app.storage.user["_audit_export_cache"]`)
+    - Maintain `MAX_EXPORT_RECORDS = 10000` limit
+
+34. **⚠️ MEDIUM: AlertConfigService Factory Definition:** (Rev 10, Fixed Rev 12)
+    - AlertConfigService is ASYNC - use async pool (see Note #39):
+      ```python
+      from apps.web_console_ng.core.database import get_db_pool
+      from apps.web_console.auth.audit_log import AuditLogger
+      from apps.web_console.services.alert_service import AlertConfigService
+
+      def _get_alert_service() -> AlertConfigService:
+          """Get AlertConfigService with async pool (it's an async service)."""
+          if not hasattr(app.storage, '_alert_service'):
+              async_pool = get_db_pool()
+              if async_pool is None:
+                  raise RuntimeError("Database not configured")
+              audit_logger = AuditLogger(async_pool)  # AuditLogger is async
+              app.storage._alert_service = AlertConfigService(async_pool, audit_logger)
+          return app.storage._alert_service
+      ```
+    - Include guard for `async_pool is None`
+
+35. **Health Monitor Utility Port (format_relative_time):** (Rev 10)
+    - Port `_format_relative_time` from Streamlit health page or create shared utility:
+      ```python
+      # In apps/web_console_ng/utils/time_utils.py (or inline in health.py)
+      from datetime import datetime, timezone
+
+      def format_relative_time(ts: datetime | None) -> str:
+          """Format timestamp as relative time (e.g., '5 minutes ago')."""
+          if ts is None:
+              return "Never"
+          now = datetime.now(timezone.utc)
+          delta = now - ts
+          if delta.total_seconds() < 60:
+              return "Just now"
+          elif delta.total_seconds() < 3600:
+              return f"{int(delta.total_seconds() // 60)} minutes ago"
+          elif delta.total_seconds() < 86400:
+              return f"{int(delta.total_seconds() // 3600)} hours ago"
+          else:
+              return f"{int(delta.days)} days ago"
+      ```
+
+36. **⚠️ Circular Import Prevention (db_pool location):** (Rev 11)
+    - **Issue:** Importing `db_pool` from `main.py` in page modules causes circular imports
+    - **Fix:** Move async db_pool init to `apps/web_console_ng/core/database.py`:
+      ```python
+      # apps/web_console_ng/core/database.py
+      import os
+      from typing import TYPE_CHECKING
+      if TYPE_CHECKING:
+          from psycopg_pool import AsyncConnectionPool
+
+      _db_pool: "AsyncConnectionPool | None" = None
+
+      def init_db_pool() -> "AsyncConnectionPool | None":
+          """Initialize async DB pool (call from main.py startup)."""
+          global _db_pool
+          dsn = os.getenv("DATABASE_URL")
+          if not dsn:
+              return None
+          from psycopg_pool import AsyncConnectionPool
+          _db_pool = AsyncConnectionPool(dsn, min_size=1, max_size=5, open=False)
+          return _db_pool
+
+      def get_db_pool() -> "AsyncConnectionPool | None":
+          """Get async DB pool (returns None if not configured)."""
+          return _db_pool
+      ```
+    - Update `main.py` to call `init_db_pool()` and store result
+    - Pages import from `core.database` NOT from `main`
+
+37. **⚠️ Audit Log Calls are ASYNC (No run.io_bound):** (Rev 11, Fixed Rev 13)
+    - `AuditLogger` uses **async DB pool** - call directly, DO NOT use `run.io_bound`:
+      ```python
+      # In T7.4 audit log viewer - call async methods directly
+      logs = await audit_logger.fetch_logs(filters, page, PAGE_SIZE)
+      export_data = await audit_logger.fetch_all_for_export(filters, limit)
+      ```
+    - See Note #47 for clarification on async vs sync services
+
+38. **⚠️ Audit Log Export Permission Check:** (Rev 11)
+    - Add `EXPORT_DATA` permission check for CSV export consistency:
+      ```python
+      async def export_csv() -> None:
+          if not has_permission(user, Permission.EXPORT_DATA):
+              ui.notify("Permission denied: EXPORT_DATA required", type="negative")
+              return
+          # ... export logic
+      ```
+
+39. **⚠️ HIGH: AlertConfigService + Admin Components are ASYNC:** (Rev 12)
+    - `AlertConfigService`, `api_key_manager`, `config_editor`, `audit_log_viewer` use **async** DB
+    - **DO NOT** use `get_sync_db_pool()` for these - they require async pool
+    - Correct pattern:
+      ```python
+      # For AlertConfigService, Admin components:
+      from apps.web_console_ng.core.database import get_db_pool  # Async pool
+
+      async_pool = get_db_pool()
+      if async_pool is None:
+          ui.notify("Database not configured", type="negative")
+          return
+      # Pass async_pool directly - these services are already async
+      alert_service = AlertConfigService(async_pool, audit_logger)
+      ```
+    - **ONLY use sync pool for:** Backtest operations (`BacktestResultStorage`, `get_user_jobs`)
+
+40. **⚠️ MEDIUM: FEATURE_BACKTEST_MANAGER Config Flag:** (Rev 12)
+    - Add to `apps/web_console_ng/config.py`:
+      ```python
+      FEATURE_BACKTEST_MANAGER = os.getenv("FEATURE_BACKTEST_MANAGER", "false").lower() in {
+          "1", "true", "yes", "on",
+      }
+      ```
+    - Gate `/backtest` page with this flag for parity with Streamlit
+
+41. **⚠️ MEDIUM: Page Registration + Navigation:** (Rev 12)
+    - Create `apps/web_console_ng/pages/__init__.py` to import all pages:
+      ```python
+      # apps/web_console_ng/pages/__init__.py
+      from apps.web_console_ng.pages import circuit_breaker  # noqa: F401
+      from apps.web_console_ng.pages import health  # noqa: F401
+      from apps.web_console_ng.pages import backtest  # noqa: F401
+      from apps.web_console_ng.pages import admin  # noqa: F401
+      from apps.web_console_ng.pages import alerts  # noqa: F401
+      from apps.web_console_ng.pages import data_management  # noqa: F401
+      ```
+    - Import in `main.py`: `from apps.web_console_ng import pages  # noqa: F401`
+    - Update `ui/layout.py` nav_items with feature-flag + permission gating
+
+42. **⚠️ HIGH: T7.5 Alert Channel Configuration Parity:** (Rev 13)
+    - Port `render_alert_rule_editor` + `render_notification_channels` components
+    - Include channel add/edit, test notification (requires `TEST_NOTIFICATION` permission)
+    - Channel masking for PII (email, phone, webhook URLs)
+    - `AlertRuleCreate` requires `channels` field - validation will fail without it
+
+43. **⚠️ HIGH: T7.5 Condition Types Parity:** (Rev 13)
+    - Match condition types to Streamlit: `CONDITION_TYPES = ['drawdown', 'position_limit', 'latency']`
+    - Port `render_threshold_config` for threshold/comparison UI
+    - DO NOT use different condition names (`drawdown_breach`, `var_breach`, etc.)
+
+44. **⚠️ MEDIUM: T7.5 Acknowledgment Validation:** (Rev 13)
+    - Add UI-side validation for `MIN_ACK_NOTE_LENGTH` (service enforces, prevent negative UX)
+    - Cap pending acknowledgments display with `MAX_PENDING_ACKS_TO_SHOW`
+
+45. **⚠️ MEDIUM: T7.7 Data Explorer Permission Parity:** (Rev 13)
+    - `DataExplorerService.list_datasets` requires `VIEW_DATA_SYNC` permission
+    - Add gate: `if not has_permission(user, Permission.VIEW_DATA_SYNC): return`
+
+46. **⚠️ MEDIUM: T7.7 Schedule Editor Permission:** (Rev 13)
+    - Schedule editor requires `MANAGE_SYNC_SCHEDULE` permission
+    - Gate schedule edit/create operations with this permission
+
+47. **⚠️ MEDIUM: Async DB Calls (Audit/Admin) - Clarification:** (Rev 13)
+    - Audit log viewer and admin components use **async DB** (not sync)
+    - DO NOT wrap with `run.io_bound` - call async methods directly
+    - Reserve `run.io_bound` ONLY for truly sync services (backtest, cb_service)
+
+48. **⚠️ Rev 14 Fixes (Codex Iteration 6 Feedback):**
+    - **T7.2 Health Monitor:** Removed `run.io_bound` - HealthMonitorService is ASYNC
+    - **T7.3 Backtest:** Added `run.io_bound` to all sync operations (get_user_jobs, cancel_job)
+    - **T7.4 Admin:** Fixed undefined `db_pool`/`redis_client` → now uses `async_pool`/`async_redis`
+    - Admin page now gets async Redis via `get_redis_store().get_master()`
+
+49. **⚠️ Rev 15 Fixes (Gemini Iteration 7 Feedback):**
+    - **Missing core/database.py:** Added C-Shared infrastructure section with database.py implementation
+    - **Route Registration:** Added main.py import + pages/__init__.py for @ui.page registration
+    - **Component Ordering:** C-Shared must be completed BEFORE any page components
+    - **dependencies.py in Files to Create:** Added to C-Shared as prerequisite
+
+50. **⚠️ Rev 16 Fixes (Codex Iteration 7 Feedback):**
+    - **HIGH - Alert condition/channel parity:** Fixed condition types to `['drawdown', 'position_limit', 'latency']`, added channel selection to create form, added `channels` to `AlertRuleCreate`
+    - **HIGH - Audit export permission:** Added `EXPORT_DATA` check + 30s timeout to `export_csv()`
+    - **MEDIUM - Backtest feature flag:** Added `FEATURE_BACKTEST_MANAGER` import and check
+    - **MEDIUM - Alert service factory:** Added `_get_alert_service()` factory with async pool + DB guard
+    - **MEDIUM - Timer cleanup:** See Note #29 - implementations MUST register timer cleanup on disconnect
+    - **LOW - Audit timeout:** Added `asyncio.wait_for(..., timeout=30.0)` to export
+
+51. **⚠️ Rev 17 Fixes (Codex Iteration 7 Re-review):**
+    - **HIGH - render_channels undefined:** Added initial render_channels implementation
+    - **HIGH - Stateful channel selection:** Added on_change handlers
+    - **HIGH - AlertRuleUpdate channels:** Added channels to update path
+    - **LOW - Export caching:** See Note #33 for cache implementation guidance
+
+52. **⚠️ Rev 18 Fixes (Codex Iteration 7 Final):**
+    - **HIGH - AlertConfigService API alignment:** Fixed render_channels to use actual API:
+      - `get_rules()` returns rules with embedded channels (not standalone)
+      - `test_notification(ChannelConfig, user)` for testing
+      - Channels tab now shows overview from all rules
+    - **HIGH - ChannelConfig objects (not IDs):** Fixed rule form to:
+      - Import `ChannelConfig`, `ChannelType` from `libs.alerts.models`
+      - Store `list[ChannelConfig]` instead of channel IDs
+      - Inline channel editor with add/remove functionality
+      - Pass `ChannelConfig` objects to create/update
+    - **ARCHITECTURE:** Channels are embedded in rules (JSONB), not standalone entities
+
+53. **⚠️ Rev 19 Fixes (Codex Iteration 8 Feedback):**
+    - **MEDIUM - Note 16 vs Note 30 conflict:** Clarified Note 16 to use `app.storage` (global) for service singletons, NOT `app.storage.user`; `app.storage.user` only for per-user state (selections, form values)
+    - **MEDIUM - Note 25 db_pool import conflict:** Updated Note 25 migration pattern to use `from apps.web_console_ng.core.database import get_db_pool` (not `main.py`) to avoid circular imports
+    - **MEDIUM - Timer cleanup in examples:** Added explicit cleanup blocks to Circuit Breaker, Health Monitor, and Backtest polling timer examples using `ClientLifecycleManager`
+    - **LOW - Async refreshable support:** NiceGUI supports `@ui.refreshable` with `async def` - verified and documented in render_channels. When refresh is called, NiceGUI awaits the async function properly.
 
 ---
 
@@ -2007,5 +2753,5 @@ tests/apps/web_console_ng/
 
 ---
 
-**Last Updated:** 2025-12-31 (Rev 5)
+**Last Updated:** 2026-01-04 (Rev 19)
 **Status:** PLANNING

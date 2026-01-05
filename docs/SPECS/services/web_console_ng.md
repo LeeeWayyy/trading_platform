@@ -18,6 +18,12 @@
 | `/manual-order` | GET | None | Manual order entry page (P5T5). |
 | `/position-management` | GET | None | Position management with bulk actions (P5T5). |
 | `/risk` | GET | None | Risk analytics dashboard with VaR, factor exposures, stress tests (P5T6). |
+| `/health` | GET | None | System health monitor with service status, connectivity, latency (P5T7). |
+| `/backtest` | GET | None | Backtest manager with job submission, progress, results comparison (P5T7). |
+| `/admin` | GET | None | Admin dashboard with API keys, system config, audit logs (P5T7). |
+| `/alerts` | GET | None | Alert configuration management (P5T7). |
+| `/circuit-breaker` | GET | None | Circuit breaker management page (P5T7). |
+| `/data-management` | GET | None | Data catalog and synchronization management (P5T7). |
 | `/healthz` | GET | None | Liveness probe (always 200 unless process unhealthy). |
 | `/readyz` | GET | Internal probe headers optional | Readiness probe (checks Redis/backend). |
 | `/metrics` | GET | Internal probe headers optional | Prometheus metrics. |
@@ -145,10 +151,111 @@
 - Requires `VIEW_PNL` permission.
 - Requires at least one authorized strategy.
 
+### System Health Monitor (P5T7)
+**Purpose:** Real-time monitoring of microservices, infrastructure connectivity, and latency metrics.
+
+**Behavior:**
+- Service status grid showing health status with staleness indicators.
+- Infrastructure connectivity status (Redis, PostgreSQL) with latency.
+- Latency metrics table with P50/P95/P99 percentiles.
+- Auto-refresh with timer lifecycle cleanup.
+- Graceful degradation when health data unavailable.
+
+**Components:**
+- `pages/health.py` - System health monitor page.
+- `core/database.py` - Async database pool management.
+
+**Access Control:**
+- Requires `VIEW_REPORTS` permission.
+
+### Backtest Manager (P5T7)
+**Purpose:** Submit, monitor, and compare backtest jobs with security-scoped access.
+
+**Behavior:**
+- New Backtest tab: Submit jobs with alpha signal, date range, weight method, priority.
+- Running Jobs tab: Monitor progress with progressive polling (2s-30s backoff).
+- Results tab: View completed results with metrics, enable comparison mode.
+- Job ownership validation prevents cross-user access (IDOR protection).
+- Empty alpha catalog shows helpful guidance.
+- Export requires EXPORT_DATA permission.
+
+**Security:**
+- `_verify_job_ownership()` validates user owns job before cancel/view/compare.
+- `_get_user_id()` fails closed if user identification unavailable.
+- Job listing is user-scoped via `created_by` filter.
+
+**Components:**
+- `pages/backtest.py` - Backtest manager page with ownership validation.
+- `core/dependencies.py` - Sync Redis/DB pool access for backtest operations.
+
+**Access Control:**
+- Requires `VIEW_PNL` permission.
+
+### Admin Dashboard (P5T7)
+**Purpose:** Administrative functions for API keys, system configuration, and audit logs.
+
+**Behavior:**
+- API Keys tab: List and create API keys (revoke/rotate TODO).
+- System Config tab: View and update system configuration.
+- Audit Logs tab: Searchable audit log viewer with pagination.
+- Permission-gated navigation (only visible with admin permissions).
+
+**Components:**
+- `pages/admin.py` - Admin dashboard with tabbed interface.
+
+**Access Control:**
+- Navigation requires MANAGE_API_KEYS, MANAGE_SYSTEM_CONFIG, or VIEW_AUDIT.
+- Individual tabs permission-gated.
+
+### Alert Configuration (P5T7)
+**Purpose:** Manage alert rules and notification channels.
+
+**Behavior:**
+- Alert Rules tab: List active alert rules.
+- Notification Channels tab: Manage notification destinations.
+- Create Alert dialog for new alert rules.
+
+**Components:**
+- `pages/alerts.py` - Alert configuration page.
+
+**Access Control:**
+- Requires `MANAGE_ALERTS` permission.
+
+### Circuit Breaker Management (P5T7)
+**Purpose:** Monitor and control circuit breaker state with history and audit trail.
+
+**Behavior:**
+- Current state display with color-coded status (OPEN/TRIPPED/UNKNOWN).
+- Trip/Reset controls with confirmation dialogs.
+- State history table showing recent transitions.
+- Auto-refresh with timer lifecycle cleanup.
+
+**Components:**
+- `pages/circuit_breaker.py` - Circuit breaker management page.
+
+**Access Control:**
+- Requires `VIEW_SYSTEM_STATUS` permission for view.
+- Requires `MANAGE_CIRCUIT_BREAKER` permission for trip/reset.
+
+### Data Management (P5T7)
+**Purpose:** Data catalog browsing and synchronization status monitoring.
+
+**Behavior:**
+- Alpha Catalog tab: Browse registered alpha signals.
+- Feature Store tab: View feature definitions.
+- Sync Status tab: Monitor data synchronization with refresh.
+- Data Sync tab: Manual sync controls with history.
+
+**Components:**
+- `pages/data_management.py` - Data catalog and sync management page.
+
+**Access Control:**
+- Requires `VIEW_DATA_CATALOG` permission.
+
 ## Data Flow
 ```
 Browser
-  -> NiceGUI pages (/login, /mfa-verify, /dashboard, /kill-switch, /manual-order, /position-management, /risk)
+  -> NiceGUI pages (/login, /mfa-verify, /dashboard, /kill-switch, /manual-order, /position-management, /risk, /health, /backtest, /admin, /alerts, /circuit-breaker, /data-management)
   -> Session store (Redis)
   -> Execution Gateway (AsyncTradingClient)
   -> Audit log (Postgres, optional)
@@ -259,7 +366,7 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 - `docs/SPECS/libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-03
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`
+- **Last Updated:** 2026-01-04 (rev4: PR review fixes - dict_row refactor, demo mode banner)
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/ui/layout.py`
 - **ADRs:** N/A
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages)

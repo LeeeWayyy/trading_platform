@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from apps.web_console_ng.ui import layout as layout_module
+from libs.web_console_auth.permissions import Permission
 
 
 class _FakeContext:
@@ -49,6 +50,10 @@ class _FakeUI:
     def __init__(self) -> None:
         self.links: list[_FakeContext] = []
         self._stack: list[_FakeContext] = []
+        # Mock context for client lifecycle cleanup
+        self.context = SimpleNamespace(
+            client=SimpleNamespace(storage=SimpleNamespace(get=lambda _: None))
+        )
 
     def _push(self, ctx: _FakeContext) -> None:
         self._stack.append(ctx)
@@ -159,6 +164,12 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
         lambda: {"role": "admin", "username": "Test User", "user_id": "user-1"},
     )
 
+    # Mock has_permission to always return True (admin user)
+    def mock_has_permission(_user: dict[str, Any], _permission: Permission) -> bool:
+        return True
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
+
     class _DummyClient:
         async def fetch_kill_switch_status(self, _user_id: str) -> dict[str, str]:
             return {"state": "ACTIVE"}
@@ -181,11 +192,13 @@ def test_navigation_item_structure() -> None:
     items = _extract_nav_items()
     assert items == [
         ("Dashboard", "/", "dashboard", None),
-        ("Manual Controls", "/manual", "edit", None),
+        ("Manual Controls", "/manual-order", "edit", None),
         ("Kill Switch", "/kill-switch", "warning", None),
+        ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
+        ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
         ("Backtest", "/backtest", "science", None),
-        ("Admin", "/admin", "settings", "admin"),
+        ("Admin", "/admin", "settings", None),
     ]
 
 

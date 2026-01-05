@@ -485,27 +485,62 @@
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_65",
-      "toNode": "lib_redis_client",
+      "toNode": "lib_admin",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_66",
-      "toNode": "lib_risk",
+      "toNode": "lib_alerts",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_67",
+      "toNode": "lib_alpha",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_68",
+      "toNode": "lib_backtest",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_69",
+      "toNode": "lib_redis_client",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_70",
+      "toNode": "lib_risk",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_71",
+      "toNode": "lib_risk_management",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_72",
       "toNode": "lib_web_console_auth",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "top",
-      "id": "edge_68",
+      "id": "edge_73",
       "toNode": "svc_web_console",
       "toSide": "bottom"
     }

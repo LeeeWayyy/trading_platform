@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
-from typing import TYPE_CHECKING
 
 from nicegui import app, ui
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -16,38 +14,17 @@ from apps.web_console_ng.auth.session_store import get_session_store
 from apps.web_console_ng.core.admission import AdmissionControlMiddleware
 from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.connection_events import setup_connection_handlers
+from apps.web_console_ng.core.database import close_db_pool, init_db_pool
 from apps.web_console_ng.core.health import setup_health_endpoint
 from apps.web_console_ng.core.state_manager import get_state_manager
 from apps.web_console_ng.ui.disconnect_overlay import inject_disconnect_overlay
 
-if TYPE_CHECKING:
-    from psycopg_pool import AsyncConnectionPool
-
 logger = logging.getLogger(__name__)
 
 
-def _init_db_pool() -> AsyncConnectionPool | None:
-    dsn = os.getenv("DATABASE_URL")
-    if not dsn:
-        return None
-    try:
-        import psycopg_pool
-    except ImportError:
-        return None
+# Initialize async DB pool via core.database (centralizes pool config and provides get_db_pool())
+db_pool = init_db_pool()
 
-    min_size = int(os.getenv("DB_POOL_MIN_SIZE", "1"))
-    max_size = int(os.getenv("DB_POOL_MAX_SIZE", "5"))
-    timeout = float(os.getenv("DB_POOL_TIMEOUT", "10.0"))
-    return psycopg_pool.AsyncConnectionPool(
-        dsn,
-        min_size=min_size,
-        max_size=max_size,
-        timeout=timeout,
-        open=False,
-    )
-
-
-db_pool = _init_db_pool()
 audit_logger = AuthAuditLogger.get(
     db_enabled=config.AUDIT_LOG_DB_ENABLED,
     db_pool=db_pool,
@@ -99,13 +76,21 @@ async def shutdown() -> None:
     the lifespan context in health.py. This hook handles app-specific resource
     cleanup only, avoiding duplication between lifespan and on_shutdown.
     """
+    from apps.web_console_ng.core.dependencies import (
+        close_sync_db_pool,
+        close_sync_redis_client,
+    )
     from apps.web_console_ng.core.redis_ha import get_redis_store
 
     await trading_client.shutdown()
     await audit_logger.stop()
-    if db_pool is not None:
-        await db_pool.close()
+    await close_db_pool()  # Use centralized close to clear module-level reference
     await state_manager.close()
+
+    # Close sync resources used by legacy services (P5T7)
+    close_sync_db_pool()
+    close_sync_redis_client()
+
     # Close Redis connections to prevent "Unclosed connection" warnings
     try:
         redis = get_redis_store()

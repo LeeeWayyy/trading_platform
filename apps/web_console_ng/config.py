@@ -397,3 +397,48 @@ FEATURE_RISK_DASHBOARD = os.getenv("FEATURE_RISK_DASHBOARD", "false").lower() in
     "yes",
     "on",
 }
+
+# =============================================================================
+# Feature Flags (P5T7 - Remaining Pages)
+# =============================================================================
+
+# Helper for boolean env var parsing (consistency with _parse_float pattern)
+_TRUTHY_STRINGS = {"1", "true", "yes", "on"}
+
+
+def _get_bool_env(var_name: str, default: str = "false") -> bool:
+    """Parse boolean environment variable."""
+    return os.getenv(var_name, default).lower() in _TRUTHY_STRINGS
+
+
+FEATURE_CIRCUIT_BREAKER = _get_bool_env("FEATURE_CIRCUIT_BREAKER")
+FEATURE_HEALTH_MONITOR = _get_bool_env("FEATURE_HEALTH_MONITOR")
+FEATURE_BACKTEST_MANAGER = _get_bool_env("FEATURE_BACKTEST_MANAGER")
+FEATURE_ALERTS = _get_bool_env("FEATURE_ALERTS")
+
+# =============================================================================
+# Auto-refresh and UI settings (P5T7)
+# =============================================================================
+
+# Default auto-refresh interval for dashboards (seconds)
+AUTO_REFRESH_INTERVAL = float(os.getenv("AUTO_REFRESH_INTERVAL", "5.0"))
+
+# Minimum characters required for circuit breaker reset reason
+MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH = int(
+    os.getenv("MIN_CIRCUIT_BREAKER_RESET_REASON_LENGTH", "10")
+)
+
+# =============================================================================
+# Health Monitor Service URLs (P5T7)
+# =============================================================================
+# PARITY: Matches apps/web_console/config.py:45-56
+
+SERVICE_URLS: dict[str, str] = {
+    "orchestrator": os.getenv("ORCHESTRATOR_URL", "http://localhost:8003"),
+    "signal_service": os.getenv("SIGNAL_SERVICE_URL", "http://localhost:8001"),
+    "execution_gateway": os.getenv("EXECUTION_GATEWAY_URL", "http://localhost:8002"),
+    "market_data_service": os.getenv("MARKET_DATA_SERVICE_URL", "http://localhost:8004"),
+    "model_registry": os.getenv("MODEL_REGISTRY_URL", "http://localhost:8005"),
+}
+
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
