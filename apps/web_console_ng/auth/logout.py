@@ -13,7 +13,6 @@ from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.csrf import CSRF_HEADER_NAME
 from apps.web_console_ng.auth.providers.oauth2 import OAuth2AuthHandler
 from apps.web_console_ng.auth.session_store import SessionValidationError, get_session_store
-from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
