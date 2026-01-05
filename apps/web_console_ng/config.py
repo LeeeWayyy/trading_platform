@@ -416,6 +416,12 @@ FEATURE_HEALTH_MONITOR = _get_bool_env("FEATURE_HEALTH_MONITOR")
 FEATURE_BACKTEST_MANAGER = _get_bool_env("FEATURE_BACKTEST_MANAGER")
 FEATURE_ALERTS = _get_bool_env("FEATURE_ALERTS")
 
+# P5T8: Remaining pages feature flags
+FEATURE_ALPHA_EXPLORER = _get_bool_env("FEATURE_ALPHA_EXPLORER")
+FEATURE_STRATEGY_COMPARISON = _get_bool_env("FEATURE_STRATEGY_COMPARISON")
+FEATURE_TRADE_JOURNAL = _get_bool_env("FEATURE_TRADE_JOURNAL")
+FEATURE_PERFORMANCE_DASHBOARD = _get_bool_env("FEATURE_PERFORMANCE_DASHBOARD")
+
 # =============================================================================
 # Auto-refresh and UI settings (P5T7)
 # =============================================================================

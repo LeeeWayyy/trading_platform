@@ -494,7 +494,8 @@ Current and future work items organized by phase. Completed tasks are archived i
 - [CURRENT, 2025-12-31, Task] [P5T5_DONE.md](./ARCHIVE/TASKS_HISTORY/P5T5_DONE.md) - P5T5: Risk & Trade Controls (circuit breaker, kill switch)
 - [CURRENT, 2025-12-31, Task] [P5T6_TASK.md](./TASKS/P5T6_TASK.md) - P5T6: Data Management Migration (sync, quality, explorer)
 - [CURRENT, 2025-12-31, Task] [P5T7_TASK.md](./TASKS/P5T7_TASK.md) - P5T7: Research & Reports Migration (notebooks, PDF)
-- [CURRENT, 2025-12-31, Task] [P5T8_TASK.md](./TASKS/P5T8_TASK.md) - P5T8: Integration & Cutover (testing, deployment)
+- [CURRENT, 2025-12-31, Task] [P5T8_TASK.md](./TASKS/P5T8_TASK.md) - P5T8: Remaining Pages Migration (alpha explorer, compare, journal, notebooks, performance, reports)
+- [CURRENT, 2025-12-31, Task] [P5T9_TASK.md](./TASKS/P5T9_TASK.md) - P5T9: Streamlit Deprecation & Documentation (archive, documentation, testing)
 
 **Backlog Tasks (B0):**
 - [CURRENT, 2025-12-21, Task] [B0T1_TASK.md](./ARCHIVE/TASKS_HISTORY/B0T1_DONE.md) - B0T1: Codebase Issues Remediation - Validated issues from multi-reviewer analysis

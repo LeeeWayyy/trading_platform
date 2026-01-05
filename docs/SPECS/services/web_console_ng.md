@@ -24,6 +24,12 @@
 | `/alerts` | GET | None | Alert configuration management (P5T7). |
 | `/circuit-breaker` | GET | None | Circuit breaker management page (P5T7). |
 | `/data-management` | GET | None | Data catalog and synchronization management (P5T7). |
+| `/alpha-explorer` | GET | None | Alpha signal explorer with IC/decay/correlation charts (P5T8). |
+| `/compare` | GET | None | Strategy comparison tool with metrics and portfolio simulator (P5T8). |
+| `/journal` | GET | None | Trade journal with filters, pagination, and export (P5T8). |
+| `/notebooks` | GET | None | Research notebook launcher with templates and sessions (P5T8). |
+| `/performance` | GET | None | Performance dashboard with real-time P&L and historical charts (P5T8). |
+| `/reports` | GET | None | Scheduled reports management with run history (P5T8). |
 | `/healthz` | GET | None | Liveness probe (always 200 unless process unhealthy). |
 | `/readyz` | GET | Internal probe headers optional | Readiness probe (checks Redis/backend). |
 | `/metrics` | GET | Internal probe headers optional | Prometheus metrics. |
@@ -252,10 +258,122 @@
 **Access Control:**
 - Requires `VIEW_DATA_CATALOG` permission.
 
+### Alpha Signal Explorer (P5T8)
+**Purpose:** Analyze alpha signal quality with IC/ICIR visualization, decay curves, and correlation matrices.
+
+**Behavior:**
+- Signal selector to browse registered alpha signals.
+- IC time-series chart showing information coefficient over time.
+- IC statistics summary (mean IC, IC std, ICIR, hit rate, t-stat).
+- Signal decay curve showing IC degradation across forward horizons.
+- Correlation matrix heatmap for selected signals.
+- Demo mode fallback when alpha service unavailable.
+- Feature flag controlled (`FEATURE_ALPHA_EXPLORER`).
+
+**Components:**
+- `pages/alpha_explorer.py` - Alpha signal explorer page.
+- `components/ic_chart.py` - IC time-series visualization.
+- `components/decay_curve.py` - Signal decay curve chart.
+- `components/correlation_matrix.py` - Correlation heatmap.
+
+**Access Control:**
+- Requires `VIEW_ALPHA_SIGNALS` permission.
+
+### Strategy Comparison (P5T8)
+**Purpose:** Compare multiple strategies with performance metrics, equity curves, and portfolio simulation.
+
+**Behavior:**
+- Multi-select for strategy comparison (2-5 strategies).
+- Performance metrics table (total return, volatility, Sharpe, max drawdown, win rate).
+- Equity curve comparison chart with normalized returns.
+- Correlation heatmap between strategies.
+- Portfolio simulator with weight allocation and combined metrics.
+- Demo mode fallback when strategy data unavailable.
+- Feature flag controlled (`FEATURE_STRATEGY_COMPARISON`).
+
+**Components:**
+- `pages/compare.py` - Strategy comparison page.
+
+**Access Control:**
+- Requires `VIEW_PNL` permission.
+
+### Trade Journal (P5T8)
+**Purpose:** Browse and analyze trade history with filters, pagination, and export capabilities.
+
+**Behavior:**
+- Date range filter with preset buttons (7D, 30D, 90D, YTD).
+- Symbol and side filters for trade search.
+- Paginated trade table with configurable page size.
+- Trade statistics summary (total trades, P&L, win rate, avg win/loss).
+- CSV and Excel export functionality.
+- Demo mode fallback when trade data unavailable.
+- Feature flag controlled (`FEATURE_TRADE_JOURNAL`).
+
+**Components:**
+- `pages/journal.py` - Trade journal page.
+
+**Access Control:**
+- Requires `VIEW_TRADES` permission.
+
+### Research Notebook Launcher (P5T8)
+**Purpose:** Launch and manage research notebooks with template selection and session management.
+
+**Behavior:**
+- Template selector with description display.
+- Dynamic parameters form based on template configuration.
+- Launch notebook with confirmation and result display.
+- Active sessions table with status and terminate option.
+- Session refresh functionality.
+- Demo mode fallback when notebook service unavailable.
+
+**Components:**
+- `pages/notebook_launcher.py` - Notebook launcher page.
+
+**Access Control:**
+- Requires `LAUNCH_NOTEBOOKS` permission.
+
+### Performance Dashboard (P5T8)
+**Purpose:** Display realized and unrealized P&L with historical performance charts.
+
+**Behavior:**
+- Real-time P&L section with open positions and unrealized P&L.
+- Position summary table with realized P&L.
+- Date range selector with presets (7D, 30D, 90D, YTD).
+- Equity curve chart showing cumulative P&L.
+- Drawdown chart with visual representation.
+- Auto-refresh timer for real-time updates.
+- Demo mode fallback when performance data unavailable.
+- Feature flag controlled (`FEATURE_PERFORMANCE_DASHBOARD`).
+
+**Components:**
+- `pages/performance.py` - Performance dashboard page.
+
+**Access Control:**
+- Requires `VIEW_PNL` permission.
+
+### Scheduled Reports (P5T8)
+**Purpose:** Manage automated report schedules with creation, editing, and run history.
+
+**Behavior:**
+- Schedule list/selector for existing schedules.
+- Create new schedule form (name, type, cron, parameters).
+- Edit schedule with inline form.
+- Delete schedule with confirmation.
+- Run history table with status and timestamps.
+- Download completed reports.
+- Demo mode fallback when database unavailable.
+
+**Components:**
+- `pages/scheduled_reports.py` - Scheduled reports page.
+
+**Access Control:**
+- Requires `VIEW_REPORTS` permission for viewing.
+- Requires `MANAGE_REPORTS` permission for create/edit/delete.
+
 ## Data Flow
 ```
 Browser
-  -> NiceGUI pages (/login, /mfa-verify, /dashboard, /kill-switch, /manual-order, /position-management, /risk, /health, /backtest, /admin, /alerts, /circuit-breaker, /data-management)
+  -> NiceGUI pages (/login, /mfa-verify, /dashboard, /kill-switch, /manual-order, /position-management, /risk, /health, /backtest, /admin, /alerts, /circuit-breaker, /data-management, /alpha-explorer, /compare, /journal, /notebooks, /performance, /reports)
   -> Session store (Redis)
   -> Execution Gateway (AsyncTradingClient)
   -> Audit log (Postgres, optional)
@@ -311,6 +429,10 @@ Risk Analytics Flow (P5T6):
 | `DB_POOL_MIN_SIZE` | No | `1` | Async DB pool min size.
 | `DB_POOL_MAX_SIZE` | No | `5` | Async DB pool max size.
 | `FEATURE_RISK_DASHBOARD` | No | `true` | Enable/disable risk analytics dashboard.
+| `FEATURE_ALPHA_EXPLORER` | No | `true` | Enable/disable alpha signal explorer (P5T8).
+| `FEATURE_STRATEGY_COMPARISON` | No | `true` | Enable/disable strategy comparison tool (P5T8).
+| `FEATURE_TRADE_JOURNAL` | No | `true` | Enable/disable trade journal (P5T8).
+| `FEATURE_PERFORMANCE_DASHBOARD` | No | `true` | Enable/disable performance dashboard (P5T8).
 | `RISK_BUDGET_VAR_LIMIT` | No | `0.05` | Maximum VaR limit for risk budget gauge (5%).
 | `RISK_BUDGET_WARNING_THRESHOLD` | No | `0.8` | Warning threshold for risk utilization (80%).
 
@@ -366,7 +488,7 @@ curl -s -H "X-Internal-Probe: $INTERNAL_PROBE_TOKEN" http://localhost:8080/ready
 - `docs/SPECS/libs/web_console_auth.md`
 
 ## Metadata
-- **Last Updated:** 2026-01-04 (rev4: PR review fixes - dict_row refactor, demo mode banner)
-- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/ui/layout.py`
+- **Last Updated:** 2026-01-04 (rev5: P5T8 remaining pages - alpha explorer, compare, journal, notebooks, performance, reports)
+- **Source Files:** `apps/web_console_ng/main.py`, `apps/web_console_ng/config.py`, `apps/web_console_ng/core/health.py`, `apps/web_console_ng/core/metrics.py`, `apps/web_console_ng/core/realtime.py`, `apps/web_console_ng/core/client_lifecycle.py`, `apps/web_console_ng/core/client.py`, `apps/web_console_ng/core/audit.py`, `apps/web_console_ng/core/synthetic_id.py`, `apps/web_console_ng/core/database.py`, `apps/web_console_ng/core/dependencies.py`, `apps/web_console_ng/auth/routes.py`, `apps/web_console_ng/utils/formatters.py`, `apps/web_console_ng/components/positions_grid.py`, `apps/web_console_ng/components/orders_table.py`, `apps/web_console_ng/components/drawdown_chart.py`, `apps/web_console_ng/components/equity_curve_chart.py`, `apps/web_console_ng/components/pnl_chart.py`, `apps/web_console_ng/components/var_chart.py`, `apps/web_console_ng/components/factor_exposure_chart.py`, `apps/web_console_ng/components/stress_test_results.py`, `apps/web_console_ng/components/ic_chart.py`, `apps/web_console_ng/components/decay_curve.py`, `apps/web_console_ng/components/correlation_matrix.py`, `apps/web_console_ng/pages/dashboard.py`, `apps/web_console_ng/pages/kill_switch.py`, `apps/web_console_ng/pages/manual_order.py`, `apps/web_console_ng/pages/position_management.py`, `apps/web_console_ng/pages/risk.py`, `apps/web_console_ng/pages/health.py`, `apps/web_console_ng/pages/backtest.py`, `apps/web_console_ng/pages/admin.py`, `apps/web_console_ng/pages/alerts.py`, `apps/web_console_ng/pages/circuit_breaker.py`, `apps/web_console_ng/pages/data_management.py`, `apps/web_console_ng/pages/alpha_explorer.py`, `apps/web_console_ng/pages/compare.py`, `apps/web_console_ng/pages/journal.py`, `apps/web_console_ng/pages/notebook_launcher.py`, `apps/web_console_ng/pages/performance.py`, `apps/web_console_ng/pages/scheduled_reports.py`, `apps/web_console_ng/ui/layout.py`
 - **ADRs:** N/A
-- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages)
+- **Tasks:** P5T4 (Real-Time Dashboard), P5T5 (Manual Trading Controls), P5T6 (Charts & Analytics), P5T7 (Remaining Pages), P5T8 (Alpha Explorer, Compare, Journal, Notebooks, Performance, Reports)

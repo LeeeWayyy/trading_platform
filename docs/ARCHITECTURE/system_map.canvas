@@ -513,34 +513,41 @@
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_69",
-      "toNode": "lib_redis_client",
+      "toNode": "lib_models",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_70",
-      "toNode": "lib_risk",
+      "toNode": "lib_redis_client",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_71",
-      "toNode": "lib_risk_management",
+      "toNode": "lib_risk",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "bottom",
       "id": "edge_72",
+      "toNode": "lib_risk_management",
+      "toSide": "top"
+    },
+    {
+      "fromNode": "svc_web_console_ng",
+      "fromSide": "bottom",
+      "id": "edge_73",
       "toNode": "lib_web_console_auth",
       "toSide": "top"
     },
     {
       "fromNode": "svc_web_console_ng",
       "fromSide": "top",
-      "id": "edge_73",
+      "id": "edge_74",
       "toNode": "svc_web_console",
       "toSide": "bottom"
     }

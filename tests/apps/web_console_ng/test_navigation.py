@@ -197,6 +197,12 @@ def test_navigation_item_structure() -> None:
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
+        ("Alpha Explorer", "/alpha-explorer", "insights", None),
+        ("Compare", "/compare", "compare_arrows", None),
+        ("Journal", "/journal", "book", None),
+        ("Notebooks", "/notebooks", "article", None),
+        ("Performance", "/performance", "show_chart", None),
+        ("Reports", "/reports", "summarize", None),
         ("Backtest", "/backtest", "science", None),
         ("Admin", "/admin", "settings", None),
     ]
