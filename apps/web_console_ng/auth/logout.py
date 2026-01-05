@@ -13,7 +13,6 @@ from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.csrf import CSRF_HEADER_NAME
 from apps.web_console_ng.auth.providers.oauth2 import OAuth2AuthHandler
 from apps.web_console_ng.auth.session_store import SessionValidationError, get_session_store
-from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
@@ -144,21 +143,8 @@ async def perform_logout(
                     # Redis may be unavailable - log but continue with local cleanup
                     logger.warning("Failed to invalidate session in Redis: %s", inv_err)
 
-            # Clear Streamlit session if exists (parallel run)
+            # Clear NiceGUI client storage
             if session:
-                user_id = session.get("user", {}).get("user_id")
-                if user_id:
-                    try:
-                        from libs.redis_client.keys import RedisKeys
-
-                        store = get_redis_store()
-                        redis_client = store.get_master_client(decode_responses=False)
-                        st_session_key = RedisKeys.streamlit_session(user_id)
-                        await redis_client.delete(st_session_key)
-                    except Exception as st_err:
-                        # Redis unavailable - log but continue with local cleanup
-                        logger.warning("Failed to clear Streamlit session: %s", st_err)
-
                 # Handle OAuth2 RP-initiated logout
                 auth_method = session.get("user", {}).get("auth_method")
                 id_token = session.get("user", {}).get("id_token")

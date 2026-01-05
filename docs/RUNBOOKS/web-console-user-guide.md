@@ -21,17 +21,19 @@
 
 ## Overview
 
-The Trading Platform Web Console is a Streamlit-based UI for operational oversight and manual intervention. It provides:
+The Trading Platform Web Console is a NiceGUI-based UI for operational oversight and manual intervention. It provides:
 
-- **Real-time Dashboard**: Monitor positions, P&L, and system status
+- **Real-time Dashboard**: Monitor positions, P&L, and system status with WebSocket updates
 - **Manual Order Entry**: Submit orders with two-step confirmation
 - **Emergency Kill Switch**: Halt all trading with audit trail
-- **Audit Log Viewer**: Track all manual actions (placeholder)
+- **Audit Log Viewer**: Track all manual actions
 - **Authentication**: Session management with timeout enforcement
 
 **Target Users:** Operations team, traders, risk managers (non-technical operators)
 
-**Access URL:** http://localhost:8501 (local) or https://console.trading-platform.example.com (production)
+**Access URL:** http://localhost:8080 (local) or https://console.trading-platform.example.com (production)
+
+> **Note:** The web console was migrated from Streamlit to NiceGUI in P5T9. See [ADR-0031](../ADRs/ADR-0031-nicegui-migration.md) for migration details.
 
 ---
 
@@ -41,7 +43,7 @@ The Trading Platform Web Console is a Streamlit-based UI for operational oversig
 
 1. **Execution Gateway** running on http://localhost:8002 (or configured URL)
 2. **PostgreSQL** database for audit logging
-3. **Python 3.11+** with Streamlit installed
+3. **Python 3.11+** with NiceGUI installed
 
 ### Installation
 
@@ -55,9 +57,9 @@ cp .env.example .env
 # Optional for OAuth2: AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_AUDIENCE, SESSION_ENCRYPTION_KEY
 
 # Start web console with infrastructure (dev profile)
-docker compose --profile dev up -d web_console_dev
+docker compose --profile dev up -d web_console_ng
 
-# Access console at http://localhost:8501
+# Access console at http://localhost:8080
 ```
 
 **Option 2: Local Development**
@@ -65,7 +67,7 @@ docker compose --profile dev up -d web_console_dev
 ```bash
 # Install dependencies
 source .venv/bin/activate
-pip install -r apps/web_console/requirements.txt
+pip install -r requirements.txt
 
 # Set environment variables
 export EXECUTION_GATEWAY_URL=http://localhost:8002
@@ -73,13 +75,13 @@ export WEB_CONSOLE_AUTH_TYPE=dev
 export WEB_CONSOLE_USER=admin
 export WEB_CONSOLE_PASSWORD=admin
 
-# Run Streamlit app
-python3 -m streamlit run apps/web_console/app.py --server.port 8501
+# Run NiceGUI app
+python3 -m uvicorn apps.web_console_ng.main:app --host 0.0.0.0 --port 8080
 ```
 
 ### First Login
 
-1. Navigate to http://localhost:8501
+1. Navigate to http://localhost:8080
 2. Enter username: `admin` (default)
 3. Enter password: `admin` (default)
 4. Click **Login**
@@ -123,18 +125,13 @@ For true HTTP Basic Auth, use a reverse proxy like Nginx.
 
 **MVP Limitation:** Client IP addresses are logged as "localhost" in all audit entries.
 
-Streamlit does not expose request headers (like `X-Forwarded-For`) in a stable/documented way. For production deployment with reverse proxy (Nginx):
+For production deployment with reverse proxy (Nginx), NiceGUI provides direct access to request headers:
 
 1. Configure `TRUSTED_PROXY_IPS` environment variable with proxy IP addresses
-2. Implement header extraction using:
-   - `st.context.headers` (available in modern Streamlit versions)
-   - `streamlit.runtime.scriptrunner.get_script_run_ctx()` to access `session_info.request.remote_ip`
-   - Custom middleware to inject headers into session_state
-
-References:
-- [Streamlit headers access](https://discuss.streamlit.io/t/how-to-extract-headers-in-streamlit-app/32157)
-- [Getting client IP in Streamlit](https://discuss.streamlit.io/t/streamlit-get-the-client-ip-address/55299)
-- [Accessing request headers](https://discuss.streamlit.io/t/access-request-header-in-streamlit/1882)
+2. Access headers via NiceGUI's request object:
+   - `request.headers.get("X-Forwarded-For")` for proxy-forwarded IP
+   - `request.client.host` for direct connection IP
+3. The auth middleware in `apps/web_console_ng/auth/middleware.py` handles IP extraction
 
 **Security Note:** Never trust `X-Forwarded-For` header without verifying request comes from trusted proxy IPs (prevents IP spoofing attacks).
 
@@ -342,10 +339,10 @@ SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 100;
 
 ```bash
 # View audit logs (if using Docker)
-docker logs trading_platform_web_console_dev | grep AUDIT
+docker logs trading_platform_web_console_ng | grep AUDIT
 
 # View audit logs (if running locally)
-# Check console output where Streamlit is running
+# Check console output where NiceGUI app is running (uvicorn logs)
 ```
 
 ---

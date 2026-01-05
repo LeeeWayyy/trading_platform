@@ -1,17 +1,17 @@
-"""Database and Redis connection utilities for Streamlit pages.
+"""Database and Redis connection utilities.
 
-This module provides connection adapters that are safe to use with Streamlit's
-execution model and the run_async() helper. The key design principle is:
+This module provides connection adapters that are safe to use with async context.
+The key design principle is:
 
 - **Cacheable config, fresh connections per call**: The adapters store only
   configuration (URLs, timeouts) and create fresh connections for each request.
   This avoids event loop binding issues with psycopg3 AsyncConnectionPool and
-  redis.asyncio when used with run_async(), which creates a fresh event loop per call.
+  redis.asyncio when used in environments creating fresh event loops.
 
 Usage:
     from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
 
-    # In a Streamlit page
+    # In a service or page
     db_adapter = get_db_pool()
     redis_adapter = get_redis_client()
 
@@ -28,9 +28,8 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
-
-import streamlit as st
 
 from apps.web_console import config
 
@@ -43,10 +42,10 @@ logger = logging.getLogger(__name__)
 class AsyncConnectionAdapter:
     """Adapter providing fresh async connections per call.
 
-    This adapter is safe to cache with @st.cache_resource because it only
+    This adapter is safe to cache with @lru_cache because it only
     holds configuration (DATABASE_URL), not an actual connection pool. Each
     call to connection() creates a fresh psycopg.AsyncConnection bound to the
-    current event loop, avoiding loop-binding issues with run_async().
+    current event loop.
 
     The adapter implements the same interface as psycopg_pool.AsyncConnectionPool
     (i.e., .connection() returning an async context manager), so it's compatible
@@ -68,7 +67,7 @@ class AsyncConnectionAdapter:
         """Create a fresh async connection for each request.
 
         The connection is created and closed within the same event loop
-        context, ensuring compatibility with run_async().
+        context.
 
         Uses row_factory=dict_row so queries return dicts (required by
         StrategyScopedDataAccess which casts rows with dict(row)).
@@ -93,7 +92,7 @@ class AsyncRedisAdapter:
 
     Similar to AsyncConnectionAdapter, this adapter stores only configuration
     and creates fresh Redis connections for each async context. This avoids
-    event loop binding issues when using run_async() which creates fresh loops.
+    event loop binding issues.
 
     The adapter provides a compatible interface for StrategyScopedDataAccess
     which expects redis.asyncio.Redis-like objects.
@@ -167,11 +166,11 @@ class AsyncRedisAdapter:
             return result
 
 
-@st.cache_resource
+@lru_cache(maxsize=1)
 def get_db_pool() -> AsyncConnectionAdapter | None:
     """Get database connection adapter (cacheable config, fresh connections per call).
 
-    The adapter is cached via @st.cache_resource for efficiency, but each
+    The adapter is cached via @lru_cache for efficiency, but each
     database connection is created fresh within the async context to avoid
     event loop binding issues.
 
@@ -202,7 +201,7 @@ def get_db_pool() -> AsyncConnectionAdapter | None:
         return None
 
 
-@st.cache_resource
+@lru_cache(maxsize=1)
 def get_redis_client() -> AsyncRedisAdapter | None:
     """Get async Redis adapter for strategy cache (DB=3 for isolation).
 
@@ -210,7 +209,7 @@ def get_redis_client() -> AsyncRedisAdapter | None:
     with DB index overridden to REDIS_STRATEGY_CACHE_DB (default=3) for cache
     isolation from session data.
 
-    The adapter is cached via @st.cache_resource, but each Redis connection
+    The adapter is cached via @lru_cache, but each Redis connection
     is created fresh within the async context to avoid event loop binding issues.
 
     Returns:
@@ -237,6 +236,7 @@ def get_redis_client() -> AsyncRedisAdapter | None:
     except Exception:
         logger.exception("redis_adapter_init_failed")
         return None
+
 
 
 __all__ = [

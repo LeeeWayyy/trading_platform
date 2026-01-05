@@ -15,13 +15,19 @@ Add imports as pages are implemented:
 from apps.web_console_ng.pages import (
     admin,  # noqa: F401
     alerts,  # noqa: F401
+    alpha_explorer,  # noqa: F401 - P5T8
     backtest,  # noqa: F401
     circuit_breaker,  # noqa: F401
+    compare,  # noqa: F401 - P5T8
     dashboard,  # noqa: F401
     data_management,  # noqa: F401
     health,  # noqa: F401
+    journal,  # noqa: F401 - P5T8
     kill_switch,  # noqa: F401
     manual_order,  # noqa: F401
+    notebook_launcher,  # noqa: F401 - P5T8
+    performance,  # noqa: F401 - P5T8
     position_management,  # noqa: F401
     risk,  # noqa: F401
+    scheduled_reports,  # noqa: F401 - P5T8
 )

@@ -21,7 +21,6 @@ from nicegui import Client, ui
 
 from apps.web_console.data.strategy_scoped_queries import StrategyScopedDataAccess
 from apps.web_console.services.risk_service import RiskService
-from apps.web_console.utils.db_pool import get_db_pool, get_redis_client
 from apps.web_console.utils.validators import validate_overview_metrics
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.factor_exposure_chart import render_factor_exposure
@@ -33,6 +32,8 @@ from apps.web_console_ng.config import (
     RISK_BUDGET_WARNING_THRESHOLD,
 )
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
+from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.utils.formatters import safe_float
 from libs.web_console_auth.permissions import Permission, get_authorized_strategies, has_permission
@@ -123,7 +124,7 @@ async def risk_dashboard(client: Client) -> None:
 
             scoped_access = StrategyScopedDataAccess(
                 db_pool=db_pool,
-                redis_client=get_redis_client(),
+                redis_client=get_redis_store().get_master_client(),
                 user={
                     "user_id": str(user_id),
                     "role": str(user_role or ""),

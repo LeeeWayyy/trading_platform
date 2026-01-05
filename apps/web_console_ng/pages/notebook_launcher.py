@@ -1,0 +1,343 @@
+"""Research Notebook Launcher page for NiceGUI web console (P5T8).
+
+Provides interface for launching and managing research notebooks.
+
+Features:
+    - Notebook template selector
+    - Dynamic parameters form
+    - Launch with confirmation
+    - Active sessions table with terminate option
+
+PARITY: Mirrors UI layout from apps/web_console/pages/notebook_launcher.py
+
+NOTE: This page uses demo mode with placeholder data when services are unavailable.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from nicegui import app, run, ui
+
+from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.ui.layout import main_layout
+from libs.web_console_auth.permissions import Permission, has_permission
+
+logger = logging.getLogger(__name__)
+
+
+def _get_service(user: dict[str, Any]) -> Any:
+    """Get or create NotebookLauncherService with session storage."""
+    from apps.web_console.services.notebook_launcher_service import NotebookLauncherService
+
+    # Use app storage for session store (persists across requests)
+    if "notebook_launcher_sessions" not in app.storage.user:
+        app.storage.user["notebook_launcher_sessions"] = {}
+
+    return NotebookLauncherService(
+        user=dict(user),
+        session_store=app.storage.user["notebook_launcher_sessions"],
+    )
+
+
+@ui.page("/notebooks")
+@requires_auth
+@main_layout
+async def notebook_launcher_page() -> None:
+    """Research Notebook Launcher page."""
+    user = get_current_user()
+
+    # Page title
+    ui.label("Research Notebook Launcher").classes("text-2xl font-bold mb-4")
+
+    # Permission check
+    if not has_permission(user, Permission.LAUNCH_NOTEBOOKS):
+        ui.notify("Permission denied: LAUNCH_NOTEBOOKS required", type="negative")
+        with ui.card().classes("w-full p-6"):
+            ui.label("Permission denied: LAUNCH_NOTEBOOKS required.").classes(
+                "text-red-500 text-center"
+            )
+        return
+
+    # Try to get service
+    try:
+        service = await run.io_bound(_get_service, user)
+    except Exception:
+        logger.exception("Failed to initialize NotebookLauncherService")
+        _render_demo_mode()
+        return
+
+    # Load templates
+    try:
+        templates = await run.io_bound(service.list_templates)
+    except Exception as exc:
+        logger.exception("Failed to load notebook templates")
+        with ui.card().classes("w-full p-6"):
+            ui.label(f"Failed to load notebook templates: {exc}").classes(
+                "text-red-500 text-center"
+            )
+        return
+
+    if not templates:
+        with ui.card().classes("w-full p-6"):
+            ui.label("No notebook templates available.").classes(
+                "text-gray-500 text-center"
+            )
+        return
+
+    await _render_notebook_launcher(service, templates)
+
+
+async def _render_notebook_launcher(service: Any, templates: list[Any]) -> None:
+    """Render the full notebook launcher interface."""
+    # Template selector
+    with ui.card().classes("w-full mb-4 p-4"):
+        ui.label("Select Template").classes("text-lg font-bold mb-2")
+
+        template_options = {t.template_id: t.display_name for t in templates}
+        template_select = ui.select(
+            label="Notebook Template",
+            options=template_options,
+            value=templates[0].template_id if templates else None,
+        ).classes("w-full max-w-md")
+
+        # Template description
+        desc_label = ui.label(
+            templates[0].description if templates else ""
+        ).classes("text-gray-600 text-sm mt-2")
+
+        def update_description() -> None:
+            selected_id = template_select.value
+            selected = next((t for t in templates if t.template_id == selected_id), None)
+            if selected:
+                desc_label.set_text(selected.description or "")
+
+        template_select.on_value_change(lambda _: update_description())
+
+    # Parameters form
+    params_container = ui.column().classes("w-full mb-4")
+
+    # State for parameters (values accessed via .value attribute)
+    param_inputs: dict[str, Any] = {}
+
+    @ui.refreshable
+    def render_parameters_form() -> None:
+        params_container.clear()
+        param_inputs.clear()
+
+        selected_id = template_select.value
+        selected = next((t for t in templates if t.template_id == selected_id), None)
+
+        if not selected or not selected.parameters:
+            return
+
+        with params_container:
+            with ui.card().classes("w-full p-4"):
+                ui.label("Parameters").classes("text-lg font-bold mb-2")
+
+                with ui.column().classes("gap-4"):
+                    for param in selected.parameters:
+                        param_name = param.get("name", "unknown")
+                        param_type = param.get("type", "string")
+                        param_label = param.get("label", param_name)
+                        default = param.get("default", "")
+                        options = param.get("options", [])
+
+                        inp: Any  # Can be Select, Number, or Input
+                        if options:
+                            inp = ui.select(
+                                label=param_label,
+                                options=options,
+                                value=default,
+                            ).classes("w-full max-w-md")
+                        elif param_type == "number":
+                            inp = ui.number(
+                                label=param_label,
+                                value=float(default) if default else 0,
+                            ).classes("w-full max-w-md")
+                        else:
+                            inp = ui.input(
+                                label=param_label,
+                                value=str(default) if default else "",
+                            ).classes("w-full max-w-md")
+
+                        param_inputs[param_name] = inp
+
+    render_parameters_form()
+    template_select.on_value_change(lambda _: render_parameters_form.refresh())
+
+    # Launch button
+    with ui.row().classes("w-full gap-4 mb-4"):
+        launch_btn = ui.button("Launch Notebook", icon="play_arrow").props("color=primary")
+
+    # Result container
+    result_container = ui.column().classes("w-full mb-4")
+
+    async def launch_notebook() -> None:
+        result_container.clear()
+
+        selected_id = template_select.value
+        if not selected_id:
+            ui.notify("Please select a template", type="warning")
+            return
+
+        # Gather parameters
+        parameters = {name: inp.value for name, inp in param_inputs.items()}
+
+        with result_container:
+            ui.spinner("dots")
+            ui.label("Launching notebook...")
+
+        try:
+            from apps.web_console.services.notebook_launcher_service import SessionStatus
+
+            session = await run.io_bound(
+                service.create_notebook, selected_id, parameters
+            )
+
+            result_container.clear()
+            with result_container:
+                if session.status == SessionStatus.ERROR:
+                    ui.label(
+                        session.error_message or "Notebook launch failed."
+                    ).classes("text-red-500 p-2")
+                else:
+                    ui.label("Notebook session started successfully!").classes(
+                        "text-green-600 p-2"
+                    )
+                    if session.access_url:
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label("Access URL:").classes("font-medium")
+                            ui.link(session.access_url, session.access_url, new_tab=True)
+
+        except Exception as exc:
+            logger.exception("Failed to launch notebook")
+            result_container.clear()
+            with result_container:
+                ui.label(f"Failed to launch notebook: {exc}").classes(
+                    "text-red-500 p-2"
+                )
+
+    launch_btn.on_click(launch_notebook)
+
+    ui.separator().classes("my-4")
+
+    # Active sessions
+    await _render_active_sessions(service)
+
+
+async def _render_active_sessions(service: Any) -> None:
+    """Render active sessions table."""
+    with ui.card().classes("w-full p-4"):
+        ui.label("Active Sessions").classes("text-lg font-bold mb-2")
+
+        sessions_container = ui.column().classes("w-full")
+
+        @ui.refreshable  # type: ignore[arg-type]
+        async def render_sessions() -> None:
+            sessions_container.clear()
+
+            try:
+                sessions = await run.io_bound(
+                    service.list_sessions, include_stopped=False
+                )
+            except Exception as exc:
+                with sessions_container:
+                    ui.label(f"Failed to load sessions: {exc}").classes(
+                        "text-red-500 p-2"
+                    )
+                return
+
+            with sessions_container:
+                if not sessions:
+                    ui.label("No active sessions.").classes("text-gray-500 p-4")
+                    return
+
+                columns = [
+                    {"name": "session_id", "label": "Session ID", "field": "session_id"},
+                    {"name": "template", "label": "Template", "field": "template"},
+                    {"name": "status", "label": "Status", "field": "status"},
+                    {"name": "started", "label": "Started", "field": "started"},
+                    {"name": "url", "label": "URL", "field": "url"},
+                ]
+
+                rows = []
+                for s in sessions:
+                    rows.append({
+                        "session_id": s.session_id[:8] + "...",
+                        "template": s.template_id,
+                        "status": s.status.value if hasattr(s.status, "value") else str(s.status),
+                        "started": str(s.created_at)[:19] if s.created_at else "-",
+                        "url": s.access_url or "-",
+                    })
+
+                ui.table(columns=columns, rows=rows).classes("w-full")
+
+                # Terminate buttons
+                ui.label("Terminate a session:").classes("text-sm mt-4 mb-2")
+                for s in sessions:
+                    async def terminate(session_id: str = s.session_id) -> None:
+                        try:
+                            await run.io_bound(service.terminate_session, session_id)
+                            ui.notify(f"Session {session_id[:8]}... terminated", type="positive")
+                            render_sessions.refresh()
+                        except Exception as exc:
+                            ui.notify(f"Failed to terminate: {exc}", type="negative")
+
+                    ui.button(
+                        f"Terminate {s.session_id[:8]}...",
+                        icon="stop",
+                        on_click=terminate,
+                    ).props("color=negative size=sm")
+
+        await render_sessions()
+
+        # Refresh button
+        ui.button(
+            "Refresh Sessions",
+            icon="refresh",
+            on_click=lambda: render_sessions.refresh(),
+        ).classes("mt-4")
+
+
+def _render_demo_mode() -> None:
+    """Render demo mode with placeholder data."""
+    with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("info", color="amber-700")
+            ui.label(
+                "Demo Mode: Notebook service unavailable."
+            ).classes("text-amber-700")
+
+    with ui.card().classes("w-full mb-4 p-4"):
+        ui.label("Select Template").classes("text-lg font-bold mb-2")
+
+        demo_templates = ["Alpha Research", "Backtest Analysis", "Signal Exploration"]
+        ui.select(
+            label="Notebook Template",
+            options=demo_templates,
+            value=demo_templates[0],
+        ).classes("w-full max-w-md")
+
+        ui.label("Standard research notebook for alpha development.").classes(
+            "text-gray-600 text-sm mt-2"
+        )
+
+    with ui.card().classes("w-full mb-4 p-4"):
+        ui.label("Parameters").classes("text-lg font-bold mb-2")
+
+        with ui.column().classes("gap-4"):
+            ui.input(label="Strategy ID", value="momentum_v1").classes("w-full max-w-md")
+            ui.number(label="Lookback Days", value=30).classes("w-full max-w-md")
+
+    ui.button("Launch Notebook", icon="play_arrow").props("color=primary disable")
+
+    ui.separator().classes("my-4")
+
+    with ui.card().classes("w-full p-4"):
+        ui.label("Active Sessions").classes("text-lg font-bold mb-2")
+        ui.label("No active sessions.").classes("text-gray-500 p-4")
+
+
+__all__ = ["notebook_launcher_page"]

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Prometheus Metrics (Component 6+7: P2T3 Phase 3)
 # ============================================================================
-# Enable multiprocess mode for Streamlit
+# Enable multiprocess mode for Prometheus metrics (if supported by environment)
 if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
     from prometheus_client import CollectorRegistry, multiprocess
 

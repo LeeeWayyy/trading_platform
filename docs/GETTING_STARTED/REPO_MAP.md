@@ -109,25 +109,42 @@ FastAPI-based microservices implementing the trading platform's core functionali
 - `model_loader.py` - Model registry integration
 - `config.py` - Service configuration
 
-### apps/web_console/
-**Purpose:** Web-based operational dashboard (Streamlit)
-**Key Features:**
-- Position and P&L dashboard
-- Manual order entry
-- Kill switch controls
-- Audit log viewer
-- OAuth2 authentication
+### apps/web_console/ (Legacy Backend Services)
+**Purpose:** Shared backend services used by NiceGUI web console
+**Status:** Streamlit UI removed in P5T9 - only backend services remain
 
-**Key Files:**
-- `app.py` - Streamlit application
-- `auth.py` - Authentication logic
-- `Dockerfile` - Container configuration
+**Key Directories:**
+- `services/` - Backend services (RiskService, AlphaExplorerService, etc.)
+- `utils/` - Database utilities, validators
+- `data/` - Data access layer (StrategyScopedDataAccess)
+- `auth/` - Auth utilities (AuditLogger, permissions)
+
+See `apps/web_console/README.md` for migration roadmap.
 
 ### apps/web_console_ng/
-**Purpose:** NiceGUI-based web console with auth/session middleware, admission control, and health endpoints.
+**Purpose:** NiceGUI-based web console (primary UI application)
+**Related:** [ADR-0031](../ADRs/ADR-0031-nicegui-migration.md)
+
+**Key Features:**
+- Position and P&L dashboard with real-time updates
+- Manual order entry and kill switch controls
+- Circuit breaker management
+- Risk analytics and performance charts
+- Alpha signal explorer and strategy comparison
+- Research notebooks and scheduled reports
+- Admin dashboard with API key management
+
+**Key Directories:**
+- `auth/` - Authentication middleware, session store
+- `components/` - Reusable UI components
+- `core/` - Infrastructure (database, redis, client lifecycle)
+- `pages/` - Page handlers (@ui.page decorated)
+- `services/` - Page-specific services
+- `ui/` - Layout, disconnect overlay
 
 **Key Files:**
 - `main.py` - NiceGUI app entrypoint and middleware setup
+- `config.py` - Configuration and feature flags
 
 ---
 

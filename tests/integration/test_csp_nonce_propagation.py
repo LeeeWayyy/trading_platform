@@ -60,24 +60,3 @@ def test_login_page_script_tags_have_nonce(nginx_base_url):
     assert header_nonce in script_nonces, "Script tag nonce should match CSP header nonce"
 
 
-def test_streamlit_pages_csp_nonce_absence_expected(nginx_base_url):
-    """Test Streamlit pages do not use nonce (unsafe-inline required).
-
-    Streamlit does not support nonce-based CSP (uses inline scripts).
-    This test documents expected behavior.
-
-    Future enhancement: Custom Streamlit component with nonce injection.
-    """
-    try:
-        response = requests.get(
-            f"{nginx_base_url}/",
-            verify=False,
-        )
-    except requests.exceptions.ConnectionError:
-        pytest.skip("Nginx not running")
-
-    csp_header = response.headers.get("Content-Security-Policy", "")
-
-    # Streamlit CSP should use unsafe-inline (not nonce)
-    assert "'unsafe-inline'" in csp_header
-    assert "'nonce-" not in csp_header  # No nonce for Streamlit pages

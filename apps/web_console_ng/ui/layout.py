@@ -52,6 +52,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
+                    ("Alpha Explorer", "/alpha-explorer", "insights", None),  # P5T8
+                    ("Compare", "/compare", "compare_arrows", None),  # P5T8
+                    ("Journal", "/journal", "book", None),  # P5T8
+                    ("Notebooks", "/notebooks", "article", None),  # P5T8
+                    ("Performance", "/performance", "show_chart", None),  # P5T8
+                    ("Reports", "/reports", "summarize", None),  # P5T8
                     ("Backtest", "/backtest", "science", None),
                     ("Admin", "/admin", "settings", None),  # Visibility controlled by permission check
                 ]

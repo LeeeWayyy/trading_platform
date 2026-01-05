@@ -1,0 +1,524 @@
+"""Scheduled Reports management page for NiceGUI web console (P5T8).
+
+Provides interface for managing automated report schedules.
+
+Features:
+    - Schedule list/selector
+    - Create/Edit schedule form
+    - Report run history with download
+    - Enable/disable schedules
+
+PARITY: Mirrors UI layout from apps/web_console/pages/scheduled_reports.py
+
+NOTE: This page uses demo mode with placeholder data when services are unavailable.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime
+from typing import Any
+
+from nicegui import run, ui
+
+from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.ui.layout import main_layout
+from libs.web_console_auth.permissions import Permission, has_permission
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_REPORT_TYPES = [
+    "daily_summary",
+    "weekly_performance",
+    "risk_snapshot",
+    "custom",
+]
+
+
+def _get_service(db_pool: Any, user: dict[str, Any]) -> Any:
+    """Get or create ScheduledReportsService.
+
+    Args:
+        db_pool: NiceGUI async connection pool (psycopg_pool.AsyncConnectionPool).
+        user: Current user dict.
+
+    Returns:
+        ScheduledReportsService instance or None if db_pool is None.
+    """
+    from apps.web_console.services.scheduled_reports_service import ScheduledReportsService
+
+    if db_pool is None:
+        return None
+    return ScheduledReportsService(db_pool=db_pool, user=dict(user))
+
+
+@ui.page("/reports")
+@requires_auth
+@main_layout
+async def scheduled_reports_page() -> None:
+    """Scheduled Reports management page."""
+    user = get_current_user()
+
+    # Page title
+    ui.label("Scheduled Reports").classes("text-2xl font-bold mb-4")
+
+    # Permission check
+    if not has_permission(user, Permission.VIEW_REPORTS):
+        ui.notify("Permission denied: VIEW_REPORTS required", type="negative")
+        with ui.card().classes("w-full p-6"):
+            ui.label("Permission denied: VIEW_REPORTS required.").classes(
+                "text-red-500 text-center"
+            )
+        return
+
+    # Get async DB pool (NiceGUI's pool, compatible with ScheduledReportsService)
+    db_pool = get_db_pool()
+    if db_pool is None:
+        _render_demo_mode(user)
+        return
+
+    # Try to get service
+    try:
+        service = await run.io_bound(_get_service, db_pool, user)
+    except Exception:
+        logger.exception("Failed to initialize ScheduledReportsService")
+        _render_demo_mode(user)
+        return
+
+    if service is None:
+        _render_demo_mode(user)
+        return
+
+    # Load schedules
+    try:
+        user_id = user.get("user_id")
+        schedules = await run.io_bound(service.list_schedules, user_id)
+    except Exception as exc:
+        logger.exception("Failed to load schedules")
+        with ui.card().classes("w-full p-6"):
+            ui.label(f"Failed to load schedules: {exc}").classes(
+                "text-red-500 text-center"
+            )
+        return
+
+    await _render_reports_page(service, user, schedules)
+
+
+async def _render_reports_page(
+    service: Any,
+    user: dict[str, Any],
+    schedules: list[Any],
+) -> None:
+    """Render the full reports management page."""
+    can_manage = has_permission(user, Permission.MANAGE_REPORTS)
+
+    # State for selected schedule
+    state: dict[str, Any] = {"selected_id": None}
+
+    # Schedules section
+    with ui.card().classes("w-full mb-4 p-4"):
+        ui.label("Schedules").classes("text-lg font-bold mb-2")
+
+        if not schedules:
+            ui.label("No schedules configured yet.").classes("text-gray-500 p-4")
+        else:
+            # Schedule selector
+            schedule_options = {
+                s.id: f"{s.name} ({s.report_type})" for s in schedules
+            }
+            schedule_select = ui.select(
+                label="Select Schedule",
+                options=schedule_options,
+                value=schedules[0].id if schedules else None,
+            ).classes("w-full max-w-md mb-4")
+
+            if schedules:
+                state["selected_id"] = schedules[0].id
+
+            def update_selected() -> None:
+                state["selected_id"] = schedule_select.value
+                render_schedule_details.refresh()
+
+            schedule_select.on_value_change(lambda _: update_selected())
+
+    # Create new schedule section (for users with MANAGE_REPORTS)
+    if can_manage:
+        with ui.expansion("Create New Schedule", value=not schedules).classes("w-full mb-4"):
+            await _render_schedule_form(service, user, None)
+
+    # Schedule details section
+    details_container = ui.column().classes("w-full mb-4")
+
+    @ui.refreshable  # type: ignore[arg-type]
+    async def render_schedule_details() -> None:
+        details_container.clear()
+
+        selected_id = state.get("selected_id")
+        if not selected_id:
+            return
+
+        selected = next((s for s in schedules if s.id == selected_id), None)
+        if not selected:
+            return
+
+        with details_container:
+            with ui.card().classes("w-full p-4"):
+                ui.label("Schedule Details").classes("text-lg font-bold mb-2")
+
+                # Details grid
+                with ui.grid(columns=2).classes("gap-4 mb-4"):
+                    ui.label("Name:").classes("font-medium")
+                    ui.label(selected.name)
+
+                    ui.label("Report Type:").classes("font-medium")
+                    ui.label(selected.report_type)
+
+                    ui.label("Cron:").classes("font-medium")
+                    ui.label(selected.cron or "Not set")
+
+                    ui.label("Enabled:").classes("font-medium")
+                    ui.label("Yes" if selected.enabled else "No").classes(
+                        "text-green-600" if selected.enabled else "text-red-600"
+                    )
+
+                    ui.label("Last Run:").classes("font-medium")
+                    ui.label(
+                        _format_dt(selected.last_run_at) if selected.last_run_at else "Never"
+                    )
+
+                    ui.label("Next Run:").classes("font-medium")
+                    ui.label(
+                        _format_dt(selected.next_run_at) if selected.next_run_at else "Not scheduled"
+                    )
+
+                if can_manage:
+                    ui.separator().classes("my-4")
+
+                    with ui.expansion("Edit Schedule").classes("w-full"):
+                        await _render_schedule_form(service, user, selected)
+
+                    async def delete_schedule() -> None:
+                        try:
+                            deleted = await run.io_bound(
+                                service.delete_schedule, selected.id
+                            )
+                            if deleted:
+                                ui.notify("Schedule deleted", type="positive")
+                                ui.navigate.to("/reports")
+                            else:
+                                ui.notify("Schedule not found", type="warning")
+                        except Exception as exc:
+                            ui.notify(f"Failed to delete: {exc}", type="negative")
+
+                    ui.button(
+                        "Delete Schedule",
+                        icon="delete",
+                        on_click=delete_schedule,
+                    ).props("color=negative").classes("mt-4")
+
+            ui.separator().classes("my-4")
+
+            # Run history
+            await _render_run_history(service, selected.id)
+
+    await render_schedule_details()
+
+
+async def _render_schedule_form(
+    service: Any,
+    user: dict[str, Any],
+    schedule: Any | None,
+) -> None:
+    """Render schedule create/edit form."""
+    is_edit = schedule is not None
+
+    with ui.card().classes("w-full p-4"):
+        name_input = ui.input(
+            label="Schedule Name",
+            value=schedule.name if schedule else "",
+        ).classes("w-full max-w-md")
+
+        report_types = list(DEFAULT_REPORT_TYPES)
+        if schedule and schedule.report_type not in report_types:
+            report_types.insert(0, schedule.report_type)
+
+        type_select = ui.select(
+            label="Report Type",
+            options=report_types,
+            value=schedule.report_type if schedule else report_types[0],
+        ).classes("w-full max-w-md")
+
+        cron_input = ui.input(
+            label="Cron Expression",
+            value=schedule.cron if schedule else "0 6 * * *",
+        ).classes("w-full max-w-md")
+        ui.label("Format: minute hour day month weekday (e.g., '0 6 * * *' = 6 AM daily)").classes(
+            "text-gray-500 text-xs"
+        )
+
+        enabled_switch = ui.switch(
+            "Enabled",
+            value=schedule.enabled if schedule else True,
+        )
+
+        params_text = json.dumps(schedule.params, indent=2) if schedule and schedule.params else "{}"
+        params_input = ui.textarea(
+            label="Report Parameters (JSON)",
+            value=params_text,
+        ).classes("w-full max-w-md").props("rows=4")
+        ui.label("Optional key/value parameters passed to report generation.").classes(
+            "text-gray-500 text-xs"
+        )
+
+        async def submit_form() -> None:
+            # Validate JSON
+            try:
+                params = json.loads(params_input.value) if params_input.value.strip() else {}
+            except json.JSONDecodeError as exc:
+                ui.notify(f"Invalid JSON: {exc}", type="negative")
+                return
+
+            payload = {
+                "name": name_input.value.strip(),
+                "report_type": type_select.value,
+                "cron": cron_input.value.strip(),
+                "params": params,
+                "enabled": enabled_switch.value,
+            }
+
+            if not payload["name"]:
+                ui.notify("Schedule name is required", type="warning")
+                return
+
+            try:
+                if is_edit and schedule is not None:
+                    await run.io_bound(
+                        service.update_schedule, schedule.id, payload
+                    )
+                    ui.notify("Schedule updated", type="positive")
+                else:
+                    await run.io_bound(
+                        service.create_schedule,
+                        payload["name"],
+                        payload["report_type"],
+                        payload["cron"],
+                        payload["params"],
+                        user.get("user_id", "unknown"),
+                    )
+                    ui.notify("Schedule created", type="positive")
+                ui.navigate.to("/reports")
+            except Exception as exc:
+                ui.notify(f"Failed to save: {exc}", type="negative")
+
+        ui.button(
+            "Update Schedule" if is_edit else "Create Schedule",
+            icon="save",
+            on_click=submit_form,
+        ).props("color=primary").classes("mt-4")
+
+
+async def _render_run_history(service: Any, schedule_id: str) -> None:
+    """Render run history table for a schedule."""
+    with ui.card().classes("w-full p-4"):
+        ui.label("Run History").classes("text-lg font-bold mb-2")
+
+        try:
+            runs = await run.io_bound(service.get_run_history, schedule_id)
+        except Exception as exc:
+            ui.label(f"Failed to load history: {exc}").classes("text-red-500 p-2")
+            return
+
+        if not runs:
+            ui.label("No runs recorded yet.").classes("text-gray-500 p-4")
+            return
+
+        columns = [
+            {"name": "run_key", "label": "Run Key", "field": "run_key"},
+            {"name": "status", "label": "Status", "field": "status"},
+            {"name": "started", "label": "Started", "field": "started"},
+            {"name": "completed", "label": "Completed", "field": "completed"},
+            {"name": "error", "label": "Error", "field": "error"},
+        ]
+
+        rows = [
+            {
+                "run_key": r.run_key,
+                "status": r.status,
+                "started": _format_dt(r.started_at),
+                "completed": _format_dt(r.completed_at),
+                "error": r.error_message or "-",
+            }
+            for r in runs
+        ]
+
+        ui.table(columns=columns, rows=rows).classes("w-full mb-4")
+
+        # Download section
+        ui.label("Download completed reports:").classes("text-sm mt-4 mb-2")
+
+        def _read_file_bytes(file_path: str) -> bytes:
+            """Read file bytes (I/O-bound, run in thread pool)."""
+            with open(file_path, "rb") as f:
+                return f.read()
+
+        for r in runs:
+            if r.status.lower() != "completed":
+                continue
+
+            async def download_report(
+                run_id: str = r.id,
+                run_key: str = r.run_key,
+                file_format: str = getattr(r, "format", "pdf").lower(),
+            ) -> None:
+                try:
+                    path = await run.io_bound(service.download_archive, run_id)
+                    if not path:
+                        ui.notify("Report file not available", type="warning")
+                        return
+
+                    # Read file in thread pool and trigger download
+                    content = await run.io_bound(_read_file_bytes, path)
+
+                    if file_format == "html":
+                        file_name = f"report_{run_key}.html"
+                    elif file_format == "pdf":
+                        file_name = f"report_{run_key}.pdf"
+                    else:
+                        file_name = f"report_{run_key}.{file_format}"
+
+                    ui.download(content, file_name)
+                    ui.notify(f"Downloading {file_name}", type="positive")
+                except Exception as exc:
+                    ui.notify(f"Download failed: {exc}", type="negative")
+
+            ui.button(
+                f"Download {r.run_key}",
+                icon="download",
+                on_click=download_report,
+            ).props("size=sm").classes("mr-2 mb-2")
+
+
+def _render_demo_mode(user: dict[str, Any]) -> None:
+    """Render demo mode with placeholder data."""
+    can_manage = has_permission(user, Permission.MANAGE_REPORTS)
+
+    with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("info", color="amber-700")
+            ui.label(
+                "Demo Mode: Database connection unavailable."
+            ).classes("text-amber-700")
+
+    # Demo schedules
+    demo_schedules = [
+        {
+            "id": "1",
+            "name": "Daily Performance",
+            "report_type": "daily_summary",
+            "cron": "0 6 * * *",
+            "enabled": True,
+            "last_run": "2026-01-03 06:00:00",
+            "next_run": "2026-01-04 06:00:00",
+        },
+        {
+            "id": "2",
+            "name": "Weekly Risk",
+            "report_type": "weekly_performance",
+            "cron": "0 8 * * 1",
+            "enabled": True,
+            "last_run": "2025-12-30 08:00:00",
+            "next_run": "2026-01-06 08:00:00",
+        },
+    ]
+
+    with ui.card().classes("w-full mb-4 p-4"):
+        ui.label("Schedules").classes("text-lg font-bold mb-2")
+
+        schedule_options = {s["id"]: f"{s['name']} ({s['report_type']})" for s in demo_schedules}
+        ui.select(
+            label="Select Schedule",
+            options=schedule_options,
+            value="1",
+        ).classes("w-full max-w-md mb-4")
+
+    if can_manage:
+        with ui.expansion("Create New Schedule").classes("w-full mb-4"):
+            with ui.card().classes("w-full p-4"):
+                ui.input(label="Schedule Name").classes("w-full max-w-md")
+                ui.select(
+                    label="Report Type",
+                    options=DEFAULT_REPORT_TYPES,
+                    value=DEFAULT_REPORT_TYPES[0],
+                ).classes("w-full max-w-md")
+                ui.input(label="Cron Expression", value="0 6 * * *").classes("w-full max-w-md")
+                ui.switch("Enabled", value=True)
+                ui.textarea(label="Report Parameters (JSON)", value="{}").classes(
+                    "w-full max-w-md"
+                ).props("rows=3")
+                ui.button("Create Schedule", icon="save").props("color=primary disable")
+
+    with ui.card().classes("w-full p-4"):
+        ui.label("Schedule Details").classes("text-lg font-bold mb-2")
+
+        with ui.grid(columns=2).classes("gap-4 mb-4"):
+            ui.label("Name:").classes("font-medium")
+            ui.label("Daily Performance")
+
+            ui.label("Report Type:").classes("font-medium")
+            ui.label("daily_summary")
+
+            ui.label("Cron:").classes("font-medium")
+            ui.label("0 6 * * *")
+
+            ui.label("Enabled:").classes("font-medium")
+            ui.label("Yes").classes("text-green-600")
+
+            ui.label("Last Run:").classes("font-medium")
+            ui.label("2026-01-03 06:00:00")
+
+            ui.label("Next Run:").classes("font-medium")
+            ui.label("2026-01-04 06:00:00")
+
+    ui.separator().classes("my-4")
+
+    with ui.card().classes("w-full p-4"):
+        ui.label("Run History").classes("text-lg font-bold mb-2")
+
+        demo_runs = [
+            {
+                "run_key": "20260103-060000",
+                "status": "completed",
+                "started": "2026-01-03 06:00:00",
+                "completed": "2026-01-03 06:00:45",
+                "error": "-",
+            },
+            {
+                "run_key": "20260102-060000",
+                "status": "completed",
+                "started": "2026-01-02 06:00:00",
+                "completed": "2026-01-02 06:00:38",
+                "error": "-",
+            },
+        ]
+
+        columns = [
+            {"name": "run_key", "label": "Run Key", "field": "run_key"},
+            {"name": "status", "label": "Status", "field": "status"},
+            {"name": "started", "label": "Started", "field": "started"},
+            {"name": "completed", "label": "Completed", "field": "completed"},
+            {"name": "error", "label": "Error", "field": "error"},
+        ]
+
+        ui.table(columns=columns, rows=demo_runs).classes("w-full")
+
+
+def _format_dt(value: datetime | None) -> str:
+    """Format datetime for display."""
+    if value is None:
+        return "-"
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+__all__ = ["scheduled_reports_page"]

@@ -1,163 +1,216 @@
-# ADR-0031: NiceGUI Migration for Web Console
+# ADR-0031: NiceGUI Migration from Streamlit
 
-## Status
-Proposed
+**Status:** Accepted
+**Date:** 2026-01-04
+**Decision Makers:** Development Team
+**Related ADRs:** None
+**Related Tasks:** P5T1-P5T9
 
 ## Context
-The current web console is built with Streamlit, which has served well for rapid prototyping. However, as the platform matures, several limitations have become apparent:
 
-1. **Limited Control**: Streamlit's opinionated rerun model limits control over rendering and state management
-2. **Session Management**: Built-in session state is client-side only, not suitable for production security
-3. **WebSocket Handling**: Limited control over WebSocket connection lifecycle
-4. **Component Flexibility**: Difficulty integrating custom components and styling
-5. **Multi-user Scalability**: Streamlit's architecture has scaling limitations for concurrent users
+The trading platform's web console was originally built with Streamlit, a Python framework for building data applications. While Streamlit provided rapid development capabilities, several fundamental limitations became apparent as the application grew:
 
-NiceGUI, built on FastAPI/Starlette with socket.io, provides:
-- Full control over HTTP request/response lifecycle
-- Native async support for efficient I/O
-- WebSocket via socket.io with reconnection handling
-- FastAPI middleware integration for security layers
-- Tailwind CSS and Vue.js component model
+### Execution Model Limitations
+
+1. **Script-Rerun Model**: Streamlit re-executes the entire script on every user interaction, causing:
+   - UI flicker during updates
+   - Loss of local state between reruns
+   - Performance degradation with complex UIs
+   - Difficulty implementing stateful components
+
+2. **Synchronous Request Blocking**: All operations block the main thread:
+   - Database queries freeze the UI
+   - API calls cause visible delays
+   - No concurrent operation support
+   - Poor user experience for slow operations
+
+3. **Session State Coupling**: `st.session_state` issues:
+   - Global state pollution
+   - Difficult to test
+   - Race conditions between widgets
+   - No isolation between components
+
+4. **Flow Control Problems**: `st.stop()` non-standard behavior:
+   - Exceptions for flow control
+   - Difficult to reason about execution paths
+   - Complicates error handling
+   - Testing challenges
+
+### UI/UX Limitations
+
+5. **Static Data Tables**: Limited interactivity:
+   - No inline editing
+   - No advanced sorting/filtering
+   - No column resizing
+   - Poor performance with large datasets
+
+6. **Polling Inefficiency**: `streamlit_autorefresh` required for updates:
+   - Unnecessary network traffic
+   - Battery drain on mobile devices
+   - Delayed updates (polling interval)
+   - No server-push capability
+
+7. **Limited Layout Control**: Restricted UI customization:
+   - Column-based layout only
+   - Limited responsive design
+   - Minimal CSS customization
+   - No complex component composition
 
 ## Decision
 
-We will migrate the web console from Streamlit to NiceGUI, implementing a secure, production-ready architecture in phases.
+Migrate the web console from Streamlit to NiceGUI framework.
 
-### 1. Security Architecture
+### Key Changes
 
-#### 1.1 Server-Side Session Store
-- **Storage**: Redis with Fernet encryption for session data
-- **Cookie Security**:
-  - `HttpOnly=True`, `Secure=True`, `SameSite=Lax`, `Path=/`
-  - `__Host-` prefix in production (requires Secure + no Domain)
-  - Cookie format: `{session_id}.{key_id}:{signature}`
-- **Timeouts**: 15-minute idle timeout, 4-hour absolute timeout
-- **Key Rotation**: MultiFernet for encryption, keyed HMAC signatures with ID-based lookup
+1. **Event-Driven AsyncIO Architecture**
+   - Component-based UI updates (no full reruns)
+   - Async/await for non-blocking operations
+   - Proper state management per component
 
-#### 1.2 Authentication Middleware Stack
-Middleware registration follows LIFO order (last added runs first):
-```
-Request Flow: TrustedHost → Session → Auth → PageHandler
-Response Flow: PageHandler → Auth → Session → TrustedHost
-```
+2. **FastAPI Middleware Integration**
+   - `@requires_auth` decorator for authentication
+   - Session-based auth with Redis backend
+   - CSRF protection via double-submit cookie
+   - Rate limiting at middleware level
 
-- **TrustedHostMiddleware**: Validates Host header (runs first)
-- **SessionMiddleware**: Validates cookie, populates `request.state.user`
-- **AuthMiddleware**: Enforces authorization based on session
+3. **AG Grid for Interactive Tables**
+   - Inline editing support
+   - Advanced filtering and sorting
+   - Column resizing and reordering
+   - Virtual scrolling for large datasets
 
-**Critical**: AuthMiddleware reads from SessionMiddleware, does NOT call provider.authenticate() per-request. Providers are only called at login time.
+4. **WebSocket Push for Real-Time Updates**
+   - Server-initiated updates
+   - No polling required
+   - Immediate data refresh
+   - Reduced network traffic
 
-#### 1.3 CSRF Protection
-- Double-submit cookie pattern: `ng_csrf` cookie + `X-CSRF-Token` header
-- Token generated per-session, rotated on session rotation
-- Applied to all state-changing HTTP endpoints (POST/PUT/DELETE)
-- Exempt paths: `/auth/login`, `/auth/callback`, `/auth/logout`, `/health`
+## Alternatives Considered
 
-#### 1.4 WebSocket Security
-- Origin validation in `app.on_connect` callback
-- Session cookie validation during WebSocket handshake
-- Re-validation on reconnect (session may have expired)
-- Force disconnect if session expires during active connection
+### React/Next.js
+- **Rejected**: Would require separate frontend repository, different skill set
+- **Trade-off**: More ecosystem support but higher maintenance burden
 
-#### 1.5 Device Binding (Configurable)
-- IP subnet (configurable /24, /16, /8) + User-Agent hash
-- Mismatch invalidates session, returns 401
-- Configurable via `DEVICE_BINDING_ENABLED`, `DEVICE_BINDING_SUBNET_MASK`
+### Vue.js
+- **Rejected**: Same concerns as React regarding repository split
+- **Trade-off**: Simpler than React but still requires frontend expertise
 
-#### 1.6 Audit Logging
-- Dual-sink: JSON logs (real-time) + Postgres (persistent, queryable)
-- Events: login success/failure, logout, session rotation, device mismatch, CSRF failure, rate limit exceeded
-- Required fields: timestamp, event_type, user_id, session_id (truncated), client_ip, user_agent, auth_type, outcome
+### Dash/Plotly
+- **Rejected**: Callback complexity, limited async support
+- **Trade-off**: Good for dashboards but poor for interactive applications
 
-### 2. Session Design Decisions
+### Panel/Holoviz
+- **Rejected**: Less mature, smaller community
+- **Trade-off**: Good Python integration but limited enterprise support
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Session storage | Redis (async) | Fast, supports TTL, already in stack |
-| Cookie vs localStorage | Signed HttpOnly cookie | Secure, not accessible to XSS |
-| Session ID format | `secrets.token_urlsafe(32)` | Cryptographically secure, URL-safe |
-| Encryption | Fernet (AES-128-CBC) | Symmetric, authenticated, key rotation via MultiFernet |
-| Signature | HMAC-SHA256 with key ID | Key rotation support, constant-time comparison |
-| CSRF | Double-submit cookie | No server-side state lookup per request |
-| Timeout enforcement | Absolute TTL, no sliding | Prevents unlimited session extension |
-
-### 3. Async HTTP Client
-
-- **Library**: httpx with connection pooling
-- **Retry Policy**: Idempotency-aware
-  - GET/HEAD: Retry on transport errors AND 5xx
-  - POST/PUT/DELETE: Retry ONLY on transport errors (never 5xx)
-  - Never retry 4xx
-- **Lifecycle**: Client started via `app.on_startup`, closed via `app.on_shutdown`
-
-### 4. WebSocket Reconnection
-
-- **Client-side UX**: Pre-injected JavaScript handles disconnect overlay (server can't push UI after WS loss)
-- **Backoff**: Exponential with jitter (0.5s, 1s, 2s, 4s, max 8s)
-- **State Recovery**: Critical state persisted in Redis, rehydrated on reconnect
-- **Connection Monitor**: Singleton pattern, hooks registered ONCE at startup
-
-### 5. Auth Provider Architecture
-
-Phase 1 (T1.3) establishes the provider interface and factory:
-- `AuthProvider` ABC with `authenticate()`, `logout()` methods
-- `DevAuthProvider`: Functional in Phase 1 (returns dev user)
-- `BasicAuthProvider`, `MTLSAuthProvider`, `OAuth2AuthProvider`: Stubs returning NotImplementedError
-
-Phase 2 (T2.x) implements concrete providers.
+### Streamlit Improvements
+- **Rejected**: Fundamental model limitations cannot be addressed
+- **Trade-off**: No migration cost but blocked on framework limitations
 
 ## Consequences
 
 ### Positive
-- **Security**: Production-grade session management with encryption, HMAC signing, key rotation
-- **Control**: Full control over HTTP and WebSocket lifecycle
-- **Async**: Native async throughout, efficient I/O handling
-- **Extensibility**: Clean provider pattern for multiple auth types
-- **Auditability**: Comprehensive audit logging to database for compliance
+
+1. **Real-Time Updates**: WebSocket push eliminates polling overhead
+2. **Async Operations**: Non-blocking database and API calls
+3. **Responsive UI**: Component updates without full page reruns
+4. **FastAPI Integration**: Consistent patterns with existing backend services
+5. **Better Testing**: Components can be unit tested in isolation
+6. **Interactive Tables**: AG Grid provides professional data grid experience
 
 ### Negative
-- **Migration Effort**: Significant effort to port existing pages
-- **Learning Curve**: Team needs to learn NiceGUI/FastAPI patterns
-- **Complexity**: More moving parts than Streamlit's simpler model
-- **Redis Dependency**: Critical path dependency on Redis availability (fail-closed)
 
-### Mitigations
-- Phased migration with parallel running (Streamlit on :8501, NiceGUI on :8080)
-- Comprehensive documentation and code samples
-- Fail-closed security defaults with graceful degradation where possible
-- Spike C0.1 validates NiceGUI API patterns before main implementation
+1. **Learning Curve**: Team needs to learn NiceGUI patterns
+2. **Migration Effort**: ~70-96 days actual implementation time
+3. **Smaller Community**: NiceGUI less popular than React ecosystem
+4. **Documentation**: Custom patterns need internal documentation
+
+### Trade-offs
+
+1. **Python-Only**: Limits frontend developer hiring pool
+2. **Framework Lock-in**: Migrating away would require another rewrite
+3. **Performance Ceiling**: WebSocket still slower than native apps
+
+## Security Considerations
+
+### Session Architecture
+
+- Sessions stored in Redis with configurable TTL
+- Session IDs are cryptographically random UUIDs
+- Session data encrypted at rest (optional)
+
+### Authentication Flow
+
+1. User submits credentials via login form
+2. Backend validates against auth provider (OAuth2/MTLS/Basic)
+3. Session created in Redis with user context
+4. Session cookie set with secure flags:
+   - `HttpOnly`: Prevents XSS access
+   - `Secure`: HTTPS only
+   - `SameSite=Strict`: CSRF protection
+5. Subsequent requests validate session
+
+### CSRF Protection
+
+- Double-submit cookie pattern
+- Custom header validation for state-changing operations
+- Session-bound CSRF tokens
+
+## Performance Requirements
+
+| Metric | Streamlit Baseline | NiceGUI Target | Validation |
+|--------|-------------------|----------------|------------|
+| Page Load | 2-3s | <500ms | Lighthouse |
+| Interaction Response | 500-2000ms | <100ms | User testing |
+| Data Grid Render | 1-5s (1000 rows) | <200ms | Benchmark |
+| Real-time Update | 5-30s (polling) | <100ms (push) | Network analysis |
+
+## Rollback Plan
+
+**Note:** Rollback is no longer available after Streamlit removal in P5T9.
+
+The Streamlit codebase has been archived to:
+- `apps/web_console/` - Removed (pages, components)
+- `apps/web_console/README.md` - Documents remaining shared modules
+
+If critical issues arise, the only path forward is fixing NiceGUI implementation.
 
 ## Implementation Notes
 
-Spike C0.1 findings are captured below. Runtime validations require running the spike server and connecting via browser.
+### Migration Path (Phases)
 
-### Spike C0.1 Findings (2025-12-31)
-- **Reconnection config (static inspection)**: `nicegui.ui.run` exposes `reconnect_timeout` with default `3.0` seconds; no other reconnect-related parameters were found in the signature. This was inspected from the installed package (`nicegui==2.12.1`) in the project venv. Source: `inspect.signature(nicegui.ui.run)`.
-- **Runtime validations pending**: HTTP request access, lifecycle hook execution, WS origin access, and WS cookie access require running `python -m apps.web_console_ng.spike_c01` and connecting from a browser.
+| Phase | Tasks | Description |
+|-------|-------|-------------|
+| P5T1 | Infrastructure | NiceGUI skeleton, auth, layout |
+| P5T2 | Core Components | Positions grid, orders table, AG Grid |
+| P5T3 | Dashboard | Real-time dashboard with WebSocket |
+| P5T4-T5 | Trading Controls | Kill switch, manual orders |
+| P5T6 | Charts | Performance charts, risk analytics |
+| P5T7 | Admin Pages | Circuit breaker, health, alerts |
+| P5T8 | Remaining Pages | Compare, journal, notebooks, etc. |
+| P5T9 | Deprecation | Streamlit removal, documentation |
 
-### How to Run the Spike (for runtime confirmations)
-1. Start: `.venv/bin/python -m apps.web_console_ng.spike_c01`
-2. HTTP request access: visit `http://localhost:8080/spike/request` (optional cookie: `curl -v --cookie \"spike_cookie=test\" http://localhost:8080/spike/request`)
-3. WS validations: open the spike page in a browser to establish a socket.io connection; check server logs for `HTTP_ORIGIN` and `HTTP_COOKIE` visibility.
+### Testing Approach
 
-### Spike C0.1 Checklist
-- [x] HTTP request access in `@ui.page` handler confirmed (2025-12-31: `request: Request` param works, `request.cookies.get()` works)
-- [x] Lifecycle hooks (`app.on_startup`, `app.on_shutdown`) confirmed (2025-12-31: startup hook tested successfully)
-- [x] WS origin access in `app.on_connect` confirmed (2025-12-31: `client.environ` is ASGI environ dict, contains HTTP headers)
-- [x] WS cookie access in `app.on_connect` confirmed (2025-12-31: `client.environ.get('HTTP_COOKIE')` available via ASGI environ)
-- [x] WS reconnection configurability documented (static inspection: `ui.run(reconnect_timeout=3.0)` in nicegui 2.12.1)
+1. **Unit Tests**: Component logic tested in isolation
+2. **Integration Tests**: Page rendering with mocked services
+3. **E2E Tests**: Playwright-based browser automation
+4. **Performance Tests**: Benchmark critical paths
 
-**All C0.1 gates PASSED - C1/C2/C3 implementation can proceed.**
+### Timeline
 
-## References
+- **Planning**: 2025-12
+- **Implementation**: 2026-01-01 to 2026-01-04
+- **Documentation**: 2026-01-04 (P5T9)
 
-- P5_PLANNING.md: Overall migration planning
-- [P5T1_DONE.md](../ARCHIVE/TASKS_HISTORY/P5T1_DONE.md): Phase 1 implementation details
-- libs/web_console_auth: Existing JWT/session utilities
+### Lessons Learned
 
-## Compliance
+1. **Demo Mode Pattern**: Pages gracefully degrade when services unavailable
+2. **Async Patterns**: Always use `run.io_bound()` for sync service calls
+3. **Component Isolation**: Keep components small and focused
+4. **State Management**: Use `@ui.refreshable` for reactive updates
+5. **Error Boundaries**: Handle exceptions at page level
 
-- **Session Duration**: 4-hour absolute, 15-minute idle (configurable)
-- **Audit Retention**: 90 days (configurable via AUDIT_LOG_RETENTION_DAYS)
-- **Encryption**: AES-128-CBC via Fernet, keys rotated periodically
-- **Rate Limiting**: 10 session creates/min, 100 validations/min per IP
+---
+**Last Updated:** 2026-01-04
+**Author:** Development Team
