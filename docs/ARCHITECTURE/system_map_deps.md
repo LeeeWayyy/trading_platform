@@ -100,8 +100,13 @@ flowchart TB
   svc_web_console -.-> lib_risk
   svc_web_console -.-> lib_risk_management
   svc_web_console -.-> lib_web_console_auth
+  svc_web_console_ng -.-> lib_admin
+  svc_web_console_ng -.-> lib_alerts
+  svc_web_console_ng -.-> lib_alpha
+  svc_web_console_ng -.-> lib_backtest
   svc_web_console_ng -.-> lib_redis_client
   svc_web_console_ng -.-> lib_risk
+  svc_web_console_ng -.-> lib_risk_management
   svc_web_console_ng -.-> lib_web_console_auth
   svc_web_console_ng -.-> svc_web_console
 

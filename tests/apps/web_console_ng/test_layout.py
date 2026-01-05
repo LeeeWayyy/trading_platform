@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from apps.web_console_ng.ui import layout as layout_module
+from libs.web_console_auth.permissions import Permission
 
 
 class _FakeContext:
@@ -46,6 +47,10 @@ class _FakeUI:
     def __init__(self) -> None:
         self.links: list[_FakeContext] = []
         self._stack: list[_FakeContext] = []
+        # Mock context for client lifecycle cleanup
+        self.context = SimpleNamespace(
+            client=SimpleNamespace(storage=SimpleNamespace(get=lambda _: None))
+        )
 
     def _push(self, ctx: _FakeContext) -> None:
         self._stack.append(ctx)
@@ -113,7 +118,11 @@ class _FakeUI:
 
 
 async def _run_layout(
-    monkeypatch: pytest.MonkeyPatch, user_role: str, current_path: str
+    monkeypatch: pytest.MonkeyPatch,
+    user_role: str,
+    current_path: str,
+    *,
+    has_admin_permissions: bool = True,
 ) -> _FakeUI:
     fake_ui = _FakeUI()
     storage = SimpleNamespace(
@@ -128,6 +137,20 @@ async def _run_layout(
         "get_current_user",
         lambda: {"role": user_role, "username": "Test User", "user_id": "user-1"},
     )
+
+    # Mock has_permission based on has_admin_permissions flag
+    admin_permissions = {
+        Permission.MANAGE_API_KEYS,
+        Permission.MANAGE_SYSTEM_CONFIG,
+        Permission.VIEW_AUDIT,
+    }
+
+    def mock_has_permission(_user: dict[str, Any], permission: Permission) -> bool:
+        if permission in admin_permissions:
+            return has_admin_permissions
+        return True
+
+    monkeypatch.setattr(layout_module, "has_permission", mock_has_permission)
 
     class _DummyClient:
         async def fetch_kill_switch_status(self, _user_id: str) -> dict[str, str]:
@@ -162,13 +185,25 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
     fake_ui = await _run_layout(monkeypatch, user_role="admin", current_path="/")
     targets = {link.target for link in fake_ui.links}
 
-    for path in ["/", "/manual", "/kill-switch", "/risk", "/backtest", "/admin"]:
+    expected_paths = [
+        "/",
+        "/manual-order",
+        "/kill-switch",
+        "/circuit-breaker",
+        "/health",
+        "/risk",
+        "/backtest",
+        "/admin",
+    ]
+    for path in expected_paths:
         assert path in targets
 
 
 @pytest.mark.asyncio()
 async def test_admin_item_hidden_for_non_admin(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_ui = await _run_layout(monkeypatch, user_role="viewer", current_path="/")
+    fake_ui = await _run_layout(
+        monkeypatch, user_role="viewer", current_path="/", has_admin_permissions=False
+    )
     targets = {link.target for link in fake_ui.links}
 
     assert "/admin" not in targets
