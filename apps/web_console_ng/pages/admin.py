@@ -343,32 +343,20 @@ async def _create_api_key(
 
 async def _list_api_keys(db_pool: AsyncConnectionPool, user_id: str) -> list[dict[str, Any]]:
     """List API keys for a user."""
-    async with db_pool.connection() as conn:
-        cursor = await conn.execute(
-            """
-            SELECT id, name, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
-            FROM api_keys WHERE user_id = %s ORDER BY created_at DESC
-            """,
-            (user_id,),
-        )
-        rows = await cursor.fetchall()
+    from psycopg.rows import dict_row
 
-    result = []
-    for row in rows or []:
-        if isinstance(row, dict):
-            result.append(row)
-        else:
-            result.append({
-                "id": row[0],
-                "name": row[1],
-                "key_prefix": row[2],
-                "scopes": row[3],
-                "expires_at": row[4],
-                "last_used_at": row[5],
-                "created_at": row[6],
-                "revoked_at": row[7],
-            })
-    return result
+    async with db_pool.connection() as conn:
+        async with conn.cursor(row_factory=dict_row) as cursor:
+            await cursor.execute(
+                """
+                SELECT id, name, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at
+                FROM api_keys WHERE user_id = %s ORDER BY created_at DESC
+                """,
+                (user_id,),
+            )
+            rows = await cursor.fetchall()
+
+    return list(rows) if rows else []
 
 
 # === Config Editor ===
@@ -411,16 +399,19 @@ async def _get_config(
     config_class: type[_ConfigT],
 ) -> _ConfigT:
     """Load config from database with defaults."""
+    from psycopg.rows import dict_row
+
     try:
         async with db_pool.connection() as conn:
-            cursor = await conn.execute(
-                "SELECT config_value FROM system_config WHERE config_key = %s",
-                (config_key,),
-            )
-            row = await cursor.fetchone()
+            async with conn.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(
+                    "SELECT config_value FROM system_config WHERE config_key = %s",
+                    (config_key,),
+                )
+                row = await cursor.fetchone()
 
         if row:
-            raw_value = row[0] if not isinstance(row, dict) else row.get("config_value")
+            raw_value = row.get("config_value")
             if raw_value:
                 return config_class.model_validate(raw_value)
     except Exception as e:
@@ -733,6 +724,8 @@ async def _fetch_audit_logs(
     offset: int,
 ) -> tuple[list[dict[str, Any]], int]:
     """Fetch audit logs with filters."""
+    from psycopg.rows import dict_row
+
     query = """
     SELECT
         id, timestamp, user_id, action, event_type,
@@ -749,7 +742,7 @@ async def _fetch_audit_logs(
     """
 
     count_query = """
-    SELECT COUNT(*) FROM audit_log
+    SELECT COUNT(*) as count FROM audit_log
     WHERE (%s::text IS NULL OR user_id = %s::text)
       AND (%s::text IS NULL OR action = %s::text)
       AND (%s::text IS NULL OR event_type = %s::text)
@@ -770,33 +763,17 @@ async def _fetch_audit_logs(
     count_params = params[:-2]
 
     async with db_pool.connection() as conn:
-        cursor = await conn.execute(query, params)
-        rows = await cursor.fetchall()
+        async with conn.cursor(row_factory=dict_row) as cursor:
+            await cursor.execute(query, params)
+            rows = await cursor.fetchall()
 
-        count_cursor = await conn.execute(count_query, count_params)
-        count_row = await count_cursor.fetchone()
+            await cursor.execute(count_query, count_params)
+            count_row = await cursor.fetchone()
 
-    total = 0
-    if count_row:
-        total = count_row[0] if not isinstance(count_row, dict) else count_row.get("count", 0)
+    total = count_row.get("count", 0) if count_row else 0
 
     parsed = []
-    for row in rows or []:
-        if isinstance(row, dict):
-            entry = row
-        else:
-            entry = {
-                "id": row[0],
-                "timestamp": row[1],
-                "user_id": row[2],
-                "action": row[3],
-                "event_type": row[4],
-                "resource_type": row[5],
-                "resource_id": row[6],
-                "outcome": row[7],
-                "details": row[8],
-            }
-
+    for entry in rows or []:
         # Sanitize details
         details = entry.get("details")
         if details:
@@ -809,7 +786,7 @@ async def _fetch_audit_logs(
                 details = sanitize_dict(details)
             entry["details"] = details
 
-        parsed.append(entry)
+        parsed.append(dict(entry))
 
     return parsed, total
 

@@ -7,10 +7,18 @@ Features:
     - Data Explorer: Dataset browser, schema viewer, query editor
     - Data Quality: Validation results, anomaly alerts, trends
 
-PARITY: Mirrors functionality from:
+PARITY: Mirrors UI layout from:
 - apps/web_console/pages/data_sync.py
 - apps/web_console/pages/data_explorer.py
 - apps/web_console/pages/data_quality.py
+
+NOTE: This page currently displays PLACEHOLDER DATA for UI demonstration purposes.
+Backend service integration (DataSyncService, DataExplorerService, DataQualityService)
+is planned for a future phase. The UI layout and permission checks are production-ready.
+
+TODO(P5T7-followup): Wire up DataSyncService for real sync status and manual triggers
+TODO(P5T7-followup): Integrate DataExplorerService for actual query execution
+TODO(P5T7-followup): Connect DataQualityService for live validation results
 """
 
 from __future__ import annotations
@@ -52,6 +60,14 @@ async def data_management_page() -> None:
 
     # Page title
     ui.label("Data Management").classes("text-2xl font-bold mb-4")
+
+    # Demo mode banner - backend services not yet integrated
+    with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
+        with ui.row().classes("items-center gap-2"):
+            ui.icon("info", color="amber-700")
+            ui.label(
+                "Demo Mode: Displaying placeholder data. Backend service integration pending."
+            ).classes("text-amber-700")
 
     # Main tabs for the three data modules
     with ui.tabs().classes("w-full") as tabs:
