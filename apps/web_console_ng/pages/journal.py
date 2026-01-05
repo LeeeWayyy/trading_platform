@@ -574,8 +574,8 @@ async def _export_excel(
         ])
         row_count += 1
 
-    # Offload CPU-intensive workbook save to thread pool
-    content = await run.io_bound(_save_workbook_to_bytes, wb)
+    # Offload CPU-intensive workbook save to process pool
+    content = await run.cpu_bound(_save_workbook_to_bytes, wb)
     return content, row_count
 
 
